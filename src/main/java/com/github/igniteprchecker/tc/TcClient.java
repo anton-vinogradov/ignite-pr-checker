@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -18,8 +19,8 @@ import org.springframework.web.client.RestClientResponseException;
  * Thin wrapper over the TeamCity REST API. Stateless with respect to auth: every call takes the
  * caller's personal token, so requests run with that user's TeamCity permissions.
  *
- * <p>Query values are fully percent-encoded by hand: the TeamCity WAF rejects raw {@code (}/{@code )}
- * (and {@code [}/{@code ]}) in the URL, which the default Spring query encoder leaves untouched.
+ * <p>Query values are percent-encoded by hand as a precaution: the TeamCity WAF rejects some raw
+ * characters (e.g. {@code [}/{@code ]}) in the URL. Locators here use numeric ids to avoid them.
  */
 @Component
 public class TcClient {
@@ -32,7 +33,10 @@ public class TcClient {
     public TcClient(TeamcityProperties tc, AnalysisProperties analysis) {
         this.analysis = analysis;
         this.baseUrl = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
+        // Must use SimpleClientHttpRequestFactory (HttpURLConnection): the default JDK factory sends
+        // "Content-Length: 0" on GET, which the TeamCity WAF rejects with 403 "Access Blocked".
         this.http = RestClient.builder()
+            .requestFactory(new SimpleClientHttpRequestFactory())
             .defaultHeader("Accept", "application/json")
             .build();
     }
