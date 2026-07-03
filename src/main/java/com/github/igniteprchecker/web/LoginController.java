@@ -1,8 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.config.SessionProperties;
-import com.github.igniteprchecker.session.SessionStore;
-import com.github.igniteprchecker.session.UserSession;
+import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import java.time.Duration;
 import java.util.Map;
@@ -19,18 +18,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Per-user login: the user supplies their own TeamCity token, which is validated against TeamCity and
- * kept only in a server-side session referenced by an HttpOnly cookie.
+ * then carried, encrypted, inside a stateless HttpOnly session cookie (no server-side session store).
  */
 @RestController
 @RequestMapping("/api")
 public class LoginController {
     private final TcClient tc;
-    private final SessionStore store;
+    private final SessionCodec codec;
     private final SessionProperties props;
 
-    public LoginController(TcClient tc, SessionStore store, SessionProperties props) {
+    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props) {
         this.tc = tc;
-        this.store = store;
+        this.codec = codec;
         this.props = props;
     }
 
@@ -49,31 +48,29 @@ public class LoginController {
         if (username.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
 
-        UserSession session = store.create(username.get(), req.token().trim());
+        String cookie = codec.encode(username.get(), req.token().trim());
 
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, sessionCookie(session.id()).toString())
+            .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
             .body(new UserResponse(username.get()));
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String sid) {
-        store.remove(sid);
-
+    public ResponseEntity<Void> logout() {
         return ResponseEntity.noContent()
             .header(HttpHeaders.SET_COOKIE, clearedCookie().toString())
             .build();
     }
 
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String sid) {
-        return store.get(sid)
+    public ResponseEntity<UserResponse> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
+        return codec.decode(cookie)
             .map(s -> ResponseEntity.ok(new UserResponse(s.username())))
             .orElseGet(() -> ResponseEntity.status(401).build());
     }
 
-    private ResponseCookie sessionCookie(String id) {
-        return baseCookie(id).maxAge(Duration.ofMinutes(props.ttlMinutes())).build();
+    private ResponseCookie sessionCookie(String value) {
+        return baseCookie(value).maxAge(Duration.ofMinutes(props.ttlMinutes())).build();
     }
 
     private ResponseCookie clearedCookie() {

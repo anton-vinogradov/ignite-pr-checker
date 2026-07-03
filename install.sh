@@ -35,9 +35,8 @@ id prc >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/no
 install -d -o prc  -g prc  -m 755 "$APP_DIR"
 install -d -o root -g prc  -m 750 "$ETC_DIR"
 
-# 3. config (only created once; never overwritten on update)
-# No secrets here: users log in with their own TeamCity token via the web UI. These are just
-# optional, non-secret overrides of the built-in defaults.
+# 3. config (created once; never overwritten on update). Users log in with their own TeamCity
+# token via the web UI; these are just non-secret overrides plus the session-cookie secret.
 if [ ! -f "$ETC_DIR/env" ]; then
     log "writing config template at $ETC_DIR/env"
     cat > "$ETC_DIR/env" <<'ENV'
@@ -47,6 +46,11 @@ if [ ! -f "$ETC_DIR/env" ]; then
 # Set to true once the service is served over HTTPS (e.g. behind Caddy):
 SESSION_COOKIE_SECURE=false
 ENV
+fi
+# Ensure a stable session secret exists (so logins survive restarts/updates). Generated once.
+if ! grep -q '^SESSION_SECRET=' "$ETC_DIR/env"; then
+    log "generating SESSION_SECRET"
+    printf 'SESSION_SECRET=%s\n' "$(head -c 32 /dev/urandom | base64)" >> "$ETC_DIR/env"
 fi
 chown root:prc "$ETC_DIR/env"
 chmod 640 "$ETC_DIR/env"
