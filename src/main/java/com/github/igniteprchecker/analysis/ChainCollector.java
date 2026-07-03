@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -21,7 +22,7 @@ public class ChainCollector {
     private final TcClient tc;
     private final ExecutorService executor;
 
-    public ChainCollector(TcClient tc, ExecutorService analysisExecutor) {
+    public ChainCollector(TcClient tc, @Qualifier("analysisExecutor") ExecutorService analysisExecutor) {
         this.tc = tc;
         this.executor = analysisExecutor;
     }
