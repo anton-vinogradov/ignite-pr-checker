@@ -1,11 +1,16 @@
 server:
   port: 8080
 
+spring:
+  jackson:
+    deserialization:
+      # TeamCity REST responses carry many fields we don't map; ignore the rest.
+      fail-on-unknown-properties: false
+
 teamcity:
   # Base URL of the TeamCity instance, e.g. https://ci2.example.com/ (must end with a slash).
+  # Auth is per-user: each user supplies their own TeamCity token at login (no shared token here).
   base-url: ${TC_BASE_URL:}
-  # Personal access token (Profile -> Access Tokens). NEVER hardcode: pass via env var.
-  token: ${TC_TOKEN:}
 
 analysis:
   # Branch to compute the "base" test history against.
