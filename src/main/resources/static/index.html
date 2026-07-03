@@ -83,13 +83,11 @@
 
             <section class="result-pane">
                 <div class="result-head">
-                    <div id="prTitle" class="pr-title muted">Pick a PR on the left, or type a number.</div>
                     <div class="row">
-                        <input id="pr" type="number" min="1" placeholder="PR #" style="width: 7rem;">
-                        <button id="analyzeBtn" class="primary">Analyze</button>
-                        <button id="triggerBtn">Run RunAll</button>
-                        <span id="status" class="muted"></span>
+                        <div id="prTitle" class="pr-title muted">Pick a PR on the left.</div>
+                        <button id="triggerBtn" class="hidden">Run RunAll</button>
                     </div>
+                    <div id="status" class="muted"></div>
                 </div>
 
                 <div id="results" class="hidden">
@@ -113,6 +111,7 @@
     <script>
         const $ = (id) => document.getElementById(id);
         let githubRepo = 'apache/ignite';
+        let selectedPr = null;
 
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -154,25 +153,44 @@
                     <span class="pr-ttl">${esc(p.title)}</span>
                 </li>`).join('');
             for (const li of $('prList').children) {
-                li.onclick = () => selectPr(li, +li.dataset.num, li.title, li.dataset.url);
+                li.onclick = () => openPr(+li.dataset.num, true);
             }
         }
 
-        function selectPr(li, number, title, url) {
-            for (const el of $('prList').children) el.classList.remove('sel');
-            li.classList.add('sel');
-            $('pr').value = number;
-            setPrTitle(number, title, url);
-            analyze();
+        function findLi(number) {
+            return [...$('prList').children].find(li => +li.dataset.num === number);
+        }
+
+        // Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it.
+        function openPr(number, push) {
+            selectedPr = number;
+            for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
+            const li = findLi(number);
+            setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
+            $('triggerBtn').classList.remove('hidden');
+            if (push) history.pushState({ pr: number }, '', '?pr=' + number);
+            analyze(number);
+        }
+
+        function prFromUrl() {
+            const v = new URLSearchParams(location.search).get('pr');
+            return v && /^\d+$/.test(v) ? +v : null;
+        }
+
+        async function enterApp(username) {
+            $('username').textContent = username;
+            show('analyze');
+            $('triggerBtn').classList.add('hidden');
+            await loadPrs();
+            const pr = prFromUrl();
+            if (pr) openPr(pr, false);
         }
 
         async function loadMe() {
             const r = await api('/api/me');
             if (r.ok) {
                 const { username } = await r.json();
-                $('username').textContent = username;
-                show('analyze');
-                loadPrs();
+                await enterApp(username);
             } else {
                 show('login');
             }
@@ -187,10 +205,8 @@
                 const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
                 if (r.ok) {
                     const { username } = await r.json();
-                    $('username').textContent = username;
                     $('token').value = '';
-                    show('analyze');
-                    loadPrs();
+                    await enterApp(username);
                 } else {
                     const { error } = await r.json().catch(() => ({ error: 'login failed' }));
                     $('loginErr').textContent = error || 'login failed';
@@ -205,41 +221,34 @@
             show('login');
         }
 
-        async function analyze() {
-            const pr = $('pr').value.trim();
-            if (!pr) return;
-            if ($('prTitle').classList.contains('muted')) setPrTitle(pr, null, prUrl(pr));
-            $('analyzeBtn').disabled = true;
+        async function analyze(number) {
+            if (!number) return;
             $('status').textContent = 'Analyzing… (walking the RunAll chain)';
             $('results').classList.add('hidden');
-            try {
-                const r = await api('/api/analyze?pr=' + encodeURIComponent(pr));
-                if (r.status === 401) { show('login'); return; }
-                if (!r.ok) {
-                    const { error } = await r.json().catch(() => ({ error: 'analysis failed' }));
-                    $('status').textContent = error || 'analysis failed';
-                    return;
-                }
-                const res = await r.json();
-                $('status').textContent = 'build ' + res.buildId;
-                $('blockerCount').textContent = '(' + res.blockers.length + ')';
-                $('filteredCount').textContent = '(' + res.filtered.length + ')';
-                renderList($('blockers'), res.blockers, false);
-                renderList($('filtered'), res.filtered, true);
-                $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
-                $('results').classList.remove('hidden');
-            } finally {
-                $('analyzeBtn').disabled = false;
+            const r = await api('/api/analyze?pr=' + encodeURIComponent(number));
+            if (number !== selectedPr) return; // a newer selection superseded this one
+            if (r.status === 401) { show('login'); return; }
+            if (!r.ok) {
+                const { error } = await r.json().catch(() => ({ error: 'analysis failed' }));
+                $('status').textContent = error || 'analysis failed';
+                return;
             }
+            const res = await r.json();
+            $('status').textContent = 'build ' + res.buildId;
+            $('blockerCount').textContent = '(' + res.blockers.length + ')';
+            $('filteredCount').textContent = '(' + res.filtered.length + ')';
+            renderList($('blockers'), res.blockers, false);
+            renderList($('filtered'), res.filtered, true);
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
+            $('results').classList.remove('hidden');
         }
 
         async function trigger() {
-            const pr = $('pr').value.trim();
-            if (!pr) return;
+            if (!selectedPr) return;
             $('triggerBtn').disabled = true;
             $('status').textContent = 'Queuing RunAll…';
             try {
-                const r = await api('/api/trigger?pr=' + encodeURIComponent(pr), { method: 'POST' });
+                const r = await api('/api/trigger?pr=' + selectedPr, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = res.error || 'trigger failed'; return; }
@@ -263,9 +272,8 @@
         $('loginBtn').onclick = login;
         $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
         $('logout').onclick = logout;
-        $('analyzeBtn').onclick = analyze;
         $('triggerBtn').onclick = trigger;
-        $('pr').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+        window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
         loadConfig();
         loadMe();
     </script>
