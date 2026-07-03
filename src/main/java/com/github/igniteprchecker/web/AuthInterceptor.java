@@ -1,7 +1,6 @@
 package com.github.igniteprchecker.web;
 
-import com.github.igniteprchecker.session.SessionStore;
-import com.github.igniteprchecker.session.UserSession;
+import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -16,15 +15,15 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
 
-    private final SessionStore store;
+    private final SessionCodec codec;
 
-    public AuthInterceptor(SessionStore store) {
-        this.store = store;
+    public AuthInterceptor(SessionCodec codec) {
+        this.codec = codec;
     }
 
     @Override
     public boolean preHandle(HttpServletRequest req, HttpServletResponse resp, Object handler) throws Exception {
-        Optional<UserSession> session = cookie(req).flatMap(store::get);
+        Optional<SessionCodec.Session> session = cookie(req).flatMap(codec::decode);
         if (session.isEmpty()) {
             resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "login required");
 

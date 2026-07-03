@@ -36,3 +36,6 @@ session:
   ttl-minutes: 480
   # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.
   cookie-secure: ${SESSION_COOKIE_SECURE:false}
+  # Stable secret used to encrypt the session cookie. Must be set (and constant) in production, or
+  # logins won't survive a restart; install.sh generates one. If empty, a random key is used per run.
+  secret: ${SESSION_SECRET:}
