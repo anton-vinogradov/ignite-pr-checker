@@ -40,6 +40,10 @@
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
         .result-head { margin-bottom: 1rem; }
         .pr-title { font-size: 1.1rem; margin-bottom: 0.6rem; }
+        .act-sep { margin-left: 0.7rem; }
+        .runs { margin-left: 0.5rem; }
+        .runs a { margin-left: 0.3rem; }
+        #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
         .card h2 { font-size: 1.05rem; }
@@ -83,9 +87,15 @@
 
             <section class="result-pane">
                 <div class="result-head">
-                    <div class="row">
-                        <div id="prTitle" class="pr-title muted">Pick a PR on the left.</div>
-                        <button id="triggerBtn" class="hidden">Run RunAll</button>
+                    <div id="prTitle" class="pr-title muted">Pick a PR on the left.</div>
+                    <div id="actions" class="row hidden">
+                        <span class="muted">RunAll:</span>
+                        <button class="act" data-act="trigger" data-top="false">Plain</button>
+                        <button class="act" data-act="trigger" data-top="true">Top</button>
+                        <span class="muted act-sep">Rerun blockers:</span>
+                        <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Plain</button>
+                        <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Top</button>
+                        <span id="runs" class="runs muted"></span>
                     </div>
                     <div id="status" class="muted"></div>
                 </div>
@@ -175,9 +185,24 @@
             for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
             const li = findLi(number);
             setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
-            $('triggerBtn').classList.remove('hidden');
+            $('actions').classList.remove('hidden');
+            setRerunEnabled(false);
             if (push) history.pushState({ pr: number }, '', '?pr=' + number);
             analyze(number);
+            loadRuns(number);
+        }
+
+        function setRerunEnabled(on) {
+            for (const b of document.querySelectorAll('.rerun')) b.disabled = !on;
+        }
+
+        async function loadRuns(number) {
+            const r = await api('/api/runs?pr=' + number);
+            if (!r.ok || number !== selectedPr) return;
+            const runs = await r.json();
+            $('runs').innerHTML = runs.length
+                ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">${b.state} #${b.buildId}</a>`).join(' · ')
+                : '';
         }
 
         function prFromUrl() {
@@ -249,22 +274,25 @@
             renderList($('filtered'), res.filtered, true);
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
             $('results').classList.remove('hidden');
+            setRerunEnabled(res.blockers.length > 0);
         }
 
-        async function trigger() {
+        async function doTrigger(act, top, btn) {
             if (!selectedPr) return;
-            $('triggerBtn').disabled = true;
-            $('status').textContent = 'Queuing RunAll…';
+            const pr = selectedPr;
+            btn.disabled = true;
+            $('status').textContent = act === 'rerun-blockers' ? 'Queuing blocker suites…' : 'Queuing RunAll…';
             try {
-                const r = await api('/api/trigger?pr=' + selectedPr, { method: 'POST' });
+                const r = await api('/api/' + act + '?pr=' + pr + '&top=' + top, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = res.error || 'trigger failed'; return; }
-                $('status').innerHTML = res.webUrl
-                    ? `Queued <a href="${res.webUrl}" target="_blank" rel="noopener">build #${res.buildId}</a>`
-                    : 'Queued build #' + res.buildId;
+                const links = (res.triggered || [])
+                    .map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">#${b.buildId}</a>`).join(' · ');
+                $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links;
+                loadRuns(pr);
             } finally {
-                $('triggerBtn').disabled = false;
+                btn.disabled = false;
             }
         }
 
@@ -280,8 +308,10 @@
         $('loginBtn').onclick = login;
         $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
         $('logout').onclick = logout;
-        $('triggerBtn').onclick = trigger;
+        for (const b of document.querySelectorAll('.act'))
+            b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
         window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
+        setInterval(() => { if (selectedPr && !$('analyzeView').classList.contains('hidden')) loadRuns(selectedPr); }, 15000);
         loadConfig();
         loadMe();
     </script>

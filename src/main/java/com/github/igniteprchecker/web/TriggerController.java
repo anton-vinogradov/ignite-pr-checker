@@ -1,9 +1,15 @@
 package com.github.igniteprchecker.web;
 
+import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -11,30 +17,74 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientResponseException;
 
-/** Queues the RunAll chain for a PR on TeamCity, using the logged-in user's token. */
+/** Triggers builds for a PR on TeamCity (using the logged-in user's token) and lists current runs. */
 @RestController
 @RequestMapping("/api")
 public class TriggerController {
     private final TcClient tc;
+    private final BlockerAnalyzer analyzer;
 
-    public TriggerController(TcClient tc) {
+    public TriggerController(TcClient tc, BlockerAnalyzer analyzer) {
         this.tc = tc;
+        this.analyzer = analyzer;
     }
 
+    /** Queue the whole RunAll chain. {@code top} puts it at the head of the queue. */
     @PostMapping("/trigger")
-    public ResponseEntity<?> trigger(@RequestParam int pr,
+    public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         try {
-            TcModel.Build b = tc.triggerRunAllForPr(token, pr);
-
-            return ResponseEntity.ok(Map.of(
-                "buildId", b.id(),
-                "state", b.state() == null ? "queued" : b.state(),
-                "webUrl", b.webUrl() == null ? "" : b.webUrl()));
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(tc.triggerRunAll(token, pr, top)))));
         }
         catch (RestClientResponseException e) {
-            return ResponseEntity.status(502)
-                .body(Map.of("error", "TeamCity rejected the trigger (" + e.getStatusCode() + ")"));
+            return teamCityError(e);
         }
+    }
+
+    /** Re-run only the suites that contain the current blockers. */
+    @PostMapping("/rerun-blockers")
+    public ResponseEntity<?> rerunBlockers(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        Optional<AnalysisResult> res = analyzer.analyze(token, pr);
+        if (res.isEmpty())
+            return ResponseEntity.status(404).body(Map.of("error", "no RunAll build found for PR " + pr));
+
+        List<String> suites = res.get().blockers().stream()
+            .map(TestVerdict::suite)
+            .filter(s -> s != null && !s.isBlank())
+            .distinct()
+            .toList();
+
+        if (suites.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("error", "no blocker suites to re-run"));
+
+        try {
+            List<Map<String, Object>> triggered = suites.stream()
+                .map(suite -> brief(tc.triggerBuild(token, suite, pr, top)))
+                .toList();
+
+            return ResponseEntity.ok(Map.of("triggered", triggered));
+        }
+        catch (RestClientResponseException e) {
+            return teamCityError(e);
+        }
+    }
+
+    /** RunAll builds currently queued or running for the PR. */
+    @GetMapping("/runs")
+    public List<Map<String, Object>> runs(@RequestParam int pr,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        return tc.currentRunAllBuilds(token, pr).stream().map(TriggerController::brief).toList();
+    }
+
+    private static Map<String, Object> brief(TcModel.Build b) {
+        return Map.of(
+            "buildId", b.id(),
+            "state", b.state() == null ? "queued" : b.state(),
+            "webUrl", b.webUrl() == null ? "" : b.webUrl());
+    }
+
+    private static ResponseEntity<?> teamCityError(RestClientResponseException e) {
+        return ResponseEntity.status(502).body(Map.of("error", "TeamCity rejected the request (" + e.getStatusCode() + ")"));
     }
 }
