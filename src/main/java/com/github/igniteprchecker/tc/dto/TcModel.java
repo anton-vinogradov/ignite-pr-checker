@@ -23,6 +23,7 @@ public final class TcModel {
         String state,
         String branchName,
         String buildTypeId,
+        String webUrl,
         BuildType buildType,
         @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies
     ) {
