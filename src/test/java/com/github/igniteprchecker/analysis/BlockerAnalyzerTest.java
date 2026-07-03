@@ -13,6 +13,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
 /** Deterministic, offline test of the blocker/noise classification on synthetic base-branch history. */
@@ -21,8 +22,8 @@ class BlockerAnalyzerTest {
 
     private final TcClient tc = mock(TcClient.class);
     private final ChainCollector chains = mock(ChainCollector.class);
-    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null);
-    private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg);
+    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null);
+    private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(4));
 
     @Test
     void classifiesBlockersVsNoise() {

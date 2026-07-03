@@ -6,28 +6,32 @@ import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import org.springframework.stereotype.Component;
 
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise, using the
  * test's base-branch history. Mirrors the original tcbot rule: a failure is a blocker only if the
  * test's base-branch fail rate is below the threshold and the test is not flaky, where "flaky"
- * means it flips pass/fail on builds that carried no code changes.
+ * means it flips pass/fail on builds that carried no code changes. The per-test history lookups
+ * run in parallel — they are the dominant cost of an analysis.
  */
 @Component
 public class BlockerAnalyzer {
     private final TcClient tc;
     private final ChainCollector chains;
     private final AnalysisProperties cfg;
+    private final ExecutorService executor;
 
-    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg) {
+    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg, ExecutorService analysisExecutor) {
         this.tc = tc;
         this.chains = chains;
         this.cfg = cfg;
+        this.executor = analysisExecutor;
     }
 
     /** @return the analysis, or empty if no RunAll build exists for the PR yet. */
@@ -38,13 +42,13 @@ public class BlockerAnalyzer {
 
         ChainCollector.Chain chain = chainOpt.get();
 
-        List<TestVerdict> blockers = new ArrayList<>();
-        List<TestVerdict> filtered = new ArrayList<>();
+        List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
+            .<Callable<TestVerdict>>map(t -> () -> classify(token, t))
+            .toList();
 
-        for (FailedTest t : chain.failedTests()) {
-            TestVerdict v = classify(token, t);
-            (v.blocker() ? blockers : filtered).add(v);
-        }
+        List<TestVerdict> verdicts = Parallel.run(executor, tasks);
+        List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
+        List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker()).toList();
 
         return Optional.of(new AnalysisResult(prNumber, chain.buildId(), chain.branchName(), blockers, filtered));
     }

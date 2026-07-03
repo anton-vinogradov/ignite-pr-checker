@@ -30,6 +30,8 @@ analysis:
   fail-rate-blocker-threshold-percents: 4.0
   # A test is "flaky" if it flips pass<->fail at least this many times on builds without code changes. tcbot default: 1
   flakiness-status-change-border: 1
+  # How many TeamCity calls (per-test history / per-suite lookups) to run in parallel during one analysis.
+  concurrency: 12
 
 session:
   # How long a login stays valid, minutes.
