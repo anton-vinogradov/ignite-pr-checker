@@ -5,123 +5,174 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ignite PR Checker</title>
     <style>
-        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --ok: #2e7d32; }
+        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --sel: #eef4ff; --accent: #1565c0; }
         * { box-sizing: border-box; }
-        body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2.5rem auto; padding: 0 1rem; color: var(--fg); }
-        header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
-        h1 { margin: 0; font-size: 1.5rem; }
-        .sub { color: var(--muted); margin: 0.15rem 0 1.5rem; }
-        .who { color: var(--muted); font-size: 0.9rem; }
-        button { font: inherit; padding: 0.45rem 0.9rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; cursor: pointer; }
+        html, body { height: 100%; margin: 0; }
+        body { font-family: system-ui, sans-serif; color: var(--fg); background: #fff; display: flex; flex-direction: column; }
+        a { color: var(--accent); }
+        button { font: inherit; padding: 0.4rem 0.8rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; cursor: pointer; }
         button.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
         button:disabled { opacity: 0.5; cursor: default; }
-        input { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; }
+        input { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; }
+        .muted { color: var(--muted); font-size: 0.85rem; }
+        .hidden { display: none !important; }
         .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-        .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem; margin-top: 1rem; }
-        .hint { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+
+        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 600; }
+        .brand small { color: var(--muted); font-weight: 400; margin-left: 0.5rem; }
+        .content { flex: 1; min-height: 0; }
+
+        .login-card { max-width: 520px; margin: 4rem auto; border: 1px solid var(--line); border-radius: 10px; padding: 1.5rem; }
+        .login-card .row { margin-bottom: 0.5rem; }
         .err { color: var(--bad); font-size: 0.9rem; }
-        .hidden { display: none; }
-        .count { font-variant-numeric: tabular-nums; }
+
+        .split { display: flex; height: 100%; }
+        .pr-pane { width: 320px; flex: none; border-right: 1px solid var(--line); overflow-y: auto; }
+        .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; background: #fff; }
+        .pr-list { list-style: none; margin: 0; padding: 0; }
+        .pr-list li { padding: 0.5rem 0.9rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+        .pr-list li:hover { background: #f7f7f7; }
+        .pr-list li.sel { background: var(--sel); }
+        .pr-num { font-family: ui-monospace, monospace; color: var(--accent); font-size: 0.85rem; }
+        .pr-ttl { display: block; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
+        .result-head { margin-bottom: 1rem; }
+        .pr-title { font-size: 1.1rem; margin-bottom: 0.6rem; }
+        .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
+        .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
+        .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
-        .tname { font-family: ui-monospace, monospace; font-size: 0.9rem; }
-        .suite { color: var(--muted); font-size: 0.8rem; }
-        .reason { color: var(--muted); font-size: 0.8rem; }
-        .blockers h2 { color: var(--bad); }
+        .tname { font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; }
+        .suite, .reason { color: var(--muted); font-size: 0.8rem; }
         details summary { cursor: pointer; color: var(--muted); }
-        a { color: #1565c0; }
     </style>
 </head>
 <body>
-    <header>
-        <div>
-            <h1>Ignite PR Checker</h1>
-            <p class="sub">Which tests actually broke because of your PR.</p>
-        </div>
-        <div id="session" class="who hidden">
+    <header class="topbar">
+        <div class="brand">Ignite PR Checker <small>which tests your PR actually broke</small></div>
+        <div id="session" class="row muted hidden">
             <span id="username"></span>
             <button id="logout">Log out</button>
         </div>
     </header>
 
-    <section id="loginView" class="card hidden">
-        <div class="row">
-            <input id="token" type="password" placeholder="Your TeamCity access token" size="40" autocomplete="off">
-            <button id="loginBtn" class="primary">Log in</button>
-        </div>
-        <div class="hint">
-            Everything runs under your own TeamCity account.
-            <a id="tokenLink" href="#" target="_blank" rel="noopener">Create a token</a>
-            (opens TeamCity → Profile → Access Tokens). It is kept only in your session, never stored.
-        </div>
-        <div id="loginErr" class="err"></div>
-    </section>
-
-    <section id="analyzeView" class="hidden">
-        <div class="row">
-            <label for="pr">PR</label>
-            <input id="pr" type="number" min="1" placeholder="13316" style="width: 8rem;">
-            <button id="analyzeBtn" class="primary">Analyze</button>
-            <button id="triggerBtn">Run RunAll</button>
-            <span id="status" class="hint"></span>
-        </div>
-
-        <div id="results" class="hidden">
-            <div class="card blockers">
-                <h2>Blockers <span class="count">(<span id="blockerCount">0</span>)</span></h2>
-                <p class="hint">Failed in your PR and stable in <code id="baseBranch"></code> — attributed to your change.</p>
-                <ul id="blockers" class="tests"></ul>
-                <p id="noBlockers" class="hint hidden">No blockers — nothing here looks caused by your PR.</p>
+    <div class="content">
+        <!-- login -->
+        <section id="loginView" class="login-card hidden">
+            <div class="row">
+                <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
+                <button id="loginBtn" class="primary">Log in</button>
             </div>
-            <div class="card">
-                <details>
-                    <summary>Filtered out <span class="count">(<span id="filteredCount">0</span>)</span> — pre-existing or flaky</summary>
-                    <ul id="filtered" class="tests"></ul>
-                </details>
+            <div class="muted">
+                Everything runs under your own TeamCity account.
+                <a id="tokenLink" href="#" target="_blank" rel="noopener">Create a token</a>
+                (opens TeamCity → Profile → Access Tokens). Kept only in your session, never stored.
             </div>
-        </div>
-    </section>
+            <div id="loginErr" class="err"></div>
+        </section>
+
+        <!-- split navigation -->
+        <section id="analyzeView" class="split hidden">
+            <aside class="pr-pane">
+                <div class="pane-head">Open PRs <span id="prCount"></span></div>
+                <ul id="prList" class="pr-list"></ul>
+            </aside>
+
+            <section class="result-pane">
+                <div class="result-head">
+                    <div id="prTitle" class="pr-title muted">Pick a PR on the left, or type a number.</div>
+                    <div class="row">
+                        <input id="pr" type="number" min="1" placeholder="PR #" style="width: 7rem;">
+                        <button id="analyzeBtn" class="primary">Analyze</button>
+                        <button id="triggerBtn">Run RunAll</button>
+                        <span id="status" class="muted"></span>
+                    </div>
+                </div>
+
+                <div id="results" class="hidden">
+                    <div class="card blockers">
+                        <h2>Blockers <span id="blockerCount"></span></h2>
+                        <p class="muted">Failed in your PR and stable in master — attributed to your change.</p>
+                        <ul id="blockers" class="tests"></ul>
+                        <p id="noBlockers" class="muted hidden">No blockers — nothing here looks caused by your PR.</p>
+                    </div>
+                    <div class="card">
+                        <details>
+                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky</summary>
+                            <ul id="filtered" class="tests"></ul>
+                        </details>
+                    </div>
+                </div>
+            </section>
+        </section>
+    </div>
 
     <script>
         const $ = (id) => document.getElementById(id);
+        let githubRepo = 'apache/ignite';
 
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
         }
-
+        function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
         function show(view) {
             $('loginView').classList.toggle('hidden', view !== 'login');
             $('analyzeView').classList.toggle('hidden', view !== 'analyze');
             $('session').classList.toggle('hidden', view !== 'analyze');
         }
+        function prUrl(number) { return 'https://github.com/' + githubRepo + '/pull/' + number; }
 
-        function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
-
-        function renderList(el, tests, withReason) {
-            el.innerHTML = tests.map(t => `
-                <li>
-                    <div class="tname">${esc(t.name)}</div>
-                    <div class="suite">${esc(t.suite)}</div>
-                    ${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}
-                </li>`).join('');
+        function setPrTitle(number, title, url) {
+            const href = url || prUrl(number);
+            $('prTitle').classList.remove('muted');
+            $('prTitle').innerHTML = `<a href="${href}" target="_blank" rel="noopener">#${number}</a>`
+                + (title ? ' ' + esc(title) : '');
         }
 
         async function loadConfig() {
             try {
                 const r = await api('/api/config');
                 if (!r.ok) return;
-                const { teamcityUrl } = await r.json();
-                const base = teamcityUrl.endsWith('/') ? teamcityUrl : teamcityUrl + '/';
+                const cfg = await r.json();
+                if (cfg.githubRepo) githubRepo = cfg.githubRepo;
+                const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
                 $('tokenLink').href = base + 'profile.html?item=accessTokens';
-            } catch { /* leave the link inert if config is unavailable */ }
+            } catch { /* ignore */ }
+        }
+
+        async function loadPrs() {
+            const r = await api('/api/prs');
+            if (!r.ok) return;
+            const prs = await r.json();
+            $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
+            $('prList').innerHTML = prs.map(p => `
+                <li data-num="${p.number}" data-url="${esc(p.url)}" title="${esc(p.title)}">
+                    <span class="pr-num">#${p.number}</span>
+                    <span class="pr-ttl">${esc(p.title)}</span>
+                </li>`).join('');
+            for (const li of $('prList').children) {
+                li.onclick = () => selectPr(li, +li.dataset.num, li.title, li.dataset.url);
+            }
+        }
+
+        function selectPr(li, number, title, url) {
+            for (const el of $('prList').children) el.classList.remove('sel');
+            li.classList.add('sel');
+            $('pr').value = number;
+            setPrTitle(number, title, url);
+            analyze();
         }
 
         async function loadMe() {
             const r = await api('/api/me');
             if (r.ok) {
                 const { username } = await r.json();
-                $('username').textContent = username + ' · ';
+                $('username').textContent = username;
                 show('analyze');
+                loadPrs();
             } else {
                 show('login');
             }
@@ -136,9 +187,10 @@
                 const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
                 if (r.ok) {
                     const { username } = await r.json();
-                    $('username').textContent = username + ' · ';
+                    $('username').textContent = username;
                     $('token').value = '';
                     show('analyze');
+                    loadPrs();
                 } else {
                     const { error } = await r.json().catch(() => ({ error: 'login failed' }));
                     $('loginErr').textContent = error || 'login failed';
@@ -156,6 +208,7 @@
         async function analyze() {
             const pr = $('pr').value.trim();
             if (!pr) return;
+            if ($('prTitle').classList.contains('muted')) setPrTitle(pr, null, prUrl(pr));
             $('analyzeBtn').disabled = true;
             $('status').textContent = 'Analyzing… (walking the RunAll chain)';
             $('results').classList.add('hidden');
@@ -168,10 +221,9 @@
                     return;
                 }
                 const res = await r.json();
-                $('status').textContent = 'build ' + res.buildId + ' · ' + res.branchName;
-                $('baseBranch').textContent = 'master';
-                $('blockerCount').textContent = res.blockers.length;
-                $('filteredCount').textContent = res.filtered.length;
+                $('status').textContent = 'build ' + res.buildId;
+                $('blockerCount').textContent = '(' + res.blockers.length + ')';
+                $('filteredCount').textContent = '(' + res.filtered.length + ')';
                 renderList($('blockers'), res.blockers, false);
                 renderList($('filtered'), res.filtered, true);
                 $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
@@ -190,16 +242,22 @@
                 const r = await api('/api/trigger?pr=' + encodeURIComponent(pr), { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (!r.ok) {
-                    $('status').textContent = res.error || 'trigger failed';
-                    return;
-                }
+                if (!r.ok) { $('status').textContent = res.error || 'trigger failed'; return; }
                 $('status').innerHTML = res.webUrl
                     ? `Queued <a href="${res.webUrl}" target="_blank" rel="noopener">build #${res.buildId}</a>`
                     : 'Queued build #' + res.buildId;
             } finally {
                 $('triggerBtn').disabled = false;
             }
+        }
+
+        function renderList(el, tests, withReason) {
+            el.innerHTML = tests.map(t => `
+                <li>
+                    <div class="tname">${esc(t.name)}</div>
+                    <div class="suite">${esc(t.suite)}</div>
+                    ${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}
+                </li>`).join('');
         }
 
         $('loginBtn').onclick = login;

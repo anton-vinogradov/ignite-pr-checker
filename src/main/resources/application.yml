@@ -13,6 +13,12 @@ teamcity:
   # Base URL of the TeamCity instance (must end with a slash). Override with TC_BASE_URL.
   base-url: ${TC_BASE_URL:https://ci2.ignite.apache.org/}
 
+github:
+  # Repo whose open PRs populate the left-hand list.
+  repo: ${GITHUB_REPO:apache/ignite}
+  # Optional read token to raise the API rate limit (60 -> 5000/hour). Public-repo scope is enough.
+  token: ${GITHUB_TOKEN:}
+
 analysis:
   # Branch to compute the "base" test history against.
   base-branch: refs/heads/master
