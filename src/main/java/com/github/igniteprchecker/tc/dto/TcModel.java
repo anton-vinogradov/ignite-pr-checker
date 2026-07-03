@@ -55,4 +55,8 @@ public final class TcModel {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Changes(int count) {
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record User(String username) {
+    }
 }

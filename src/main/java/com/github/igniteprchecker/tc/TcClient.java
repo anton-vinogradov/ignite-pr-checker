@@ -37,19 +37,16 @@ public class TcClient {
             .build();
     }
 
-    /** @return {@code true} if the token authenticates against TeamCity. */
-    public boolean validateToken(String token) {
+    /** The TeamCity username the token belongs to, or empty if the token is not accepted. */
+    public Optional<String> currentUsername(String token) {
         try {
-            http.get()
-                .uri(url("app/rest/users/current", Map.of()))
-                .header("Authorization", "Bearer " + token)
-                .retrieve()
-                .toBodilessEntity();
+            TcModel.User user = get(token, url("app/rest/users/current", query("fields", "username")),
+                TcModel.User.class);
 
-            return true;
+            return user == null ? Optional.empty() : Optional.ofNullable(user.username());
         }
         catch (RestClientResponseException e) {
-            return false;
+            return Optional.empty();
         }
     }
 

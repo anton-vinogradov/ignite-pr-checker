@@ -5,19 +5,176 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ignite PR Checker</title>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 820px; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
-        h1 { margin-bottom: 0.25rem; }
-        .sub { color: #666; margin-top: 0; }
-        code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 3px; }
+        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --ok: #2e7d32; }
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2.5rem auto; padding: 0 1rem; color: var(--fg); }
+        header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+        h1 { margin: 0; font-size: 1.5rem; }
+        .sub { color: var(--muted); margin: 0.15rem 0 1.5rem; }
+        .who { color: var(--muted); font-size: 0.9rem; }
+        button { font: inherit; padding: 0.45rem 0.9rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; cursor: pointer; }
+        button.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+        button:disabled { opacity: 0.5; cursor: default; }
+        input { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--line); border-radius: 6px; }
+        .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+        .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.25rem; margin-top: 1rem; }
+        .hint { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+        .err { color: var(--bad); font-size: 0.9rem; }
+        .hidden { display: none; }
+        .count { font-variant-numeric: tabular-nums; }
+        ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+        ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
+        .tname { font-family: ui-monospace, monospace; font-size: 0.9rem; }
+        .suite { color: var(--muted); font-size: 0.8rem; }
+        .reason { color: var(--muted); font-size: 0.8rem; }
+        .blockers h2 { color: var(--bad); }
+        details summary { cursor: pointer; color: var(--muted); }
+        a { color: #1565c0; }
     </style>
 </head>
 <body>
-    <h1>Ignite PR Checker</h1>
-    <p class="sub">Find the tests that actually broke because of your PR.</p>
-    <p>Scaffold is up. Analysis UI is coming next — it will take a PR number (or a build id),
-       walk the RunAll chain, and list only the <em>real</em> blockers, filtering out
-       pre-existing failures and flaky tests using base-branch history.</p>
-    <p>Configure the TeamCity connection via <code>TC_BASE_URL</code> and <code>TC_TOKEN</code>
-       environment variables (see <code>application.yml</code>).</p>
+    <header>
+        <div>
+            <h1>Ignite PR Checker</h1>
+            <p class="sub">Which tests actually broke because of your PR.</p>
+        </div>
+        <div id="session" class="who hidden">
+            <span id="username"></span>
+            <button id="logout">Log out</button>
+        </div>
+    </header>
+
+    <section id="loginView" class="card hidden">
+        <div class="row">
+            <input id="token" type="password" placeholder="Your TeamCity access token" size="40" autocomplete="off">
+            <button id="loginBtn" class="primary">Log in</button>
+        </div>
+        <div class="hint">
+            Everything runs under your own TeamCity account. Create a token in TeamCity:
+            <em>Profile → Access Tokens</em>. It is kept only in your session, never stored.
+        </div>
+        <div id="loginErr" class="err"></div>
+    </section>
+
+    <section id="analyzeView" class="hidden">
+        <div class="row">
+            <label for="pr">PR</label>
+            <input id="pr" type="number" min="1" placeholder="13316" style="width: 8rem;">
+            <button id="analyzeBtn" class="primary">Analyze</button>
+            <span id="status" class="hint"></span>
+        </div>
+
+        <div id="results" class="hidden">
+            <div class="card blockers">
+                <h2>Blockers <span class="count">(<span id="blockerCount">0</span>)</span></h2>
+                <p class="hint">Failed in your PR and stable in <code id="baseBranch"></code> — attributed to your change.</p>
+                <ul id="blockers" class="tests"></ul>
+                <p id="noBlockers" class="hint hidden">No blockers — nothing here looks caused by your PR.</p>
+            </div>
+            <div class="card">
+                <details>
+                    <summary>Filtered out <span class="count">(<span id="filteredCount">0</span>)</span> — pre-existing or flaky</summary>
+                    <ul id="filtered" class="tests"></ul>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+
+        async function api(path, opts = {}) {
+            return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
+        }
+
+        function show(view) {
+            $('loginView').classList.toggle('hidden', view !== 'login');
+            $('analyzeView').classList.toggle('hidden', view !== 'analyze');
+            $('session').classList.toggle('hidden', view !== 'analyze');
+        }
+
+        function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+        function renderList(el, tests, withReason) {
+            el.innerHTML = tests.map(t => `
+                <li>
+                    <div class="tname">${esc(t.name)}</div>
+                    <div class="suite">${esc(t.suite)}</div>
+                    ${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}
+                </li>`).join('');
+        }
+
+        async function loadMe() {
+            const r = await api('/api/me');
+            if (r.ok) {
+                const { username } = await r.json();
+                $('username').textContent = username + ' · ';
+                show('analyze');
+            } else {
+                show('login');
+            }
+        }
+
+        async function login() {
+            $('loginErr').textContent = '';
+            const token = $('token').value.trim();
+            if (!token) { $('loginErr').textContent = 'Enter a token.'; return; }
+            $('loginBtn').disabled = true;
+            try {
+                const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
+                if (r.ok) {
+                    const { username } = await r.json();
+                    $('username').textContent = username + ' · ';
+                    $('token').value = '';
+                    show('analyze');
+                } else {
+                    const { error } = await r.json().catch(() => ({ error: 'login failed' }));
+                    $('loginErr').textContent = error || 'login failed';
+                }
+            } finally {
+                $('loginBtn').disabled = false;
+            }
+        }
+
+        async function logout() {
+            await api('/api/logout', { method: 'POST' });
+            show('login');
+        }
+
+        async function analyze() {
+            const pr = $('pr').value.trim();
+            if (!pr) return;
+            $('analyzeBtn').disabled = true;
+            $('status').textContent = 'Analyzing… (walking the RunAll chain)';
+            $('results').classList.add('hidden');
+            try {
+                const r = await api('/api/analyze?pr=' + encodeURIComponent(pr));
+                if (r.status === 401) { show('login'); return; }
+                if (!r.ok) {
+                    const { error } = await r.json().catch(() => ({ error: 'analysis failed' }));
+                    $('status').textContent = error || 'analysis failed';
+                    return;
+                }
+                const res = await r.json();
+                $('status').textContent = 'build ' + res.buildId + ' · ' + res.branchName;
+                $('baseBranch').textContent = 'master';
+                $('blockerCount').textContent = res.blockers.length;
+                $('filteredCount').textContent = res.filtered.length;
+                renderList($('blockers'), res.blockers, false);
+                renderList($('filtered'), res.filtered, true);
+                $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
+                $('results').classList.remove('hidden');
+            } finally {
+                $('analyzeBtn').disabled = false;
+            }
+        }
+
+        $('loginBtn').onclick = login;
+        $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+        $('logout').onclick = logout;
+        $('analyzeBtn').onclick = analyze;
+        $('pr').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+        loadMe();
+    </script>
 </body>
 </html>
