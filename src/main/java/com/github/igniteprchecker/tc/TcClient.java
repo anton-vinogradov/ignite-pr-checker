@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -92,6 +93,22 @@ public class TcClient {
             "fields", "testOccurrence(status,build(id,branchName,changes(count)))")), TcModel.TestOccurrences.class);
 
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
+    }
+
+    /** Enqueues the RunAll chain for a PR branch on TeamCity. Returns the queued build. */
+    public TcModel.Build triggerRunAllForPr(String token, int prNumber) {
+        Map<String, Object> payload = Map.of(
+            "branchName", "pull/" + prNumber + "/head",
+            "buildType", Map.of("id", analysis.runAllBuildType()),
+            "comment", Map.of("text", "Triggered by Ignite PR Checker"));
+
+        return http.post()
+            .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl")))
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(payload)
+            .retrieve()
+            .body(TcModel.Build.class);
     }
 
     private <T> T get(String token, URI uri, Class<T> type) {

@@ -62,6 +62,7 @@
             <label for="pr">PR</label>
             <input id="pr" type="number" min="1" placeholder="13316" style="width: 8rem;">
             <button id="analyzeBtn" class="primary">Analyze</button>
+            <button id="triggerBtn">Run RunAll</button>
             <span id="status" class="hint"></span>
         </div>
 
@@ -180,10 +181,32 @@
             }
         }
 
+        async function trigger() {
+            const pr = $('pr').value.trim();
+            if (!pr) return;
+            $('triggerBtn').disabled = true;
+            $('status').textContent = 'Queuing RunAll…';
+            try {
+                const r = await api('/api/trigger?pr=' + encodeURIComponent(pr), { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) {
+                    $('status').textContent = res.error || 'trigger failed';
+                    return;
+                }
+                $('status').innerHTML = res.webUrl
+                    ? `Queued <a href="${res.webUrl}" target="_blank" rel="noopener">build #${res.buildId}</a>`
+                    : 'Queued build #' + res.buildId;
+            } finally {
+                $('triggerBtn').disabled = false;
+            }
+        }
+
         $('loginBtn').onclick = login;
         $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
         $('logout').onclick = logout;
         $('analyzeBtn').onclick = analyze;
+        $('triggerBtn').onclick = trigger;
         $('pr').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
         loadConfig();
         loadMe();
