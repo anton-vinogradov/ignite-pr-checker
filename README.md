@@ -38,15 +38,24 @@ Single Spring Boot app, no database:
 | `BlockerAnalyzer` | The core classifier — fetches base-branch history per failed test and decides blocker vs noise. |
 | `AnalyzeController` | Serves `/api/analyze` and `/api/trigger`; a single static page renders the result. |
 
+## Authentication
+
+There are **no credentials in config**. Every user logs in with their **own** TeamCity access
+token (TeamCity: *Profile → Access Tokens*); the tool validates it and keeps it only in a
+server-side session referenced by an HttpOnly cookie — it is never written to disk. All TeamCity
+calls run under that user's own permissions.
+
 ## Configuration
 
-All connection details live in config only (never in code). See
-[`application.yml`](src/main/resources/application.yml). Provide secrets via environment variables:
+Config holds only **non-secret, deployment-wide** settings — which TeamCity to talk to, which
+chain counts as "RunAll", and the analysis thresholds. See
+[`application.yml`](src/main/resources/application.yml). The defaults target Apache Ignite's CI;
+override per deployment via environment variables if needed:
 
 ```bash
-export TC_BASE_URL="https://your-teamcity-host/"
-export TC_TOKEN="<personal access token>"          # Profile -> Access Tokens
+export TC_BASE_URL="https://your-teamcity-host/"     # default: https://ci2.ignite.apache.org/
 export TC_RUN_ALL_BUILD_TYPE="IgniteTests24Java8_RunAll"
+export SESSION_COOKIE_SECURE=true                    # set once behind HTTPS (Caddy)
 ```
 
 ## Install / update on a server (one line)
@@ -59,8 +68,8 @@ curl -fsSL https://raw.githubusercontent.com/anton-vinogradov/ignite-pr-checker/
 ```
 
 It installs a JRE, a `prc` service user, a `systemd` unit, pulls the latest released jar,
-and starts the service. On first install it drops a config template — set `TC_TOKEN` in
-`/etc/ignite-pr-checker/env` and `systemctl restart ignite-pr-checker`.
+and starts the service. No secrets to configure — open the site and log in with your own
+TeamCity token. (Put the service behind HTTPS, e.g. Caddy, and set `SESSION_COOKIE_SECURE=true`.)
 
 ## Releases
 

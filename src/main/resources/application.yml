@@ -7,19 +7,26 @@ spring:
       # TeamCity REST responses carry many fields we don't map; ignore the rest.
       fail-on-unknown-properties: false
 
+# These are non-secret, deployment-wide settings (which TeamCity to talk to, which chain, tuning).
+# There are NO credentials here: every user logs in with their own TeamCity token (see /api/login).
 teamcity:
-  # Base URL of the TeamCity instance, e.g. https://ci2.example.com/ (must end with a slash).
-  # Auth is per-user: each user supplies their own TeamCity token at login (no shared token here).
-  base-url: ${TC_BASE_URL:}
+  # Base URL of the TeamCity instance (must end with a slash). Override with TC_BASE_URL.
+  base-url: ${TC_BASE_URL:https://ci2.ignite.apache.org/}
 
 analysis:
   # Branch to compute the "base" test history against.
   base-branch: refs/heads/master
-  # buildType id of the composite chain that fans out into the individual suites (e.g. IgniteTests24Java8_RunAll).
-  run-all-build-type: ${TC_RUN_ALL_BUILD_TYPE:}
+  # buildType id of the composite chain that fans out into the individual suites. Override with TC_RUN_ALL_BUILD_TYPE.
+  run-all-build-type: ${TC_RUN_ALL_BUILD_TYPE:IgniteTests24Java8_RunAll}
   # How many recent base-branch runs of a test to inspect when computing its fail rate / flakiness.
   history-depth: 100
   # A failed test is a blocker only if its base-branch fail rate is below this (percent). tcbot default: 4.0
   fail-rate-blocker-threshold-percents: 4.0
   # A test is "flaky" if it flips pass<->fail at least this many times on builds without code changes. tcbot default: 1
   flakiness-status-change-border: 1
+
+session:
+  # How long a login stays valid, minutes.
+  ttl-minutes: 480
+  # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.
+  cookie-secure: ${SESSION_COOKIE_SECURE:false}
