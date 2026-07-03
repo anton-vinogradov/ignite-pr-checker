@@ -26,7 +26,7 @@ public class GithubClient {
         this.props = props;
     }
 
-    /** Open PRs, newest first. Returns the last good result (or empty) if GitHub is unavailable. */
+    /** Open PRs, most recently updated first. Returns the last good result (or empty) if GitHub is unavailable. */
     public List<PrSummary> openPrs() {
         long now = System.currentTimeMillis();
         List<PrSummary> cached = cache;
@@ -34,8 +34,10 @@ public class GithubClient {
             return cached;
 
         try {
+            // sort=updated so recently active PRs (the ones being worked on) are at the top, rather
+            // than merely the newest-numbered ones.
             URI uri = URI.create("https://api.github.com/repos/" + props.repo()
-                + "/pulls?state=open&sort=created&direction=desc&per_page=50");
+                + "/pulls?state=open&sort=updated&direction=desc&per_page=50");
 
             RestClient.RequestHeadersSpec<?> req = http.get()
                 .uri(uri)
