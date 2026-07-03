@@ -14,7 +14,8 @@ public record AnalysisProperties(
     String runAllBuildType,
     Integer historyDepth,
     Double failRateBlockerThresholdPercents,
-    Integer flakinessStatusChangeBorder
+    Integer flakinessStatusChangeBorder,
+    Integer concurrency
 ) {
     public AnalysisProperties {
         if (baseBranch == null)
@@ -25,5 +26,7 @@ public record AnalysisProperties(
             failRateBlockerThresholdPercents = 4.0;
         if (flakinessStatusChangeBorder == null)
             flakinessStatusChangeBorder = 1;
+        if (concurrency == null || concurrency < 1)
+            concurrency = 12;
     }
 }
