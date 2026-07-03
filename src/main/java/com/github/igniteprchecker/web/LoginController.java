@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.web;
 
+import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
@@ -26,11 +27,13 @@ public class LoginController {
     private final TcClient tc;
     private final SessionCodec codec;
     private final SessionProperties props;
+    private final Warmer warmer;
 
-    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props) {
+    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer) {
         this.tc = tc;
         this.codec = codec;
         this.props = props;
+        this.warmer = warmer;
     }
 
     public record LoginRequest(String token) {
@@ -49,6 +52,7 @@ public class LoginController {
             return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
 
         String cookie = codec.encode(username.get(), req.token().trim());
+        warmer.offerToken(req.token().trim());
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
@@ -65,7 +69,10 @@ public class LoginController {
     @GetMapping("/me")
     public ResponseEntity<UserResponse> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
         return codec.decode(cookie)
-            .map(s -> ResponseEntity.ok(new UserResponse(s.username())))
+            .map(s -> {
+                warmer.offerToken(s.token());
+                return ResponseEntity.ok(new UserResponse(s.username()));
+            })
             .orElseGet(() -> ResponseEntity.status(401).build());
     }
 

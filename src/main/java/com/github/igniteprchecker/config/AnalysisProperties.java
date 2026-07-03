@@ -16,7 +16,8 @@ public record AnalysisProperties(
     Double failRateBlockerThresholdPercents,
     Integer flakinessStatusChangeBorder,
     Integer concurrency,
-    Integer cacheTtlMinutes
+    Integer cacheTtlMinutes,
+    Integer refreshAfterSeconds
 ) {
     public AnalysisProperties {
         if (baseBranch == null)
@@ -31,5 +32,7 @@ public record AnalysisProperties(
             concurrency = 12;
         if (cacheTtlMinutes == null || cacheTtlMinutes < 0)
             cacheTtlMinutes = 15;
+        if (refreshAfterSeconds == null || refreshAfterSeconds < 0)
+            refreshAfterSeconds = 120;
     }
 }

@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.web;
 
+import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,9 +17,11 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String USER_ATTR = "tcUser";
 
     private final SessionCodec codec;
+    private final Warmer warmer;
 
-    public AuthInterceptor(SessionCodec codec) {
+    public AuthInterceptor(SessionCodec codec, Warmer warmer) {
         this.codec = codec;
+        this.warmer = warmer;
     }
 
     @Override
@@ -32,6 +35,7 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
+        warmer.offerToken(session.get().token());
 
         return true;
     }

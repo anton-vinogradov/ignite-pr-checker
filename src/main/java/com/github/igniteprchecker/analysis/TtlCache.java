@@ -1,10 +1,11 @@
 package com.github.igniteprchecker.analysis;
 
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 
-/** A tiny thread-safe get-or-load cache whose entries expire after a fixed TTL. */
+/** A tiny thread-safe cache whose entries expire after a fixed TTL. */
 final class TtlCache<K, V> {
     private final ConcurrentMap<K, Entry<V>> map = new ConcurrentHashMap<>();
     private final long ttlMs;
@@ -19,16 +20,24 @@ final class TtlCache<K, V> {
      * across the (network) load.
      */
     V get(K key, Supplier<V> loader) {
-        long now = System.currentTimeMillis();
+        return peek(key).orElseGet(() -> {
+            V value = loader.get();
+            put(key, value);
+            return value;
+        });
+    }
 
+    /** The cached value if present and still fresh; never loads. */
+    Optional<V> peek(K key) {
         Entry<V> e = map.get(key);
-        if (e != null && now < e.expiresAt())
-            return e.value();
+        if (e != null && System.currentTimeMillis() < e.expiresAt())
+            return Optional.of(e.value());
 
-        V value = loader.get();
-        map.put(key, new Entry<>(value, now + ttlMs));
+        return Optional.empty();
+    }
 
-        return value;
+    void put(K key, V value) {
+        map.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
     }
 
     private record Entry<V>(V value, long expiresAt) {
