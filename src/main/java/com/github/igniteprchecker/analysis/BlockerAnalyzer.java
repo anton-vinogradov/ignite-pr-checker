@@ -17,8 +17,8 @@ import org.springframework.stereotype.Component;
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise, using the
  * test's base-branch history. Mirrors the original tcbot rule: a failure is a blocker only if the
  * test's base-branch fail rate is below the threshold and the test is not flaky, where "flaky"
- * means it flips pass/fail on builds that carried no code changes. The per-test history lookups
- * run in parallel — they are the dominant cost of an analysis.
+ * means it flips pass/fail on builds that carried no code changes. Per-test history lookups run in
+ * parallel and are cached (shared across PRs); the whole result is cached per build id.
  */
 @Component
 public class BlockerAnalyzer {
@@ -26,21 +26,28 @@ public class BlockerAnalyzer {
     private final ChainCollector chains;
     private final AnalysisProperties cfg;
     private final ExecutorService executor;
+    private final AnalysisCache cache;
 
-    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg, ExecutorService analysisExecutor) {
+    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg,
+        ExecutorService analysisExecutor, AnalysisCache cache) {
         this.tc = tc;
         this.chains = chains;
         this.cfg = cfg;
         this.executor = analysisExecutor;
+        this.cache = cache;
     }
 
     /** @return the analysis, or empty if no RunAll build exists for the PR yet. */
     public Optional<AnalysisResult> analyze(String token, int prNumber) {
-        Optional<ChainCollector.Chain> chainOpt = chains.collect(token, prNumber);
-        if (chainOpt.isEmpty())
+        Optional<Long> buildId = chains.findBuildId(token, prNumber);
+        if (buildId.isEmpty())
             return Optional.empty();
 
-        ChainCollector.Chain chain = chainOpt.get();
+        return Optional.of(cache.result(buildId.get(), () -> compute(token, prNumber, buildId.get())));
+    }
+
+    private AnalysisResult compute(String token, int prNumber, long buildId) {
+        ChainCollector.Chain chain = chains.collectForBuild(token, buildId);
 
         List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
             .<Callable<TestVerdict>>map(t -> () -> classify(token, t))
@@ -50,11 +57,11 @@ public class BlockerAnalyzer {
         List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker()).toList();
 
-        return Optional.of(new AnalysisResult(prNumber, chain.buildId(), chain.branchName(), blockers, filtered));
+        return new AnalysisResult(prNumber, buildId, chain.branchName(), blockers, filtered);
     }
 
     private TestVerdict classify(String token, FailedTest t) {
-        List<TcModel.TestOccurrence> history = tc.getBaseBranchHistory(token, t.testId());
+        List<TcModel.TestOccurrence> history = cache.history(t.testId(), () -> tc.getBaseBranchHistory(token, t.testId()));
 
         int runs = history.size();
         if (runs == 0) {

@@ -26,12 +26,14 @@ public class ChainCollector {
         this.executor = analysisExecutor;
     }
 
-    public Optional<Chain> collect(String token, int prNumber) {
-        Optional<TcModel.Build> found = tc.findRunAllBuildForPr(token, prNumber);
-        if (found.isEmpty())
-            return Optional.empty();
+    /** The latest RunAll build id for a PR branch, if any. */
+    public Optional<Long> findBuildId(String token, int prNumber) {
+        return tc.findRunAllBuildForPr(token, prNumber).map(TcModel.Build::id);
+    }
 
-        TcModel.Build build = tc.getBuildWithDeps(token, found.get().id());
+    /** Expands a RunAll build into its failed tests (across its FAILURE suites). */
+    public Chain collectForBuild(String token, long buildId) {
+        TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
         List<Callable<List<FailedTest>>> tasks = depBuilds(build).stream()
             .filter(dep -> "FAILURE".equals(dep.status()))
@@ -47,7 +49,7 @@ public class ChainCollector {
             }
         }
 
-        return Optional.of(new Chain(build.id(), build.branchName(), failed));
+        return new Chain(build.id(), build.branchName(), failed);
     }
 
     private List<FailedTest> failedTestsOf(String token, TcModel.Build dep) {

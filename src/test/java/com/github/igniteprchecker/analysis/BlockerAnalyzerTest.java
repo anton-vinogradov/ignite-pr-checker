@@ -2,6 +2,8 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
@@ -22,8 +24,9 @@ class BlockerAnalyzerTest {
 
     private final TcClient tc = mock(TcClient.class);
     private final ChainCollector chains = mock(ChainCollector.class);
-    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null);
-    private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(4));
+    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
+    private final BlockerAnalyzer analyzer =
+        new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(4), new AnalysisCache(cfg));
 
     @Test
     void classifiesBlockersVsNoise() {
@@ -32,8 +35,9 @@ class BlockerAnalyzerTest {
         FailedTest preExisting = new FailedTest(3, "Suite: C.brokenInMaster", "SuiteC");
         FailedTest brandNew = new FailedTest(4, "Suite: D.newTest", "SuiteD");
 
-        when(chains.collect(TOK, 42)).thenReturn(Optional.of(
-            new ChainCollector.Chain(999, "pull/42/head", List.of(cleanBreak, flaky, preExisting, brandNew))));
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        when(chains.collectForBuild(TOK, 999L)).thenReturn(
+            new ChainCollector.Chain(999, "pull/42/head", List.of(cleanBreak, flaky, preExisting, brandNew)));
 
         // 1) all green in master, never flips -> broke by this PR.
         when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 1, 50));
@@ -57,9 +61,20 @@ class BlockerAnalyzerTest {
 
     @Test
     void emptyWhenNoRunAllBuild() {
-        when(chains.collect(TOK, 7)).thenReturn(Optional.empty());
+        when(chains.findBuildId(TOK, 7)).thenReturn(Optional.empty());
 
         assertThat(analyzer.analyze(TOK, 7)).isEmpty();
+    }
+
+    @Test
+    void secondAnalyzeOfSameBuildIsServedFromCache() {
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        when(chains.collectForBuild(TOK, 999L)).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of()));
+
+        analyzer.analyze(TOK, 42);
+        analyzer.analyze(TOK, 42);
+
+        verify(chains, times(1)).collectForBuild(TOK, 999L); // second run reused the cached result
     }
 
     private static TestVerdict verdict(AnalysisResult r, long testId) {

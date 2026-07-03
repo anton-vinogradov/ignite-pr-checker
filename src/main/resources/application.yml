@@ -32,6 +32,8 @@ analysis:
   flakiness-status-change-border: 1
   # How many TeamCity calls (per-test history / per-suite lookups) to run in parallel during one analysis.
   concurrency: 12
+  # How long to cache base-branch history (per test) and the analysis result (per build). 0 disables caching.
+  cache-ttl-minutes: 15
 
 session:
   # How long a login stays valid, minutes.
