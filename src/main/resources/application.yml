@@ -1,0 +1,20 @@
+server:
+  port: 8080
+
+teamcity:
+  # Base URL of the TeamCity instance, e.g. https://ci2.example.com/ (must end with a slash).
+  base-url: ${TC_BASE_URL:}
+  # Personal access token (Profile -> Access Tokens). NEVER hardcode: pass via env var.
+  token: ${TC_TOKEN:}
+
+analysis:
+  # Branch to compute the "base" test history against.
+  base-branch: refs/heads/master
+  # buildType id of the composite chain that fans out into the individual suites (e.g. IgniteTests24Java8_RunAll).
+  run-all-build-type: ${TC_RUN_ALL_BUILD_TYPE:}
+  # How many recent base-branch runs of a test to inspect when computing its fail rate / flakiness.
+  history-depth: 100
+  # A failed test is a blocker only if its base-branch fail rate is below this (percent). tcbot default: 4.0
+  fail-rate-blocker-threshold-percents: 4.0
+  # A test is "flaky" if it flips pass<->fail at least this many times on builds without code changes. tcbot default: 1
+  flakiness-status-change-border: 1

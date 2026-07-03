@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ignite PR Checker</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 820px; margin: 3rem auto; padding: 0 1rem; color: #1a1a1a; }
+        h1 { margin-bottom: 0.25rem; }
+        .sub { color: #666; margin-top: 0; }
+        code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>Ignite PR Checker</h1>
+    <p class="sub">Find the tests that actually broke because of your PR.</p>
+    <p>Scaffold is up. Analysis UI is coming next — it will take a PR number (or a build id),
+       walk the RunAll chain, and list only the <em>real</em> blockers, filtering out
+       pre-existing failures and flaky tests using base-branch history.</p>
+    <p>Configure the TeamCity connection via <code>TC_BASE_URL</code> and <code>TC_TOKEN</code>
+       environment variables (see <code>application.yml</code>).</p>
+</body>
+</html>

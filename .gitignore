@@ -1,0 +1,26 @@
+# Build output
+build/
+out/
+bin/
+
+# Gradle
+.gradle/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+
+# Local config with secrets (never commit tokens)
+application-local.yml
+application-local.yaml
+application-local.properties
+*.env
