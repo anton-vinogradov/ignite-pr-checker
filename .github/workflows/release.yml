@@ -1,0 +1,39 @@
+name: release
+
+# Cut a release by pushing a tag:  git tag v0.1.0 && git push origin v0.1.0
+# CI builds the fat jar and publishes it as a GitHub Release asset named
+# "ignite-pr-checker.jar", which install.sh always pulls from /releases/latest/download/.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build jar
+        run: |
+          chmod +x ./gradlew
+          ./gradlew bootJar
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            build/libs/ignite-pr-checker.jar \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

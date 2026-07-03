@@ -22,6 +22,10 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
+tasks.named('bootJar') {
+    archiveFileName = 'ignite-pr-checker.jar'
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 }

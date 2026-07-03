@@ -49,7 +49,32 @@ export TC_TOKEN="<personal access token>"          # Profile -> Access Tokens
 export TC_RUN_ALL_BUILD_TYPE="IgniteTests24Java8_RunAll"
 ```
 
-## Build & run
+## Install / update on a server (one line)
+
+Debian/Ubuntu, as root. The same command installs and updates to the latest release
+(your `/etc/ignite-pr-checker/env` config is preserved):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anton-vinogradov/ignite-pr-checker/main/install.sh | sudo bash
+```
+
+It installs a JRE, a `prc` service user, a `systemd` unit, pulls the latest released jar,
+and starts the service. On first install it drops a config template — set `TC_TOKEN` in
+`/etc/ignite-pr-checker/env` and `systemctl restart ignite-pr-checker`.
+
+## Releases
+
+Releases are built by CI. Cut one by pushing a tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+The [`release`](.github/workflows/release.yml) workflow builds the fat jar and publishes it
+as a GitHub Release asset named `ignite-pr-checker.jar`, which `install.sh` always fetches
+from `/releases/latest/download/`.
+
+## Build & run locally
 
 Requires JDK 17+.
 
@@ -57,6 +82,9 @@ Requires JDK 17+.
 ./gradlew bootRun
 # then open http://localhost:8080
 ```
+
+For fast iteration against your own test host during development, [`deploy.sh`](deploy.sh)
+builds the jar locally and ships it over SSH (`build → scp → restart`) without cutting a release.
 
 ## Status
 
