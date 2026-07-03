@@ -50,8 +50,9 @@
             <button id="loginBtn" class="primary">Log in</button>
         </div>
         <div class="hint">
-            Everything runs under your own TeamCity account. Create a token in TeamCity:
-            <em>Profile → Access Tokens</em>. It is kept only in your session, never stored.
+            Everything runs under your own TeamCity account.
+            <a id="tokenLink" href="#" target="_blank" rel="noopener">Create a token</a>
+            (opens TeamCity → Profile → Access Tokens). It is kept only in your session, never stored.
         </div>
         <div id="loginErr" class="err"></div>
     </section>
@@ -102,6 +103,16 @@
                     <div class="suite">${esc(t.suite)}</div>
                     ${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}
                 </li>`).join('');
+        }
+
+        async function loadConfig() {
+            try {
+                const r = await api('/api/config');
+                if (!r.ok) return;
+                const { teamcityUrl } = await r.json();
+                const base = teamcityUrl.endsWith('/') ? teamcityUrl : teamcityUrl + '/';
+                $('tokenLink').href = base + 'profile.html?item=accessTokens';
+            } catch { /* leave the link inert if config is unavailable */ }
         }
 
         async function loadMe() {
@@ -174,6 +185,7 @@
         $('logout').onclick = logout;
         $('analyzeBtn').onclick = analyze;
         $('pr').addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+        loadConfig();
         loadMe();
     </script>
 </body>
