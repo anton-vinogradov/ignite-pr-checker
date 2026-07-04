@@ -56,10 +56,16 @@ public class TcClient {
         }
     }
 
-    /** Latest RunAll chain build for a pull request branch ({@code pull/<n>/head}), if any. */
+    /**
+     * Latest <em>finished, non-cancelled</em> RunAll chain build for a pull request branch
+     * ({@code pull/<n>/head}), if any. Cancelled runs (status {@code UNKNOWN}) and still-running or
+     * queued builds are skipped: their test results are absent or partial, so analysing them would
+     * wrongly report zero failures. In particular this stops a freshly triggered (or a cancelled)
+     * run from shadowing the last real verdict.
+     */
     public Optional<TcModel.Build> findRunAllBuildForPr(String token, int prNumber) {
         String locator = "buildType:" + analysis.runAllBuildType()
-            + ",branch:(name:pull/" + prNumber + "/head),defaultFilter:false,count:1";
+            + ",branch:(name:pull/" + prNumber + "/head),state:finished,canceled:false,count:1";
 
         TcModel.BuildList list = get(token, url("app/rest/builds", query(
             "locator", locator,
