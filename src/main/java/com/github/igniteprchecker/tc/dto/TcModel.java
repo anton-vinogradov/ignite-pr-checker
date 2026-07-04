@@ -50,11 +50,7 @@ public final class TcModel {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record BuildRef(long id, String branchName, Changes changes) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Changes(int count) {
+    public record BuildRef(long id, String branchName, String state, String status) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
