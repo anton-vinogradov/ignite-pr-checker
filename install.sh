@@ -64,6 +64,35 @@ curl -fSL "$JAR_URL" -o "$APP_DIR/app.jar.new"
 install -o prc -g prc -m 644 "$APP_DIR/app.jar.new" "$APP_DIR/app.jar"
 rm -f "$APP_DIR/app.jar.new"
 
+# 4b. startup wrapper: on boot, if an update was requested (marker written by POST /api/update),
+# fetch the latest release jar over app.jar (backup + validity check), then launch the app. This
+# keeps the fragile "replace the jar" step in a simple shell step at boot, not inside the running JVM.
+cat > "$APP_DIR/run.sh" <<'RUN'
+#!/usr/bin/env bash
+set -uo pipefail
+APP_DIR=/opt/ignite-pr-checker
+JAR="$APP_DIR/app.jar"
+MARKER="$APP_DIR/.update-requested"
+URL="https://github.com/anton-vinogradov/ignite-pr-checker/releases/latest/download/ignite-pr-checker.jar"
+
+if [ -f "$MARKER" ]; then
+    rm -f "$MARKER"
+    tmp="$APP_DIR/app.jar.new"
+    if curl -fSL "$URL" -o "$tmp" \
+        && [ "$(stat -c%s "$tmp" 2>/dev/null || echo 0)" -gt 1000000 ] \
+        && [ "$(od -An -tx1 -N4 "$tmp" | tr -d ' ')" = "504b0304" ]; then
+        cp -f "$JAR" "$APP_DIR/app.jar.bak"
+        mv -f "$tmp" "$JAR"
+    else
+        rm -f "$tmp"   # keep the current jar on any failure
+    fi
+fi
+
+exec /usr/bin/java -Xmx256m -jar "$JAR"
+RUN
+chown prc:prc "$APP_DIR/run.sh"
+chmod 755 "$APP_DIR/run.sh"
+
 # 5. systemd unit (refreshed every run so unit changes propagate)
 cat > "/etc/systemd/system/${SERVICE}.service" <<UNIT
 [Unit]
@@ -76,7 +105,7 @@ Type=simple
 User=prc
 Group=prc
 EnvironmentFile=${ETC_DIR}/env
-ExecStart=/usr/bin/java -Xmx256m -jar ${APP_DIR}/app.jar
+ExecStart=${APP_DIR}/run.sh
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
