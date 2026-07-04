@@ -94,6 +94,14 @@ public class TcClient {
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
     }
 
+    /** DEBUG ONLY: raw test occurrences (with invocations) for an arbitrary locator, to inspect ids/statuses. */
+    public TcModel.TestOccurrences debugOccurrences(String token, String locator) {
+        return get(token, url("app/rest/testOccurrences", query(
+            "locator", locator,
+            "fields", "count,testOccurrence(id,name,status,build(id),test(id),"
+                + "invocations(count,testOccurrence(id,status)))")), TcModel.TestOccurrences.class);
+    }
+
     /** Recent master history of one test (up to {@code analysis.historyDepth} runs): just the statuses. */
     public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId) {
         TcModel.TestOccurrences occ = get(token, url("app/rest/testOccurrences", query(
