@@ -29,7 +29,9 @@
         .login-card .row { margin-bottom: 0.5rem; }
         .login-intro { font-size: 1.05rem; line-height: 1.55; margin: 0 0 1.25rem; }
         .login-note { font-size: 0.9rem; line-height: 1.7; margin-top: 0.85rem; }
-        .login-link { margin-top: 0.6rem; }
+        .login-card .row { flex-wrap: nowrap; }
+        #token { flex: 1; min-width: 0; }
+        .login-create { white-space: nowrap; }
         .err { color: var(--bad); font-size: 0.9rem; }
 
         .split { display: flex; height: 100%; }
@@ -89,15 +91,13 @@
             <div class="row">
                 <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
                 <button id="loginBtn" class="primary">Log in</button>
+                <a id="tokenLink" class="login-create" href="#" target="_blank" rel="noopener">Create a token</a>
             </div>
             <div class="login-note muted">
                 Log in with your own TeamCity (ci2) access token.<br>
                 Everything runs under your account — there is no shared server token.<br>
                 It is kept encrypted in your session cookie, never on the server.<br>
                 Your login lasts until you log out.
-                <div class="login-link">
-                    <a id="tokenLink" href="#" target="_blank" rel="noopener">Create a token</a> — Profile → Access Tokens
-                </div>
             </div>
             <div id="loginErr" class="err"></div>
         </section>
