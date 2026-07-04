@@ -1,5 +1,7 @@
 package com.github.igniteprchecker.analysis;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -40,6 +42,32 @@ final class TtlCache<K, V> {
         map.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
     }
 
+    /** The still-fresh entries, with their expiry, for a disk snapshot. */
+    List<Snapshot<K, V>> export() {
+        long now = System.currentTimeMillis();
+        List<Snapshot<K, V>> out = new ArrayList<>();
+
+        map.forEach((k, e) -> {
+            if (now < e.expiresAt())
+                out.add(new Snapshot<>(k, e.value(), e.expiresAt()));
+        });
+
+        return out;
+    }
+
+    /** Repopulate from a snapshot, keeping each entry's original expiry and dropping any now expired. */
+    void importAll(List<Snapshot<K, V>> entries) {
+        long now = System.currentTimeMillis();
+
+        for (Snapshot<K, V> s : entries)
+            if (now < s.expiresAt())
+                map.put(s.key(), new Entry<>(s.value(), s.expiresAt()));
+    }
+
     private record Entry<V>(V value, long expiresAt) {
+    }
+
+    /** A persisted cache entry: key, value, and the absolute epoch-ms it expires at. */
+    record Snapshot<K, V>(K key, V value, long expiresAt) {
     }
 }

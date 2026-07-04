@@ -39,6 +39,16 @@ analysis:
   # On request, a cached result older than this triggers a background refresh (the request still returns instantly).
   refresh-after-seconds: 120
 
+persist:
+  # Snapshot the in-memory caches (analysis results, per-test history, PR list) to disk so a
+  # restart/redeploy starts warm instead of cold — and doesn't re-hammer TeamCity to re-warm.
+  enabled: ${PRC_PERSIST_ENABLED:true}
+  # Directory for the snapshot files. Must be writable and survive restarts; if it isn't (e.g. a
+  # local dev run), persistence disables itself and the app runs in-memory only. Override with PRC_CACHE_DIR.
+  dir: ${PRC_CACHE_DIR:/opt/ignite-pr-checker/cache}
+  # How often to re-snapshot to disk, minutes (a snapshot is also written on graceful shutdown).
+  interval-minutes: 5
+
 warm:
   # Keep the newest PRs pre-analysed (using an active user's token; nothing warms until the first login).
   enabled: true
