@@ -109,13 +109,14 @@ public class TcClient {
     }
 
     /**
-     * The test's <em>finished, non-cancelled</em> runs on the PR branch, oldest → newest (up to 15).
-     * The last element is the latest completed run (a blocker must still be FAILURE there — a passing
-     * re-run clears it); the whole sequence backs the per-blocker pass/fail history strip. One request.
+     * The test's <em>finished, non-cancelled</em> runs on the PR branch, oldest → newest (up to 100 —
+     * effectively every run of any real PR). The last element is the latest completed run (a blocker
+     * must still be FAILURE there — a passing re-run clears it); the whole sequence backs the
+     * per-blocker pass/fail history strip. One request.
      */
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId) {
         TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:15",
+            "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:100",
             "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name)))")),
             TcModel.TestOccurrences.class);
 
