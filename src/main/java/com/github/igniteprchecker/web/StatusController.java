@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -22,14 +23,16 @@ public class StatusController {
     private final AnalysisCache cache;
     private final Warmer warmer;
     private final GithubClient github;
+    private final LogTracker logs;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
-        ObjectProvider<BuildProperties> buildProps) {
+        LogTracker logs, ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
         this.warmer = warmer;
         this.github = github;
+        this.logs = logs;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
@@ -53,13 +56,18 @@ public class StatusController {
         app.put("pooledTokens", warmer.pooledTokens());
         app.put("lastWarmed", warmer.lastWarmed());
 
+        LogTracker.Snapshot logSnap = logs.snapshot();
+        String health = logSnap.errors() > 0 ? "error" : logSnap.warnings() > 0 ? "warn" : "ok";
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", version);
         out.put("uptimeSeconds", metrics.uptimeSeconds());
+        out.put("health", health);
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
         out.put("app", app);
+        out.put("log", logSnap);
 
         return out;
     }

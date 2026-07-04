@@ -50,17 +50,17 @@ public class GithubClient implements SnapshotCache {
         this.metrics = metrics;
     }
 
-    /** Runs a GitHub call, recording its outcome and latency for the status page. */
-    private <T> T recorded(Supplier<T> call) {
+    /** Runs a GitHub call, recording its category, outcome and latency for the status page. */
+    private <T> T recorded(String category, Supplier<T> call) {
         long t0 = System.nanoTime();
         try {
             T result = call.get();
-            metrics.recordGithub(true, (System.nanoTime() - t0) / 1_000_000L);
+            metrics.recordGithub(category, true, (System.nanoTime() - t0) / 1_000_000L);
 
             return result;
         }
         catch (RuntimeException e) {
-            metrics.recordGithub(false, (System.nanoTime() - t0) / 1_000_000L);
+            metrics.recordGithub(category, false, (System.nanoTime() - t0) / 1_000_000L);
             throw e;
         }
     }
@@ -86,7 +86,7 @@ public class GithubClient implements SnapshotCache {
                 req = req.header("Authorization", "Bearer " + props.token());
 
             RestClient.RequestHeadersSpec<?> r = req;
-            GhPr[] prs = recorded(() -> r.retrieve().body(GhPr[].class));
+            GhPr[] prs = recorded("prs", () -> r.retrieve().body(GhPr[].class));
 
             List<PrSummary> result = prs == null ? List.of()
                 : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl())).toList();
@@ -127,7 +127,7 @@ public class GithubClient implements SnapshotCache {
                 req = req.header("Authorization", "Bearer " + props.token());
 
             RestClient.RequestHeadersSpec<?> r = req;
-            Repo repo = recorded(() -> r.retrieve().body(Repo.class));
+            Repo repo = recorded("star", () -> r.retrieve().body(Repo.class));
             if (repo != null) {
                 starCount = repo.stargazersCount();
                 starTs = now;
@@ -157,7 +157,7 @@ public class GithubClient implements SnapshotCache {
                 req = req.header("Authorization", "Bearer " + props.token());
 
             RestClient.RequestHeadersSpec<?> r = req;
-            Release release = recorded(() -> r.retrieve().body(Release.class));
+            Release release = recorded("release", () -> r.retrieve().body(Release.class));
             if (release != null && release.tagName() != null) {
                 releaseTag = release.tagName().replaceFirst("^v", "");
                 releaseTs = now;

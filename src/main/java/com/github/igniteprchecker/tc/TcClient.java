@@ -52,7 +52,7 @@ public class TcClient {
     /** The TeamCity username the token belongs to, or empty if the token is not accepted. */
     public Optional<String> currentUsername(String token) {
         try {
-            TcModel.User user = get(token, url("app/rest/users/current", query("fields", "username")),
+            TcModel.User user = get("whoami", token, url("app/rest/users/current", query("fields", "username")),
                 TcModel.User.class);
 
             return user == null ? Optional.empty() : Optional.ofNullable(user.username());
@@ -73,7 +73,7 @@ public class TcClient {
         String locator = "buildType:" + analysis.runAllBuildType()
             + ",branch:(name:pull/" + prNumber + "/head),state:finished,canceled:false,count:1";
 
-        TcModel.BuildList list = get(token, url("app/rest/builds", query(
+        TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
             "locator", locator,
             "fields", "build(id,status,state,branchName)")), TcModel.BuildList.class);
 
@@ -85,14 +85,14 @@ public class TcClient {
 
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
-        return get(token, url("app/rest/builds/id:" + buildId, query(
+        return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,buildType(id,name),"
                 + "snapshot-dependencies(build(id,buildTypeId,status,state,buildType(name)))")), TcModel.Build.class);
     }
 
     /** Failed test occurrences of a single build. */
     public List<TcModel.TestOccurrence> getFailedTests(String token, long buildId) {
-        TcModel.TestOccurrences occ = get(token, url("app/rest/testOccurrences", query(
+        TcModel.TestOccurrences occ = get("failedTests", token, url("app/rest/testOccurrences", query(
             "locator", "build:(id:" + buildId + "),status:FAILURE,count:2000",
             "fields", "testOccurrence(id,name,status,test(id))")), TcModel.TestOccurrences.class);
 
@@ -101,7 +101,7 @@ public class TcClient {
 
     /** Recent master history of one test (up to {@code analysis.historyDepth} runs): just the statuses. */
     public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId) {
-        TcModel.TestOccurrences occ = get(token, url("app/rest/testOccurrences", query(
+        TcModel.TestOccurrences occ = get("history", token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(default:true),count:" + analysis.historyDepth(),
             "fields", "testOccurrence(status)")), TcModel.TestOccurrences.class);
 
@@ -109,25 +109,25 @@ public class TcClient {
     }
 
     /**
-     * Status ({@code SUCCESS}/{@code FAILURE}) of a test in the most recent <em>fully finished</em>
-     * (finished, not cancelled) run on the PR branch, or null if it has no finished run there. Used
-     * to require that a blocker still fails in the latest completed suite run (a passing re-run clears it).
+     * The test's <em>finished, non-cancelled</em> runs on the PR branch, oldest → newest (up to 15).
+     * The last element is the latest completed run (a blocker must still be FAILURE there — a passing
+     * re-run clears it); the whole sequence backs the per-blocker pass/fail history strip. One request.
      */
-    public String latestFinishedPrStatus(String token, int prNumber, long testId) {
-        TcModel.TestOccurrences occ = get(token, url("app/rest/testOccurrences", query(
+    public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId) {
+        TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:15",
-            "fields", "testOccurrence(status,build(id,state,status))")), TcModel.TestOccurrences.class);
+            "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name)))")),
+            TcModel.TestOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)
-            return null;
+            return List.of();
 
         return occ.testOccurrence().stream()
             .filter(o -> o.build() != null
                 && "finished".equals(o.build().state())
                 && !"UNKNOWN".equals(o.build().status()))
-            .max(Comparator.comparingLong(o -> o.build().id()))
-            .map(TcModel.TestOccurrence::status)
-            .orElse(null);
+            .sorted(Comparator.comparingLong(o -> o.build().id())) // oldest → newest
+            .toList();
     }
 
     /** Enqueues the RunAll chain for a PR branch. {@code top} puts it at the head of the queue. */
@@ -143,7 +143,7 @@ public class TcClient {
             "triggeringOptions", Map.of("queueAtTop", top),
             "comment", Map.of("text", "Triggered by Ignite PR Checker"));
 
-        return recorded(() -> http.post()
+        return recorded("trigger", () -> http.post()
             .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl")))
             .header("Authorization", "Bearer " + token)
             .contentType(MediaType.APPLICATION_JSON)
@@ -189,7 +189,7 @@ public class TcClient {
             ? "app/rest/buildQueue/id:" + build.id()
             : "app/rest/builds/id:" + build.id();
 
-        recorded(() -> http.post()
+        recorded("cancel", () -> http.post()
             .uri(url(path, query("fields", "id,state")))
             .header("Authorization", "Bearer " + token)
             .contentType(MediaType.APPLICATION_JSON)
@@ -202,36 +202,36 @@ public class TcClient {
         String locator = "branch:(name:pull/" + prNumber + "/head)"
             + ",triggered:(type:user),state:" + state + ",count:50";
 
-        TcModel.BuildList list = get(token, url("app/rest/builds", query(
+        TcModel.BuildList list = get("userBuilds", token, url("app/rest/builds", query(
             "locator", locator,
             "fields", "build(id,state,status,webUrl,buildType(name))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }
 
-    private <T> T get(String token, URI uri, Class<T> type) {
-        return recorded(() -> http.get()
+    private <T> T get(String category, String token, URI uri, Class<T> type) {
+        return recorded(category, () -> http.get()
             .uri(uri)
             .header("Authorization", "Bearer " + token)
             .retrieve()
             .body(type));
     }
 
-    /** Runs a TeamCity call, recording its outcome and latency for the status page. */
-    private <T> T recorded(Supplier<T> call) {
+    /** Runs a TeamCity call, recording its category, outcome and latency for the status page. */
+    private <T> T recorded(String category, Supplier<T> call) {
         long t0 = System.nanoTime();
         try {
             T result = call.get();
-            metrics.recordTc(true, 200, msSince(t0));
+            metrics.recordTc(category, true, 200, msSince(t0));
 
             return result;
         }
         catch (RestClientResponseException e) {
-            metrics.recordTc(false, e.getStatusCode().value(), msSince(t0));
+            metrics.recordTc(category, false, e.getStatusCode().value(), msSince(t0));
             throw e;
         }
         catch (RuntimeException e) {
-            metrics.recordTc(false, 0, msSince(t0)); // network/other error
+            metrics.recordTc(category, false, 0, msSince(t0)); // network/other error
             throw e;
         }
     }

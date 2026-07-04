@@ -5,6 +5,7 @@ import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -72,6 +73,25 @@ public class BlockerAnalyzer {
     }
 
     /**
+     * Warms a PR for the cache-warmer: looks up the latest build (cheap) and recomputes it only if
+     * that build is not already cached — an unchanged RunAll build yields the same result, so there
+     * is nothing to redo. Returns true if it recomputed, false if the cached result was reused (or
+     * the PR has no finished RunAll build yet). This is what keeps the warmer from re-hammering
+     * TeamCity with the heavy history/latest-run lookups every cycle.
+     */
+    public boolean warm(String token, int prNumber) {
+        Optional<Long> buildId = chains.findBuildId(token, prNumber);
+        if (buildId.isEmpty())
+            return false;
+
+        if (cache.peekResult(buildId.get()).isPresent())
+            return false;
+
+        computeAndStore(token, prNumber, buildId.get(), bgPool);
+        return true;
+    }
+
+    /**
      * Recomputes now (ignoring any cached result) and returns the fresh analysis, or empty if no
      * RunAll build exists yet. Backs the manual "refresh" button.
      */
@@ -127,24 +147,61 @@ public class BlockerAnalyzer {
         // A failure in the PR is a blocker unless the test also fails in master history: any failure
         // there means it isn't specific to this PR (pre-existing or flaky on master).
         if (h.fails() > 0) {
-            return verdict(t, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master");
+            return verdict(t, null, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", "");
         }
 
-        // ...and only if the failure still stands in the last fully-finished run of the suite: a
+        // The finished runs of this test on the PR branch (one request; also drives the history strip).
+        List<TcModel.TestOccurrence> runs = tc.prBranchRuns(token, prNumber, t.testId());
+        String branchRuns = strip(runs);
+        TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
+
+        // ...and only if the failure still stands in the last fully-finished run on the branch: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).
-        String latest = tc.latestFinishedPrStatus(token, prNumber, t.testId());
+        String latest = lastRun == null ? null : lastRun.status();
         if (latest != null && !"FAILURE".equals(latest)) {
-            return verdict(t, false, "not failing in the last finished run (passed on re-run)");
+            return verdict(t, lastRun, false, "not failing in the last finished run (passed on re-run)", branchRuns);
         }
 
         String reason = h.runs() == 0
             ? "no master history (can't prove pre-existing)"
             : "not seen failing in " + h.runs() + " master run(s)";
 
-        return verdict(t, true, reason);
+        return verdict(t, lastRun, true, reason, branchRuns);
     }
 
-    private static TestVerdict verdict(FailedTest t, boolean blocker, String reason) {
-        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(), t.occurrenceId(), blocker, reason);
+    /** Compact pass/fail history of the branch runs, oldest → newest: 'P' for a pass, 'F' for a failure. */
+    private static String strip(List<TcModel.TestOccurrence> runs) {
+        StringBuilder sb = new StringBuilder(runs.size());
+        for (TcModel.TestOccurrence o : runs)
+            sb.append("FAILURE".equals(o.status()) ? 'F' : 'P');
+
+        return sb.toString();
+    }
+
+    /**
+     * Builds the verdict, anchoring its suite/build/occurrence to the <b>last finished run</b> of the
+     * test on the branch when we have it — so the link and grouping point at the run the verdict is
+     * actually about (a later re-run, if any), not at the RunAll dependency we first discovered it in.
+     * Falls back to the RunAll-dependency occurrence (e.g. for pre-existing tests, where no runs are fetched).
+     */
+    private static TestVerdict verdict(FailedTest t, TcModel.TestOccurrence lastRun, boolean blocker,
+        String reason, String branchRuns) {
+        long suiteBuildId = t.suiteBuildId();
+        String suite = t.suite();
+        String suiteName = t.suiteName();
+        String occurrenceId = t.occurrenceId();
+
+        if (lastRun != null && lastRun.build() != null) {
+            TcModel.BuildRef b = lastRun.build();
+            suiteBuildId = b.id();
+            if (b.buildTypeId() != null)
+                suite = b.buildTypeId();
+            if (b.buildType() != null && b.buildType().name() != null)
+                suiteName = b.buildType().name();
+            if (lastRun.id() != null)
+                occurrenceId = lastRun.id();
+        }
+
+        return new TestVerdict(t.testId(), t.name(), suite, suiteBuildId, suiteName, occurrenceId, blocker, reason, branchRuns);
     }
 }
