@@ -41,11 +41,16 @@
 
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
         .result-head { margin-bottom: 1rem; }
-        .pr-title { font-size: 1.1rem; margin-bottom: 0.6rem; }
+        .result-head > * + * { margin-top: 0.5rem; }
+        .pr-title { font-size: 1.1rem; }
+        .actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
         .act-sep { margin-left: 0.7rem; }
-        .runs { margin-left: 0.5rem; }
+        .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+        #status { flex: 1; min-width: 0; }
+        #freshness { flex: none; white-space: nowrap; }
+        .runs { flex: 1; min-width: 0; }
         .runs a { margin-left: 0.3rem; }
-        .cancel { margin-left: 0.5rem; color: var(--bad); border-color: var(--bad); }
+        .cancel { flex: none; color: var(--bad); border-color: var(--bad); }
         .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
         .refresh:hover { color: var(--fg); }
         .refresh.spin { animation: spin 0.7s linear infinite; }
@@ -95,17 +100,22 @@
             <section class="result-pane">
                 <div class="result-head">
                     <div id="prTitle" class="pr-title muted">Pick a PR on the left.</div>
-                    <div id="actions" class="row hidden">
+                    <div id="actions" class="actions hidden">
                         <span class="muted">RunAll:</span>
                         <button class="act" data-act="trigger" data-top="false">Plain</button>
                         <button class="act" data-act="trigger" data-top="true">Top</button>
                         <span class="muted act-sep">Rerun blockers:</span>
                         <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Plain</button>
                         <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Top</button>
-                        <span id="runs" class="runs muted"></span>
-                        <button id="cancelAll" class="cancel hidden">Cancel all</button>
                     </div>
-                    <div id="status" class="muted"></div>
+                    <div class="head-row">
+                        <div id="status" class="muted"></div>
+                        <div id="freshness" class="muted"></div>
+                    </div>
+                    <div id="runsRow" class="head-row hidden">
+                        <span id="runs" class="runs muted"></span>
+                        <button id="cancelAll" class="cancel">Cancel all</button>
+                    </div>
                 </div>
 
                 <div id="results" class="hidden">
@@ -196,7 +206,9 @@
             setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
             $('actions').classList.remove('hidden');
             setRerunEnabled(false);
-            $('cancelAll').classList.add('hidden'); // until this PR's runs are loaded
+            $('status').textContent = '';
+            $('freshness').textContent = '';
+            $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
             if (push) history.pushState({ pr: number }, '', '?pr=' + number);
             analyze(number);
             loadRuns(number);
@@ -213,7 +225,7 @@
             $('runs').innerHTML = runs.length
                 ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')
                 : '';
-            $('cancelAll').classList.toggle('hidden', runs.length === 0);
+            $('runsRow').classList.toggle('hidden', runs.length === 0);
         }
 
         function prFromUrl() {
@@ -225,6 +237,7 @@
             $('username').textContent = username;
             show('analyze');
             $('actions').classList.add('hidden');
+            $('runsRow').classList.add('hidden');
             await loadPrs();
             const pr = prFromUrl();
             if (pr) openPr(pr, false);
@@ -268,6 +281,7 @@
         async function analyze(number) {
             if (!number) return;
             $('status').textContent = 'Analyzing… (walking the RunAll chain)';
+            $('freshness').textContent = '';
             $('results').classList.add('hidden');
             const r = await api('/api/analyze?pr=' + encodeURIComponent(number));
             if (number !== selectedPr) return; // a newer selection superseded this one
@@ -281,7 +295,8 @@
         }
 
         function renderResult(res) {
-            $('status').innerHTML = 'build ' + res.buildId + ' · updated ' + esc(ago(res.computedAt))
+            $('status').textContent = '';
+            $('freshness').innerHTML = 'build ' + res.buildId + ' · updated ' + esc(ago(res.computedAt))
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
             $('blockerCount').textContent = '(' + res.blockers.length + ')';
