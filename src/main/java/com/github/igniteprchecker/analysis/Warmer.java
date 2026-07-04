@@ -53,6 +53,13 @@ public class Warmer {
             worker.execute(this::warmCycle);
     }
 
+    /** Kicks an out-of-band warm cycle on the warmer thread — e.g. right after a manual cache flush,
+     * so the newest PRs are re-analysed in the background instead of every visitor hitting a cold recompute. */
+    public void triggerWarm() {
+        if (props.enabled())
+            worker.execute(this::warmCycle);
+    }
+
     @Scheduled(fixedDelayString = "${warm.interval-minutes:10}", initialDelay = 1, timeUnit = TimeUnit.MINUTES)
     void scheduled() {
         if (props.enabled())
