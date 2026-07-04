@@ -216,8 +216,8 @@
                 const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
                 tcBase = base;
                 $('tokenLink').href = base + 'profile.html?item=accessTokens';
-                if (typeof cfg.starCount === 'number' && cfg.starCount > 0)
-                    $('starCount').textContent = cfg.starCount;
+                if (typeof cfg.starCount === 'number' && cfg.starCount >= 0)
+                    $('starCount').textContent = cfg.starCount; // always show the project's star count, incl. 0
             } catch { /* ignore */ }
         }
 
