@@ -127,6 +127,38 @@ public class TcClient {
         return builds;
     }
 
+    /** Cancels every RunAll build currently queued or running for a PR; returns how many were cancelled. */
+    public int cancelRunAllBuilds(String token, int prNumber) {
+        int cancelled = 0;
+
+        for (TcModel.Build b : currentRunAllBuilds(token, prNumber)) {
+            try {
+                cancelBuild(token, b);
+                cancelled++;
+            }
+            catch (RestClientResponseException e) {
+                // The build finished, or moved queued->running, between listing and cancelling: skip it.
+            }
+        }
+
+        return cancelled;
+    }
+
+    /** Cancels one build, using the queue endpoint if it is still queued and the build endpoint if running. */
+    public void cancelBuild(String token, TcModel.Build build) {
+        String path = "queued".equalsIgnoreCase(build.state())
+            ? "app/rest/buildQueue/id:" + build.id()
+            : "app/rest/builds/id:" + build.id();
+
+        http.post()
+            .uri(url(path, query("fields", "id,state")))
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(Map.of("comment", "Cancelled by Ignite PR Checker", "readdIntoQueue", false))
+            .retrieve()
+            .toBodilessEntity();
+    }
+
     private List<TcModel.Build> runAllBuildsInState(String token, int prNumber, String state) {
         String locator = "buildType:" + analysis.runAllBuildType()
             + ",branch:(name:pull/" + prNumber + "/head),state:" + state + ",count:20";

@@ -16,6 +16,6 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(auth)
-            .addPathPatterns("/api/analyze", "/api/trigger", "/api/rerun-blockers", "/api/runs");
+            .addPathPatterns("/api/analyze", "/api/trigger", "/api/rerun-blockers", "/api/runs", "/api/cancel-all");
     }
 }
