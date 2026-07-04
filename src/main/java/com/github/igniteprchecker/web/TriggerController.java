@@ -77,6 +77,18 @@ public class TriggerController {
         return tc.currentRunAllBuilds(token, pr).stream().map(TriggerController::brief).toList();
     }
 
+    /** Cancel every RunAll build currently queued or running for the PR. */
+    @PostMapping("/cancel-all")
+    public ResponseEntity<?> cancelAll(@RequestParam int pr,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        try {
+            return ResponseEntity.ok(Map.of("cancelled", tc.cancelRunAllBuilds(token, pr)));
+        }
+        catch (RestClientResponseException e) {
+            return teamCityError(e);
+        }
+    }
+
     private static Map<String, Object> brief(TcModel.Build b) {
         return Map.of(
             "buildId", b.id(),
