@@ -15,7 +15,7 @@ class AnalysisCachePersistenceTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static AnalysisProperties props() {
-        return new AnalysisProperties(null, null, null, null, null, null, 15, null);
+        return new AnalysisProperties(null, null, null, null, 15, null);
     }
 
     @Test
@@ -24,10 +24,10 @@ class AnalysisCachePersistenceTest {
 
         AnalysisCache first = new AnalysisCache(props(), mapper);
         AnalysisResult result = new AnalysisResult(42, 100L, "pull/42/head", System.currentTimeMillis(),
-            List.of(new TestVerdict(7L, "TestA", "SuiteX", true, "blocker", 0.0, 0, 3)),
-            List.of(new TestVerdict(8L, "TestB", "SuiteX", false, "flaky", 12.0, 2, 25)));
+            List.of(new TestVerdict(7L, "TestA", "SuiteX", true, "blocker")),
+            List.of(new TestVerdict(8L, "TestB", "SuiteX", false, "pre-existing")));
         first.putResult(100L, result);
-        first.history(7L, () -> new HistoryStats(30, 1, 0));
+        first.history(7L, () -> new HistoryStats(30, 1));
 
         first.saveTo(file);
 
@@ -39,7 +39,7 @@ class AnalysisCachePersistenceTest {
         HistoryStats restored = reloaded.history(7L, () -> {
             throw new AssertionError("history should have been restored from the snapshot");
         });
-        assertThat(restored).isEqualTo(new HistoryStats(30, 1, 0));
+        assertThat(restored).isEqualTo(new HistoryStats(30, 1));
     }
 
     @Test

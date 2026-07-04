@@ -6,7 +6,6 @@ import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -17,10 +16,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise, using the
- * test's base-branch history. Mirrors tcbot's rule: a failure is a blocker only if the test's
- * base-branch fail rate is below the threshold and it is not flaky (flips pass/fail on builds that
- * carried no code changes). Results are cached per build; a request serves the cached result and,
- * if it is getting stale, triggers a background refresh.
+ * test's master-branch history: a test that fails in the PR is a blocker unless it also fails at
+ * least once in the last {@code analysis.historyDepth} master runs (any master failure means the
+ * failure is pre-existing or flaky on master, not caused by this PR). Results are cached per build;
+ * a request serves the cached result and, if it is getting stale, triggers a background refresh.
  */
 @Component
 public class BlockerAnalyzer {
@@ -115,28 +114,17 @@ public class BlockerAnalyzer {
         HistoryStats h = cache.history(t.testId(),
             () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId())));
 
-        if (h.runs() == 0) {
-            // No base-branch history to prove the failure is pre-existing -> treat as a blocker.
-            return new TestVerdict(t.testId(), t.name(), t.suite(), true,
-                "no base-branch history (can't prove pre-existing)", 0.0, 0, 0);
+        // A failure in the PR is a blocker unless the test also fails in master history: any failure
+        // there means it isn't specific to this PR (pre-existing or flaky on master).
+        if (h.fails() > 0) {
+            return new TestVerdict(t.testId(), t.name(), t.suite(), false,
+                "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master");
         }
 
-        double failRatePct = 100.0 * h.fails() / h.runs();
-        boolean flaky = h.flips() >= cfg.flakinessStatusChangeBorder();
-        boolean lowFailRate = failRatePct < cfg.failRateBlockerThresholdPercents();
+        String reason = h.runs() == 0
+            ? "no master history (can't prove pre-existing)"
+            : "not seen failing in " + h.runs() + " master run(s)";
 
-        if (lowFailRate && !flaky) {
-            return new TestVerdict(t.testId(), t.name(), t.suite(), true,
-                String.format(Locale.ROOT, "base fail-rate %.1f%% < %.1f%%, not flaky",
-                    failRatePct, cfg.failRateBlockerThresholdPercents()),
-                failRatePct, h.flips(), h.runs());
-        }
-
-        String reason = flaky
-            ? String.format(Locale.ROOT, "flaky: %d status flip(s) without code changes", h.flips())
-            : String.format(Locale.ROOT, "pre-existing: base fail-rate %.1f%% >= %.1f%%",
-                failRatePct, cfg.failRateBlockerThresholdPercents());
-
-        return new TestVerdict(t.testId(), t.name(), t.suite(), false, reason, failRatePct, h.flips(), h.runs());
+        return new TestVerdict(t.testId(), t.name(), t.suite(), true, reason);
     }
 }

@@ -93,11 +93,11 @@ public class TcClient {
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
     }
 
-    /** Base-branch history of one test, used to compute its fail rate and flakiness. */
+    /** Recent master history of one test (up to {@code analysis.historyDepth} runs): just the statuses. */
     public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId) {
         TcModel.TestOccurrences occ = get(token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(default:true),count:" + analysis.historyDepth(),
-            "fields", "testOccurrence(status,build(id,branchName,changes(count)))")), TcModel.TestOccurrences.class);
+            "fields", "testOccurrence(status)")), TcModel.TestOccurrences.class);
 
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
     }

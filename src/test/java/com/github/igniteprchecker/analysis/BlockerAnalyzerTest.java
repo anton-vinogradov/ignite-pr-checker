@@ -18,35 +18,35 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
-/** Deterministic, offline test of the blocker/noise classification on synthetic base-branch history. */
+/** Deterministic, offline test of the blocker/noise classification on synthetic master history. */
 class BlockerAnalyzerTest {
     private static final String TOK = "tok";
 
     private final TcClient tc = mock(TcClient.class);
     private final ChainCollector chains = mock(ChainCollector.class);
-    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null, null);
+    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null);
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(4), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
         new AnalysisCache(cfg, new com.fasterxml.jackson.databind.ObjectMapper()));
 
     @Test
-    void classifiesBlockersVsNoise() {
+    void blockerIsAPrFailureThatNeverFailsOnMaster() {
         FailedTest cleanBreak = new FailedTest(1, "Suite: A.blockerTest", "SuiteA");
-        FailedTest flaky = new FailedTest(2, "Suite: B.flakyTest", "SuiteB");
+        FailedTest rareMasterFail = new FailedTest(2, "Suite: B.rareMasterFail", "SuiteB");
         FailedTest preExisting = new FailedTest(3, "Suite: C.brokenInMaster", "SuiteC");
         FailedTest brandNew = new FailedTest(4, "Suite: D.newTest", "SuiteD");
 
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
         when(chains.collectForBuild(TOK, 999L)).thenReturn(
-            new ChainCollector.Chain(999, "pull/42/head", List.of(cleanBreak, flaky, preExisting, brandNew)));
+            new ChainCollector.Chain(999, "pull/42/head", List.of(cleanBreak, rareMasterFail, preExisting, brandNew)));
 
-        // 1) all green in master, never flips -> broke by this PR.
-        when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 1, 50));
-        // 2) one spontaneous failure (no code change) among greens -> low fail rate but flaky.
-        when(tc.getBaseBranchHistory(TOK, 2)).thenReturn(withFlakyFailure());
-        // 3) fails often in master -> pre-existing, and flips only happen on builds that had changes.
-        when(tc.getBaseBranchHistory(TOK, 3)).thenReturn(concat(repeat("FAILURE", 1, 10), repeat("SUCCESS", 1, 40)));
-        // 4) no history at all -> can't prove pre-existing -> blocker.
+        // 1) never fails in master history -> broke by this PR -> blocker.
+        when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 50));
+        // 2) a single failure in master history -> not PR-specific -> filtered.
+        when(tc.getBaseBranchHistory(TOK, 2)).thenReturn(concat(repeat("SUCCESS", 49), repeat("FAILURE", 1)));
+        // 3) fails often in master -> pre-existing -> filtered.
+        when(tc.getBaseBranchHistory(TOK, 3)).thenReturn(concat(repeat("FAILURE", 10), repeat("SUCCESS", 40)));
+        // 4) no master history at all -> can't prove pre-existing -> blocker.
         when(tc.getBaseBranchHistory(TOK, 4)).thenReturn(List.of());
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
@@ -54,10 +54,10 @@ class BlockerAnalyzerTest {
         assertThat(r.blockers()).extracting(TestVerdict::testId).containsExactlyInAnyOrder(1L, 4L);
         assertThat(r.filtered()).extracting(TestVerdict::testId).containsExactlyInAnyOrder(2L, 3L);
 
-        assertThat(verdict(r, 2).reason()).contains("flaky");
+        assertThat(verdict(r, 1).reason()).contains("50 master run");
+        assertThat(verdict(r, 2).reason()).contains("1/50");
         assertThat(verdict(r, 3).reason()).contains("pre-existing");
-        assertThat(verdict(r, 4).reason()).contains("no base-branch history");
-        assertThat(verdict(r, 3).baseFailRatePct()).isEqualTo(20.0);
+        assertThat(verdict(r, 4).reason()).contains("no master history");
     }
 
     @Test
@@ -83,24 +83,10 @@ class BlockerAnalyzerTest {
             .filter(v -> v.testId() == testId).findFirst().orElseThrow();
     }
 
-    /** A history entry: a run with the given status on a build that had {@code changesCount} code changes. */
-    private static TcModel.TestOccurrence occ(String status, int changesCount) {
-        return new TcModel.TestOccurrence(null, null, status, null,
-            new TcModel.BuildRef(0, "refs/heads/master", new TcModel.Changes(changesCount)));
-    }
-
-    private static List<TcModel.TestOccurrence> repeat(String status, int changesCount, int n) {
+    private static List<TcModel.TestOccurrence> repeat(String status, int n) {
         List<TcModel.TestOccurrence> l = new ArrayList<>();
         for (int i = 0; i < n; i++)
-            l.add(occ(status, changesCount));
-        return l;
-    }
-
-    /** 49 green runs with a single spontaneous (no-code-change) failure spliced in. */
-    private static List<TcModel.TestOccurrence> withFlakyFailure() {
-        List<TcModel.TestOccurrence> l = new ArrayList<>(repeat("SUCCESS", 1, 24));
-        l.add(occ("FAILURE", 0));
-        l.addAll(repeat("SUCCESS", 1, 25));
+            l.add(new TcModel.TestOccurrence(null, null, status, null, null));
         return l;
     }
 

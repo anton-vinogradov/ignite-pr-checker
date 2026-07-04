@@ -43,6 +43,9 @@ if [ ! -f "$ETC_DIR/env" ]; then
 # Optional overrides of the built-in defaults; uncomment to change.
 #TC_BASE_URL=https://ci2.ignite.apache.org/
 #TC_RUN_ALL_BUILD_TYPE=IgniteTests24Java8_RunAll
+# How many recent master runs of a test to check: a PR failure is a blocker unless the test also
+# fails at least once in these (default 100).
+#MASTER_HISTORY_DEPTH=100
 # Set to true once the service is served over HTTPS (e.g. behind Caddy):
 SESSION_COOKIE_SECURE=false
 ENV
