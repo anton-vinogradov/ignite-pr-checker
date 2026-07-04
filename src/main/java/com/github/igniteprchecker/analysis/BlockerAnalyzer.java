@@ -127,22 +127,24 @@ public class BlockerAnalyzer {
         // A failure in the PR is a blocker unless the test also fails in master history: any failure
         // there means it isn't specific to this PR (pre-existing or flaky on master).
         if (h.fails() > 0) {
-            return new TestVerdict(t.testId(), t.name(), t.suite(), false,
-                "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master");
+            return verdict(t, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master");
         }
 
         // ...and only if the failure still stands in the last fully-finished run of the suite: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).
         String latest = tc.latestFinishedPrStatus(token, prNumber, t.testId());
         if (latest != null && !"FAILURE".equals(latest)) {
-            return new TestVerdict(t.testId(), t.name(), t.suite(), false,
-                "not failing in the last finished run (passed on re-run)");
+            return verdict(t, false, "not failing in the last finished run (passed on re-run)");
         }
 
         String reason = h.runs() == 0
             ? "no master history (can't prove pre-existing)"
             : "not seen failing in " + h.runs() + " master run(s)";
 
-        return new TestVerdict(t.testId(), t.name(), t.suite(), true, reason);
+        return verdict(t, true, reason);
+    }
+
+    private static TestVerdict verdict(FailedTest t, boolean blocker, String reason) {
+        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(), t.occurrenceId(), blocker, reason);
     }
 }

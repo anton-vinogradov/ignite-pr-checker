@@ -84,11 +84,11 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
-    /** Star count of this tool's own repo (cached); -1 if it couldn't be fetched yet. */
+    /** Star count of this tool's own repo (cached ~1 min so it reflects new stars quickly); -1 if unavailable yet. */
     public int starCount() {
         long now = System.currentTimeMillis();
         int cached = starCount;
-        if (cached >= 0 && now - starTs < ttlMs)
+        if (cached >= 0 && now - starTs < 60_000)
             return cached;
 
         try {

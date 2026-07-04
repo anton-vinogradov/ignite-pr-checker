@@ -54,9 +54,13 @@ public class ChainCollector {
     }
 
     private List<FailedTest> failedTestsOf(String token, TcModel.Build dep) {
+        String suiteName = dep.buildType() != null && dep.buildType().name() != null
+            ? dep.buildType().name()
+            : dep.buildTypeId();
+
         return tc.getFailedTests(token, dep.id()).stream()
             .filter(occ -> occ.test() != null)
-            .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId()))
+            .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();
     }
 

@@ -82,7 +82,7 @@ public class TcClient {
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get(token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,buildType(id,name),"
-                + "snapshot-dependencies(build(id,buildTypeId,status,state))")), TcModel.Build.class);
+                + "snapshot-dependencies(build(id,buildTypeId,status,state,buildType(name)))")), TcModel.Build.class);
     }
 
     /** Failed test occurrences of a single build. */

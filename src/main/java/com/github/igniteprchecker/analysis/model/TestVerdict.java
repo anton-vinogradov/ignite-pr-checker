@@ -1,5 +1,7 @@
 package com.github.igniteprchecker.analysis.model;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 /**
  * Classification of one failed test.
  *
@@ -7,9 +9,13 @@ package com.github.igniteprchecker.analysis.model;
  * @param reason  human-readable explanation of the verdict.
  */
 public record TestVerdict(
-    long testId,
+    // A TeamCity test-name id is a 64-bit hash that overflows JS number precision; serialize as a string.
+    @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,
     String name,
     String suite,
+    long suiteBuildId,
+    String suiteName,
+    String occurrenceId,
     boolean blocker,
     String reason
 ) {
