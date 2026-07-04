@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -40,6 +41,10 @@ public class GithubClient implements SnapshotCache {
     private volatile String releaseTag;
 
     private volatile long releaseTs;
+
+    private volatile Map<String, Object> rateCache;
+
+    private volatile long rateTs;
 
     private final Metrics metrics;
 
@@ -169,6 +174,38 @@ public class GithubClient implements SnapshotCache {
         }
 
         return cached;
+    }
+
+    /** GitHub API core rate limit for our IP/token: {@code {remaining, limit, reset}} (cached ~1 min);
+     *  empty if unavailable. Uses {@code /rate_limit}, which itself doesn't count against the limit. */
+    public Map<String, Object> rateLimit() {
+        long now = System.currentTimeMillis();
+        Map<String, Object> cached = rateCache;
+        if (cached != null && now - rateTs < 60_000)
+            return cached;
+
+        try {
+            RestClient.RequestHeadersSpec<?> req = http.get()
+                .uri(URI.create("https://api.github.com/rate_limit"))
+                .header("Accept", "application/vnd.github+json");
+
+            if (props.token() != null && !props.token().isBlank())
+                req = req.header("Authorization", "Bearer " + props.token());
+
+            Map<?, ?> body = req.retrieve().body(Map.class);
+            Object resources = body == null ? null : body.get("resources");
+            Object core = resources instanceof Map<?, ?> m ? m.get("core") : null;
+            if (core instanceof Map<?, ?> c) {
+                rateCache = Map.of("remaining", c.get("remaining"), "limit", c.get("limit"), "reset", c.get("reset"));
+                rateTs = now;
+                return rateCache;
+            }
+        }
+        catch (Exception e) {
+            // keep the last known value (or empty) on any error
+        }
+
+        return cached != null ? cached : Map.of();
     }
 
     @Override

@@ -52,6 +52,14 @@
         .loglogger { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .logmsg { word-break: break-word; }
         .updated { font-size: 0.78rem; color: var(--muted); }
+
+        @media (prefers-color-scheme: dark) {
+            :root { --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --ok: #66bb6a; --accent: #6ab0ff; }
+            body { background: #17191c; }
+            .card, .section { background: #1c1f23; }
+            .catbar { background: #2b2f34; }
+            .lvl-warn { color: #d99a3a; }
+        }
     </style>
 </head>
 <body>
@@ -131,6 +139,8 @@
                 card('History cached', d.app.historyCached, 'tests'),
                 card('Open PRs', d.app.openPrs),
                 card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
+                card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
+                    d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : ''),
                 card('Pooled tokens', d.app.pooledTokens),
                 card('Last warmed', d.app.lastWarmed, 'PRs'),
             ].join('');
@@ -194,7 +204,7 @@
             const ticks = 4;
             for (let i = 0; i <= ticks; i++) {
                 const y = pad.t + ch - (ch * i / ticks);
-                ctx.strokeStyle = '#eee'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
+                ctx.strokeStyle = 'rgba(128,128,128,0.18)'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
                 ctx.fillStyle = '#999'; ctx.fillText(Math.round(max * i / ticks), 2, y + 3);
             }
 

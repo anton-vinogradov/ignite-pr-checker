@@ -105,6 +105,23 @@
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
+
+        @media (prefers-color-scheme: dark) {
+            :root { --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff; }
+            body { background: #17191c; }
+            button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act { background: #24282d; color: var(--fg); }
+            .status-link, .star-btn { color: var(--fg); }
+            button.primary { background: #e6e6e6; color: #17191c; border-color: #e6e6e6; }
+            button:hover, .status-link:hover, #logout:hover, .why:hover, .star-btn:hover { border-color: #4a4f55; }
+            .suite-rerun:hover, .act:not(:disabled):hover { background: #2b333d; }
+            input { background: #1f2328; color: var(--fg); }
+            .pane-head { background: #17191c; }
+            .pr-list li { border-bottom-color: #26292e; }
+            .pr-list li:hover { background: #20242a; }
+            .pr-badge.ok { background: #1e3324; color: #7fce90; }
+            .details { background: #1f2328; }
+            .star-ico { stroke: #9aa0a6; }
+        }
     </style>
 </head>
 <body>
