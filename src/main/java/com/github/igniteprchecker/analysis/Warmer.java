@@ -3,6 +3,7 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,8 +16,9 @@ import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Keeps the newest PRs pre-analysed so opening them is instant. There is no server-side token, so
- * the warmer piggybacks on an active user: logged-in requests donate their token, and the warmer
- * uses the most recent one. It does nothing until the first login after a restart.
+ * the warmer piggybacks on active users: logged-in requests donate their token, and each warm cycle
+ * spreads its PRs round-robin across all currently-pooled tokens, so no single user's token bears
+ * the whole background load. It does nothing until the first login after a restart.
  */
 @Component
 public class Warmer {
@@ -25,6 +27,7 @@ public class Warmer {
     private final BlockerAnalyzer analyzer;
     private final GithubClient github;
     private final WarmProperties props;
+    private final TokenPool tokens;
 
     /** One thread so warm cycles never overlap; daemon so it doesn't block shutdown. */
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -33,20 +36,18 @@ public class Warmer {
         return t;
     });
 
-    private volatile String token;
-
     public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props) {
         this.analyzer = analyzer;
         this.github = github;
         this.props = props;
+        this.tokens = new TokenPool(Duration.ofMinutes(props.tokenTtlMinutes()).toMillis());
     }
 
-    /** An authenticated request offers its token; the first one kicks off warming immediately. */
+    /** An authenticated request offers its token; the first token into an empty pool kicks off warming. */
     public void offerToken(String token) {
-        boolean firstToken = this.token == null;
-        this.token = token;
+        boolean wasEmpty = tokens.offer(token);
 
-        if (firstToken && props.enabled())
+        if (wasEmpty && props.enabled())
             worker.execute(this::warmCycle);
     }
 
@@ -57,31 +58,33 @@ public class Warmer {
     }
 
     private void warmCycle() {
-        String t = token;
-        if (t == null)
-            return;
-
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
         int warmed = 0;
 
         for (int i = 0; i < count; i++) {
+            String token = tokens.next();
+            if (token == null) // pool empty: nobody logged in, or every token got rejected
+                break;
+
+            int pr = prs.get(i).number();
+
             try {
-                analyzer.refresh(t, prs.get(i).number());
+                analyzer.refresh(token, pr);
                 warmed++;
             }
             catch (RestClientResponseException e) {
                 if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
-                    token = null; // donated token no longer valid; wait for a fresh donation
-                    log.info("warmer token rejected ({}), pausing until next login", e.getStatusCode());
-                    return;
+                    tokens.remove(token); // revoked/expired: drop it and retry this PR with another token
+                    log.info("warmer token rejected ({}), dropped ({} left in pool)", e.getStatusCode(), tokens.size());
+                    i--;
                 }
             }
             catch (RuntimeException e) {
-                log.debug("warm of PR {} failed: {}", prs.get(i).number(), e.toString());
+                log.debug("warm of PR {} failed: {}", pr, e.toString());
             }
         }
 
-        log.info("warmed {} PR(s)", warmed);
+        log.info("warmed {} PR(s) across {} token(s)", warmed, tokens.size());
     }
 }
