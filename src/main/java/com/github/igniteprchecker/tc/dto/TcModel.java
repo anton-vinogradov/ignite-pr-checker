@@ -42,8 +42,7 @@ public final class TcModel {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TestOccurrence(String id, String name, String status, TestRef test, BuildRef build,
-        TestOccurrences invocations) {
+    public record TestOccurrence(String id, String name, String status, TestRef test, BuildRef build) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
