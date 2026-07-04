@@ -58,11 +58,23 @@ public class Metrics implements SnapshotCache {
     }
 
     public Group teamcity() {
-        return new Group(aggregate(tc), tcSinceStart.get(), byCategory(tc), byStatusView(), perMinute(tc));
+        return new Group(aggregate(tc), tcSinceStart.get(), byCategory(tc), byStatusView(),
+            perMinute(tc), byCategoryPerMinute(tc));
     }
 
     public Group github() {
-        return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(), perMinute(github));
+        return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(),
+            perMinute(github), byCategoryPerMinute(github));
+    }
+
+    /** Per-category call counts for each of the last {@code WINDOW} minutes (oldest first), biggest category first. */
+    private static Map<String, long[]> byCategoryPerMinute(Map<String, Ring> rings) {
+        Map<String, long[]> out = new LinkedHashMap<>();
+        rings.entrySet().stream()
+            .sorted((a, b) -> Long.compare(b.getValue().lastHour().calls(), a.getValue().lastHour().calls()))
+            .forEach(e -> out.put(e.getKey(), e.getValue().perMinuteCalls()));
+
+        return out;
     }
 
     private static Stats aggregate(Map<String, Ring> rings) {
@@ -187,6 +199,21 @@ public class Metrics implements SnapshotCache {
                 }
             }
         }
+
+        synchronized long[] perMinuteCalls() {
+            long nowMin = System.currentTimeMillis() / 60_000L;
+            long[] out = new long[WINDOW];
+            for (int i = 0; i < WINDOW; i++) {
+                long m = minute[i];
+                if (m > nowMin - WINDOW && m <= nowMin) {
+                    int slot = (int) (m - (nowMin - (WINDOW - 1)));
+                    if (slot >= 0 && slot < WINDOW)
+                        out[slot] = calls[i];
+                }
+            }
+
+            return out;
+        }
     }
 
     private record Raw(long calls, long fails, long latSum, long latMax) {
@@ -201,7 +228,7 @@ public class Metrics implements SnapshotCache {
 
     /** A target's metrics: last-hour aggregate + per-category breakdown + per-minute series, plus the lifetime total. */
     public record Group(Stats lastHour, long sinceStart, Map<String, Stats> byCategory,
-        Map<Integer, Long> byStatus, List<Minute> perMinute) {
+        Map<Integer, Long> byStatus, List<Minute> perMinute, Map<String, long[]> perMinuteByCategory) {
     }
 
     public record Stats(long total, long ok, long fail, long avgLatencyMs, long maxLatencyMs) {

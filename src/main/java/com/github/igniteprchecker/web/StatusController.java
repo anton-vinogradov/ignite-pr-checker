@@ -53,6 +53,7 @@ public class StatusController {
         app.put("historyCached", cache.historyCount());
         app.put("openPrs", github.prCount());
         app.put("stars", github.starCount());
+        app.put("githubRate", github.rateLimit());
         app.put("pooledTokens", warmer.pooledTokens());
         app.put("lastWarmed", warmer.lastWarmed());
 
