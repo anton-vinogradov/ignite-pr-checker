@@ -37,9 +37,27 @@ public class UpdateService {
         String latest = github.latestReleaseTag();
         boolean available = props.enabled()
             && latest != null && !latest.isBlank()
-            && !latest.equals(baseVersion());
+            && isNewer(latest, baseVersion());
 
         return new Status(currentVersion, latest, available);
+    }
+
+    /** True if version {@code a} is strictly newer than {@code b} (dot-separated numeric compare). Avoids
+     * offering an older release as an "update" when a dev build's version happens to differ from it. */
+    static boolean isNewer(String a, String b) {
+        String[] pa = a.split("\\."), pb = b.split("\\.");
+        for (int i = 0; i < Math.max(pa.length, pb.length); i++) {
+            int na = i < pa.length ? numeric(pa[i]) : 0;
+            int nb = i < pb.length ? numeric(pb[i]) : 0;
+            if (na != nb)
+                return na > nb;
+        }
+        return false;
+    }
+
+    private static int numeric(String part) {
+        String digits = part.replaceAll("\\D.*$", "");
+        return digits.isEmpty() ? 0 : Integer.parseInt(digits);
     }
 
     /** Requests the update (marker for run.sh) and restarts; run.sh fetches the jar on the next boot. */
