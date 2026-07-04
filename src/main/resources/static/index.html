@@ -51,6 +51,11 @@
         .actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
         .act-sep { margin-left: 0.7rem; }
         .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+        /* Title + action buttons share a row; the buttons wrap to the next line only when the
+           title is too long for them to fit beside it. */
+        .title-row { flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; }
+        .title-row .pr-title { flex: 1 1 auto; }
+        .title-row .actions { margin-left: auto; }
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
         .runs { flex: 1; min-width: 0; }
@@ -111,14 +116,16 @@
 
             <section class="result-pane">
                 <div class="result-head">
-                    <div id="prTitle" class="pr-title muted">Pick a PR on the left.</div>
-                    <div id="actions" class="actions hidden">
-                        <span class="muted">RunAll:</span>
-                        <button class="act" data-act="trigger" data-top="false">Plain</button>
-                        <button class="act" data-act="trigger" data-top="true">Top</button>
-                        <span class="muted act-sep">Rerun blockers:</span>
-                        <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Plain</button>
-                        <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Top</button>
+                    <div class="head-row title-row">
+                        <div id="prTitle" class="pr-title muted">Pick a PR on the left.</div>
+                        <div id="actions" class="actions hidden">
+                            <span class="muted">RunAll:</span>
+                            <button class="act" data-act="trigger" data-top="false">Plain</button>
+                            <button class="act" data-act="trigger" data-top="true">Top</button>
+                            <span class="muted act-sep">Rerun blockers:</span>
+                            <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Plain</button>
+                            <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Top</button>
+                        </div>
                     </div>
                     <div class="head-row">
                         <div id="status" class="muted"></div>
