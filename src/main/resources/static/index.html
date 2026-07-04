@@ -164,6 +164,7 @@
             const r = await api('/api/prs');
             if (!r.ok) return;
             const prs = await r.json();
+            if (!prs.length && $('prList').children.length) return; // keep the current list on an empty response
             $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
             $('prList').innerHTML = prs.map(p => `
                 <li data-num="${p.number}" data-url="${esc(p.url)}" title="${esc(p.title)}">
