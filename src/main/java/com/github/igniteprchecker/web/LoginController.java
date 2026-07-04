@@ -24,6 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class LoginController {
+    /** Effectively unlimited cookie lifetime; the session is ended by logout, not by time. */
+    private static final Duration COOKIE_MAX_AGE = Duration.ofDays(3650);
+
     private final TcClient tc;
     private final SessionCodec codec;
     private final SessionProperties props;
@@ -77,7 +80,8 @@ public class LoginController {
     }
 
     private ResponseCookie sessionCookie(String value) {
-        return baseCookie(value).maxAge(Duration.ofMinutes(props.ttlMinutes())).build();
+        // Persistent cookie so the browser keeps it across restarts; the session ends only at logout.
+        return baseCookie(value).maxAge(COOKIE_MAX_AGE).build();
     }
 
     private ResponseCookie clearedCookie() {

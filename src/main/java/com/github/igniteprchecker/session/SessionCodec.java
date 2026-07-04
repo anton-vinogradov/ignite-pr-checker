@@ -1,12 +1,11 @@
 package com.github.igniteprchecker.session;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.SessionProperties;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
@@ -20,8 +19,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Encodes a session into an encrypted, self-contained cookie value (AES-GCM), so there is no
- * server-side session store and logins survive restarts. The user's token is confidential inside
- * the cookie; tampering fails the GCM auth tag. Requires a stable {@code session.secret}.
+ * server-side session store and logins survive restarts. The session does not expire on its own —
+ * it stays valid until the user logs out (or the token is revoked, or {@code session.secret} is
+ * rotated). The token is confidential inside the cookie; tampering fails the GCM auth tag.
  */
 @Component
 public class SessionCodec {
@@ -31,21 +31,18 @@ public class SessionCodec {
     private static final int TAG_BITS = 128;
 
     private final SecretKey key;
-    private final SessionProperties props;
     private final ObjectMapper mapper;
     private final SecureRandom random = new SecureRandom();
 
     public SessionCodec(SessionProperties props, ObjectMapper mapper) {
-        this.props = props;
         this.mapper = mapper;
         this.key = deriveKey(props.secret());
     }
 
-    /** @return the cookie value carrying an encrypted session that expires after the configured TTL. */
+    /** @return the cookie value carrying the encrypted session. */
     public String encode(String username, String token) {
         try {
-            long exp = Instant.now().plus(Duration.ofMinutes(props.ttlMinutes())).toEpochMilli();
-            byte[] plain = mapper.writeValueAsBytes(new Payload(username, token, exp));
+            byte[] plain = mapper.writeValueAsBytes(new Payload(username, token));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -63,7 +60,7 @@ public class SessionCodec {
         }
     }
 
-    /** Decrypts and validates a cookie value; empty if missing, tampered, or expired. */
+    /** Decrypts a cookie value; empty if missing or tampered. */
     public Optional<Session> decode(String cookie) {
         if (cookie == null || cookie.isBlank())
             return Optional.empty();
@@ -76,9 +73,6 @@ public class SessionCodec {
             Cipher cipher = Cipher.getInstance(TRANSFORM);
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
             Payload p = mapper.readValue(cipher.doFinal(ct), Payload.class);
-
-            if (Instant.now().toEpochMilli() > p.exp())
-                return Optional.empty();
 
             return Optional.of(new Session(p.username(), p.token()));
         }
@@ -110,6 +104,8 @@ public class SessionCodec {
     public record Session(String username, String token) {
     }
 
-    private record Payload(String username, String token, long exp) {
+    /** Old cookies also carried an {@code exp}; it is ignored now that sessions don't time out. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Payload(String username, String token) {
     }
 }

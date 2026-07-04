@@ -59,8 +59,7 @@ warm:
   token-ttl-minutes: 60
 
 session:
-  # How long a login stays valid, minutes.
-  ttl-minutes: 480
+  # A login lasts until logout — there is no session timeout.
   # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.
   cookie-secure: ${SESSION_COOKIE_SECURE:false}
   # Stable secret used to encrypt the session cookie. Must be set (and constant) in production, or
