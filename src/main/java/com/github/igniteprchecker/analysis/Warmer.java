@@ -29,6 +29,8 @@ public class Warmer {
     private final WarmProperties props;
     private final TokenPool tokens;
 
+    private volatile int lastWarmed;
+
     /** One thread so warm cycles never overlap; daemon so it doesn't block shutdown. */
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "warmer");
@@ -85,6 +87,17 @@ public class Warmer {
             }
         }
 
+        lastWarmed = warmed;
         log.info("warmed {} PR(s) across {} token(s)", warmed, tokens.size());
+    }
+
+    /** Number of PRs warmed in the last cycle (for the status page). */
+    public int lastWarmed() {
+        return lastWarmed;
+    }
+
+    /** Number of donated TeamCity tokens currently in the pool. */
+    public int pooledTokens() {
+        return tokens.size();
     }
 }

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ignite PR Checker — Status</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <meta name="theme-color" content="#f36f21">
+    <style>
+        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --ok: #2e7d32; --accent: #1565c0; }
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; background: #fff; }
+        a { color: var(--accent); }
+        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 600; }
+        .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
+        .wrap { max-width: 960px; margin: 1.2rem auto; padding: 0 1rem; }
+        .muted { color: var(--muted); }
+
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; margin: 0.6rem 0 1.4rem; }
+        .card { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem; }
+        .card .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+        .card .v { font-size: 1.35rem; font-weight: 600; margin-top: 0.15rem; }
+        .card .v small { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+
+        h2 { font-size: 1.05rem; margin: 1.4rem 0 0.5rem; }
+        .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
+        .chart-title { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; display: flex; justify-content: space-between; }
+        canvas { width: 100%; height: 200px; display: block; }
+        .legend span { font-size: 0.78rem; margin-left: 0.8rem; }
+        .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 0.25rem; vertical-align: middle; }
+        .rate-bad { color: var(--bad); }
+        .bystatus { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+        .bystatus code { color: var(--bad); }
+        .updated { font-size: 0.78rem; color: var(--muted); }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">Ignite PR Checker <small>service status</small></div>
+        <div><a href="/" >← App</a></div>
+    </header>
+
+    <div class="wrap">
+        <div id="err" class="muted"></div>
+
+        <div class="cards" id="topCards"></div>
+
+        <div class="section">
+            <div class="chart-title">
+                <span>TeamCity requests per minute (last hour)</span>
+                <span class="legend"><span class="dot" style="background:var(--ok)"></span>ok<span class="dot" style="background:var(--bad)"></span>failed</span>
+            </div>
+            <canvas id="tcChart"></canvas>
+            <div id="tcByStatus" class="bystatus"></div>
+        </div>
+
+        <h2>Cache &amp; warmer</h2>
+        <div class="cards" id="appCards"></div>
+
+        <div class="updated" id="updated"></div>
+    </div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+
+        function fmtDur(s) {
+            s = Math.floor(s);
+            const d = Math.floor(s / 86400); s %= 86400;
+            const h = Math.floor(s / 3600); s %= 3600;
+            const m = Math.floor(s / 60); s %= 60;
+            if (d) return `${d}d ${h}h ${m}m`;
+            if (h) return `${h}h ${m}m`;
+            if (m) return `${m}m ${s}s`;
+            return `${s}s`;
+        }
+
+        function card(k, v, sub) {
+            return `<div class="card"><div class="k">${k}</div><div class="v">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+        }
+
+        function render(d) {
+            const tc = d.teamcity, gh = d.github;
+            const tcRate = tc.total ? (100 * tc.ok / tc.total) : 100;
+            $('topCards').innerHTML = [
+                card('Version', d.version),
+                card('Uptime', fmtDur(d.uptimeSeconds)),
+                card('Heap', d.jvm.heapUsedMb, `/ ${d.jvm.heapMaxMb} MB`),
+                card('Threads', d.jvm.threads, `· ${d.jvm.cpus} cpu`),
+                card('TeamCity calls', tc.total.toLocaleString(),
+                    `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span>`),
+                card('TC latency', `${tc.avgLatencyMs}`, `ms avg · ${tc.maxLatencyMs} max`),
+                card('GitHub calls', gh.total.toLocaleString(), `${gh.fail} failed`),
+            ].join('');
+
+            $('appCards').innerHTML = [
+                card('Results cached', d.app.resultsCached),
+                card('History cached', d.app.historyCached, 'tests'),
+                card('Open PRs', d.app.openPrs),
+                card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
+                card('Pooled tokens', d.app.pooledTokens),
+                card('Last warmed', d.app.lastWarmed, 'PRs'),
+            ].join('');
+
+            const byStatus = Object.entries(tc.byStatus || {});
+            $('tcByStatus').innerHTML = byStatus.length
+                ? 'Failures by status: ' + byStatus.map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ')
+                : (tc.total ? 'No TeamCity failures recorded.' : 'No TeamCity calls yet.');
+
+            drawChart($('tcChart'), tc.perMinute || []);
+            $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+        }
+
+        function drawChart(canvas, series) {
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = canvas.clientWidth || 880, cssH = 200;
+            canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssW, cssH);
+
+            const pad = { l: 34, r: 6, t: 6, b: 16 };
+            const cw = cssW - pad.l - pad.r, ch = cssH - pad.t - pad.b;
+            const max = Math.max(1, ...series.map(m => m.ok + m.fail));
+
+            ctx.font = '10px system-ui';
+            const ticks = 4;
+            for (let i = 0; i <= ticks; i++) {
+                const y = pad.t + ch - (ch * i / ticks);
+                ctx.strokeStyle = '#eee'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
+                ctx.fillStyle = '#999'; ctx.fillText(Math.round(max * i / ticks), 2, y + 3);
+            }
+
+            const n = series.length, bw = cw / n;
+            series.forEach((m, i) => {
+                const x = pad.l + i * bw;
+                const okH = ch * m.ok / max, failH = ch * m.fail / max;
+                if (okH) { ctx.fillStyle = '#2e7d32'; ctx.fillRect(x + 0.5, pad.t + ch - okH, Math.max(1, bw - 1), okH); }
+                if (failH) { ctx.fillStyle = '#c0392b'; ctx.fillRect(x + 0.5, pad.t + ch - okH - failH, Math.max(1, bw - 1), failH); }
+            });
+
+            ctx.fillStyle = '#999';
+            ctx.fillText('-60m', pad.l, cssH - 4);
+            ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
+        }
+
+        let last = null;
+        async function tick() {
+            try {
+                const r = await fetch('/api/status', { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                last = await r.json();
+                $('err').textContent = '';
+                render(last);
+            } catch (e) {
+                $('err').textContent = 'status unavailable: ' + e.message;
+            }
+        }
+
+        window.addEventListener('resize', () => { if (last) drawChart($('tcChart'), last.teamcity.perMinute || []); });
+        tick();
+        setInterval(tick, 5000);
+    </script>
+</body>
+</html>

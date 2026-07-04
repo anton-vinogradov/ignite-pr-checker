@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.metrics.Metrics;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -14,7 +15,7 @@ class GithubClientPersistenceTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private GithubClient client() {
-        return new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper);
+        return new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper, new Metrics());
     }
 
     @Test

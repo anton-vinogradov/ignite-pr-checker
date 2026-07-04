@@ -42,6 +42,10 @@ final class TtlCache<K, V> {
         map.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
     }
 
+    int size() {
+        return map.size();
+    }
+
     /** The still-fresh entries, with their expiry, for a disk snapshot. */
     List<Snapshot<K, V>> export() {
         long now = System.currentTimeMillis();

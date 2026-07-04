@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -39,10 +41,28 @@ public class GithubClient implements SnapshotCache {
 
     private volatile long releaseTs;
 
-    public GithubClient(GithubProperties props, ObjectMapper mapper) {
+    private final Metrics metrics;
+
+    public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;
+        this.metrics = metrics;
+    }
+
+    /** Runs a GitHub call, recording its outcome and latency for the status page. */
+    private <T> T recorded(Supplier<T> call) {
+        long t0 = System.nanoTime();
+        try {
+            T result = call.get();
+            metrics.recordGithub(true, (System.nanoTime() - t0) / 1_000_000L);
+
+            return result;
+        }
+        catch (RuntimeException e) {
+            metrics.recordGithub(false, (System.nanoTime() - t0) / 1_000_000L);
+            throw e;
+        }
     }
 
     /** Open PRs, most recently updated first. Returns the last good result (or empty) if GitHub is unavailable. */
@@ -65,7 +85,8 @@ public class GithubClient implements SnapshotCache {
             if (props.token() != null && !props.token().isBlank())
                 req = req.header("Authorization", "Bearer " + props.token());
 
-            GhPr[] prs = req.retrieve().body(GhPr[].class);
+            RestClient.RequestHeadersSpec<?> r = req;
+            GhPr[] prs = recorded(() -> r.retrieve().body(GhPr[].class));
 
             List<PrSummary> result = prs == null ? List.of()
                 : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl())).toList();
@@ -84,6 +105,12 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
+    /** Number of open PRs currently cached (for the status page). */
+    public int prCount() {
+        List<PrSummary> c = cache;
+        return c == null ? 0 : c.size();
+    }
+
     /** Star count of this tool's own repo (cached ~1 min so it reflects new stars quickly); -1 if unavailable yet. */
     public int starCount() {
         long now = System.currentTimeMillis();
@@ -99,7 +126,8 @@ public class GithubClient implements SnapshotCache {
             if (props.token() != null && !props.token().isBlank())
                 req = req.header("Authorization", "Bearer " + props.token());
 
-            Repo repo = req.retrieve().body(Repo.class);
+            RestClient.RequestHeadersSpec<?> r = req;
+            Repo repo = recorded(() -> r.retrieve().body(Repo.class));
             if (repo != null) {
                 starCount = repo.stargazersCount();
                 starTs = now;
@@ -128,7 +156,8 @@ public class GithubClient implements SnapshotCache {
             if (props.token() != null && !props.token().isBlank())
                 req = req.header("Authorization", "Bearer " + props.token());
 
-            Release release = req.retrieve().body(Release.class);
+            RestClient.RequestHeadersSpec<?> r = req;
+            Release release = recorded(() -> r.retrieve().body(Release.class));
             if (release != null && release.tagName() != null) {
                 releaseTag = release.tagName().replaceFirst("^v", "");
                 releaseTs = now;
