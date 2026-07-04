@@ -116,7 +116,8 @@ public class TcClient {
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId) {
         TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:15",
-            "fields", "testOccurrence(status,build(id,state,status))")), TcModel.TestOccurrences.class);
+            "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name)))")),
+            TcModel.TestOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)
             return List.of();

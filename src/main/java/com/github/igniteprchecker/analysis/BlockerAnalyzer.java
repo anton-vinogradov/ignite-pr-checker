@@ -147,25 +147,26 @@ public class BlockerAnalyzer {
         // A failure in the PR is a blocker unless the test also fails in master history: any failure
         // there means it isn't specific to this PR (pre-existing or flaky on master).
         if (h.fails() > 0) {
-            return verdict(t, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", "");
+            return verdict(t, null, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", "");
         }
 
         // The finished runs of this test on the PR branch (one request; also drives the history strip).
         List<TcModel.TestOccurrence> runs = tc.prBranchRuns(token, prNumber, t.testId());
         String branchRuns = strip(runs);
+        TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
 
-        // ...and only if the failure still stands in the last fully-finished run of the suite: a
+        // ...and only if the failure still stands in the last fully-finished run on the branch: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).
-        String latest = runs.isEmpty() ? null : runs.get(runs.size() - 1).status();
+        String latest = lastRun == null ? null : lastRun.status();
         if (latest != null && !"FAILURE".equals(latest)) {
-            return verdict(t, false, "not failing in the last finished run (passed on re-run)", branchRuns);
+            return verdict(t, lastRun, false, "not failing in the last finished run (passed on re-run)", branchRuns);
         }
 
         String reason = h.runs() == 0
             ? "no master history (can't prove pre-existing)"
             : "not seen failing in " + h.runs() + " master run(s)";
 
-        return verdict(t, true, reason, branchRuns);
+        return verdict(t, lastRun, true, reason, branchRuns);
     }
 
     /** Compact pass/fail history of the branch runs, oldest → newest: 'P' for a pass, 'F' for a failure. */
@@ -177,8 +178,30 @@ public class BlockerAnalyzer {
         return sb.toString();
     }
 
-    private static TestVerdict verdict(FailedTest t, boolean blocker, String reason, String branchRuns) {
-        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(),
-            t.occurrenceId(), blocker, reason, branchRuns);
+    /**
+     * Builds the verdict, anchoring its suite/build/occurrence to the <b>last finished run</b> of the
+     * test on the branch when we have it — so the link and grouping point at the run the verdict is
+     * actually about (a later re-run, if any), not at the RunAll dependency we first discovered it in.
+     * Falls back to the RunAll-dependency occurrence (e.g. for pre-existing tests, where no runs are fetched).
+     */
+    private static TestVerdict verdict(FailedTest t, TcModel.TestOccurrence lastRun, boolean blocker,
+        String reason, String branchRuns) {
+        long suiteBuildId = t.suiteBuildId();
+        String suite = t.suite();
+        String suiteName = t.suiteName();
+        String occurrenceId = t.occurrenceId();
+
+        if (lastRun != null && lastRun.build() != null) {
+            TcModel.BuildRef b = lastRun.build();
+            suiteBuildId = b.id();
+            if (b.buildTypeId() != null)
+                suite = b.buildTypeId();
+            if (b.buildType() != null && b.buildType().name() != null)
+                suiteName = b.buildType().name();
+            if (lastRun.id() != null)
+                occurrenceId = lastRun.id();
+        }
+
+        return new TestVerdict(t.testId(), t.name(), suite, suiteBuildId, suiteName, occurrenceId, blocker, reason, branchRuns);
     }
 }
