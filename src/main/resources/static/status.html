@@ -32,6 +32,13 @@
         .rate-bad { color: var(--bad); }
         .bystatus { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
         .bystatus code { color: var(--bad); }
+        .cats { display: flex; flex-direction: column; gap: 0.35rem; }
+        .catrow { display: grid; grid-template-columns: 120px 1fr auto; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
+        .catname { font-family: ui-monospace, monospace; color: var(--accent); }
+        .catbar { background: #f0f0f0; border-radius: 4px; height: 14px; overflow: hidden; }
+        .catfill { background: var(--accent); height: 100%; }
+        .catval { white-space: nowrap; }
+        .catval small { color: var(--muted); }
         .updated { font-size: 0.78rem; color: var(--muted); }
     </style>
 </head>
@@ -54,6 +61,12 @@
             <canvas id="tcChart"></canvas>
             <div id="tcByStatus" class="bystatus"></div>
         </div>
+
+        <h2>TeamCity calls by category</h2>
+        <div class="section"><div id="tcCats" class="cats"></div></div>
+
+        <h2>GitHub calls by category</h2>
+        <div class="section"><div id="ghCats" class="cats"></div></div>
 
         <h2>Cache &amp; warmer</h2>
         <div class="cards" id="appCards"></div>
@@ -81,16 +94,17 @@
 
         function render(d) {
             const tc = d.teamcity, gh = d.github;
-            const tcRate = tc.total ? (100 * tc.ok / tc.total) : 100;
+            const t = tc.total, g = gh.total;
+            const tcRate = t.total ? (100 * t.ok / t.total) : 100;
             $('topCards').innerHTML = [
                 card('Version', d.version),
                 card('Uptime', fmtDur(d.uptimeSeconds)),
                 card('Heap', d.jvm.heapUsedMb, `/ ${d.jvm.heapMaxMb} MB`),
                 card('Threads', d.jvm.threads, `· ${d.jvm.cpus} cpu`),
-                card('TeamCity calls', tc.total.toLocaleString(),
+                card('TeamCity calls', t.total.toLocaleString(),
                     `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span>`),
-                card('TC latency', `${tc.avgLatencyMs}`, `ms avg · ${tc.maxLatencyMs} max`),
-                card('GitHub calls', gh.total.toLocaleString(), `${gh.fail} failed`),
+                card('TC latency', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
+                card('GitHub calls', g.total.toLocaleString(), `${g.fail} failed`),
             ].join('');
 
             $('appCards').innerHTML = [
@@ -105,10 +119,28 @@
             const byStatus = Object.entries(tc.byStatus || {});
             $('tcByStatus').innerHTML = byStatus.length
                 ? 'Failures by status: ' + byStatus.map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ')
-                : (tc.total ? 'No TeamCity failures recorded.' : 'No TeamCity calls yet.');
+                : (t.total ? 'No TeamCity failures recorded.' : 'No TeamCity calls yet.');
+
+            renderCats($('tcCats'), tc.byCategory || {});
+            renderCats($('ghCats'), gh.byCategory || {});
 
             drawChart($('tcChart'), tc.perMinute || []);
             $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+        }
+
+        function renderCats(el, byCategory) {
+            const entries = Object.entries(byCategory);
+            if (!entries.length) { el.innerHTML = '<div class="muted">no calls yet</div>'; return; }
+            const max = Math.max(1, ...entries.map(([, s]) => s.total));
+            el.innerHTML = entries.map(([name, s]) => {
+                const pct = 100 * s.total / max;
+                const fail = s.fail ? ` · <span class="rate-bad">${s.fail} failed</span>` : '';
+                return `<div class="catrow">
+                    <div class="catname">${name}</div>
+                    <div class="catbar"><div class="catfill" style="width:${pct.toFixed(1)}%"></div></div>
+                    <div class="catval">${s.total.toLocaleString()} <small>${s.avgLatencyMs}ms${fail}</small></div>
+                </div>`;
+            }).join('');
         }
 
         function drawChart(canvas, series) {

@@ -15,7 +15,7 @@ class GithubClientPersistenceTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private GithubClient client() {
-        return new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper, new Metrics());
+        return new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper, new Metrics(mapper));
     }
 
     @Test
