@@ -27,7 +27,7 @@ class BlockerAnalyzerTest {
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null, null);
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(4), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        new AnalysisCache(cfg));
+        new AnalysisCache(cfg, new com.fasterxml.jackson.databind.ObjectMapper()));
 
     @Test
     void classifiesBlockersVsNoise() {

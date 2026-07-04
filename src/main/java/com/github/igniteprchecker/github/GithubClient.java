@@ -2,8 +2,14 @@ package com.github.igniteprchecker.github;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.persist.SnapshotCache;
+import com.github.igniteprchecker.persist.Snapshots;
+import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import org.springframework.stereotype.Component;
@@ -11,19 +17,21 @@ import org.springframework.web.client.RestClient;
 
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
 @Component
-public class GithubClient {
+public class GithubClient implements SnapshotCache {
     private final RestClient http = RestClient.create();
 
     private final GithubProperties props;
     private final long ttlMs;
+    private final ObjectMapper mapper;
 
     private volatile List<PrSummary> cache;
 
     private volatile long cacheTs;
 
-    public GithubClient(GithubProperties props) {
+    public GithubClient(GithubProperties props, ObjectMapper mapper) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
+        this.mapper = mapper;
     }
 
     /** Open PRs, most recently updated first. Returns the last good result (or empty) if GitHub is unavailable. */
@@ -65,7 +73,37 @@ public class GithubClient {
         }
     }
 
+    @Override
+    public String fileName() {
+        return "github.json";
+    }
+
+    @Override
+    public void saveTo(Path file) throws IOException {
+        List<PrSummary> snap = cache;
+        if (snap != null && !snap.isEmpty())
+            Snapshots.writeAtomic(mapper, file, new Persisted(snap, cacheTs));
+    }
+
+    @Override
+    public void loadFrom(Path file) throws IOException {
+        if (!Files.exists(file))
+            return;
+
+        Persisted p = mapper.readValue(file.toFile(), Persisted.class);
+
+        // Restore as-is (keeping the original timestamp): openPrs() then serves this list instantly
+        // and only re-fetches once it is older than the TTL, or falls back to it if GitHub is down.
+        if (p.prs() != null && !p.prs().isEmpty()) {
+            cache = p.prs();
+            cacheTs = p.cacheTs();
+        }
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GhPr(int number, String title, @JsonProperty("html_url") String htmlUrl) {
+    }
+
+    private record Persisted(List<PrSummary> prs, long cacheTs) {
     }
 }
