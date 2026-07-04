@@ -89,7 +89,7 @@ public class GithubClient implements SnapshotCache {
             GhPr[] prs = recorded("prs", () -> r.retrieve().body(GhPr[].class));
 
             List<PrSummary> result = prs == null ? List.of()
-                : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl())).toList();
+                : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl(), null)).toList();
 
             // Never overwrite a good list with an empty one (e.g. a transient/parsed-away response).
             if (!result.isEmpty()) {

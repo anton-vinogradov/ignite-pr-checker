@@ -93,7 +93,7 @@ class BlockerAnalyzerTest {
     private static List<TcModel.TestOccurrence> repeat(String status, int n) {
         List<TcModel.TestOccurrence> l = new ArrayList<>();
         for (int i = 0; i < n; i++)
-            l.add(new TcModel.TestOccurrence(null, null, status, null, null));
+            l.add(new TcModel.TestOccurrence(null, null, status, null, null, null));
         return l;
     }
 

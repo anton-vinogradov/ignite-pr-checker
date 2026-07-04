@@ -130,6 +130,18 @@ public class TcClient {
             .toList();
     }
 
+    /** Failure details (message/stack trace) of a single test occurrence, or null. */
+    public String testDetails(String token, String occurrenceLocator) {
+        TcModel.TestOccurrences occ = get("details", token, url("app/rest/testOccurrences", query(
+            "locator", occurrenceLocator,
+            "fields", "testOccurrence(details)")), TcModel.TestOccurrences.class);
+
+        if (occ == null || occ.testOccurrence() == null || occ.testOccurrence().isEmpty())
+            return null;
+
+        return occ.testOccurrence().get(0).details();
+    }
+
     /** Enqueues the RunAll chain for a PR branch. {@code top} puts it at the head of the queue. */
     public TcModel.Build triggerRunAll(String token, int prNumber, boolean top) {
         return triggerBuild(token, analysis.runAllBuildType(), prNumber, top);

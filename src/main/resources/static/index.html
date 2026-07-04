@@ -56,6 +56,9 @@
         .pr-list li.sel { background: var(--sel); }
         .pr-num { font-family: ui-monospace, monospace; color: var(--accent); font-size: 0.85rem; }
         .pr-ttl { display: block; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pr-badge { display: inline-block; min-width: 1.3em; text-align: center; font-size: 0.7rem; font-weight: 600; border-radius: 8px; padding: 0 0.35em; vertical-align: middle; margin-left: 0.15rem; }
+        .pr-badge.bad { background: var(--bad); color: #fff; }
+        .pr-badge.ok { background: #e6f4ea; color: #2e7d32; }
 
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
         .result-head { margin-bottom: 1rem; }
@@ -89,6 +92,9 @@
         .run { width: 3px; height: 12px; border-radius: 1px; }
         .run-p { background: #2e7d32; }
         .run-f { background: #c0392b; }
+        .why { font-size: 0.68rem; padding: 0 0.35em; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
+        .why:hover { border-color: #c0c0c0; }
+        .details { margin: 0.3rem 0 0.2rem 1rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
         .reason { color: var(--muted); font-size: 0.78rem; }
         .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
         .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; }
@@ -246,12 +252,20 @@
             $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
             $('prList').innerHTML = prs.map(p => `
                 <li data-num="${p.number}" data-url="${esc(p.url)}" title="${esc(p.title)}">
-                    <span class="pr-num">#${p.number}</span>
+                    <span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers)}
                     <span class="pr-ttl">${esc(p.title)}</span>
                 </li>`).join('');
             for (const li of $('prList').children) {
                 li.onclick = () => openPr(+li.dataset.num, true);
             }
+        }
+
+        // Badge next to a PR number: red count if it has blockers, a check if clean, nothing if not analysed yet.
+        function blockerBadge(n) {
+            if (n == null) return '';
+            return n > 0
+                ? `<span class="pr-badge bad" title="${n} blocker(s)">${n}</span>`
+                : `<span class="pr-badge ok" title="no blockers">✓</span>`;
         }
 
         function findLi(number) {
@@ -269,6 +283,8 @@
             $('status').textContent = '';
             $('freshness').textContent = '';
             $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
+            runsWere = 0;
+            stopRunsPoll();
             if (push) history.pushState({ pr: number }, '', '?pr=' + number);
             analyze(number);
             loadRuns(number);
@@ -276,6 +292,13 @@
 
         function setRerunEnabled(on) {
             for (const b of document.querySelectorAll('.rerun')) b.disabled = !on;
+        }
+
+        let runsTimer = null;
+        let runsWere = 0;
+
+        function stopRunsPoll() {
+            if (runsTimer) { clearTimeout(runsTimer); runsTimer = null; }
         }
 
         async function loadRuns(number) {
@@ -286,6 +309,16 @@
                 ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_self" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
+
+            // When the runs we were watching have all finished, refresh the analysis to pick up their results.
+            if (runsWere > 0 && runs.length === 0 && number === selectedPr)
+                refresh();
+            runsWere = runs.length;
+
+            // Keep polling while any run is active, so the view updates itself once they finish.
+            stopRunsPoll();
+            if (runs.length > 0 && number === selectedPr)
+                runsTimer = setTimeout(() => loadRuns(number), 15000);
         }
 
         function prFromUrl() {
@@ -348,7 +381,11 @@
             if (r.status === 401) { show('login'); return; }
             if (!r.ok) {
                 const { error } = await r.json().catch(() => ({ error: 'analysis failed' }));
-                $('status').textContent = error || 'analysis failed';
+                const noBuild = r.status === 404 || /no RunAll build/i.test(error || '');
+                $('status').innerHTML = noBuild
+                    ? 'No finished RunAll run for this PR yet — trigger one with <b>RunAll</b> above. '
+                        + '(A cancelled or still-running build doesn\'t count; an old one may have been cleaned up by TeamCity.)'
+                    : esc(error || 'analysis failed');
                 return;
             }
             renderResult(await r.json());
@@ -514,12 +551,38 @@
                     const link = g.buildId
                         ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
                         : short;
-                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
+                    const why = t.occurrenceId
+                        ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
+                        : '';
+                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}${why}</div>`
+                        + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
+                        + `<pre class="details hidden"></pre></li>`;
                 }).join('');
                 return `<li><div class="suite-head"><span class="suite-name">${head}</span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
             for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+            for (const b of el.querySelectorAll('.why'))
+                b.onclick = () => toggleDetails(b);
+        }
+
+        // Lazily fetch and toggle a test's failure message (details) from TeamCity.
+        async function toggleDetails(btn) {
+            const pre = btn.closest('li').querySelector('.details');
+            if (!pre) return;
+            if (!pre.classList.contains('hidden')) { pre.classList.add('hidden'); return; }
+            pre.classList.remove('hidden');
+            if (pre.dataset.loaded) return;
+            pre.textContent = 'loading…';
+            try {
+                const r = await api('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ));
+                if (r.status === 401) { show('login'); return; }
+                const { details } = await r.json().catch(() => ({ details: '' }));
+                pre.textContent = details && details.trim() ? details : '(no failure message available)';
+                pre.dataset.loaded = '1';
+            } catch (e) {
+                pre.textContent = 'failed to load details';
+            }
         }
 
         // Show the "Update" button when the server reports a newer release is available.
