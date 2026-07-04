@@ -46,6 +46,10 @@
         .runs { margin-left: 0.5rem; }
         .runs a { margin-left: 0.3rem; }
         .cancel { margin-left: 0.5rem; color: var(--bad); border-color: var(--bad); }
+        .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
+        .refresh:hover { color: var(--fg); }
+        .refresh.spin { animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
@@ -273,8 +277,13 @@
                 $('status').textContent = error || 'analysis failed';
                 return;
             }
-            const res = await r.json();
-            $('status').textContent = 'build ' + res.buildId + ' · updated ' + ago(res.computedAt);
+            renderResult(await r.json());
+        }
+
+        function renderResult(res) {
+            $('status').innerHTML = 'build ' + res.buildId + ' · updated ' + esc(ago(res.computedAt))
+                + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
+            $('refreshBtn').onclick = refresh;
             $('blockerCount').textContent = '(' + res.blockers.length + ')';
             $('filteredCount').textContent = '(' + res.filtered.length + ')';
             renderList($('blockers'), res.blockers, false);
@@ -282,6 +291,24 @@
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
+        }
+
+        // Force a fresh recompute of the current PR's analysis (bypassing the cache).
+        async function refresh() {
+            if (!selectedPr) return;
+            const pr = selectedPr;
+            const icon = $('refreshBtn');
+            if (icon) icon.classList.add('spin');
+            const r = await api('/api/refresh?pr=' + pr, { method: 'POST' });
+            if (pr !== selectedPr) return; // a newer selection superseded this one
+            if (r.status === 401) { show('login'); return; }
+            if (!r.ok) {
+                const { error } = await r.json().catch(() => ({ error: 'refresh failed' }));
+                $('status').textContent = error || 'refresh failed';
+                return;
+            }
+            renderResult(await r.json());
+            loadRuns(pr);
         }
 
         async function doTrigger(act, top, btn) {
