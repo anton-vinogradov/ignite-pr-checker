@@ -18,6 +18,9 @@ import org.springframework.web.client.RestClient;
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
 @Component
 public class GithubClient implements SnapshotCache {
+    /** This tool's own repo, for the "Star" button (fetched server-side so browser blockers don't hide it). */
+    private static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
+
     private final RestClient http = RestClient.create();
 
     private final GithubProperties props;
@@ -27,6 +30,10 @@ public class GithubClient implements SnapshotCache {
     private volatile List<PrSummary> cache;
 
     private volatile long cacheTs;
+
+    private volatile int starCount = -1;
+
+    private volatile long starTs;
 
     public GithubClient(GithubProperties props, ObjectMapper mapper) {
         this.props = props;
@@ -73,6 +80,35 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
+    /** Star count of this tool's own repo (cached); -1 if it couldn't be fetched yet. */
+    public int starCount() {
+        long now = System.currentTimeMillis();
+        int cached = starCount;
+        if (cached >= 0 && now - starTs < ttlMs)
+            return cached;
+
+        try {
+            RestClient.RequestHeadersSpec<?> req = http.get()
+                .uri(URI.create("https://api.github.com/repos/" + SELF_REPO))
+                .header("Accept", "application/vnd.github+json");
+
+            if (props.token() != null && !props.token().isBlank())
+                req = req.header("Authorization", "Bearer " + props.token());
+
+            Repo repo = req.retrieve().body(Repo.class);
+            if (repo != null) {
+                starCount = repo.stargazersCount();
+                starTs = now;
+                return starCount;
+            }
+        }
+        catch (Exception e) {
+            // keep the last known value (or -1) on any error
+        }
+
+        return cached;
+    }
+
     @Override
     public String fileName() {
         return "github.json";
@@ -102,6 +138,10 @@ public class GithubClient implements SnapshotCache {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GhPr(int number, String title, @JsonProperty("html_url") String htmlUrl) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Repo(@JsonProperty("stargazers_count") int stargazersCount) {
     }
 
     private record Persisted(List<PrSummary> prs, long cacheTs) {

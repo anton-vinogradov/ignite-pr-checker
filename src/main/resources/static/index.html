@@ -24,6 +24,11 @@
         .brand { font-weight: 600; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.5rem; }
         .topbar-right { display: flex; align-items: center; gap: 1rem; }
+        .star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
+        .star-btn:hover { border-color: #d0b24a; }
+        .star-ico { fill: #e3b341; flex: none; }
+        .star-count { color: var(--muted); }
+        .star-count:empty { display: none; }
         .content { flex: 1; min-height: 0; }
 
         .login-card { max-width: 560px; margin: 4rem auto; border: 1px solid var(--line); border-radius: 10px; padding: 1.75rem; }
@@ -85,9 +90,14 @@
                 <span id="username"></span>
                 <button id="logout">Log out</button>
             </div>
-            <a class="github-button" href="https://github.com/anton-vinogradov/ignite-pr-checker"
-               data-icon="octicon-star" data-show-count="true"
-               aria-label="Star anton-vinogradov/ignite-pr-checker on GitHub">Star</a>
+            <a class="star-btn" href="https://github.com/anton-vinogradov/ignite-pr-checker"
+               target="_blank" rel="noopener" title="Star this project on GitHub">
+                <svg class="star-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                    <path d="M8 12.472l-4.702 2.833 1.248-5.351L.42 6.354l5.472-.464L8 .833l2.108 5.057 5.472.464-4.126 3.6 1.248 5.351z"/>
+                </svg>
+                <span>Star</span>
+                <span id="starCount" class="star-count"></span>
+            </a>
         </div>
     </header>
 
@@ -202,6 +212,8 @@
                 const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
                 tcBase = base;
                 $('tokenLink').href = base + 'profile.html?item=accessTokens';
+                if (typeof cfg.starCount === 'number' && cfg.starCount > 0)
+                    $('starCount').textContent = cfg.starCount;
             } catch { /* ignore */ }
         }
 
@@ -413,7 +425,5 @@
         loadConfig();
         loadMe();
     </script>
-    <!-- GitHub "Star" button widget (renders the real Star button with count + starred state). -->
-    <script async defer src="https://buttons.github.io/buttons.js"></script>
 </body>
 </html>
