@@ -50,12 +50,16 @@ persist:
   interval-minutes: 5
 
 warm:
-  # Keep the newest PRs pre-analysed (using an active user's token; nothing warms until the first login).
+  # Keep the newest PRs pre-analysed (spreading the load across active users' tokens; nothing warms
+  # until the first login).
   enabled: true
   # How many of the newest open PRs to keep warm.
   count: 50
   # How often to refresh the warmed PRs, minutes.
   interval-minutes: 10
+  # Drop a pooled TeamCity token not re-offered (by a request) within this many minutes — the user
+  # has gone. Keep it >= a typical active session so live users' tokens aren't evicted mid-use.
+  token-ttl-minutes: 60
 
 session:
   # How long a login stays valid, minutes.
