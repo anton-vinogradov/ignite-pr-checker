@@ -18,6 +18,8 @@ github:
   repo: ${GITHUB_REPO:apache/ignite}
   # Optional read token to raise the API rate limit (60 -> 5000/hour). Public-repo scope is enough.
   token: ${GITHUB_TOKEN:}
+  # How long to cache the PR list. Longer = fewer GitHub calls (unauthenticated limit is 60/hour).
+  cache-seconds: 300
 
 analysis:
   # Branch to compute the "base" test history against.
