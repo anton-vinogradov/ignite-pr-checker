@@ -70,6 +70,22 @@ public class TriggerController {
         }
     }
 
+    /** Re-run a single suite (buildType) for the PR — backs the per-suite Rerun buttons. */
+    @PostMapping("/rerun-suite")
+    public ResponseEntity<?> rerunSuite(@RequestParam int pr, @RequestParam String suite,
+        @RequestParam(defaultValue = "false") boolean top,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        if (suite.isBlank())
+            return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
+
+        try {
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(tc.triggerBuild(token, suite, pr, top)))));
+        }
+        catch (RestClientResponseException e) {
+            return teamCityError(e);
+        }
+    }
+
     /** Builds the user launched (RunAll and re-run suites) currently queued or running for the PR. */
     @GetMapping("/runs")
     public List<Map<String, Object>> runs(@RequestParam int pr,
