@@ -7,6 +7,7 @@ import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -35,6 +36,9 @@ public class BlockerAnalyzer {
 
     private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
 
+    /** Last known blocker count per PR (best-effort), for the badges in the PR list. */
+    private final Map<Integer, Integer> prBlockers = new ConcurrentHashMap<>();
+
     public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg,
         @Qualifier("analysisExecutor") ExecutorService pool,
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
@@ -58,6 +62,7 @@ public class BlockerAnalyzer {
         long bid = buildId.get();
         Optional<AnalysisResult> cached = cache.peekResult(bid);
         if (cached.isPresent()) {
+            prBlockers.put(prNumber, cached.get().blockers().size());
             if (isStale(cached.get()))
                 refreshAsync(token, prNumber, bid);
 
@@ -65,6 +70,11 @@ public class BlockerAnalyzer {
         }
 
         return Optional.of(computeAndStore(token, prNumber, bid, pool));
+    }
+
+    /** Best-effort blocker count for a PR from the last analysis, or null if it hasn't been analysed. */
+    public Integer blockerCount(int prNumber) {
+        return prBlockers.get(prNumber);
     }
 
     /** Recomputes and caches the analysis for a PR's latest build. Used by the warmer (background pool). */
@@ -84,8 +94,11 @@ public class BlockerAnalyzer {
         if (buildId.isEmpty())
             return false;
 
-        if (cache.peekResult(buildId.get()).isPresent())
+        Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
+        if (cached.isPresent()) {
+            prBlockers.put(prNumber, cached.get().blockers().size());
             return false;
+        }
 
         computeAndStore(token, prNumber, buildId.get(), bgPool);
         return true;
@@ -136,6 +149,7 @@ public class BlockerAnalyzer {
             System.currentTimeMillis(), blockers, filtered);
 
         cache.putResult(buildId, result);
+        prBlockers.put(prNumber, blockers.size());
 
         return result;
     }

@@ -28,7 +28,7 @@ class GithubClientPersistenceTest {
         GithubClient loaded = client();
         loaded.loadFrom(file);
 
-        assertThat(loaded.openPrs()).containsExactly(new PrSummary(10, "Fix", "https://x/10"));
+        assertThat(loaded.openPrs()).containsExactly(new PrSummary(10, "Fix", "https://x/10", null));
     }
 
     @Test
@@ -45,7 +45,7 @@ class GithubClientPersistenceTest {
         GithubClient second = client();
         second.loadFrom(b);
 
-        assertThat(second.openPrs()).containsExactly(new PrSummary(1, "T", "u"));
+        assertThat(second.openPrs()).containsExactly(new PrSummary(1, "T", "u", null));
     }
 
     @Test
