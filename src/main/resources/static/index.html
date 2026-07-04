@@ -412,31 +412,43 @@
             }
         }
 
-        // Strip the package (and the leading test-suite class) so only "TestClass.method[params]" shows.
+        // Show only "Class.method[params]" (or just "Class" for a class-level failure): drop the
+        // package/namespace (Java lower-case OR .NET PascalCase), keeping dots inside (...)/[...] intact.
         function shortTestName(name) {
             let s = name.includes(': ') ? name.slice(name.indexOf(': ') + 2) : name;
-            const segs = s.split('.');
-            const i = segs.findIndex(seg => /^[A-Z]/.test(seg)); // Java: package is lower-case, class is Upper-case
-            return i >= 0 ? segs.slice(i).join('.') : s;
+            const noMethod = s.endsWith('.'); // class-level failure, e.g. "pkg.SomeTest."
+            let depth = 0, seg = '', segs = [];
+            for (const ch of s) {
+                if (ch === '(' || ch === '[') depth++;
+                else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+                if (ch === '.' && depth === 0) { segs.push(seg); seg = ''; }
+                else seg += ch;
+            }
+            segs.push(seg);
+            segs = segs.filter(x => x.length); // drop the empty tail left by a trailing dot
+            return segs.slice(noMethod ? -1 : -2).join('.');
         }
 
-        // Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its tests.
+        // Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its
+        // tests. Links use the Sakura-native build URL so the Tests tab + test anchor survive
+        // (viewLog.html would redirect to Sakura and drop them).
         function renderList(el, tests, withReason) {
             const groups = new Map();
             for (const t of tests) {
                 const key = t.suiteBuildId || 0;
                 if (!groups.has(key))
-                    groups.set(key, { name: t.suiteName || t.suite, buildId: t.suiteBuildId || 0, items: [] });
+                    groups.set(key, { name: t.suiteName || t.suite, buildId: t.suiteBuildId || 0, btId: t.suite, items: [] });
                 groups.get(key).items.push(t);
             }
             el.innerHTML = [...groups.values()].map(g => {
+                const runUrl = g.buildId ? `${tcBase}buildConfiguration/${encodeURIComponent(g.btId)}/${g.buildId}` : '';
                 const head = g.buildId
-                    ? `<a href="${tcBase}viewLog.html?buildId=${g.buildId}" target="_self" rel="noopener">${esc(g.name)}</a>`
+                    ? `<a href="${runUrl}" target="_self" rel="noopener">${esc(g.name)}</a>`
                     : esc(g.name);
                 const rows = g.items.map(t => {
                     const short = esc(shortTestName(t.name));
                     const link = g.buildId
-                        ? `<a href="${tcBase}viewLog.html?buildId=${g.buildId}&tab=buildResultsDiv#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
+                        ? `<a href="${runUrl}?buildTab=tests#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
                         : short;
                     return `<li><div class="tname">${link}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
                 }).join('');
