@@ -82,7 +82,11 @@
         ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
         .tname { font-family: ui-monospace, monospace; font-size: 0.83rem; word-break: break-all; }
         .reason { color: var(--muted); font-size: 0.78rem; }
-        .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; word-break: break-all; }
+        .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
+        .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; }
+        .suite-rerun { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.5rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--accent); cursor: pointer; white-space: nowrap; }
+        .suite-rerun:hover { background: #f0f4fb; }
+        .suite-rerun:disabled { opacity: 0.5; cursor: default; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
@@ -348,10 +352,10 @@
             $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt))
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
-            $('blockerCount').textContent = '(' + res.blockers.length + ')';
-            $('filteredCount').textContent = '(' + res.filtered.length + ')';
-            renderList($('blockers'), res.blockers, false);
-            renderList($('filtered'), res.filtered, true);
+            $('blockerCount').textContent = countLabel(res.blockers);
+            $('filteredCount').textContent = countLabel(res.filtered);
+            renderList($('blockers'), res.blockers, false, true);
+            renderList($('filtered'), res.filtered, true, false);
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
@@ -412,6 +416,36 @@
             }
         }
 
+        // Re-run a single suite (buildType) for the current PR.
+        async function rerunSuite(suite, btn) {
+            if (!selectedPr) return;
+            const pr = selectedPr;
+            btn.disabled = true;
+            const orig = btn.textContent;
+            btn.textContent = '…';
+            try {
+                const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=false', { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) { $('status').textContent = res.error || 'rerun failed'; return; }
+                const b = (res.triggered || [])[0];
+                $('status').innerHTML = b
+                    ? `Queued <a href="${b.webUrl}" target="_self" rel="noopener">#${b.buildId}</a>`
+                    : 'Queued.';
+                loadRuns(pr);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = orig;
+            }
+        }
+
+        // "(N suites, M tests)" — how many suites are affected and how many tests failed.
+        function countLabel(list) {
+            const suites = new Set(list.map(t => t.suiteBuildId || 0)).size;
+            const n = list.length;
+            return `(${suites} suite${suites === 1 ? '' : 's'}, ${n} test${n === 1 ? '' : 's'})`;
+        }
+
         // Show only "Class.method[params]" (or just "Class" for a class-level failure): drop the
         // package/namespace (Java lower-case OR .NET PascalCase), keeping dots inside (...)/[...] intact.
         function shortTestName(name) {
@@ -432,7 +466,7 @@
         // Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its
         // tests. Links use the Sakura-native build URL so the Tests tab + test anchor survive
         // (viewLog.html would redirect to Sakura and drop them).
-        function renderList(el, tests, withReason) {
+        function renderList(el, tests, withReason, rerunnable) {
             const groups = new Map();
             for (const t of tests) {
                 const key = t.suiteBuildId || 0;
@@ -445,6 +479,9 @@
                 const head = g.buildId
                     ? `<a href="${runUrl}" target="_self" rel="noopener">${esc(g.name)}</a>`
                     : esc(g.name);
+                const rerunBtn = rerunnable && g.btId
+                    ? `<button class="suite-rerun" data-suite="${esc(g.btId)}" title="Re-run this suite for the PR">Rerun</button>`
+                    : '';
                 const rows = g.items.map(t => {
                     const short = esc(shortTestName(t.name));
                     // expandedTest opens the test "into itself" in this build (not the branch summary).
@@ -458,8 +495,10 @@
                         : short;
                     return `<li><div class="tname">${link}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
                 }).join('');
-                return `<li><div class="suite-head">${head}</div><ul class="suite-tests">${rows}</ul></li>`;
+                return `<li><div class="suite-head"><span class="suite-name">${head}</span>${rerunBtn}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
+            for (const b of el.querySelectorAll('.suite-rerun'))
+                b.onclick = () => rerunSuite(b.dataset.suite, b);
         }
 
         // Show the "Update" button when the server reports a newer release is available.
