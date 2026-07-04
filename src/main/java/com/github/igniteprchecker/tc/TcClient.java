@@ -6,6 +6,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,11 +96,17 @@ public class TcClient {
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
     }
 
-    /** Enqueues the RunAll chain for a PR branch on TeamCity. Returns the queued build. */
-    public TcModel.Build triggerRunAllForPr(String token, int prNumber) {
+    /** Enqueues the RunAll chain for a PR branch. {@code top} puts it at the head of the queue. */
+    public TcModel.Build triggerRunAll(String token, int prNumber, boolean top) {
+        return triggerBuild(token, analysis.runAllBuildType(), prNumber, top);
+    }
+
+    /** Enqueues one build type for a PR branch. {@code top} puts it at the head of the queue. */
+    public TcModel.Build triggerBuild(String token, String buildTypeId, int prNumber, boolean top) {
         Map<String, Object> payload = Map.of(
             "branchName", "pull/" + prNumber + "/head",
-            "buildType", Map.of("id", analysis.runAllBuildType()),
+            "buildType", Map.of("id", buildTypeId),
+            "triggeringOptions", Map.of("queueAtTop", top),
             "comment", Map.of("text", "Triggered by Ignite PR Checker"));
 
         return http.post()
@@ -109,6 +116,26 @@ public class TcClient {
             .body(payload)
             .retrieve()
             .body(TcModel.Build.class);
+    }
+
+    /** The RunAll builds currently running or queued for a PR branch (running first). */
+    public List<TcModel.Build> currentRunAllBuilds(String token, int prNumber) {
+        List<TcModel.Build> builds = new ArrayList<>();
+        builds.addAll(runAllBuildsInState(token, prNumber, "running"));
+        builds.addAll(runAllBuildsInState(token, prNumber, "queued"));
+
+        return builds;
+    }
+
+    private List<TcModel.Build> runAllBuildsInState(String token, int prNumber, String state) {
+        String locator = "buildType:" + analysis.runAllBuildType()
+            + ",branch:(name:pull/" + prNumber + "/head),state:" + state + ",count:20";
+
+        TcModel.BuildList list = get(token, url("app/rest/builds", query(
+            "locator", locator,
+            "fields", "build(id,state,status,webUrl)")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
     }
 
     private <T> T get(String token, URI uri, Class<T> type) {
