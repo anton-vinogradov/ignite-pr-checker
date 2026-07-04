@@ -9,13 +9,13 @@ import org.junit.jupiter.api.Test;
 class SessionCodecTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private SessionCodec codec(int ttlMinutes, String secret) {
-        return new SessionCodec(new SessionProperties(ttlMinutes, false, secret), mapper);
+    private SessionCodec codec(String secret) {
+        return new SessionCodec(new SessionProperties(false, secret), mapper);
     }
 
     @Test
     void roundTrip() {
-        SessionCodec codec = codec(60, "top-secret");
+        SessionCodec codec = codec("top-secret");
 
         String cookie = codec.encode("bob", "tc-token-xyz");
         SessionCodec.Session s = codec.decode(cookie).orElseThrow();
@@ -27,33 +27,26 @@ class SessionCodecTest {
     @Test
     void survivesRestartWithSameSecret() {
         // Same secret, a fresh instance == a server restart. The old cookie must still decode.
-        String cookie = codec(60, "stable-secret").encode("bob", "tc-token-xyz");
+        String cookie = codec("stable-secret").encode("bob", "tc-token-xyz");
 
-        assertThat(codec(60, "stable-secret").decode(cookie)).isPresent();
+        assertThat(codec("stable-secret").decode(cookie)).isPresent();
     }
 
     @Test
     void rejectsCookieFromDifferentSecret() {
-        String cookie = codec(60, "secret-A").encode("bob", "tc-token-xyz");
+        String cookie = codec("secret-A").encode("bob", "tc-token-xyz");
 
-        assertThat(codec(60, "secret-B").decode(cookie)).isEmpty();
+        assertThat(codec("secret-B").decode(cookie)).isEmpty();
     }
 
     @Test
     void rejectsTamperedAndMissing() {
-        SessionCodec codec = codec(60, "top-secret");
+        SessionCodec codec = codec("top-secret");
         String cookie = codec.encode("bob", "tc-token-xyz");
 
         assertThat(codec.decode(cookie.substring(0, cookie.length() - 2) + "xx")).isEmpty();
         assertThat(codec.decode(null)).isEmpty();
         assertThat(codec.decode("")).isEmpty();
         assertThat(codec.decode("not-base64-$$$")).isEmpty();
-    }
-
-    @Test
-    void rejectsExpired() {
-        SessionCodec codec = codec(-1, "top-secret");
-
-        assertThat(codec.decode(codec.encode("bob", "tc-token-xyz"))).isEmpty();
     }
 }
