@@ -158,6 +158,7 @@
     <script>
         const $ = (id) => document.getElementById(id);
         let githubRepo = 'apache/ignite';
+        let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
         let selectedPr = null;
 
         async function api(path, opts = {}) {
@@ -193,6 +194,7 @@
                 const cfg = await r.json();
                 if (cfg.githubRepo) githubRepo = cfg.githubRepo;
                 const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
+                tcBase = base;
                 $('tokenLink').href = base + 'profile.html?item=accessTokens';
             } catch { /* ignore */ }
         }
@@ -315,7 +317,10 @@
 
         function renderResult(res) {
             $('status').textContent = '';
-            $('freshness').innerHTML = 'build ' + res.buildId + ' · updated ' + esc(ago(res.computedAt))
+            const buildLabel = tcBase
+                ? `<a href="${tcBase}build/${res.buildId}" target="_blank" rel="noopener">build ${res.buildId}</a>`
+                : 'build ' + res.buildId;
+            $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt))
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
             $('blockerCount').textContent = '(' + res.blockers.length + ')';
