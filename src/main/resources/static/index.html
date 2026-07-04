@@ -448,8 +448,11 @@
                 const rows = g.items.map(t => {
                     const short = esc(shortTestName(t.name));
                     // expandedTest opens the test "into itself" in this build (not the branch summary).
-                    // occurrenceId is already the full "build:(id:..),id:.." locator TeamCity expects.
-                    const expanded = t.occurrenceId ? `&expandedTest=${encodeURIComponent(t.occurrenceId)}` : '';
+                    // occurrenceId is already the full "build:(id:..),id:.." locator; TeamCity's router
+                    // needs the parens percent-encoded too, which encodeURIComponent leaves intact.
+                    const expanded = t.occurrenceId
+                        ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
+                        : '';
                     const link = g.buildId
                         ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
                         : short;
