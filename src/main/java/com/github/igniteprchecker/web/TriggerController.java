@@ -70,19 +70,19 @@ public class TriggerController {
         }
     }
 
-    /** RunAll builds currently queued or running for the PR. */
+    /** Builds the user launched (RunAll and re-run suites) currently queued or running for the PR. */
     @GetMapping("/runs")
     public List<Map<String, Object>> runs(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return tc.currentRunAllBuilds(token, pr).stream().map(TriggerController::brief).toList();
+        return tc.currentUserBuilds(token, pr).stream().map(TriggerController::brief).toList();
     }
 
-    /** Cancel every RunAll build currently queued or running for the PR. */
+    /** Cancel every user-launched build (RunAll or re-run suite) currently queued or running for the PR. */
     @PostMapping("/cancel-all")
     public ResponseEntity<?> cancelAll(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         try {
-            return ResponseEntity.ok(Map.of("cancelled", tc.cancelRunAllBuilds(token, pr)));
+            return ResponseEntity.ok(Map.of("cancelled", tc.cancelUserBuilds(token, pr)));
         }
         catch (RestClientResponseException e) {
             return teamCityError(e);
@@ -90,9 +90,12 @@ public class TriggerController {
     }
 
     private static Map<String, Object> brief(TcModel.Build b) {
+        String name = b.buildType() != null && b.buildType().name() != null ? b.buildType().name() : "";
+
         return Map.of(
             "buildId", b.id(),
             "state", b.state() == null ? "queued" : b.state(),
+            "name", name,
             "webUrl", b.webUrl() == null ? "" : b.webUrl());
     }
 

@@ -207,7 +207,7 @@
             if (!r.ok || number !== selectedPr) return;
             const runs = await r.json();
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">${b.state} #${b.buildId}</a>`).join(' · ')
+                ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')
                 : '';
             $('cancelAll').classList.toggle('hidden', runs.length === 0);
         }

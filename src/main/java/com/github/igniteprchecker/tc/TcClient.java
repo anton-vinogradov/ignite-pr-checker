@@ -124,20 +124,25 @@ public class TcClient {
             .body(TcModel.Build.class);
     }
 
-    /** The RunAll builds currently running or queued for a PR branch (running first). */
-    public List<TcModel.Build> currentRunAllBuilds(String token, int prNumber) {
+    /**
+     * The builds the user launched for a PR branch that are currently running or queued (running
+     * first): the RunAll chain and any individually re-run suites. Snapshot-dependency suites of a
+     * RunAll (there are ~150) are excluded via {@code triggered:(type:user)} — only directly
+     * triggered builds are user-triggered; chain dependencies are triggered by the dependency.
+     */
+    public List<TcModel.Build> currentUserBuilds(String token, int prNumber) {
         List<TcModel.Build> builds = new ArrayList<>();
-        builds.addAll(runAllBuildsInState(token, prNumber, "running"));
-        builds.addAll(runAllBuildsInState(token, prNumber, "queued"));
+        builds.addAll(userBuildsInState(token, prNumber, "running"));
+        builds.addAll(userBuildsInState(token, prNumber, "queued"));
 
         return builds;
     }
 
-    /** Cancels every RunAll build currently queued or running for a PR; returns how many were cancelled. */
-    public int cancelRunAllBuilds(String token, int prNumber) {
+    /** Cancels every user-launched build (RunAll or re-run suite) currently queued or running; returns how many. */
+    public int cancelUserBuilds(String token, int prNumber) {
         int cancelled = 0;
 
-        for (TcModel.Build b : currentRunAllBuilds(token, prNumber)) {
+        for (TcModel.Build b : currentUserBuilds(token, prNumber)) {
             try {
                 cancelBuild(token, b);
                 cancelled++;
@@ -165,13 +170,13 @@ public class TcClient {
             .toBodilessEntity();
     }
 
-    private List<TcModel.Build> runAllBuildsInState(String token, int prNumber, String state) {
-        String locator = "buildType:" + analysis.runAllBuildType()
-            + ",branch:(name:pull/" + prNumber + "/head),state:" + state + ",count:20";
+    private List<TcModel.Build> userBuildsInState(String token, int prNumber, String state) {
+        String locator = "branch:(name:pull/" + prNumber + "/head)"
+            + ",triggered:(type:user),state:" + state + ",count:50";
 
         TcModel.BuildList list = get(token, url("app/rest/builds", query(
             "locator", locator,
-            "fields", "build(id,state,status,webUrl)")), TcModel.BuildList.class);
+            "fields", "build(id,state,status,webUrl,buildType(name))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }
