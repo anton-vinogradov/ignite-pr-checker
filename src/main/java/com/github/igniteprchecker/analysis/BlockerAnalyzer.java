@@ -72,6 +72,25 @@ public class BlockerAnalyzer {
     }
 
     /**
+     * Warms a PR for the cache-warmer: looks up the latest build (cheap) and recomputes it only if
+     * that build is not already cached — an unchanged RunAll build yields the same result, so there
+     * is nothing to redo. Returns true if it recomputed, false if the cached result was reused (or
+     * the PR has no finished RunAll build yet). This is what keeps the warmer from re-hammering
+     * TeamCity with the heavy history/latest-run lookups every cycle.
+     */
+    public boolean warm(String token, int prNumber) {
+        Optional<Long> buildId = chains.findBuildId(token, prNumber);
+        if (buildId.isEmpty())
+            return false;
+
+        if (cache.peekResult(buildId.get()).isPresent())
+            return false;
+
+        computeAndStore(token, prNumber, buildId.get(), bgPool);
+        return true;
+    }
+
+    /**
      * Recomputes now (ignoring any cached result) and returns the fresh analysis, or empty if no
      * RunAll build exists yet. Backs the manual "refresh" button.
      */

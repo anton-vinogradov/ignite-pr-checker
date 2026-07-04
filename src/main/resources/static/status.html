@@ -39,12 +39,24 @@
         .catfill { background: var(--accent); height: 100%; }
         .catval { white-space: nowrap; }
         .catval small { color: var(--muted); }
+        .hdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 0.5rem; vertical-align: middle; background: #bbb; }
+        .hdot.ok { background: var(--ok); }
+        .hdot.warn { background: #e0a000; }
+        .hdot.error { background: var(--bad); }
+        .loglist { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-family: ui-monospace, monospace; }
+        .logrow { display: grid; grid-template-columns: 62px 46px 130px 1fr; gap: 0.5rem; align-items: baseline; }
+        .logtime { color: var(--muted); }
+        .loglevel { font-weight: 600; }
+        .lvl-error { color: var(--bad); }
+        .lvl-warn { color: #b26a00; }
+        .loglogger { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .logmsg { word-break: break-word; }
         .updated { font-size: 0.78rem; color: var(--muted); }
     </style>
 </head>
 <body>
     <header class="topbar">
-        <div class="brand">Ignite PR Checker <small>service status</small></div>
+        <div class="brand">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></div>
         <div><a href="/" >← App</a></div>
     </header>
 
@@ -71,6 +83,9 @@
         <h2>Cache &amp; warmer</h2>
         <div class="cards" id="appCards"></div>
 
+        <h2>Recent errors &amp; warnings</h2>
+        <div class="section"><div id="logList" class="loglist"></div></div>
+
         <div class="updated" id="updated"></div>
     </div>
 
@@ -96,11 +111,15 @@
             const tc = d.teamcity, gh = d.github;
             const t = tc.total, g = gh.total;
             const tcRate = t.total ? (100 * t.ok / t.total) : 100;
+            $('healthDot').className = 'hdot ' + (d.health || 'ok');
+            $('healthDot').title = d.health === 'error' ? 'errors logged' : d.health === 'warn' ? 'warnings logged' : 'healthy';
             $('topCards').innerHTML = [
                 card('Version', d.version),
                 card('Uptime', fmtDur(d.uptimeSeconds)),
                 card('Heap', d.jvm.heapUsedMb, `/ ${d.jvm.heapMaxMb} MB`),
                 card('Threads', d.jvm.threads, `· ${d.jvm.cpus} cpu`),
+                card('Log issues', d.log.errors,
+                    `<span class="${d.log.errors ? 'rate-bad' : ''}">${d.log.warnings} warn</span>`),
                 card('TeamCity calls', t.total.toLocaleString(),
                     `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span>`),
                 card('TC latency', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
@@ -123,9 +142,25 @@
 
             renderCats($('tcCats'), tc.byCategory || {});
             renderCats($('ghCats'), gh.byCategory || {});
+            renderLog($('logList'), d.log || { recent: [] });
 
             drawChart($('tcChart'), tc.perMinute || []);
             $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+        }
+
+        function esc(s) {
+            return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        }
+
+        function renderLog(el, log) {
+            const recent = log.recent || [];
+            if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }
+            el.innerHTML = recent.map(e => `<div class="logrow">
+                <span class="logtime">${new Date(e.t).toLocaleTimeString()}</span>
+                <span class="loglevel lvl-${e.level.toLowerCase()}">${e.level}</span>
+                <span class="loglogger" title="${esc(e.logger)}">${esc(e.logger)}</span>
+                <span class="logmsg">${esc(e.message)}</span>
+            </div>`).join('');
         }
 
         function renderCats(el, byCategory) {

@@ -62,7 +62,8 @@ public class Warmer {
     private void warmCycle() {
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
-        int warmed = 0;
+        int recomputed = 0;
+        int cached = 0;
 
         for (int i = 0; i < count; i++) {
             String token = tokens.next();
@@ -72,8 +73,10 @@ public class Warmer {
             int pr = prs.get(i).number();
 
             try {
-                analyzer.refresh(token, pr);
-                warmed++;
+                if (analyzer.warm(token, pr)) // recomputes only if the latest build isn't already cached
+                    recomputed++;
+                else
+                    cached++;
             }
             catch (RestClientResponseException e) {
                 if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
@@ -87,8 +90,8 @@ public class Warmer {
             }
         }
 
-        lastWarmed = warmed;
-        log.info("warmed {} PR(s) across {} token(s)", warmed, tokens.size());
+        lastWarmed = recomputed;
+        log.info("warm cycle: {} recomputed, {} already cached, across {} token(s)", recomputed, cached, tokens.size());
     }
 
     /** Number of PRs warmed in the last cycle (for the status page). */
