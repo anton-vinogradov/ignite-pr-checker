@@ -29,6 +29,8 @@
         .star-ico { fill: #e3b341; flex: none; }
         .star-count { color: var(--muted); }
         .star-count:empty { display: none; }
+        .update-btn { display: inline-flex; align-items: center; text-decoration: none; font-size: 0.85rem; color: #fff; background: var(--accent); border-radius: 6px; padding: 0.3rem 0.7rem; white-space: nowrap; }
+        .update-btn:hover { background: #0d4ea0; }
         .content { flex: 1; min-height: 0; }
 
         .login-card { max-width: 560px; margin: 4rem auto; border: 1px solid var(--line); border-radius: 10px; padding: 1.75rem; }
@@ -86,6 +88,7 @@
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>which tests your PR actually broke</small></div>
         <div class="topbar-right">
+            <a id="updateBtn" class="update-btn hidden" href="#" title="A new version is available"></a>
             <div id="session" class="row muted hidden">
                 <span id="username"></span>
                 <button id="logout">Log out</button>
@@ -414,16 +417,62 @@
                 </li>`).join('');
         }
 
+        // Show the "Update" button when the server reports a newer release is available.
+        async function checkUpdate() {
+            try {
+                const r = await fetch('/api/version', { cache: 'no-store' });
+                if (!r.ok) return;
+                const v = await r.json();
+                if (v.updateAvailable) {
+                    $('updateBtn').textContent = 'Update to v' + v.latest;
+                    $('updateBtn').classList.remove('hidden');
+                } else {
+                    $('updateBtn').classList.add('hidden');
+                }
+            } catch { /* ignore */ }
+        }
+
+        async function doUpdate() {
+            if (!confirm('Update the app to the latest release? It will restart (a few seconds of downtime).')) return;
+            const btn = $('updateBtn');
+            btn.textContent = 'Updating…';
+            const r = await api('/api/update', { method: 'POST' });
+            if (r.status === 401) { show('login'); return; }
+            if (!r.ok) {
+                const { error } = await r.json().catch(() => ({ error: 'update failed' }));
+                btn.textContent = error || 'update failed';
+                return;
+            }
+            waitForRestart();
+        }
+
+        // The server is restarting into the new jar; poll until it answers again, then reload.
+        function waitForRestart() {
+            $('updateBtn').textContent = 'Restarting…';
+            let tries = 0;
+            const iv = setInterval(async () => {
+                tries++;
+                try {
+                    const r = await fetch('/api/version', { cache: 'no-store' });
+                    if (r.ok) { clearInterval(iv); location.reload(); }
+                } catch { /* still down */ }
+                if (tries > 60) { clearInterval(iv); $('updateBtn').textContent = 'Update is taking long — reload the page'; }
+            }, 2000);
+        }
+
         $('loginBtn').onclick = login;
         $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
         $('logout').onclick = logout;
+        $('updateBtn').onclick = e => { e.preventDefault(); doUpdate(); };
         for (const b of document.querySelectorAll('.act'))
             b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
         $('cancelAll').onclick = cancelAll;
         window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
         setInterval(() => { if (selectedPr && !$('analyzeView').classList.contains('hidden')) loadRuns(selectedPr); }, 15000);
+        setInterval(checkUpdate, 5 * 60 * 1000); // re-check for updates every 5 min
         loadConfig();
         loadMe();
+        checkUpdate();
     </script>
 </body>
 </html>

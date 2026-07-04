@@ -65,6 +65,15 @@ warm:
   # has gone. Keep it >= a typical active session so live users' tokens aren't evicted mid-use.
   token-ttl-minutes: 60
 
+update:
+  # In-app self-update: check the project's GitHub releases and, on request, download the new jar
+  # over app.jar and restart (systemd relaunches on exit). Disable with UPDATE_ENABLED=false.
+  enabled: ${UPDATE_ENABLED:true}
+  # Path of the running jar to replace (the service user must own it). Override with UPDATE_JAR_PATH.
+  jar-path: ${UPDATE_JAR_PATH:/opt/ignite-pr-checker/app.jar}
+  # Repo whose latest release the update is pulled from.
+  repo: anton-vinogradov/ignite-pr-checker
+
 session:
   # A login lasts until logout — there is no session timeout.
   # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.

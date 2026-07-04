@@ -35,6 +35,10 @@ public class GithubClient implements SnapshotCache {
 
     private volatile long starTs;
 
+    private volatile String releaseTag;
+
+    private volatile long releaseTs;
+
     public GithubClient(GithubProperties props, ObjectMapper mapper) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
@@ -109,6 +113,35 @@ public class GithubClient implements SnapshotCache {
         return cached;
     }
 
+    /** Latest release tag of this tool's own repo, without a leading 'v' (cached); null if unavailable. */
+    public String latestReleaseTag() {
+        long now = System.currentTimeMillis();
+        String cached = releaseTag;
+        if (cached != null && now - releaseTs < ttlMs)
+            return cached;
+
+        try {
+            RestClient.RequestHeadersSpec<?> req = http.get()
+                .uri(URI.create("https://api.github.com/repos/" + SELF_REPO + "/releases/latest"))
+                .header("Accept", "application/vnd.github+json");
+
+            if (props.token() != null && !props.token().isBlank())
+                req = req.header("Authorization", "Bearer " + props.token());
+
+            Release release = req.retrieve().body(Release.class);
+            if (release != null && release.tagName() != null) {
+                releaseTag = release.tagName().replaceFirst("^v", "");
+                releaseTs = now;
+                return releaseTag;
+            }
+        }
+        catch (Exception e) {
+            // keep the last known value (or null) on any error
+        }
+
+        return cached;
+    }
+
     @Override
     public String fileName() {
         return "github.json";
@@ -142,6 +175,10 @@ public class GithubClient implements SnapshotCache {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Repo(@JsonProperty("stargazers_count") int stargazersCount) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Release(@JsonProperty("tag_name") String tagName) {
     }
 
     private record Persisted(List<PrSummary> prs, long cacheTs) {

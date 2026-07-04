@@ -5,7 +5,9 @@ plugins {
 }
 
 group = 'com.github.igniteprchecker'
-version = '0.1.0-SNAPSHOT'
+// Release builds pass -Pappversion=<tag without 'v'> (see .github/workflows/release.yml); dev builds
+// stay on -SNAPSHOT. The value is embedded via buildInfo() so the app knows its own version.
+version = project.findProperty('appversion') ?: '0.1.0-SNAPSHOT'
 
 java {
     toolchain {
@@ -20,6 +22,11 @@ repositories {
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+springBoot {
+    // Generates META-INF/build-info.properties so BuildProperties (the app's own version) is available.
+    buildInfo()
 }
 
 tasks.named('bootJar') {
