@@ -43,6 +43,7 @@
         .act-sep { margin-left: 0.7rem; }
         .runs { margin-left: 0.5rem; }
         .runs a { margin-left: 0.3rem; }
+        .cancel { margin-left: 0.5rem; color: var(--bad); border-color: var(--bad); }
         #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
@@ -96,6 +97,7 @@
                         <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Plain</button>
                         <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Top</button>
                         <span id="runs" class="runs muted"></span>
+                        <button id="cancelAll" class="cancel hidden">Cancel all</button>
                     </div>
                     <div id="status" class="muted"></div>
                 </div>
@@ -188,6 +190,7 @@
             setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
             $('actions').classList.remove('hidden');
             setRerunEnabled(false);
+            $('cancelAll').classList.add('hidden'); // until this PR's runs are loaded
             if (push) history.pushState({ pr: number }, '', '?pr=' + number);
             analyze(number);
             loadRuns(number);
@@ -204,6 +207,7 @@
             $('runs').innerHTML = runs.length
                 ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">${b.state} #${b.buildId}</a>`).join(' · ')
                 : '';
+            $('cancelAll').classList.toggle('hidden', runs.length === 0);
         }
 
         function prFromUrl() {
@@ -297,6 +301,24 @@
             }
         }
 
+        async function cancelAll() {
+            if (!selectedPr) return;
+            const pr = selectedPr;
+            const btn = $('cancelAll');
+            btn.disabled = true;
+            $('status').textContent = 'Cancelling runs…';
+            try {
+                const r = await api('/api/cancel-all?pr=' + pr, { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) { $('status').textContent = res.error || 'cancel failed'; return; }
+                $('status').textContent = 'Cancelled ' + (res.cancelled || 0) + ' run(s).';
+                loadRuns(pr);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         function renderList(el, tests, withReason) {
             el.innerHTML = tests.map(t => `
                 <li>
@@ -311,6 +333,7 @@
         $('logout').onclick = logout;
         for (const b of document.querySelectorAll('.act'))
             b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
+        $('cancelAll').onclick = cancelAll;
         window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
         setInterval(() => { if (selectedPr && !$('analyzeView').classList.contains('hidden')) loadRuns(selectedPr); }, 15000);
         loadConfig();
