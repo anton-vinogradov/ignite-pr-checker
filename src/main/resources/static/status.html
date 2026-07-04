@@ -74,10 +74,10 @@
             <div id="tcByStatus" class="bystatus"></div>
         </div>
 
-        <h2>TeamCity calls by category</h2>
+        <h2>TeamCity calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="tcCats" class="cats"></div></div>
 
-        <h2>GitHub calls by category</h2>
+        <h2>GitHub calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="ghCats" class="cats"></div></div>
 
         <h2>Cache &amp; warmer</h2>
@@ -109,7 +109,7 @@
 
         function render(d) {
             const tc = d.teamcity, gh = d.github;
-            const t = tc.total, g = gh.total;
+            const t = tc.lastHour, g = gh.lastHour;
             const tcRate = t.total ? (100 * t.ok / t.total) : 100;
             $('healthDot').className = 'hdot ' + (d.health || 'ok');
             $('healthDot').title = d.health === 'error' ? 'errors logged' : d.health === 'warn' ? 'warnings logged' : 'healthy';
@@ -120,10 +120,10 @@
                 card('Threads', d.jvm.threads, `· ${d.jvm.cpus} cpu`),
                 card('Log issues', d.log.errors,
                     `<span class="${d.log.errors ? 'rate-bad' : ''}">${d.log.warnings} warn</span>`),
-                card('TeamCity calls', t.total.toLocaleString(),
-                    `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span>`),
-                card('TC latency', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
-                card('GitHub calls', g.total.toLocaleString(), `${g.fail} failed`),
+                card('TeamCity (1h)', t.total.toLocaleString(),
+                    `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span> · ${tc.sinceStart.toLocaleString()} total`),
+                card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
+                card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`),
             ].join('');
 
             $('appCards').innerHTML = [

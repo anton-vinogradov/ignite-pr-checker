@@ -16,25 +16,24 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
 
 /**
- * In-memory service metrics for the status page: outbound-call counts, success and latency, broken
- * down by <em>category</em> of call (which TeamCity/GitHub endpoint), plus a rolling per-minute
- * series of TeamCity calls (how many, when, how many failed). Thread-safe and cheap. Snapshotted to
- * disk (via {@link SnapshotCache}) so counts survive restarts/deploys.
+ * In-memory service metrics for the status page. The breakdowns (per-category counts, latency, the
+ * per-minute series) are over a rolling <b>last hour</b> — that's what's actionable — while a plain
+ * lifetime total ("since start") is kept per target and persisted. Thread-safe and cheap; the
+ * rolling windows are in-memory (rebuild within an hour after a restart), the lifetime totals survive.
  */
 @Component
 public class Metrics implements SnapshotCache {
-    private static final int WINDOW = 60; // minutes kept in the rolling per-minute series
+    static final int WINDOW = 60; // minutes in the rolling window
 
     private final ObjectMapper mapper;
     private final long startedAt = System.currentTimeMillis();
 
-    private final Map<String, Counter> tc = new ConcurrentHashMap<>();
-    private final Map<String, Counter> github = new ConcurrentHashMap<>();
+    private final Map<String, Ring> tc = new ConcurrentHashMap<>();
+    private final Map<String, Ring> github = new ConcurrentHashMap<>();
     private final Map<Integer, AtomicLong> tcByStatus = new ConcurrentHashMap<>();
 
-    private final long[] minute = new long[WINDOW];
-    private final long[] okAt = new long[WINDOW];
-    private final long[] failAt = new long[WINDOW];
+    private final AtomicLong tcSinceStart = new AtomicLong();
+    private final AtomicLong githubSinceStart = new AtomicLong();
 
     public Metrics(ObjectMapper mapper) {
         this.mapper = mapper;
@@ -42,29 +41,16 @@ public class Metrics implements SnapshotCache {
 
     /** Record one TeamCity call. {@code status} is the HTTP code, or 0 for a network/other error. */
     public void recordTc(String category, boolean ok, int status, long latencyMs) {
-        tc.computeIfAbsent(category, c -> new Counter()).record(ok, latencyMs);
+        tc.computeIfAbsent(category, c -> new Ring()).record(ok, latencyMs);
+        tcSinceStart.incrementAndGet();
         if (!ok)
             tcByStatus.computeIfAbsent(status, s -> new AtomicLong()).incrementAndGet();
-        bump(ok);
     }
 
     /** Record one GitHub call (categories: prs / star / release). */
     public void recordGithub(String category, boolean ok, long latencyMs) {
-        github.computeIfAbsent(category, c -> new Counter()).record(ok, latencyMs);
-    }
-
-    private synchronized void bump(boolean ok) {
-        long m = System.currentTimeMillis() / 60_000L;
-        int i = (int) Math.floorMod(m, WINDOW);
-        if (minute[i] != m) { // rolled into a new minute: reset this slot
-            minute[i] = m;
-            okAt[i] = 0;
-            failAt[i] = 0;
-        }
-        if (ok)
-            okAt[i]++;
-        else
-            failAt[i]++;
+        github.computeIfAbsent(category, c -> new Ring()).record(ok, latencyMs);
+        githubSinceStart.incrementAndGet();
     }
 
     public long uptimeSeconds() {
@@ -72,24 +58,28 @@ public class Metrics implements SnapshotCache {
     }
 
     public Group teamcity() {
-        return new Group(aggregate(tc), byCategory(tc), byStatusView(), perMinute());
+        return new Group(aggregate(tc), tcSinceStart.get(), byCategory(tc), byStatusView(), perMinute(tc));
     }
 
     public Group github() {
-        return new Group(aggregate(github), byCategory(github), Map.of(), List.of());
+        return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(), perMinute(github));
     }
 
-    private static Stats aggregate(Map<String, Counter> counters) {
-        Counter all = new Counter();
-        counters.values().forEach(c -> all.add(c));
+    private static Stats aggregate(Map<String, Ring> rings) {
+        Raw total = new Raw(0, 0, 0, 0);
+        for (Ring r : rings.values())
+            total = total.plus(r.lastHour());
 
-        return all.stats();
+        return total.stats();
     }
 
-    private static Map<String, Stats> byCategory(Map<String, Counter> counters) {
+    private static Map<String, Stats> byCategory(Map<String, Ring> rings) {
+        Map<String, Raw> raw = new LinkedHashMap<>();
+        rings.forEach((k, r) -> raw.put(k, r.lastHour()));
+
         Map<String, Stats> out = new LinkedHashMap<>();
-        counters.entrySet().stream()
-            .sorted((a, b) -> Long.compare(b.getValue().total.get(), a.getValue().total.get()))
+        raw.entrySet().stream()
+            .sorted((a, b) -> Long.compare(b.getValue().calls(), a.getValue().calls()))
             .forEach(e -> out.put(e.getKey(), e.getValue().stats()));
 
         return out;
@@ -102,20 +92,23 @@ public class Metrics implements SnapshotCache {
         return out;
     }
 
-    private synchronized List<Minute> perMinute() {
+    /** The last {@code WINDOW} minutes (oldest first), ok/fail summed across all categories. */
+    private static List<Minute> perMinute(Map<String, Ring> rings) {
         long nowMin = System.currentTimeMillis() / 60_000L;
-        List<Minute> out = new ArrayList<>(WINDOW);
+        long[] ok = new long[WINDOW];
+        long[] fail = new long[WINDOW];
 
-        for (long m = nowMin - (WINDOW - 1); m <= nowMin; m++) {
-            int i = (int) Math.floorMod(m, WINDOW);
-            boolean live = minute[i] == m;
-            out.add(new Minute(m * 60_000L, live ? okAt[i] : 0, live ? failAt[i] : 0));
-        }
+        for (Ring r : rings.values())
+            r.addTo(nowMin, ok, fail);
+
+        List<Minute> out = new ArrayList<>(WINDOW);
+        for (int i = 0; i < WINDOW; i++)
+            out.add(new Minute((nowMin - (WINDOW - 1) + i) * 60_000L, ok[i], fail[i]));
 
         return out;
     }
 
-    // --- persistence -------------------------------------------------------------------------
+    // --- persistence: only the durable lifetime totals + failures-by-status (rings are ephemeral) ---
 
     @Override
     public String fileName() {
@@ -123,90 +116,92 @@ public class Metrics implements SnapshotCache {
     }
 
     @Override
-    public synchronized void saveTo(Path file) throws IOException {
-        List<Minute> ring = new ArrayList<>();
-        for (int i = 0; i < WINDOW; i++)
-            if (minute[i] > 0)
-                ring.add(new Minute(minute[i] * 60_000L, okAt[i], failAt[i]));
-
-        Snapshots.writeAtomic(mapper, file, new Persisted(states(tc), states(github), byStatusView(), ring));
+    public void saveTo(Path file) throws IOException {
+        Snapshots.writeAtomic(mapper, file, new Persisted(tcSinceStart.get(), githubSinceStart.get(), byStatusView()));
     }
 
     @Override
-    public synchronized void loadFrom(Path file) throws IOException {
+    public void loadFrom(Path file) throws IOException {
         if (!Files.exists(file))
             return;
 
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
-        p.tc().forEach((k, v) -> tc.put(k, Counter.of(v)));
-        p.github().forEach((k, v) -> github.put(k, Counter.of(v)));
-        p.byStatus().forEach((k, v) -> tcByStatus.put(k, new AtomicLong(v)));
+        tcSinceStart.set(p.tcSinceStart());
+        githubSinceStart.set(p.githubSinceStart());
+        if (p.byStatus() != null)
+            p.byStatus().forEach((k, v) -> tcByStatus.put(k, new AtomicLong(v)));
+    }
 
-        long nowMin = System.currentTimeMillis() / 60_000L;
-        for (Minute m : p.ring()) {
-            long mm = m.t() / 60_000L;
-            if (mm > nowMin - WINDOW && mm <= nowMin) { // still inside the window
-                int i = (int) Math.floorMod(mm, WINDOW);
-                minute[i] = mm;
-                okAt[i] = m.ok();
-                failAt[i] = m.fail();
+    /** A per-category rolling window of one-minute buckets. */
+    private static final class Ring {
+        private final long[] minute = new long[WINDOW];
+        private final long[] calls = new long[WINDOW];
+        private final long[] fails = new long[WINDOW];
+        private final long[] latSum = new long[WINDOW];
+        private final long[] latMax = new long[WINDOW];
+
+        synchronized void record(boolean ok, long ms) {
+            long m = System.currentTimeMillis() / 60_000L;
+            int i = (int) Math.floorMod(m, WINDOW);
+            if (minute[i] != m) {
+                minute[i] = m;
+                calls[i] = 0;
+                fails[i] = 0;
+                latSum[i] = 0;
+                latMax[i] = 0;
+            }
+            calls[i]++;
+            if (!ok)
+                fails[i]++;
+            latSum[i] += ms;
+            latMax[i] = Math.max(latMax[i], ms);
+        }
+
+        synchronized Raw lastHour() {
+            long nowMin = System.currentTimeMillis() / 60_000L;
+            long c = 0;
+            long f = 0;
+            long ls = 0;
+            long lm = 0;
+            for (int i = 0; i < WINDOW; i++) {
+                if (minute[i] > nowMin - WINDOW && minute[i] <= nowMin) {
+                    c += calls[i];
+                    f += fails[i];
+                    ls += latSum[i];
+                    lm = Math.max(lm, latMax[i]);
+                }
+            }
+
+            return new Raw(c, f, ls, lm);
+        }
+
+        synchronized void addTo(long nowMin, long[] ok, long[] fail) {
+            for (int i = 0; i < WINDOW; i++) {
+                long m = minute[i];
+                if (m > nowMin - WINDOW && m <= nowMin) {
+                    int slot = (int) (m - (nowMin - (WINDOW - 1)));
+                    if (slot >= 0 && slot < WINDOW) {
+                        ok[slot] += calls[i] - fails[i];
+                        fail[slot] += fails[i];
+                    }
+                }
             }
         }
     }
 
-    private static Map<String, CounterState> states(Map<String, Counter> counters) {
-        Map<String, CounterState> out = new LinkedHashMap<>();
-        counters.forEach((k, c) -> out.put(k, c.state()));
-
-        return out;
-    }
-
-    private static final class Counter {
-        final AtomicLong total = new AtomicLong();
-        final AtomicLong ok = new AtomicLong();
-        final AtomicLong fail = new AtomicLong();
-        final AtomicLong latencySum = new AtomicLong();
-        final AtomicLong latencyMax = new AtomicLong();
-
-        static Counter of(CounterState s) {
-            Counter c = new Counter();
-            c.total.set(s.total());
-            c.ok.set(s.ok());
-            c.fail.set(s.fail());
-            c.latencySum.set(s.latencySum());
-            c.latencyMax.set(s.latencyMax());
-
-            return c;
-        }
-
-        void record(boolean okFlag, long ms) {
-            total.incrementAndGet();
-            (okFlag ? ok : fail).incrementAndGet();
-            latencySum.addAndGet(ms);
-            latencyMax.accumulateAndGet(ms, Math::max);
-        }
-
-        void add(Counter o) {
-            total.addAndGet(o.total.get());
-            ok.addAndGet(o.ok.get());
-            fail.addAndGet(o.fail.get());
-            latencySum.addAndGet(o.latencySum.get());
-            latencyMax.accumulateAndGet(o.latencyMax.get(), Math::max);
+    private record Raw(long calls, long fails, long latSum, long latMax) {
+        Raw plus(Raw o) {
+            return new Raw(calls + o.calls, fails + o.fails, latSum + o.latSum, Math.max(latMax, o.latMax));
         }
 
         Stats stats() {
-            long t = total.get();
-
-            return new Stats(t, ok.get(), fail.get(), t > 0 ? latencySum.get() / t : 0, latencyMax.get());
-        }
-
-        CounterState state() {
-            return new CounterState(total.get(), ok.get(), fail.get(), latencySum.get(), latencyMax.get());
+            return new Stats(calls, calls - fails, fails, calls > 0 ? latSum / calls : 0, latMax);
         }
     }
 
-    /** A category group: aggregate stats, a per-category breakdown, and (for TC) failures-by-status and the per-minute series. */
-    public record Group(Stats total, Map<String, Stats> byCategory, Map<Integer, Long> byStatus, List<Minute> perMinute) {
+    /** A target's metrics: last-hour aggregate + per-category breakdown + per-minute series, plus the lifetime total. */
+    public record Group(Stats lastHour, long sinceStart, Map<String, Stats> byCategory,
+        Map<Integer, Long> byStatus, List<Minute> perMinute) {
     }
 
     public record Stats(long total, long ok, long fail, long avgLatencyMs, long maxLatencyMs) {
@@ -215,10 +210,6 @@ public class Metrics implements SnapshotCache {
     public record Minute(long t, long ok, long fail) {
     }
 
-    private record CounterState(long total, long ok, long fail, long latencySum, long latencyMax) {
-    }
-
-    private record Persisted(Map<String, CounterState> tc, Map<String, CounterState> github,
-        Map<Integer, Long> byStatus, List<Minute> ring) {
+    private record Persisted(long tcSinceStart, long githubSinceStart, Map<Integer, Long> byStatus) {
     }
 }
