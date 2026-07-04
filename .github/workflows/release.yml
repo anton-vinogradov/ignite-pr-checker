@@ -27,7 +27,8 @@ jobs:
       - name: Build jar
         run: |
           chmod +x ./gradlew
-          ./gradlew bootJar
+          # Embed the release version (tag without a leading 'v') so the running app knows it.
+          ./gradlew bootJar -Pappversion="${GITHUB_REF_NAME#v}"
 
       - name: Publish release
         env:
