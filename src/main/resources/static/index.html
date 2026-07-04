@@ -23,6 +23,7 @@
         .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
         .brand { font-weight: 600; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.5rem; }
+        .topbar-right { display: flex; align-items: center; gap: 1rem; }
         .content { flex: 1; min-height: 0; }
 
         .login-card { max-width: 560px; margin: 4rem auto; border: 1px solid var(--line); border-radius: 10px; padding: 1.75rem; }
@@ -79,9 +80,14 @@
 <body>
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>which tests your PR actually broke</small></div>
-        <div id="session" class="row muted hidden">
-            <span id="username"></span>
-            <button id="logout">Log out</button>
+        <div class="topbar-right">
+            <div id="session" class="row muted hidden">
+                <span id="username"></span>
+                <button id="logout">Log out</button>
+            </div>
+            <a class="github-button" href="https://github.com/anton-vinogradov/ignite-pr-checker"
+               data-icon="octicon-star" data-show-count="true"
+               aria-label="Star anton-vinogradov/ignite-pr-checker on GitHub">Star</a>
         </div>
     </header>
 
@@ -407,5 +413,7 @@
         loadConfig();
         loadMe();
     </script>
+    <!-- GitHub "Star" button widget (renders the real Star button with count + starred state). -->
+    <script async defer src="https://buttons.github.io/buttons.js"></script>
 </body>
 </html>
