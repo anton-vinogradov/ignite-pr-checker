@@ -15,11 +15,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
- * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise, using the
- * test's master-branch history: a test that fails in the PR is a blocker unless it also fails at
- * least once in the last {@code analysis.historyDepth} master runs (any master failure means the
- * failure is pre-existing or flaky on master, not caused by this PR). Results are cached per build;
- * a request serves the cached result and, if it is getting stale, triggers a background refresh.
+ * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise. A test is a
+ * blocker only if it (1) fails in the PR, (2) never fails in the last {@code analysis.historyDepth}
+ * master runs (any master failure means it is pre-existing or flaky on master, not this PR's fault),
+ * and (3) still fails in the last fully-finished run of its suite on the PR branch (a passing re-run
+ * clears it). Results are cached per build; a request serves the cached result and, if it is getting
+ * stale, triggers a background refresh.
  */
 @Component
 public class BlockerAnalyzer {
@@ -95,7 +96,7 @@ public class BlockerAnalyzer {
         ChainCollector.Chain chain = chains.collectForBuild(token, buildId);
 
         List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
-            .<Callable<TestVerdict>>map(t -> () -> classify(token, t))
+            .<Callable<TestVerdict>>map(t -> () -> classify(token, prNumber, t))
             .toList();
 
         List<TestVerdict> verdicts = Parallel.run(taskPool, tasks);
@@ -110,7 +111,7 @@ public class BlockerAnalyzer {
         return result;
     }
 
-    private TestVerdict classify(String token, FailedTest t) {
+    private TestVerdict classify(String token, int prNumber, FailedTest t) {
         HistoryStats h = cache.history(t.testId(),
             () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId())));
 
@@ -119,6 +120,14 @@ public class BlockerAnalyzer {
         if (h.fails() > 0) {
             return new TestVerdict(t.testId(), t.name(), t.suite(), false,
                 "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master");
+        }
+
+        // ...and only if the failure still stands in the last fully-finished run of the suite: a
+        // later re-run that passed clears it (the failure wasn't reproducible on the same code).
+        String latest = tc.latestFinishedPrStatus(token, prNumber, t.testId());
+        if (latest != null && !"FAILURE".equals(latest)) {
+            return new TestVerdict(t.testId(), t.name(), t.suite(), false,
+                "not failing in the last finished run (passed on re-run)");
         }
 
         String reason = h.runs() == 0

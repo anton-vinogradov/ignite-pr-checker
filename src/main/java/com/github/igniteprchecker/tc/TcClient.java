@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,6 +101,28 @@ public class TcClient {
             "fields", "testOccurrence(status)")), TcModel.TestOccurrences.class);
 
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
+    }
+
+    /**
+     * Status ({@code SUCCESS}/{@code FAILURE}) of a test in the most recent <em>fully finished</em>
+     * (finished, not cancelled) run on the PR branch, or null if it has no finished run there. Used
+     * to require that a blocker still fails in the latest completed suite run (a passing re-run clears it).
+     */
+    public String latestFinishedPrStatus(String token, int prNumber, long testId) {
+        TcModel.TestOccurrences occ = get(token, url("app/rest/testOccurrences", query(
+            "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:15",
+            "fields", "testOccurrence(status,build(id,state,status))")), TcModel.TestOccurrences.class);
+
+        if (occ == null || occ.testOccurrence() == null)
+            return null;
+
+        return occ.testOccurrence().stream()
+            .filter(o -> o.build() != null
+                && "finished".equals(o.build().state())
+                && !"UNKNOWN".equals(o.build().status()))
+            .max(Comparator.comparingLong(o -> o.build().id()))
+            .map(TcModel.TestOccurrence::status)
+            .orElse(null);
     }
 
     /** Enqueues the RunAll chain for a PR branch. {@code top} puts it at the head of the queue. */

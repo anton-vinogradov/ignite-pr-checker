@@ -30,34 +30,41 @@ class BlockerAnalyzerTest {
         new AnalysisCache(cfg, new com.fasterxml.jackson.databind.ObjectMapper()));
 
     @Test
-    void blockerIsAPrFailureThatNeverFailsOnMaster() {
+    void blockerIsAPrFailureCleanOnMasterAndStillFailingInLastRun() {
         FailedTest cleanBreak = new FailedTest(1, "Suite: A.blockerTest", "SuiteA");
         FailedTest rareMasterFail = new FailedTest(2, "Suite: B.rareMasterFail", "SuiteB");
         FailedTest preExisting = new FailedTest(3, "Suite: C.brokenInMaster", "SuiteC");
         FailedTest brandNew = new FailedTest(4, "Suite: D.newTest", "SuiteD");
+        FailedTest passedOnRerun = new FailedTest(5, "Suite: E.reranAndPassed", "SuiteE");
 
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(chains.collectForBuild(TOK, 999L)).thenReturn(
-            new ChainCollector.Chain(999, "pull/42/head", List.of(cleanBreak, rareMasterFail, preExisting, brandNew)));
+        when(chains.collectForBuild(TOK, 999L)).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
+            List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun)));
 
-        // 1) never fails in master history -> broke by this PR -> blocker.
+        // 1) clean on master and still failing in its last finished run -> blocker.
         when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 50));
+        when(tc.latestFinishedPrStatus(TOK, 42, 1)).thenReturn("FAILURE");
         // 2) a single failure in master history -> not PR-specific -> filtered.
         when(tc.getBaseBranchHistory(TOK, 2)).thenReturn(concat(repeat("SUCCESS", 49), repeat("FAILURE", 1)));
         // 3) fails often in master -> pre-existing -> filtered.
         when(tc.getBaseBranchHistory(TOK, 3)).thenReturn(concat(repeat("FAILURE", 10), repeat("SUCCESS", 40)));
         // 4) no master history at all -> can't prove pre-existing -> blocker.
         when(tc.getBaseBranchHistory(TOK, 4)).thenReturn(List.of());
+        when(tc.latestFinishedPrStatus(TOK, 42, 4)).thenReturn("FAILURE");
+        // 5) clean on master but its last finished run passed (a re-run) -> not reproducible -> filtered.
+        when(tc.getBaseBranchHistory(TOK, 5)).thenReturn(repeat("SUCCESS", 50));
+        when(tc.latestFinishedPrStatus(TOK, 42, 5)).thenReturn("SUCCESS");
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
         assertThat(r.blockers()).extracting(TestVerdict::testId).containsExactlyInAnyOrder(1L, 4L);
-        assertThat(r.filtered()).extracting(TestVerdict::testId).containsExactlyInAnyOrder(2L, 3L);
+        assertThat(r.filtered()).extracting(TestVerdict::testId).containsExactlyInAnyOrder(2L, 3L, 5L);
 
         assertThat(verdict(r, 1).reason()).contains("50 master run");
         assertThat(verdict(r, 2).reason()).contains("1/50");
         assertThat(verdict(r, 3).reason()).contains("pre-existing");
         assertThat(verdict(r, 4).reason()).contains("no master history");
+        assertThat(verdict(r, 5).reason()).contains("last finished run");
     }
 
     @Test
