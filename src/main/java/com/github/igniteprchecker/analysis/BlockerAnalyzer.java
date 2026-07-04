@@ -145,6 +145,6 @@ public class BlockerAnalyzer {
     }
 
     private static TestVerdict verdict(FailedTest t, boolean blocker, String reason) {
-        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(), blocker, reason);
+        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(), t.occurrenceId(), blocker, reason);
     }
 }

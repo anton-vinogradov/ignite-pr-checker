@@ -447,8 +447,11 @@
                     : esc(g.name);
                 const rows = g.items.map(t => {
                     const short = esc(shortTestName(t.name));
+                    // expandedTest opens the test "into itself" in this build (not the branch summary).
+                    const expanded = t.occurrenceId
+                        ? `&expandedTest=${encodeURIComponent(`build:(id:${g.buildId}),id:${t.occurrenceId}`)}` : '';
                     const link = g.buildId
-                        ? `<a href="${runUrl}?buildTab=tests#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
+                        ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
                         : short;
                     return `<li><div class="tname">${link}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
                 }).join('');

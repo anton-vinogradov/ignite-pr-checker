@@ -60,7 +60,7 @@ public class ChainCollector {
 
         return tc.getFailedTests(token, dep.id()).stream()
             .filter(occ -> occ.test() != null)
-            .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName))
+            .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();
     }
 

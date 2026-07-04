@@ -12,6 +12,7 @@ public record TestVerdict(
     String suite,
     long suiteBuildId,
     String suiteName,
+    String occurrenceId,
     boolean blocker,
     String reason
 ) {
