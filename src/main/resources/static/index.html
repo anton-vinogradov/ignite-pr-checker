@@ -84,9 +84,10 @@
         .reason { color: var(--muted); font-size: 0.78rem; }
         .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
         .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; }
-        .suite-rerun { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.5rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--accent); cursor: pointer; white-space: nowrap; }
-        .suite-rerun:hover { background: #f0f4fb; }
-        .suite-rerun:disabled { opacity: 0.5; cursor: default; }
+        .suite-runs { flex: none; display: flex; gap: 0.3rem; }
+        .suite-rerun, .act { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--accent); cursor: pointer; white-space: nowrap; }
+        .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
+        .suite-rerun:disabled, .act:disabled { opacity: 0.5; cursor: default; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
@@ -417,14 +418,14 @@
         }
 
         // Re-run a single suite (buildType) for the current PR.
-        async function rerunSuite(suite, btn) {
+        async function rerunSuite(suite, top, btn) {
             if (!selectedPr) return;
             const pr = selectedPr;
             btn.disabled = true;
             const orig = btn.textContent;
             btn.textContent = '…';
             try {
-                const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=false', { method: 'POST' });
+                const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=' + top, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = res.error || 'rerun failed'; return; }
@@ -479,8 +480,11 @@
                 const head = g.buildId
                     ? `<a href="${runUrl}" target="_self" rel="noopener">${esc(g.name)}</a>`
                     : esc(g.name);
-                const rerunBtn = rerunnable && g.btId
-                    ? `<button class="suite-rerun" data-suite="${esc(g.btId)}" title="Re-run this suite for the PR">Rerun</button>`
+                const rerunBtns = rerunnable && g.btId
+                    ? `<span class="suite-runs">`
+                        + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="false" title="Re-run this suite">Rerun</button>`
+                        + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun top</button>`
+                        + `</span>`
                     : '';
                 const rows = g.items.map(t => {
                     const short = esc(shortTestName(t.name));
@@ -495,10 +499,10 @@
                         : short;
                     return `<li><div class="tname">${link}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
                 }).join('');
-                return `<li><div class="suite-head"><span class="suite-name">${head}</span>${rerunBtn}</div><ul class="suite-tests">${rows}</ul></li>`;
+                return `<li><div class="suite-head"><span class="suite-name">${head}</span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
             for (const b of el.querySelectorAll('.suite-rerun'))
-                b.onclick = () => rerunSuite(b.dataset.suite, b);
+                b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
         }
 
         // Show the "Update" button when the server reports a newer release is available.
