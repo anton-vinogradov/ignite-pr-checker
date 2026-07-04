@@ -213,7 +213,7 @@
         async function enterApp(username) {
             $('username').textContent = username;
             show('analyze');
-            $('triggerBtn').classList.add('hidden');
+            $('actions').classList.add('hidden');
             await loadPrs();
             const pr = prFromUrl();
             if (pr) openPr(pr, false);
