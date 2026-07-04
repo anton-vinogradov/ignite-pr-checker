@@ -71,6 +71,15 @@ public class BlockerAnalyzer {
         chains.findBuildId(token, prNumber).ifPresent(bid -> computeAndStore(token, prNumber, bid, bgPool));
     }
 
+    /**
+     * Recomputes now (ignoring any cached result) and returns the fresh analysis, or empty if no
+     * RunAll build exists yet. Backs the manual "refresh" button.
+     */
+    public Optional<AnalysisResult> forceRefresh(String token, int prNumber) {
+        return chains.findBuildId(token, prNumber)
+            .map(bid -> computeAndStore(token, prNumber, bid, pool));
+    }
+
     private boolean isStale(AnalysisResult r) {
         return System.currentTimeMillis() - r.computedAt() > cfg.refreshAfterSeconds() * 1000L;
     }
