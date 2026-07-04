@@ -46,6 +46,16 @@ public class AnalysisCache implements SnapshotCache {
         results.put(buildId, result);
     }
 
+    /** Number of cached analysis results (per build id). */
+    public int resultCount() {
+        return results.size();
+    }
+
+    /** Number of cached per-test master-history entries. */
+    public int historyCount() {
+        return history.size();
+    }
+
     @Override
     public String fileName() {
         return "analysis.json";

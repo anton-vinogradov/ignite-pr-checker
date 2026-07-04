@@ -24,6 +24,8 @@
         .brand { font-weight: 600; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.5rem; }
         .topbar-right { display: flex; align-items: center; gap: 1rem; }
+        .status-link { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
+        .status-link:hover { border-color: #c0c0c0; }
         .star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .star-btn:hover { border-color: #c0c0c0; }
         .star-btn:hover .star-ico { stroke: #e3b341; } /* hint gold on hover; not "already starred" */
@@ -102,6 +104,7 @@
                 <span id="username"></span>
                 <button id="logout">Log out</button>
             </div>
+            <a class="status-link" href="/status.html" target="_self" title="Service status &amp; metrics">Status</a>
             <a class="star-btn" href="https://github.com/anton-vinogradov/ignite-pr-checker"
                target="_self" rel="noopener" title="Star this project on GitHub">
                 <svg class="star-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">

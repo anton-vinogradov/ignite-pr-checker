@@ -2,6 +2,7 @@ package com.github.igniteprchecker.tc;
 
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -12,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -33,8 +35,11 @@ public class TcClient {
 
     private final AnalysisProperties analysis;
 
-    public TcClient(TeamcityProperties tc, AnalysisProperties analysis) {
+    private final Metrics metrics;
+
+    public TcClient(TeamcityProperties tc, AnalysisProperties analysis, Metrics metrics) {
         this.analysis = analysis;
+        this.metrics = metrics;
         this.baseUrl = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
         // Must use SimpleClientHttpRequestFactory (HttpURLConnection): the default JDK factory sends
         // "Content-Length: 0" on GET, which the TeamCity WAF rejects with 403 "Access Blocked".
@@ -138,13 +143,13 @@ public class TcClient {
             "triggeringOptions", Map.of("queueAtTop", top),
             "comment", Map.of("text", "Triggered by Ignite PR Checker"));
 
-        return http.post()
+        return recorded(() -> http.post()
             .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl")))
             .header("Authorization", "Bearer " + token)
             .contentType(MediaType.APPLICATION_JSON)
             .body(payload)
             .retrieve()
-            .body(TcModel.Build.class);
+            .body(TcModel.Build.class));
     }
 
     /**
@@ -184,13 +189,13 @@ public class TcClient {
             ? "app/rest/buildQueue/id:" + build.id()
             : "app/rest/builds/id:" + build.id();
 
-        http.post()
+        recorded(() -> http.post()
             .uri(url(path, query("fields", "id,state")))
             .header("Authorization", "Bearer " + token)
             .contentType(MediaType.APPLICATION_JSON)
             .body(Map.of("comment", "Cancelled by Ignite PR Checker", "readdIntoQueue", false))
             .retrieve()
-            .toBodilessEntity();
+            .toBodilessEntity());
     }
 
     private List<TcModel.Build> userBuildsInState(String token, int prNumber, String state) {
@@ -205,11 +210,34 @@ public class TcClient {
     }
 
     private <T> T get(String token, URI uri, Class<T> type) {
-        return http.get()
+        return recorded(() -> http.get()
             .uri(uri)
             .header("Authorization", "Bearer " + token)
             .retrieve()
-            .body(type);
+            .body(type));
+    }
+
+    /** Runs a TeamCity call, recording its outcome and latency for the status page. */
+    private <T> T recorded(Supplier<T> call) {
+        long t0 = System.nanoTime();
+        try {
+            T result = call.get();
+            metrics.recordTc(true, 200, msSince(t0));
+
+            return result;
+        }
+        catch (RestClientResponseException e) {
+            metrics.recordTc(false, e.getStatusCode().value(), msSince(t0));
+            throw e;
+        }
+        catch (RuntimeException e) {
+            metrics.recordTc(false, 0, msSince(t0)); // network/other error
+            throw e;
+        }
+    }
+
+    private static long msSince(long nanoStart) {
+        return (System.nanoTime() - nanoStart) / 1_000_000L;
     }
 
     private URI url(String path, Map<String, String> params) {
