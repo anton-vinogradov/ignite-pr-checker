@@ -25,7 +25,8 @@
 
         h2 { font-size: 1.05rem; margin: 1.4rem 0 0.5rem; }
         .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
-        .chart-title { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; display: flex; justify-content: space-between; }
+        .chart-title { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.2rem 0.5rem; }
+        .cat-legend { text-align: right; }
         canvas { width: 100%; height: 200px; display: block; }
         .legend span { font-size: 0.78rem; margin-left: 0.8rem; }
         .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 0.25rem; vertical-align: middle; }
@@ -84,6 +85,12 @@
 
         <h2>TeamCity calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="tcCats" class="cats"></div></div>
+
+        <h2>TeamCity load over time <small class="muted">· stacked by category, last hour</small></h2>
+        <div class="section">
+            <div class="chart-title"><span>calls / minute</span><span id="stackLegend" class="legend cat-legend"></span></div>
+            <canvas id="tcStack"></canvas>
+        </div>
 
         <h2>GitHub calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="ghCats" class="cats"></div></div>
@@ -155,6 +162,7 @@
             renderLog($('logList'), d.log || { recent: [] });
 
             drawChart($('tcChart'), tc.perMinute || []);
+            drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
             $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
         }
 
@@ -221,6 +229,49 @@
             ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
         }
 
+        const CAT_COLORS = ['#1565c0', '#2e7d32', '#c0392b', '#e0a000', '#6a1b9a', '#00838f',
+            '#8d6e63', '#ad1457', '#7cb342', '#f4511e', '#0277bd', '#9e9d24'];
+
+        // Stacked per-minute bars: each minute split into category-coloured segments (last hour).
+        function drawStacked(canvas, legendEl, byCat) {
+            const cats = Object.keys(byCat);
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = canvas.clientWidth || 880, cssH = 200;
+            canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.clearRect(0, 0, cssW, cssH);
+
+            const pad = { l: 34, r: 6, t: 6, b: 16 }, N = 60;
+            const cw = cssW - pad.l - pad.r, ch = cssH - pad.t - pad.b;
+            const totals = new Array(N).fill(0);
+            cats.forEach(c => (byCat[c] || []).forEach((v, i) => totals[i] += v));
+            const max = Math.max(1, ...totals);
+
+            ctx.font = '10px system-ui';
+            for (let k = 0; k <= 4; k++) {
+                const y = pad.t + ch - (ch * k / 4);
+                ctx.strokeStyle = 'rgba(128,128,128,0.18)'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
+                ctx.fillStyle = '#999'; ctx.fillText(Math.round(max * k / 4), 2, y + 3);
+            }
+
+            const bw = cw / N;
+            for (let i = 0; i < N; i++) {
+                let yTop = pad.t + ch;
+                cats.forEach((c, ci) => {
+                    const v = (byCat[c] || [])[i] || 0;
+                    if (!v) return;
+                    const h = ch * v / max;
+                    ctx.fillStyle = CAT_COLORS[ci % CAT_COLORS.length];
+                    ctx.fillRect(pad.l + i * bw + 0.5, yTop - h, Math.max(1, bw - 1), h);
+                    yTop -= h;
+                });
+            }
+            ctx.fillStyle = '#999'; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
+            legendEl.innerHTML = cats.map((c, ci) =>
+                `<span><span class="dot" style="background:${CAT_COLORS[ci % CAT_COLORS.length]}"></span>${c}</span>`).join('');
+        }
+
         let last = null;
         async function tick() {
             try {
@@ -234,7 +285,11 @@
             }
         }
 
-        window.addEventListener('resize', () => { if (last) drawChart($('tcChart'), last.teamcity.perMinute || []); });
+        window.addEventListener('resize', () => {
+            if (!last) return;
+            drawChart($('tcChart'), last.teamcity.perMinute || []);
+            drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
+        });
         tick();
         setInterval(tick, 5000);
     </script>
