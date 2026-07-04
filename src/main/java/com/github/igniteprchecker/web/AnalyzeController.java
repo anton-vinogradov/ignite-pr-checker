@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.tc.TcClient;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +18,18 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 public class AnalyzeController {
     private final BlockerAnalyzer analyzer;
+    private final TcClient tc;
 
-    public AnalyzeController(BlockerAnalyzer analyzer) {
+    public AnalyzeController(BlockerAnalyzer analyzer, TcClient tc) {
         this.analyzer = analyzer;
+        this.tc = tc;
+    }
+
+    /** DEBUG ONLY: dump raw occurrences for an arbitrary testOccurrences locator. */
+    @GetMapping("/debug/occ")
+    public ResponseEntity<?> debugOcc(@RequestParam String loc,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        return ResponseEntity.ok(tc.debugOccurrences(token, loc));
     }
 
     /** Serves the cached analysis (recomputing only on a cache miss). */
