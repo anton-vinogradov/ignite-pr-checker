@@ -95,7 +95,7 @@
                 <button id="logout">Log out</button>
             </div>
             <a class="star-btn" href="https://github.com/anton-vinogradov/ignite-pr-checker"
-               target="_blank" rel="noopener" title="Star this project on GitHub">
+               target="_self" rel="noopener" title="Star this project on GitHub">
                 <svg class="star-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
                     <path d="M8 12.472l-4.702 2.833 1.248-5.351L.42 6.354l5.472-.464L8 .833l2.108 5.057 5.472.464-4.126 3.6 1.248 5.351z"/>
                 </svg>
@@ -116,7 +116,7 @@
             <div class="row">
                 <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
                 <button id="loginBtn" class="primary">Log in</button>
-                <a id="tokenLink" class="login-create" href="#" target="_blank" rel="noopener">Create a token</a>
+                <a id="tokenLink" class="login-create" href="#" target="_self" rel="noopener">Create a token</a>
             </div>
             <div class="login-note muted">
                 Log in with your own TeamCity (ci2) access token.<br>
@@ -203,7 +203,7 @@
         function setPrTitle(number, title, url) {
             const href = url || prUrl(number);
             $('prTitle').classList.remove('muted');
-            $('prTitle').innerHTML = `<a href="${href}" target="_blank" rel="noopener">#${number}</a>`
+            $('prTitle').innerHTML = `<a href="${href}" target="_self" rel="noopener">#${number}</a>`
                 + (title ? ' ' + esc(title) : '');
         }
 
@@ -266,7 +266,7 @@
             if (!r.ok || number !== selectedPr) return;
             const runs = await r.json();
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')
+                ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_self" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
         }
@@ -340,7 +340,7 @@
         function renderResult(res) {
             $('status').textContent = '';
             const buildLabel = tcBase
-                ? `<a href="${tcBase}build/${res.buildId}" target="_blank" rel="noopener">build ${res.buildId}</a>`
+                ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener">build ${res.buildId}</a>`
                 : 'build ' + res.buildId;
             $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt))
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
@@ -383,7 +383,7 @@
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = res.error || 'trigger failed'; return; }
                 const links = (res.triggered || [])
-                    .map(b => `<a href="${b.webUrl}" target="_blank" rel="noopener">#${b.buildId}</a>`).join(' · ');
+                    .map(b => `<a href="${b.webUrl}" target="_self" rel="noopener">#${b.buildId}</a>`).join(' · ');
                 $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links;
                 loadRuns(pr);
             } finally {
