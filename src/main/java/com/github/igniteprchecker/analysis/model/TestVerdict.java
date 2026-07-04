@@ -10,6 +10,8 @@ public record TestVerdict(
     long testId,
     String name,
     String suite,
+    long suiteBuildId,
+    String suiteName,
     boolean blocker,
     String reason
 ) {

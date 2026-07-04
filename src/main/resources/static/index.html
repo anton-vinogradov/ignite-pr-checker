@@ -80,8 +80,11 @@
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
-        .tname { font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; }
-        .suite, .reason { color: var(--muted); font-size: 0.8rem; }
+        .tname { font-family: ui-monospace, monospace; font-size: 0.83rem; word-break: break-all; }
+        .reason { color: var(--muted); font-size: 0.78rem; }
+        .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; word-break: break-all; }
+        ul.suite-tests { list-style: none; padding: 0; margin: 0; }
+        ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
     </style>
 </head>
@@ -409,13 +412,36 @@
             }
         }
 
+        // Strip the package (and the leading test-suite class) so only "TestClass.method[params]" shows.
+        function shortTestName(name) {
+            let s = name.includes(': ') ? name.slice(name.indexOf(': ') + 2) : name;
+            const segs = s.split('.');
+            const i = segs.findIndex(seg => /^[A-Z]/.test(seg)); // Java: package is lower-case, class is Upper-case
+            return i >= 0 ? segs.slice(i).join('.') : s;
+        }
+
+        // Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its tests.
         function renderList(el, tests, withReason) {
-            el.innerHTML = tests.map(t => `
-                <li>
-                    <div class="tname">${esc(t.name)}</div>
-                    <div class="suite">${esc(t.suite)}</div>
-                    ${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}
-                </li>`).join('');
+            const groups = new Map();
+            for (const t of tests) {
+                const key = t.suiteBuildId || 0;
+                if (!groups.has(key))
+                    groups.set(key, { name: t.suiteName || t.suite, buildId: t.suiteBuildId || 0, items: [] });
+                groups.get(key).items.push(t);
+            }
+            el.innerHTML = [...groups.values()].map(g => {
+                const head = g.buildId
+                    ? `<a href="${tcBase}viewLog.html?buildId=${g.buildId}" target="_self" rel="noopener">${esc(g.name)}</a>`
+                    : esc(g.name);
+                const rows = g.items.map(t => {
+                    const short = esc(shortTestName(t.name));
+                    const link = g.buildId
+                        ? `<a href="${tcBase}viewLog.html?buildId=${g.buildId}&tab=buildResultsDiv#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
+                        : short;
+                    return `<li><div class="tname">${link}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
+                }).join('');
+                return `<li><div class="suite-head">${head}</div><ul class="suite-tests">${rows}</ul></li>`;
+            }).join('');
         }
 
         // Show the "Update" button when the server reports a newer release is available.

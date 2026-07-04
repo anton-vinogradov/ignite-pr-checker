@@ -31,11 +31,11 @@ class BlockerAnalyzerTest {
 
     @Test
     void blockerIsAPrFailureCleanOnMasterAndStillFailingInLastRun() {
-        FailedTest cleanBreak = new FailedTest(1, "Suite: A.blockerTest", "SuiteA");
-        FailedTest rareMasterFail = new FailedTest(2, "Suite: B.rareMasterFail", "SuiteB");
-        FailedTest preExisting = new FailedTest(3, "Suite: C.brokenInMaster", "SuiteC");
-        FailedTest brandNew = new FailedTest(4, "Suite: D.newTest", "SuiteD");
-        FailedTest passedOnRerun = new FailedTest(5, "Suite: E.reranAndPassed", "SuiteE");
+        FailedTest cleanBreak = new FailedTest(1, "Suite: A.blockerTest", "SuiteA", 101L, "Suite A");
+        FailedTest rareMasterFail = new FailedTest(2, "Suite: B.rareMasterFail", "SuiteB", 102L, "Suite B");
+        FailedTest preExisting = new FailedTest(3, "Suite: C.brokenInMaster", "SuiteC", 103L, "Suite C");
+        FailedTest brandNew = new FailedTest(4, "Suite: D.newTest", "SuiteD", 104L, "Suite D");
+        FailedTest passedOnRerun = new FailedTest(5, "Suite: E.reranAndPassed", "SuiteE", 105L, "Suite E");
 
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
         when(chains.collectForBuild(TOK, 999L)).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
