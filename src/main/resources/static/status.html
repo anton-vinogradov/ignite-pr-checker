@@ -6,6 +6,16 @@
     <title>Ignite PR Checker — Status</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <meta name="theme-color" content="#f36f21">
+    <script>
+        // Resolve the effective theme before first paint (no flash): saved choice, else system preference.
+        (function () {
+            var t;
+            try { t = localStorage.getItem('theme'); } catch (e) { /* private mode */ }
+            if (t !== 'dark' && t !== 'light')
+                t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
     <style>
         :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --ok: #2e7d32; --accent: #1565c0; }
         * { box-sizing: border-box; }
@@ -14,8 +24,17 @@
         .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
         .brand { font-weight: 600; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
+        .topbar-right { display: flex; align-items: center; gap: 0.8rem; }
         .wrap { max-width: 960px; margin: 1.2rem auto; padding: 0 1rem; }
         .muted { color: var(--muted); }
+
+        .mini-btn, .theme-btn { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--accent); cursor: pointer; }
+        .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
+        .theme-btn { font-size: 0.95rem; line-height: 1; padding: 0.15rem 0.4rem; color: var(--fg); }
+        .mini-btn:hover, .theme-btn:hover { border-color: #c0c0c0; }
+        .mini-btn:disabled { opacity: 0.5; cursor: default; }
+        .flush-msg { font-size: 0.8rem; color: var(--muted); margin-left: 0.5rem; }
+        h2 .mini-btn { margin-left: 0.5rem; vertical-align: middle; }
 
         .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.7rem; margin: 0.6rem 0 1.4rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem; }
@@ -54,19 +73,24 @@
         .logmsg { word-break: break-word; }
         .updated { font-size: 0.78rem; color: var(--muted); }
 
-        @media (prefers-color-scheme: dark) {
-            :root { --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --ok: #66bb6a; --accent: #6ab0ff; }
+        html[data-theme="dark"] {
+            --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --ok: #66bb6a; --accent: #6ab0ff;
             body { background: #17191c; }
             .card, .section { background: #1c1f23; }
             .catbar { background: #2b2f34; }
             .lvl-warn { color: #d99a3a; }
+            .mini-btn, .theme-btn { background: #24282d; }
+            .mini-btn:hover, .theme-btn:hover { border-color: #4a4f55; }
         }
     </style>
 </head>
 <body>
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></div>
-        <div><a href="/" >← App</a></div>
+        <div class="topbar-right">
+            <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+            <a href="/" target="_self">← App</a>
+        </div>
     </header>
 
     <div class="wrap">
@@ -95,7 +119,11 @@
         <h2>GitHub calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="ghCats" class="cats"></div></div>
 
-        <h2>Cache &amp; warmer</h2>
+        <h2>Cache &amp; warmer
+            <button id="flushBtn" class="mini-btn" type="button"
+                title="Drop cached analysis results &amp; per-test history; the next analysis recomputes from scratch">Flush caches</button>
+            <span id="flushMsg" class="flush-msg"></span>
+        </h2>
         <div class="cards" id="appCards"></div>
 
         <h2>Recent errors &amp; warnings</h2>
@@ -290,6 +318,38 @@
             drawChart($('tcChart'), last.teamcity.perMinute || []);
             drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
         });
+        $('flushBtn').addEventListener('click', async () => {
+            if (!confirm('Clear cached analysis results and per-test history?\nThe next analysis will recompute from scratch (extra TeamCity load).')) return;
+            const btn = $('flushBtn'), msg = $('flushMsg');
+            btn.disabled = true; msg.textContent = 'flushing…';
+            try {
+                const r = await fetch('/api/flush-caches', { method: 'POST', cache: 'no-store' });
+                if (r.status === 401) { msg.textContent = 'log in on the main page to flush'; return; }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const c = await r.json();
+                msg.textContent = `cleared ${c.results} result(s), ${c.history} history entr${c.history === 1 ? 'y' : 'ies'}`;
+                tick();
+            } catch (e) {
+                msg.textContent = 'flush failed: ' + e.message;
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // Theme toggle (the head script already applied the effective theme; persist only explicit clicks).
+        (function () {
+            const btn = $('theme-toggle');
+            const label = t => { btn.textContent = t === 'dark' ? '☀️' : '🌙';
+                btn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'; };
+            label(document.documentElement.getAttribute('data-theme') || 'light');
+            btn.addEventListener('click', () => {
+                const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+                try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
+                label(t);
+            });
+        })();
+
         tick();
         setInterval(tick, 5000);
     </script>

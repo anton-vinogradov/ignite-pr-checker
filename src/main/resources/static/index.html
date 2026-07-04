@@ -6,6 +6,16 @@
     <title>Ignite PR Checker</title>
     <link rel="icon" type="image/png" href="/favicon.png">
     <meta name="theme-color" content="#f36f21">
+    <script>
+        // Resolve the effective theme before first paint (no flash): saved choice, else system preference.
+        (function () {
+            var t;
+            try { t = localStorage.getItem('theme'); } catch (e) { /* private mode */ }
+            if (t !== 'dark' && t !== 'light')
+                t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
     <style>
         :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --sel: #eef4ff; --accent: #1565c0; }
         * { box-sizing: border-box; }
@@ -106,8 +116,10 @@
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
 
-        @media (prefers-color-scheme: dark) {
-            :root { --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff; }
+        .theme-btn { font-size: 0.95rem; line-height: 1; padding: 0.15rem 0.4rem; }
+
+        html[data-theme="dark"] {
+            --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff;
             body { background: #17191c; }
             button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act { background: #24282d; color: var(--fg); }
             .status-link, .star-btn { color: var(--fg); }
@@ -133,6 +145,7 @@
                 <span id="username"></span>
                 <button id="logout">Log out</button>
             </div>
+            <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
             <a class="status-link" href="/status.html" target="_self" title="Service status &amp; metrics">Status</a>
             <a class="star-btn" href="https://github.com/anton-vinogradov/ignite-pr-checker"
                target="_self" rel="noopener" title="Star this project on GitHub">
@@ -658,6 +671,22 @@
         loadConfig();
         loadMe();
         checkUpdate();
+
+        // Theme toggle. The head script already applied the effective theme; here we only label the
+        // button and persist on explicit clicks (a system-derived default is never written to storage,
+        // so an untouched setting keeps following the OS).
+        (function () {
+            const btn = document.getElementById('theme-toggle');
+            const label = t => { btn.textContent = t === 'dark' ? '☀️' : '🌙';
+                btn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'; };
+            label(document.documentElement.getAttribute('data-theme') || 'light');
+            btn.addEventListener('click', () => {
+                const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+                try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
+                label(t);
+            });
+        })();
     </script>
 </body>
 </html>
