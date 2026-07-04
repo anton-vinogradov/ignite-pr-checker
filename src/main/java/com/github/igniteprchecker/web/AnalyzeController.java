@@ -25,13 +25,11 @@ public class AnalyzeController {
         this.tc = tc;
     }
 
-    /** DEBUG ONLY: dump raw occurrences (with invocations) for a test in a build. */
+    /** DEBUG ONLY: dump raw occurrences (with invocations) for an arbitrary testOccurrences locator. */
     @GetMapping("/debug/occ")
-    public ResponseEntity<?> debugOcc(@RequestParam long build, @RequestParam long test,
+    public ResponseEntity<?> debugOcc(@RequestParam String loc,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return ResponseEntity.ok(Map.of(
-            "byTest", tc.debugOccurrences(token, "build:(id:" + build + "),test:(id:" + test + ")"),
-            "byFailureFilter", tc.debugOccurrences(token, "build:(id:" + build + "),status:FAILURE,test:(id:" + test + ")")));
+        return ResponseEntity.ok(tc.debugOccurrences(token, loc));
     }
 
     /** Serves the cached analysis (recomputing only on a cache miss). */
