@@ -46,6 +46,14 @@ final class TtlCache<K, V> {
         return map.size();
     }
 
+    /** Drops every entry; returns how many were removed. */
+    int clear() {
+        int n = map.size();
+        map.clear();
+
+        return n;
+    }
+
     /** The still-fresh entries, with their expiry, for a disk snapshot. */
     List<Snapshot<K, V>> export() {
         long now = System.currentTimeMillis();

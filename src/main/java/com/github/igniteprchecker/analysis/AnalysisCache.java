@@ -56,6 +56,15 @@ public class AnalysisCache implements SnapshotCache {
         return history.size();
     }
 
+    /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */
+    public Cleared clear() {
+        return new Cleared(results.clear(), history.clear());
+    }
+
+    /** How many entries a {@link #clear()} removed. */
+    public record Cleared(int results, int history) {
+    }
+
     @Override
     public String fileName() {
         return "analysis.json";
