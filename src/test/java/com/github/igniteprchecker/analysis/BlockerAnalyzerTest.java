@@ -43,17 +43,17 @@ class BlockerAnalyzerTest {
 
         // 1) clean on master and still failing in its last finished run -> blocker.
         when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 50));
-        when(tc.latestFinishedPrStatus(TOK, 42, 1)).thenReturn("FAILURE");
+        when(tc.prBranchRuns(TOK, 42, 1)).thenReturn(repeat("FAILURE", 1));
         // 2) a single failure in master history -> not PR-specific -> filtered.
         when(tc.getBaseBranchHistory(TOK, 2)).thenReturn(concat(repeat("SUCCESS", 49), repeat("FAILURE", 1)));
         // 3) fails often in master -> pre-existing -> filtered.
         when(tc.getBaseBranchHistory(TOK, 3)).thenReturn(concat(repeat("FAILURE", 10), repeat("SUCCESS", 40)));
         // 4) no master history at all -> can't prove pre-existing -> blocker.
         when(tc.getBaseBranchHistory(TOK, 4)).thenReturn(List.of());
-        when(tc.latestFinishedPrStatus(TOK, 42, 4)).thenReturn("FAILURE");
+        when(tc.prBranchRuns(TOK, 42, 4)).thenReturn(repeat("FAILURE", 1));
         // 5) clean on master but its last finished run passed (a re-run) -> not reproducible -> filtered.
         when(tc.getBaseBranchHistory(TOK, 5)).thenReturn(repeat("SUCCESS", 50));
-        when(tc.latestFinishedPrStatus(TOK, 42, 5)).thenReturn("SUCCESS");
+        when(tc.prBranchRuns(TOK, 42, 5)).thenReturn(repeat("SUCCESS", 1));
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 

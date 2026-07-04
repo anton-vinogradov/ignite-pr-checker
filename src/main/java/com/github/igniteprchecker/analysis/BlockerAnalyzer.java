@@ -5,6 +5,7 @@ import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -146,24 +147,38 @@ public class BlockerAnalyzer {
         // A failure in the PR is a blocker unless the test also fails in master history: any failure
         // there means it isn't specific to this PR (pre-existing or flaky on master).
         if (h.fails() > 0) {
-            return verdict(t, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master");
+            return verdict(t, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", "");
         }
+
+        // The finished runs of this test on the PR branch (one request; also drives the history strip).
+        List<TcModel.TestOccurrence> runs = tc.prBranchRuns(token, prNumber, t.testId());
+        String branchRuns = strip(runs);
 
         // ...and only if the failure still stands in the last fully-finished run of the suite: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).
-        String latest = tc.latestFinishedPrStatus(token, prNumber, t.testId());
+        String latest = runs.isEmpty() ? null : runs.get(runs.size() - 1).status();
         if (latest != null && !"FAILURE".equals(latest)) {
-            return verdict(t, false, "not failing in the last finished run (passed on re-run)");
+            return verdict(t, false, "not failing in the last finished run (passed on re-run)", branchRuns);
         }
 
         String reason = h.runs() == 0
             ? "no master history (can't prove pre-existing)"
             : "not seen failing in " + h.runs() + " master run(s)";
 
-        return verdict(t, true, reason);
+        return verdict(t, true, reason, branchRuns);
     }
 
-    private static TestVerdict verdict(FailedTest t, boolean blocker, String reason) {
-        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(), t.occurrenceId(), blocker, reason);
+    /** Compact pass/fail history of the branch runs, oldest → newest: 'P' for a pass, 'F' for a failure. */
+    private static String strip(List<TcModel.TestOccurrence> runs) {
+        StringBuilder sb = new StringBuilder(runs.size());
+        for (TcModel.TestOccurrence o : runs)
+            sb.append("FAILURE".equals(o.status()) ? 'F' : 'P');
+
+        return sb.toString();
+    }
+
+    private static TestVerdict verdict(FailedTest t, boolean blocker, String reason, String branchRuns) {
+        return new TestVerdict(t.testId(), t.name(), t.suite(), t.suiteBuildId(), t.suiteName(),
+            t.occurrenceId(), blocker, reason, branchRuns);
     }
 }

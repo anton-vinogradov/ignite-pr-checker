@@ -83,6 +83,10 @@
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
         .tname { font-family: ui-monospace, monospace; font-size: 0.83rem; word-break: break-all; }
+        .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
+        .run { width: 3px; height: 12px; border-radius: 1px; }
+        .run-p { background: #2e7d32; }
+        .run-f { background: #c0392b; }
         .reason { color: var(--muted); font-size: 0.78rem; }
         .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
         .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; }
@@ -450,6 +454,14 @@
             return `(${suites} suite${suites === 1 ? '' : 's'}, ${n} test${n === 1 ? '' : 's'})`;
         }
 
+        // tcbot-style pass/fail history of the test's finished runs on the PR branch (oldest → newest).
+        function runStrip(runs) {
+            if (!runs) return '';
+            const failed = [...runs].filter(c => c === 'F').length;
+            const bars = [...runs].map(c => `<span class="run run-${c === 'F' ? 'f' : 'p'}"></span>`).join('');
+            return `<span class="strip" title="${runs.length} branch run(s), ${failed} failed (oldest→newest)">${bars}</span>`;
+        }
+
         // Show only "Class.method[params]" (or just "Class" for a class-level failure): drop the
         // package/namespace (Java lower-case OR .NET PascalCase), keeping dots inside (...)/[...] intact.
         function shortTestName(name) {
@@ -500,7 +512,7 @@
                     const link = g.buildId
                         ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${t.testId}" target="_self" rel="noopener">${short}</a>`
                         : short;
-                    return `<li><div class="tname">${link}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
+                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}</div>${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}</li>`;
                 }).join('');
                 return `<li><div class="suite-head"><span class="suite-name">${head}</span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
