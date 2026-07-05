@@ -54,8 +54,8 @@
         .live.queued { background: #fff3e0; color: #b26a00; }
         .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .pill:hover { border-color: #c0c0c0; }
-        a.ext { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5em; min-height: 1.5em; color: var(--muted); text-decoration: none; font-size: 0.95em; margin: 0 0.05em; border-radius: 5px; vertical-align: middle; }
-        a.ext:hover { color: var(--accent); }
+        a.ext { font-size: 0.68rem; font-weight: 500; padding: 0.05em 0.45em; margin: 0 0.3em; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
+        a.ext:hover { border-color: #c0c0c0; }
         .why { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
         .why:hover { border-color: #c0c0c0; }
         .details { margin: 0.3rem 0 0.1rem 1.6rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
@@ -68,7 +68,8 @@
             .section { background: #1c1f23; }
             .live.running { background: #1e3324; color: #7fce90; }
             .live.queued { background: #33290f; color: #d99a3a; }
-            .theme-btn, .why, .pill { background: #24282d; }
+            .theme-btn, .why, .pill, a.ext { background: #24282d; }
+            a.ext:hover { border-color: #4a4f55; }
             .pill:hover { border-color: #4a4f55; }
             .lbprs a { background: #232a33; }
             .theme-btn:hover, .why:hover { border-color: #4a4f55; }
@@ -154,7 +155,7 @@
                 const runUrl = (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
                 const expanded = b.occurrenceId ? `&expandedTest=${encodeURIComponent(b.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}` : '';
                 const nameHtml = runUrl
-                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>`
+                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">TC</a>`
                     : short;
                 const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
                 // A live re-run of this suite launched through the tool (running preferred over queued).

@@ -151,8 +151,8 @@
         .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
         .suite-rerun:disabled, .act:disabled { opacity: 0.5; cursor: default; }
         .hint { border-bottom: 1px dotted var(--muted); cursor: help; }
-        a.ext { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5em; min-height: 1.5em; color: var(--muted); text-decoration: none; font-size: 0.95em; margin: 0 0.05em; border-radius: 5px; vertical-align: middle; }
-        a.ext:hover { color: var(--accent); background: #f0f4fb; }
+        a.ext { font-size: 0.68rem; font-weight: 500; padding: 0.05em 0.45em; margin: 0 0.3em; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
+        a.ext:hover { border-color: #c0c0c0; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
@@ -163,11 +163,12 @@
             --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff;
             body { background: #17191c; }
             button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act { background: #24282d; color: var(--fg); }
+            a.ext { background: #24282d; }
+            a.ext:hover { border-color: #4a4f55; }
             .status-link, .star-btn { color: var(--fg); }
             button.primary { background: #e6e6e6; color: #17191c; border-color: #e6e6e6; }
             button:hover, .status-link:hover, #logout:hover, .why:hover, .star-btn:hover { border-color: #4a4f55; }
             .suite-rerun:hover, .act:not(:disabled):hover { background: #2b333d; }
-            a.ext:hover { background: #2b333d; }
             input { background: #1f2328; color: var(--fg); }
             .pane-head { background: #17191c; }
             .pane-toggle, .pane-expand { background: #24282d; }
@@ -357,8 +358,8 @@
             const href = url || prUrl(number);
             $('prTitle').classList.remove('muted');
             const linked = title ? esc(title).replace(/IGNITE-\d+/g,
-                m => `${m}<a class="ext" href="https://issues.apache.org/jira/browse/${m}" target="_self" rel="noopener" title="Open ${m} in JIRA">↗</a>`) : '';
-            $('prTitle').innerHTML = `#${number}<a class="ext" href="${href}" target="_self" rel="noopener" title="Open this PR on GitHub">↗</a>`
+                m => `${m}<a class="ext" href="https://issues.apache.org/jira/browse/${m}" target="_self" rel="noopener" title="Open ${m} in JIRA">JIRA</a>`) : '';
+            $('prTitle').innerHTML = `#${number}<a class="ext" href="${href}" target="_self" rel="noopener" title="Open this PR on GitHub">GitHub</a>`
                 + (linked ? ' ' + linked : '');
         }
 
@@ -608,7 +609,7 @@
             const rows = roots.map(s => {
                 const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
                 const head = esc(s.suiteName || s.suite)
-                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">↗</a>` : '');
+                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
                 const btns = s.suite
                     ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                         + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
@@ -655,7 +656,7 @@
                 if (d && d.latestBuildId === res.buildId && d.prevBuildId) {
                     const names = list => list.map(t => shortTestName(t.name)).slice(0, 12).join('\n');
                     const prevLink = 'previous run' + (tcBase
-                        ? `<a class="ext" href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous run in TeamCity">↗</a>` : '');
+                        ? `<a class="ext" href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous run in TeamCity">TC</a>` : '');
                     const parts = [];
                     parts.push(d.appeared.length ? `<span class="delta-new" title="${esc(names(d.appeared))}">+${d.appeared.length} new</span>` : 'no new');
                     parts.push(d.fixed.length ? `<span class="delta-fixed" title="${esc(names(d.fixed))}">−${d.fixed.length} fixed</span>` : 'none fixed');
@@ -767,7 +768,7 @@
             lastResult = res;
             $('status').textContent = '';
             const buildLabel = 'build ' + res.buildId + (tcBase
-                ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">↗</a>` : '');
+                ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
             // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
             const comp = (res.suitesRan || res.suitesReused)
                 ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} ran, ${res.suitesReused} reused</span>`
@@ -833,7 +834,7 @@
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'trigger failed'); return; }
                 const links = (res.triggered || [])
-                    .map(b => `#${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">↗</a>`).join(' · ');
+                    .map(b => `#${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
                 $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links;
                 loadRuns(pr);
             } finally {
@@ -873,7 +874,7 @@
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
                 const b = (res.triggered || [])[0];
                 $('status').innerHTML = b
-                    ? `Queued #${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">↗</a>`
+                    ? `Queued #${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`
                     : 'Queued.';
                 loadRuns(pr);
             } finally {
@@ -933,7 +934,7 @@
             el.innerHTML = [...groups.values()].map(g => {
                 const runUrl = g.buildId ? `${tcBase}buildConfiguration/${encodeURIComponent(g.btId)}/${g.buildId}` : '';
                 const head = esc(g.name)
-                    + (g.buildId ? `<a class="ext" href="${runUrl}" target="_self" rel="noopener" title="Open this run in TeamCity">↗</a>` : '');
+                    + (g.buildId ? `<a class="ext" href="${runUrl}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
                 const rerunBtns = rerunnable && g.btId
                     ? `<span class="suite-runs">`
                         + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="false" title="Re-run this suite">Rerun</button>`
@@ -949,7 +950,7 @@
                         ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
                         : '';
                     const link = short + (g.buildId
-                        ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>` : '');
+                        ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">TC</a>` : '');
                     const why = t.occurrenceId
                         ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
                         : '';
