@@ -1,5 +1,7 @@
 # Ignite PR Checker
 
+**English** · [Русский](README.ru.md)
+
 A small, focused tool for an [Apache Ignite](https://github.com/apache/ignite)-style TeamCity setup.
 It answers one question well — **which tests did my pull request actually break?** — and lets you act
 on it:
@@ -8,6 +10,8 @@ on it:
    with pre-existing and flaky-on-master failures filtered out as noise.
 2. **Trigger runs** from the same page: the whole RunAll chain, or a re-run of just the blocker suites
    (or one suite), at the head of the queue if you're in a hurry.
+
+➡ **[Feature tour with screenshots](docs/features.md)**
 
 It's a deliberately lightweight, self-updating alternative to the legacy
 [ignite-teamcity-bot](https://github.com/apache/ignite-teamcity-bot): no database, no GitHub/JIRA
@@ -52,10 +56,11 @@ Single Spring Boot app, no database:
 | Component | Responsibility |
 |---|---|
 | `TcClient` | Thin wrapper over the TeamCity REST API: find the latest finished RunAll, expand snapshot deps, failed tests, per-test master history, per-branch runs, trigger/cancel builds. Every call takes the caller's token. |
-| `ChainCollector` | Walks a composite RunAll build into its dependency suites and collects the failed tests. |
+| `ChainCollector` | Walks a composite RunAll build into its dependency suites and collects the failed tests (plus broken suites that failed without running tests, and the run's ran/reused composition). |
 | `BlockerAnalyzer` | The classifier: master-clean + still-failing-in-last-run → blocker vs noise; runs per-test lookups in parallel; caches results. |
 | `AnalysisCache` / `TtlCache` | In-memory caches (per-build result, per-test master history), shared across users and PRs. |
 | `Warmer` / `TokenPool` | Keeps the newest PRs pre-analysed in the background, spread across logged-in users' donated tokens; **cache-aware** (only recomputes PRs whose RunAll build changed). |
+| `RunDeltaStore` / `FlakyStats` / `RerunTracker` | Blocker delta & trend between runs; the persistent fix-master queue; live queued/running states of re-runs. |
 | `CacheStore` / `SnapshotCache` | Snapshots the caches to disk so a restart/redeploy starts warm instead of re-hammering TeamCity. |
 | `GithubClient` | Lists the repo's open PRs for the nav pane (cached to stay within the API rate limit). |
 | `Metrics` / `LogTracker` / `StatusController` | Powers the public status page (rolling last-hour call metrics + log health). |
