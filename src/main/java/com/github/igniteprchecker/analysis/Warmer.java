@@ -109,6 +109,7 @@ public class Warmer {
         AtomicInteger recomputed = new AtomicInteger();
         AtomicInteger cached = new AtomicInteger();
         AtomicInteger failed = new AtomicInteger();
+        AtomicInteger skipped = new AtomicInteger();
         AtomicInteger done = new AtomicInteger();
 
         // The per-PR warms fan out on the refresh pool (cold recomputes dominate a cycle, and serially
@@ -118,6 +119,13 @@ public class Warmer {
         for (int i = 0; i < count; i++) {
             int pr = prs.get(i).number();
             tasks.add(() -> {
+                // A user blocked on a cold analysis gets the whole TeamCity/CPU budget: skip this PR
+                // for now (the next cycle, or the user's own compute, will cover it).
+                if (analyzer.userWaiting()) {
+                    skipped.incrementAndGet();
+                    return null;
+                }
+
                 String token = tokens.next();
                 if (token == null) // pool empty: nobody logged in, or every token got rejected
                     return null;
@@ -157,8 +165,8 @@ public class Warmer {
         lastWarmed = recomputed.get();
         lastCached = cached.get();
         lastFailed = failed.get();
-        log.info("warm cycle: {} recomputed, {} already cached, {} failed, across {} token(s) in {}ms",
-            recomputed.get(), cached.get(), failed.get(), tokens.size(), System.currentTimeMillis() - cycleStartedAt);
+        log.info("warm cycle: {} recomputed, {} already cached, {} failed, {} yielded to users, across {} token(s) in {}ms",
+            recomputed.get(), cached.get(), failed.get(), skipped.get(), tokens.size(), System.currentTimeMillis() - cycleStartedAt);
     }
 
     /** Number of PRs warmed in the last cycle (for the status page). */

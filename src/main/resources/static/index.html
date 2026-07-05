@@ -529,12 +529,27 @@
             $('status').textContent = 'Analyzing… (walking the RunAll chain)';
             $('freshness').textContent = '';
             $('results').classList.add('hidden');
+            // While the compute runs, show its real progress — a cold analysis of a fresh run takes a
+            // while, and a silent spinner reads as "broken". The first viewer fills the cache for everyone.
+            const progTimer = setInterval(async () => {
+                try {
+                    const pr = await api('/api/progress?pr=' + number);
+                    if (!pr.ok || number !== selectedPr) return;
+                    const p = await pr.json().catch(() => null);
+                    if (p && p.total > 0 && $('results').classList.contains('hidden'))
+                        $('status').textContent = `Analyzing a fresh run — ${p.done}/${p.total} failed tests classified… `
+                            + '(first view of a new run computes it for everyone)';
+                } catch (e) { /* progress is decoration */ }
+            }, 2500);
             let r;
             try {
                 r = await api('/api/analyze?pr=' + encodeURIComponent(number));
             }
             catch (e) {
                 r = null; // network error: treat like a restart blip below
+            }
+            finally {
+                clearInterval(progTimer);
             }
             if (number !== selectedPr) return; // a newer selection superseded this one
             if (r && r.status === 401) { show('login'); return; }

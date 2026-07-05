@@ -16,6 +16,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -44,6 +45,12 @@ public class BlockerAnalyzer {
      * instead of piling duplicate full recomputes onto the pool (a page reload during a cold
      * analysis used to start another one from scratch). */
     private final ConcurrentMap<Long, CompletableFuture<AnalysisResult>> inFlight = new ConcurrentHashMap<>();
+
+    /** Live progress of in-flight computes (build id -> pr/done/total), for the "Analyzing…" line. */
+    private final ConcurrentMap<Long, Progress> progress = new ConcurrentHashMap<>();
+
+    /** How many user-facing requests are currently waiting on a compute — the warmer yields to them. */
+    private final AtomicInteger usersWaiting = new AtomicInteger();
 
     /** Last known blocker count per PR (best-effort), for the badges in the PR list. */
     private final Map<Integer, Integer> prBlockers = new ConcurrentHashMap<>();
@@ -79,7 +86,13 @@ public class BlockerAnalyzer {
             return cached;
         }
 
-        return Optional.of(computeAndStore(token, prNumber, bid, pool));
+        usersWaiting.incrementAndGet();
+        try {
+            return Optional.of(computeAndStore(token, prNumber, bid, pool));
+        }
+        finally {
+            usersWaiting.decrementAndGet();
+        }
     }
 
     /** Best-effort blocker count for a PR from the last analysis, or null if it hasn't been analysed. */
@@ -124,8 +137,24 @@ public class BlockerAnalyzer {
      * RunAll build exists yet. Backs the manual "refresh" button.
      */
     public Optional<AnalysisResult> forceRefresh(String token, int prNumber) {
-        return chains.findBuildIdFresh(token, prNumber)
-            .map(bid -> computeAndStore(token, prNumber, bid, pool));
+        usersWaiting.incrementAndGet();
+        try {
+            return chains.findBuildIdFresh(token, prNumber)
+                .map(bid -> computeAndStore(token, prNumber, bid, pool));
+        }
+        finally {
+            usersWaiting.decrementAndGet();
+        }
+    }
+
+    /** True while at least one user request is blocked on a compute — background warming should yield. */
+    public boolean userWaiting() {
+        return usersWaiting.get() > 0;
+    }
+
+    /** Progress of an in-flight compute for this PR ({@code done}/{@code total} failed tests), or null. */
+    public Progress progressOf(int prNumber) {
+        return progress.values().stream().filter(p -> p.pr() == prNumber).findFirst().orElse(null);
     }
 
     private boolean isStale(AnalysisResult r) {
@@ -175,14 +204,25 @@ public class BlockerAnalyzer {
         }
         finally {
             inFlight.remove(buildId);
+            progress.remove(buildId);
         }
     }
 
     private AnalysisResult doCompute(String token, int prNumber, long buildId, ExecutorService taskPool) {
         ChainCollector.Chain chain = chains.collectForBuild(token, buildId, taskPool);
 
+        Progress prog = new Progress(prNumber, chain.failedTests().size(), new AtomicInteger());
+        progress.put(buildId, prog);
+
         List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
-            .<Callable<TestVerdict>>map(t -> () -> classify(token, prNumber, t))
+            .<Callable<TestVerdict>>map(t -> () -> {
+                try {
+                    return classify(token, prNumber, t);
+                }
+                finally {
+                    prog.done().incrementAndGet();
+                }
+            })
             .toList();
 
         List<TestVerdict> verdicts = Parallel.run(taskPool, tasks);
@@ -253,6 +293,10 @@ public class BlockerAnalyzer {
             return c.getClass().getSimpleName();
 
         return m.length() > 80 ? m.substring(0, 80) + "…" : m;
+    }
+
+    /** An in-flight compute: which PR, how many failed tests total, how many are classified so far. */
+    public record Progress(int pr, int total, AtomicInteger done) {
     }
 
     /** Compact pass/fail history of the branch runs, oldest → newest: 'P' for a pass, 'F' for a failure. */

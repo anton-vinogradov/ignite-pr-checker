@@ -40,6 +40,13 @@ public class AnalyzeController {
         return respond(pr, analyzer.forceRefresh(token, pr));
     }
 
+    /** Live progress of an in-flight compute for this PR (empty body when nothing is computing). */
+    @GetMapping("/progress")
+    public BlockerAnalyzer.Progress progress(@RequestParam int pr,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        return analyzer.progressOf(pr);
+    }
+
     /** Blocker changes vs the previous run (null when nothing to compare) + the per-build blocker trend. */
     @GetMapping("/delta")
     public DeltaResponse delta(@RequestParam int pr,
