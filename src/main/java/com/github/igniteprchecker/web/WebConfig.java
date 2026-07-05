@@ -18,6 +18,6 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(auth)
             .addPathPatterns("/api/analyze", "/api/refresh", "/api/trigger", "/api/rerun-blockers",
                 "/api/rerun-suite", "/api/runs", "/api/cancel-all", "/api/update", "/api/test-details",
-                "/api/flush-caches", "/api/delta");
+                "/api/flush-caches", "/api/delta", "/api/causes");
     }
 }

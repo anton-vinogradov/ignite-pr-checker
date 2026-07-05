@@ -105,6 +105,11 @@
         .title-row .actions { margin-left: auto; }
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
+        .tag-flaky { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
+        .causes-panel { margin: 0.5rem 0; padding: 0.6rem 0.8rem; background: #f7f7f7; border-radius: 6px; font-size: 0.8rem; }
+        .causes-panel .sig { font-family: ui-monospace, monospace; word-break: break-all; }
+        .causes-panel .cnt { font-weight: 700; }
+        .causes-panel div { padding: 0.15rem 0; }
         .delta-new { color: var(--bad); font-weight: 600; }
         .delta-fixed { color: #2e7d32; font-weight: 600; }
         .runs { flex: 1; min-width: 0; }
@@ -161,6 +166,8 @@
             .home-results li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
             .delta-fixed { color: #7fce90; }
+            .tag-flaky { background: #33290f; color: #d99a3a; }
+            .causes-panel { background: #1f2328; }
             .live.running { background: #1e3324; color: #7fce90; }
             .live.queued { background: #33290f; color: #d99a3a; }
             .details { background: #1f2328; }
@@ -264,7 +271,10 @@
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div class="card blockers">
-                        <h2>Blockers <span id="blockerCount"></span></h2>
+                        <h2>Blockers <span id="blockerCount"></span>
+                            <button id="causesBtn" class="act hidden" type="button" title="Group blockers by failure message">Top causes</button>
+                        </h2>
+                        <div id="causesPanel" class="causes-panel hidden"></div>
                         <p class="muted">Failed in your PR and stable in master — attributed to your change.</p>
                         <ul id="blockers" class="tests"></ul>
                         <p id="noBlockers" class="muted hidden">No blockers — nothing here looks caused by your PR.</p>
@@ -310,8 +320,10 @@
         function setPrTitle(number, title, url) {
             const href = url || prUrl(number);
             $('prTitle').classList.remove('muted');
+            const linked = title ? esc(title).replace(/IGNITE-\d+/g,
+                m => `<a href="https://issues.apache.org/jira/browse/${m}" target="_self" rel="noopener">${m}</a>`) : '';
             $('prTitle').innerHTML = `<a href="${href}" target="_self" rel="noopener">#${number}</a>`
-                + (title ? ' ' + esc(title) : '');
+                + (linked ? ' ' + linked : '');
         }
 
         async function loadConfig() {
@@ -555,6 +567,34 @@
             } catch (e) { /* the delta line is a bonus; never block the result */ }
         }
 
+        // Group blockers by failure signature: hundreds of tests usually mean a handful of causes.
+        async function loadCauses() {
+            const btn = $('causesBtn'), panel = $('causesPanel');
+            if (!panel.classList.contains('hidden')) { panel.classList.add('hidden'); return; }
+            btn.disabled = true;
+            const was = btn.textContent;
+            btn.textContent = 'grouping…';
+            try {
+                const r = await api('/api/causes?pr=' + selectedPr);
+                if (r.status === 401) { show('login'); return; }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const d = await r.json();
+                const note = d.sampled < d.total ? `<div class="muted">grouped by the first ${d.sampled} of ${d.total} blockers</div>` : '';
+                panel.innerHTML = note + d.clusters.map(c =>
+                    `<div><span class="cnt">${c.count}×</span> <span class="sig">${esc(c.signature)}</span>`
+                    + ` <span class="muted">e.g. ${c.sampleTests.map(shortTestName).map(esc).join(', ')}</span></div>`).join('')
+                    || '<div class="muted">nothing to group</div>';
+                panel.classList.remove('hidden');
+            } catch (e) {
+                panel.innerHTML = '<div class="muted">failed to group causes</div>';
+                panel.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = was;
+            }
+        }
+        $('causesBtn').onclick = loadCauses;
+
         function renderResult(res) {
             $('status').textContent = '';
             const buildLabel = tcBase
@@ -575,6 +615,8 @@
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
+            $('causesBtn').classList.toggle('hidden', res.blockers.length < 2);
+            $('causesPanel').classList.add('hidden');
             loadDelta(res);
         }
 
@@ -724,7 +766,10 @@
                     const why = t.occurrenceId
                         ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
                         : '';
-                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}${why}</div>`
+                    // a fail->pass transition means it flapped on the same code (not a steady break)
+                    const flaky = t.branchRuns && /FP/.test(t.branchRuns)
+                        ? `<span class="tag-flaky" title="passed and failed across this branch's runs">flaky?</span>` : '';
+                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}${flaky}${why}</div>`
                         + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
                         + `<pre class="details hidden"></pre></li>`;
                 }).join('');
@@ -748,11 +793,23 @@
                 const r = await api('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ));
                 if (r.status === 401) { show('login'); return; }
                 const { details } = await r.json().catch(() => ({ details: '' }));
-                pre.textContent = details && details.trim() ? details : '(no failure message available)';
+                const kind = details ? failureKind(details) : null;
+                pre.textContent = details && details.trim()
+                    ? (kind ? kind + '\n\n' : '') + details
+                    : '(no failure message available)';
                 pre.dataset.loaded = '1';
             } catch (e) {
                 pre.textContent = 'failed to load details';
             }
+        }
+
+        // Rough failure triage from the message: environment/timing noise vs a real assertion.
+        function failureKind(d) {
+            if (/timed out|timeout|Node has not joined|OutOfMemoryError|JVM crash|Connection re(set|fused)|Failed to wait|exit code|Agent unavailable/i.test(d))
+                return '♻ environment/timing — a re-run may pass';
+            if (/AssertionError|AssertionFailedError|ComparisonFailure|expected:/.test(d))
+                return '⚖ assertion — likely a real logic failure';
+            return null;
         }
 
         // Show the "Update" button when the server reports a newer release is available.
