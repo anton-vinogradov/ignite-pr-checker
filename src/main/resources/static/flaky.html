@@ -29,7 +29,6 @@
         .theme-btn:hover { border-color: #c0c0c0; }
         .wrap { margin: 1.2rem auto; padding: 0 1.5rem; }
         .muted { color: var(--muted); }
-        .blurb { font-size: 0.9rem; line-height: 1.55; max-width: 80ch; margin: 0.2rem 0 1rem; }
         .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
 
         .leaderboard { display: flex; flex-direction: column; }
@@ -78,14 +77,6 @@
     </header>
 
     <div class="wrap">
-        <p class="blurb">Tests the checker filters out because they <b>fail on master</b> (pre-existing or flaky) — not any
-            one PR's fault, but shared noise that makes every PR's result harder to read. This is the master-cleanup queue,
-            <b>worst master fail-rate first</b>: fix these at the source and every PR's signal gets cleaner.
-            <b>N/M on master</b> = how many of the last ~100 master runs of the test failed; the <b>#PR</b> links are PRs
-            that recently hit it. This tally is accumulated and persisted, so it survives idle periods (a test drops
-            off ~14 days after it stops failing). Click a test for the failure in TeamCity, <b>why?</b> for the message.
-            (Expanding <b>why?</b> needs a login on the main page.)</p>
-
         <div id="err" class="muted"></div>
         <div class="section"><div id="flaky" class="leaderboard"></div></div>
         <div class="updated" id="updated"></div>
