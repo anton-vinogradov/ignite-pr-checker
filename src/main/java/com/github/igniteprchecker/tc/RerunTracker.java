@@ -100,6 +100,8 @@ public class RerunTracker implements SnapshotCache {
         }
 
         t.state = b.state();
+        t.pct = pct(b);
+        t.leftSec = leftSeconds(b);
         t.lastVerified = System.currentTimeMillis();
     }
 
@@ -125,6 +127,8 @@ public class RerunTracker implements SnapshotCache {
                 addChild(kids, t.pr, dep);
 
         t.children = List.copyOf(kids.values());
+        t.pct = pct(b);
+        t.leftSec = leftSeconds(b);
         t.lastVerified = System.currentTimeMillis();
     }
 
@@ -135,7 +139,8 @@ public class RerunTracker implements SnapshotCache {
         String name = dep.buildType() != null && dep.buildType().name() != null
             ? dep.buildType().name() : dep.buildTypeId();
         kids.putIfAbsent(dep.id(), new ActiveRerun(pr, dep.buildTypeId(), name, dep.id(),
-            dep.state() == null ? "queued" : dep.state(), dep.webUrl() == null ? "" : dep.webUrl()));
+            dep.state() == null ? "queued" : dep.state(), dep.webUrl() == null ? "" : dep.webUrl(),
+            pct(dep), leftSeconds(dep)));
     }
 
     /** The currently queued/running builds (chains flattened into their suites), running first, deduped.
@@ -147,7 +152,8 @@ public class RerunTracker implements SnapshotCache {
         for (Tracked t : tracked.values()) {
             if (now - t.lastVerified > STALE_MS)
                 continue;
-            out.putIfAbsent(t.buildId, new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl));
+            out.putIfAbsent(t.buildId, new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl,
+                t.pct, t.leftSec));
             for (ActiveRerun kid : t.children)
                 out.putIfAbsent(kid.buildId(), kid);
         }
@@ -193,6 +199,8 @@ public class RerunTracker implements SnapshotCache {
         final long buildId;
         final String webUrl;
         volatile String state = "queued";
+        volatile Integer pct;
+        volatile Long leftSec;
         volatile long lastVerified = System.currentTimeMillis();
         volatile List<ActiveRerun> children = List.of();
 
@@ -208,7 +216,21 @@ public class RerunTracker implements SnapshotCache {
     private record Persisted(int pr, String buildTypeId, String suiteName, long buildId, String webUrl, String state) {
     }
 
+    /** Seconds TeamCity thinks are left for a running build, or null when it has no estimate. */
+    private static Long leftSeconds(TcModel.Build b) {
+        TcModel.RunningInfo ri = b.runningInfo();
+        if (ri == null || ri.estimatedTotalSeconds() == null || ri.elapsedSeconds() == null)
+            return null;
+
+        return Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds());
+    }
+
+    private static Integer pct(TcModel.Build b) {
+        return b.runningInfo() == null ? null : b.runningInfo().percentageComplete();
+    }
+
     /** A queued/running build for a PR: a suite re-run, a RunAll chain, or one of a chain's suites. */
-    public record ActiveRerun(int pr, String buildTypeId, String suiteName, long buildId, String state, String webUrl) {
+    public record ActiveRerun(int pr, String buildTypeId, String suiteName, long buildId, String state, String webUrl,
+        Integer pct, Long leftSec) {
     }
 }

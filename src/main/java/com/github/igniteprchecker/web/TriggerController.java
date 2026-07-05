@@ -125,13 +125,18 @@ public class TriggerController {
 
     private static Map<String, Object> brief(TcModel.Build b) {
         String name = b.buildType() != null && b.buildType().name() != null ? b.buildType().name() : "";
+        TcModel.RunningInfo ri = b.runningInfo();
+        long left = ri != null && ri.estimatedTotalSeconds() != null && ri.elapsedSeconds() != null
+            ? Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds()) : -1;
 
         return Map.of(
             "buildId", b.id(),
             "state", b.state() == null ? "queued" : b.state(),
             "name", name,
             "btId", b.buildTypeId() == null ? "" : b.buildTypeId(),
-            "webUrl", b.webUrl() == null ? "" : b.webUrl());
+            "webUrl", b.webUrl() == null ? "" : b.webUrl(),
+            "pct", ri != null && ri.percentageComplete() != null ? ri.percentageComplete() : -1,
+            "leftSec", left);
     }
 
     private static ResponseEntity<?> teamCityError(RestClientResponseException e) {
