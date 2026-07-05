@@ -236,19 +236,16 @@ public class TcClient {
     }
 
     /**
-     * All builds currently queued on a PR branch — a chain's not-yet-started (non-reused) suites wait
-     * here while agents are busy. ci2's queue locator has no branch dimension, so scan the queue and
-     * filter; the fields are tiny.
+     * The whole build queue (bounded) — a chain's not-yet-started (non-reused) suites wait here while
+     * agents are busy. ci2's queue locator has no branch dimension, so callers filter by
+     * {@code branchName}; the fields are tiny, and one scan serves every tracked chain.
      */
-    public List<TcModel.Build> queuedBranchBuilds(String token, int prNumber) {
-        String branch = "pull/" + prNumber + "/head";
-
+    public List<TcModel.Build> queuedBuilds(String token) {
         TcModel.BuildList list = get("buildState", token, url("app/rest/buildQueue", query(
             "locator", "count:1000",
             "fields", "build(id,buildTypeId,state,webUrl,branchName,buildType(name))")), TcModel.BuildList.class);
 
-        return list == null || list.build() == null ? List.of()
-            : list.build().stream().filter(b -> branch.equals(b.branchName())).toList();
+        return list == null || list.build() == null ? List.of() : list.build();
     }
 
     private <T> T get(String category, String token, URI uri, Class<T> type) {

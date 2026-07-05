@@ -4,12 +4,16 @@ import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
@@ -28,6 +32,7 @@ public class Warmer {
     private final GithubClient github;
     private final WarmProperties props;
     private final TokenPool tokens;
+    private final ExecutorService warmPool;
 
     private volatile int lastWarmed;
     private volatile int lastCached;
@@ -47,10 +52,12 @@ public class Warmer {
         return t;
     });
 
-    public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props) {
+    public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props,
+        @Qualifier("refreshExecutor") ExecutorService warmPool) {
         this.analyzer = analyzer;
         this.github = github;
         this.props = props;
+        this.warmPool = warmPool;
         this.tokens = new TokenPool(Duration.ofMinutes(props.tokenTtlMinutes()).toMillis());
     }
 
@@ -97,40 +104,59 @@ public class Warmer {
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
         cycleTotal = count;
-        int recomputed = 0;
-        int cached = 0;
 
+        AtomicInteger recomputed = new AtomicInteger();
+        AtomicInteger cached = new AtomicInteger();
+        AtomicInteger failed = new AtomicInteger();
+        AtomicInteger done = new AtomicInteger();
+
+        // The per-PR warms fan out on the refresh pool (cold recomputes dominate a cycle, and serially
+        // they made the startup warm-up minutes long); each warm's own per-test fan-out stays on the
+        // background pool, so the two levels can't deadlock each other.
+        List<Callable<Void>> tasks = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            String token = tokens.next();
-            if (token == null) // pool empty: nobody logged in, or every token got rejected
-                break;
-
             int pr = prs.get(i).number();
+            tasks.add(() -> {
+                String token = tokens.next();
+                if (token == null) // pool empty: nobody logged in, or every token got rejected
+                    return null;
 
-            try {
-                if (analyzer.warm(token, pr)) // recomputes only if the latest build isn't already cached
-                    recomputed++;
-                else
-                    cached++;
-            }
-            catch (RestClientResponseException e) {
-                if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
-                    tokens.remove(token); // revoked/expired: drop it and retry this PR with another token
-                    log.info("warmer token rejected ({}), dropped ({} left in pool)", e.getStatusCode(), tokens.size());
-                    i--;
+                try {
+                    if (analyzer.warm(token, pr)) // recomputes only if the latest build isn't already cached
+                        recomputed.incrementAndGet();
+                    else
+                        cached.incrementAndGet();
                 }
-            }
-            catch (RuntimeException e) {
-                log.debug("warm of PR {} failed: {}", pr, e.toString());
-            }
+                catch (RestClientResponseException e) {
+                    failed.incrementAndGet();
+                    if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
+                        tokens.remove(token); // revoked/expired: drop it; the next cycle covers this PR
+                        log.info("warmer token rejected ({}), dropped ({} left in pool)", e.getStatusCode(), tokens.size());
+                    }
+                }
+                catch (RuntimeException e) {
+                    failed.incrementAndGet();
+                    log.debug("warm of PR {} failed: {}", pr, e.toString());
+                }
+                finally {
+                    cycleDone = done.incrementAndGet();
+                }
 
-            cycleDone = recomputed + cached;
+                return null;
+            });
         }
 
-        lastWarmed = recomputed;
-        lastCached = cached;
-        log.info("warm cycle: {} recomputed, {} already cached, across {} token(s) in {}ms",
-            recomputed, cached, tokens.size(), System.currentTimeMillis() - cycleStartedAt);
+        try {
+            warmPool.invokeAll(tasks); // tasks swallow their own errors; invokeAll just awaits them all
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        lastWarmed = recomputed.get();
+        lastCached = cached.get();
+        log.info("warm cycle: {} recomputed, {} already cached, {} failed, across {} token(s) in {}ms",
+            recomputed.get(), cached.get(), failed.get(), tokens.size(), System.currentTimeMillis() - cycleStartedAt);
     }
 
     /** Number of PRs warmed in the last cycle (for the status page). */
