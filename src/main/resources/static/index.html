@@ -73,6 +73,9 @@
         .pr-list li { padding: 0.5rem 0.9rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
         .pr-list li:hover { background: #f7f7f7; }
         .pr-list li.sel { background: var(--sel); }
+        .pr-list li.mine { box-shadow: inset 3px 0 0 var(--accent); }
+        .my-tag { display: none; font-size: 0.62rem; font-weight: 600; color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; padding: 0 0.35em; margin-left: 0.25rem; vertical-align: middle; }
+        .pr-list li.mine .my-tag { display: inline-block; }
         .pr-num { font-family: ui-monospace, monospace; color: var(--accent); font-size: 0.85rem; }
         .pr-ttl { display: block; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pr-badge { display: inline-block; min-width: 1.3em; text-align: center; font-size: 0.7rem; font-weight: 600; border-radius: 8px; padding: 0 0.35em; vertical-align: middle; margin-left: 0.15rem; }
@@ -250,6 +253,7 @@
         let githubRepo = 'apache/ignite';
         let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
         let selectedPr = null;
+        let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
 
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -298,13 +302,21 @@
             if (!prs.length && $('prList').children.length) return; // keep the current list on an empty response
             $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
             $('prList').innerHTML = prs.map(p => `
-                <li data-num="${p.number}" data-url="${esc(p.url)}" title="${esc(p.title)}">
-                    <span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers)}
+                <li data-num="${p.number}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" title="${esc(p.title)}">
+                    <span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
                     <span class="pr-ttl">${esc(p.title)}</span>
                 </li>`).join('');
             for (const li of $('prList').children) {
                 li.onclick = () => openPr(+li.dataset.num, true);
             }
+            markMine();
+        }
+
+        // Flag PRs whose latest RunAll you triggered (matched by TeamCity username).
+        function markMine() {
+            const me = (myUsername || '').trim().toLowerCase();
+            for (const li of $('prList').children)
+                li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
         }
 
         // Badge next to a PR number: red count if it has blockers, a check if clean, nothing if not analysed yet.
@@ -375,6 +387,7 @@
         }
 
         async function enterApp(username) {
+            myUsername = username || '';
             $('username').textContent = username;
             show('analyze');
             $('actions').classList.add('hidden');
