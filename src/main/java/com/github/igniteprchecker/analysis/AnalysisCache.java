@@ -1,7 +1,9 @@
 package com.github.igniteprchecker.analysis;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -68,30 +70,41 @@ public class AnalysisCache implements SnapshotCache {
     public List<TopBlocker> topBlockers(int limit) {
         Map<Long, Agg> byTest = new HashMap<>();
         for (AnalysisResult r : results.freshValues()) {
-            for (var b : r.blockers())
-                byTest.computeIfAbsent(b.testId(), k -> new Agg(b.name(), b.suiteName())).prs.add(r.prNumber());
+            for (TestVerdict b : r.blockers())
+                byTest.computeIfAbsent(b.testId(), k -> new Agg()).add(b, r.prNumber());
         }
 
         return byTest.values().stream()
-            .map(a -> new TopBlocker(a.name, a.suite, a.prs.size(), a.prs.stream().sorted().toList()))
+            .filter(a -> a.rep != null)
+            .map(a -> new TopBlocker(a.rep.testId(), a.rep.name(), a.rep.suite(), a.rep.suiteName(),
+                a.rep.suiteBuildId(), a.rep.occurrenceId(), a.rep.branchRuns(),
+                a.prs.size(), a.prs.stream().sorted().toList()))
             .sorted(Comparator.comparingInt(TopBlocker::prCount).reversed())
             .limit(limit)
             .toList();
     }
 
+    /** Aggregates one test across PRs: the distinct PRs it blocks, plus its newest occurrence as a representative. */
     private static final class Agg {
-        final String name;
-        final String suite;
         final Set<Integer> prs = new HashSet<>();
+        private TestVerdict rep;
 
-        Agg(String name, String suite) {
-            this.name = name;
-            this.suite = suite;
+        void add(TestVerdict v, int pr) {
+            prs.add(pr);
+            if (rep == null || v.suiteBuildId() > rep.suiteBuildId())
+                rep = v; // newest build = freshest failure to link/expand
         }
     }
 
-    /** A chronically-blocking test: which suite/test, how many open PRs it blocks, and which. */
-    public record TopBlocker(String name, String suite, int prCount, List<Integer> prs) {
+    /**
+     * A chronically-blocking test: its identity, how many/which open PRs it blocks, and its latest
+     * occurrence (suite/build/occurrence + branch-run strip) so the UI can link to the failure in
+     * TeamCity, expand "why", and show the pass/fail runs.
+     */
+    public record TopBlocker(
+        @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,
+        String name, String suite, String suiteName, long suiteBuildId,
+        String occurrenceId, String branchRuns, int prCount, List<Integer> prs) {
     }
 
     /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */

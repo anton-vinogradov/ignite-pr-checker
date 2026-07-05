@@ -73,6 +73,14 @@
         .lbcount { margin-left: auto; font-weight: 600; white-space: nowrap; }
         .lbprs { font-size: 0.78rem; margin: 0.15rem 0 0 1.6rem; }
         .lbprs a { margin-right: 0.45rem; }
+        .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
+        .run { width: 3px; height: 12px; border-radius: 1px; }
+        .run-p { background: #2e7d32; }
+        .run-f { background: #c0392b; }
+        .why { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
+        .why:hover { border-color: #c0c0c0; }
+        .details { margin: 0.3rem 0 0.1rem 1.6rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+        .details.hidden { display: none; }
         .hdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 0.5rem; vertical-align: middle; background: #bbb; }
         .hdot.ok { background: var(--ok); }
         .hdot.warn { background: #e0a000; }
@@ -95,6 +103,9 @@
             .lvl-warn { color: #d99a3a; }
             .mini-btn, .theme-btn { background: #24282d; }
             .mini-btn:hover, .theme-btn:hover { border-color: #4a4f55; }
+            .why { background: #24282d; }
+            .why:hover { border-color: #4a4f55; }
+            .details { background: #1f2328; }
         }
     </style>
 </head>
@@ -161,6 +172,8 @@
 
     <script>
         const $ = id => document.getElementById(id);
+        let tcBase = '';       // TeamCity base URL (for deep-linking to a failure); loaded from /api/config
+        let lastTopJson = '';  // last-rendered leaderboard, so we only re-render on change (keeps a "why?" open)
 
         function fmtDur(s) {
             s = Math.floor(s);
@@ -273,7 +286,8 @@
             renderCats($('tcCats'), tc.byCategory || {});
             renderCats($('ghCats'), gh.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
-            renderTopBlockers($('topBlockers'), d.topBlockers || []);
+            const topJson = JSON.stringify(d.topBlockers || []);
+            if (topJson !== lastTopJson) { renderTopBlockers($('topBlockers'), d.topBlockers || []); lastTopJson = topJson; }
             renderLog($('logList'), d.log || { recent: [] });
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
@@ -300,16 +314,56 @@
             return segs.slice(noMethod ? -1 : -2).join('.');
         }
 
+        // tcbot-style pass/fail history of the test's finished branch runs (oldest → newest).
+        function runStrip(runs) {
+            if (!runs) return '';
+            const failed = [...runs].filter(c => c === 'F').length;
+            const bars = [...runs].map(c => `<span class="run run-${c === 'F' ? 'f' : 'p'}"></span>`).join('');
+            return `<span class="strip" title="${runs.length} branch run(s), ${failed} failed (oldest→newest)">${bars}</span>`;
+        }
+
         function renderTopBlockers(el, list) {
             if (!list || !list.length) { el.innerHTML = '<div class="muted">no blockers across cached PRs — everything is green 🎉</div>'; return; }
-            el.innerHTML = list.map((b, i) => `<div class="lbrow">
-                <div class="lbhead">
-                    <span class="lbrank">${i + 1}.</span>
-                    <span class="lbname"><span class="lbsuite">${esc(b.suite)} · </span>${esc(shortTestName(b.name))}</span>
-                    <span class="lbcount">${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span>
-                </div>
-                <div class="lbprs">${b.prs.map(n => `<a href="/?pr=${n}" target="_self">#${n}</a>`).join('')}</div>
-            </div>`).join('');
+            el.innerHTML = list.map((b, i) => {
+                const short = esc(shortTestName(b.name));
+                // Link straight to the test's failure in TeamCity (expanded "into itself" in that build).
+                const runUrl = (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
+                const expanded = b.occurrenceId ? `&expandedTest=${encodeURIComponent(b.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}` : '';
+                const nameHtml = runUrl
+                    ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${b.testId}" target="_self" rel="noopener">${short}</a>`
+                    : short;
+                const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
+                return `<div class="lbrow">
+                    <div class="lbhead">
+                        <span class="lbrank">${i + 1}.</span>
+                        <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${runStrip(b.branchRuns)}${why}</span>
+                        <span class="lbcount">${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span>
+                    </div>
+                    <div class="lbprs">${b.prs.map(n => `<a href="/?pr=${n}" target="_self">#${n}</a>`).join('')}</div>
+                    <pre class="details hidden"></pre>
+                </div>`;
+            }).join('');
+            for (const btn of el.querySelectorAll('.why')) btn.onclick = () => toggleDetails(btn);
+        }
+
+        // Lazily fetch and toggle a test's failure message. /api/test-details needs a login, so a public
+        // visitor gets a clear hint instead of a silent failure.
+        async function toggleDetails(btn) {
+            const pre = btn.closest('.lbrow').querySelector('.details');
+            if (!pre) return;
+            if (!pre.classList.contains('hidden')) { pre.classList.add('hidden'); return; }
+            pre.classList.remove('hidden');
+            if (pre.dataset.loaded) return;
+            pre.textContent = 'loading…';
+            try {
+                const r = await fetch('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ), { cache: 'no-store' });
+                if (r.status === 401) { pre.textContent = 'log in on the main page to see the failure message'; return; }
+                const { details } = await r.json().catch(() => ({ details: '' }));
+                pre.textContent = details && details.trim() ? details : '(no failure message available)';
+                pre.dataset.loaded = '1';
+            } catch (e) {
+                pre.textContent = 'failed to load details';
+            }
         }
 
         function renderLog(el, log) {
@@ -430,8 +484,15 @@
             });
         })();
 
-        tick();
-        setInterval(tick, 5000);
+        async function loadConfig() {
+            try {
+                const c = await fetch('/api/config', { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+                if (c && c.teamcityUrl) tcBase = c.teamcityUrl.endsWith('/') ? c.teamcityUrl : c.teamcityUrl + '/';
+            } catch (e) { /* leaderboard links just won't be clickable */ }
+        }
+
+        // Load the TC base URL first so the leaderboard's first render already has working failure links.
+        loadConfig().then(() => { tick(); setInterval(tick, 5000); });
     </script>
 </body>
 </html>
