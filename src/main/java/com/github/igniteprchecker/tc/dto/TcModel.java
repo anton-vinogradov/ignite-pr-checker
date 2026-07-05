@@ -25,12 +25,18 @@ public final class TcModel {
         String buildTypeId,
         String webUrl,
         BuildType buildType,
+        Triggered triggered,
         @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies
     ) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildType(String id, String name) {
+    }
+
+    /** Who/what started a build. {@code type} is e.g. "user" or "vcs"; {@code user} is set when a person triggered it. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Triggered(String type, User user) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

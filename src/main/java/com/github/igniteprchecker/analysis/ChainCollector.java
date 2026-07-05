@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +30,9 @@ public class ChainCollector {
      * check) doesn't pay a TeamCity round-trip that almost always returns the same build. */
     private final TtlCache<Integer, Long> buildIds = new TtlCache<>(BUILD_ID_TTL_MS);
 
+    /** PR -> the TeamCity user who triggered its latest RunAll (best-effort, from the last build lookup). */
+    private final ConcurrentMap<Integer, String> triggeredBy = new ConcurrentHashMap<>();
+
     public ChainCollector(TcClient tc) {
         this.tc = tc;
     }
@@ -45,10 +50,20 @@ public class ChainCollector {
     }
 
     private Optional<Long> lookupBuildId(String token, int prNumber) {
-        Optional<Long> found = tc.findRunAllBuildForPr(token, prNumber).map(TcModel.Build::id);
-        found.ifPresent(id -> buildIds.put(prNumber, id));
+        Optional<TcModel.Build> build = tc.findRunAllBuildForPr(token, prNumber);
+        build.ifPresent(b -> {
+            buildIds.put(prNumber, b.id());
+            String who = b.triggered() != null && b.triggered().user() != null ? b.triggered().user().username() : null;
+            if (who != null) // keep the last known triggerer; don't wipe it on a rare missing value
+                triggeredBy.put(prNumber, who);
+        });
 
-        return found;
+        return build.map(TcModel.Build::id);
+    }
+
+    /** The TeamCity user who triggered a PR's latest RunAll, if seen during a build lookup; else null. */
+    public String triggeredBy(int prNumber) {
+        return triggeredBy.get(prNumber);
     }
 
     /**

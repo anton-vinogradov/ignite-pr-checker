@@ -77,6 +77,11 @@ public class BlockerAnalyzer {
         return prBlockers.get(prNumber);
     }
 
+    /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "My?" flag in the PR list. */
+    public String triggeredBy(int prNumber) {
+        return chains.triggeredBy(prNumber);
+    }
+
     /** Recomputes and caches the analysis for a PR's latest build. Used by the warmer (background pool). */
     public void refresh(String token, int prNumber) {
         chains.findBuildId(token, prNumber).ifPresent(bid -> computeAndStore(token, prNumber, bid, bgPool));

@@ -75,7 +75,7 @@ public class TcClient {
 
         TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
             "locator", locator,
-            "fields", "build(id,status,state,branchName)")), TcModel.BuildList.class);
+            "fields", "build(id,status,state,branchName,triggered(type,user(username)))")), TcModel.BuildList.class);
 
         if (list == null || list.build() == null || list.build().isEmpty())
             return Optional.empty();
