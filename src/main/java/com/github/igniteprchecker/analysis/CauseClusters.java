@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,6 +34,12 @@ public class CauseClusters {
         @Qualifier("analysisExecutor") ExecutorService pool) {
         this.tc = tc;
         this.pool = pool;
+    }
+
+    /** Sweeps out expired per-build cluster entries (see TtlCache.evictExpired). */
+    @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
+    void evictExpired() {
+        cache.evictExpired();
     }
 
     /** Clusters for a run's blockers (cached per build id). */

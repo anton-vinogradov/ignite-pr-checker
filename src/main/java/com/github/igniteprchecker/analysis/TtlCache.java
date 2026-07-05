@@ -46,6 +46,13 @@ final class TtlCache<K, V> {
         return map.size();
     }
 
+    /** Drops entries whose TTL has passed. Expired entries are otherwise never removed (reads only
+     * skip them), so without this sweep the map would grow for as long as the process lives. */
+    void evictExpired() {
+        long now = System.currentTimeMillis();
+        map.entrySet().removeIf(e -> now >= e.getValue().expiresAt());
+    }
+
     /** Drops every entry; returns how many were removed. */
     int clear() {
         int n = map.size();

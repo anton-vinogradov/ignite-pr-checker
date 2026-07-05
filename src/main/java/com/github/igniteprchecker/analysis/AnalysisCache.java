@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
@@ -64,6 +65,14 @@ public class AnalysisCache implements SnapshotCache {
     /** A test's cached master history, if still fresh (gives the fail-rate without a TeamCity call). */
     public Optional<HistoryStats> historyOf(long testId) {
         return history.peek(testId);
+    }
+
+    /** Sweeps out expired entries so long uptimes don't accumulate dead results/history in memory
+     * (and the status page's cached-counts stay honest). */
+    @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
+    void evictExpired() {
+        history.evictExpired();
+        results.evictExpired();
     }
 
     /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */

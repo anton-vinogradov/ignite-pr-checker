@@ -16,6 +16,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
@@ -39,6 +40,12 @@ public class ChainCollector {
 
     public ChainCollector(TcClient tc) {
         this.tc = tc;
+    }
+
+    /** Sweeps out expired build-id lookups (see TtlCache.evictExpired). */
+    @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
+    void evictExpired() {
+        buildIds.evictExpired();
     }
 
     /** The latest RunAll build id for a PR branch, if any (cached briefly). */
