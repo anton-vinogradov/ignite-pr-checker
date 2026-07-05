@@ -54,7 +54,7 @@
         .live.queued { background: #fff3e0; color: #b26a00; }
         .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .pill:hover { border-color: #c0c0c0; }
-        a.ext { color: var(--muted); text-decoration: none; font-size: 0.82em; padding: 0 0.25em; border-radius: 4px; }
+        a.ext { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5em; min-height: 1.5em; color: var(--muted); text-decoration: none; font-size: 0.95em; margin: 0 0.05em; border-radius: 5px; vertical-align: middle; }
         a.ext:hover { color: var(--accent); }
         .why { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
         .why:hover { border-color: #c0c0c0; }
@@ -119,6 +119,11 @@
         }
 
         // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
+        // TeamCity URLs carry the test-name hash in its unsigned 64-bit form; the REST id is signed.
+        function unsignedTestId(id) {
+            try { return (BigInt(id) & 0xFFFFFFFFFFFFFFFFn).toString(); } catch (e) { return id; }
+        }
+
         function chipEta(b) {
             if (b.leftSec != null && b.leftSec >= 0) return ' · ' + fmtLeft(b.leftSec);
             if (b.startSec != null && b.startSec >= 0) return ' · starts ' + fmtLeft(b.startSec);
@@ -149,7 +154,7 @@
                 const runUrl = (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
                 const expanded = b.occurrenceId ? `&expandedTest=${encodeURIComponent(b.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}` : '';
                 const nameHtml = runUrl
-                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${b.testId}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>`
+                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>`
                     : short;
                 const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
                 // A live re-run of this suite launched through the tool (running preferred over queued).

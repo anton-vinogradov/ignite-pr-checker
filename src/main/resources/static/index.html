@@ -150,7 +150,7 @@
         .suite-rerun, .act { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--accent); cursor: pointer; white-space: nowrap; }
         .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
         .suite-rerun:disabled, .act:disabled { opacity: 0.5; cursor: default; }
-        a.ext { color: var(--muted); text-decoration: none; font-size: 0.82em; padding: 0 0.25em; border-radius: 4px; }
+        a.ext { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5em; min-height: 1.5em; color: var(--muted); text-decoration: none; font-size: 0.95em; margin: 0 0.05em; border-radius: 5px; vertical-align: middle; }
         a.ext:hover { color: var(--accent); background: #f0f4fb; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
@@ -882,6 +882,11 @@
         }
 
         // "(N suites, M tests)" — how many suites are affected and how many tests failed.
+        // TeamCity URLs carry the test-name hash in its unsigned 64-bit form; the REST id is signed.
+        function unsignedTestId(id) {
+            try { return (BigInt(id) & 0xFFFFFFFFFFFFFFFFn).toString(); } catch (e) { return id; }
+        }
+
         function countLabel(list) {
             const suites = new Set(list.map(t => t.suiteBuildId || 0)).size;
             const n = list.length;
@@ -943,7 +948,7 @@
                         ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
                         : '';
                     const link = short + (g.buildId
-                        ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${t.testId}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>` : '');
+                        ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>` : '');
                     const why = t.occurrenceId
                         ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
                         : '';
