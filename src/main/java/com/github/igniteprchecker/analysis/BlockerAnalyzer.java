@@ -175,16 +175,17 @@ public class BlockerAnalyzer {
         HistoryStats h = cache.history(t.testId(),
             () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId())));
 
-        // A failure in the PR is a blocker unless the test also fails in master history: any failure
-        // there means it isn't specific to this PR (pre-existing or flaky on master).
-        if (h.fails() > 0) {
-            return verdict(t, null, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", "");
-        }
-
         // The finished runs of this test on the PR branch (one request; also drives the history strip).
         List<TcModel.TestOccurrence> runs = tc.prBranchRuns(token, prNumber, t.testId());
         String branchRuns = strip(runs);
         TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
+
+        // A failure in the PR is a blocker unless the test also fails in master history: any failure
+        // there means it isn't specific to this PR (pre-existing or flaky on master). It still gets
+        // its branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers.
+        if (h.fails() > 0) {
+            return verdict(t, lastRun, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", branchRuns);
+        }
 
         // ...and only if the failure still stands in the last fully-finished run on the branch: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).

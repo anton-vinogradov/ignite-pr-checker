@@ -65,6 +65,7 @@ public class FlakyStats implements SnapshotCache {
             e.suiteName = f.suiteName();
             e.suiteBuildId = f.suiteBuildId();
             e.occurrenceId = f.occurrenceId();
+            e.branchRuns = f.branchRuns() == null ? "" : f.branchRuns();
             e.masterFails = masterFails;
             e.masterRuns = masterRuns;
             e.prs.add(pr);
@@ -82,7 +83,7 @@ public class FlakyStats implements SnapshotCache {
             synchronized (e) {
                 if (e.masterFails > 0)
                     out.add(new TopFlaky(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
-                        e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList()));
+                        e.branchRuns, e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList()));
             }
         });
 
@@ -110,7 +111,7 @@ public class FlakyStats implements SnapshotCache {
         byTest.forEach((id, e) -> {
             synchronized (e) {
                 snap.add(new Persisted(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
-                    e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList()));
+                    e.branchRuns, e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList()));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
@@ -132,6 +133,7 @@ public class FlakyStats implements SnapshotCache {
             e.suiteName = p.suiteName();
             e.suiteBuildId = p.suiteBuildId();
             e.occurrenceId = p.occurrenceId();
+            e.branchRuns = p.branchRuns() == null ? "" : p.branchRuns();
             e.masterFails = p.masterFails();
             e.masterRuns = p.masterRuns();
             e.lastSeen = p.lastSeen();
@@ -147,6 +149,7 @@ public class FlakyStats implements SnapshotCache {
         String suiteName;
         long suiteBuildId;
         String occurrenceId = "";
+        String branchRuns = "";
         int masterFails;
         int masterRuns;
         long lastSeen;
@@ -154,18 +157,18 @@ public class FlakyStats implements SnapshotCache {
     }
 
     private record Persisted(long testId, String name, String suite, String suiteName, long suiteBuildId,
-        String occurrenceId, int masterFails, int masterRuns, long lastSeen, List<Integer> prs) {
+        String occurrenceId, String branchRuns, int masterFails, int masterRuns, long lastSeen, List<Integer> prs) {
     }
 
     /**
      * A flaky/broken-on-master test: identity, master fail-rate ({@code masterFails}/{@code masterRuns}),
      * how many/which open PRs recently hit it, and its latest occurrence (suite/build/occurrence) so the
-     * UI can link to the failure in TeamCity and expand "why". {@code branchRuns} is empty for these
-     * (pre-existing failures aren't tracked per branch), kept for a uniform row shape.
+     * UI can link to the failure in TeamCity, expand "why", and draw the branch pass/fail strip.
      */
     public record TopFlaky(
         @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,
         String name, String suite, String suiteName, long suiteBuildId,
-        String occurrenceId, int masterFails, int masterRuns, int prCount, List<Integer> prs) {
+        String occurrenceId, String branchRuns, int masterFails, int masterRuns,
+        int prCount, List<Integer> prs) {
     }
 }
