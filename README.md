@@ -111,6 +111,28 @@ your.host {
 Once running, a new release is picked up in the UI: an **Update to vX.Y.Z** button appears in the top bar;
 any logged-in user can click it and the service swaps the jar and restarts itself — no server access needed.
 
+## Running the installed service
+
+`install.sh` registers a `systemd` service named **`ignite-pr-checker`**, enables it (so it starts on
+boot), and runs it as the `prc` user on port **8080**. Manage it with the usual `systemctl`:
+
+```bash
+sudo systemctl status  ignite-pr-checker    # is it running?
+sudo systemctl start   ignite-pr-checker    # start it
+sudo systemctl stop    ignite-pr-checker    # stop it
+sudo systemctl restart ignite-pr-checker    # restart (e.g. after editing config)
+```
+
+Follow the logs with:
+
+```bash
+journalctl -u ignite-pr-checker -f
+```
+
+Configuration lives in **`/etc/ignite-pr-checker/env`** (restart the service after editing it). The
+app itself is at `/opt/ignite-pr-checker` (`app.jar` launched by `run.sh`). To update the binary,
+click **Update to vX.Y.Z** in the UI or re-run the install one-liner — both preserve your config.
+
 ## Releases
 
 Releases are built by CI. Cut one by pushing a tag:
