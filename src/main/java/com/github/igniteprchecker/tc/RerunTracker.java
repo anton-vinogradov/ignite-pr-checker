@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -100,31 +101,43 @@ public class RerunTracker implements SnapshotCache {
 
         t.state = b.state();
 
-        List<ActiveRerun> kids = new ArrayList<>();
-        if (b.snapshotDependencies() != null && b.snapshotDependencies().build() != null) {
-            for (TcModel.Build dep : b.snapshotDependencies().build()) {
-                if (dep.buildTypeId() == null || "finished".equalsIgnoreCase(dep.state()))
-                    continue;
-                String name = dep.buildType() != null && dep.buildType().name() != null
-                    ? dep.buildType().name() : dep.buildTypeId();
-                kids.add(new ActiveRerun(t.pr, dep.buildTypeId(), name, dep.id(),
-                    dep.state() == null ? "queued" : dep.state(), dep.webUrl() == null ? "" : dep.webUrl()));
-            }
-        }
-        t.children = kids;
+        // Started suites come from the chain's snapshot-dependencies; the not-yet-started rest sit in
+        // the branch's build queue (a running chain's deps aren't listed until they start), so merge
+        // both to cover every suite of the RunAll.
+        Map<Long, ActiveRerun> kids = new LinkedHashMap<>();
+        if (b.snapshotDependencies() != null && b.snapshotDependencies().build() != null)
+            for (TcModel.Build dep : b.snapshotDependencies().build())
+                addChild(kids, t.pr, dep);
+        for (TcModel.Build dep : tc.queuedBranchBuilds(token, t.pr))
+            addChild(kids, t.pr, dep);
+
+        t.children = List.copyOf(kids.values());
     }
 
-    /** The currently queued/running builds (chains flattened into their suites), running first. */
+    private static void addChild(Map<Long, ActiveRerun> kids, int pr, TcModel.Build dep) {
+        if (dep.buildTypeId() == null || "finished".equalsIgnoreCase(dep.state()))
+            return;
+
+        String name = dep.buildType() != null && dep.buildType().name() != null
+            ? dep.buildType().name() : dep.buildTypeId();
+        kids.putIfAbsent(dep.id(), new ActiveRerun(pr, dep.buildTypeId(), name, dep.id(),
+            dep.state() == null ? "queued" : dep.state(), dep.webUrl() == null ? "" : dep.webUrl()));
+    }
+
+    /** The currently queued/running builds (chains flattened into their suites), running first, deduped. */
     public List<ActiveRerun> active() {
-        List<ActiveRerun> out = new ArrayList<>();
+        Map<Long, ActiveRerun> out = new LinkedHashMap<>();
         for (Tracked t : tracked.values()) {
-            out.add(new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl));
-            out.addAll(t.children);
+            out.putIfAbsent(t.buildId, new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl));
+            for (ActiveRerun kid : t.children)
+                out.putIfAbsent(kid.buildId(), kid);
         }
-        out.sort(Comparator.comparing((ActiveRerun r) -> !"running".equalsIgnoreCase(r.state()))
+
+        List<ActiveRerun> list = new ArrayList<>(out.values());
+        list.sort(Comparator.comparing((ActiveRerun r) -> !"running".equalsIgnoreCase(r.state()))
             .thenComparingLong(ActiveRerun::buildId));
 
-        return out;
+        return list;
     }
 
     // --- persistence: the tracked builds only (never tokens); children re-derive on the next refresh ---
