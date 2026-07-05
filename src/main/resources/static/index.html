@@ -322,6 +322,7 @@
         // Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it.
         function openPr(number, push) {
             selectedPr = number;
+            syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
             for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
             const li = findLi(number);
             setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
@@ -742,19 +743,29 @@
             });
         })();
 
-        // Collapse / restore the PR list pane (state persisted).
-        (function () {
+        // Collapse / restore the PR list pane. It is only collapsible while a PR is selected — with none
+        // selected the list stays open so you can pick one. The collapsed choice persists.
+        function syncPane() {
             const split = document.getElementById('analyzeView');
             const collapseBtn = document.getElementById('paneCollapse');
+            if (!split) return;
+            const hasPr = !!selectedPr;
+            let saved = false;
+            try { saved = localStorage.getItem('prPaneCollapsed') === '1'; } catch (e) { /* private mode */ }
+            split.classList.toggle('collapsed', hasPr && saved);
+            if (collapseBtn) collapseBtn.classList.toggle('hidden', !hasPr);
+        }
+        (function () {
+            const collapseBtn = document.getElementById('paneCollapse');
             const expandBtn = document.getElementById('paneExpand');
-            if (!split || !collapseBtn || !expandBtn) return;
-            const set = collapsed => {
-                split.classList.toggle('collapsed', collapsed);
-                try { localStorage.setItem('prPaneCollapsed', collapsed ? '1' : '0'); } catch (e) { /* private mode */ }
+            if (!collapseBtn || !expandBtn) return;
+            const setCollapsed = c => {
+                try { localStorage.setItem('prPaneCollapsed', c ? '1' : '0'); } catch (e) { /* private mode */ }
+                syncPane();
             };
-            try { if (localStorage.getItem('prPaneCollapsed') === '1') split.classList.add('collapsed'); } catch (e) { /* private mode */ }
-            collapseBtn.addEventListener('click', () => set(true));
-            expandBtn.addEventListener('click', () => set(false));
+            collapseBtn.addEventListener('click', () => setCollapsed(true));
+            expandBtn.addEventListener('click', () => setCollapsed(false));
+            syncPane();
         })();
     </script>
 </body>
