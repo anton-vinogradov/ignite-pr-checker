@@ -27,8 +27,14 @@ public final class TcModel {
         String queuedDate,
         BuildType buildType,
         Triggered triggered,
-        @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies
+        @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies,
+        @JsonProperty("running-info") RunningInfo runningInfo
     ) {
+    }
+
+    /** Live progress of a running build, as TeamCity estimates it. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RunningInfo(Integer percentageComplete, Long elapsedSeconds, Long estimatedTotalSeconds) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
