@@ -41,6 +41,9 @@
         .card .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
         .card .v { font-size: 1.35rem; font-weight: 600; margin-top: 0.15rem; }
         .card .v small { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+        .card .v.ok { color: var(--ok); }
+        .card .v.warn { color: #b26a00; }
+        .card .v.bad { color: var(--bad); }
 
         h2 { font-size: 1.05rem; margin: 1.8rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
         h2:first-of-type { margin-top: 0.6rem; }
@@ -85,6 +88,7 @@
             .lvl-warn { color: #d99a3a; }
             .mini-btn, .theme-btn { background: #24282d; }
             .mini-btn:hover, .theme-btn:hover { border-color: #4a4f55; }
+            .card .v.warn { color: #d99a3a; }
         }
     </style>
 </head>
@@ -160,8 +164,13 @@
             return `${s}s`;
         }
 
-        function card(k, v, sub) {
-            return `<div class="card"><div class="k">${k}</div><div class="v">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+        function card(k, v, sub, cls) {
+            return `<div class="card"><div class="k">${k}</div><div class="v ${cls || ''}">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+        }
+
+        // Traffic-light severity for higher-is-worse values: below warnAt = ok, below badAt = warn, else bad.
+        function sev(value, warnAt, badAt) {
+            return value < warnAt ? 'ok' : value < badAt ? 'warn' : 'bad';
         }
 
         function agoShort(ms) {
@@ -212,16 +221,20 @@
                 card('Version', d.version),
                 card('Uptime', fmtDur(d.uptimeSeconds)),
                 card('CPU', j.systemCpuPct == null || j.systemCpuPct < 0 ? '—' : j.systemCpuPct + '%',
-                    j.processCpuPct >= 0 ? `${j.processCpuPct}% this app` : 'host'),
+                    j.processCpuPct >= 0 ? `${j.processCpuPct}% this app` : 'host',
+                    j.systemCpuPct >= 0 ? sev(j.systemCpuPct, 50, 80) : ''),
                 card('Load avg', j.loadAverage == null || j.loadAverage < 0 ? '—' : j.loadAverage,
-                    `<span class="${j.loadAverage > j.cpus ? 'rate-bad' : ''}">on ${j.cpus} cpu</span>`),
-                card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB`),
+                    `on ${j.cpus} cpu`,
+                    j.loadAverage >= 0 ? sev(j.loadAverage / j.cpus, 0.7, 1.001) : ''),
+                card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB`,
+                    j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : ''),
                 card('Threads', j.threads, `· ${j.cpus} cpu`),
             ].join('');
 
             $('appCards').innerHTML = [
                 card('Analyze (1h)', az ? `${az.avgLatencyMs}` : '—',
-                    az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests'),
+                    az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests',
+                    az ? sev(az.avgLatencyMs, 500, 2000) : ''),
                 card('Open PRs', d.app.openPrs),
             ].join('');
 
@@ -229,27 +242,34 @@
                 warmerCard(d.app),
                 startupCard(d.app),
                 lastCycleCard(d.app),
-                card('Pooled tokens', d.app.pooledTokens),
+                card('Pooled tokens', d.app.pooledTokens, d.app.pooledTokens ? '' : 'warmer paused — log in',
+                    d.app.pooledTokens ? 'ok' : 'warn'),
                 card('Results cached', d.app.resultsCached),
                 card('History cached', d.app.historyCached, 'tests'),
             ].join('');
 
             $('tcCards').innerHTML = [
                 card('TeamCity (1h)', t.total.toLocaleString(),
-                    `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span> · ${tc.sinceStart.toLocaleString()} total`),
-                card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
+                    `${tcRate.toFixed(1)}% ok · ${tc.sinceStart.toLocaleString()} total`,
+                    t.total ? (tcRate >= 99 ? 'ok' : tcRate >= 95 ? 'warn' : 'bad') : ''),
+                card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`,
+                    t.total ? sev(t.avgLatencyMs, 500, 2000) : ''),
             ].join('');
 
             $('ghCards').innerHTML = [
-                card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`),
+                card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`,
+                    g.total ? (g.fail === 0 ? 'ok' : g.fail <= 5 ? 'warn' : 'bad') : ''),
                 card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
                 card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
-                    d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : ''),
+                    d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : '',
+                    d.app.githubRate && d.app.githubRate.limit
+                        ? (100 * d.app.githubRate.remaining / d.app.githubRate.limit > 50 ? 'ok'
+                            : 100 * d.app.githubRate.remaining / d.app.githubRate.limit > 10 ? 'warn' : 'bad') : ''),
             ].join('');
 
             $('logCards').innerHTML = [
-                card('Log issues', d.log.errors,
-                    `<span class="${d.log.errors ? 'rate-bad' : ''}">${d.log.warnings} warn</span>`),
+                card('Log issues', d.log.errors, `${d.log.warnings} warn`,
+                    d.log.errors ? 'bad' : d.log.warnings ? 'warn' : 'ok'),
             ].join('');
 
             const byStatus = Object.entries(tc.byStatus || {});
