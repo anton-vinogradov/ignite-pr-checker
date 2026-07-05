@@ -307,6 +307,12 @@
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
         }
         function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+        // Our own API errors are meaningful ('no RunAll build…', 'TeamCity rejected…'); anything else
+        // (Spring's bare 'Not Found', proxy 502 text) is a restart blip and shouldn't be shown raw.
+        function friendly(error, fallback) {
+            const generic = !error || /^(Not Found|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)$/i.test(error.trim());
+            return generic ? fallback + ' — the service may be restarting, try again in a moment' : error;
+        }
         // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
         function chipEta(b) {
             if (b.leftSec >= 0) return ' · ' + fmtLeft(b.leftSec);
@@ -663,9 +669,11 @@
                     + ` <span class="muted">e.g. ${c.sampleTests.map(shortTestName).map(esc).join(', ')}</span></div>`).join('')
                     || '<div class="muted">nothing to group</div>';
                 panel.classList.remove('hidden');
+                panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             } catch (e) {
                 panel.innerHTML = '<div class="muted">could not group causes — the service may be busy or restarting; click again in a moment</div>';
                 panel.classList.remove('hidden');
+                panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             } finally {
                 btn.disabled = false;
                 btn.textContent = was;
@@ -722,7 +730,7 @@
                     setTimeout(() => { if (pr === selectedPr) analyze(pr); }, 4000);
                     return;
                 }
-                $('status').textContent = error || 'refresh failed';
+                $('status').textContent = friendly(error, 'refresh failed');
                 return;
             }
             renderResult(await r.json());
@@ -738,7 +746,7 @@
                 const r = await api('/api/' + act + '?pr=' + pr + '&top=' + top, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (!r.ok) { $('status').textContent = res.error || 'trigger failed'; return; }
+                if (!r.ok) { $('status').textContent = friendly(res.error, 'trigger failed'); return; }
                 const links = (res.triggered || [])
                     .map(b => `<a href="${b.webUrl}" target="_self" rel="noopener">#${b.buildId}</a>`).join(' · ');
                 $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links;
@@ -758,7 +766,7 @@
                 const r = await api('/api/cancel-all?pr=' + pr, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (!r.ok) { $('status').textContent = res.error || 'cancel failed'; return; }
+                if (!r.ok) { $('status').textContent = friendly(res.error, 'cancel failed'); return; }
                 $('status').textContent = 'Cancelled ' + (res.cancelled || 0) + ' run(s).';
                 loadRuns(pr);
             } finally {
@@ -777,7 +785,7 @@
                 const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=' + top, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (!r.ok) { $('status').textContent = res.error || 'rerun failed'; return; }
+                if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
                 const b = (res.triggered || [])[0];
                 $('status').innerHTML = b
                     ? `Queued <a href="${b.webUrl}" target="_self" rel="noopener">#${b.buildId}</a>`
@@ -950,7 +958,9 @@
         $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
         $('logout').onclick = logout;
         $('updateBtn').onclick = e => { e.preventDefault(); doUpdate(); };
-        for (const b of document.querySelectorAll('.act'))
+        // Only the top-bar action buttons: .act is also a styling class (e.g. on Top causes, which has
+        // its own handler) — a bare '.act' selector used to steal their clicks for doTrigger.
+        for (const b of document.querySelectorAll('#actions .act'))
             b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
         $('cancelAll').onclick = cancelAll;
         window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
