@@ -83,6 +83,15 @@
         .pr-badge.ok { background: #e6f4ea; color: #2e7d32; }
 
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
+        .home-search { max-width: 680px; margin: 1.5rem auto 0; }
+        .home-search input { width: 100%; font-size: 1rem; padding: 0.55rem 0.8rem; }
+        .home-results { list-style: none; margin: 0.5rem 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+        .home-results:empty { border: none; }
+        .home-results li { padding: 0.5rem 0.8rem; border-top: 1px solid var(--line); cursor: pointer; display: flex; align-items: baseline; gap: 0.6rem; }
+        .home-results li:first-child { border-top: none; }
+        .home-results li:hover { background: #f7f7f7; }
+        .home-results .pr-ttl { flex: 1; }
+        .home-results .open-any { color: var(--accent); }
         .result-head { margin-bottom: 1rem; }
         .result-head > * + * { margin-top: 0.5rem; }
         .pr-title { font-size: 1.1rem; }
@@ -147,6 +156,7 @@
             .pane-toggle:hover, .pane-expand:hover { background: #2b2f34; border-color: #4a4f55; }
             .pr-list li { border-bottom-color: #26292e; }
             .pr-list li:hover { background: #20242a; }
+            .home-results li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
             .live.running { background: #1e3324; color: #7fce90; }
             .live.queued { background: #33290f; color: #d99a3a; }
@@ -235,6 +245,11 @@
                     </div>
                 </div>
 
+                <div id="homeSearch" class="home-search hidden">
+                    <input id="homeQuery" type="text" placeholder="Search open PRs — number or title…" autocomplete="off" spellcheck="false">
+                    <ul id="homeResults" class="home-results"></ul>
+                </div>
+
                 <div id="results" class="hidden">
                     <div class="card blockers">
                         <h2>Blockers <span id="blockerCount"></span></h2>
@@ -259,6 +274,7 @@
         let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
         let selectedPr = null;
         let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
+        let allPrs = []; // last-loaded open-PR list, for the home search
 
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -306,6 +322,7 @@
             const prs = await r.json();
             if (!prs.length && $('prList').children.length) return; // keep the current list on an empty response
             $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
+            allPrs = prs;
             $('prList').innerHTML = prs.map(p => `
                 <li data-num="${p.number}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" title="${esc(p.title)}">
                     <span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
@@ -339,6 +356,7 @@
         // Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it.
         function openPr(number, push) {
             selectedPr = number;
+            $('homeSearch').classList.add('hidden');
             syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
             for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
             const li = findLi(number);
@@ -412,7 +430,13 @@
             $('runsRow').classList.add('hidden');
             await loadPrs();
             const pr = prFromUrl();
-            if (pr) openPr(pr, false);
+            if (pr) {
+                openPr(pr, false);
+            }
+            else {
+                $('homeSearch').classList.remove('hidden');
+                $('homeQuery').focus();
+            }
         }
 
         async function loadMe() {
@@ -798,6 +822,32 @@
             collapseBtn.addEventListener('click', () => setCollapsed(true));
             expandBtn.addEventListener('click', () => setCollapsed(false));
             syncPane();
+        })();
+
+        // Home search (shown while no PR is selected): filter the open PRs by number/title and open on
+        // click; a bare number that isn't in the list can still be opened directly (analysis works by URL).
+        (function () {
+            const input = $('homeQuery');
+            const out = $('homeResults');
+            if (!input || !out) return;
+            function renderMatches() {
+                const q = input.value.trim().toLowerCase();
+                if (!q) { out.innerHTML = ''; return; }
+                const matches = allPrs.filter(p => String(p.number).includes(q)
+                    || (p.title || '').toLowerCase().includes(q)).slice(0, 15);
+                let html = matches.map(p => `<li data-num="${p.number}"><span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers)}<span class="pr-ttl" title="${esc(p.title)}">${esc(p.title)}</span></li>`).join('');
+                if (/^\d+$/.test(q) && !matches.some(p => String(p.number) === q))
+                    html += `<li data-num="${q}"><span class="open-any">Open PR #${q}…</span></li>`;
+                out.innerHTML = html || '<li class="muted" style="cursor:default">no open PRs match</li>';
+                for (const li of out.querySelectorAll('li[data-num]'))
+                    li.onclick = () => openPr(+li.dataset.num, true);
+            }
+            input.addEventListener('input', renderMatches);
+            input.addEventListener('keydown', e => {
+                if (e.key !== 'Enter') return;
+                const first = out.querySelector('li[data-num]');
+                if (first) openPr(+first.dataset.num, true);
+            });
         })();
     </script>
 </body>
