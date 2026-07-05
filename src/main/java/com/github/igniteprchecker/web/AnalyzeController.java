@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import java.util.Map;
 import java.util.Optional;
@@ -17,9 +18,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 public class AnalyzeController {
     private final BlockerAnalyzer analyzer;
+    private final RunDeltaStore deltas;
 
-    public AnalyzeController(BlockerAnalyzer analyzer) {
+    public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas) {
         this.analyzer = analyzer;
+        this.deltas = deltas;
     }
 
     /** Serves the cached analysis (recomputing only on a cache miss). */
@@ -34,6 +37,13 @@ public class AnalyzeController {
     public ResponseEntity<?> refresh(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         return respond(pr, analyzer.forceRefresh(token, pr));
+    }
+
+    /** Blocker changes between the PR's two latest runs (null body when there is nothing to compare yet). */
+    @GetMapping("/delta")
+    public RunDeltaStore.Delta delta(@RequestParam int pr,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        return deltas.delta(pr);
     }
 
     private static ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {
