@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
@@ -23,10 +24,12 @@ import org.springframework.web.client.RestClientResponseException;
 public class TriggerController {
     private final TcClient tc;
     private final BlockerAnalyzer analyzer;
+    private final RerunTracker reruns;
 
-    public TriggerController(TcClient tc, BlockerAnalyzer analyzer) {
+    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns) {
         this.tc = tc;
         this.analyzer = analyzer;
+        this.reruns = reruns;
     }
 
     /** Queue the whole RunAll chain. {@code top} puts it at the head of the queue. */
@@ -34,7 +37,7 @@ public class TriggerController {
     public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(tc.triggerRunAll(token, pr, top)))));
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, token, tc.triggerRunAll(token, pr, top))))));
         }
         catch (RestClientResponseException e) {
             return teamCityError(e);
@@ -60,7 +63,7 @@ public class TriggerController {
 
         try {
             List<Map<String, Object>> triggered = suites.stream()
-                .map(suite -> brief(tc.triggerBuild(token, suite, pr, top)))
+                .map(suite -> brief(track(pr, token, tc.triggerBuild(token, suite, pr, top))))
                 .toList();
 
             return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -79,11 +82,17 @@ public class TriggerController {
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
         try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(tc.triggerBuild(token, suite, pr, top)))));
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, token, tc.triggerBuild(token, suite, pr, top))))));
         }
         catch (RestClientResponseException e) {
             return teamCityError(e);
         }
+    }
+
+    /** Tool-triggered builds that are still queued/running (public; feeds the live suite chips). */
+    @GetMapping("/reruns")
+    public List<RerunTracker.ActiveRerun> reruns() {
+        return reruns.active();
     }
 
     /** Builds the user launched (RunAll and re-run suites) currently queued or running for the PR. */
@@ -105,6 +114,13 @@ public class TriggerController {
         }
     }
 
+    /** Registers a freshly-triggered build with the rerun tracker, passing the build through. */
+    private TcModel.Build track(int pr, String token, TcModel.Build b) {
+        reruns.record(pr, token, b);
+
+        return b;
+    }
+
     private static Map<String, Object> brief(TcModel.Build b) {
         String name = b.buildType() != null && b.buildType().name() != null ? b.buildType().name() : "";
 
@@ -112,6 +128,7 @@ public class TriggerController {
             "buildId", b.id(),
             "state", b.state() == null ? "queued" : b.state(),
             "name", name,
+            "btId", b.buildTypeId() == null ? "" : b.buildTypeId(),
             "webUrl", b.webUrl() == null ? "" : b.webUrl());
     }
 

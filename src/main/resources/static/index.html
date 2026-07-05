@@ -120,6 +120,9 @@
         .reason { color: var(--muted); font-size: 0.78rem; }
         .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
         .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; }
+        .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: 4px; margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
+        .live.running { background: #e6f4ea; color: #2e7d32; }
+        .live.queued { background: #fff3e0; color: #b26a00; }
         .suite-runs { flex: none; display: flex; gap: 0.3rem; }
         .suite-rerun, .act { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--accent); cursor: pointer; white-space: nowrap; }
         .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
@@ -145,6 +148,8 @@
             .pr-list li { border-bottom-color: #26292e; }
             .pr-list li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
+            .live.running { background: #1e3324; color: #7fce90; }
+            .live.queued { background: #33290f; color: #d99a3a; }
             .details { background: #1f2328; }
             .star-ico { stroke: #9aa0a6; }
         }
@@ -356,6 +361,17 @@
 
         let runsTimer = null;
         let runsWere = 0;
+        let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
+
+        // Tag each suite header whose build type is currently queued/running with a chip linking to that build.
+        function annotateSuiteChips() {
+            for (const el of document.querySelectorAll('.suite-live')) {
+                const run = lastRuns.find(b => b.btId && b.btId === el.dataset.btid);
+                el.innerHTML = run
+                    ? `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${run.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity">${esc(run.state)}</a>`
+                    : '';
+            }
+        }
 
         function stopRunsPoll() {
             if (runsTimer) { clearTimeout(runsTimer); runsTimer = null; }
@@ -365,6 +381,8 @@
             const r = await api('/api/runs?pr=' + number);
             if (!r.ok || number !== selectedPr) return;
             const runs = await r.json();
+            lastRuns = runs;
+            annotateSuiteChips();
             $('runs').innerHTML = runs.length
                 ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_self" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')
                 : '';
@@ -464,6 +482,7 @@
             $('filteredCount').textContent = countLabel(res.filtered);
             renderList($('blockers'), res.blockers, false, true);
             renderList($('filtered'), res.filtered, true, false);
+            annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
@@ -619,7 +638,7 @@
                         + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
                         + `<pre class="details hidden"></pre></li>`;
                 }).join('');
-                return `<li><div class="suite-head"><span class="suite-name">${head}</span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
+                return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
             for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);

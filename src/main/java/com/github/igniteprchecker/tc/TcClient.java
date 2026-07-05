@@ -157,7 +157,7 @@ public class TcClient {
             "comment", Map.of("text", "Triggered by Ignite PR Checker"));
 
         return recorded("trigger", () -> http.post()
-            .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl")))
+            .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl,buildType(name)")))
             .header("Authorization", "Bearer " + token)
             .contentType(MediaType.APPLICATION_JSON)
             .body(payload)
@@ -217,9 +217,15 @@ public class TcClient {
 
         TcModel.BuildList list = get("userBuilds", token, url("app/rest/builds", query(
             "locator", locator,
-            "fields", "build(id,state,status,webUrl,buildType(name))")), TcModel.BuildList.class);
+            "fields", "build(id,state,status,webUrl,buildTypeId,buildType(name))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /** Current state of one build (works for queued builds too — TeamCity keeps the id across the queue). */
+    public TcModel.Build getBuildState(String token, long buildId) {
+        return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "id,state,status,webUrl,buildTypeId,buildType(name)")), TcModel.Build.class);
     }
 
     private <T> T get(String category, String token, URI uri, Class<T> type) {
