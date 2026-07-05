@@ -522,23 +522,42 @@
             show('login');
         }
 
+        let analyzeRetries = 0;
+
         async function analyze(number) {
             if (!number) return;
             $('status').textContent = 'Analyzing… (walking the RunAll chain)';
             $('freshness').textContent = '';
             $('results').classList.add('hidden');
-            const r = await api('/api/analyze?pr=' + encodeURIComponent(number));
+            let r;
+            try {
+                r = await api('/api/analyze?pr=' + encodeURIComponent(number));
+            }
+            catch (e) {
+                r = null; // network error: treat like a restart blip below
+            }
             if (number !== selectedPr) return; // a newer selection superseded this one
-            if (r.status === 401) { show('login'); return; }
-            if (!r.ok) {
-                const { error } = await r.json().catch(() => ({ error: 'analysis failed' }));
-                const noBuild = r.status === 404 || /no RunAll build/i.test(error || '');
-                $('status').innerHTML = noBuild
-                    ? 'No finished RunAll run for this PR yet — trigger one with <b>RunAll</b> above. '
-                        + '(A cancelled or still-running build doesn\'t count; an old one may have been cleaned up by TeamCity.)'
-                    : esc(error || 'analysis failed');
+            if (r && r.status === 401) { show('login'); return; }
+            if (!r || !r.ok) {
+                const { error } = r ? await r.json().catch(() => ({})) : {};
+                // A real "this PR has no run" answer comes with our own message; anything else
+                // (Spring's bare "Not Found", 502/503, network failure) is almost always a deploy
+                // restart — keep calm and retry instead of flashing a scary error.
+                if (/no RunAll build/i.test(error || '')) {
+                    $('status').innerHTML = 'No finished RunAll run for this PR yet — trigger one with <b>RunAll</b> above. '
+                        + '(A cancelled or still-running build doesn\'t count; an old one may have been cleaned up by TeamCity.)';
+                    return;
+                }
+                if (analyzeRetries < 6) {
+                    analyzeRetries++;
+                    $('status').textContent = 'service is busy or restarting — retrying…';
+                    setTimeout(() => { if (number === selectedPr) analyze(number); }, 4000);
+                    return;
+                }
+                $('status').textContent = 'analysis failed (' + (r ? 'HTTP ' + r.status : 'network') + ') — reload or press ↻';
                 return;
             }
+            analyzeRetries = 0;
             renderResult(await r.json());
         }
 
@@ -630,7 +649,7 @@
                     || '<div class="muted">nothing to group</div>';
                 panel.classList.remove('hidden');
             } catch (e) {
-                panel.innerHTML = '<div class="muted">failed to group causes</div>';
+                panel.innerHTML = '<div class="muted">could not group causes — the service may be busy or restarting; click again in a moment</div>';
                 panel.classList.remove('hidden');
             } finally {
                 btn.disabled = false;
@@ -683,6 +702,11 @@
             if (r.status === 401) { show('login'); return; }
             if (!r.ok) {
                 const { error } = await r.json().catch(() => ({ error: 'refresh failed' }));
+                if (!/no RunAll build/i.test(error || '') && pr === selectedPr) {
+                    $('status').textContent = 'service is busy or restarting — retrying…';
+                    setTimeout(() => { if (pr === selectedPr) analyze(pr); }, 4000);
+                    return;
+                }
                 $('status').textContent = error || 'refresh failed';
                 return;
             }
