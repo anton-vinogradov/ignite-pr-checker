@@ -86,8 +86,8 @@ public class TcClient {
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", "id,status,state,branchName,buildType(id,name),"
-                + "snapshot-dependencies(build(id,buildTypeId,status,state,buildType(name)))")), TcModel.Build.class);
+            "fields", "id,status,state,branchName,queuedDate,buildType(id,name),"
+                + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name)))")), TcModel.Build.class);
     }
 
     /** Failed test occurrences of a single build. */
