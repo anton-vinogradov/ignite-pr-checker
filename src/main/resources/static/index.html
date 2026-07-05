@@ -399,7 +399,11 @@
             const r = await api('/api/runs?pr=' + number);
             if (!r.ok || number !== selectedPr) return;
             const runs = await r.json();
-            lastRuns = runs;
+            // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
+            // so suite chips light up individually while the chain grinds through them.
+            const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
+            lastRuns = runs.concat(rr.filter(x => x.pr === number)
+                .map(x => ({ btId: x.buildTypeId, state: x.state, webUrl: x.webUrl })));
             annotateSuiteChips();
             $('runs').innerHTML = runs.length
                 ? 'runs: ' + runs.map(b => `<a href="${b.webUrl}" target="_self" rel="noopener">${esc(b.name || 'build')} #${b.buildId} (${b.state})</a>`).join(' · ')

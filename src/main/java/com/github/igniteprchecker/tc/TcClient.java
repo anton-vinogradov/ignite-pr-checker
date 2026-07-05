@@ -228,6 +228,13 @@ public class TcClient {
             "fields", "id,state,status,webUrl,buildTypeId,buildType(name)")), TcModel.Build.class);
     }
 
+    /** A chain build's state plus the state of each of its dependency suites — one call, for rerun tracking. */
+    public TcModel.Build getChainDepStates(String token, long buildId) {
+        return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "id,state,status,"
+                + "snapshot-dependencies(build(id,buildTypeId,state,status,webUrl,buildType(name)))")), TcModel.Build.class);
+    }
+
     private <T> T get(String category, String token, URI uri, Class<T> type) {
         return recorded(category, () -> http.get()
             .uri(uri)
