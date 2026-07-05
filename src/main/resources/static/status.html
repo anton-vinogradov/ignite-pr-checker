@@ -187,21 +187,25 @@
             return (s < 10 ? s.toFixed(1) : Math.round(s)) + 's';
         }
 
-        // Warmer's current state: running (with progress) or idle (with how long ago + how many cycles).
+        // Warmer's current state, traffic-lit: warming = amber, failures in the last cycle = red,
+        // a clean completed cycle = green, nothing to judge yet = neutral.
         function warmerCard(a) {
             if (a.warmerRunning) {
                 const prog = a.cycleTotal ? `${a.cycleDone}/${a.cycleTotal} PRs` : '';
                 const el = a.cycleStartedAt ? secs(Date.now() - a.cycleStartedAt) + ' elapsed' : '';
-                return card('Warmer', 'running…', [prog, el].filter(Boolean).join(' · '));
+                return card('Warmer', 'warming…', [prog, el].filter(Boolean).join(' · '), 'warn');
             }
-            return card('Warmer', a.lastWarmCycleAt ? agoShort(a.lastWarmCycleAt) : 'idle',
-                a.lastWarmCycleAt ? `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run` : 'no cycle yet');
+            if (a.lastFailed > 0)
+                return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.lastFailed} warm${a.lastFailed === 1 ? '' : 's'} failed last cycle`, 'bad');
+            if (a.lastWarmCycleAt)
+                return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run`, 'ok');
+            return card('Warmer', 'idle', 'no cycle yet');
         }
 
-        // The initial post-restart warm-up: its duration once done, or live elapsed while it's the first cycle.
+        // The initial post-restart warm-up: amber while it's still going, green once done.
         function startupCard(a) {
-            if (a.firstCycleMs > 0) return card('Startup warm-up', secs(a.firstCycleMs), 'completed');
-            if (a.warmerRunning && a.cycleStartedAt) return card('Startup warm-up', secs(Date.now() - a.cycleStartedAt) + '…', 'in progress');
+            if (a.firstCycleMs > 0) return card('Startup warm-up', secs(a.firstCycleMs), 'completed', 'ok');
+            if (a.warmerRunning && a.cycleStartedAt) return card('Startup warm-up', secs(Date.now() - a.cycleStartedAt) + '…', 'in progress', 'warn');
             return card('Startup warm-up', '—', 'pending');
         }
 

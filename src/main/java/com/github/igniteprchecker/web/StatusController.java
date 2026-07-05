@@ -65,6 +65,7 @@ public class StatusController {
         app.put("lastWarmed", warmer.lastWarmed());
         app.put("warmerRunning", warmer.warming());
         app.put("lastCached", warmer.lastCached());
+        app.put("lastFailed", warmer.lastFailed());
         app.put("lastWarmCycleAt", warmer.lastCycleAt());
         app.put("lastCycleMs", warmer.lastCycleMs());
         app.put("firstCycleMs", warmer.firstCycleMs());

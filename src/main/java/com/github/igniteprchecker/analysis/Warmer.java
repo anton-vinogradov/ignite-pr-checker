@@ -36,6 +36,7 @@ public class Warmer {
 
     private volatile int lastWarmed;
     private volatile int lastCached;
+    private volatile int lastFailed;
     private volatile long lastCycleAt;
     private volatile long lastCycleMs;
     private volatile long firstCycleMs; // duration of the first cycle after startup (the "warm-up"); 0 until it finishes
@@ -155,6 +156,7 @@ public class Warmer {
 
         lastWarmed = recomputed.get();
         lastCached = cached.get();
+        lastFailed = failed.get();
         log.info("warm cycle: {} recomputed, {} already cached, {} failed, across {} token(s) in {}ms",
             recomputed.get(), cached.get(), failed.get(), tokens.size(), System.currentTimeMillis() - cycleStartedAt);
     }
@@ -167,6 +169,11 @@ public class Warmer {
     /** Number of PRs found already-cached in the last cycle. */
     public int lastCached() {
         return lastCached;
+    }
+
+    /** Number of PRs whose warm failed in the last cycle (a healthy cycle has 0). */
+    public int lastFailed() {
+        return lastFailed;
     }
 
     /** Whether a warm cycle is running right now. */
