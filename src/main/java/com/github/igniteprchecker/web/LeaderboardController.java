@@ -1,7 +1,7 @@
 package com.github.igniteprchecker.web;
 
-import com.github.igniteprchecker.analysis.AnalysisCache;
-import java.util.List;
+import com.github.igniteprchecker.analysis.FlakyStats;
+import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -11,14 +11,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class LeaderboardController {
-    private final AnalysisCache cache;
+    private final FlakyStats flaky;
 
-    public LeaderboardController(AnalysisCache cache) {
-        this.cache = cache;
+    public LeaderboardController(FlakyStats flaky) {
+        this.flaky = flaky;
     }
 
+    /** {@code tracked} lets the UI tell "nothing recorded yet" from a genuinely clean master. */
     @GetMapping("/top-flaky")
-    public List<AnalysisCache.TopFlaky> topFlaky(@RequestParam(defaultValue = "30") int limit) {
-        return cache.topFlaky(Math.min(Math.max(limit, 1), 100));
+    public Map<String, Object> topFlaky(@RequestParam(defaultValue = "30") int limit) {
+        return Map.of(
+            "tracked", flaky.trackedCount(),
+            "tests", flaky.top(Math.min(Math.max(limit, 1), 100)));
     }
 }
