@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ignite PR Checker — Top blockers</title>
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <meta name="theme-color" content="#f36f21">
+    <script>
+        // Resolve the effective theme before first paint (no flash): saved choice, else system preference.
+        (function () {
+            var t;
+            try { t = localStorage.getItem('theme'); } catch (e) { /* private mode */ }
+            if (t !== 'dark' && t !== 'light')
+                t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <style>
+        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --accent: #1565c0; }
+        * { box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; background: #fff; }
+        a { color: var(--accent); }
+        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 600; }
+        .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
+        .topbar-right { display: flex; align-items: center; gap: 0.8rem; }
+        .theme-btn { font: inherit; font-size: 0.95rem; line-height: 1; padding: 0.15rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
+        .theme-btn:hover { border-color: #c0c0c0; }
+        .wrap { max-width: 960px; margin: 1.2rem auto; padding: 0 1rem; }
+        .muted { color: var(--muted); }
+        .blurb { font-size: 0.9rem; line-height: 1.55; max-width: 78ch; margin: 0.2rem 0 1rem; }
+        .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
+
+        .leaderboard { display: flex; flex-direction: column; }
+        .lbrow { padding: 0.4rem 0; border-top: 1px solid var(--line); }
+        .lbrow:first-child { border-top: none; }
+        .lbhead { display: flex; align-items: baseline; gap: 0.5rem; }
+        .lbrank { color: var(--muted); font-variant-numeric: tabular-nums; }
+        .lbname { font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; }
+        .lbsuite { color: var(--muted); }
+        .lbcount { margin-left: auto; font-weight: 600; white-space: nowrap; }
+        .lbprs { font-size: 0.78rem; margin: 0.15rem 0 0 1.6rem; }
+        .lbprs a { margin-right: 0.45rem; }
+        .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
+        .run { width: 3px; height: 12px; border-radius: 1px; }
+        .run-p { background: #2e7d32; }
+        .run-f { background: #c0392b; }
+        .why { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
+        .why:hover { border-color: #c0c0c0; }
+        .details { margin: 0.3rem 0 0.1rem 1.6rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+        .details.hidden { display: none; }
+        .updated { font-size: 0.78rem; color: var(--muted); text-align: right; margin: 0.9rem 0 0.2rem; }
+
+        html[data-theme="dark"] {
+            --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --accent: #6ab0ff;
+            body { background: #17191c; }
+            .section { background: #1c1f23; }
+            .theme-btn, .why { background: #24282d; }
+            .theme-btn:hover, .why:hover { border-color: #4a4f55; }
+            .details { background: #1f2328; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">Ignite PR Checker <small>top blocking tests</small></div>
+        <div class="topbar-right">
+            <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+            <a href="/status.html" target="_self">Status</a>
+            <a href="/" target="_self">← App</a>
+        </div>
+    </header>
+
+    <div class="wrap">
+        <p class="blurb">Tests that fail across the most open PRs' RunAll but stay green on master — chronic flaky or
+            broken tests worth fixing at the source rather than one PR at a time. Aggregated over the currently
+            cached analyses; click a test to jump to the failure in TeamCity, <b>why?</b> for the message, and the
+            <b>#PR</b> links to open each affected PR. (Expanding <b>why?</b> needs a login on the main page.)</p>
+
+        <div id="err" class="muted"></div>
+        <div class="section"><div id="topBlockers" class="leaderboard"></div></div>
+        <div class="updated" id="updated"></div>
+    </div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+        let tcBase = '';
+        let lastJson = ''; // only re-render on change, so an open "why?" isn't wiped by the poll
+
+        function esc(s) {
+            return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        }
+
+        // "Class.method[params]" without the package/namespace (dots inside (...)/[...] kept intact).
+        function shortTestName(name) {
+            let s = name.includes(': ') ? name.slice(name.indexOf(': ') + 2) : name;
+            const noMethod = s.endsWith('.');
+            let depth = 0, seg = '', segs = [];
+            for (const ch of s) {
+                if (ch === '(' || ch === '[') depth++;
+                else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+                if (ch === '.' && depth === 0) { segs.push(seg); seg = ''; }
+                else seg += ch;
+            }
+            segs.push(seg);
+            segs = segs.filter(x => x.length);
+            return segs.slice(noMethod ? -1 : -2).join('.');
+        }
+
+        // tcbot-style pass/fail history of the test's finished branch runs (oldest → newest).
+        function runStrip(runs) {
+            if (!runs) return '';
+            const failed = [...runs].filter(c => c === 'F').length;
+            const bars = [...runs].map(c => `<span class="run run-${c === 'F' ? 'f' : 'p'}"></span>`).join('');
+            return `<span class="strip" title="${runs.length} branch run(s), ${failed} failed (oldest→newest)">${bars}</span>`;
+        }
+
+        function render(list) {
+            const el = $('topBlockers');
+            if (!list || !list.length) { el.innerHTML = '<div class="muted">no blockers across cached PRs — everything is green 🎉</div>'; return; }
+            el.innerHTML = list.map((b, i) => {
+                const short = esc(shortTestName(b.name));
+                const runUrl = (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
+                const expanded = b.occurrenceId ? `&expandedTest=${encodeURIComponent(b.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}` : '';
+                const nameHtml = runUrl
+                    ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${b.testId}" target="_self" rel="noopener">${short}</a>`
+                    : short;
+                const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
+                return `<div class="lbrow">
+                    <div class="lbhead">
+                        <span class="lbrank">${i + 1}.</span>
+                        <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${runStrip(b.branchRuns)}${why}</span>
+                        <span class="lbcount">${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span>
+                    </div>
+                    <div class="lbprs">${b.prs.map(n => `<a href="/?pr=${n}" target="_self">#${n}</a>`).join('')}</div>
+                    <pre class="details hidden"></pre>
+                </div>`;
+            }).join('');
+            for (const btn of el.querySelectorAll('.why')) btn.onclick = () => toggleDetails(btn);
+        }
+
+        async function toggleDetails(btn) {
+            const pre = btn.closest('.lbrow').querySelector('.details');
+            if (!pre) return;
+            if (!pre.classList.contains('hidden')) { pre.classList.add('hidden'); return; }
+            pre.classList.remove('hidden');
+            if (pre.dataset.loaded) return;
+            pre.textContent = 'loading…';
+            try {
+                const r = await fetch('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ), { cache: 'no-store' });
+                if (r.status === 401) { pre.textContent = 'log in on the main page to see the failure message'; return; }
+                const { details } = await r.json().catch(() => ({ details: '' }));
+                pre.textContent = details && details.trim() ? details : '(no failure message available)';
+                pre.dataset.loaded = '1';
+            } catch (e) {
+                pre.textContent = 'failed to load details';
+            }
+        }
+
+        async function tick() {
+            try {
+                const r = await fetch('/api/top-blockers?limit=40', { cache: 'no-store' });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const list = await r.json();
+                $('err').textContent = '';
+                const json = JSON.stringify(list);
+                if (json !== lastJson) { render(list); lastJson = json; }
+                $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+            } catch (e) {
+                $('err').textContent = 'unavailable: ' + e.message;
+            }
+        }
+
+        async function loadConfig() {
+            try {
+                const c = await fetch('/api/config', { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+                if (c && c.teamcityUrl) tcBase = c.teamcityUrl.endsWith('/') ? c.teamcityUrl : c.teamcityUrl + '/';
+            } catch (e) { /* links just won't be clickable */ }
+        }
+
+        (function () {
+            const btn = $('theme-toggle');
+            const label = t => { btn.textContent = t === 'dark' ? '☀️' : '🌙';
+                btn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'; };
+            label(document.documentElement.getAttribute('data-theme') || 'light');
+            btn.addEventListener('click', () => {
+                const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+                try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
+                label(t);
+            });
+        })();
+
+        loadConfig().then(() => { tick(); setInterval(tick, 15000); });
+    </script>
+</body>
+</html>
