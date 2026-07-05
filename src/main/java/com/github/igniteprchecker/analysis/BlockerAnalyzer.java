@@ -11,7 +11,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
@@ -36,6 +39,11 @@ public class BlockerAnalyzer {
     private final RunDeltaStore deltas;
 
     private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
+
+    /** In-flight computes per build id, so concurrent requests for the same build share one run
+     * instead of piling duplicate full recomputes onto the pool (a page reload during a cold
+     * analysis used to start another one from scratch). */
+    private final ConcurrentMap<Long, CompletableFuture<AnalysisResult>> inFlight = new ConcurrentHashMap<>();
 
     /** Last known blocker count per PR (best-effort), for the badges in the PR list. */
     private final Map<Integer, Integer> prBlockers = new ConcurrentHashMap<>();
@@ -142,6 +150,35 @@ public class BlockerAnalyzer {
     }
 
     private AnalysisResult computeAndStore(String token, int prNumber, long buildId, ExecutorService taskPool) {
+        CompletableFuture<AnalysisResult> mine = new CompletableFuture<>();
+        CompletableFuture<AnalysisResult> existing = inFlight.putIfAbsent(buildId, mine);
+        if (existing != null) {
+            try {
+                return existing.join(); // this exact build is already being computed: share that run
+            }
+            catch (CompletionException e) {
+                if (e.getCause() instanceof RuntimeException re)
+                    throw re;
+                throw e;
+            }
+        }
+
+        try {
+            AnalysisResult result = doCompute(token, prNumber, buildId, taskPool);
+            mine.complete(result);
+
+            return result;
+        }
+        catch (RuntimeException e) {
+            mine.completeExceptionally(e);
+            throw e;
+        }
+        finally {
+            inFlight.remove(buildId);
+        }
+    }
+
+    private AnalysisResult doCompute(String token, int prNumber, long buildId, ExecutorService taskPool) {
         ChainCollector.Chain chain = chains.collectForBuild(token, buildId, taskPool);
 
         List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
