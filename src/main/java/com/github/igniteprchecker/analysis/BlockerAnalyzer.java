@@ -33,6 +33,7 @@ public class BlockerAnalyzer {
     private final ExecutorService bgPool;
     private final ExecutorService refreshPool;
     private final AnalysisCache cache;
+    private final RunDeltaStore deltas;
 
     private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
 
@@ -43,7 +44,7 @@ public class BlockerAnalyzer {
         @Qualifier("analysisExecutor") ExecutorService pool,
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
         @Qualifier("refreshExecutor") ExecutorService refreshPool,
-        AnalysisCache cache) {
+        AnalysisCache cache, RunDeltaStore deltas) {
         this.tc = tc;
         this.chains = chains;
         this.cfg = cfg;
@@ -51,6 +52,7 @@ public class BlockerAnalyzer {
         this.bgPool = bgPool;
         this.refreshPool = refreshPool;
         this.cache = cache;
+        this.deltas = deltas;
     }
 
     /** @return the analysis (cached if available), or empty if no RunAll build exists for the PR yet. */
@@ -155,6 +157,7 @@ public class BlockerAnalyzer {
 
         cache.putResult(buildId, result);
         prBlockers.put(prNumber, blockers.size());
+        deltas.onResult(prNumber, buildId, blockers);
 
         return result;
     }

@@ -105,6 +105,8 @@
         .title-row .actions { margin-left: auto; }
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
+        .delta-new { color: var(--bad); font-weight: 600; }
+        .delta-fixed { color: #2e7d32; font-weight: 600; }
         .runs { flex: 1; min-width: 0; }
         .runs .run-item { margin-left: 0.6rem; white-space: nowrap; }
         .cancel { flex: none; color: var(--bad); border-color: var(--bad); }
@@ -158,6 +160,7 @@
             .pr-list li:hover { background: #20242a; }
             .home-results li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
+            .delta-fixed { color: #7fce90; }
             .live.running { background: #1e3324; color: #7fce90; }
             .live.queued { background: #33290f; color: #d99a3a; }
             .details { background: #1f2328; }
@@ -238,6 +241,9 @@
                     <div class="head-row">
                         <div id="status" class="muted"></div>
                         <div id="freshness" class="muted"></div>
+                    </div>
+                    <div id="deltaRow" class="head-row hidden">
+                        <span id="delta" class="muted"></span>
                     </div>
                     <div id="runsRow" class="head-row hidden">
                         <span id="runs" class="runs muted"></span>
@@ -529,6 +535,26 @@
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
         }
 
+        // "What changed since my previous run": +new / -fixed / persisting blockers.
+        async function loadDelta(res) {
+            $('deltaRow').classList.add('hidden');
+            try {
+                const r = await api('/api/delta?pr=' + res.prNumber);
+                if (!r.ok) return;
+                const d = await r.json().catch(() => null);
+                // only meaningful when the delta's latest run is the one on screen
+                if (!d || d.latestBuildId !== res.buildId || !d.prevBuildId) return;
+                const names = list => list.map(t => shortTestName(t.name)).slice(0, 12).join('\n');
+                const prevLink = tcBase ? `<a href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener">previous run</a>` : 'previous run';
+                const parts = [];
+                parts.push(d.appeared.length ? `<span class="delta-new" title="${esc(names(d.appeared))}">+${d.appeared.length} new</span>` : 'no new');
+                parts.push(d.fixed.length ? `<span class="delta-fixed" title="${esc(names(d.fixed))}">−${d.fixed.length} fixed</span>` : 'none fixed');
+                parts.push(`${d.persisting} persisting`);
+                $('delta').innerHTML = `vs ${prevLink}: ` + parts.join(' · ');
+                $('deltaRow').classList.remove('hidden');
+            } catch (e) { /* the delta line is a bonus; never block the result */ }
+        }
+
         function renderResult(res) {
             $('status').textContent = '';
             const buildLabel = tcBase
@@ -549,6 +575,7 @@
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
+            loadDelta(res);
         }
 
         // Force a fresh recompute of the current PR's analysis (bypassing the cache).
