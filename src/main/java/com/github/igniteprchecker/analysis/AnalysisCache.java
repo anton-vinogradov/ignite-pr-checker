@@ -64,27 +64,40 @@ public class AnalysisCache implements SnapshotCache {
     }
 
     /**
-     * The tests that block the most distinct open PRs, across the currently cached analyses — a
-     * project-wide view of which failures are gating the most work (chronic flaky/broken tests).
+     * The tests the tool filters out as <em>failing on master</em> (pre-existing/flaky), across the
+     * currently cached analyses — the project-wide "fix master" queue. Ranked by master fail-rate
+     * (worst first), which is the pure "how broken is master" signal, then by how many open PRs the
+     * test is currently noising. Tests filtered only because a branch re-run passed (clean on master)
+     * are excluded — those aren't master's fault.
      */
-    public List<TopBlocker> topBlockers(int limit) {
+    public List<TopFlaky> topFlaky(int limit) {
         Map<Long, Agg> byTest = new HashMap<>();
         for (AnalysisResult r : results.freshValues()) {
-            for (TestVerdict b : r.blockers())
-                byTest.computeIfAbsent(b.testId(), k -> new Agg()).add(b, r.prNumber());
+            for (TestVerdict f : r.filtered())
+                byTest.computeIfAbsent(f.testId(), k -> new Agg()).add(f, r.prNumber());
         }
 
-        return byTest.values().stream()
-            .filter(a -> a.rep != null)
-            .map(a -> new TopBlocker(a.rep.testId(), a.rep.name(), a.rep.suite(), a.rep.suiteName(),
-                a.rep.suiteBuildId(), a.rep.occurrenceId(), a.rep.branchRuns(),
-                a.prs.size(), a.prs.stream().sorted().toList()))
-            .sorted(Comparator.comparingInt(TopBlocker::prCount).reversed())
+        return byTest.entrySet().stream()
+            .filter(e -> e.getValue().rep != null)
+            .map(e -> {
+                Agg a = e.getValue();
+                HistoryStats h = history.peek(e.getKey()).orElse(null);
+                int fails = h == null ? 0 : h.fails();
+                int runs = h == null ? 0 : h.runs();
+                return new TopFlaky(a.rep.testId(), a.rep.name(), a.rep.suite(), a.rep.suiteName(),
+                    a.rep.suiteBuildId(), a.rep.occurrenceId(), a.rep.branchRuns(),
+                    fails, runs, a.prs.size(), a.prs.stream().sorted().toList());
+            })
+            .filter(f -> f.masterFails() > 0) // only tests that actually fail on master = the "fix master" set
+            .sorted(Comparator
+                .comparingDouble((TopFlaky f) -> f.masterRuns() == 0 ? 0 : (double) f.masterFails() / f.masterRuns())
+                .reversed()
+                .thenComparing(Comparator.comparingInt(TopFlaky::prCount).reversed()))
             .limit(limit)
             .toList();
     }
 
-    /** Aggregates one test across PRs: the distinct PRs it blocks, plus its newest occurrence as a representative. */
+    /** Aggregates one test across PRs: the distinct PRs it touches, plus its newest occurrence as a representative. */
     private static final class Agg {
         final Set<Integer> prs = new HashSet<>();
         private TestVerdict rep;
@@ -97,14 +110,15 @@ public class AnalysisCache implements SnapshotCache {
     }
 
     /**
-     * A chronically-blocking test: its identity, how many/which open PRs it blocks, and its latest
-     * occurrence (suite/build/occurrence + branch-run strip) so the UI can link to the failure in
-     * TeamCity, expand "why", and show the pass/fail runs.
+     * A flaky/broken-on-master test: its identity, master fail-rate ({@code masterFails}/{@code masterRuns}),
+     * how many/which open PRs it currently noises, and its latest occurrence (suite/build/occurrence +
+     * branch-run strip) so the UI can link to the failure in TeamCity, expand "why", and show the runs.
      */
-    public record TopBlocker(
+    public record TopFlaky(
         @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,
         String name, String suite, String suiteName, long suiteBuildId,
-        String occurrenceId, String branchRuns, int prCount, List<Integer> prs) {
+        String occurrenceId, String branchRuns, int masterFails, int masterRuns,
+        int prCount, List<Integer> prs) {
     }
 
     /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */
