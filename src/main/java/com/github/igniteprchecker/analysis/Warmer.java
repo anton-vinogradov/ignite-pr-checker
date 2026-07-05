@@ -94,6 +94,30 @@ public class Warmer {
         });
     }
 
+    /**
+     * Forces a recompute of one PR's verdict (the rerun tracker calls this when a re-run suite
+     * finishes): the chain build is unchanged, so the cache-aware warm() would skip it, but the
+     * new branch run must flow into the verdict — a passed re-run clears its blockers.
+     */
+    public void refreshPr(int pr) {
+        if (!props.enabled())
+            return;
+
+        String token = borrowToken();
+        if (token == null)
+            return;
+
+        warmPool.execute(() -> {
+            try {
+                analyzer.refresh(token, pr);
+                log.info("re-analysed PR {} after its re-run suite finished", pr);
+            }
+            catch (RuntimeException e) {
+                log.info("re-analysis of PR {} failed: {}", pr, e.toString());
+            }
+        });
+    }
+
     /** Kicks an out-of-band warm cycle on the warmer thread — e.g. right after a manual cache flush,
      * so the newest PRs are re-analysed in the background instead of every visitor hitting a cold recompute. */
     public void triggerWarm() {
