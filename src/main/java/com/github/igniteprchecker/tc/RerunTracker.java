@@ -110,6 +110,10 @@ public class RerunTracker implements SnapshotCache {
         TcModel.Build b = tc.getChainDepStates(token, t.buildId);
         if (b == null || "finished".equalsIgnoreCase(b.state())) {
             tracked.remove(t.buildId);
+            // The result is analysable this very second: pre-compute it before the first viewer
+            // arrives, instead of waiting for the next warm cycle or making a user pay cold.
+            if (b != null)
+                warmer.warmPr(t.pr);
             return;
         }
 
