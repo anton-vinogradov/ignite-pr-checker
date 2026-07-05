@@ -5,9 +5,10 @@ plugins {
 }
 
 group = 'com.github.igniteprchecker'
-// Release builds pass -Pappversion=<tag without 'v'> (see .github/workflows/release.yml); dev builds
-// stay on -SNAPSHOT. The value is embedded via buildInfo() so the app knows its own version.
-version = project.findProperty('appversion') ?: '0.1.6-SNAPSHOT'
+// Release builds pass -Pappversion=<tag without 'v'> (see .github/workflows/release.yml); deploy.sh
+// passes <latest-tag>-dev. The bare fallback is deliberately 0.0.0 so an unversioned build can't
+// masquerade as a real release. Embedded via buildInfo() so the app knows its own version.
+version = project.findProperty('appversion') ?: '0.0.0-SNAPSHOT'
 
 java {
     toolchain {
