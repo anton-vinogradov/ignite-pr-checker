@@ -97,7 +97,16 @@ curl -fsSL https://raw.githubusercontent.com/anton-vinogradov/ignite-pr-checker/
 
 It installs a JRE, a `prc` service user, a `systemd` unit (via a small `run.sh` wrapper that also performs
 self-updates), pulls the latest released jar, and starts the service. No secrets to configure — open the
-site and log in with your own TeamCity token. Put it behind HTTPS (e.g. Caddy) with `SESSION_COOKIE_SECURE=true`.
+site and log in with your own TeamCity token. Put it behind HTTPS (e.g. Caddy) with `SESSION_COOKIE_SECURE=true`,
+and let the proxy compress responses — the analysis JSON is sizeable (a few hundred KB) and compresses ~10×, so
+this is the difference between an instant and a sluggish load on a small box. A minimal `Caddyfile`:
+
+```
+your.host {
+	encode zstd gzip
+	reverse_proxy localhost:8080
+}
+```
 
 Once running, a new release is picked up in the UI: an **Update to vX.Y.Z** button appears in the top bar;
 any logged-in user can click it and the service swaps the jar and restarts itself — no server access needed.
