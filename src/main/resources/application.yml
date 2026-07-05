@@ -2,6 +2,12 @@ server:
   port: 8080
 
 spring:
+  task:
+    scheduling:
+      pool:
+        # The default scheduler is single-threaded; the rerun tracker's refresh makes network calls
+        # on it, which would delay the other timers (cache snapshots, warm cycles, flaky harvest).
+        size: 3
   jackson:
     deserialization:
       # TeamCity REST responses carry many fields we don't map; ignore the rest.

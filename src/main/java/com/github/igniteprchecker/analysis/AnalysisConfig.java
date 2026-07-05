@@ -19,10 +19,14 @@ public class AnalysisConfig {
         return Executors.newFixedThreadPool(props.concurrency(), named("analysis-"));
     }
 
-    /** Smaller pool for background work (warmer + on-request refreshes) so it can't starve foreground analyses. */
+    /**
+     * Pool for background work (warmer + on-request refreshes), separate so it can't starve foreground
+     * analyses. Its width is the real ceiling on how fast warm cycles go — every warming PR fans its
+     * per-test calls out here — so it is sized close to the foreground pool while staying below it.
+     */
     @Bean(destroyMethod = "shutdown")
     ExecutorService backgroundExecutor() {
-        return Executors.newFixedThreadPool(4, named("bg-analysis-"));
+        return Executors.newFixedThreadPool(6, named("bg-analysis-"));
     }
 
     /**

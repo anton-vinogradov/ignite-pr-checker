@@ -55,9 +55,11 @@ public class Metrics implements SnapshotCache {
         githubSinceStart.incrementAndGet();
     }
 
-    /** Record one served HTTP request. {@code endpoint} is the request path (e.g. {@code /api/analyze}). */
+    /** Record one served HTTP request. {@code endpoint} is the request path (e.g. {@code /api/analyze}).
+     * Unknown paths beyond a cap collapse into "other", so URL spam can't grow the map unboundedly. */
     public void recordHttp(String endpoint, boolean ok, long latencyMs) {
-        http.computeIfAbsent(endpoint, c -> new Ring()).record(ok, latencyMs);
+        String key = http.containsKey(endpoint) || http.size() < 40 ? endpoint : "other";
+        http.computeIfAbsent(key, c -> new Ring()).record(ok, latencyMs);
         httpSinceStart.incrementAndGet();
     }
 

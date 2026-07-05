@@ -32,6 +32,9 @@ import org.springframework.web.client.RestClientResponseException;
  */
 @Component
 public class RerunTracker implements SnapshotCache {
+    /** Hide an entry whose live state we could not confirm for this long (no tokens to poll with). */
+    private static final long STALE_MS = 45 * 60 * 1000L;
+
     private final TcClient tc;
     private final Warmer warmer;
     private final String runAllBuildType;
@@ -64,12 +67,17 @@ public class RerunTracker implements SnapshotCache {
 
         String token = warmer.borrowToken();
         if (token == null)
-            return; // nobody logged in recently: keep the last known states until a token appears
+            return; // nobody logged in recently: entries older than STALE_MS drop out of active()
+
+        List<TcModel.Build> queued = null; // one queue scan per cycle, shared by every tracked chain
 
         for (Tracked t : tracked.values()) {
             try {
-                if (runAllBuildType.equals(t.buildTypeId))
-                    refreshChain(token, t);
+                if (runAllBuildType.equals(t.buildTypeId)) {
+                    if (queued == null)
+                        queued = tc.queuedBuilds(token);
+                    refreshChain(token, t, queued);
+                }
                 else
                     refreshSingle(token, t);
             }
@@ -86,13 +94,16 @@ public class RerunTracker implements SnapshotCache {
 
     private void refreshSingle(String token, Tracked t) {
         TcModel.Build b = tc.getBuildState(token, t.buildId);
-        if (b == null || "finished".equalsIgnoreCase(b.state()))
+        if (b == null || "finished".equalsIgnoreCase(b.state())) {
             tracked.remove(t.buildId);
-        else
-            t.state = b.state();
+            return;
+        }
+
+        t.state = b.state();
+        t.lastVerified = System.currentTimeMillis();
     }
 
-    private void refreshChain(String token, Tracked t) {
+    private void refreshChain(String token, Tracked t, List<TcModel.Build> queued) {
         TcModel.Build b = tc.getChainDepStates(token, t.buildId);
         if (b == null || "finished".equalsIgnoreCase(b.state())) {
             tracked.remove(t.buildId);
@@ -102,16 +113,19 @@ public class RerunTracker implements SnapshotCache {
         t.state = b.state();
 
         // Started suites come from the chain's snapshot-dependencies; the not-yet-started rest sit in
-        // the branch's build queue (a running chain's deps aren't listed until they start), so merge
-        // both to cover every suite of the RunAll.
+        // the build queue (a running chain's deps aren't listed until they start), so merge both to
+        // cover every suite of the RunAll.
+        String branch = "pull/" + t.pr + "/head";
         Map<Long, ActiveRerun> kids = new LinkedHashMap<>();
         if (b.snapshotDependencies() != null && b.snapshotDependencies().build() != null)
             for (TcModel.Build dep : b.snapshotDependencies().build())
                 addChild(kids, t.pr, dep);
-        for (TcModel.Build dep : tc.queuedBranchBuilds(token, t.pr))
-            addChild(kids, t.pr, dep);
+        for (TcModel.Build dep : queued)
+            if (branch.equals(dep.branchName()))
+                addChild(kids, t.pr, dep);
 
         t.children = List.copyOf(kids.values());
+        t.lastVerified = System.currentTimeMillis();
     }
 
     private static void addChild(Map<Long, ActiveRerun> kids, int pr, TcModel.Build dep) {
@@ -124,10 +138,15 @@ public class RerunTracker implements SnapshotCache {
             dep.state() == null ? "queued" : dep.state(), dep.webUrl() == null ? "" : dep.webUrl()));
     }
 
-    /** The currently queued/running builds (chains flattened into their suites), running first, deduped. */
+    /** The currently queued/running builds (chains flattened into their suites), running first, deduped.
+     * Entries whose state could not be re-verified recently (no pooled token, e.g. overnight) are hidden
+     * rather than shown with a possibly long-finished "running". */
     public List<ActiveRerun> active() {
+        long now = System.currentTimeMillis();
         Map<Long, ActiveRerun> out = new LinkedHashMap<>();
         for (Tracked t : tracked.values()) {
+            if (now - t.lastVerified > STALE_MS)
+                continue;
             out.putIfAbsent(t.buildId, new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl));
             for (ActiveRerun kid : t.children)
                 out.putIfAbsent(kid.buildId(), kid);
@@ -174,6 +193,7 @@ public class RerunTracker implements SnapshotCache {
         final long buildId;
         final String webUrl;
         volatile String state = "queued";
+        volatile long lastVerified = System.currentTimeMillis();
         volatile List<ActiveRerun> children = List.of();
 
         Tracked(int pr, String buildTypeId, String suiteName, long buildId, String webUrl) {
