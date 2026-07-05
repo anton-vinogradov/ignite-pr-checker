@@ -106,7 +106,7 @@
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
         .runs { flex: 1; min-width: 0; }
-        .runs a { margin-left: 0.3rem; }
+        .runs .run-item { margin-left: 0.6rem; white-space: nowrap; }
         .cancel { flex: none; color: var(--bad); border-color: var(--bad); }
         .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
         .refresh:hover { color: var(--fg); }
@@ -405,9 +405,9 @@
             lastRuns = runs.concat(rr.filter(x => x.pr === number)
                 .map(x => ({ btId: x.buildTypeId, state: x.state, webUrl: x.webUrl })));
             annotateSuiteChips();
-            // Same chip language as the suite queued/running tags: green = running, amber = queued.
+            // Same visual language as the suite rows: the name is a plain link, the state is a .live chip.
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')} · ${esc(b.state)}</a>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item"><a href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')}</a><a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener">${esc(b.state)}</a></span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 
