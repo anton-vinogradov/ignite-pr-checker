@@ -669,6 +669,39 @@
         // with two different breakages simply appears under both causes, with only its own tests.
         let blockerView = 'suites';
         let causesCache = { buildId: 0, data: null };
+        let causesPromise = null;
+
+        // One fetch of the cause clusters per build, shared by the header count and the tab view.
+        function causesData() {
+            if (causesCache.data) return Promise.resolve(causesCache.data);
+            if (!causesPromise) {
+                const pr = selectedPr, buildId = lastResult.buildId;
+                causesPromise = api('/api/causes?pr=' + pr).then(async r => {
+                    if (r.status === 401) { show('login'); throw new Error('unauthorized'); }
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    const d = await r.json();
+                    if (pr === selectedPr && lastResult && lastResult.buildId === buildId)
+                        causesCache = { buildId, data: d };
+                    return d;
+                }).finally(() => { causesPromise = null; });
+            }
+            return causesPromise;
+        }
+
+        // Appends the root-cause count to the "(N suites, M tests)" header once the clusters arrive;
+        // "≥" when only a sample of the blockers had their messages fetched.
+        async function updateCauseCount() {
+            const buildId = lastResult.buildId;
+            try {
+                const d = await causesData();
+                if (!lastResult || lastResult.buildId !== buildId) return;
+                const n = d.clusters.length;
+                if (!n) return;
+                const approx = d.sampled < d.total ? '≥' : '';
+                $('blockerCount').textContent = countLabel(lastResult.blockers)
+                    .replace(/\)$/, `, ${approx}${n} cause${n === 1 ? '' : 's'})`);
+            } catch (e) { /* the count is a bonus; the header stays without it */ }
+        }
 
         function setBlockerView(v) {
             blockerView = v;
@@ -685,19 +718,15 @@
             const el = $('causesView');
             if (!lastResult) return;
             if (!causesCache.data) {
-                const pr = selectedPr;
+                const buildId = lastResult.buildId;
                 el.innerHTML = '<p class="muted">grouping by failure message…</p>';
                 try {
-                    const r = await api('/api/causes?pr=' + pr);
-                    if (r.status === 401) { show('login'); return; }
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    const d = await r.json();
-                    if (pr !== selectedPr || !lastResult) return; // superseded by a newer selection
-                    causesCache = { buildId: lastResult.buildId, data: d };
+                    await causesData();
                 } catch (e) {
                     el.innerHTML = '<p class="muted">could not group causes — the service may be busy or restarting; switch tabs to retry</p>';
                     return;
                 }
+                if (!lastResult || lastResult.buildId !== buildId || !causesCache.data) return; // superseded
             }
             const d = causesCache.data;
             const byId = new Map(lastResult.blockers.map(t => [String(t.testId), t]));
@@ -761,6 +790,7 @@
             $('blockerTabs').classList.toggle('hidden', !tabsOn);
             if (causesCache.buildId !== res.buildId) causesCache = { buildId: res.buildId, data: null };
             setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
+            if (tabsOn) updateCauseCount();
             loadDelta(res);
         }
 
