@@ -96,6 +96,10 @@ public class RerunTracker implements SnapshotCache {
         TcModel.Build b = tc.getBuildState(token, t.buildId);
         if (b == null || "finished".equalsIgnoreCase(b.state())) {
             tracked.remove(t.buildId);
+            // A finished re-run is a new branch run for its tests: recompute the verdict so a
+            // passed re-run clears its blockers without waiting for a viewer or the TTL.
+            if (b != null)
+                warmer.refreshPr(t.pr);
             return;
         }
 
