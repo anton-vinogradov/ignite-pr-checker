@@ -42,7 +42,11 @@
         .card .v { font-size: 1.35rem; font-weight: 600; margin-top: 0.15rem; }
         .card .v small { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
 
-        h2 { font-size: 1.05rem; margin: 1.4rem 0 0.5rem; }
+        h2 { font-size: 1.05rem; margin: 1.8rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
+        h2:first-of-type { margin-top: 0.6rem; }
+        .subhead { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 1rem 0 0.4rem; }
+        .blurb { font-size: 0.88rem; line-height: 1.5; max-width: 74ch; margin: 0.1rem 0 0.8rem; color: var(--fg); }
+        .blurb b { font-weight: 600; }
         .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
         .chart-title { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.2rem 0.5rem; }
         .cat-legend { text-align: right; }
@@ -96,32 +100,45 @@
     <div class="wrap">
         <div id="err" class="muted"></div>
 
-        <div class="cards" id="topCards"></div>
+        <h2>System</h2>
+        <div class="cards" id="systemCards"></div>
 
-        <h2>TeamCity requests per minute <small class="muted">· by category, last hour</small></h2>
+        <h2>Analysis &amp; requests</h2>
+        <div class="cards" id="appCards"></div>
+        <div class="subhead">Served requests by endpoint · own latency, last hour</div>
+        <div class="section"><div id="httpCats" class="cats"></div></div>
+
+        <h2>Cache warmer
+            <button id="flushBtn" class="mini-btn" type="button"
+                title="Drop cached analysis results &amp; per-test history; the next analysis recomputes from scratch">Flush caches</button>
+            <span id="flushMsg" class="flush-msg"></span>
+        </h2>
+        <p class="blurb">Keeps the newest open PRs pre-analysed so they open instantly. Every ~10&nbsp;minutes (and right
+            after someone logs in) it lists the open PRs and, for each, re-runs the analysis <b>only if that PR's latest
+            RunAll build isn't already cached</b> — an unchanged build gives the same result, so there's nothing to redo
+            (that's why a healthy cycle usually reports <b>0 recomputed</b>). It has no token of its own: it borrows the
+            TeamCity tokens of currently logged-in users and spreads its PRs across them round-robin, so no single user
+            bears the load. <b>Flush caches</b> drops everything and forces a full re-warm.</p>
+        <div class="cards" id="warmerCards"></div>
+
+        <h2>TeamCity</h2>
+        <div class="cards" id="tcCards"></div>
+        <div class="subhead">Requests per minute · by category, last hour</div>
         <div class="section">
             <div class="chart-title"><span>calls / minute</span><span id="stackLegend" class="legend cat-legend"></span></div>
             <canvas id="tcStack"></canvas>
             <div id="tcByStatus" class="bystatus"></div>
         </div>
-
-        <h2>TeamCity calls by category <small class="muted">· last hour</small></h2>
+        <div class="subhead">Calls by category · last hour</div>
         <div class="section"><div id="tcCats" class="cats"></div></div>
 
-        <h2>GitHub calls by category <small class="muted">· last hour</small></h2>
+        <h2>GitHub</h2>
+        <div class="cards" id="ghCards"></div>
+        <div class="subhead">Calls by category · last hour</div>
         <div class="section"><div id="ghCats" class="cats"></div></div>
 
-        <h2>Served requests by endpoint <small class="muted">· own latency, last hour</small></h2>
-        <div class="section"><div id="httpCats" class="cats"></div></div>
-
-        <h2>Cache &amp; warmer
-            <button id="flushBtn" class="mini-btn" type="button"
-                title="Drop cached analysis results &amp; per-test history; the next analysis recomputes from scratch">Flush caches</button>
-            <span id="flushMsg" class="flush-msg"></span>
-        </h2>
-        <div class="cards" id="appCards"></div>
-
-        <h2>Recent errors &amp; warnings</h2>
+        <h2>Logs &amp; errors</h2>
+        <div class="cards" id="logCards"></div>
         <div class="section"><div id="logList" class="loglist"></div></div>
 
         <div class="updated" id="updated"></div>
@@ -160,33 +177,24 @@
             const az = (d.http && d.http.byCategory && d.http.byCategory['/api/analyze']) || null;
             $('healthDot').className = 'hdot ' + (d.health || 'ok');
             $('healthDot').title = d.health === 'error' ? 'errors logged' : d.health === 'warn' ? 'warnings logged' : 'healthy';
-            $('topCards').innerHTML = [
+            $('systemCards').innerHTML = [
                 card('Version', d.version),
                 card('Uptime', fmtDur(d.uptimeSeconds)),
-                card('Heap', d.jvm.heapUsedMb, `/ ${d.jvm.heapMaxMb} MB`),
-                card('Threads', d.jvm.threads, `· ${d.jvm.cpus} cpu`),
                 card('CPU', j.systemCpuPct == null || j.systemCpuPct < 0 ? '—' : j.systemCpuPct + '%',
                     j.processCpuPct >= 0 ? `${j.processCpuPct}% this app` : 'host'),
                 card('Load avg', j.loadAverage == null || j.loadAverage < 0 ? '—' : j.loadAverage,
                     `<span class="${j.loadAverage > j.cpus ? 'rate-bad' : ''}">on ${j.cpus} cpu</span>`),
-                card('Log issues', d.log.errors,
-                    `<span class="${d.log.errors ? 'rate-bad' : ''}">${d.log.warnings} warn</span>`),
-                card('Analyze (1h)', az ? `${az.avgLatencyMs}` : '—',
-                    az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests'),
-                card('TeamCity (1h)', t.total.toLocaleString(),
-                    `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span> · ${tc.sinceStart.toLocaleString()} total`),
-                card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
-                card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`),
+                card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB`),
+                card('Threads', j.threads, `· ${j.cpus} cpu`),
             ].join('');
 
             $('appCards').innerHTML = [
-                card('Results cached', d.app.resultsCached),
-                card('History cached', d.app.historyCached, 'tests'),
+                card('Analyze (1h)', az ? `${az.avgLatencyMs}` : '—',
+                    az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests'),
                 card('Open PRs', d.app.openPrs),
-                card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
-                card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
-                    d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : ''),
-                card('Pooled tokens', d.app.pooledTokens),
+            ].join('');
+
+            $('warmerCards').innerHTML = [
                 d.app.warmerRunning
                     ? card('Warmer', 'running…', d.app.lastWarmCycleAt
                         ? `last cycle: ${d.app.lastWarmed} recomputed`
@@ -195,6 +203,27 @@
                         d.app.lastWarmCycleAt
                             ? `${d.app.lastWarmed} recomputed · ${d.app.lastCached} cached`
                             : 'no cycle yet'),
+                card('Pooled tokens', d.app.pooledTokens),
+                card('Results cached', d.app.resultsCached),
+                card('History cached', d.app.historyCached, 'tests'),
+            ].join('');
+
+            $('tcCards').innerHTML = [
+                card('TeamCity (1h)', t.total.toLocaleString(),
+                    `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span> · ${tc.sinceStart.toLocaleString()} total`),
+                card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
+            ].join('');
+
+            $('ghCards').innerHTML = [
+                card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`),
+                card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
+                card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
+                    d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : ''),
+            ].join('');
+
+            $('logCards').innerHTML = [
+                card('Log issues', d.log.errors,
+                    `<span class="${d.log.errors ? 'rate-bad' : ''}">${d.log.warnings} warn</span>`),
             ].join('');
 
             const byStatus = Object.entries(tc.byStatus || {});
