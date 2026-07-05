@@ -307,6 +307,13 @@
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
         }
         function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+        // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
+        function chipEta(b) {
+            if (b.leftSec >= 0) return ' · ' + fmtLeft(b.leftSec);
+            if (b.startSec >= 0) return ' · starts ' + fmtLeft(b.startSec);
+            return '';
+        }
+
         // "~18m" / "~1h 05m" — TeamCity's estimate of time left for a running build.
         function fmtLeft(sec) {
             if (sec == null || sec < 0) return '';
@@ -422,7 +429,7 @@
             for (const el of document.querySelectorAll('.suite-live')) {
                 const run = lastRuns.find(b => b.btId && b.btId === el.dataset.btid);
                 el.innerHTML = run
-                    ? `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${run.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}">${esc(run.state)}${fmtLeft(run.leftSec) ? ' · ' + fmtLeft(run.leftSec) : ''}</a>`
+                    ? `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${run.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}">${esc(run.state)}${chipEta(run)}</a>`
                     : '';
             }
         }
@@ -439,11 +446,11 @@
             // so suite chips light up individually while the chain grinds through them.
             const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
             lastRuns = runs.concat(rr.filter(x => x.pr === number)
-                .map(x => ({ btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct, leftSec: x.leftSec })));
+                .map(x => ({ btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct, leftSec: x.leftSec, startSec: x.startSec })));
             annotateSuiteChips();
             // Same visual language as the suite rows: the name is a plain link, the state is a .live chip.
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<span class="run-item"><a href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')}</a><a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="${b.pct >= 0 ? b.pct + '% complete' : ''}">${esc(b.state)}${fmtLeft(b.leftSec) ? ' · ' + fmtLeft(b.leftSec) : ''}</a></span>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item"><a href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')}</a><a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="${b.pct >= 0 ? b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a></span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 
