@@ -150,6 +150,7 @@
         .suite-rerun, .act { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--accent); cursor: pointer; white-space: nowrap; }
         .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
         .suite-rerun:disabled, .act:disabled { opacity: 0.5; cursor: default; }
+        .hint { border-bottom: 1px dotted var(--muted); cursor: help; }
         a.ext { display: inline-flex; align-items: center; justify-content: center; min-width: 1.5em; min-height: 1.5em; color: var(--muted); text-decoration: none; font-size: 0.95em; margin: 0 0.05em; border-radius: 5px; vertical-align: middle; }
         a.ext:hover { color: var(--accent); background: #f0f4fb; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
@@ -769,9 +770,9 @@
                 ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">↗</a>` : '');
             // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
             const comp = (res.suitesRan || res.suitesReused)
-                ? ` · <span title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">${res.suitesRan} ran · ${res.suitesReused} reused</span>`
+                ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} ran, ${res.suitesReused} reused</span>`
                 : '';
-            $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt)) + comp
+            $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
             const broken = res.brokenSuites || [];
