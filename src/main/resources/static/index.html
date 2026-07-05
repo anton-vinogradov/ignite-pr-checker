@@ -251,6 +251,12 @@
                 </div>
 
                 <div id="results" class="hidden">
+                    <div id="brokenCard" class="card blockers hidden">
+                        <h2>Broken suites <span id="brokenCount"></span></h2>
+                        <p class="muted">Failed without running their tests — compilation, timeout or infrastructure.
+                            Fix or re-run these first: the verdict below can't see what they would have found.</p>
+                        <ul id="brokenSuites" class="tests"></ul>
+                    </div>
                     <div class="card blockers">
                         <h2>Blockers <span id="blockerCount"></span></h2>
                         <p class="muted">Failed in your PR and stable in master — attributed to your change.</p>
@@ -499,6 +505,30 @@
             renderResult(await r.json());
         }
 
+        // Suites that failed with zero failed tests (build problems). Root causes get full rows with
+        // re-run buttons; suites that only failed because a dependency failed collapse into one line.
+        function renderBroken(el, suites) {
+            const isVictim = s => (s.problems || []).every(p => p === 'failed dependency');
+            const roots = suites.filter(s => !isVictim(s));
+            const victims = suites.filter(isVictim);
+            const rows = roots.map(s => {
+                const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
+                const head = url ? `<a href="${url}" target="_self" rel="noopener">${esc(s.suiteName || s.suite)}</a>` : esc(s.suiteName || s.suite);
+                const btns = s.suite
+                    ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                        + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
+                    : '';
+                return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
+                    + `<div class="reason">${esc((s.problems || []).join(' · '))}</div></li>`;
+            }).join('');
+            const victimLine = victims.length
+                ? `<li><div class="reason">+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed</div></li>`
+                : '';
+            el.innerHTML = rows + victimLine;
+            for (const b of el.querySelectorAll('.suite-rerun'))
+                b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+        }
+
         function renderResult(res) {
             $('status').textContent = '';
             const buildLabel = tcBase
@@ -509,10 +539,14 @@
             $('refreshBtn').onclick = refresh;
             $('blockerCount').textContent = countLabel(res.blockers);
             $('filteredCount').textContent = countLabel(res.filtered);
+            const broken = res.brokenSuites || [];
+            $('brokenCard').classList.toggle('hidden', broken.length === 0);
+            $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
+            renderBroken($('brokenSuites'), broken);
             renderList($('blockers'), res.blockers, false, true);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0);
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
         }

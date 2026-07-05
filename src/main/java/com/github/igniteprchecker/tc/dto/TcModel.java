@@ -63,4 +63,13 @@ public final class TcModel {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String username) {
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ProblemOccurrences(List<ProblemOccurrence> problemOccurrence) {
+    }
+
+    /** A build-level problem: {@code type} like TC_COMPILATION_ERROR / TC_EXECUTION_TIMEOUT, plus details. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ProblemOccurrence(String type, String details) {
+    }
 }

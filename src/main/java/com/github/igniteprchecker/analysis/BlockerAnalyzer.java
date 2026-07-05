@@ -151,7 +151,7 @@ public class BlockerAnalyzer {
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker()).toList();
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            System.currentTimeMillis(), blockers, filtered);
+            System.currentTimeMillis(), blockers, filtered, chain.brokenSuites());
 
         cache.putResult(buildId, result);
         prBlockers.put(prNumber, blockers.size());
