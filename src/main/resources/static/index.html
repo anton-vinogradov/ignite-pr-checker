@@ -62,7 +62,13 @@
         .resizer { flex: none; width: 7px; cursor: col-resize; position: relative; }
         .resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--line); }
         .resizer:hover::before, .resizer.dragging::before { left: 2px; width: 3px; background: var(--accent); }
-        .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; background: #fff; }
+        .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; background: #fff; display: flex; align-items: center; gap: 0.4rem; }
+        .pane-toggle { margin-left: auto; flex: none; border: 1px solid var(--line); background: #fafafa; color: var(--muted); border-radius: 5px; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0.05rem 0.4rem; }
+        .pane-toggle:hover { border-color: #c0c0c0; color: var(--fg); }
+        .pane-expand { display: none; flex: none; width: 22px; border: none; border-right: 1px solid var(--line); background: #fafafa; color: var(--muted); cursor: pointer; font-size: 1.1rem; align-items: center; justify-content: center; }
+        .pane-expand:hover { background: #f0f0f0; color: var(--fg); }
+        .split.collapsed .pr-pane, .split.collapsed .resizer { display: none; }
+        .split.collapsed .pane-expand { display: flex; }
         .pr-list { list-style: none; margin: 0; padding: 0; }
         .pr-list li { padding: 0.5rem 0.9rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
         .pr-list li:hover { background: #f7f7f7; }
@@ -131,6 +137,8 @@
             .suite-rerun:hover, .act:not(:disabled):hover { background: #2b333d; }
             input { background: #1f2328; color: var(--fg); }
             .pane-head { background: #17191c; }
+            .pane-toggle, .pane-expand { background: #24282d; }
+            .pane-toggle:hover, .pane-expand:hover { background: #2b2f34; border-color: #4a4f55; }
             .pr-list li { border-bottom-color: #26292e; }
             .pr-list li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
@@ -186,8 +194,11 @@
 
         <!-- split navigation -->
         <section id="analyzeView" class="split hidden">
+            <button id="paneExpand" class="pane-expand" type="button" title="Show PR list" aria-label="Show PR list">›</button>
             <aside class="pr-pane">
-                <div class="pane-head">Open PRs <span id="prCount"></span></div>
+                <div class="pane-head">Open PRs <span id="prCount"></span>
+                    <button id="paneCollapse" class="pane-toggle" type="button" title="Collapse panel" aria-label="Collapse panel">‹</button>
+                </div>
                 <ul id="prList" class="pr-list"></ul>
             </aside>
 
@@ -729,6 +740,21 @@
                 pane.style.width = '320px';
                 try { localStorage.removeItem('prPaneWidth'); } catch (e) { /* private mode */ }
             });
+        })();
+
+        // Collapse / restore the PR list pane (state persisted).
+        (function () {
+            const split = document.getElementById('analyzeView');
+            const collapseBtn = document.getElementById('paneCollapse');
+            const expandBtn = document.getElementById('paneExpand');
+            if (!split || !collapseBtn || !expandBtn) return;
+            const set = collapsed => {
+                split.classList.toggle('collapsed', collapsed);
+                try { localStorage.setItem('prPaneCollapsed', collapsed ? '1' : '0'); } catch (e) { /* private mode */ }
+            };
+            try { if (localStorage.getItem('prPaneCollapsed') === '1') split.classList.add('collapsed'); } catch (e) { /* private mode */ }
+            collapseBtn.addEventListener('click', () => set(true));
+            expandBtn.addEventListener('click', () => set(false));
         })();
     </script>
 </body>
