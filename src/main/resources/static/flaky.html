@@ -149,6 +149,15 @@
             for (const btn of el.querySelectorAll('.why')) btn.onclick = () => toggleDetails(btn);
         }
 
+        // Rough failure triage from the message: environment/timing noise vs a real assertion.
+        function failureKind(d) {
+            if (/timed out|timeout|Node has not joined|OutOfMemoryError|JVM crash|Connection re(set|fused)|Failed to wait|exit code|Agent unavailable/i.test(d))
+                return '♻ environment/timing — a re-run may pass';
+            if (/AssertionError|AssertionFailedError|ComparisonFailure|expected:/.test(d))
+                return '⚖ assertion — likely a real logic failure';
+            return null;
+        }
+
         async function toggleDetails(btn) {
             const pre = btn.closest('.lbrow').querySelector('.details');
             if (!pre) return;
@@ -160,7 +169,10 @@
                 const r = await fetch('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ), { cache: 'no-store' });
                 if (r.status === 401) { pre.textContent = 'log in on the main page to see the failure message'; return; }
                 const { details } = await r.json().catch(() => ({ details: '' }));
-                pre.textContent = details && details.trim() ? details : '(no failure message available)';
+                const kind = details ? failureKind(details) : null;
+                pre.textContent = details && details.trim()
+                    ? (kind ? kind + '\n\n' : '') + details
+                    : '(no failure message available)';
                 pre.dataset.loaded = '1';
             } catch (e) {
                 pre.textContent = 'failed to load details';
