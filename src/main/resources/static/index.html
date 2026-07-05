@@ -407,7 +407,7 @@
             annotateSuiteChips();
             // Same chip language as the suite queued/running tags: green = running, amber = queued.
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')} #${b.buildId} · ${esc(b.state)}</a>`).join('')
+                ? 'runs: ' + runs.map(b => `<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')} · ${esc(b.state)}</a>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 
