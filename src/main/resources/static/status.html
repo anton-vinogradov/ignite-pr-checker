@@ -98,23 +98,15 @@
 
         <div class="cards" id="topCards"></div>
 
+        <h2>TeamCity requests per minute <small class="muted">· by category, last hour</small></h2>
         <div class="section">
-            <div class="chart-title">
-                <span>TeamCity requests per minute (last hour)</span>
-                <span class="legend"><span class="dot" style="background:var(--ok)"></span>ok<span class="dot" style="background:var(--bad)"></span>failed</span>
-            </div>
-            <canvas id="tcChart"></canvas>
+            <div class="chart-title"><span>calls / minute</span><span id="stackLegend" class="legend cat-legend"></span></div>
+            <canvas id="tcStack"></canvas>
             <div id="tcByStatus" class="bystatus"></div>
         </div>
 
         <h2>TeamCity calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="tcCats" class="cats"></div></div>
-
-        <h2>TeamCity load over time <small class="muted">· stacked by category, last hour</small></h2>
-        <div class="section">
-            <div class="chart-title"><span>calls / minute</span><span id="stackLegend" class="legend cat-legend"></span></div>
-            <canvas id="tcStack"></canvas>
-        </div>
 
         <h2>GitHub calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="ghCats" class="cats"></div></div>
@@ -189,7 +181,6 @@
             renderCats($('ghCats'), gh.byCategory || {});
             renderLog($('logList'), d.log || { recent: [] });
 
-            drawChart($('tcChart'), tc.perMinute || []);
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
             $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
         }
@@ -224,40 +215,7 @@
             }).join('');
         }
 
-        function drawChart(canvas, series) {
-            const dpr = window.devicePixelRatio || 1;
-            const cssW = canvas.clientWidth || 880, cssH = 200;
-            canvas.width = cssW * dpr; canvas.height = cssH * dpr;
-            const ctx = canvas.getContext('2d');
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            ctx.clearRect(0, 0, cssW, cssH);
-
-            const pad = { l: 34, r: 6, t: 6, b: 16 };
-            const cw = cssW - pad.l - pad.r, ch = cssH - pad.t - pad.b;
-            const max = Math.max(1, ...series.map(m => m.ok + m.fail));
-
-            ctx.font = '10px system-ui';
-            const ticks = 4;
-            for (let i = 0; i <= ticks; i++) {
-                const y = pad.t + ch - (ch * i / ticks);
-                ctx.strokeStyle = 'rgba(128,128,128,0.18)'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
-                ctx.fillStyle = '#999'; ctx.fillText(Math.round(max * i / ticks), 2, y + 3);
-            }
-
-            const n = series.length, bw = cw / n;
-            series.forEach((m, i) => {
-                const x = pad.l + i * bw;
-                const okH = ch * m.ok / max, failH = ch * m.fail / max;
-                if (okH) { ctx.fillStyle = '#2e7d32'; ctx.fillRect(x + 0.5, pad.t + ch - okH, Math.max(1, bw - 1), okH); }
-                if (failH) { ctx.fillStyle = '#c0392b'; ctx.fillRect(x + 0.5, pad.t + ch - okH - failH, Math.max(1, bw - 1), failH); }
-            });
-
-            ctx.fillStyle = '#999';
-            ctx.fillText('-60m', pad.l, cssH - 4);
-            ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
-        }
-
-        const CAT_COLORS = ['#1565c0', '#2e7d32', '#c0392b', '#e0a000', '#6a1b9a', '#00838f',
+        const CAT_COLORS =['#1565c0', '#2e7d32', '#c0392b', '#e0a000', '#6a1b9a', '#00838f',
             '#8d6e63', '#ad1457', '#7cb342', '#f4511e', '#0277bd', '#9e9d24'];
 
         // Stacked per-minute bars: each minute split into category-coloured segments (last hour).
@@ -315,7 +273,6 @@
 
         window.addEventListener('resize', () => {
             if (!last) return;
-            drawChart($('tcChart'), last.teamcity.perMinute || []);
             drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
         });
         $('flushBtn').addEventListener('click', async () => {
