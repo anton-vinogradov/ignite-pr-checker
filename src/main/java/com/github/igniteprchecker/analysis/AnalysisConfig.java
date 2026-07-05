@@ -38,6 +38,13 @@ public class AnalysisConfig {
         return Executors.newFixedThreadPool(2, named("refresh-"));
     }
 
+    /** Small pool for the on-demand cause clustering, so a click on "Top causes" isn't queued behind
+     * a large foreground analysis occupying the shared analysis pool. */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService causesExecutor() {
+        return Executors.newFixedThreadPool(6, named("causes-"));
+    }
+
     private static ThreadFactory named(String prefix) {
         AtomicInteger counter = new AtomicInteger();
 
