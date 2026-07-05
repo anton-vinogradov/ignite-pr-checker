@@ -5,6 +5,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Map;
@@ -126,8 +127,12 @@ public class TriggerController {
     private static Map<String, Object> brief(TcModel.Build b) {
         String name = b.buildType() != null && b.buildType().name() != null ? b.buildType().name() : "";
         TcModel.RunningInfo ri = b.runningInfo();
+        long now = System.currentTimeMillis() / 1000;
+        long finish = TcDates.epochSeconds(b.finishEstimate());
+        long start = TcDates.epochSeconds(b.startEstimate());
         long left = ri != null && ri.estimatedTotalSeconds() != null && ri.elapsedSeconds() != null
-            ? Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds()) : -1;
+            ? Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds())
+            : finish > 0 ? Math.max(0, finish - now) : -1;
 
         return Map.of(
             "buildId", b.id(),
@@ -136,7 +141,8 @@ public class TriggerController {
             "btId", b.buildTypeId() == null ? "" : b.buildTypeId(),
             "webUrl", b.webUrl() == null ? "" : b.webUrl(),
             "pct", ri != null && ri.percentageComplete() != null ? ri.percentageComplete() : -1,
-            "leftSec", left);
+            "leftSec", left,
+            "startSec", left < 0 && start > 0 ? Math.max(0, start - now) : -1);
     }
 
     private static ResponseEntity<?> teamCityError(RestClientResponseException e) {

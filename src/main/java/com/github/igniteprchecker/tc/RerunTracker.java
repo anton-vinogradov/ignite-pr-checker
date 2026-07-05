@@ -102,6 +102,7 @@ public class RerunTracker implements SnapshotCache {
         t.state = b.state();
         t.pct = pct(b);
         t.leftSec = leftSeconds(b);
+        t.startSec = startSeconds(b);
         t.lastVerified = System.currentTimeMillis();
     }
 
@@ -129,6 +130,7 @@ public class RerunTracker implements SnapshotCache {
         t.children = List.copyOf(kids.values());
         t.pct = pct(b);
         t.leftSec = leftSeconds(b);
+        t.startSec = startSeconds(b);
         t.lastVerified = System.currentTimeMillis();
     }
 
@@ -140,7 +142,7 @@ public class RerunTracker implements SnapshotCache {
             ? dep.buildType().name() : dep.buildTypeId();
         kids.putIfAbsent(dep.id(), new ActiveRerun(pr, dep.buildTypeId(), name, dep.id(),
             dep.state() == null ? "queued" : dep.state(), dep.webUrl() == null ? "" : dep.webUrl(),
-            pct(dep), leftSeconds(dep)));
+            pct(dep), leftSeconds(dep), startSeconds(dep)));
     }
 
     /** The currently queued/running builds (chains flattened into their suites), running first, deduped.
@@ -153,7 +155,7 @@ public class RerunTracker implements SnapshotCache {
             if (now - t.lastVerified > STALE_MS)
                 continue;
             out.putIfAbsent(t.buildId, new ActiveRerun(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.state, t.webUrl,
-                t.pct, t.leftSec));
+                t.pct, t.leftSec, t.startSec));
             for (ActiveRerun kid : t.children)
                 out.putIfAbsent(kid.buildId(), kid);
         }
@@ -201,6 +203,7 @@ public class RerunTracker implements SnapshotCache {
         volatile String state = "queued";
         volatile Integer pct;
         volatile Long leftSec;
+        volatile Long startSec;
         volatile long lastVerified = System.currentTimeMillis();
         volatile List<ActiveRerun> children = List.of();
 
@@ -216,13 +219,27 @@ public class RerunTracker implements SnapshotCache {
     private record Persisted(int pr, String buildTypeId, String suiteName, long buildId, String webUrl, String state) {
     }
 
-    /** Seconds TeamCity thinks are left for a running build, or null when it has no estimate. */
+    /** Seconds until TeamCity expects the build to finish: running-info for running builds, the
+     * finish estimate for queued ones; null when it has no estimate. */
     private static Long leftSeconds(TcModel.Build b) {
         TcModel.RunningInfo ri = b.runningInfo();
-        if (ri == null || ri.estimatedTotalSeconds() == null || ri.elapsedSeconds() == null)
-            return null;
+        if (ri != null && ri.estimatedTotalSeconds() != null && ri.elapsedSeconds() != null)
+            return Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds());
 
-        return Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds());
+        long finish = TcDates.epochSeconds(b.finishEstimate());
+        if (finish > 0)
+            return Math.max(0, finish - System.currentTimeMillis() / 1000);
+
+        return null;
+    }
+
+    /** Seconds until a queued build is expected to start, when only that much is known; else null. */
+    private static Long startSeconds(TcModel.Build b) {
+        if (b.finishEstimate() != null && !b.finishEstimate().isBlank())
+            return null; // the finish estimate is strictly more useful
+
+        long start = TcDates.epochSeconds(b.startEstimate());
+        return start > 0 ? Math.max(0, start - System.currentTimeMillis() / 1000) : null;
     }
 
     private static Integer pct(TcModel.Build b) {
@@ -231,6 +248,6 @@ public class RerunTracker implements SnapshotCache {
 
     /** A queued/running build for a PR: a suite re-run, a RunAll chain, or one of a chain's suites. */
     public record ActiveRerun(int pr, String buildTypeId, String suiteName, long buildId, String state, String webUrl,
-        Integer pct, Long leftSec) {
+        Integer pct, Long leftSec, Long startSec) {
     }
 }

@@ -226,7 +226,7 @@ public class TcClient {
 
         TcModel.BuildList list = get("userBuilds", token, url("app/rest/builds", query(
             "locator", locator,
-            "fields", "build(id,state,status,webUrl,buildTypeId,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds))")), TcModel.BuildList.class);
+            "fields", "build(id,state,status,webUrl,buildTypeId,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }
@@ -234,7 +234,7 @@ public class TcClient {
     /** Current state of one build (works for queued builds too — TeamCity keeps the id across the queue). */
     public TcModel.Build getBuildState(String token, long buildId) {
         return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", "id,state,status,webUrl,buildTypeId,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)")), TcModel.Build.class);
+            "fields", "id,state,status,webUrl,buildTypeId,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)")), TcModel.Build.class);
     }
 
     /** A chain build's state plus the state of each of its dependency suites — one call, for rerun tracking. */
@@ -252,7 +252,7 @@ public class TcClient {
     public List<TcModel.Build> queuedBuilds(String token) {
         TcModel.BuildList list = get("buildState", token, url("app/rest/buildQueue", query(
             "locator", "count:1000",
-            "fields", "build(id,buildTypeId,state,webUrl,branchName,buildType(name))")), TcModel.BuildList.class);
+            "fields", "build(id,buildTypeId,state,webUrl,branchName,startEstimate,finishEstimate,buildType(name))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }

@@ -112,6 +112,13 @@
             return segs.slice(noMethod ? -1 : -2).join('.');
         }
 
+        // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
+        function chipEta(b) {
+            if (b.leftSec != null && b.leftSec >= 0) return ' · ' + fmtLeft(b.leftSec);
+            if (b.startSec != null && b.startSec >= 0) return ' · starts ' + fmtLeft(b.startSec);
+            return '';
+        }
+
         // "~18m" / "~1h 05m" — TeamCity's estimate of time left for a running build.
         function fmtLeft(sec) {
             if (sec == null || sec < 0) return '';
@@ -141,7 +148,7 @@
                 const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
                 // A live re-run of this suite launched through the tool (running preferred over queued).
                 const rr = (reruns || []).find(x => x.buildTypeId === b.suite);
-                const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${rr.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + rr.pct + '% complete' : ''}">${esc(rr.state)} · #${rr.pr}${fmtLeft(rr.leftSec) ? ' · ' + fmtLeft(rr.leftSec) : ''}</a>` : '';
+                const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${rr.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + rr.pct + '% complete' : ''}">${esc(rr.state)} · #${rr.pr}${chipEta(rr)}</a>` : '';
                 const pct = b.masterRuns ? Math.round(100 * b.masterFails / b.masterRuns) : 0;
                 const hot = pct >= 30 ? 'hot' : pct >= 10 ? 'warm' : '';
                 return `<div class="lbrow">

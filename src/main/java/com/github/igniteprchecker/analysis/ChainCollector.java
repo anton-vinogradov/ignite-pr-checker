@@ -3,10 +3,8 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -109,10 +107,10 @@ public class ChainCollector {
         // reused build; showing ran-vs-reused up front beats making users suspect staleness.
         int ran = 0;
         int reused = 0;
-        long chainQueued = epoch(build.queuedDate());
+        long chainQueued = TcDates.epochSeconds(build.queuedDate());
         if (chainQueued > 0) {
             for (TcModel.Build dep : depBuilds(build)) {
-                long depQueued = epoch(dep.queuedDate());
+                long depQueued = TcDates.epochSeconds(dep.queuedDate());
                 if (depQueued <= 0)
                     continue; // unknown: count in neither bucket
                 if (depQueued < chainQueued - 60)
@@ -124,21 +122,6 @@ public class ChainCollector {
 
         return new Chain(build.id(), build.branchName(), failed, broken, ran, reused);
     }
-
-    /** TeamCity's {@code yyyyMMdd'T'HHmmssZ} timestamp as epoch seconds, or 0 when absent/unparsable. */
-    private static long epoch(String tcDate) {
-        if (tcDate == null || tcDate.isBlank())
-            return 0;
-
-        try {
-            return OffsetDateTime.parse(tcDate, TC_DATE).toEpochSecond();
-        }
-        catch (DateTimeParseException e) {
-            return 0;
-        }
-    }
-
-    private static final DateTimeFormatter TC_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssZ");
 
     private SuiteResult suiteResultOf(String token, TcModel.Build dep) {
         String suiteName = dep.buildType() != null && dep.buildType().name() != null
