@@ -48,6 +48,13 @@ public class StatusController {
         jvm.put("threads", ManagementFactory.getThreadMXBean().getThreadCount());
         jvm.put("cpus", Runtime.getRuntime().availableProcessors());
 
+        java.lang.management.OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
+        jvm.put("loadAverage", round2(osBean.getSystemLoadAverage())); // 1-min load avg; -1 if unavailable
+        if (osBean instanceof com.sun.management.OperatingSystemMXBean sun) {
+            jvm.put("processCpuPct", pct(sun.getProcessCpuLoad())); // this JVM's share of total CPU
+            jvm.put("systemCpuPct", pct(sun.getCpuLoad()));         // whole-host CPU
+        }
+
         Map<String, Object> app = new LinkedHashMap<>();
         app.put("resultsCached", cache.resultCount());
         app.put("historyCached", cache.historyCount());
@@ -56,6 +63,9 @@ public class StatusController {
         app.put("githubRate", github.rateLimit());
         app.put("pooledTokens", warmer.pooledTokens());
         app.put("lastWarmed", warmer.lastWarmed());
+        app.put("warmerRunning", warmer.warming());
+        app.put("lastCached", warmer.lastCached());
+        app.put("lastWarmCycleAt", warmer.lastCycleAt());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
         String health = logSnap.errors() > 0 ? "error" : logSnap.warnings() > 0 ? "warn" : "ok";
@@ -67,9 +77,19 @@ public class StatusController {
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
+        out.put("http", metrics.http());
         out.put("app", app);
         out.put("log", logSnap);
 
         return out;
+    }
+
+    /** A CPU-load fraction (0..1) as a whole-number percent, or -1 when the JVM can't measure it yet. */
+    private static int pct(double load) {
+        return load < 0 ? -1 : (int) Math.round(load * 100);
+    }
+
+    private static double round2(double v) {
+        return v < 0 ? -1 : Math.round(v * 100) / 100.0;
     }
 }

@@ -111,6 +111,9 @@
         <h2>GitHub calls by category <small class="muted">· last hour</small></h2>
         <div class="section"><div id="ghCats" class="cats"></div></div>
 
+        <h2>Served requests by endpoint <small class="muted">· own latency, last hour</small></h2>
+        <div class="section"><div id="httpCats" class="cats"></div></div>
+
         <h2>Cache &amp; warmer
             <button id="flushBtn" class="mini-btn" type="button"
                 title="Drop cached analysis results &amp; per-test history; the next analysis recomputes from scratch">Flush caches</button>
@@ -142,10 +145,19 @@
             return `<div class="card"><div class="k">${k}</div><div class="v">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
         }
 
+        function agoShort(ms) {
+            if (!ms) return '—';
+            const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+            if (s < 60) return s + 's ago';
+            const m = Math.round(s / 60);
+            return m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago';
+        }
+
         function render(d) {
-            const tc = d.teamcity, gh = d.github;
+            const tc = d.teamcity, gh = d.github, j = d.jvm;
             const t = tc.lastHour, g = gh.lastHour;
             const tcRate = t.total ? (100 * t.ok / t.total) : 100;
+            const az = (d.http && d.http.byCategory && d.http.byCategory['/api/analyze']) || null;
             $('healthDot').className = 'hdot ' + (d.health || 'ok');
             $('healthDot').title = d.health === 'error' ? 'errors logged' : d.health === 'warn' ? 'warnings logged' : 'healthy';
             $('topCards').innerHTML = [
@@ -153,8 +165,14 @@
                 card('Uptime', fmtDur(d.uptimeSeconds)),
                 card('Heap', d.jvm.heapUsedMb, `/ ${d.jvm.heapMaxMb} MB`),
                 card('Threads', d.jvm.threads, `· ${d.jvm.cpus} cpu`),
+                card('CPU', j.systemCpuPct == null || j.systemCpuPct < 0 ? '—' : j.systemCpuPct + '%',
+                    j.processCpuPct >= 0 ? `${j.processCpuPct}% this app` : 'host'),
+                card('Load avg', j.loadAverage == null || j.loadAverage < 0 ? '—' : j.loadAverage,
+                    `<span class="${j.loadAverage > j.cpus ? 'rate-bad' : ''}">on ${j.cpus} cpu</span>`),
                 card('Log issues', d.log.errors,
                     `<span class="${d.log.errors ? 'rate-bad' : ''}">${d.log.warnings} warn</span>`),
+                card('Analyze (1h)', az ? `${az.avgLatencyMs}` : '—',
+                    az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests'),
                 card('TeamCity (1h)', t.total.toLocaleString(),
                     `<span class="${tcRate < 95 ? 'rate-bad' : ''}">${tcRate.toFixed(1)}% ok</span> · ${tc.sinceStart.toLocaleString()} total`),
                 card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`),
@@ -169,7 +187,10 @@
                 card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
                     d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : ''),
                 card('Pooled tokens', d.app.pooledTokens),
-                card('Last warmed', d.app.lastWarmed, 'PRs'),
+                d.app.warmerRunning
+                    ? card('Warmer', 'running…', `${d.app.lastWarmed} recomputed last cycle`)
+                    : card('Warmer', d.app.lastWarmCycleAt ? agoShort(d.app.lastWarmCycleAt) : 'idle',
+                        `${d.app.lastWarmed} recomputed · ${d.app.lastCached} cached`),
             ].join('');
 
             const byStatus = Object.entries(tc.byStatus || {});
@@ -179,6 +200,7 @@
 
             renderCats($('tcCats'), tc.byCategory || {});
             renderCats($('ghCats'), gh.byCategory || {});
+            renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
             renderLog($('logList'), d.log || { recent: [] });
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});

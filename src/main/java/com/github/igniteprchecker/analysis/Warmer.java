@@ -30,6 +30,9 @@ public class Warmer {
     private final TokenPool tokens;
 
     private volatile int lastWarmed;
+    private volatile int lastCached;
+    private volatile long lastCycleAt;
+    private volatile boolean warming;
 
     /** One thread so warm cycles never overlap; daemon so it doesn't block shutdown. */
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -67,6 +70,17 @@ public class Warmer {
     }
 
     private void warmCycle() {
+        warming = true;
+        try {
+            runCycle();
+        }
+        finally {
+            warming = false;
+            lastCycleAt = System.currentTimeMillis();
+        }
+    }
+
+    private void runCycle() {
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
         int recomputed = 0;
@@ -98,12 +112,28 @@ public class Warmer {
         }
 
         lastWarmed = recomputed;
+        lastCached = cached;
         log.info("warm cycle: {} recomputed, {} already cached, across {} token(s)", recomputed, cached, tokens.size());
     }
 
     /** Number of PRs warmed in the last cycle (for the status page). */
     public int lastWarmed() {
         return lastWarmed;
+    }
+
+    /** Number of PRs found already-cached in the last cycle. */
+    public int lastCached() {
+        return lastCached;
+    }
+
+    /** Whether a warm cycle is running right now. */
+    public boolean warming() {
+        return warming;
+    }
+
+    /** Epoch-ms the last warm cycle finished, or 0 if none has completed since start. */
+    public long lastCycleAt() {
+        return lastCycleAt;
     }
 
     /** Number of donated TeamCity tokens currently in the pool. */

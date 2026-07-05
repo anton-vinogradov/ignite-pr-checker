@@ -30,10 +30,12 @@ public class Metrics implements SnapshotCache {
 
     private final Map<String, Ring> tc = new ConcurrentHashMap<>();
     private final Map<String, Ring> github = new ConcurrentHashMap<>();
+    private final Map<String, Ring> http = new ConcurrentHashMap<>();
     private final Map<Integer, AtomicLong> tcByStatus = new ConcurrentHashMap<>();
 
     private final AtomicLong tcSinceStart = new AtomicLong();
     private final AtomicLong githubSinceStart = new AtomicLong();
+    private final AtomicLong httpSinceStart = new AtomicLong();
 
     public Metrics(ObjectMapper mapper) {
         this.mapper = mapper;
@@ -53,6 +55,12 @@ public class Metrics implements SnapshotCache {
         githubSinceStart.incrementAndGet();
     }
 
+    /** Record one served HTTP request. {@code endpoint} is the request path (e.g. {@code /api/analyze}). */
+    public void recordHttp(String endpoint, boolean ok, long latencyMs) {
+        http.computeIfAbsent(endpoint, c -> new Ring()).record(ok, latencyMs);
+        httpSinceStart.incrementAndGet();
+    }
+
     public long uptimeSeconds() {
         return (System.currentTimeMillis() - startedAt) / 1000;
     }
@@ -65,6 +73,12 @@ public class Metrics implements SnapshotCache {
     public Group github() {
         return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(),
             perMinute(github), byCategoryPerMinute(github));
+    }
+
+    /** Latency/volume of the app's own served requests (per endpoint). "since start" resets on restart. */
+    public Group http() {
+        return new Group(aggregate(http), httpSinceStart.get(), byCategory(http), Map.of(),
+            perMinute(http), byCategoryPerMinute(http));
     }
 
     /** Per-category call counts for each of the last {@code WINDOW} minutes (oldest first), biggest category first. */
