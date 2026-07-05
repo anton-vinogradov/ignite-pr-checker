@@ -14,6 +14,8 @@ public record AnalysisResult(
     long computedAt,
     List<TestVerdict> blockers,
     List<TestVerdict> filtered,
-    List<BrokenSuite> brokenSuites
+    List<BrokenSuite> brokenSuites,
+    int suitesRan,
+    int suitesReused
 ) {
 }

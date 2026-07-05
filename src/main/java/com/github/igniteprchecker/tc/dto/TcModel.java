@@ -24,6 +24,7 @@ public final class TcModel {
         String branchName,
         String buildTypeId,
         String webUrl,
+        String queuedDate,
         BuildType buildType,
         Triggered triggered,
         @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies

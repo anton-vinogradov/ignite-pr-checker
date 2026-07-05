@@ -628,7 +628,11 @@
             const buildLabel = tcBase
                 ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener">build ${res.buildId}</a>`
                 : 'build ' + res.buildId;
-            $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt))
+            // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
+            const comp = (res.suitesRan || res.suitesReused)
+                ? ` · <span title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">${res.suitesRan} ran · ${res.suitesReused} reused</span>`
+                : '';
+            $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt)) + comp
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
             $('blockerCount').textContent = countLabel(res.blockers);
