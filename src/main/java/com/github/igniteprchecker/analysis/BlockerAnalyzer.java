@@ -157,7 +157,7 @@ public class BlockerAnalyzer {
 
         cache.putResult(buildId, result);
         prBlockers.put(prNumber, blockers.size());
-        deltas.onResult(prNumber, buildId, blockers);
+        deltas.onResult(prNumber, buildId, blockers, chain.brokenSuites().size());
 
         return result;
     }

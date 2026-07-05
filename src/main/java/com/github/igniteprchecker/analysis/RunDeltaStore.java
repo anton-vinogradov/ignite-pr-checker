@@ -30,13 +30,17 @@ public class RunDeltaStore implements SnapshotCache {
         this.mapper = mapper;
     }
 
+    /** How many trend points to keep per PR (each is a distinct RunAll build). */
+    private static final int HISTORY_CAP = 30;
+
     /** Record a computed result: a new build id shifts the previous run down, a recompute updates in place. */
-    public void onResult(int pr, long buildId, List<TestVerdict> blockers) {
+    public void onResult(int pr, long buildId, List<TestVerdict> blockers, int brokenSuites) {
         Map<Long, Ref> snapshot = new LinkedHashMap<>();
         for (TestVerdict b : blockers)
             snapshot.put(b.testId(), new Ref(b.name(), b.suite(), b.suiteName()));
 
         Snap snap = new Snap(buildId, snapshot);
+        Point point = new Point(buildId, System.currentTimeMillis(), blockers.size(), brokenSuites);
         Entry e = byPr.computeIfAbsent(pr, k -> new Entry());
         synchronized (e) {
             if (e.latest == null || e.latest.buildId() == buildId) {
@@ -46,6 +50,27 @@ public class RunDeltaStore implements SnapshotCache {
                 e.prev = e.latest;
                 e.latest = snap;
             }
+
+            // The blocker-count trend: one point per distinct build, a recompute refreshes its point
+            // (a passing re-run of a suite can shrink the count for the same build).
+            if (!e.history.isEmpty() && e.history.get(e.history.size() - 1).buildId() == buildId)
+                e.history.set(e.history.size() - 1, point);
+            else {
+                e.history.add(point);
+                if (e.history.size() > HISTORY_CAP)
+                    e.history.remove(0);
+            }
+        }
+    }
+
+    /** The PR's blocker-count trend, oldest → newest (one point per distinct RunAll build). */
+    public List<Point> history(int pr) {
+        Entry e = byPr.get(pr);
+        if (e == null)
+            return List.of();
+
+        synchronized (e) {
+            return List.copyOf(e.history);
         }
     }
 
@@ -96,7 +121,7 @@ public class RunDeltaStore implements SnapshotCache {
         List<Persisted> snap = new ArrayList<>();
         byPr.forEach((pr, e) -> {
             synchronized (e) {
-                snap.add(new Persisted(pr, e.latest, e.prev));
+                snap.add(new Persisted(pr, e.latest, e.prev, List.copyOf(e.history)));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
@@ -111,6 +136,8 @@ public class RunDeltaStore implements SnapshotCache {
             Entry e = new Entry();
             e.latest = p.latest();
             e.prev = p.prev();
+            if (p.history() != null)
+                e.history.addAll(p.history());
             byPr.put(p.pr(), e);
         }
     }
@@ -118,6 +145,7 @@ public class RunDeltaStore implements SnapshotCache {
     private static final class Entry {
         volatile Snap latest;
         volatile Snap prev;
+        final List<Point> history = new ArrayList<>();
     }
 
     /** One run's blocker set: build id + test id -> identity. */
@@ -127,7 +155,11 @@ public class RunDeltaStore implements SnapshotCache {
     record Ref(String name, String suite, String suiteName) {
     }
 
-    private record Persisted(int pr, Snap latest, Snap prev) {
+    private record Persisted(int pr, Snap latest, Snap prev, List<Point> history) {
+    }
+
+    /** One trend point: a distinct RunAll build and what its analysis found. */
+    public record Point(long buildId, long at, int blockers, int brokenSuites) {
     }
 
     /** A blocker that appeared or got fixed between two runs. */

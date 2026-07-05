@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.ResponseEntity;
@@ -39,11 +40,15 @@ public class AnalyzeController {
         return respond(pr, analyzer.forceRefresh(token, pr));
     }
 
-    /** Blocker changes between the PR's two latest runs (null body when there is nothing to compare yet). */
+    /** Blocker changes vs the previous run (null when nothing to compare) + the per-build blocker trend. */
     @GetMapping("/delta")
-    public RunDeltaStore.Delta delta(@RequestParam int pr,
+    public DeltaResponse delta(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return deltas.delta(pr);
+        return new DeltaResponse(deltas.delta(pr), deltas.history(pr));
+    }
+
+    /** The /api/delta payload: the two-run comparison and the blocker-count history. */
+    public record DeltaResponse(RunDeltaStore.Delta delta, List<RunDeltaStore.Point> history) {
     }
 
     private static ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {

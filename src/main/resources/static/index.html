@@ -110,6 +110,9 @@
         .causes-panel .sig { font-family: ui-monospace, monospace; word-break: break-all; }
         .causes-panel .cnt { font-weight: 700; }
         .causes-panel div { padding: 0.15rem 0; }
+        .trend { display: inline-flex; gap: 2px; align-items: flex-end; margin-right: 0.8rem; vertical-align: middle; height: 16px; }
+        .trend a { display: block; width: 5px; border-radius: 1px 1px 0 0; background: var(--bad); }
+        .trend a.clean { background: #2e7d32; }
         .delta-new { color: var(--bad); font-weight: 600; }
         .delta-fixed { color: #2e7d32; font-weight: 600; }
         .runs { flex: 1; min-width: 0; }
@@ -250,7 +253,7 @@
                         <div id="freshness" class="muted"></div>
                     </div>
                     <div id="deltaRow" class="head-row hidden">
-                        <span id="delta" class="muted"></span>
+                        <span class="muted"><span id="trend" class="trend"></span><span id="delta"></span></span>
                     </div>
                     <div id="runsRow" class="head-row hidden">
                         <span id="runs" class="runs muted"></span>
@@ -547,23 +550,48 @@
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
         }
 
-        // "What changed since my previous run": +new / -fixed / persisting blockers.
+        // Blocker-count trend: one bar per RunAll build (oldest → newest), red while blockers remain.
+        function renderTrend(history) {
+            const el = $('trend');
+            if (!history || history.length < 2) { el.innerHTML = ''; return false; }
+            const max = Math.max(1, ...history.map(h => h.blockers));
+            el.innerHTML = history.map(h => {
+                const hpx = Math.max(2, Math.round(14 * h.blockers / max));
+                const clean = h.blockers === 0 && h.brokenSuites === 0;
+                const tip = `build ${h.buildId}: ${h.blockers} blocker${h.blockers === 1 ? '' : 's'}`
+                    + (h.brokenSuites ? ` · ${h.brokenSuites} broken suite(s)` : '');
+                const href = tcBase ? `${tcBase}build/${h.buildId}` : '#';
+                return `<a class="${clean ? 'clean' : ''}" style="height:${hpx}px" href="${href}" target="_self" rel="noopener" title="${tip}"></a>`;
+            }).join('');
+            return true;
+        }
+
+        // "What changed since my previous run": trend sparkline + (+new / -fixed / persisting).
         async function loadDelta(res) {
             $('deltaRow').classList.add('hidden');
             try {
                 const r = await api('/api/delta?pr=' + res.prNumber);
                 if (!r.ok) return;
-                const d = await r.json().catch(() => null);
+                const body = await r.json().catch(() => null);
+                if (!body) return;
+                const hasTrend = renderTrend(body.history);
+                const d = body.delta;
+                let hasDelta = false;
                 // only meaningful when the delta's latest run is the one on screen
-                if (!d || d.latestBuildId !== res.buildId || !d.prevBuildId) return;
-                const names = list => list.map(t => shortTestName(t.name)).slice(0, 12).join('\n');
-                const prevLink = tcBase ? `<a href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener">previous run</a>` : 'previous run';
-                const parts = [];
-                parts.push(d.appeared.length ? `<span class="delta-new" title="${esc(names(d.appeared))}">+${d.appeared.length} new</span>` : 'no new');
-                parts.push(d.fixed.length ? `<span class="delta-fixed" title="${esc(names(d.fixed))}">−${d.fixed.length} fixed</span>` : 'none fixed');
-                parts.push(`${d.persisting} persisting`);
-                $('delta').innerHTML = `vs ${prevLink}: ` + parts.join(' · ');
-                $('deltaRow').classList.remove('hidden');
+                if (d && d.latestBuildId === res.buildId && d.prevBuildId) {
+                    const names = list => list.map(t => shortTestName(t.name)).slice(0, 12).join('\n');
+                    const prevLink = tcBase ? `<a href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener">previous run</a>` : 'previous run';
+                    const parts = [];
+                    parts.push(d.appeared.length ? `<span class="delta-new" title="${esc(names(d.appeared))}">+${d.appeared.length} new</span>` : 'no new');
+                    parts.push(d.fixed.length ? `<span class="delta-fixed" title="${esc(names(d.fixed))}">−${d.fixed.length} fixed</span>` : 'none fixed');
+                    parts.push(`${d.persisting} persisting`);
+                    $('delta').innerHTML = `vs ${prevLink}: ` + parts.join(' · ');
+                    hasDelta = true;
+                }
+                else {
+                    $('delta').innerHTML = '';
+                }
+                $('deltaRow').classList.toggle('hidden', !hasTrend && !hasDelta);
             } catch (e) { /* the delta line is a bonus; never block the result */ }
         }
 
