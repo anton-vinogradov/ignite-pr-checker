@@ -118,7 +118,9 @@
             RunAll build isn't already cached</b> — an unchanged build gives the same result, so there's nothing to redo
             (that's why a healthy cycle usually reports <b>0 recomputed</b>). It has no token of its own: it borrows the
             TeamCity tokens of currently logged-in users and spreads its PRs across them round-robin, so no single user
-            bears the load. <b>Flush caches</b> drops everything and forces a full re-warm.</p>
+            bears the load. <b>Flush caches</b> drops everything and forces a full re-warm. The cards below show
+            how long the initial startup warm-up took (and whether it has finished), the live progress of any cycle
+            running now, and the duration + outcome of the most recent cycle.</p>
         <div class="cards" id="warmerCards"></div>
 
         <h2>TeamCity</h2>
@@ -170,6 +172,35 @@
             return m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago';
         }
 
+        function secs(ms) {
+            if (!ms || ms < 0) return '0s';
+            const s = ms / 1000;
+            return (s < 10 ? s.toFixed(1) : Math.round(s)) + 's';
+        }
+
+        // Warmer's current state: running (with progress) or idle (with how long ago + how many cycles).
+        function warmerCard(a) {
+            if (a.warmerRunning) {
+                const prog = a.cycleTotal ? `${a.cycleDone}/${a.cycleTotal} PRs` : '';
+                const el = a.cycleStartedAt ? secs(Date.now() - a.cycleStartedAt) + ' elapsed' : '';
+                return card('Warmer', 'running…', [prog, el].filter(Boolean).join(' · '));
+            }
+            return card('Warmer', a.lastWarmCycleAt ? agoShort(a.lastWarmCycleAt) : 'idle',
+                a.lastWarmCycleAt ? `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run` : 'no cycle yet');
+        }
+
+        // The initial post-restart warm-up: its duration once done, or live elapsed while it's the first cycle.
+        function startupCard(a) {
+            if (a.firstCycleMs > 0) return card('Startup warm-up', secs(a.firstCycleMs), 'completed');
+            if (a.warmerRunning && a.cycleStartedAt) return card('Startup warm-up', secs(Date.now() - a.cycleStartedAt) + '…', 'in progress');
+            return card('Startup warm-up', '—', 'pending');
+        }
+
+        function lastCycleCard(a) {
+            if (!a.lastWarmCycleAt) return card('Last cycle', '—', 'none yet');
+            return card('Last cycle', secs(a.lastCycleMs), `${a.lastWarmed} recomputed · ${a.lastCached} cached`);
+        }
+
         function render(d) {
             const tc = d.teamcity, gh = d.github, j = d.jvm;
             const t = tc.lastHour, g = gh.lastHour;
@@ -195,14 +226,9 @@
             ].join('');
 
             $('warmerCards').innerHTML = [
-                d.app.warmerRunning
-                    ? card('Warmer', 'running…', d.app.lastWarmCycleAt
-                        ? `last cycle: ${d.app.lastWarmed} recomputed`
-                        : 'first pass since restart')
-                    : card('Warmer', d.app.lastWarmCycleAt ? agoShort(d.app.lastWarmCycleAt) : 'idle',
-                        d.app.lastWarmCycleAt
-                            ? `${d.app.lastWarmed} recomputed · ${d.app.lastCached} cached`
-                            : 'no cycle yet'),
+                warmerCard(d.app),
+                startupCard(d.app),
+                lastCycleCard(d.app),
                 card('Pooled tokens', d.app.pooledTokens),
                 card('Results cached', d.app.resultsCached),
                 card('History cached', d.app.historyCached, 'tests'),
