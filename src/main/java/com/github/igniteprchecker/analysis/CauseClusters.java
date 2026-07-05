@@ -24,7 +24,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class CauseClusters {
     private static final int SAMPLE_CAP = 80;
-    private static final int TOP = 12;
 
     private final TcClient tc;
     private final ExecutorService pool;
@@ -60,22 +59,17 @@ public class CauseClusters {
                 catch (RuntimeException e) {
                     details = null; // one missing message must not sink the clustering
                 }
-                return new String[] {signature(details), v.name()};
+                return new String[] {signature(details), String.valueOf(v.testId())};
             })
             .toList();
 
-        Map<String, Agg> bySignature = new LinkedHashMap<>();
-        for (String[] r : Parallel.run(pool, tasks)) {
-            Agg agg = bySignature.computeIfAbsent(r[0], k -> new Agg());
-            agg.count++;
-            if (agg.samples.size() < 3)
-                agg.samples.add(r[1]);
-        }
+        Map<String, List<String>> bySignature = new LinkedHashMap<>();
+        for (String[] r : Parallel.run(pool, tasks))
+            bySignature.computeIfAbsent(r[0], k -> new ArrayList<>()).add(r[1]);
 
         List<Cluster> clusters = bySignature.entrySet().stream()
-            .map(e -> new Cluster(e.getKey(), e.getValue().count, e.getValue().samples))
+            .map(e -> new Cluster(e.getKey(), e.getValue().size(), List.copyOf(e.getValue())))
             .sorted(Comparator.comparingInt(Cluster::count).reversed())
-            .limit(TOP)
             .toList();
 
         return new Result(blockers.size(), sample.size(), clusters);
@@ -99,16 +93,11 @@ public class CauseClusters {
         return line.length() > 160 ? line.substring(0, 160) + "…" : line;
     }
 
-    private static final class Agg {
-        int count;
-        final List<String> samples = new ArrayList<>(3);
+    /** One root cause: the shared failure signature and the blockers (test-name ids) that hit it. */
+    public record Cluster(String signature, int count, List<String> testIds) {
     }
 
-    /** One root cause: the shared failure signature, how many sampled blockers hit it, sample test names. */
-    public record Cluster(String signature, int count, List<String> sampleTests) {
-    }
-
-    /** Clustering outcome: total blockers, how many were sampled for messages, and the top clusters. */
+    /** Clustering outcome: total blockers, how many were sampled for messages, and all clusters by size. */
     public record Result(int total, int sampled, List<Cluster> clusters) {
     }
 }
