@@ -37,7 +37,7 @@ public class TriggerController {
     public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, token, tc.triggerRunAll(token, pr, top))))));
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerRunAll(token, pr, top))))));
         }
         catch (RestClientResponseException e) {
             return teamCityError(e);
@@ -63,7 +63,7 @@ public class TriggerController {
 
         try {
             List<Map<String, Object>> triggered = suites.stream()
-                .map(suite -> brief(track(pr, token, tc.triggerBuild(token, suite, pr, top))))
+                .map(suite -> brief(track(pr, tc.triggerBuild(token, suite, pr, top))))
                 .toList();
 
             return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -82,7 +82,7 @@ public class TriggerController {
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
         try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, token, tc.triggerBuild(token, suite, pr, top))))));
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerBuild(token, suite, pr, top))))));
         }
         catch (RestClientResponseException e) {
             return teamCityError(e);
@@ -99,7 +99,9 @@ public class TriggerController {
     @GetMapping("/runs")
     public List<Map<String, Object>> runs(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return tc.currentUserBuilds(token, pr).stream().map(TriggerController::brief).toList();
+        // Seed the rerun tracker from what's actually live: recovers entries lost to a restart and
+        // picks up builds triggered outside the tool (straight from the TeamCity UI).
+        return tc.currentUserBuilds(token, pr).stream().map(b -> brief(track(pr, b))).toList();
     }
 
     /** Cancel every user-launched build (RunAll or re-run suite) currently queued or running for the PR. */
@@ -114,9 +116,9 @@ public class TriggerController {
         }
     }
 
-    /** Registers a freshly-triggered build with the rerun tracker, passing the build through. */
-    private TcModel.Build track(int pr, String token, TcModel.Build b) {
-        reruns.record(pr, token, b);
+    /** Registers a queued/running build with the rerun tracker, passing the build through. */
+    private TcModel.Build track(int pr, TcModel.Build b) {
+        reruns.record(pr, b);
 
         return b;
     }

@@ -187,4 +187,9 @@ public class Warmer {
     public int pooledTokens() {
         return tokens.size();
     }
+
+    /** Lends a pooled token (round-robin) for other background reads (e.g. rerun-state polling); null if none. */
+    public String borrowToken() {
+        return tokens.next();
+    }
 }
