@@ -454,6 +454,12 @@
             lastRuns = runs.concat(rr.filter(x => x.pr === number)
                 .map(x => ({ btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct, leftSec: x.leftSec, startSec: x.startSec })));
             annotateSuiteChips();
+            // For a chain the tracker knows better: its estimate includes the slowest running suite.
+            const trackerById = new Map(rr.map(x => [x.buildId, x]));
+            for (const b of runs) {
+                const t = trackerById.get(b.buildId);
+                if (t && t.leftSec != null && t.leftSec > (b.leftSec ?? -1)) b.leftSec = t.leftSec;
+            }
             // Same visual language as the suite rows: the name is a plain link, the state is a .live chip.
             $('runs').innerHTML = runs.length
                 ? 'runs: ' + runs.map(b => `<span class="run-item"><a href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">${esc(b.name || 'build')}</a><a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="${b.pct >= 0 ? b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a></span>`).join('')
