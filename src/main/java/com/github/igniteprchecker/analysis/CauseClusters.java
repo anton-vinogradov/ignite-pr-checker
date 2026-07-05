@@ -31,7 +31,7 @@ public class CauseClusters {
     private final TtlCache<Long, Result> cache = new TtlCache<>(15 * 60_000L);
 
     public CauseClusters(TcClient tc,
-        @Qualifier("analysisExecutor") ExecutorService pool) {
+        @Qualifier("causesExecutor") ExecutorService pool) {
         this.tc = tc;
         this.pool = pool;
     }
