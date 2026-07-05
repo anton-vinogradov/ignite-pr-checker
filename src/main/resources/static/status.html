@@ -188,9 +188,13 @@
                     d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : ''),
                 card('Pooled tokens', d.app.pooledTokens),
                 d.app.warmerRunning
-                    ? card('Warmer', 'running…', `${d.app.lastWarmed} recomputed last cycle`)
+                    ? card('Warmer', 'running…', d.app.lastWarmCycleAt
+                        ? `last cycle: ${d.app.lastWarmed} recomputed`
+                        : 'first pass since restart')
                     : card('Warmer', d.app.lastWarmCycleAt ? agoShort(d.app.lastWarmCycleAt) : 'idle',
-                        `${d.app.lastWarmed} recomputed · ${d.app.lastCached} cached`),
+                        d.app.lastWarmCycleAt
+                            ? `${d.app.lastWarmed} recomputed · ${d.app.lastCached} cached`
+                            : 'no cycle yet'),
             ].join('');
 
             const byStatus = Object.entries(tc.byStatus || {});
