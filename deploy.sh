@@ -16,7 +16,10 @@ if [ -z "${JAVA_HOME:-}" ] && command -v /usr/libexec/java_home >/dev/null 2>&1;
 fi
 
 echo ">> building jar ..."
-"$HERE/gradlew" bootJar
+# Version the dev build after the latest release tag (plus -dev) so the running app reports
+# something truthful instead of the stale build.gradle fallback.
+V="$(git -C "$HERE" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
+"$HERE/gradlew" bootJar -Pappversion="${V:-0.0.0}-dev"
 
 echo ">> shipping to $SSH_HOST ..."
 scp "$JAR" "$SSH_HOST:/opt/ignite-pr-checker/app.jar.new"

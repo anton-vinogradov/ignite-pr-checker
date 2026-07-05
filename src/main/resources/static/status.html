@@ -278,7 +278,7 @@
 
             const byStatus = Object.entries(tc.byStatus || {});
             $('tcByStatus').innerHTML = byStatus.length
-                ? 'Failures by status <span class="muted">· since start</span>: ' + byStatus.map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ')
+                ? 'Failures by status <span class="muted">· HTTP code × times · since start</span>: ' + byStatus.map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ')
                 : (t.total ? 'No TeamCity failures recorded.' : 'No TeamCity calls yet.');
 
             renderCats($('tcCats'), tc.byCategory || {});
