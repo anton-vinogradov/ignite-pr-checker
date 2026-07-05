@@ -70,6 +70,30 @@ public class Warmer {
             worker.execute(this::warmCycle);
     }
 
+    /**
+     * Eagerly pre-analyses one PR the moment its run finishes (the rerun tracker calls this), so
+     * the first viewer finds the result cached — or at least joins a compute already in flight —
+     * instead of paying the whole cold recompute. No-op without a pooled token.
+     */
+    public void warmPr(int pr) {
+        if (!props.enabled())
+            return;
+
+        String token = borrowToken();
+        if (token == null)
+            return;
+
+        warmPool.execute(() -> {
+            try {
+                if (analyzer.warm(token, pr))
+                    log.info("eager-warmed PR {} right after its run finished", pr);
+            }
+            catch (RuntimeException e) {
+                log.info("eager warm of PR {} failed: {}", pr, e.toString());
+            }
+        });
+    }
+
     /** Kicks an out-of-band warm cycle on the warmer thread — e.g. right after a manual cache flush,
      * so the newest PRs are re-analysed in the background instead of every visitor hitting a cold recompute. */
     public void triggerWarm() {
