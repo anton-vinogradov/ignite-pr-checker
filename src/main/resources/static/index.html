@@ -58,7 +58,10 @@
         .err { color: var(--bad); font-size: 0.9rem; }
 
         .split { display: flex; height: 100%; }
-        .pr-pane { width: 320px; flex: none; border-right: 1px solid var(--line); overflow-y: auto; }
+        .pr-pane { width: 320px; flex: none; overflow-y: auto; }
+        .resizer { flex: none; width: 7px; cursor: col-resize; position: relative; }
+        .resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--line); }
+        .resizer:hover::before, .resizer.dragging::before { left: 2px; width: 3px; background: var(--accent); }
         .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; background: #fff; }
         .pr-list { list-style: none; margin: 0; padding: 0; }
         .pr-list li { padding: 0.5rem 0.9rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
@@ -187,6 +190,8 @@
                 <div class="pane-head">Open PRs <span id="prCount"></span></div>
                 <ul id="prList" class="pr-list"></ul>
             </aside>
+
+            <div class="resizer" id="paneResizer" title="Drag to resize · double-click to reset"></div>
 
             <section class="result-pane">
                 <div class="result-head">
@@ -686,6 +691,43 @@
                 document.documentElement.setAttribute('data-theme', t);
                 try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
                 label(t);
+            });
+        })();
+
+        // Draggable divider: resize the PR list pane, persist the width, double-click to reset.
+        (function () {
+            const split = document.getElementById('analyzeView');
+            const pane = document.querySelector('.pr-pane');
+            const resizer = document.getElementById('paneResizer');
+            if (!split || !pane || !resizer) return;
+            const MIN = 180;
+            const clamp = w => Math.max(MIN, Math.min(w, Math.round(window.innerWidth * 0.7)));
+
+            try { const w = parseInt(localStorage.getItem('prPaneWidth'), 10); if (w) pane.style.width = clamp(w) + 'px'; } catch (e) { /* private mode */ }
+
+            let dragging = false;
+            resizer.addEventListener('mousedown', e => {
+                dragging = true;
+                resizer.classList.add('dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+            document.addEventListener('mousemove', e => {
+                if (!dragging) return;
+                pane.style.width = clamp(e.clientX - split.getBoundingClientRect().left) + 'px';
+            });
+            document.addEventListener('mouseup', () => {
+                if (!dragging) return;
+                dragging = false;
+                resizer.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                try { localStorage.setItem('prPaneWidth', parseInt(pane.style.width, 10)); } catch (e) { /* private mode */ }
+            });
+            resizer.addEventListener('dblclick', () => {
+                pane.style.width = '320px';
+                try { localStorage.removeItem('prPaneWidth'); } catch (e) { /* private mode */ }
             });
         })();
     </script>
