@@ -125,6 +125,7 @@
         #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
+        .blockers h2.clean { color: #2e7d32; }
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
@@ -169,6 +170,7 @@
             .home-results li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
             .delta-fixed { color: #7fce90; }
+            .blockers h2.clean { color: #7fce90; }
             .tag-flaky { background: #33290f; color: #d99a3a; }
             .causes-panel { background: #1f2328; }
             .live.running { background: #1e3324; color: #7fce90; }
@@ -274,13 +276,13 @@
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div class="card blockers">
-                        <h2>Blockers <span id="blockerCount"></span>
+                        <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
                             <button id="causesBtn" class="act hidden" type="button" title="Group blockers by failure message">Top causes</button>
                         </h2>
                         <div id="causesPanel" class="causes-panel hidden"></div>
-                        <p class="muted">Failed in your PR and stable in master — attributed to your change.</p>
+                        <p id="blockersDesc" class="muted">Failed in your PR and stable in master — attributed to your change.</p>
                         <ul id="blockers" class="tests"></ul>
-                        <p id="noBlockers" class="muted hidden">No blockers — nothing here looks caused by your PR.</p>
+                        <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
                     <div class="card">
                         <details>
@@ -635,9 +637,13 @@
             $('freshness').innerHTML = buildLabel + ' · updated ' + esc(ago(res.computedAt)) + comp
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
-            $('blockerCount').textContent = countLabel(res.blockers);
-            $('filteredCount').textContent = countLabel(res.filtered);
             const broken = res.brokenSuites || [];
+            const clean = res.blockers.length === 0;
+            $('blockersTitle').classList.toggle('clean', clean);
+            $('blockersHead').textContent = clean ? (broken.length ? 'No blockers' : 'No blockers 🎉') : 'Blockers';
+            $('blockersDesc').classList.toggle('hidden', clean);
+            $('blockerCount').textContent = clean ? '' : countLabel(res.blockers);
+            $('filteredCount').textContent = countLabel(res.filtered);
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
