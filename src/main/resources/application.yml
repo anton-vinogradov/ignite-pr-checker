@@ -37,10 +37,11 @@ analysis:
   # it also fails at least once in these last master runs. Override with MASTER_HISTORY_DEPTH.
   history-depth: ${MASTER_HISTORY_DEPTH:100}
   # How many TeamCity calls (per-test history / per-suite lookups) to run in parallel during one analysis.
-  # These are I/O-bound (each thread mostly waits on the network), so more than the single core pays off:
-  # a cold analysis fires hundreds of calls and 16-wide keeps that to well under a minute. Response sizes
-  # are small, so the extra in-flight parses are cheap against the heap. Override with ANALYSIS_CONCURRENCY.
-  concurrency: ${ANALYSIS_CONCURRENCY:16}
+  # Kept modest for the single-core box: though the calls are I/O-bound, each response still costs CPU to
+  # parse and turn into verdicts, so a wide fan-out (esp. when a warm refill and a foreground analysis
+  # overlap) thrashes the one core and inflates TeamCity latency instead of helping. 8 keeps bursts gentle
+  # enough that foreground page loads stay responsive during a refill. Override with ANALYSIS_CONCURRENCY.
+  concurrency: ${ANALYSIS_CONCURRENCY:8}
   # How long to cache base-branch history (per test) and the analysis result (per build). 0 disables caching.
   cache-ttl-minutes: 15
   # On request, a cached result older than this triggers a background refresh (the request still returns instantly).
