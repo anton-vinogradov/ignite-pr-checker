@@ -106,10 +106,13 @@
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
         .tag-flaky { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
-        .causes-panel { margin: 0.5rem 0; padding: 0.6rem 0.8rem; background: #f7f7f7; border-radius: 6px; font-size: 0.8rem; }
-        .causes-panel .sig { font-family: ui-monospace, monospace; word-break: break-all; }
-        .causes-panel .cnt { font-weight: 700; }
-        .causes-panel div { padding: 0.15rem 0; }
+        .tabs { margin-left: 0.7rem; }
+        .tabs .act.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .cause { margin: 0.35rem 0; }
+        .cause > summary { cursor: pointer; font-size: 0.82rem; padding: 0.25rem 0; }
+        .cause .sig { font-family: ui-monospace, monospace; word-break: break-all; }
+        .cause .cnt { font-weight: 700; }
+        .cause > .tests { margin-top: 0.25rem; }
         .trend { display: inline-flex; gap: 2px; align-items: flex-end; margin-right: 0.8rem; vertical-align: middle; height: 16px; }
         .trend a { display: block; width: 5px; border-radius: 1px 1px 0 0; background: var(--bad); }
         .trend a.clean { background: #2e7d32; }
@@ -277,11 +280,14 @@
                     </div>
                     <div class="card blockers">
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
-                            <button id="causesBtn" class="act hidden" type="button" title="Group blockers by failure message">Top causes</button>
+                            <span id="blockerTabs" class="tabs hidden">
+                                <button id="tabSuites" class="act on" type="button" title="Group by the suite they failed in">Suites</button>
+                                <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
+                            </span>
                         </h2>
-                        <div id="causesPanel" class="causes-panel hidden"></div>
                         <p id="blockersDesc" class="muted">Failed in your PR and stable in master — attributed to your change.</p>
                         <ul id="blockers" class="tests"></ul>
+                        <div id="causesView" class="hidden"></div>
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
                     <div class="card">
@@ -300,6 +306,7 @@
         let githubRepo = 'apache/ignite';
         let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
         let selectedPr = null;
+        let lastResult = null; // the currently rendered analysis (drives the root-cause view)
         let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
         let allPrs = []; // last-loaded open-PR list, for the home search
 
@@ -657,37 +664,72 @@
             } catch (e) { /* the delta line is a bonus; never block the result */ }
         }
 
-        // Group blockers by failure signature: hundreds of tests usually mean a handful of causes.
-        async function loadCauses() {
-            const btn = $('causesBtn'), panel = $('causesPanel');
-            if (!panel.classList.contains('hidden')) { panel.classList.add('hidden'); return; }
-            btn.disabled = true;
-            const was = btn.textContent;
-            btn.textContent = 'grouping…';
-            try {
-                const r = await api('/api/causes?pr=' + selectedPr);
-                if (r.status === 401) { show('login'); return; }
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                const d = await r.json();
-                const note = d.sampled < d.total ? `<div class="muted">grouped by the first ${d.sampled} of ${d.total} blockers</div>` : '';
-                panel.innerHTML = note + d.clusters.map(c =>
-                    `<div><span class="cnt">${c.count}×</span> <span class="sig">${esc(c.signature)}</span>`
-                    + ` <span class="muted">e.g. ${c.sampleTests.map(shortTestName).map(esc).join(', ')}</span></div>`).join('')
-                    || '<div class="muted">nothing to group</div>';
-                panel.classList.remove('hidden');
-                panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            } catch (e) {
-                panel.innerHTML = '<div class="muted">could not group causes — the service may be busy or restarting; click again in a moment</div>';
-                panel.classList.remove('hidden');
-                panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            } finally {
-                btn.disabled = false;
-                btn.textContent = was;
-            }
+        // Two projections of the same blockers: by suite (default) and by root cause — clusters of
+        // tests sharing one failure signature, each a spoiler with its suites/tests inside. A suite
+        // with two different breakages simply appears under both causes, with only its own tests.
+        let blockerView = 'suites';
+        let causesCache = { buildId: 0, data: null };
+
+        function setBlockerView(v) {
+            blockerView = v;
+            $('tabSuites').classList.toggle('on', v === 'suites');
+            $('tabCauses').classList.toggle('on', v === 'causes');
+            $('blockers').classList.toggle('hidden', v !== 'suites');
+            $('causesView').classList.toggle('hidden', v !== 'causes');
+            if (v === 'causes') renderCausesView();
         }
-        $('causesBtn').onclick = loadCauses;
+        $('tabSuites').onclick = () => setBlockerView('suites');
+        $('tabCauses').onclick = () => setBlockerView('causes');
+
+        async function renderCausesView() {
+            const el = $('causesView');
+            if (!lastResult) return;
+            if (!causesCache.data) {
+                const pr = selectedPr;
+                el.innerHTML = '<p class="muted">grouping by failure message…</p>';
+                try {
+                    const r = await api('/api/causes?pr=' + pr);
+                    if (r.status === 401) { show('login'); return; }
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    const d = await r.json();
+                    if (pr !== selectedPr || !lastResult) return; // superseded by a newer selection
+                    causesCache = { buildId: lastResult.buildId, data: d };
+                } catch (e) {
+                    el.innerHTML = '<p class="muted">could not group causes — the service may be busy or restarting; switch tabs to retry</p>';
+                    return;
+                }
+            }
+            const d = causesCache.data;
+            const byId = new Map(lastResult.blockers.map(t => [String(t.testId), t]));
+            const used = new Set();
+            const blocks = [];
+            for (const c of d.clusters) {
+                const tests = (c.testIds || []).map(id => byId.get(String(id))).filter(Boolean);
+                for (const t of tests) used.add(String(t.testId));
+                if (!tests.length) continue;
+                const suites = new Set(tests.map(t => t.suiteBuildId));
+                blocks.push({
+                    head: `<span class="cnt">${tests.length}×</span> <span class="sig">${esc(c.signature)}</span>`
+                        + ` <span class="muted">— ${suites.size} suite${suites.size > 1 ? 's' : ''}</span>`,
+                    tests, open: blocks.length === 0
+                });
+            }
+            const rest = lastResult.blockers.filter(t => !used.has(String(t.testId)));
+            if (rest.length)
+                blocks.push({
+                    head: `<span class="cnt">${rest.length}×</span> <span class="sig">not sampled</span>`
+                        + ` <span class="muted">— messages were fetched for the first ${d.sampled} of ${d.total} blockers</span>`,
+                    tests: rest, open: false
+                });
+            el.innerHTML = blocks.map((b, i) =>
+                `<details class="cause"${b.open ? ' open' : ''}><summary>${b.head}</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
+                || '<p class="muted">nothing to group</p>';
+            blocks.forEach((b, i) => renderList($('causeTests' + i), b.tests, false, true));
+            annotateSuiteChips();
+        }
 
         function renderResult(res) {
+            lastResult = res;
             $('status').textContent = '';
             const buildLabel = tcBase
                 ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener">build ${res.buildId}</a>`
@@ -715,8 +757,10 @@
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
-            $('causesBtn').classList.toggle('hidden', res.blockers.length < 2);
-            $('causesPanel').classList.add('hidden');
+            const tabsOn = res.blockers.length >= 2;
+            $('blockerTabs').classList.toggle('hidden', !tabsOn);
+            if (causesCache.buildId !== res.buildId) causesCache = { buildId: res.buildId, data: null };
+            setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
             loadDelta(res);
         }
 

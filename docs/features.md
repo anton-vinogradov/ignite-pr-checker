@@ -34,8 +34,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   fail→pass transition earns a **flaky?** tag; a steady `▮▮▮` means a solid break.
 - **why?** expands the failure message inline, prefixed with a rough triage:
   `♻ environment/timing — a re-run may pass` vs `⚖ assertion — likely a real logic failure`.
-- **Top causes** groups the blockers by their failure signature — hundreds of tests usually collapse
-  into a handful of root causes, each with sample test names.
+- The blockers card has two views: **Suites** (default) and **Root causes** — the same blockers
+  regrouped by failure signature, each cause a collapsible with its suites and tests inside.
+  Hundreds of tests usually collapse into a handful of causes; a suite broken by two different
+  things simply appears under both.
 - `IGNITE-XXXXX` in the PR title links to the ASF JIRA issue.
 
 ## Iterating on a fix
