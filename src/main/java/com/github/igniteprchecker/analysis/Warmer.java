@@ -32,7 +32,13 @@ public class Warmer {
     private volatile int lastWarmed;
     private volatile int lastCached;
     private volatile long lastCycleAt;
+    private volatile long lastCycleMs;
+    private volatile long firstCycleMs; // duration of the first cycle after startup (the "warm-up"); 0 until it finishes
+    private volatile int cyclesCompleted;
     private volatile boolean warming;
+    private volatile long cycleStartedAt; // when the current (or most recent) cycle began
+    private volatile int cycleTotal;      // PRs the current cycle will visit
+    private volatile int cycleDone;       // PRs visited so far in the current cycle
 
     /** One thread so warm cycles never overlap; daemon so it doesn't block shutdown. */
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
@@ -71,18 +77,26 @@ public class Warmer {
 
     private void warmCycle() {
         warming = true;
+        cycleStartedAt = System.currentTimeMillis();
+        cycleDone = 0;
         try {
             runCycle();
         }
         finally {
+            long finishedAt = System.currentTimeMillis();
             warming = false;
-            lastCycleAt = System.currentTimeMillis();
+            lastCycleAt = finishedAt;
+            lastCycleMs = finishedAt - cycleStartedAt;
+            cyclesCompleted++;
+            if (firstCycleMs == 0)
+                firstCycleMs = lastCycleMs; // record how long the initial post-startup warm-up took
         }
     }
 
     private void runCycle() {
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
+        cycleTotal = count;
         int recomputed = 0;
         int cached = 0;
 
@@ -109,11 +123,14 @@ public class Warmer {
             catch (RuntimeException e) {
                 log.debug("warm of PR {} failed: {}", pr, e.toString());
             }
+
+            cycleDone = recomputed + cached;
         }
 
         lastWarmed = recomputed;
         lastCached = cached;
-        log.info("warm cycle: {} recomputed, {} already cached, across {} token(s)", recomputed, cached, tokens.size());
+        log.info("warm cycle: {} recomputed, {} already cached, across {} token(s) in {}ms",
+            recomputed, cached, tokens.size(), System.currentTimeMillis() - cycleStartedAt);
     }
 
     /** Number of PRs warmed in the last cycle (for the status page). */
@@ -134,6 +151,36 @@ public class Warmer {
     /** Epoch-ms the last warm cycle finished, or 0 if none has completed since start. */
     public long lastCycleAt() {
         return lastCycleAt;
+    }
+
+    /** Wall-clock duration of the last completed cycle, in ms (0 if none completed). */
+    public long lastCycleMs() {
+        return lastCycleMs;
+    }
+
+    /** Duration of the first cycle after startup — the initial warm-up — in ms (0 until it finishes). */
+    public long firstCycleMs() {
+        return firstCycleMs;
+    }
+
+    /** Number of warm cycles completed since start. */
+    public int cyclesCompleted() {
+        return cyclesCompleted;
+    }
+
+    /** Epoch-ms the current (or most recent) cycle began, or 0 if none has started. */
+    public long cycleStartedAt() {
+        return cycleStartedAt;
+    }
+
+    /** Number of PRs the running cycle plans to visit (0 when idle before the first cycle). */
+    public int cycleTotal() {
+        return cycleTotal;
+    }
+
+    /** Number of PRs the running cycle has visited so far. */
+    public int cycleDone() {
+        return cycleDone;
     }
 
     /** Number of donated TeamCity tokens currently in the pool. */

@@ -66,6 +66,12 @@ public class StatusController {
         app.put("warmerRunning", warmer.warming());
         app.put("lastCached", warmer.lastCached());
         app.put("lastWarmCycleAt", warmer.lastCycleAt());
+        app.put("lastCycleMs", warmer.lastCycleMs());
+        app.put("firstCycleMs", warmer.firstCycleMs());
+        app.put("cyclesCompleted", warmer.cyclesCompleted());
+        app.put("cycleStartedAt", warmer.cycleStartedAt());
+        app.put("cycleTotal", warmer.cycleTotal());
+        app.put("cycleDone", warmer.cycleDone());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
         String health = logSnap.errors() > 0 ? "error" : logSnap.warnings() > 0 ? "warn" : "ok";
