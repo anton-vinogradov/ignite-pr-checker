@@ -1,6 +1,8 @@
 package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -38,7 +40,7 @@ class BlockerAnalyzerTest {
         FailedTest passedOnRerun = new FailedTest(5, "Suite: E.reranAndPassed", "SuiteE", 105L, "Suite E", "1005");
 
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(chains.collectForBuild(TOK, 999L)).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
+        when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
             List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun)));
 
         // 1) clean on master and still failing in its last finished run -> blocker.
@@ -77,12 +79,12 @@ class BlockerAnalyzerTest {
     @Test
     void secondAnalyzeOfSameBuildIsServedFromCache() {
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(chains.collectForBuild(TOK, 999L)).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of()));
+        when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of()));
 
         analyzer.analyze(TOK, 42);
         analyzer.analyze(TOK, 42);
 
-        verify(chains, times(1)).collectForBuild(TOK, 999L); // second run reused the cached result
+        verify(chains, times(1)).collectForBuild(eq(TOK), eq(999L), any()); // second run reused the cached result
     }
 
     private static TestVerdict verdict(AnalysisResult r, long testId) {

@@ -109,7 +109,7 @@ public class BlockerAnalyzer {
      * RunAll build exists yet. Backs the manual "refresh" button.
      */
     public Optional<AnalysisResult> forceRefresh(String token, int prNumber) {
-        return chains.findBuildId(token, prNumber)
+        return chains.findBuildIdFresh(token, prNumber)
             .map(bid -> computeAndStore(token, prNumber, bid, pool));
     }
 
@@ -135,7 +135,7 @@ public class BlockerAnalyzer {
     }
 
     private AnalysisResult computeAndStore(String token, int prNumber, long buildId, ExecutorService taskPool) {
-        ChainCollector.Chain chain = chains.collectForBuild(token, buildId);
+        ChainCollector.Chain chain = chains.collectForBuild(token, buildId, taskPool);
 
         List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
             .<Callable<TestVerdict>>map(t -> () -> classify(token, prNumber, t))
