@@ -10,7 +10,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,21 +18,45 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ChainCollector {
+    /** How long a PR's latest-build lookup stays valid — short, since it only avoids re-querying the same
+     * RunAll on rapid repeat views; a brand-new run is still picked up within this window. */
+    private static final long BUILD_ID_TTL_MS = 30_000;
+
     private final TcClient tc;
-    private final ExecutorService executor;
 
-    public ChainCollector(TcClient tc, @Qualifier("analysisExecutor") ExecutorService analysisExecutor) {
+    /** Caches the PR -> latest-RunAll-build-id lookup so a warm {@code /api/analyze} (and each warmer/refresh
+     * check) doesn't pay a TeamCity round-trip that almost always returns the same build. */
+    private final TtlCache<Integer, Long> buildIds = new TtlCache<>(BUILD_ID_TTL_MS);
+
+    public ChainCollector(TcClient tc) {
         this.tc = tc;
-        this.executor = analysisExecutor;
     }
 
-    /** The latest RunAll build id for a PR branch, if any. */
+    /** The latest RunAll build id for a PR branch, if any (cached briefly). */
     public Optional<Long> findBuildId(String token, int prNumber) {
-        return tc.findRunAllBuildForPr(token, prNumber).map(TcModel.Build::id);
+        Optional<Long> cached = buildIds.peek(prNumber);
+
+        return cached.isPresent() ? cached : lookupBuildId(token, prNumber);
     }
 
-    /** Expands a RunAll build into its failed tests (across its FAILURE suites). */
-    public Chain collectForBuild(String token, long buildId) {
+    /** Like {@link #findBuildId} but bypasses the cache — for the manual refresh, which must see a just-finished run. */
+    public Optional<Long> findBuildIdFresh(String token, int prNumber) {
+        return lookupBuildId(token, prNumber);
+    }
+
+    private Optional<Long> lookupBuildId(String token, int prNumber) {
+        Optional<Long> found = tc.findRunAllBuildForPr(token, prNumber).map(TcModel.Build::id);
+        found.ifPresent(id -> buildIds.put(prNumber, id));
+
+        return found;
+    }
+
+    /**
+     * Expands a RunAll build into its failed tests (across its FAILURE suites). The {@code pool} is the
+     * caller's fan-out pool: foreground analyses pass the analysis pool, background ones (warmer/refresh)
+     * pass their own so they don't compete with user-facing requests.
+     */
+    public Chain collectForBuild(String token, long buildId, ExecutorService pool) {
         TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
         List<Callable<List<FailedTest>>> tasks = depBuilds(build).stream()
@@ -43,7 +66,7 @@ public class ChainCollector {
 
         List<FailedTest> failed = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
-        for (List<FailedTest> perSuite : Parallel.run(executor, tasks)) {
+        for (List<FailedTest> perSuite : Parallel.run(pool, tasks)) {
             for (FailedTest ft : perSuite) {
                 if (seen.add(ft.testId()))
                     failed.add(ft);
