@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.analysis;
 
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -67,39 +68,75 @@ public class ChainCollector {
     }
 
     /**
-     * Expands a RunAll build into its failed tests (across its FAILURE suites). The {@code pool} is the
-     * caller's fan-out pool: foreground analyses pass the analysis pool, background ones (warmer/refresh)
-     * pass their own so they don't compete with user-facing requests.
+     * Expands a RunAll build into its failed tests (across its FAILURE suites). A FAILURE suite with
+     * <em>no</em> failed tests broke before/without testing (compilation, timeout, agent, dependency) —
+     * those are collected as {@link BrokenSuite}s so they can't silently vanish from the verdict. The
+     * {@code pool} is the caller's fan-out pool: foreground analyses pass the analysis pool, background
+     * ones (warmer/refresh) pass their own so they don't compete with user-facing requests.
      */
     public Chain collectForBuild(String token, long buildId, ExecutorService pool) {
         TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
-        List<Callable<List<FailedTest>>> tasks = depBuilds(build).stream()
+        List<Callable<SuiteResult>> tasks = depBuilds(build).stream()
             .filter(dep -> "FAILURE".equals(dep.status()))
-            .<Callable<List<FailedTest>>>map(dep -> () -> failedTestsOf(token, dep))
+            .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep))
             .toList();
 
         List<FailedTest> failed = new ArrayList<>();
+        List<BrokenSuite> broken = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
-        for (List<FailedTest> perSuite : Parallel.run(pool, tasks)) {
-            for (FailedTest ft : perSuite) {
+        for (SuiteResult r : Parallel.run(pool, tasks)) {
+            if (r.broken() != null)
+                broken.add(r.broken());
+            for (FailedTest ft : r.tests()) {
                 if (seen.add(ft.testId()))
                     failed.add(ft);
             }
         }
 
-        return new Chain(build.id(), build.branchName(), failed);
+        return new Chain(build.id(), build.branchName(), failed, broken);
     }
 
-    private List<FailedTest> failedTestsOf(String token, TcModel.Build dep) {
+    private SuiteResult suiteResultOf(String token, TcModel.Build dep) {
         String suiteName = dep.buildType() != null && dep.buildType().name() != null
             ? dep.buildType().name()
             : dep.buildTypeId();
 
-        return tc.getFailedTests(token, dep.id()).stream()
+        List<FailedTest> tests = tc.getFailedTests(token, dep.id()).stream()
             .filter(occ -> occ.test() != null)
             .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();
+
+        if (!tests.isEmpty())
+            return new SuiteResult(tests, null);
+
+        List<String> problems = tc.getBuildProblems(token, dep.id()).stream()
+            .map(ChainCollector::describeProblem)
+            .distinct()
+            .toList();
+
+        return new SuiteResult(List.of(), new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName,
+            problems.isEmpty() ? List.of("failed without running tests") : problems));
+    }
+
+    /** Human wording for a TeamCity problem type, falling back to its details/raw type. */
+    private static String describeProblem(TcModel.ProblemOccurrence p) {
+        String type = p.type() == null ? "" : p.type();
+
+        return switch (type) {
+            case "TC_COMPILATION_ERROR" -> "compilation error";
+            case "TC_EXECUTION_TIMEOUT" -> "execution timeout";
+            case "TC_EXIT_CODE" -> "non-zero exit code";
+            case "TC_OOME", "TC_JVM_CRASH" -> "JVM crash / out of memory";
+            case "SNAPSHOT_DEPENDENCY_ERROR", "SNAPSHOT_DEPENDENCY_ERROR_BUILD_PROCEEDS_TYPE" -> "failed dependency";
+            default -> p.details() != null && !p.details().isBlank()
+                ? p.details().strip().split("\n")[0]
+                : (type.isBlank() ? "unknown problem" : type);
+        };
+    }
+
+    /** One FAILURE suite's outcome: its failed tests, or (when there are none) why it broke. */
+    private record SuiteResult(List<FailedTest> tests, BrokenSuite broken) {
     }
 
     private static List<TcModel.Build> depBuilds(TcModel.Build build) {
@@ -110,6 +147,6 @@ public class ChainCollector {
         return deps.build();
     }
 
-    public record Chain(long buildId, String branchName, List<FailedTest> failedTests) {
+    public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites) {
     }
 }

@@ -41,7 +41,7 @@ class BlockerAnalyzerTest {
 
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
         when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
-            List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun)));
+            List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun), List.of()));
 
         // 1) clean on master and still failing in its last finished run -> blocker.
         when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 50));
@@ -79,7 +79,7 @@ class BlockerAnalyzerTest {
     @Test
     void secondAnalyzeOfSameBuildIsServedFromCache() {
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of()));
+        when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of(), List.of()));
 
         analyzer.analyze(TOK, 42);
         analyzer.analyze(TOK, 42);
