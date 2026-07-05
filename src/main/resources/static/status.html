@@ -48,8 +48,6 @@
         h2 { font-size: 1.05rem; margin: 1.8rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
         h2:first-of-type { margin-top: 0.6rem; }
         .subhead { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 1rem 0 0.4rem; }
-        .blurb { font-size: 0.88rem; line-height: 1.5; max-width: 74ch; margin: 0.1rem 0 0.8rem; color: var(--fg); }
-        .blurb b { font-weight: 600; }
         .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
         .chart-title { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.2rem 0.5rem; }
         .cat-legend { text-align: right; }
@@ -117,14 +115,7 @@
                 title="Drop cached analysis results &amp; per-test history; the next analysis recomputes from scratch">Flush caches</button>
             <span id="flushMsg" class="flush-msg"></span>
         </h2>
-        <p class="blurb">Keeps the newest open PRs pre-analysed so they open instantly. Every ~10&nbsp;minutes (and right
-            after someone logs in) it lists the open PRs and, for each, re-runs the analysis <b>only if that PR's latest
-            RunAll build isn't already cached</b> — an unchanged build gives the same result, so there's nothing to redo
-            (that's why a healthy cycle usually reports <b>0 recomputed</b>). It has no token of its own: it borrows the
-            TeamCity tokens of currently logged-in users and spreads its PRs across them round-robin, so no single user
-            bears the load. <b>Flush caches</b> drops everything and forces a full re-warm. The cards below show
-            how long the initial startup warm-up took (and whether it has finished), the live progress of any cycle
-            running now, and the duration + outcome of the most recent cycle.</p>
+        
         <div class="cards" id="warmerCards"></div>
 
         <h2>TeamCity</h2>
