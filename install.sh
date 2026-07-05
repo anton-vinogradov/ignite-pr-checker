@@ -46,6 +46,9 @@ if [ ! -f "$ETC_DIR/env" ]; then
 # How many recent master runs of a test to check: a PR failure is a blocker unless the test also
 # fails at least once in these (default 100).
 #MASTER_HISTORY_DEPTH=100
+# Optional GitHub read token (public-repo scope is enough) to raise the GitHub API rate limit from
+# 60 to 5000 requests/hour. Recommended if the status page is left open (it polls stars/PRs/releases).
+#GITHUB_TOKEN=
 # Set to true once the service is served over HTTPS (e.g. behind Caddy):
 SESSION_COOKIE_SECURE=false
 ENV

@@ -9,8 +9,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 
@@ -54,6 +59,39 @@ public class AnalysisCache implements SnapshotCache {
     /** Number of cached per-test master-history entries. */
     public int historyCount() {
         return history.size();
+    }
+
+    /**
+     * The tests that block the most distinct open PRs, across the currently cached analyses — a
+     * project-wide view of which failures are gating the most work (chronic flaky/broken tests).
+     */
+    public List<TopBlocker> topBlockers(int limit) {
+        Map<Long, Agg> byTest = new HashMap<>();
+        for (AnalysisResult r : results.freshValues()) {
+            for (var b : r.blockers())
+                byTest.computeIfAbsent(b.testId(), k -> new Agg(b.name(), b.suiteName())).prs.add(r.prNumber());
+        }
+
+        return byTest.values().stream()
+            .map(a -> new TopBlocker(a.name, a.suite, a.prs.size(), a.prs.stream().sorted().toList()))
+            .sorted(Comparator.comparingInt(TopBlocker::prCount).reversed())
+            .limit(limit)
+            .toList();
+    }
+
+    private static final class Agg {
+        final String name;
+        final String suite;
+        final Set<Integer> prs = new HashSet<>();
+
+        Agg(String name, String suite) {
+            this.name = name;
+            this.suite = suite;
+        }
+    }
+
+    /** A chronically-blocking test: which suite/test, how many open PRs it blocks, and which. */
+    public record TopBlocker(String name, String suite, int prCount, List<Integer> prs) {
     }
 
     /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */

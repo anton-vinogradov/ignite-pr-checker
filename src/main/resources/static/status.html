@@ -63,6 +63,16 @@
         .catfill { background: var(--accent); height: 100%; }
         .catval { white-space: nowrap; }
         .catval small { color: var(--muted); }
+        .leaderboard { display: flex; flex-direction: column; }
+        .lbrow { padding: 0.4rem 0; border-top: 1px solid var(--line); }
+        .lbrow:first-child { border-top: none; }
+        .lbhead { display: flex; align-items: baseline; gap: 0.5rem; }
+        .lbrank { color: var(--muted); font-variant-numeric: tabular-nums; }
+        .lbname { font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; }
+        .lbsuite { color: var(--muted); }
+        .lbcount { margin-left: auto; font-weight: 600; white-space: nowrap; }
+        .lbprs { font-size: 0.78rem; margin: 0.15rem 0 0 1.6rem; }
+        .lbprs a { margin-right: 0.45rem; }
         .hdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 0.5rem; vertical-align: middle; background: #bbb; }
         .hdot.ok { background: var(--ok); }
         .hdot.warn { background: #e0a000; }
@@ -107,6 +117,9 @@
         <div class="cards" id="appCards"></div>
         <div class="subhead">Served requests by endpoint · own latency, last hour</div>
         <div class="section"><div id="httpCats" class="cats"></div></div>
+
+        <h2>Top blocking tests <small class="muted">· which failures gate the most open PRs</small></h2>
+        <div class="section"><div id="topBlockers" class="leaderboard"></div></div>
 
         <h2>Cache warmer
             <button id="flushBtn" class="mini-btn" type="button"
@@ -260,6 +273,7 @@
             renderCats($('tcCats'), tc.byCategory || {});
             renderCats($('ghCats'), gh.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
+            renderTopBlockers($('topBlockers'), d.topBlockers || []);
             renderLog($('logList'), d.log || { recent: [] });
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
@@ -268,6 +282,34 @@
 
         function esc(s) {
             return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        }
+
+        // "Class.method[params]" without the package/namespace (dots inside (...)/[...] kept intact).
+        function shortTestName(name) {
+            let s = name.includes(': ') ? name.slice(name.indexOf(': ') + 2) : name;
+            const noMethod = s.endsWith('.');
+            let depth = 0, seg = '', segs = [];
+            for (const ch of s) {
+                if (ch === '(' || ch === '[') depth++;
+                else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1);
+                if (ch === '.' && depth === 0) { segs.push(seg); seg = ''; }
+                else seg += ch;
+            }
+            segs.push(seg);
+            segs = segs.filter(x => x.length);
+            return segs.slice(noMethod ? -1 : -2).join('.');
+        }
+
+        function renderTopBlockers(el, list) {
+            if (!list || !list.length) { el.innerHTML = '<div class="muted">no blockers across cached PRs — everything is green 🎉</div>'; return; }
+            el.innerHTML = list.map((b, i) => `<div class="lbrow">
+                <div class="lbhead">
+                    <span class="lbrank">${i + 1}.</span>
+                    <span class="lbname"><span class="lbsuite">${esc(b.suite)} · </span>${esc(shortTestName(b.name))}</span>
+                    <span class="lbcount">${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span>
+                </div>
+                <div class="lbprs">${b.prs.map(n => `<a href="/?pr=${n}" target="_self">#${n}</a>`).join('')}</div>
+            </div>`).join('');
         }
 
         function renderLog(el, log) {

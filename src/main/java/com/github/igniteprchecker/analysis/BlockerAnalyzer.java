@@ -155,6 +155,18 @@ public class BlockerAnalyzer {
     }
 
     private TestVerdict classify(String token, int prNumber, FailedTest t) {
+        try {
+            return classifyVerified(token, prNumber, t);
+        }
+        catch (RuntimeException e) {
+            // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
+            // propagate it and every other verdict would be lost). Keep the test visible as an unverified
+            // blocker — it did fail in the PR — and flag that we couldn't check it.
+            return verdict(t, null, true, "could not verify (TeamCity error: " + rootMessage(e) + ")", "");
+        }
+    }
+
+    private TestVerdict classifyVerified(String token, int prNumber, FailedTest t) {
         HistoryStats h = cache.history(t.testId(),
             () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId())));
 
@@ -181,6 +193,19 @@ public class BlockerAnalyzer {
             : "not seen failing in " + h.runs() + " master run(s)";
 
         return verdict(t, lastRun, true, reason, branchRuns);
+    }
+
+    /** Short root-cause message of a failure, for the "could not verify" reason (bounded length). */
+    private static String rootMessage(Throwable e) {
+        Throwable c = e;
+        while (c.getCause() != null && c.getCause() != c)
+            c = c.getCause();
+
+        String m = c.getMessage();
+        if (m == null)
+            return c.getClass().getSimpleName();
+
+        return m.length() > 80 ? m.substring(0, 80) + "…" : m;
     }
 
     /** Compact pass/fail history of the branch runs, oldest → newest: 'P' for a pass, 'F' for a failure. */

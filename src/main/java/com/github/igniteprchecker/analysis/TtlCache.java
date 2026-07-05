@@ -54,6 +54,19 @@ final class TtlCache<K, V> {
         return n;
     }
 
+    /** The values of all still-fresh entries. */
+    List<V> freshValues() {
+        long now = System.currentTimeMillis();
+        List<V> out = new ArrayList<>();
+
+        map.forEach((k, e) -> {
+            if (now < e.expiresAt())
+                out.add(e.value());
+        });
+
+        return out;
+    }
+
     /** The still-fresh entries, with their expiry, for a disk snapshot. */
     List<Snapshot<K, V>> export() {
         long now = System.currentTimeMillis();

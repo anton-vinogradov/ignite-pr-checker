@@ -85,6 +85,7 @@ public class StatusController {
         out.put("github", metrics.github());
         out.put("http", metrics.http());
         out.put("app", app);
+        out.put("topBlockers", cache.topBlockers(12));
         out.put("log", logSnap);
 
         return out;
