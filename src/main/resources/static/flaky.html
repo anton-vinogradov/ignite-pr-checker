@@ -44,7 +44,7 @@
         .flake.hot { color: var(--bad); }
         .foot { color: var(--muted); font-size: 0.78rem; margin-left: 0.45rem; }
         .lbprs { font-size: 0.78rem; margin: 0.15rem 0 0 1.6rem; }
-        .lbprs a { margin-right: 0.45rem; }
+        .lbprs a { margin-right: 0.4rem; font-size: 0.72rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: 4px; text-decoration: none; background: #eef3fb; }
         .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
         .run { width: 3px; height: 12px; border-radius: 1px; }
         .run-p { background: #2e7d32; }
@@ -52,6 +52,10 @@
         .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: 4px; margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
         .live.running { background: #e6f4ea; color: #2e7d32; }
         .live.queued { background: #fff3e0; color: #b26a00; }
+        .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
+        .pill:hover { border-color: #c0c0c0; }
+        a.ext { color: var(--muted); text-decoration: none; font-size: 0.82em; padding: 0 0.25em; border-radius: 4px; }
+        a.ext:hover { color: var(--accent); }
         .why { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
         .why:hover { border-color: #c0c0c0; }
         .details { margin: 0.3rem 0 0.1rem 1.6rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
@@ -64,7 +68,9 @@
             .section { background: #1c1f23; }
             .live.running { background: #1e3324; color: #7fce90; }
             .live.queued { background: #33290f; color: #d99a3a; }
-            .theme-btn, .why { background: #24282d; }
+            .theme-btn, .why, .pill { background: #24282d; }
+            .pill:hover { border-color: #4a4f55; }
+            .lbprs a { background: #232a33; }
             .theme-btn:hover, .why:hover { border-color: #4a4f55; }
             .details { background: #1f2328; }
             .flake.warm { color: #d99a3a; }
@@ -76,8 +82,8 @@
         <div class="brand">Ignite PR Checker <small>flaky tests · fix-master queue</small></div>
         <div class="topbar-right">
             <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
-            <a href="/status.html" target="_self">Status</a>
-            <a href="/" target="_self">← App</a>
+            <a class="pill" href="/status.html" target="_self">Status</a>
+            <a class="pill" href="/" target="_self">← App</a>
         </div>
     </header>
 
@@ -143,7 +149,7 @@
                 const runUrl = (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
                 const expanded = b.occurrenceId ? `&expandedTest=${encodeURIComponent(b.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}` : '';
                 const nameHtml = runUrl
-                    ? `<a href="${runUrl}?buildTab=tests${expanded}#testNameId${b.testId}" target="_self" rel="noopener">${short}</a>`
+                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${b.testId}" target="_self" rel="noopener" title="Open this test in TeamCity">↗</a>`
                     : short;
                 const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
                 // A live re-run of this suite launched through the tool (running preferred over queued).
