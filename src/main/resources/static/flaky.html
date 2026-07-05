@@ -179,7 +179,9 @@
                 if (json !== lastJson) { render(list); lastJson = json; }
                 $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
             } catch (e) {
-                $('err').textContent = 'unavailable: ' + e.message;
+                // A failed poll with data already on screen is usually a redeploy/restart blip: stay calm,
+                // keep the list, and let the next poll clear this. Alarm only when there's nothing to show.
+                $('err').textContent = lastJson ? 'connection lost — retrying…' : 'unavailable: ' + e.message;
             }
         }
 
