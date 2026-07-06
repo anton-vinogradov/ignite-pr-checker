@@ -72,6 +72,12 @@ public class UpdateService {
         scheduleRestart();
     }
 
+    /** Plain restart without an update: exits non-zero so systemd relaunches the current jar. */
+    public void restart() {
+        log.info("service restart requested from the status page");
+        scheduleRestart();
+    }
+
     private String baseVersion() {
         return currentVersion.replace("-SNAPSHOT", "");
     }

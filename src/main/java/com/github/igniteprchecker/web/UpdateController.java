@@ -25,6 +25,14 @@ public class UpdateController {
     }
 
     /** Guarded: download the latest release and restart. Any logged-in user may trigger it. */
+    /** Restarts the service (systemd relaunches the current jar); caches are snapshotted on exit. */
+    @PostMapping("/restart")
+    public ResponseEntity<?> restart() {
+        update.restart();
+
+        return ResponseEntity.ok(Map.of("status", "restarting"));
+    }
+
     @PostMapping("/update")
     public ResponseEntity<?> update() {
         try {

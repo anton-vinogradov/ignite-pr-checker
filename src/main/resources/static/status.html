@@ -30,9 +30,13 @@
 
         .mini-btn, .theme-btn { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--accent); cursor: pointer; }
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
+        .mini-btn.danger { color: var(--bad); border-color: var(--bad); }
+        .mini-btn.danger:hover { background: rgba(220, 60, 50, 0.12); border-color: var(--bad); }
         .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .pill:hover { border-color: #c0c0c0; }
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
+        .mini-btn.danger { color: var(--bad); border-color: var(--bad); }
+        .mini-btn.danger:hover { background: rgba(220, 60, 50, 0.12); border-color: var(--bad); }
         .theme-btn { font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; color: var(--fg); }
         .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
         .mini-btn:hover, .theme-btn:hover { border-color: #c0c0c0; }
@@ -142,7 +146,11 @@
     <div class="wrap">
         <div id="err" class="muted"></div>
 
-        <h2>System</h2>
+        <h2>System
+            <button id="restartBtn" class="mini-btn danger" type="button"
+                title="Restart the service — it will be unavailable for ~10 seconds">Restart service</button>
+            <span id="restartMsg" class="flush-msg"></span>
+        </h2>
         <div class="cards" id="systemCards"></div>
 
         <h2>Analysis &amp; requests</h2>
@@ -413,6 +421,29 @@
             if (!last) return;
             drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
         });
+        $('restartBtn').addEventListener('click', async () => {
+            if (!confirm('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped (caches are saved).')) return;
+            const btn = $('restartBtn'), msg = $('restartMsg');
+            btn.disabled = true;
+            msg.textContent = 'restarting…';
+            let accepted = false;
+            try {
+                const r = await fetch('/api/restart', { method: 'POST' });
+                if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; return; }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                accepted = true;
+            } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; }
+            if (!accepted) return;
+            const t0 = Date.now();
+            const timer = setInterval(async () => {
+                try {
+                    const v = await fetch('/api/version', { cache: 'no-store' });
+                    if (v.ok) { clearInterval(timer); msg.textContent = 'back up'; setTimeout(() => location.reload(), 800); return; }
+                } catch (e) { /* still down */ }
+                if (Date.now() - t0 > 120000) { clearInterval(timer); msg.textContent = 'still down after 2 minutes — check the server'; }
+            }, 2000);
+        });
+
         $('flushBtn').addEventListener('click', async () => {
             if (!confirm('Clear cached analysis results and per-test history?\nThe next analysis will recompute from scratch (extra TeamCity load).')) return;
             const btn = $('flushBtn'), msg = $('flushMsg');
