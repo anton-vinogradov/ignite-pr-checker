@@ -6,6 +6,7 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import java.time.Duration;
 import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -24,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class LoginController {
+    private final UserDirectory users;
+
     /** Effectively unlimited cookie lifetime; the session is ended by logout, not by time. */
     private static final Duration COOKIE_MAX_AGE = Duration.ofDays(3650);
 
@@ -32,7 +35,8 @@ public class LoginController {
     private final SessionProperties props;
     private final Warmer warmer;
 
-    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer) {
+    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users) {
+        this.users = users;
         this.tc = tc;
         this.codec = codec;
         this.props = props;
@@ -40,6 +44,12 @@ public class LoginController {
     }
 
     public record LoginRequest(String token) {
+    }
+
+    /** Everyone who has used the tool (names + activity; auth-guarded — not for anonymous eyes). */
+    @org.springframework.web.bind.annotation.GetMapping("/users")
+    public List<UserDirectory.UserView> users() {
+        return users.list();
     }
 
     public record UserResponse(String username) {
@@ -54,6 +64,7 @@ public class LoginController {
         if (username.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
 
+        users.touchLogin(username.get());
         String cookie = codec.encode(username.get(), req.token().trim());
         warmer.offerToken(req.token().trim());
 
