@@ -81,7 +81,7 @@
 
         html[data-theme="jetbrains"] {
             --fg: #dfe1e5; --muted: #9da0a8; --line: #43454a; --bad: #fa6675; --accent: #548af7;
-            body { background: #1e1f22; }
+            body { background: #191a1d; }
             .section { background: #26282b; border-radius: 4px; }
             .live.running { background: #253b2a; color: #6aab73; }
             .live.queued { background: #3d3223; color: #d5b778; }
@@ -98,17 +98,21 @@
             --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --bad: #f85149; --accent: #58a6ff;
             body { background: #0d1117; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
             .section { background: #0d1117; border-radius: 2px; }
-            .live.running { background: transparent; color: #3fb950; border: 1px solid #2ea043; }
-            .live.queued { background: transparent; color: #d29922; border: 1px solid #9e6a03; }
+            .live.running { background: transparent; color: #3fb950; border: none; padding: 0 0.15rem; }
+            .live.queued { background: transparent; color: #d29922; border: none; padding: 0 0.15rem; }
             .theme-btn, .theme-sel, .why, .pill, a.ext { background: transparent; }
             .why, a.ext { color: var(--accent); }
             .theme-btn:hover, .why:hover, .pill:hover, a.ext:hover { border-color: #8b949e; }
-            .lbprs a { background: transparent; border: 1px solid #30363d; }
+            .lbprs a { background: transparent; border: none; padding: 0 0.1rem; }
             .details { background: #161b22; }
             .flake.warm { color: #d29922; }
             .run-p { background: #3fb950; }
             .run-f { background: #f85149; }
             .theme-sel, .pill, .why, a.ext, .live, .lbprs a, .details { border-radius: 2px; }
+            .why, a.ext { border: none; background: transparent; padding: 0 0.05rem; }
+            .why::before, a.ext::before { content: "["; color: var(--muted); }
+            .why::after, a.ext::after { content: "]"; color: var(--muted); }
+            .why:hover, a.ext:hover { text-decoration: underline; }
         }
     </style>
 </head>
