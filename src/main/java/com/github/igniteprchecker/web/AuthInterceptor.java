@@ -17,6 +17,7 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String COOKIE = "IPRC_SESSION";
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
+    public static final String JIRA_ATTR = "jiraToken";
 
     private final SessionCodec codec;
     private final Warmer warmer;
@@ -38,6 +39,8 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
+        if (session.get().jiraToken() != null)
+            req.setAttribute(JIRA_ATTR, session.get().jiraToken());
         users.touch(session.get().username());
         warmer.offerToken(session.get().token());
 

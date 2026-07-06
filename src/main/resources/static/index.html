@@ -96,6 +96,7 @@
         .pr-title a.ext { margin: 0; }
         .actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
         .act-sep { margin-left: 0.7rem; }
+        .jira-panel { margin: 0.5rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.82rem; }
         .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
         /* Title + action buttons share a row; the buttons wrap to the next line only when the
            title is too long for them to fit beside it. */
@@ -325,6 +326,17 @@
                 <div class="result-head">
                     <div class="head-row title-row">
                         <div id="prTitle" class="pr-title muted">Pick a PR on the left — or search below.</div>
+                        <div id="jiraPanel" class="jira-panel hidden">
+                            Posting a visa needs your JIRA Personal Access Token —
+                            <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
+                            then paste it here (kept encrypted in your session cookie, never stored server-side):
+                            <span class="row" style="margin-top: 0.4rem">
+                                <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
+                                <button id="jiraSave" class="act" type="button">Save</button>
+                                <button id="jiraCancel" class="act" type="button">Cancel</button>
+                                <span id="jiraMsg" class="muted"></span>
+                            </span>
+                        </div>
                         <div id="actions" class="actions hidden">
                             <span class="muted">RunAll:</span>
                             <button class="act" data-act="trigger" data-top="false">Rerun</button>
@@ -332,6 +344,8 @@
                             <span class="muted act-sep">Blockers:</span>
                             <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Rerun</button>
                             <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Rerun top</button>
+                            <span class="muted act-sep">Verdict:</span>
+                            <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
                         </div>
                     </div>
                     <div class="head-row">
@@ -430,6 +444,7 @@
         }
 
         function setPrTitle(number, title, url) {
+            lastIssueKey = (title && (title.match(/IGNITE-\d+/) || [])[0]) || '';
             const href = url || prUrl(number);
             $('prTitle').classList.remove('muted');
             const linked = title ? esc(title).replace(/IGNITE-\d+/g,
@@ -589,7 +604,8 @@
         async function loadMe() {
             const r = await api('/api/me');
             if (r.ok) {
-                const { username } = await r.json();
+                const { username, jira } = await r.json();
+                hasJira = !!jira;
                 await enterApp(username);
             } else {
                 show('login');
@@ -866,6 +882,10 @@
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
+            $('visaBtn').disabled = !lastIssueKey;
+            $('visaBtn').title = lastIssueKey
+                ? `Post the verdict as a comment to ${lastIssueKey}`
+                : 'The PR title has no IGNITE-XXXXX ticket to post to';
             const tabsOn = res.blockers.length >= 2;
             $('blockerTabs').classList.toggle('hidden', !tabsOn);
             if (causesCache.buildId !== res.buildId) causesCache = { buildId: res.buildId, data: null };
@@ -1146,8 +1166,69 @@
         $('updateBtn').onclick = e => { e.preventDefault(); doUpdate(); };
         // Only the top-bar action buttons: .act is also a styling class (e.g. on Top causes, which has
         // its own handler) — a bare '.act' selector used to steal their clicks for doTrigger.
-        for (const b of document.querySelectorAll('#actions .act'))
+        for (const b of document.querySelectorAll('#actions .act[data-act]'))
             b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
+
+        // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
+        // session, the button opens a hint with a deep link to the JIRA profile page to create one.
+        let hasJira = false;
+        let lastIssueKey = '';
+
+        async function postVisa() {
+            if (!selectedPr || !lastIssueKey) return;
+            if (!hasJira) { await toggleJiraPanel(true); return; }
+            if (!confirm(`Post the verdict as a comment to ${lastIssueKey} in ASF JIRA?`)) return;
+            const btn = $('visaBtn');
+            btn.disabled = true;
+            $('status').textContent = 'Posting the visa…';
+            try {
+                const r = await api(`/api/jira-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`, { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (r.status === 412) { hasJira = false; await toggleJiraPanel(true); $('status').textContent = ''; return; }
+                if (!r.ok) { $('status').textContent = friendly(res.error, 'visa failed'); return; }
+                $('status').innerHTML = `Visa posted to ${esc(lastIssueKey)}<a class="ext" href="${res.url}" target="_self" rel="noopener" title="Open the comment in JIRA">JIRA</a>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function toggleJiraPanel(showIt) {
+            const p = $('jiraPanel');
+            if (!showIt) { p.classList.add('hidden'); return; }
+            const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {}).catch(() => ({}));
+            if (cfg.patUrl) $('jiraPatLink').href = cfg.patUrl;
+            p.classList.remove('hidden');
+            $('jiraTokenInput').focus();
+        }
+
+        async function saveJiraToken() {
+            const input = $('jiraTokenInput'), msg = $('jiraMsg');
+            const token = input.value.trim();
+            if (!token) { msg.textContent = 'paste the token first'; return; }
+            msg.textContent = 'checking…';
+            try {
+                const r = await api('/api/jira-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) { msg.textContent = res.error || 'JIRA rejected the token'; return; }
+                hasJira = true;
+                input.value = '';
+                msg.textContent = '';
+                toggleJiraPanel(false);
+                postVisa();
+            } catch (e) {
+                msg.textContent = 'could not reach the service — try again';
+            }
+        }
+        $('visaBtn').onclick = postVisa;
+        $('jiraSave').onclick = saveJiraToken;
+        $('jiraCancel').onclick = () => toggleJiraPanel(false);
+
+
         $('cancelAll').onclick = cancelAll;
         window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
         setInterval(() => { if (selectedPr && !$('analyzeView').classList.contains('hidden')) loadRuns(selectedPr); }, 15000);
