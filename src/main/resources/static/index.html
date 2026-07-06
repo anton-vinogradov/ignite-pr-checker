@@ -363,7 +363,6 @@
                                 <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
                             </span>
                         </h2>
-                        <p id="blockersDesc" class="muted">Failed in your PR and stable in master — attributed to your change.</p>
                         <ul id="blockers" class="tests"></ul>
                         <div id="causesView" class="hidden"></div>
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
@@ -853,7 +852,6 @@
             const clean = res.blockers.length === 0;
             $('blockersTitle').classList.toggle('clean', clean);
             $('blockersHead').textContent = clean ? (broken.length ? 'No blockers' : 'No blockers 🎉') : 'Blockers';
-            $('blockersDesc').classList.toggle('hidden', clean);
             $('blockerCount').textContent = clean ? '' : countLabel(res.blockers);
             $('filteredCount').textContent = countLabel(res.filtered);
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
