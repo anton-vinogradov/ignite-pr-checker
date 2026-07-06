@@ -140,6 +140,22 @@ public class TcClient {
             .toList();
     }
 
+    /** The test's most recent master failure (occurrence + build) for a master-anchored link, or null. */
+    public TcModel.TestOccurrence latestMasterFailure(String token, long testId) {
+        TcModel.TestOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
+            "locator", "test:(id:" + testId + "),branch:(default:true),status:FAILURE,count:5",
+            "fields", "testOccurrence(id,build(id,buildTypeId))")),
+            TcModel.TestOccurrences.class);
+
+        if (occ == null || occ.testOccurrence() == null)
+            return null;
+
+        return occ.testOccurrence().stream()
+            .filter(o -> o.build() != null)
+            .max(Comparator.comparingLong(o -> o.build().id()))
+            .orElse(null);
+    }
+
     /** Failure details (message/stack trace) of a single test occurrence, or null. */
     public String testDetails(String token, String occurrenceLocator) {
         TcModel.TestOccurrences occ = get("details", token, url("app/rest/testOccurrences", query(

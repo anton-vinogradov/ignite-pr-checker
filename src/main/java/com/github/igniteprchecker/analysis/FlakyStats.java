@@ -6,6 +6,9 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
+import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.dto.TcModel;
+import java.util.Map;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,13 +34,20 @@ import org.springframework.stereotype.Component;
 public class FlakyStats implements SnapshotCache {
     private static final long RETAIN = Duration.ofDays(14).toMillis();
 
+    /** Master-failure anchors refresh this often; the page is a queue, not a live dashboard. */
+    private static final long ANCHOR_TTL = Duration.ofHours(24).toMillis();
+
     private final AnalysisCache cache;
     private final ObjectMapper mapper;
+    private final TcClient tc;
+    private final Warmer warmer;
     private final ConcurrentMap<Long, Entry> byTest = new ConcurrentHashMap<>();
 
-    public FlakyStats(AnalysisCache cache, ObjectMapper mapper) {
+    public FlakyStats(AnalysisCache cache, ObjectMapper mapper, TcClient tc, Warmer warmer) {
         this.cache = cache;
         this.mapper = mapper;
+        this.tc = tc;
+        this.warmer = warmer;
     }
 
     /**
@@ -53,6 +63,44 @@ public class FlakyStats implements SnapshotCache {
                 HistoryStats h = cache.historyOf(f.testId()).orElse(null);
                 if (h != null && h.fails() > 0) // fails on master (not merely a branch re-run pass)
                     record(f, h.fails(), h.runs(), r.prNumber());
+            }
+        }
+        anchorToMaster();
+    }
+
+    /**
+     * The page is about master, so the test link must open a MASTER failure, not the PR-branch
+     * occurrence the entry was harvested from. Backfills/refreshes a few anchors per cycle with a
+     * pooled token — gentle on TeamCity, converges over a few cycles.
+     */
+    private void anchorToMaster() {
+        String token = warmer.borrowToken();
+        if (token == null)
+            return;
+
+        int budget = 10;
+        for (Map.Entry<Long, Entry> me : byTest.entrySet()) {
+            if (budget == 0)
+                return;
+            Entry e = me.getValue();
+            synchronized (e) {
+                if (System.currentTimeMillis() - e.masterAnchorAt < ANCHOR_TTL)
+                    continue;
+            }
+            budget--;
+            try {
+                TcModel.TestOccurrence occ = tc.latestMasterFailure(token, me.getKey());
+                synchronized (e) {
+                    if (occ != null && occ.build() != null) {
+                        e.masterBuildId = occ.build().id();
+                        e.masterBtId = occ.build().buildTypeId();
+                        e.masterOcc = occ.id();
+                    }
+                    e.masterAnchorAt = System.currentTimeMillis();
+                }
+            }
+            catch (RuntimeException ex) {
+                return; // stale token or network hiccup: retry on the next cycle
             }
         }
     }
@@ -83,7 +131,8 @@ public class FlakyStats implements SnapshotCache {
             synchronized (e) {
                 if (e.masterFails > 0)
                     out.add(new TopFlaky(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
-                        e.branchRuns, e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList()));
+                        e.branchRuns, e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList(),
+                        e.masterBuildId, e.masterBtId, e.masterOcc));
             }
         });
 
@@ -111,7 +160,8 @@ public class FlakyStats implements SnapshotCache {
         byTest.forEach((id, e) -> {
             synchronized (e) {
                 snap.add(new Persisted(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
-                    e.branchRuns, e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList()));
+                    e.branchRuns, e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList(),
+                    e.masterBuildId, e.masterBtId, e.masterOcc, e.masterAnchorAt));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
@@ -137,6 +187,10 @@ public class FlakyStats implements SnapshotCache {
             e.masterFails = p.masterFails();
             e.masterRuns = p.masterRuns();
             e.lastSeen = p.lastSeen();
+            e.masterBuildId = p.masterBuildId();
+            e.masterBtId = p.masterBtId();
+            e.masterOcc = p.masterOcc();
+            e.masterAnchorAt = p.masterAnchorAt();
             if (p.prs() != null)
                 e.prs.addAll(p.prs());
             byTest.put(p.testId(), e);
@@ -153,11 +207,16 @@ public class FlakyStats implements SnapshotCache {
         int masterFails;
         int masterRuns;
         long lastSeen;
+        long masterBuildId;
+        String masterBtId;
+        String masterOcc;
+        long masterAnchorAt;
         final Set<Integer> prs = ConcurrentHashMap.newKeySet();
     }
 
     private record Persisted(long testId, String name, String suite, String suiteName, long suiteBuildId,
-        String occurrenceId, String branchRuns, int masterFails, int masterRuns, long lastSeen, List<Integer> prs) {
+        String occurrenceId, String branchRuns, int masterFails, int masterRuns, long lastSeen, List<Integer> prs,
+        long masterBuildId, String masterBtId, String masterOcc, long masterAnchorAt) {
     }
 
     /**
@@ -169,6 +228,7 @@ public class FlakyStats implements SnapshotCache {
         @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,
         String name, String suite, String suiteName, long suiteBuildId,
         String occurrenceId, String branchRuns, int masterFails, int masterRuns,
-        int prCount, List<Integer> prs) {
+        int prCount, List<Integer> prs,
+        long masterBuildId, String masterBtId, String masterOcc) {
     }
 }
