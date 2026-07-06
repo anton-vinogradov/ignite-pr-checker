@@ -203,7 +203,9 @@
             button:hover, .status-link:hover, #logout:hover, .why:hover, .star-btn:hover, a.ext:hover { border-color: #5a5d63; }
             .suite-rerun:hover, .act:not(:disabled):hover { background: #35373b; }
             input { background: #2b2d30; color: var(--fg); }
-            .pane-head { background: #191a1d; }
+            .pr-pane { background: #1e1f22; }
+            .pane-head { background: #1e1f22; }
+            .pr-list li { padding: 0.35rem 0.75rem; }
             .pane-toggle, .pane-expand { background: #2b2d30; }
             .pane-toggle:hover, .pane-expand:hover { background: #35373b; border-color: #5a5d63; }
             .pr-list li { border-bottom-color: #2b2d30; }
@@ -251,6 +253,11 @@
             .why:hover, .suite-rerun:hover, .act:not(:disabled):hover, a.ext:hover, .cancel:hover { text-decoration: underline; background: transparent; }
             .tabs .act.on { background: #21262d; color: var(--fg); }
             #blockersHead { text-transform: uppercase; letter-spacing: 0.04em; }
+            .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
+            .my-tag { border: none; padding: 0; }
+            .my-tag::before { content: "["; color: var(--muted); }
+            .my-tag::after { content: "]"; color: var(--muted); }
+            .pr-list li.sel .pr-num::before { content: "> "; color: #3fb950; }
         }
     </style>
 </head>
