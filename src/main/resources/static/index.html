@@ -326,17 +326,6 @@
                 <div class="result-head">
                     <div class="head-row title-row">
                         <div id="prTitle" class="pr-title muted">Pick a PR on the left — or search below.</div>
-                        <div id="jiraPanel" class="jira-panel hidden">
-                            Posting a visa needs your JIRA Personal Access Token —
-                            <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-                            then paste it here (kept encrypted in your session cookie, never stored server-side):
-                            <span class="row" style="margin-top: 0.4rem">
-                                <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
-                                <button id="jiraSave" class="act" type="button">Save</button>
-                                <button id="jiraCancel" class="act" type="button">Cancel</button>
-                                <span id="jiraMsg" class="muted"></span>
-                            </span>
-                        </div>
                         <div id="actions" class="actions hidden">
                             <span class="muted">RunAll:</span>
                             <button class="act" data-act="trigger" data-top="false">Rerun</button>
@@ -344,8 +333,6 @@
                             <span class="muted act-sep">Blockers:</span>
                             <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Rerun</button>
                             <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Rerun top</button>
-                            <span class="muted act-sep">Verdict:</span>
-                            <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
                         </div>
                     </div>
                     <div class="head-row">
@@ -379,7 +366,19 @@
                                 <button id="tabSuites" class="act on" type="button" title="Group by the suite they failed in">Suites</button>
                                 <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
                             </span>
+                            <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
                         </h2>
+                        <div id="jiraPanel" class="jira-panel hidden">
+                            Posting a visa needs your JIRA Personal Access Token —
+                            <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
+                            then paste it here (kept encrypted in your session cookie, never stored server-side):
+                            <span class="row" style="margin-top: 0.4rem">
+                                <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
+                                <button id="jiraSave" class="act" type="button">Save</button>
+                                <button id="jiraCancel" class="act" type="button">Cancel</button>
+                                <span id="jiraMsg" class="muted"></span>
+                            </span>
+                        </div>
                         <ul id="blockers" class="tests"></ul>
                         <div id="causesView" class="hidden"></div>
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
