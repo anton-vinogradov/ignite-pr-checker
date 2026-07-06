@@ -146,6 +146,11 @@
     <div class="wrap">
         <div id="err" class="muted"></div>
 
+        <div id="usersBlock" class="hidden">
+            <h2>Users</h2>
+            <div id="usersList" class="cats"></div>
+        </div>
+
         <h2>System
             <button id="restartBtn" class="mini-btn danger" type="button"
                 title="Restart the service — it will be unavailable for ~10 seconds">Restart service</button>
@@ -422,6 +427,22 @@
             if (!last) return;
             drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
         });
+        // Visible only to logged-in viewers: the endpoint is auth-guarded, anonymous gets 401.
+        (async () => {
+            try {
+                const r = await fetch('/api/users', { cache: 'no-store' });
+                if (!r.ok) return;
+                const list = await r.json();
+                if (!list.length) return;
+                const ago = ms => { const s = (Date.now() - ms) / 1000;
+                    return s < 90 ? Math.round(s) + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago' : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago'; };
+                $('usersList').innerHTML = list.map(u =>
+                    `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
+                    + `<span class="catval">last active ${ago(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${ago(u.firstSeen)}</span></div>`).join('');
+                $('usersBlock').classList.remove('hidden');
+            } catch (e) { /* anonymous or offline: the section stays hidden */ }
+        })();
+
         $('restartBtn').addEventListener('click', async () => {
             if (!confirm('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped (caches are saved).')) return;
             const btn = $('restartBtn'), msg = $('restartMsg');

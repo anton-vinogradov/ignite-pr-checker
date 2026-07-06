@@ -12,6 +12,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
 /** Guards protected endpoints: resolves the session cookie and exposes the user's token as a request attribute. */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
+    private final UserDirectory users;
+
     public static final String COOKIE = "IPRC_SESSION";
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
@@ -19,7 +21,8 @@ public class AuthInterceptor implements HandlerInterceptor {
     private final SessionCodec codec;
     private final Warmer warmer;
 
-    public AuthInterceptor(SessionCodec codec, Warmer warmer) {
+    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users) {
+        this.users = users;
         this.codec = codec;
         this.warmer = warmer;
     }
@@ -35,6 +38,7 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
+        users.touch(session.get().username());
         warmer.offerToken(session.get().token());
 
         return true;
