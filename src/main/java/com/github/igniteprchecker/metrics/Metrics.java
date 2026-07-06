@@ -32,6 +32,8 @@ public class Metrics implements SnapshotCache {
     private final Map<String, Ring> github = new ConcurrentHashMap<>();
     private final Map<String, Ring> http = new ConcurrentHashMap<>();
     private final Map<Integer, AtomicLong> tcByStatus = new ConcurrentHashMap<>();
+    /** Failure events of the last hour: {epochMinute, status}. Tiny (failures are rare), pruned on read/write. */
+    private final java.util.concurrent.ConcurrentLinkedDeque<long[]> tcFailEvents = new java.util.concurrent.ConcurrentLinkedDeque<>();
 
     private final AtomicLong tcSinceStart = new AtomicLong();
     private final AtomicLong githubSinceStart = new AtomicLong();
@@ -45,8 +47,11 @@ public class Metrics implements SnapshotCache {
     public void recordTc(String category, boolean ok, int status, long latencyMs) {
         tc.computeIfAbsent(category, c -> new Ring()).record(ok, latencyMs);
         tcSinceStart.incrementAndGet();
-        if (!ok)
+        if (!ok) {
             tcByStatus.computeIfAbsent(status, s -> new AtomicLong()).incrementAndGet();
+            tcFailEvents.add(new long[] {System.currentTimeMillis() / 60_000L, status});
+            pruneFailEvents();
+        }
     }
 
     /** Record one GitHub call (categories: prs / star / release). */
@@ -68,18 +73,18 @@ public class Metrics implements SnapshotCache {
     }
 
     public Group teamcity() {
-        return new Group(aggregate(tc), tcSinceStart.get(), byCategory(tc), byStatusView(),
+        return new Group(aggregate(tc), tcSinceStart.get(), byCategory(tc), byStatusLastHour(), byStatusView(),
             perMinute(tc), byCategoryPerMinute(tc));
     }
 
     public Group github() {
-        return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(),
+        return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(), Map.of(),
             perMinute(github), byCategoryPerMinute(github));
     }
 
     /** Latency/volume of the app's own served requests (per endpoint). "since start" resets on restart. */
     public Group http() {
-        return new Group(aggregate(http), httpSinceStart.get(), byCategory(http), Map.of(),
+        return new Group(aggregate(http), httpSinceStart.get(), byCategory(http), Map.of(), Map.of(),
             perMinute(http), byCategoryPerMinute(http));
     }
 
@@ -120,6 +125,21 @@ public class Metrics implements SnapshotCache {
         return out;
     }
 
+    private Map<Integer, Long> byStatusLastHour() {
+        pruneFailEvents();
+        Map<Integer, Long> out = new TreeMap<>();
+        for (long[] e : tcFailEvents)
+            out.merge((int)e[1], 1L, Long::sum);
+
+        return out;
+    }
+
+    private void pruneFailEvents() {
+        long cutoff = System.currentTimeMillis() / 60_000L - 60;
+        while (!tcFailEvents.isEmpty() && tcFailEvents.peekFirst()[0] < cutoff)
+            tcFailEvents.pollFirst();
+    }
+
     /** The last {@code WINDOW} minutes (oldest first), ok/fail summed across all categories. */
     private static List<Minute> perMinute(Map<String, Ring> rings) {
         long nowMin = System.currentTimeMillis() / 60_000L;
@@ -145,7 +165,7 @@ public class Metrics implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file, new Persisted(tcSinceStart.get(), githubSinceStart.get(), byStatusView()));
+        Snapshots.writeAtomic(mapper, file, new Persisted(tcSinceStart.get(), githubSinceStart.get()));
     }
 
     @Override
@@ -156,8 +176,6 @@ public class Metrics implements SnapshotCache {
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
         tcSinceStart.set(p.tcSinceStart());
         githubSinceStart.set(p.githubSinceStart());
-        if (p.byStatus() != null)
-            p.byStatus().forEach((k, v) -> tcByStatus.put(k, new AtomicLong(v)));
     }
 
     /** A per-category rolling window of one-minute buckets. */
@@ -244,6 +262,7 @@ public class Metrics implements SnapshotCache {
 
     /** A target's metrics: last-hour aggregate + per-category breakdown + per-minute series, plus the lifetime total. */
     public record Group(Stats lastHour, long sinceStart, Map<String, Stats> byCategory,
+        Map<Integer, Long> byStatusHour,
         Map<Integer, Long> byStatus, List<Minute> perMinute, Map<String, long[]> perMinuteByCategory) {
     }
 
@@ -253,6 +272,6 @@ public class Metrics implements SnapshotCache {
     public record Minute(long t, long ok, long fail) {
     }
 
-    private record Persisted(long tcSinceStart, long githubSinceStart, Map<Integer, Long> byStatus) {
+    private record Persisted(long tcSinceStart, long githubSinceStart) {
     }
 }
