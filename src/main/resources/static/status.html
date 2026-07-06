@@ -315,10 +315,11 @@
                     d.log.errors ? 'bad' : d.log.warnings ? 'warn' : 'ok'),
             ].join('');
 
-            const byStatus = Object.entries(tc.byStatus || {});
-            $('tcByStatus').innerHTML = byStatus.length
-                ? 'Failures by status <span class="muted">· HTTP code × times · since start</span>: ' + byStatus.map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ')
-                : (t.total ? 'No TeamCity failures recorded.' : 'No TeamCity calls yet.');
+            const codes = m => Object.entries(m || {}).map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ');
+            const hour = codes(tc.byStatusHour), total = codes(tc.byStatus);
+            $('tcByStatus').innerHTML =
+                'Failures by status <span class="muted">· HTTP code × times · last hour</span>: ' + (hour || 'none')
+                + (total ? ` <span class="muted">· since app start: ${total}</span>` : '');
 
             renderCats($('tcCats'), tc.byCategory || {});
             renderCats($('ghCats'), gh.byCategory || {});
