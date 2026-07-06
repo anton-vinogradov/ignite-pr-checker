@@ -133,8 +133,9 @@
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests li { padding: 0.5rem 0; border-top: 1px solid var(--line); }
-        .tname { font-family: ui-monospace, monospace; font-size: 0.83rem; word-break: break-all; }
-        .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
+        .tname { font-family: ui-monospace, monospace; font-size: 0.83rem; word-break: break-all; display: flex; align-items: center; flex-wrap: wrap; column-gap: 0.35rem; row-gap: 0.1rem; }
+        .tname a.ext, .tname .why, .tname .tag-flaky, .tname .strip { margin: 0; }
+        .strip { display: inline-flex; gap: 1px; margin-left: 0.35rem; vertical-align: middle; }
         .run { width: 3px; height: 12px; border-radius: 1px; }
         .run-p { background: #2e7d32; }
         .run-f { background: #c0392b; }
@@ -142,8 +143,11 @@
         .why:hover { border-color: #c0c0c0; }
         .details { margin: 0.3rem 0 0.2rem 1rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
         .reason { color: var(--muted); font-size: 0.78rem; }
-        .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
-        .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; }
+        .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.5rem; }
+        .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; display: flex; align-items: center; flex-wrap: wrap; column-gap: 0.35rem; row-gap: 0.1rem; }
+        .suite-name a.ext { margin: 0; }
+        .suite-live { display: inline-flex; align-items: center; gap: 0.35rem; }
+        .suite-live .live { margin-left: 0; }
         .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: 4px; margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
         .live.running { background: #e6f4ea; color: #2e7d32; }
         .live.queued { background: #fff3e0; color: #b26a00; }
