@@ -447,8 +447,8 @@
                 : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago';
         }
         async function loadUsers() {
-            const row = u => `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
-                + `<span class="catval">last active ${agoMs(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${agoMs(u.firstSeen)}</span></div>`;
+            const row = (u, verb) => `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
+                + `<span class="catval">${verb} ${agoMs(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${agoMs(u.firstSeen)}</span></div>`;
             try {
                 const r = await fetch('/api/users', { cache: 'no-store' });
                 if (r.status === 401) {
@@ -460,8 +460,8 @@
                 const list = await r.json();
                 const active = list.filter(u => Date.now() - u.lastSeen <= ACTIVE_MS);
                 const seen = list.filter(u => Date.now() - u.lastSeen > ACTIVE_MS);
-                $('usersActive').innerHTML = active.map(row).join('') || '<div class="muted">nobody right now</div>';
-                $('usersSeen').innerHTML = seen.map(row).join('') || '<div class="muted">nobody else yet</div>';
+                $('usersActive').innerHTML = active.map(u => row(u, 'last active')).join('') || '<div class="muted">nobody right now</div>';
+                $('usersSeen').innerHTML = seen.map(u => row(u, 'last seen')).join('') || '<div class="muted">nobody else yet</div>';
             } catch (e) {
                 $('usersActive').innerHTML = '<div class="muted">could not load users — try again in a moment</div>';
                 $('usersSeen').innerHTML = '';
