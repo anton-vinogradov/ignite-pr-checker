@@ -30,7 +30,10 @@
 
         .mini-btn, .theme-btn { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--accent); cursor: pointer; }
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
-        .theme-btn { font-size: 0.95rem; line-height: 1; padding: 0.15rem 0.4rem; color: var(--fg); }
+        .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
+        .pill:hover { border-color: #c0c0c0; }
+        .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
+        .theme-btn { font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; color: var(--fg); }
         .mini-btn:hover, .theme-btn:hover { border-color: #c0c0c0; }
         .mini-btn:disabled { opacity: 0.5; cursor: default; }
         .flush-msg { font-size: 0.8rem; color: var(--muted); margin-left: 0.5rem; }
@@ -84,8 +87,9 @@
             .card, .section { background: #1c1f23; }
             .catbar { background: #2b2f34; }
             .lvl-warn { color: #d99a3a; }
-            .mini-btn, .theme-btn { background: #24282d; }
-            .mini-btn:hover, .theme-btn:hover { border-color: #4a4f55; }
+            .mini-btn, .theme-btn, .pill { background: #24282d; }
+            .pill { color: var(--fg); }
+            .mini-btn:hover, .theme-btn:hover, .pill:hover { border-color: #4a4f55; }
             .card .v.warn { color: #d99a3a; }
         }
     </style>
@@ -95,7 +99,7 @@
         <div class="brand">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></div>
         <div class="topbar-right">
             <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
-            <a href="/" target="_self">← App</a>
+            <a class="pill" href="/" target="_self">← App</a>
         </div>
     </header>
 

@@ -105,7 +105,7 @@
         .title-row .actions { margin-left: auto; }
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
-        .tag-flaky { font-size: 0.68rem; padding: 0 0.35em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
+        .tag-flaky { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
         .tabs { margin-left: 0.7rem; }
         .tabs .act.on { background: var(--accent); border-color: var(--accent); color: #fff; }
         .cause { margin: 0.35rem 0; }
@@ -119,8 +119,8 @@
         .delta-new { color: var(--bad); font-weight: 600; }
         .delta-fixed { color: #2e7d32; font-weight: 600; }
         .runs { flex: 1; min-width: 0; }
-        .runs .run-item { margin-left: 0.6rem; white-space: nowrap; }
-        .cancel { flex: none; color: var(--bad); border-color: var(--bad); }
+        .runs .run-item { display: inline-flex; align-items: center; margin-left: 0.6rem; white-space: nowrap; }
+        .cancel { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; color: var(--bad); border-color: var(--bad); }
         .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
         .refresh:hover { color: var(--fg); }
         .refresh.spin { animation: spin 0.7s linear infinite; }
@@ -137,7 +137,7 @@
         .run { width: 3px; height: 12px; border-radius: 1px; }
         .run-p { background: #2e7d32; }
         .run-f { background: #c0392b; }
-        .why { font-size: 0.68rem; padding: 0 0.35em; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
+        .why { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; border: 1px solid var(--line); background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
         .why:hover { border-color: #c0c0c0; }
         .details { margin: 0.3rem 0 0.2rem 1rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
         .reason { color: var(--muted); font-size: 0.78rem; }
@@ -151,13 +151,13 @@
         .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
         .suite-rerun:disabled, .act:disabled { opacity: 0.5; cursor: default; }
         .hint { border-bottom: 1px dotted var(--muted); cursor: help; }
-        a.ext { font-size: 0.68rem; font-weight: 500; padding: 0.05em 0.45em; margin: 0 0.3em; border: 1px solid var(--line); border-radius: 4px; background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
+        a.ext { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin: 0 0.3em; border: 1px solid var(--line); background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
         a.ext:hover { border-color: #c0c0c0; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
 
-        .theme-btn { font-size: 0.95rem; line-height: 1; padding: 0.15rem 0.4rem; }
+        .theme-btn { font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; }
 
         html[data-theme="dark"] {
             --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff;
