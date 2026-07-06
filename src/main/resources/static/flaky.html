@@ -11,7 +11,7 @@
         (function () {
             var t;
             try { t = localStorage.getItem('theme'); } catch (e) { /* private mode */ }
-            if (t !== 'dark' && t !== 'light')
+            if (t !== 'dark' && t !== 'light' && t !== 'jetbrains' && t !== 'terminal')
                 t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', t);
         })();
@@ -26,6 +26,7 @@
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
         .topbar-right { display: flex; align-items: center; gap: 0.8rem; }
         .theme-btn { font: inherit; font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
+        .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
         .theme-btn:hover { border-color: #c0c0c0; }
         .wrap { margin: 1.2rem auto; padding: 0 1.5rem; }
         .muted { color: var(--muted); }
@@ -69,7 +70,7 @@
             .section { background: #1c1f23; }
             .live.running { background: #1e3324; color: #7fce90; }
             .live.queued { background: #33290f; color: #d99a3a; }
-            .theme-btn, .why, .pill, a.ext { background: #24282d; }
+            .theme-btn, .theme-sel, .why, .pill, a.ext { background: #24282d; }
             a.ext:hover { border-color: #4a4f55; }
             .pill:hover { border-color: #4a4f55; }
             .lbprs a { background: #232a33; }
@@ -77,13 +78,50 @@
             .details { background: #1f2328; }
             .flake.warm { color: #d99a3a; }
         }
+
+        html[data-theme="jetbrains"] {
+            --fg: #dfe1e5; --muted: #9da0a8; --line: #43454a; --bad: #fa6675; --accent: #548af7;
+            body { background: #1e1f22; }
+            .section { background: #26282b; border-radius: 4px; }
+            .live.running { background: #253b2a; color: #6aab73; }
+            .live.queued { background: #3d3223; color: #d5b778; }
+            .theme-btn, .theme-sel, .why, .pill, a.ext { background: #2b2d30; }
+            .why, a.ext { color: var(--accent); }
+            .theme-btn:hover, .why:hover, .pill:hover, a.ext:hover { border-color: #5a5d63; }
+            .lbprs a { background: #2b2d30; }
+            .details { background: #26282b; }
+            .flake.warm { color: #d5b778; }
+            .theme-sel, .pill, .why, a.ext, .live, .lbprs a { border-radius: 3px; }
+        }
+
+        html[data-theme="terminal"] {
+            --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --bad: #f85149; --accent: #58a6ff;
+            body { background: #0d1117; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+            .section { background: #0d1117; border-radius: 2px; }
+            .live.running { background: transparent; color: #3fb950; border: 1px solid #2ea043; }
+            .live.queued { background: transparent; color: #d29922; border: 1px solid #9e6a03; }
+            .theme-btn, .theme-sel, .why, .pill, a.ext { background: transparent; }
+            .why, a.ext { color: var(--accent); }
+            .theme-btn:hover, .why:hover, .pill:hover, a.ext:hover { border-color: #8b949e; }
+            .lbprs a { background: transparent; border: 1px solid #30363d; }
+            .details { background: #161b22; }
+            .flake.warm { color: #d29922; }
+            .run-p { background: #3fb950; }
+            .run-f { background: #f85149; }
+            .theme-sel, .pill, .why, a.ext, .live, .lbprs a, .details { border-radius: 2px; }
+        }
     </style>
 </head>
 <body>
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>flaky tests · fix-master queue</small></div>
         <div class="topbar-right">
-            <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+            <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="jetbrains">JetBrains</option>
+                <option value="terminal">Terminal</option>
+            </select>
             <a class="pill" href="/status.html" target="_self">Status</a>
             <a class="pill" href="/" target="_self">← App</a>
         </div>
@@ -233,15 +271,12 @@
         }
 
         (function () {
-            const btn = $('theme-toggle');
-            const label = t => { btn.textContent = t === 'dark' ? '☀️' : '🌙';
-                btn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'; };
-            label(document.documentElement.getAttribute('data-theme') || 'light');
-            btn.addEventListener('click', () => {
-                const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-                document.documentElement.setAttribute('data-theme', t);
-                try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
-                label(t);
+            const sel = $('theme-toggle');
+                sel.value = document.documentElement.getAttribute('data-theme') || 'light';
+                sel.addEventListener('change', () => {
+                    const t = sel.value;
+                    document.documentElement.setAttribute('data-theme', t);
+                    try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
             });
         })();
 

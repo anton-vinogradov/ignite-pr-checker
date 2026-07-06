@@ -11,7 +11,7 @@
         (function () {
             var t;
             try { t = localStorage.getItem('theme'); } catch (e) { /* private mode */ }
-            if (t !== 'dark' && t !== 'light')
+            if (t !== 'dark' && t !== 'light' && t !== 'jetbrains' && t !== 'terminal')
                 t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', t);
         })();
@@ -34,6 +34,7 @@
         .pill:hover { border-color: #c0c0c0; }
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
         .theme-btn { font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; color: var(--fg); }
+        .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
         .mini-btn:hover, .theme-btn:hover { border-color: #c0c0c0; }
         .mini-btn:disabled { opacity: 0.5; cursor: default; }
         .flush-msg { font-size: 0.8rem; color: var(--muted); margin-left: 0.5rem; }
@@ -87,10 +88,36 @@
             .card, .section { background: #1c1f23; }
             .catbar { background: #2b2f34; }
             .lvl-warn { color: #d99a3a; }
-            .mini-btn, .theme-btn, .pill { background: #24282d; }
+            .mini-btn, .theme-btn, .theme-sel, .pill { background: #24282d; }
             .pill { color: var(--fg); }
             .mini-btn:hover, .theme-btn:hover, .pill:hover { border-color: #4a4f55; }
             .card .v.warn { color: #d99a3a; }
+        }
+
+        html[data-theme="jetbrains"] {
+            --fg: #dfe1e5; --muted: #9da0a8; --line: #43454a; --bad: #fa6675; --ok: #6aab73; --accent: #548af7;
+            body { background: #1e1f22; }
+            .card, .section { background: #26282b; border-radius: 4px; }
+            .catbar { background: #35373b; }
+            .lvl-warn { color: #d5b778; }
+            .mini-btn, .theme-btn, .theme-sel, .pill { background: #2b2d30; }
+            .pill { color: var(--fg); }
+            .mini-btn:hover, .theme-btn:hover, .pill:hover { border-color: #5a5d63; }
+            .card .v.warn { color: #d5b778; }
+            .mini-btn, .theme-sel, .pill { border-radius: 3px; }
+        }
+
+        html[data-theme="terminal"] {
+            --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --bad: #f85149; --ok: #3fb950; --accent: #58a6ff;
+            body { background: #0d1117; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+            .card, .section { background: #0d1117; border-radius: 2px; }
+            .catbar { background: #21262d; }
+            .lvl-warn { color: #d29922; }
+            .mini-btn, .theme-btn, .theme-sel, .pill { background: transparent; }
+            .pill { color: var(--fg); }
+            .mini-btn:hover, .theme-btn:hover, .pill:hover { border-color: #8b949e; }
+            .card .v.warn { color: #d29922; }
+            .mini-btn, .theme-sel, .pill, .card { border-radius: 2px; }
         }
     </style>
 </head>
@@ -98,7 +125,12 @@
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></div>
         <div class="topbar-right">
-            <button id="theme-toggle" class="theme-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+            <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="jetbrains">JetBrains</option>
+                <option value="terminal">Terminal</option>
+            </select>
             <a class="pill" href="/" target="_self">← App</a>
         </div>
     </header>
@@ -397,15 +429,12 @@
 
         // Theme toggle (the head script already applied the effective theme; persist only explicit clicks).
         (function () {
-            const btn = $('theme-toggle');
-            const label = t => { btn.textContent = t === 'dark' ? '☀️' : '🌙';
-                btn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'; };
-            label(document.documentElement.getAttribute('data-theme') || 'light');
-            btn.addEventListener('click', () => {
-                const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-                document.documentElement.setAttribute('data-theme', t);
-                try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
-                label(t);
+            const sel = $('theme-toggle');
+                sel.value = document.documentElement.getAttribute('data-theme') || 'light';
+                sel.addEventListener('change', () => {
+                    const t = sel.value;
+                    document.documentElement.setAttribute('data-theme', t);
+                    try { localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
             });
         })();
 
