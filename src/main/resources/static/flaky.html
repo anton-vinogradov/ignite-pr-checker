@@ -197,10 +197,15 @@
             if (!list || !list.length) { el.innerHTML = '<div class="muted">No flaky/broken master tests recorded yet — the queue fills as PRs get analysed (it needs an active login to warm the cache). Check back shortly.</div>'; return; }
             el.innerHTML = list.map((b, i) => {
                 const short = esc(shortTestName(b.name));
-                const runUrl = (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
-                const expanded = b.occurrenceId ? `&expandedTest=${encodeURIComponent(b.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}` : '';
+                const enc = occ => `&expandedTest=${encodeURIComponent(occ).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
+                const onMaster = tcBase && b.masterBuildId;
+                const runUrl = onMaster
+                    ? `${tcBase}buildConfiguration/${encodeURIComponent(b.masterBtId)}/${b.masterBuildId}`
+                    : (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
+                const expanded = onMaster ? (b.masterOcc ? enc(b.masterOcc) : '') : (b.occurrenceId ? enc(b.occurrenceId) : '');
+                const tcTitle = onMaster ? 'Open the latest master failure in TeamCity' : 'Open this test in TeamCity (PR branch)';
                 const nameHtml = runUrl
-                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">TC</a>`
+                    ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="${tcTitle}">TC</a>`
                     : short;
                 const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
                 // A live re-run of this suite launched through the tool (running preferred over queued).
