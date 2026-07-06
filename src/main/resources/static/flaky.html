@@ -59,7 +59,10 @@
         a.ext:hover { border-color: #c0c0c0; }
         .why { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin-left: 0.35rem; border: 1px solid var(--line); background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
         .why:hover { border-color: #c0c0c0; }
-        .details { margin: 0.3rem 0 0.1rem 1.6rem; padding: 0.5rem 0.7rem; background: #f7f7f7; border-radius: 6px; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+        .details { position: relative; margin: 0.3rem 0 0.1rem 1.6rem; background: #f7f7f7; border-radius: 6px; }
+        .details pre { margin: 0; padding: 0.5rem 3.2rem 0.5rem 0.7rem; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+        .details .copy { position: absolute; top: 0.3rem; right: 0.3rem; font-size: 0.68rem; padding: 0.05rem 0.4rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--muted); cursor: pointer; }
+        .details .copy:hover { color: var(--fg); border-color: #c0c0c0; }
         .details.hidden { display: none; }
         .updated { font-size: 0.78rem; color: var(--muted); text-align: right; margin: 0.9rem 0 0.2rem; }
 
@@ -212,10 +215,11 @@
                         <span class="lbcount"><span class="flake ${hot}">${b.masterFails}/${b.masterRuns} on master</span><span class="foot">${pct}% · ${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span></span>
                     </div>
                     <div class="lbprs">${b.prs.map(n => `<a href="/?pr=${n}" target="_self">#${n}</a>`).join('')}</div>
-                    <pre class="details hidden"></pre>
+                    <div class="details hidden"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div>
                 </div>`;
             }).join('');
             for (const btn of el.querySelectorAll('.why')) btn.onclick = () => toggleDetails(btn);
+            for (const btn of el.querySelectorAll('.details .copy')) btn.onclick = () => copyDetails(btn);
         }
 
         // Rough failure triage from the message: environment/timing noise vs a real assertion.
@@ -227,11 +231,31 @@
             return null;
         }
 
+        async function copyDetails(btn) {
+            const pre = btn.closest('.details').querySelector('pre');
+            const text = pre.dataset.raw || pre.textContent;
+            let ok = false;
+            try { await navigator.clipboard.writeText(text); ok = true; }
+            catch (e) { // no async-clipboard permission: fall back to the legacy path
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { ok = document.execCommand('copy'); } catch (e2) { /* stays not-ok */ }
+                ta.remove();
+            }
+            btn.textContent = ok ? 'copied' : 'copy failed';
+            setTimeout(() => { btn.textContent = 'copy'; }, 1500);
+        }
+
         async function toggleDetails(btn) {
-            const pre = btn.closest('.lbrow').querySelector('.details');
-            if (!pre) return;
-            if (!pre.classList.contains('hidden')) { pre.classList.add('hidden'); return; }
-            pre.classList.remove('hidden');
+            const box = btn.closest('.lbrow').querySelector('.details');
+            if (!box) return;
+            if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+            box.classList.remove('hidden');
+            const pre = box.querySelector('pre');
             if (pre.dataset.loaded) return;
             pre.textContent = 'loading…';
             try {
@@ -239,6 +263,7 @@
                 if (r.status === 401) { pre.textContent = 'log in on the main page to see the failure message'; return; }
                 const { details } = await r.json().catch(() => ({ details: '' }));
                 const kind = details ? failureKind(details) : null;
+                pre.dataset.raw = details || '';
                 pre.textContent = details && details.trim()
                     ? (kind ? kind + '\n\n' : '') + details
                     : '(no failure message available)';
