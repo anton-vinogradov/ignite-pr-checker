@@ -843,7 +843,7 @@
                 ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
             // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
             const comp = (res.suitesRan || res.suitesReused)
-                ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} ran, ${res.suitesReused} reused</span>`
+                ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs</span>`
                 : '';
             $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
