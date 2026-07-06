@@ -31,6 +31,11 @@
         .mini-btn, .theme-btn { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--accent); cursor: pointer; }
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
         .mini-btn.danger { color: var(--bad); border-color: var(--bad); }
+        .tabs-row { margin-bottom: 1rem; }
+        .mini-btn.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+        #usersView { display: none; }
+        body.users-mode .wrap > *:not(.tabs-row):not(#usersView):not(#err) { display: none; }
+        body.users-mode #usersView { display: block; }
         .mini-btn.danger:hover { background: rgba(220, 60, 50, 0.12); border-color: var(--bad); }
         .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .pill:hover { border-color: #c0c0c0; }
@@ -144,11 +149,17 @@
     </header>
 
     <div class="wrap">
+        <div class="tabs-row">
+            <button id="tabStatus" class="mini-btn tab on" type="button">Status</button>
+            <button id="tabUsers" class="mini-btn tab" type="button">Users</button>
+        </div>
         <div id="err" class="muted"></div>
 
-        <div id="usersBlock" class="hidden">
-            <h2>Users</h2>
-            <div id="usersList" class="cats"></div>
+        <div id="usersView">
+            <h2>Active now <span class="muted" style="font-weight:400;font-size:0.8rem">· authenticated activity in the last 15 minutes</span></h2>
+            <div class="section"><div id="usersActive" class="cats"></div></div>
+            <h2>Seen</h2>
+            <div class="section"><div id="usersSeen" class="cats"></div></div>
         </div>
 
         <h2>System
@@ -427,21 +438,45 @@
             if (!last) return;
             drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
         });
-        // Visible only to logged-in viewers: the endpoint is auth-guarded, anonymous gets 401.
-        (async () => {
+        // Users tab: active (last 15 min) vs everyone seen. The endpoint is auth-guarded, so
+        // anonymous viewers get a hint instead of names.
+        const ACTIVE_MS = 15 * 60 * 1000;
+        function agoMs(ms) {
+            const s = (Date.now() - ms) / 1000;
+            return s < 90 ? Math.round(s) + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago'
+                : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago';
+        }
+        async function loadUsers() {
+            const row = u => `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
+                + `<span class="catval">last active ${agoMs(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${agoMs(u.firstSeen)}</span></div>`;
             try {
                 const r = await fetch('/api/users', { cache: 'no-store' });
-                if (!r.ok) return;
+                if (r.status === 401) {
+                    $('usersActive').innerHTML = $('usersSeen').innerHTML =
+                        '<div class="muted">log in on the main page to see who is here</div>';
+                    return;
+                }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
                 const list = await r.json();
-                if (!list.length) return;
-                const ago = ms => { const s = (Date.now() - ms) / 1000;
-                    return s < 90 ? Math.round(s) + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago' : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago'; };
-                $('usersList').innerHTML = list.map(u =>
-                    `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
-                    + `<span class="catval">last active ${ago(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${ago(u.firstSeen)}</span></div>`).join('');
-                $('usersBlock').classList.remove('hidden');
-            } catch (e) { /* anonymous or offline: the section stays hidden */ }
-        })();
+                const active = list.filter(u => Date.now() - u.lastSeen <= ACTIVE_MS);
+                const seen = list.filter(u => Date.now() - u.lastSeen > ACTIVE_MS);
+                $('usersActive').innerHTML = active.map(row).join('') || '<div class="muted">nobody right now</div>';
+                $('usersSeen').innerHTML = seen.map(row).join('') || '<div class="muted">nobody else yet</div>';
+            } catch (e) {
+                $('usersActive').innerHTML = '<div class="muted">could not load users — try again in a moment</div>';
+                $('usersSeen').innerHTML = '';
+            }
+        }
+        let usersTimer = null;
+        function setStatusTab(users) {
+            document.body.classList.toggle('users-mode', users);
+            $('tabStatus').classList.toggle('on', !users);
+            $('tabUsers').classList.toggle('on', users);
+            if (usersTimer) { clearInterval(usersTimer); usersTimer = null; }
+            if (users) { loadUsers(); usersTimer = setInterval(loadUsers, 15000); }
+        }
+        $('tabStatus').addEventListener('click', () => setStatusTab(false));
+        $('tabUsers').addEventListener('click', () => setStatusTab(true));
 
         $('restartBtn').addEventListener('click', async () => {
             if (!confirm('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped (caches are saved).')) return;
