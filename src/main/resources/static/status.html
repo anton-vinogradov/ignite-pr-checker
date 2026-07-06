@@ -96,7 +96,7 @@
 
         html[data-theme="jetbrains"] {
             --fg: #dfe1e5; --muted: #9da0a8; --line: #43454a; --bad: #fa6675; --ok: #6aab73; --accent: #548af7;
-            body { background: #1e1f22; }
+            body { background: #191a1d; }
             .card, .section { background: #26282b; border-radius: 4px; }
             .catbar { background: #35373b; }
             .lvl-warn { color: #d5b778; }
@@ -118,6 +118,10 @@
             .mini-btn:hover, .theme-btn:hover, .pill:hover { border-color: #8b949e; }
             .card .v.warn { color: #d29922; }
             .mini-btn, .theme-sel, .pill, .card { border-radius: 2px; }
+            .mini-btn { border: none; background: transparent; padding: 0 0.05rem; }
+            .mini-btn::before { content: "["; color: var(--muted); }
+            .mini-btn::after { content: "]"; color: var(--muted); }
+            .mini-btn:hover { text-decoration: underline; }
         }
     </style>
 </head>

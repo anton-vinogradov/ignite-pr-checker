@@ -195,14 +195,15 @@
 
         html[data-theme="jetbrains"] {
             --fg: #dfe1e5; --muted: #9da0a8; --line: #43454a; --bad: #fa6675; --sel: #2e436e; --accent: #548af7;
-            body { background: #1e1f22; }
+            body { background: #191a1d; }
+            .card { background: #1e1f22; }
             button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act, .theme-sel, a.ext { background: #2b2d30; color: var(--fg); }
             .why, .suite-rerun, .act, a.ext { color: var(--accent); }
             button.primary { background: #548af7; color: #fff; border-color: #548af7; }
             button:hover, .status-link:hover, #logout:hover, .why:hover, .star-btn:hover, a.ext:hover { border-color: #5a5d63; }
             .suite-rerun:hover, .act:not(:disabled):hover { background: #35373b; }
             input { background: #2b2d30; color: var(--fg); }
-            .pane-head { background: #1e1f22; }
+            .pane-head { background: #191a1d; }
             .pane-toggle, .pane-expand { background: #2b2d30; }
             .pane-toggle:hover, .pane-expand:hover { background: #35373b; border-color: #5a5d63; }
             .pr-list li { border-bottom-color: #2b2d30; }
@@ -234,16 +235,22 @@
             .pane-toggle:hover, .pane-expand:hover { background: #161b22; }
             .pr-list li { border-bottom-color: #21262d; }
             .pr-list li:hover, .home-results li:hover { background: #161b22; }
-            .pr-badge.ok { background: transparent; color: #3fb950; border: 1px solid #2ea043; }
+            .pr-badge.ok { background: transparent; color: #3fb950; border: none; }
             .delta-fixed, .blockers h2.clean { color: #3fb950; }
-            .tag-flaky { background: transparent; color: #d29922; border: 1px solid #9e6a03; }
-            .live.running { background: transparent; color: #3fb950; border: 1px solid #2ea043; }
-            .live.queued { background: transparent; color: #d29922; border: 1px solid #9e6a03; }
+            .tag-flaky { background: transparent; color: #d29922; border: none; padding: 0 0.15rem; }
+            .live.running { background: transparent; color: #3fb950; border: none; padding: 0 0.15rem; }
+            .live.queued { background: transparent; color: #d29922; border: none; padding: 0 0.15rem; }
             .details { background: #161b22; }
             .run-p { background: #3fb950; }
             .run-f { background: #f85149; }
             .star-ico { stroke: #8b949e; }
             .section, .card, button, input, .status-link, .star-btn, .theme-sel, .why, .suite-rerun, .act, a.ext, .live, .tag-flaky, .pr-badge, .details { border-radius: 2px; }
+            .why, .suite-rerun, .act, a.ext, .cancel { border: none; background: transparent; padding: 0 0.05rem; }
+            .why::before, .suite-rerun::before, .act::before, a.ext::before, .cancel::before { content: "["; color: var(--muted); }
+            .why::after, .suite-rerun::after, .act::after, a.ext::after, .cancel::after { content: "]"; color: var(--muted); }
+            .why:hover, .suite-rerun:hover, .act:not(:disabled):hover, a.ext:hover, .cancel:hover { text-decoration: underline; background: transparent; }
+            .tabs .act.on { background: #21262d; color: var(--fg); }
+            #blockersHead { text-transform: uppercase; letter-spacing: 0.04em; }
         }
     </style>
 </head>
