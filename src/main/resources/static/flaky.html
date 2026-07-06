@@ -198,11 +198,12 @@
             el.innerHTML = list.map((b, i) => {
                 const short = esc(shortTestName(b.name));
                 const enc = occ => `&expandedTest=${encodeURIComponent(occ).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
-                const onMaster = tcBase && b.masterBuildId;
+                const mf = b.masterFailures || [];
+                const onMaster = tcBase && mf.length;
                 const runUrl = onMaster
-                    ? `${tcBase}buildConfiguration/${encodeURIComponent(b.masterBtId)}/${b.masterBuildId}`
+                    ? `${tcBase}buildConfiguration/${encodeURIComponent(mf[0].btId)}/${mf[0].buildId}`
                     : (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
-                const expanded = onMaster ? (b.masterOcc ? enc(b.masterOcc) : '') : (b.occurrenceId ? enc(b.occurrenceId) : '');
+                const expanded = onMaster ? (mf[0].occ ? enc(mf[0].occ) : '') : (b.occurrenceId ? enc(b.occurrenceId) : '');
                 const tcTitle = onMaster ? 'Open the latest master failure in TeamCity' : 'Open this test in TeamCity (PR branch)';
                 const nameHtml = runUrl
                     ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="${tcTitle}">TC</a>`
@@ -217,9 +218,9 @@
                     <div class="lbhead">
                         <span class="lbrank">${i + 1}.</span>
                         <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${runStrip(b.branchRuns)}${why}${live}</span>
-                        <span class="lbcount"><span class="flake ${hot}">${b.masterFails}/${b.masterRuns} on master</span><span class="foot">${pct}% · ${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span></span>
+                        <span class="lbcount"><span class="flake ${hot}">${b.masterFails}/${b.masterRuns} on master</span><span class="foot" title="Seen in PRs: ${b.prs.map(n => '#' + n).join(', ')}">${pct}% · ${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span></span>
                     </div>
-                    <div class="lbprs">${b.prs.map(n => `<a href="/?pr=${n}" target="_self">#${n}</a>`).join('')}</div>
+                    <div class="lbprs">${mf.length ? 'failed master runs: ' + mf.map(f => `<a href="${tcBase}buildConfiguration/${encodeURIComponent(f.btId)}/${f.buildId}?buildTab=tests${f.occ ? enc(f.occ) : ''}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="Open this failed master run in TeamCity">#${f.buildId}</a>`).join('') : ''}</div>
                     <div class="details hidden"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div>
                 </div>`;
             }).join('');

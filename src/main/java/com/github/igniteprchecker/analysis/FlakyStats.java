@@ -79,6 +79,7 @@ public class FlakyStats implements SnapshotCache {
             return;
 
         int budget = 10;
+        int strikes = 0;
         for (Map.Entry<Long, Entry> me : byTest.entrySet()) {
             if (budget == 0)
                 return;
@@ -89,18 +90,18 @@ public class FlakyStats implements SnapshotCache {
             }
             budget--;
             try {
-                TcModel.TestOccurrence occ = tc.latestMasterFailure(token, me.getKey());
+                List<MasterRef> refs = tc.masterFailures(token, me.getKey()).stream()
+                    .map(o -> new MasterRef(o.build().id(), o.build().buildTypeId(), o.id()))
+                    .toList();
                 synchronized (e) {
-                    if (occ != null && occ.build() != null) {
-                        e.masterBuildId = occ.build().id();
-                        e.masterBtId = occ.build().buildTypeId();
-                        e.masterOcc = occ.id();
-                    }
+                    if (!refs.isEmpty())
+                        e.masterFailures = refs;
                     e.masterAnchorAt = System.currentTimeMillis();
                 }
             }
             catch (RuntimeException ex) {
-                return; // stale token or network hiccup: retry on the next cycle
+                if (++strikes >= 3)
+                    return; // token or network trouble: give up until the next cycle
             }
         }
     }
@@ -132,7 +133,7 @@ public class FlakyStats implements SnapshotCache {
                 if (e.masterFails > 0)
                     out.add(new TopFlaky(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
                         e.branchRuns, e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList(),
-                        e.masterBuildId, e.masterBtId, e.masterOcc));
+                        e.masterFailures));
             }
         });
 
@@ -161,7 +162,7 @@ public class FlakyStats implements SnapshotCache {
             synchronized (e) {
                 snap.add(new Persisted(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
                     e.branchRuns, e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList(),
-                    e.masterBuildId, e.masterBtId, e.masterOcc, e.masterAnchorAt));
+                    e.masterFailures, e.masterAnchorAt));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
@@ -187,10 +188,10 @@ public class FlakyStats implements SnapshotCache {
             e.masterFails = p.masterFails();
             e.masterRuns = p.masterRuns();
             e.lastSeen = p.lastSeen();
-            e.masterBuildId = p.masterBuildId();
-            e.masterBtId = p.masterBtId();
-            e.masterOcc = p.masterOcc();
-            e.masterAnchorAt = p.masterAnchorAt();
+            if (p.masterFailures() != null)
+                e.masterFailures = p.masterFailures();
+            // A recent anchor timestamp with no failures list means a pre-list snapshot: re-anchor now.
+            e.masterAnchorAt = e.masterFailures.isEmpty() ? 0 : p.masterAnchorAt();
             if (p.prs() != null)
                 e.prs.addAll(p.prs());
             byTest.put(p.testId(), e);
@@ -207,16 +208,18 @@ public class FlakyStats implements SnapshotCache {
         int masterFails;
         int masterRuns;
         long lastSeen;
-        long masterBuildId;
-        String masterBtId;
-        String masterOcc;
+        List<MasterRef> masterFailures = List.of();
         long masterAnchorAt;
         final Set<Integer> prs = ConcurrentHashMap.newKeySet();
     }
 
     private record Persisted(long testId, String name, String suite, String suiteName, long suiteBuildId,
         String occurrenceId, String branchRuns, int masterFails, int masterRuns, long lastSeen, List<Integer> prs,
-        long masterBuildId, String masterBtId, String masterOcc, long masterAnchorAt) {
+        List<MasterRef> masterFailures, long masterAnchorAt) {
+    }
+
+    /** One failed master run of the test: enough to deep-link the occurrence in TeamCity. */
+    public record MasterRef(long buildId, String btId, String occ) {
     }
 
     /**
@@ -229,6 +232,6 @@ public class FlakyStats implements SnapshotCache {
         String name, String suite, String suiteName, long suiteBuildId,
         String occurrenceId, String branchRuns, int masterFails, int masterRuns,
         int prCount, List<Integer> prs,
-        long masterBuildId, String masterBtId, String masterOcc) {
+        List<MasterRef> masterFailures) {
     }
 }

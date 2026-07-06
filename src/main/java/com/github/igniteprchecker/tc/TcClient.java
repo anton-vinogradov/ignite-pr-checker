@@ -140,20 +140,25 @@ public class TcClient {
             .toList();
     }
 
-    /** The test's most recent master failure (occurrence + build) for a master-anchored link, or null. */
-    public TcModel.TestOccurrence latestMasterFailure(String token, long testId) {
+    /**
+     * The test's most recent master failures (occurrence + build, newest first, up to 5). Filtered
+     * client-side: a {@code status:FAILURE} locator only scans a shallow occurrence window, so it
+     * misses sparse flaky failures that the plain history query does see.
+     */
+    public List<TcModel.TestOccurrence> masterFailures(String token, long testId) {
         TcModel.TestOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(default:true),status:FAILURE,count:5",
-            "fields", "testOccurrence(id,build(id,buildTypeId))")),
+            "locator", "test:(id:" + testId + "),branch:(default:true),count:50",
+            "fields", "testOccurrence(id,status,build(id,buildTypeId))")),
             TcModel.TestOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)
-            return null;
+            return List.of();
 
         return occ.testOccurrence().stream()
-            .filter(o -> o.build() != null)
-            .max(Comparator.comparingLong(o -> o.build().id()))
-            .orElse(null);
+            .filter(o -> "FAILURE".equals(o.status()) && o.build() != null)
+            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
+            .limit(5)
+            .toList();
     }
 
     /** Failure details (message/stack trace) of a single test occurrence, or null. */
