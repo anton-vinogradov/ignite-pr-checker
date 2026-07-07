@@ -259,10 +259,43 @@ public class TcClient {
     }
 
     /** A chain build's state plus the state of each of its dependency suites — one call, for rerun tracking. */
+    /**
+     * Queue-aware remaining seconds for a running chain: seconds until its last dependency is
+     * estimated to finish. TeamCity folds agent-queue wait into each dependency's finishEstimate,
+     * whereas the composite's own running-info estimate assumes agents are free — so two chains
+     * queued seconds apart can be an hour apart in reality. Returns -1 if not determinable.
+     */
+    public long chainRemainingSeconds(String token, long buildId) {
+        TcModel.Build b = get("chainEta", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "snapshot-dependencies(build(state,finishEstimate,"
+                + "running-info(elapsedSeconds,estimatedTotalSeconds)))")), TcModel.Build.class);
+
+        if (b == null || b.snapshotDependencies() == null || b.snapshotDependencies().build() == null)
+            return -1;
+
+        long now = System.currentTimeMillis() / 1000;
+        long max = -1;
+        for (TcModel.Build dep : b.snapshotDependencies().build()) {
+            if ("finished".equalsIgnoreCase(dep.state()))
+                continue;
+
+            long finish = TcDates.epochSeconds(dep.finishEstimate());
+            long left = finish > 0 ? Math.max(0, finish - now) : -1;
+            if (left < 0) {
+                TcModel.RunningInfo ri = dep.runningInfo();
+                if (ri != null && ri.estimatedTotalSeconds() != null && ri.elapsedSeconds() != null)
+                    left = Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds());
+            }
+            if (left > max)
+                max = left;
+        }
+        return max;
+    }
+
     public TcModel.Build getChainDepStates(String token, long buildId) {
         return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,state,status,"
-                + "snapshot-dependencies(build(id,buildTypeId,state,status,webUrl,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)))")), TcModel.Build.class);
+                + "snapshot-dependencies(build(id,buildTypeId,state,status,webUrl,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)))")), TcModel.Build.class);
     }
 
     /**

@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
@@ -26,11 +27,13 @@ public class TriggerController {
     private final TcClient tc;
     private final BlockerAnalyzer analyzer;
     private final RerunTracker reruns;
+    private final String runAllBuildType;
 
-    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns) {
+    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns, AnalysisProperties cfg) {
         this.tc = tc;
         this.analyzer = analyzer;
         this.reruns = reruns;
+        this.runAllBuildType = cfg.runAllBuildType();
     }
 
     /** Queue the whole RunAll chain. {@code top} puts it at the head of the queue. */
@@ -102,7 +105,18 @@ public class TriggerController {
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         // Seed the rerun tracker from what's actually live: recovers entries lost to a restart and
         // picks up builds triggered outside the tool (straight from the TeamCity UI).
-        return tc.currentUserBuilds(token, pr).stream().map(b -> brief(track(pr, b))).toList();
+        return tc.currentUserBuilds(token, pr).stream().map(b -> {
+            Map<String, Object> m = brief(track(pr, b));
+            // A running RunAll's own estimate ignores agent-queue wait; TeamCity's per-dependency
+            // finish estimate does not. Prefer the queue-aware value so two chains queued seconds
+            // apart show their real (often hour-apart) finish times.
+            if (runAllBuildType.equals(b.buildTypeId()) && "running".equalsIgnoreCase(b.state())) {
+                long queueAware = tc.chainRemainingSeconds(token, b.id());
+                if (queueAware > ((Number) m.get("leftSec")).longValue())
+                    m.put("leftSec", queueAware);
+            }
+            return m;
+        }).toList();
     }
 
     /** Cancel every user-launched build (RunAll or re-run suite) currently queued or running for the PR. */
@@ -134,15 +148,17 @@ public class TriggerController {
             ? Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds())
             : finish > 0 ? Math.max(0, finish - now) : -1;
 
-        return Map.of(
-            "buildId", b.id(),
-            "state", b.state() == null ? "queued" : b.state(),
-            "name", name,
-            "btId", b.buildTypeId() == null ? "" : b.buildTypeId(),
-            "webUrl", b.webUrl() == null ? "" : b.webUrl(),
-            "pct", ri != null && ri.percentageComplete() != null ? ri.percentageComplete() : -1,
-            "leftSec", left,
-            "startSec", left < 0 && start > 0 ? Math.max(0, start - now) : -1);
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("buildId", b.id());
+        m.put("state", b.state() == null ? "queued" : b.state());
+        m.put("name", name);
+        m.put("btId", b.buildTypeId() == null ? "" : b.buildTypeId());
+        m.put("webUrl", b.webUrl() == null ? "" : b.webUrl());
+        m.put("pct", ri != null && ri.percentageComplete() != null ? ri.percentageComplete() : -1);
+        m.put("leftSec", left);
+        m.put("startSec", left < 0 && start > 0 ? Math.max(0, start - now) : -1);
+
+        return m;
     }
 
     private static ResponseEntity<?> teamCityError(RestClientResponseException e) {
