@@ -120,8 +120,6 @@
         .delta-fixed { color: #2e7d32; font-weight: 600; }
         .runs { flex: 1; min-width: 0; }
         .runs .run-item { display: inline-flex; align-items: center; margin-left: 0.6rem; white-space: nowrap; }
-        .run-id { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--muted); text-decoration: none; margin: 0 0.35em; }
-        .run-id:hover { color: var(--accent); }
         .cancel { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; color: var(--bad); border-color: var(--bad); }
         .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
         .refresh:hover { color: var(--fg); }
@@ -565,7 +563,7 @@
             }
             // Same visual language as the suite rows: the name is a plain link, the state is a .live chip.
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="run-id" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity">#${b.buildId}</a><a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a></span>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a></span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 
