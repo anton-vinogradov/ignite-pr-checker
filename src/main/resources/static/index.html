@@ -3,7 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ignite PR Checker</title>
+    <title>Ignite PR Checker — CI test-failure analysis for Apache Ignite pull requests</title>
+    <meta name="description" content="Open-source developer tool for Apache Ignite contributors: shows which tests a pull request actually broke on the TeamCity CI (ci2), filtering out failures already flaky or broken on master. Trigger RunAll, re-run blockers, and post a verdict to JIRA.">
+    <meta name="keywords" content="Apache Ignite, continuous integration, TeamCity, pull request, test failures, flaky tests, CI, software development, open source">
+    <meta property="og:title" content="Ignite PR Checker — CI test-failure analysis for Apache Ignite PRs">
+    <meta property="og:description" content="Open-source developer tool: which tests your Apache Ignite pull request actually broke on the TeamCity CI, minus the pre-existing flaky noise.">
+    <meta property="og:type" content="website">
     <link rel="icon" type="image/png" href="/favicon.png">
     <meta name="theme-color" content="#f36f21">
     <script>
@@ -295,6 +300,13 @@
                 See which tests your Apache Ignite PR actually broke —<br>
                 not the ones already failing or flaky on master.<br>
                 Trigger a RunAll or re-run just the blockers, right from here.
+            </p>
+            <p class="login-note muted" style="margin-top:0">
+                An open-source continuous-integration tool for
+                <a href="https://ignite.apache.org" target="_self" rel="noopener">Apache Ignite</a>
+                contributors — source on
+                <a href="https://github.com/anton-vinogradov/ignite-pr-checker" target="_self" rel="noopener">GitHub</a>.
+                It reads the project's TeamCity CI (ci2) to tell real regressions from pre-existing flaky failures.
             </p>
             <div class="row">
                 <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
