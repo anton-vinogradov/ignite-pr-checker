@@ -892,12 +892,16 @@
             $('filteredCount').textContent = countLabel(res.filtered);
             const interrupted = !!res.interrupted;
             $('interruptedBanner').classList.toggle('hidden', !interrupted);
-            if (interrupted)
-                $('interruptedText').innerHTML = `This PR's latest RunAll <b>aborted before finishing</b> — `
+            if (interrupted) {
+                const buildLink = tcBase
+                    ? ` <a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open the interrupted RunAll build in TeamCity">TC</a>`
+                    : '';
+                $('interruptedText').innerHTML = `This PR's latest RunAll <b>aborted before finishing</b>${buildLink} — `
                     + `${broken.length} suite${broken.length === 1 ? '' : 's'} failed and `
                     + `${res.canceledSuites} never ran (cancelled by the interruption). `
                     + `The verdict below is <b>partial</b> — the cancelled suites weren't tested. `
                     + `Re-run RunAll once the failing suites are fixed.`;
+            }
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
