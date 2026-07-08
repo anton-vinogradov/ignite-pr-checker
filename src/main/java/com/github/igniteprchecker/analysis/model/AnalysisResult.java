@@ -16,6 +16,8 @@ public record AnalysisResult(
     List<TestVerdict> filtered,
     List<BrokenSuite> brokenSuites,
     int suitesRan,
-    int suitesReused
+    int suitesReused,
+    boolean interrupted,
+    int canceledSuites
 ) {
 }

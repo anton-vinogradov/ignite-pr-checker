@@ -133,6 +133,8 @@
         #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
+        .card.interrupted { border-color: var(--bad); border-left: 3px solid var(--bad); border-radius: 0 10px 10px 0; }
+        .card.interrupted h2 { color: var(--bad); margin: 0 0 0.3rem; }
         .blockers h2.clean { color: #2e7d32; }
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
@@ -366,6 +368,10 @@
                 </div>
 
                 <div id="results" class="hidden">
+                    <div id="interruptedBanner" class="card interrupted hidden">
+                        <h2>⚠ RunAll interrupted</h2>
+                        <p class="muted" id="interruptedText"></p>
+                    </div>
                     <div id="brokenCard" class="card blockers hidden">
                         <h2>Broken suites <span id="brokenCount"></span></h2>
                         <p class="muted">Failed without running their tests — compilation, timeout or infrastructure.
@@ -884,6 +890,14 @@
             $('blockersHead').textContent = clean ? (broken.length ? 'No blockers' : 'No blockers 🎉') : 'Blockers';
             $('blockerCount').textContent = clean ? '' : countLabel(res.blockers);
             $('filteredCount').textContent = countLabel(res.filtered);
+            const interrupted = !!res.interrupted;
+            $('interruptedBanner').classList.toggle('hidden', !interrupted);
+            if (interrupted)
+                $('interruptedText').innerHTML = `This PR's latest RunAll <b>aborted before finishing</b> — `
+                    + `${broken.length} suite${broken.length === 1 ? '' : 's'} failed and `
+                    + `${res.canceledSuites} never ran (cancelled by the interruption). `
+                    + `The verdict below is <b>partial</b> — the cancelled suites weren't tested. `
+                    + `Re-run RunAll once the failing suites are fixed.`;
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
