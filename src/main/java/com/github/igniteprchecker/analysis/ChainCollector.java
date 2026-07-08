@@ -120,7 +120,14 @@ public class ChainCollector {
             }
         }
 
-        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused);
+        // A chain that aborted mid-way leaves suites neither passed nor failed (canceled/UNKNOWN):
+        // they never ran, so the verdict is partial — surface that instead of implying they were clean.
+        int canceled = (int) depBuilds(build).stream()
+            .filter(d -> d.status() != null && !"SUCCESS".equals(d.status()) && !"FAILURE".equals(d.status()))
+            .count();
+        boolean interrupted = "FAILURE".equals(build.status()) && canceled > 0;
+
+        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled);
     }
 
     private SuiteResult suiteResultOf(String token, TcModel.Build dep) {
@@ -175,6 +182,6 @@ public class ChainCollector {
 
     /** A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused. */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
-        int suitesRan, int suitesReused) {
+        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites) {
     }
 }
