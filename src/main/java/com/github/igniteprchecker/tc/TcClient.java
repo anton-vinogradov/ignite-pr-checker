@@ -101,7 +101,8 @@ public class TcClient {
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,queuedDate,buildType(id,name),"
-                + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name)))")), TcModel.Build.class);
+                + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name),"
+                + "problemOccurrences(problemOccurrence(type,details))))")), TcModel.Build.class);
     }
 
     /** Failed test occurrences of a single build. */
@@ -111,15 +112,6 @@ public class TcClient {
             "fields", "testOccurrence(id,name,status,test(id))")), TcModel.TestOccurrences.class);
 
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
-    }
-
-    /** Build-level problems of one build (compilation error, execution timeout, failed dependency...). */
-    public List<TcModel.ProblemOccurrence> getBuildProblems(String token, long buildId) {
-        TcModel.ProblemOccurrences occ = get("problems", token, url("app/rest/problemOccurrences", query(
-            "locator", "build:(id:" + buildId + "),count:10",
-            "fields", "problemOccurrence(type,details)")), TcModel.ProblemOccurrences.class);
-
-        return occ == null || occ.problemOccurrence() == null ? List.of() : occ.problemOccurrence();
     }
 
     /** Recent master history of one test (up to {@code analysis.historyDepth} runs): just the statuses. */
