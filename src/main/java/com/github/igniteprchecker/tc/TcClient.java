@@ -83,18 +83,19 @@ public class TcClient {
         return Optional.of(list.build().get(0));
     }
 
-    /** The PR branch's currently-running RunAll chain, if any — source of live in-progress failures. */
-    public Optional<TcModel.Build> findRunningRunAll(String token, int prNumber) {
+    /**
+      * The PR branch's most recent RunAll chains of ANY state (newest first): running, finished,
+      * cancelled or interrupted. Used to fold in results from a run that didn't fully complete — a
+      * cancelled or interrupted chain still ran (and failed) some of its suites.
+      */
+    public List<TcModel.Build> recentChains(String token, int prNumber, int count) {
         String locator = "buildType:" + analysis.runAllBuildType()
-            + ",branch:(name:pull/" + prNumber + "/head),state:running,count:1";
+            + ",branch:(name:pull/" + prNumber + "/head),defaultFilter:false,count:" + count;
 
-        TcModel.BuildList list = get("findRunning", token, url("app/rest/builds", query(
-            "locator", locator, "fields", "build(id)")), TcModel.BuildList.class);
+        TcModel.BuildList list = get("recentChains", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(id,state)")), TcModel.BuildList.class);
 
-        if (list == null || list.build() == null || list.build().isEmpty())
-            return Optional.empty();
-
-        return Optional.of(list.build().get(0));
+        return list == null || list.build() == null ? List.of() : list.build();
     }
 
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */

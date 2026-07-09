@@ -102,15 +102,16 @@ public class ChainCollector {
             }
         }
 
-        // Live overlay: a currently-running chain's already-finished FAILURE suites contribute their
-        // failures now, so a fresh run's blockers/flaky replace the previous run's per-suite results as
-        // suites complete. classify() re-anchors each test to its newest finished run, so this only
-        // needs to ADD candidates that newly started failing in the running chain.
+        // Overlay results from any chain newer than the baseline finished build — running, cancelled
+        // or interrupted. Even a run that didn't fully complete ran (and failed) some suites, and those
+        // finished-FAILURE suites must count. classify() re-anchors each test to its newest finished
+        // run, so this only needs to ADD candidates that appear in the newer chain(s).
         boolean live = false;
-        Optional<TcModel.Build> running = tc.findRunningRunAll(token, prNumber);
-        if (running.isPresent() && running.get().id() != buildId) {
+        for (TcModel.Build chain : tc.recentChains(token, prNumber, 3)) {
+            if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()))
+                continue; // not newer than the baseline, or nothing has run in it yet
             live = true;
-            TcModel.Build rBuild = tc.getBuildWithDeps(token, running.get().id());
+            TcModel.Build rBuild = tc.getBuildWithDeps(token, chain.id());
             List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()
                 .filter(dep -> "finished".equalsIgnoreCase(dep.state()) && "FAILURE".equals(dep.status()))
                 .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep))

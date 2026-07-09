@@ -902,7 +902,7 @@
                 ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs</span>`
                 : '';
             const liveTag = res.live
-                ? ' · <span class="live-tag" title="A newer RunAll is in progress; failures from its finished suites are already folded in and update as it runs">● updating live</span>'
+                ? ' · <span class="live-tag" title="Includes results from a newer RunAll that has not fully completed (running, cancelled or interrupted) — failures from the suites that did finish are folded in">● includes an unfinished run</span>'
                 : '';
             $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
