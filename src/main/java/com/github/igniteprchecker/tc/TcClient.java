@@ -83,6 +83,20 @@ public class TcClient {
         return Optional.of(list.build().get(0));
     }
 
+    /** The PR branch's currently-running RunAll chain, if any — source of live in-progress failures. */
+    public Optional<TcModel.Build> findRunningRunAll(String token, int prNumber) {
+        String locator = "buildType:" + analysis.runAllBuildType()
+            + ",branch:(name:pull/" + prNumber + "/head),state:running,count:1";
+
+        TcModel.BuildList list = get("findRunning", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(id)")), TcModel.BuildList.class);
+
+        if (list == null || list.build() == null || list.build().isEmpty())
+            return Optional.empty();
+
+        return Optional.of(list.build().get(0));
+    }
+
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(

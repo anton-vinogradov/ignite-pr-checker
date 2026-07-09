@@ -158,7 +158,9 @@ public class BlockerAnalyzer {
     }
 
     private boolean isStale(AnalysisResult r) {
-        return System.currentTimeMillis() - r.computedAt() > cfg.refreshAfterSeconds() * 1000L;
+        // A live (run-in-progress) result must refresh quickly to pull in suites as they finish.
+        long windowMs = r.live() ? 120_000L : cfg.refreshAfterSeconds() * 1000L;
+        return System.currentTimeMillis() - r.computedAt() > windowMs;
     }
 
     private void refreshAsync(String token, int prNumber, long buildId) {
@@ -209,7 +211,7 @@ public class BlockerAnalyzer {
     }
 
     private AnalysisResult doCompute(String token, int prNumber, long buildId, ExecutorService taskPool) {
-        ChainCollector.Chain chain = chains.collectForBuild(token, buildId, taskPool);
+        ChainCollector.Chain chain = chains.collectForBuild(token, prNumber, buildId, taskPool);
 
         Progress prog = new Progress(prNumber, chain.failedTests().size(), new AtomicInteger());
         progress.put(buildId, prog);
@@ -231,7 +233,7 @@ public class BlockerAnalyzer {
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, filtered, chain.brokenSuites(),
-            chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites());
+            chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live());
 
         cache.putResult(buildId, result);
         prBlockers.put(prNumber, blockers.size());

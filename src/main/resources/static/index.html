@@ -125,6 +125,8 @@
         .delta-fixed { color: #2e7d32; font-weight: 600; }
         .runs { flex: 1; min-width: 0; }
         .runs .run-item { display: inline-flex; align-items: center; margin-left: 0.6rem; white-space: nowrap; }
+        .live-tag { color: #2e7d32; font-weight: 600; }
+        html[data-theme="dark"] .live-tag, html[data-theme="jetbrains"] .live-tag, html[data-theme="terminal"] .live-tag { color: #7fce90; }
         .cancel { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; color: var(--bad); border-color: var(--bad); }
         .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
         .refresh:hover { color: var(--fg); }
@@ -547,6 +549,7 @@
 
         let runsTimer = null;
         let runsWere = 0;
+        let lastLiveFetch = 0;
         let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
 
         // Tag each suite header whose build type is currently queued/running with a chip linking to that build.
@@ -592,8 +595,14 @@
 
             // Keep polling while any run is active, so the view updates itself once they finish.
             stopRunsPoll();
-            if (runs.length > 0 && number === selectedPr)
+            if (runs.length > 0 && number === selectedPr) {
                 runsTimer = setTimeout(() => loadRuns(number), 15000);
+                // Fold in failures from suites that finish while the chain runs (throttled ~60s).
+                if (Date.now() - lastLiveFetch > 55000) {
+                    lastLiveFetch = Date.now();
+                    analyze(number);
+                }
+            }
         }
 
         function prFromUrl() {
@@ -881,7 +890,10 @@
             const comp = (res.suitesRan || res.suitesReused)
                 ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs</span>`
                 : '';
-            $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp
+            const liveTag = res.live
+                ? ' · <span class="live-tag" title="A newer RunAll is in progress; failures from its finished suites are already folded in and update as it runs">● updating live</span>'
+                : '';
+            $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
             const broken = res.brokenSuites || [];
