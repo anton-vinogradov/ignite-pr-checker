@@ -136,6 +136,10 @@
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
         .card.interrupted { border-color: var(--bad); border-left: 3px solid var(--bad); border-radius: 0 10px 10px 0; }
+        .card.watch { border-left: 3px solid #b26a00; border-radius: 0 10px 10px 0; }
+        .card.watch h2 { color: #b26a00; margin: 0 0 0.3rem; }
+        html[data-theme="dark"] .card.watch h2, html[data-theme="jetbrains"] .card.watch h2, html[data-theme="terminal"] .card.watch h2 { color: #d99a3a; }
+        html[data-theme="dark"] .card.watch, html[data-theme="jetbrains"] .card.watch, html[data-theme="terminal"] .card.watch { border-left-color: #d99a3a; }
         .card.interrupted h2 { color: var(--bad); margin: 0 0 0.3rem; }
         .blockers h2.clean { color: #2e7d32; }
         .card h2 { font-size: 1.05rem; }
@@ -402,6 +406,12 @@
                         <ul id="blockers" class="tests"></ul>
                         <div id="causesView" class="hidden"></div>
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
+                    </div>
+                    <div id="watchCard" class="card watch hidden">
+                        <h2>Recently started failing <span id="watchCount"></span></h2>
+                        <p class="muted">Failing the last few runs on this branch but passing earlier — a fresh break to watch,
+                            not yet a steady blocker. If it keeps failing it becomes a blocker; if it flaps back it won't.</p>
+                        <ul id="watch" class="tests"></ul>
                     </div>
                     <div class="card">
                         <details>
@@ -917,10 +927,14 @@
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
+            const watch = res.watch || [];
+            $('watchCard').classList.toggle('hidden', watch.length === 0);
+            $('watchCount').textContent = watch.length ? countLabel(watch) : '';
+            renderList($('watch'), watch, false, true);
             renderList($('blockers'), res.blockers, false, true);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0);
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0);
             $('results').classList.remove('hidden');
             setRerunEnabled(res.blockers.length > 0);
             $('visaBtn').disabled = !lastIssueKey;

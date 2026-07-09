@@ -229,10 +229,11 @@ public class BlockerAnalyzer {
 
         List<TestVerdict> verdicts = Parallel.run(taskPool, tasks);
         List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
-        List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker()).toList();
+        List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
+        List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            System.currentTimeMillis(), blockers, filtered, chain.brokenSuites(),
+            System.currentTimeMillis(), blockers, watch, filtered, chain.brokenSuites(),
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live());
 
         cache.putResult(buildId, result);
@@ -250,7 +251,7 @@ public class BlockerAnalyzer {
             // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
             // propagate it and every other verdict would be lost). Keep the test visible as an unverified
             // blocker — it did fail in the PR — and flag that we couldn't check it.
-            return verdict(t, null, true, "could not verify (TeamCity error: " + rootMessage(e) + ")", "");
+            return verdict(t, null, true, false, "could not verify (TeamCity error: " + rootMessage(e) + ")", "");
         }
     }
 
@@ -267,21 +268,43 @@ public class BlockerAnalyzer {
         // there means it isn't specific to this PR (pre-existing or flaky on master). It still gets
         // its branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers.
         if (h.fails() > 0) {
-            return verdict(t, lastRun, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", branchRuns);
+            return verdict(t, lastRun, false, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", branchRuns);
         }
 
         // ...and only if the failure still stands in the last fully-finished run on the branch: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).
         String latest = lastRun == null ? null : lastRun.status();
         if (latest != null && !"FAILURE".equals(latest)) {
-            return verdict(t, lastRun, false, "not failing in the last finished run (passed on re-run)", branchRuns);
+            return verdict(t, lastRun, false, false, "not failing in the last finished run (passed on re-run)", branchRuns);
         }
 
         String reason = h.runs() == 0
             ? "no master history (can't prove pre-existing)"
             : "not seen failing in " + h.runs() + " master run(s)";
 
-        return verdict(t, lastRun, true, reason, branchRuns);
+        // Merge of the last N branch runs: a real block fails consistently. A test that passed on the
+        // same code within the recent window is a within-branch flake, not a hard blocker; one that
+        // just started failing (but passed earlier) is a fresh break to watch, not yet a hard blocker.
+        int len = branchRuns.length();
+        int streak = trailingFailStreak(branchRuns);
+        int window = Math.min(cfg.blockerFailStreak(), len);
+        if (streak >= window)
+            return verdict(t, lastRun, true, false, reason, branchRuns);
+        if (streak >= 2)
+            return verdict(t, lastRun, false, true,
+                "started failing in the last " + streak + " runs (passed earlier on the branch) — watch", branchRuns);
+
+        return verdict(t, lastRun, false, false,
+            "flaky on branch: failed only the latest of " + len + " runs (passed on the same code)", branchRuns);
+    }
+
+    /** Length of the trailing run of consecutive failures in a P/F strip (oldest → newest). */
+    private static int trailingFailStreak(String branchRuns) {
+        int n = 0;
+        for (int i = branchRuns.length() - 1; i >= 0 && branchRuns.charAt(i) == 'F'; i--)
+            n++;
+
+        return n;
     }
 
     /** Short root-cause message of a failure, for the "could not verify" reason (bounded length). */
@@ -317,7 +340,7 @@ public class BlockerAnalyzer {
      * Falls back to the RunAll-dependency occurrence (e.g. for pre-existing tests, where no runs are fetched).
      */
     private static TestVerdict verdict(FailedTest t, TcModel.TestOccurrence lastRun, boolean blocker,
-        String reason, String branchRuns) {
+        boolean watch, String reason, String branchRuns) {
         long suiteBuildId = t.suiteBuildId();
         String suite = t.suite();
         String suiteName = t.suiteName();
@@ -334,6 +357,6 @@ public class BlockerAnalyzer {
                 occurrenceId = lastRun.id();
         }
 
-        return new TestVerdict(t.testId(), t.name(), suite, suiteBuildId, suiteName, occurrenceId, blocker, reason, branchRuns);
+        return new TestVerdict(t.testId(), t.name(), suite, suiteBuildId, suiteName, occurrenceId, blocker, watch, reason, branchRuns);
     }
 }
