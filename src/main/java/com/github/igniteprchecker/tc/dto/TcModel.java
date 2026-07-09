@@ -30,7 +30,8 @@ public final class TcModel {
         BuildType buildType,
         Triggered triggered,
         @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies,
-        @JsonProperty("running-info") RunningInfo runningInfo
+        @JsonProperty("running-info") RunningInfo runningInfo,
+        ProblemOccurrences problemOccurrences
     ) {
     }
 

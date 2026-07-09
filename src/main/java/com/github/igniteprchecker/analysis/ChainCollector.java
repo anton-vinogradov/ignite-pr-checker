@@ -152,10 +152,25 @@ public class ChainCollector {
         return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled, live);
     }
 
+    /** Problems meaning the suite hung or died mid-run, so its per-test failures are unreliable
+     * (timeout/hang cascades, tests that never got to run) — surface the suite, not the noise. */
+    private static final Set<String> UNSTABLE_PROBLEMS = Set.of("TC_EXECUTION_TIMEOUT", "TC_OOME", "TC_JVM_CRASH");
+
     private SuiteResult suiteResultOf(String token, TcModel.Build dep) {
         String suiteName = dep.buildType() != null && dep.buildType().name() != null
             ? dep.buildType().name()
             : dep.buildTypeId();
+
+        List<TcModel.ProblemOccurrence> problems = dep.problemOccurrences() != null
+            && dep.problemOccurrences().problemOccurrence() != null
+            ? dep.problemOccurrences().problemOccurrence() : List.of();
+
+        // A suite that timed out / ran out of memory / crashed didn't finish reliably: its failed tests
+        // are likely cascade noise and some tests never ran. Show it as a broken suite, don't mine it
+        // for blockers (the same reasoning as an interrupted chain, at suite granularity).
+        boolean unstable = problems.stream().anyMatch(p -> UNSTABLE_PROBLEMS.contains(p.type()));
+        if (unstable)
+            return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems));
 
         List<FailedTest> tests = tc.getFailedTests(token, dep.id()).stream()
             .filter(occ -> occ.test() != null)
@@ -165,13 +180,14 @@ public class ChainCollector {
         if (!tests.isEmpty())
             return new SuiteResult(tests, null);
 
-        List<String> problems = tc.getBuildProblems(token, dep.id()).stream()
-            .map(ChainCollector::describeProblem)
-            .distinct()
-            .toList();
+        return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems));
+    }
 
-        return new SuiteResult(List.of(), new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName,
-            problems.isEmpty() ? List.of("failed without running tests") : problems));
+    private static BrokenSuite brokenSuite(TcModel.Build dep, String suiteName, List<TcModel.ProblemOccurrence> problems) {
+        List<String> descriptions = problems.stream().map(ChainCollector::describeProblem).distinct().toList();
+
+        return new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName,
+            descriptions.isEmpty() ? List.of("failed without running tests") : descriptions);
     }
 
     /** Human wording for a TeamCity problem type, falling back to its details/raw type. */

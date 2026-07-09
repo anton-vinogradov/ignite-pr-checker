@@ -380,8 +380,9 @@
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
                         <h2>Broken suites <span id="brokenCount"></span></h2>
-                        <p class="muted">Failed without running their tests — compilation, timeout or infrastructure.
-                            Fix or re-run these first: the verdict below can't see what they would have found.</p>
+                        <p class="muted">Didn't complete a reliable run — compilation, timeout, out-of-memory, crash or infrastructure.
+                            A timed-out or crashed suite is shown here rather than mined for blockers (its failures would be hang cascade,
+                            and some tests never ran). Re-run these first: the verdict below can't trust what they would have found.</p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div class="card blockers">
