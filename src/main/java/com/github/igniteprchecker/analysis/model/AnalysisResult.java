@@ -18,6 +18,7 @@ public record AnalysisResult(
     int suitesRan,
     int suitesReused,
     boolean interrupted,
-    int canceledSuites
+    int canceledSuites,
+    boolean live
 ) {
 }

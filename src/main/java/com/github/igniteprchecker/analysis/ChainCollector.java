@@ -82,7 +82,7 @@ public class ChainCollector {
      * {@code pool} is the caller's fan-out pool: foreground analyses pass the analysis pool, background
      * ones (warmer/refresh) pass their own so they don't compete with user-facing requests.
      */
-    public Chain collectForBuild(String token, long buildId, ExecutorService pool) {
+    public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool) {
         TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
         List<Callable<SuiteResult>> tasks = depBuilds(build).stream()
@@ -99,6 +99,28 @@ public class ChainCollector {
             for (FailedTest ft : r.tests()) {
                 if (seen.add(ft.testId()))
                     failed.add(ft);
+            }
+        }
+
+        // Live overlay: a currently-running chain's already-finished FAILURE suites contribute their
+        // failures now, so a fresh run's blockers/flaky replace the previous run's per-suite results as
+        // suites complete. classify() re-anchors each test to its newest finished run, so this only
+        // needs to ADD candidates that newly started failing in the running chain.
+        boolean live = false;
+        Optional<TcModel.Build> running = tc.findRunningRunAll(token, prNumber);
+        if (running.isPresent() && running.get().id() != buildId) {
+            live = true;
+            TcModel.Build rBuild = tc.getBuildWithDeps(token, running.get().id());
+            List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()
+                .filter(dep -> "finished".equalsIgnoreCase(dep.state()) && "FAILURE".equals(dep.status()))
+                .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep))
+                .toList();
+            for (SuiteResult r : Parallel.run(pool, rTasks)) {
+                if (r.broken() != null && broken.stream().noneMatch(b -> b.suiteBuildId() == r.broken().suiteBuildId()))
+                    broken.add(r.broken());
+                for (FailedTest ft : r.tests())
+                    if (seen.add(ft.testId()))
+                        failed.add(ft);
             }
         }
 
@@ -127,7 +149,7 @@ public class ChainCollector {
             .count();
         boolean interrupted = "FAILURE".equals(build.status()) && canceled > 0;
 
-        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled);
+        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled, live);
     }
 
     private SuiteResult suiteResultOf(String token, TcModel.Build dep) {
@@ -182,6 +204,6 @@ public class ChainCollector {
 
     /** A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused. */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
-        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites) {
+        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live) {
     }
 }

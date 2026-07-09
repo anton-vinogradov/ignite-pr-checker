@@ -41,8 +41,8 @@ class BlockerAnalyzerTest {
         FailedTest passedOnRerun = new FailedTest(5, "Suite: E.reranAndPassed", "SuiteE", 105L, "Suite E", "1005");
 
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
-            List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun), List.of(), 0, 0, false, 0));
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head",
+            List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun), List.of(), 0, 0, false, 0, false));
 
         // 1) clean on master and still failing in its last finished run -> blocker.
         when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 50));
@@ -80,12 +80,12 @@ class BlockerAnalyzerTest {
     @Test
     void secondAnalyzeOfSameBuildIsServedFromCache() {
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(chains.collectForBuild(eq(TOK), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of(), List.of(), 0, 0, false, 0));
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999, "pull/42/head", List.of(), List.of(), 0, 0, false, 0, false));
 
         analyzer.analyze(TOK, 42);
         analyzer.analyze(TOK, 42);
 
-        verify(chains, times(1)).collectForBuild(eq(TOK), eq(999L), any()); // second run reused the cached result
+        verify(chains, times(1)).collectForBuild(eq(TOK), eq(42), eq(999L), any()); // second run reused the cached result
     }
 
     private static TestVerdict verdict(AnalysisResult r, long testId) {
