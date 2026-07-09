@@ -15,7 +15,7 @@ class AnalysisCachePersistenceTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static AnalysisProperties props() {
-        return new AnalysisProperties(null, null, null, null, 15, null);
+        return new AnalysisProperties(null, null, null, null, 15, null, null);
     }
 
     @Test
@@ -24,8 +24,9 @@ class AnalysisCachePersistenceTest {
 
         AnalysisCache first = new AnalysisCache(props(), mapper);
         AnalysisResult result = new AnalysisResult(42, 100L, "pull/42/head", System.currentTimeMillis(),
-            List.of(new TestVerdict(7L, "TestA", "SuiteX", 200L, "Suite X", "301", true, "blocker", "FFF")),
-            List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, "pre-existing", "")),
+            List.of(new TestVerdict(7L, "TestA", "SuiteX", 200L, "Suite X", "301", true, false, "blocker", "FFF")),
+            List.of(),
+            List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false, "pre-existing", "")),
             List.of(), 0, 0, false, 0, false);
         first.putResult(100L, result);
         first.history(7L, () -> new HistoryStats(30, 1));

@@ -26,7 +26,7 @@ class BlockerAnalyzerTest {
 
     private final TcClient tc = mock(TcClient.class);
     private final ChainCollector chains = mock(ChainCollector.class);
-    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null);
+    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(4), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
         new AnalysisCache(cfg, new com.fasterxml.jackson.databind.ObjectMapper()),
@@ -68,6 +68,28 @@ class BlockerAnalyzerTest {
         assertThat(verdict(r, 3).reason()).contains("pre-existing");
         assertThat(verdict(r, 4).reason()).contains("no master history");
         assertThat(verdict(r, 5).reason()).contains("last finished run");
+    }
+
+    @Test
+    void mergeOfLastRunsSeparatesSteadyFromFlapAndWatch() {
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        FailedTest steady = new FailedTest(1L, "Steady", "S", 10L, "S", "o1");
+        FailedTest flap = new FailedTest(2L, "Flap", "S", 10L, "S", "o2");
+        FailedTest watch = new FailedTest(3L, "Watch", "S", 10L, "S", "o3");
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
+            "pull/42/head", List.of(steady, flap, watch), List.of(), 0, 0, false, 0, false));
+
+        for (long id : new long[] {1, 2, 3})
+            when(tc.getBaseBranchHistory(TOK, id)).thenReturn(repeat("SUCCESS", 50)); // all clean on master
+        when(tc.prBranchRuns(TOK, 42, 1)).thenReturn(repeat("FAILURE", 3));                    // FFF -> steady block
+        when(tc.prBranchRuns(TOK, 42, 2)).thenReturn(concat(repeat("SUCCESS", 4), repeat("FAILURE", 1))); // PPPPF -> flap
+        when(tc.prBranchRuns(TOK, 42, 3)).thenReturn(concat(repeat("SUCCESS", 3), repeat("FAILURE", 2))); // PPPFF -> watch
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.blockers()).extracting(TestVerdict::testId).containsExactly(1L);
+        assertThat(r.watch()).extracting(TestVerdict::testId).containsExactly(3L);
+        assertThat(r.filtered()).extracting(TestVerdict::testId).containsExactly(2L);
     }
 
     @Test

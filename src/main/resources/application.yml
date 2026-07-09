@@ -52,6 +52,11 @@ analysis:
   cache-ttl-minutes: 120
   # On request, a cached result older than this triggers a background refresh (the request still returns instantly).
   refresh-after-seconds: 120
+  # Merge of the last N finished branch runs: a test is a hard blocker only if it fails in ALL of the
+  # last N runs (no pass on the same code within the window). A single flap (failed only the latest,
+  # passed just before) is filtered as flaky-on-branch; failing the last 2+ but passing earlier is a
+  # "recently started failing" watch item, not a blocker. Override with BLOCKER_FAIL_STREAK.
+  blocker-fail-streak: ${BLOCKER_FAIL_STREAK:3}
 
 persist:
   # Snapshot the in-memory caches (analysis results, per-test history, PR list) to disk so a

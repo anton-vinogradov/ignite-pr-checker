@@ -13,6 +13,7 @@ public record AnalysisResult(
     String branchName,
     long computedAt,
     List<TestVerdict> blockers,
+    List<TestVerdict> watch,
     List<TestVerdict> filtered,
     List<BrokenSuite> brokenSuites,
     int suitesRan,

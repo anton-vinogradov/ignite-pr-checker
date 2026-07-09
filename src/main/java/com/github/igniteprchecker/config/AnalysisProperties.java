@@ -13,7 +13,8 @@ public record AnalysisProperties(
     Integer historyDepth,
     Integer concurrency,
     Integer cacheTtlMinutes,
-    Integer refreshAfterSeconds
+    Integer refreshAfterSeconds,
+    Integer blockerFailStreak
 ) {
     public AnalysisProperties {
         if (baseBranch == null)
@@ -26,5 +27,7 @@ public record AnalysisProperties(
             cacheTtlMinutes = 15;
         if (refreshAfterSeconds == null || refreshAfterSeconds < 0)
             refreshAfterSeconds = 120;
+        if (blockerFailStreak == null || blockerFailStreak < 1)
+            blockerFailStreak = 3;
     }
 }
