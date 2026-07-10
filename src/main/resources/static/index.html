@@ -162,6 +162,7 @@
         html[data-theme="dark"] .card.watch, html[data-theme="jetbrains"] .card.watch, html[data-theme="terminal"] .card.watch { border-left-color: #d99a3a; }
         .card.interrupted h2 { color: var(--bad); margin: 0 0 0.3rem; }
         .blockers h2.clean { color: #2e7d32; }
+        .blockers h2.neutral { color: var(--fg); }
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests > li { padding: 0.4rem 0; }
@@ -844,6 +845,7 @@
         function renderTrend(history) {
             const el = $('trend');
             if (!history || history.length < 2) { el.innerHTML = ''; return false; }
+            if (history.every(h => h.blockers === 0)) { el.innerHTML = ''; return false; }
             const max = Math.max(1, ...history.map(h => h.blockers));
             el.innerHTML = history.map(h => {
                 const hpx = Math.max(2, Math.round(14 * h.blockers / max));
@@ -1004,6 +1006,7 @@
             // so the verdict must not read as all-clear just because no individual test is a blocker.
             const clean = !hasBlockers && broken.length === 0 && watch.length === 0;
             $('blockersTitle').classList.toggle('clean', clean);
+            $('blockersTitle').classList.toggle('neutral', !hasBlockers && !clean);
             $('blockersHead').textContent = hasBlockers ? 'Blockers'
                 : clean ? 'No blockers 🎉'
                 : 'No test blockers';
