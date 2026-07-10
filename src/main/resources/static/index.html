@@ -1461,7 +1461,7 @@
                 const r = await api('/api/auto-visa-all?enable=' + enable, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (r.status === 412) { t.checked = false; pendingJiraAction = 'standing'; await toggleJiraPanel(true); return; }
+                if (r.status === 412) { t.checked = false; hasJira = false; pendingJiraAction = 'standing'; await toggleJiraPanel(true); return; }
                 if (!r.ok) { t.checked = !enable; msg.textContent = friendly(res.error, 'could not change the setting'); return; }
                 msg.textContent = res.enabled
                     ? 'On — verdicts for your finished runs will land in the tickets automatically.'
