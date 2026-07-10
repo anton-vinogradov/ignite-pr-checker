@@ -168,17 +168,16 @@ public class RerunTracker implements SnapshotCache {
 
         t.children = List.copyOf(kids.values());
         t.pct = pct(b);
-        // A chain cannot finish before its slowest running suite, but TeamCity estimates the
-        // composite independently and it often lags behind the children — take the max.
+        // The composite's own estimate lies in both directions (no queue awareness; duration
+        // history skewed by interrupted runs). The slowest child knows the queue and the actual
+        // per-suite progress — prefer it whenever known, fall back to the composite's own.
         Long own = leftSeconds(b);
         long slowestKid = kids.values().stream()
             .map(ActiveRerun::leftSec)
             .filter(l -> l != null)
             .mapToLong(Long::longValue)
             .max().orElse(-1);
-        t.leftSec = own == null
-            ? (slowestKid >= 0 ? slowestKid : null)
-            : Math.max(own, slowestKid);
+        t.leftSec = slowestKid >= 0 ? slowestKid : own;
         t.startSec = startSeconds(b);
         t.lastVerified = System.currentTimeMillis();
     }
