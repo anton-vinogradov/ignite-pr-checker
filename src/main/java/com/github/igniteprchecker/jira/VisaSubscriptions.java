@@ -37,6 +37,8 @@ public class VisaSubscriptions implements SnapshotCache {
     private final BlockerAnalyzer analyzer;
     private final Warmer warmer;
     private final ConcurrentMap<Integer, Sub> subs = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger posted = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long lastPostedAt;
 
     /** Posting waits for the (potentially heavy) analysis; one background thread is plenty. */
     private final ExecutorService poster = Executors.newSingleThreadExecutor(r -> {
@@ -105,11 +107,25 @@ public class VisaSubscriptions implements SnapshotCache {
 
             String url = jira.addComment(token.get(), sub.issue(), visas.compose(pr, res.get()));
             subs.remove(pr); // one-shot: the token leaves the disk with it
+            posted.incrementAndGet();
+            lastPostedAt = System.currentTimeMillis();
             log.info("auto-visa posted for PR {} -> {} ({})", pr, sub.issue(), url);
         }
         catch (RuntimeException e) {
             log.warn("auto-visa for PR {} failed (kept armed): {}", pr, e.toString());
         }
+    }
+
+    public int armedCount() {
+        return subs.size();
+    }
+
+    public int postedCount() {
+        return posted.get();
+    }
+
+    public long lastPostedAt() {
+        return lastPostedAt;
     }
 
     @Override

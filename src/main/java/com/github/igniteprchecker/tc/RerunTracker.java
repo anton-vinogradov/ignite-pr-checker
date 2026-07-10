@@ -43,6 +43,10 @@ public class RerunTracker implements SnapshotCache {
     private final ObjectMapper mapper;
     private final Map<Long, Tracked> tracked = new ConcurrentHashMap<>();
 
+    private volatile long lastRefreshAt;
+    private volatile long lastRefreshMs;
+    private final java.util.concurrent.atomic.AtomicInteger chainFinishes = new java.util.concurrent.atomic.AtomicInteger();
+
     public RerunTracker(TcClient tc, Warmer warmer, VisaSubscriptions visaSubs, AnalysisProperties cfg,
         ObjectMapper mapper) {
         this.tc = tc;
@@ -66,6 +70,8 @@ public class RerunTracker implements SnapshotCache {
     /** Refreshes each active build's state (chains expand to per-suite states); drops finished/gone ones. */
     @Scheduled(fixedDelay = 20_000, initialDelay = 10_000)
     void refresh() {
+        long t0 = System.currentTimeMillis();
+        lastRefreshAt = t0; // the watcher looked, even if there was nothing to track or no token
         if (tracked.isEmpty())
             return;
 
@@ -94,6 +100,24 @@ public class RerunTracker implements SnapshotCache {
                 // transient network error: keep the last known state and retry next cycle
             }
         }
+        lastRefreshMs = System.currentTimeMillis() - t0;
+    }
+
+    /** Telemetry for the status page. */
+    public Map<String, Object> stats() {
+        int chains = 0;
+        for (Tracked t : tracked.values())
+            if (runAllBuildType.equals(t.buildTypeId))
+                chains++;
+
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("tracked", tracked.size());
+        out.put("chains", chains);
+        out.put("suites", tracked.size() - chains);
+        out.put("lastRefreshAt", lastRefreshAt);
+        out.put("lastRefreshMs", lastRefreshMs);
+        out.put("chainFinishes", chainFinishes.get());
+        return out;
     }
 
     private void refreshSingle(String token, Tracked t) {
@@ -121,6 +145,7 @@ public class RerunTracker implements SnapshotCache {
             // The result is analysable this very second: pre-compute it before the first viewer
             // arrives, instead of waiting for the next warm cycle or making a user pay cold.
             if (b != null) {
+                chainFinishes.incrementAndGet();
                 warmer.warmPr(t.pr);
                 visaSubs.onRunFinished(t.pr);
             }
