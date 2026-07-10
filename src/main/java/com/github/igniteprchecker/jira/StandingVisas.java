@@ -46,6 +46,9 @@ public class StandingVisas implements SnapshotCache {
     private final JiraClient jira;
     private final VisaService visas;
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger postedTotal = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long lastSweepAt;
+    private volatile long lastSweepMs;
 
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas) {
@@ -82,6 +85,9 @@ public class StandingVisas implements SnapshotCache {
      */
     @Scheduled(fixedDelay = 600_000, initialDelay = 180_000)
     void sweep() {
+        long t0 = System.currentTimeMillis();
+        lastSweepAt = t0;
+        lastSweepMs = 0;
         if (enrolled.isEmpty())
             return;
 
@@ -127,6 +133,7 @@ public class StandingVisas implements SnapshotCache {
                 String url = jira.addComment(jiraToken.get(), m.group(), visas.compose(pr.number(), res.get()));
                 e.posted().put(pr.number(), buildId);
                 posted++;
+                postedTotal.incrementAndGet();
                 log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who, url);
             }
             catch (RuntimeException ex) {
@@ -134,8 +141,25 @@ public class StandingVisas implements SnapshotCache {
             }
         }
 
+        lastSweepMs = System.currentTimeMillis() - t0;
         if (posted > 0)
             log.info("standing auto-visa sweep: {} visa(s) posted", posted);
+    }
+
+    public int enrolledCount() {
+        return enrolled.size();
+    }
+
+    public int postedCount() {
+        return postedTotal.get();
+    }
+
+    public long lastSweepAt() {
+        return lastSweepAt;
+    }
+
+    public long lastSweepMs() {
+        return lastSweepMs;
     }
 
     @Override

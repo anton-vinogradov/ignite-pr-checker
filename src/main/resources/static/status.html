@@ -185,6 +185,9 @@
         
         <div class="cards" id="warmerCards"></div>
 
+        <h2>TC watcher <span class="muted" style="font-weight:400;font-size:0.8rem">· tracks queued/running builds every 20s; finish = eager re-analysis + auto-visas</span></h2>
+        <div class="cards" id="watcherCards"></div>
+
         <h2>TeamCity</h2>
         <div class="cards" id="tcCards"></div>
         <div class="subhead">Requests per minute · by category, last hour</div>
@@ -316,6 +319,21 @@
                     az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests',
                     az ? sev(az.avgLatencyMs, 500, 2000) : ''),
                 card('Open PRs', d.app.openPrs),
+            ].join('');
+
+            const w = d.watcher || {};
+            const agoW = ms => !ms ? 'never' : Math.round((Date.now() - ms) / 1000) < 90
+                ? Math.round((Date.now() - ms) / 1000) + 's ago' : Math.round((Date.now() - ms) / 60000) + 'm ago';
+            $('watcherCards').innerHTML = [
+                card('Tracked builds', w.tracked ?? 0, `${w.chains ?? 0} chains · ${w.suites ?? 0} suites`,
+                    (w.tracked ?? 0) > 0 ? 'ok' : ''),
+                card('Last refresh', agoW(w.lastRefreshAt), w.lastRefreshMs ? w.lastRefreshMs + 'ms' : '',
+                    w.lastRefreshAt && Date.now() - w.lastRefreshAt < 60000 ? 'ok' : w.lastRefreshAt ? 'warn' : ''),
+                card('Chain finishes', w.chainFinishes ?? 0, 'since start'),
+                card('Auto-visa armed', w.autoVisaArmed ?? 0,
+                    `${w.autoVisaPosted ?? 0} posted${w.autoVisaLastPostedAt ? ' · last ' + agoW(w.autoVisaLastPostedAt) : ''}`),
+                card('Standing visas', w.standingEnrolled ?? 0,
+                    `users · ${w.standingPosted ?? 0} posted · sweep ${agoW(w.standingLastSweepAt)}${w.standingLastSweepMs ? ' (' + w.standingLastSweepMs + 'ms)' : ''}`),
             ].join('');
 
             $('warmerCards').innerHTML = [

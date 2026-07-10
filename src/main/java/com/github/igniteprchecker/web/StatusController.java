@@ -24,15 +24,24 @@ public class StatusController {
     private final Warmer warmer;
     private final GithubClient github;
     private final LogTracker logs;
+    private final com.github.igniteprchecker.tc.RerunTracker tracker;
+    private final com.github.igniteprchecker.jira.VisaSubscriptions visaSubs;
+    private final com.github.igniteprchecker.jira.StandingVisas standing;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
-        LogTracker logs, ObjectProvider<BuildProperties> buildProps) {
+        LogTracker logs, com.github.igniteprchecker.tc.RerunTracker tracker,
+        com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
+        com.github.igniteprchecker.jira.StandingVisas standing,
+        ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
         this.warmer = warmer;
         this.github = github;
         this.logs = logs;
+        this.tracker = tracker;
+        this.visaSubs = visaSubs;
+        this.standing = standing;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
@@ -85,6 +94,15 @@ public class StatusController {
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
         out.put("http", metrics.http());
+        Map<String, Object> watcher = new LinkedHashMap<>(tracker.stats());
+        watcher.put("autoVisaArmed", visaSubs.armedCount());
+        watcher.put("autoVisaPosted", visaSubs.postedCount());
+        watcher.put("autoVisaLastPostedAt", visaSubs.lastPostedAt());
+        watcher.put("standingEnrolled", standing.enrolledCount());
+        watcher.put("standingPosted", standing.postedCount());
+        watcher.put("standingLastSweepAt", standing.lastSweepAt());
+        watcher.put("standingLastSweepMs", standing.lastSweepMs());
+        out.put("watcher", watcher);
         out.put("app", app);
         out.put("log", logSnap);
 
