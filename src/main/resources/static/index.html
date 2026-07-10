@@ -42,6 +42,7 @@
         .status-link { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .status-link:hover { border-color: #c0c0c0; }
         .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
+        .settings-btn { font-size: 1.15rem; line-height: 1; padding: 0.14rem 0.45rem; cursor: pointer; }
         .settings-panel { padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
         .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; max-width: 760px; }
         .settings-row input { margin-top: 0.2rem; }
@@ -310,7 +311,6 @@
             </div>
             <button id="reloadPill" class="status-link reload-pill hidden" type="button"
                 title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
-            <button id="settingsBtn" class="status-link" type="button" title="Settings">⚙</button>
             <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
@@ -327,6 +327,7 @@
                 <span>Star</span>
                 <span id="starCount" class="star-count"></span>
             </a>
+            <button id="settingsBtn" class="status-link settings-btn" type="button" title="Settings" aria-label="Settings">⚙</button>
         </div>
     </header>
 
