@@ -341,6 +341,16 @@
                 <span class="muted">Requires your JIRA Personal Access Token. While this is on, your TeamCity and JIRA
                 tokens are stored on the server encrypted at rest; turning it off removes them.</span></span>
         </label>
+        <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
+            A JIRA Personal Access Token is needed —
+            <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
+            then paste it here (kept encrypted in your session cookie):
+            <span class="row" style="margin-top: 0.4rem">
+                <input id="settingsJiraToken" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
+                <button id="settingsJiraSave" class="act" type="button">Save</button>
+                <span id="settingsJiraMsg" class="muted"></span>
+            </span>
+        </div>
         <div id="settingsMsg" class="muted"></div>
     </div>
 
@@ -1453,15 +1463,42 @@
             }
         };
 
+        $('settingsJiraSave').onclick = async () => {
+            const input = $('settingsJiraToken'), m = $('settingsJiraMsg');
+            const token = input.value.trim();
+            if (!token) { m.textContent = 'paste the token first'; return; }
+            m.textContent = 'checking…';
+            try {
+                const r = await api('/api/jira-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) { m.textContent = res.error || 'JIRA rejected the token'; return; }
+                hasJira = true;
+                input.value = '';
+                m.textContent = '';
+                $('settingsJira').classList.add('hidden');
+                $('standingVisaToggle').checked = true;
+                $('standingVisaToggle').onchange();
+            } catch (e) {
+                m.textContent = 'could not reach the service — try again';
+            }
+        };
+
         $('standingVisaToggle').onchange = async () => {
             const t = $('standingVisaToggle'), msg = $('settingsMsg');
             const enable = t.checked;
             msg.textContent = '';
             if (enable && !hasJira) {
                 t.checked = false;
-                pendingJiraAction = 'standing';
-                msg.textContent = 'A JIRA Personal Access Token is needed first — the setup just opened below the Blockers heading.';
-                await toggleJiraPanel(true);
+                $('settingsJira').classList.remove('hidden');
+                try {
+                    const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {});
+                    if (cfg.patUrl) $('settingsPatLink').href = cfg.patUrl;
+                } catch (e) { /* the hardcoded default link still works */ }
+                $('settingsJiraToken').focus();
                 return;
             }
             try {
