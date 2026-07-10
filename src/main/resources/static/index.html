@@ -908,10 +908,17 @@
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
             $('refreshBtn').onclick = refresh;
             const broken = res.brokenSuites || [];
-            const clean = res.blockers.length === 0;
+            const watch = res.watch || [];
+            const hasBlockers = res.blockers.length > 0;
+            // "Clean" (green, celebratory) only when nothing needs attention — no blockers, no broken
+            // suites, no recently-started-failing tests. A broken/timed-out suite is a real problem,
+            // so the verdict must not read as all-clear just because no individual test is a blocker.
+            const clean = !hasBlockers && broken.length === 0 && watch.length === 0;
             $('blockersTitle').classList.toggle('clean', clean);
-            $('blockersHead').textContent = clean ? (broken.length ? 'No blockers' : 'No blockers 🎉') : 'Blockers';
-            $('blockerCount').textContent = clean ? '' : countLabel(res.blockers);
+            $('blockersHead').textContent = hasBlockers ? 'Blockers'
+                : clean ? 'No blockers 🎉'
+                : 'No test blockers';
+            $('blockerCount').textContent = hasBlockers ? countLabel(res.blockers) : '';
             $('filteredCount').textContent = countLabel(res.filtered);
             const interrupted = !!res.interrupted;
             $('interruptedBanner').classList.toggle('hidden', !interrupted);
@@ -928,7 +935,6 @@
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
-            const watch = res.watch || [];
             $('watchCard').classList.toggle('hidden', watch.length === 0);
             $('watchCount').textContent = watch.length ? countLabel(watch) : '';
             renderList($('watch'), watch, false, true);
