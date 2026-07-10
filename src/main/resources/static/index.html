@@ -42,6 +42,9 @@
         .status-link { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .status-link:hover { border-color: #c0c0c0; }
         .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
+        .settings-panel { padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+        .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; max-width: 760px; }
+        .settings-row input { margin-top: 0.2rem; }
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
         #logout:hover { border-color: #c0c0c0; }
         .star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
@@ -307,6 +310,7 @@
             </div>
             <button id="reloadPill" class="status-link reload-pill hidden" type="button"
                 title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
+            <button id="settingsBtn" class="status-link" type="button" title="Settings">⚙</button>
             <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
@@ -325,6 +329,17 @@
             </a>
         </div>
     </header>
+
+    <div id="settingsPanel" class="settings-panel hidden">
+        <label class="settings-row">
+            <input id="standingVisaToggle" type="checkbox">
+            <span><b>Auto-visa all my runs</b> — when any RunAll I triggered finishes, post the verdict to the
+                PR's IGNITE ticket automatically (checked every ~10 minutes, each run posted once).<br>
+                <span class="muted">Requires your JIRA Personal Access Token. While this is on, your TeamCity and JIRA
+                tokens are stored on the server encrypted at rest; turning it off removes them.</span></span>
+        </label>
+        <div id="settingsMsg" class="muted"></div>
+    </div>
 
     <div class="content">
         <!-- login -->
@@ -1359,7 +1374,9 @@
                 input.value = '';
                 msg.textContent = '';
                 toggleJiraPanel(false);
-                if (pendingJiraAction === 'auto') armAutoVisa(); else postVisa();
+                if (pendingJiraAction === 'auto') armAutoVisa();
+                else if (pendingJiraAction === 'standing') { $('standingVisaToggle').checked = true; $('standingVisaToggle').onchange(); }
+                else postVisa();
                 pendingJiraAction = null;
             } catch (e) {
                 msg.textContent = 'could not reach the service — try again';
@@ -1414,6 +1431,45 @@
 
         $('visaBtn').onclick = postVisa;
         $('autoVisaBtn').onclick = armAutoVisa;
+
+        // Standing auto-visa (settings): the server watches every run the user triggers.
+        $('settingsBtn').onclick = async () => {
+            const p = $('settingsPanel');
+            const opening = p.classList.contains('hidden');
+            p.classList.toggle('hidden');
+            if (opening) {
+                try {
+                    const r = await api('/api/auto-visa-all');
+                    if (r.ok) $('standingVisaToggle').checked = !!(await r.json()).enabled;
+                } catch (e) { /* leave unchecked */ }
+            }
+        };
+
+        $('standingVisaToggle').onchange = async () => {
+            const t = $('standingVisaToggle'), msg = $('settingsMsg');
+            const enable = t.checked;
+            msg.textContent = '';
+            if (enable && !hasJira) {
+                t.checked = false;
+                pendingJiraAction = 'standing';
+                msg.textContent = 'A JIRA Personal Access Token is needed first — the setup just opened below the Blockers heading.';
+                await toggleJiraPanel(true);
+                return;
+            }
+            try {
+                const r = await api('/api/auto-visa-all?enable=' + enable, { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (r.status === 412) { t.checked = false; pendingJiraAction = 'standing'; await toggleJiraPanel(true); return; }
+                if (!r.ok) { t.checked = !enable; msg.textContent = friendly(res.error, 'could not change the setting'); return; }
+                msg.textContent = res.enabled
+                    ? 'On — verdicts for your finished runs will land in the tickets automatically.'
+                    : 'Off — stored tokens removed.';
+            } catch (e) {
+                t.checked = !enable;
+                msg.textContent = 'could not reach the service — try again';
+            }
+        };
         $('jiraSave').onclick = saveJiraToken;
         $('jiraCancel').onclick = () => toggleJiraPanel(false);
 

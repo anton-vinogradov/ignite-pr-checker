@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.VisaService;
+import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import java.time.Duration;
@@ -37,15 +38,18 @@ public class JiraController {
     private final SessionCodec codec;
     private final VisaService visas;
     private final VisaSubscriptions visaSubs;
+    private final StandingVisas standing;
     private final boolean cookieSecure;
 
     public JiraController(JiraClient jira, BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
-        VisaSubscriptions visaSubs, @Value("${session.cookie-secure:true}") boolean cookieSecure) {
+        VisaSubscriptions visaSubs, StandingVisas standing,
+        @Value("${session.cookie-secure:true}") boolean cookieSecure) {
         this.jira = jira;
         this.analyzer = analyzer;
         this.codec = codec;
         this.visas = visas;
         this.visaSubs = visaSubs;
+        this.standing = standing;
         this.cookieSecure = cookieSecure;
     }
 
@@ -74,6 +78,31 @@ public class JiraController {
             .header(HttpHeaders.SET_COOKIE, ResponseCookie.from(AuthInterceptor.COOKIE, cookie)
                 .httpOnly(true).secure(cookieSecure).sameSite("Lax").path("/").maxAge(COOKIE_MAX_AGE).build().toString())
             .body(Map.of("jiraUser", who.get()));
+    }
+
+    /** Toggles the standing auto-visa: every finished RunAll the user triggered gets a visa posted. */
+    @PostMapping("/auto-visa-all")
+    public ResponseEntity<?> standingVisa(@RequestParam boolean enable,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
+        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
+        if (!enable) {
+            standing.disable(username);
+
+            return ResponseEntity.ok(Map.of("enabled", false));
+        }
+        if (jiraToken == null)
+            return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
+
+        standing.enable(username, tcToken, jiraToken);
+
+        return ResponseEntity.ok(Map.of("enabled", true));
+    }
+
+    /** Whether the standing auto-visa is on for the logged-in user. */
+    @GetMapping("/auto-visa-all")
+    public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        return Map.of("enabled", standing.enabled(username));
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */
