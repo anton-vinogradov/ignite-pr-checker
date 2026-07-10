@@ -77,6 +77,28 @@ public class TriggerController {
         }
     }
 
+    /** Re-run a set of suites (comma-separated buildTypeIds) — backs the per-section Rerun buttons. */
+    @PostMapping("/rerun-suites")
+    public ResponseEntity<?> rerunSuites(@RequestParam int pr, @RequestParam String suites,
+        @RequestParam(defaultValue = "false") boolean top,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        List<String> ids = java.util.Arrays.stream(suites.split(","))
+            .map(String::trim).filter(s -> !s.isBlank()).distinct().toList();
+        if (ids.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("error", "no suites to re-run"));
+
+        try {
+            List<Map<String, Object>> triggered = ids.stream()
+                .map(suite -> brief(track(pr, tc.triggerBuild(token, suite, pr, top))))
+                .toList();
+
+            return ResponseEntity.ok(Map.of("triggered", triggered));
+        }
+        catch (RestClientResponseException e) {
+            return teamCityError(e);
+        }
+    }
+
     /** Re-run a single suite (buildType) for the PR — backs the per-suite Rerun buttons. */
     @PostMapping("/rerun-suite")
     public ResponseEntity<?> rerunSuite(@RequestParam int pr, @RequestParam String suite,
