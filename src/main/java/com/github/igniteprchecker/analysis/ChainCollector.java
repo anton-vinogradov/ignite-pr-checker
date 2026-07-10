@@ -107,10 +107,12 @@ public class ChainCollector {
         // finished-FAILURE suites must count. classify() re-anchors each test to its newest finished
         // run, so this only needs to ADD candidates that appear in the newer chain(s).
         boolean live = false;
+        long liveBuildId = 0;
         for (TcModel.Build chain : tc.recentChains(token, prNumber, 3)) {
             if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()))
                 continue; // not newer than the baseline, or nothing has run in it yet
             live = true;
+            liveBuildId = Math.max(liveBuildId, chain.id());
             TcModel.Build rBuild = tc.getBuildWithDeps(token, chain.id());
             List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()
                 .filter(dep -> "finished".equalsIgnoreCase(dep.state()) && "FAILURE".equals(dep.status()))
@@ -150,7 +152,7 @@ public class ChainCollector {
             .count();
         boolean interrupted = "FAILURE".equals(build.status()) && canceled > 0;
 
-        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled, live);
+        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled, live, liveBuildId);
     }
 
     /** Problems meaning the suite hung or died mid-run, so its per-test failures are unreliable
@@ -221,6 +223,6 @@ public class ChainCollector {
 
     /** A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused. */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
-        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live) {
+        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId) {
     }
 }

@@ -20,6 +20,7 @@ public record AnalysisResult(
     int suitesReused,
     boolean interrupted,
     int canceledSuites,
-    boolean live
+    boolean live,
+    long liveBuildId
 ) {
 }
