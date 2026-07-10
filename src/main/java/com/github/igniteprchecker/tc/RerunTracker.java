@@ -2,6 +2,7 @@ package com.github.igniteprchecker.tc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -37,13 +38,16 @@ public class RerunTracker implements SnapshotCache {
 
     private final TcClient tc;
     private final Warmer warmer;
+    private final VisaSubscriptions visaSubs;
     private final String runAllBuildType;
     private final ObjectMapper mapper;
     private final Map<Long, Tracked> tracked = new ConcurrentHashMap<>();
 
-    public RerunTracker(TcClient tc, Warmer warmer, AnalysisProperties cfg, ObjectMapper mapper) {
+    public RerunTracker(TcClient tc, Warmer warmer, VisaSubscriptions visaSubs, AnalysisProperties cfg,
+        ObjectMapper mapper) {
         this.tc = tc;
         this.warmer = warmer;
+        this.visaSubs = visaSubs;
         this.runAllBuildType = cfg.runAllBuildType();
         this.mapper = mapper;
     }
@@ -116,8 +120,10 @@ public class RerunTracker implements SnapshotCache {
             tracked.remove(t.buildId);
             // The result is analysable this very second: pre-compute it before the first viewer
             // arrives, instead of waiting for the next warm cycle or making a user pay cold.
-            if (b != null)
+            if (b != null) {
                 warmer.warmPr(t.pr);
+                visaSubs.onRunFinished(t.pr);
+            }
             return;
         }
 

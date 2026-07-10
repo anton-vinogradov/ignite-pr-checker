@@ -65,6 +65,42 @@ public class SessionCodec {
         }
     }
 
+    /** Encrypts an arbitrary secret with the session key (AES-GCM) — for short-lived at-rest storage. */
+    public String encryptString(String plain) {
+        try {
+            byte[] iv = new byte[IV_LEN];
+            random.nextBytes(iv);
+
+            Cipher cipher = Cipher.getInstance(TRANSFORM);
+            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
+            byte[] ct = cipher.doFinal(plain.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            byte[] out = ByteBuffer.allocate(iv.length + ct.length).put(iv).put(ct).array();
+
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(out);
+        }
+        catch (Exception e) {
+            throw new IllegalStateException("encrypt failed", e);
+        }
+    }
+
+    /** Decrypts a value produced by {@link #encryptString}; empty if tampered or the key rotated. */
+    public Optional<String> decryptString(String encoded) {
+        try {
+            byte[] in = Base64.getUrlDecoder().decode(encoded);
+            byte[] iv = Arrays.copyOfRange(in, 0, IV_LEN);
+            byte[] ct = Arrays.copyOfRange(in, IV_LEN, in.length);
+
+            Cipher cipher = Cipher.getInstance(TRANSFORM);
+            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
+
+            return Optional.of(new String(cipher.doFinal(ct), java.nio.charset.StandardCharsets.UTF_8));
+        }
+        catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
     /** Decrypts a cookie value; empty if missing or tampered. */
     public Optional<Session> decode(String cookie) {
         if (cookie == null || cookie.isBlank())
