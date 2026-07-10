@@ -129,13 +129,15 @@ public class TriggerController {
         // picks up builds triggered outside the tool (straight from the TeamCity UI).
         return tc.currentUserBuilds(token, pr).stream().map(b -> {
             Map<String, Object> m = brief(track(pr, b));
-            // A running RunAll's own estimate ignores agent-queue wait; TeamCity's per-dependency
-            // finish estimate does not. Prefer the queue-aware value so two chains queued seconds
-            // apart show their real (often hour-apart) finish times.
+            // A running RunAll's own estimate lies in both directions: it ignores agent-queue wait
+            // (underestimates a freshly queued chain) and inherits skewed duration history from
+            // interrupted runs (a 9h estimate with 44 minutes of work left). The per-dependency
+            // estimate knows both the queue and each suite's actual progress — prefer it whenever
+            // it exists, and keep the composite's own value only as a fallback.
             if (runAllBuildType.equals(b.buildTypeId()) && "running".equalsIgnoreCase(b.state())) {
-                long queueAware = tc.chainRemainingSeconds(token, b.id());
-                if (queueAware > ((Number) m.get("leftSec")).longValue())
-                    m.put("leftSec", queueAware);
+                long depBased = tc.chainRemainingSeconds(token, b.id());
+                if (depBased >= 0)
+                    m.put("leftSec", depBased);
             }
             return m;
         }).toList();
