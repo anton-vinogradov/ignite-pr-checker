@@ -101,7 +101,7 @@
         .pr-title a.ext { margin: 0; }
         .actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
         .act-sep { margin-left: 0.7rem; }
-        .sect-act { margin-left: 0.6rem; display: inline-flex; gap: 0.3rem; }
+        .sect-act { display: inline-flex; align-items: center; gap: 0.3rem; }
         .sect-act.hidden { display: none; }
         .jira-panel { margin: 0.5rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.82rem; }
         .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
@@ -137,6 +137,11 @@
         #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
+        .card.blockers > h2, .card.watch > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+        .card.blockers > h2 .sect-act, .card.watch > h2 .sect-act { margin-left: auto; }
+        /* a subtle divider before the reruns, keeping the view tabs / visa visually distinct */
+        .card.blockers > h2 .sect-act::before, .card.watch > h2 .sect-act::before {
+            content: ''; align-self: stretch; margin-right: 0.55rem; border-left: 1px solid var(--line); }
         .card.interrupted { border-color: var(--bad); border-left: 3px solid var(--bad); border-radius: 0 10px 10px 0; }
         .card.watch { border-left: 3px solid #b26a00; border-radius: 0 10px 10px 0; }
         .card.watch h2 { color: #b26a00; margin: 0 0 0.3rem; }
