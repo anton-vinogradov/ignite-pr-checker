@@ -396,6 +396,7 @@
                                 <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
                             </span>
                             <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
+                            <button id="autoVisaBtn" class="act" disabled>Auto visa</button>
                             <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span>
                         </h2>
                         <div id="jiraPanel" class="jira-panel hidden">
@@ -981,6 +982,9 @@
             wireSectActs('watchActs', suitesOfTests(watch));
             wireSectActs('filteredActs', suitesOfTests(res.filtered));
             $('visaBtn').disabled = !lastIssueKey;
+            $('autoVisaBtn').disabled = !lastIssueKey;
+            paintAutoVisa();
+            loadAutoVisa(selectedPr);
             $('visaBtn').title = lastIssueKey
                 ? `Post the verdict as a comment to ${lastIssueKey}`
                 : 'The PR title has no IGNITE-XXXXX ticket to post to';
@@ -1272,9 +1276,11 @@
         let hasJira = false;
         let lastIssueKey = '';
 
+        let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
+
         async function postVisa() {
             if (!selectedPr || !lastIssueKey) return;
-            if (!hasJira) { await toggleJiraPanel(true); return; }
+            if (!hasJira) { pendingJiraAction = 'visa'; await toggleJiraPanel(true); return; }
             if (!confirm(`Post the verdict as a comment to ${lastIssueKey} in ASF JIRA?`)) return;
             const btn = $('visaBtn');
             btn.disabled = true;
@@ -1317,12 +1323,61 @@
                 input.value = '';
                 msg.textContent = '';
                 toggleJiraPanel(false);
-                postVisa();
+                if (pendingJiraAction === 'auto') armAutoVisa(); else postVisa();
+                pendingJiraAction = null;
             } catch (e) {
                 msg.textContent = 'could not reach the service — try again';
             }
         }
+        // One-shot auto visa: post the verdict to the ticket when this PR's run finishes — no babysitting.
+        let autoVisaArmed = false;
+
+        function paintAutoVisa() {
+            const b = $('autoVisaBtn');
+            b.textContent = autoVisaArmed ? 'Auto visa ✓' : 'Auto visa';
+            b.title = !lastIssueKey
+                ? 'The PR title has no IGNITE-XXXXX ticket to post to'
+                : autoVisaArmed
+                    ? `Armed: the verdict will be posted to ${lastIssueKey} when the current run finishes — click to cancel (removes the stored token)`
+                    : `Post the verdict to ${lastIssueKey} automatically when the run finishes. Your JIRA token is stored encrypted until the visa is posted, then removed.`;
+        }
+
+        async function loadAutoVisa(pr) {
+            try {
+                const r = await api('/api/auto-visa?pr=' + pr);
+                if (!r.ok) return;
+                const d = await r.json();
+                if (pr !== selectedPr) return;
+                autoVisaArmed = !!d.armed;
+                paintAutoVisa();
+            } catch (e) { /* status is a bonus */ }
+        }
+
+        async function armAutoVisa() {
+            if (!selectedPr || !lastIssueKey) return;
+            if (!hasJira) { pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
+            const btn = $('autoVisaBtn');
+            btn.disabled = true;
+            try {
+                const path = autoVisaArmed ? '/api/auto-visa-cancel?pr=' + selectedPr
+                    : `/api/auto-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`;
+                const r = await api(path, { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (r.status === 412) { hasJira = false; pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
+                if (!r.ok) { $('status').textContent = friendly(res.error, 'auto-visa failed'); return; }
+                autoVisaArmed = !!res.armed;
+                paintAutoVisa();
+                $('status').textContent = autoVisaArmed
+                    ? `Auto visa armed — the verdict will land in ${lastIssueKey} when the run finishes.`
+                    : 'Auto visa cancelled.';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
         $('visaBtn').onclick = postVisa;
+        $('autoVisaBtn').onclick = armAutoVisa;
         $('jiraSave').onclick = saveJiraToken;
         $('jiraCancel').onclick = () => toggleJiraPanel(false);
 
