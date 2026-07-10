@@ -101,6 +101,8 @@
         .pr-title a.ext { margin: 0; }
         .actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end; }
         .act-sep { margin-left: 0.7rem; }
+        .sect-act { margin-left: 0.6rem; display: inline-flex; gap: 0.3rem; }
+        .sect-act.hidden { display: none; }
         .jira-panel { margin: 0.5rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.82rem; }
         .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
         /* Title + action buttons share a row; the buttons wrap to the next line only when the
@@ -350,9 +352,6 @@
                             <span class="muted">RunAll:</span>
                             <button class="act" data-act="trigger" data-top="false">Rerun</button>
                             <button class="act" data-act="trigger" data-top="true">Rerun top</button>
-                            <span class="muted act-sep">Blockers:</span>
-                            <button class="act rerun" data-act="rerun-blockers" data-top="false" disabled>Rerun</button>
-                            <button class="act rerun" data-act="rerun-blockers" data-top="true" disabled>Rerun top</button>
                         </div>
                     </div>
                     <div class="head-row">
@@ -379,7 +378,7 @@
                         <p class="muted" id="interruptedText"></p>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
-                        <h2>Broken suites <span id="brokenCount"></span></h2>
+                        <h2>Broken suites <span id="brokenCount"></span> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
                         <p class="muted">Didn't complete a reliable run — compilation, timeout, out-of-memory, crash or infrastructure.
                             A timed-out or crashed suite is shown here rather than mined for blockers (its failures would be hang cascade,
                             and some tests never ran). Re-run these first: the verdict below can't trust what they would have found.</p>
@@ -392,6 +391,7 @@
                                 <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
                             </span>
                             <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
+                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span>
                         </h2>
                         <div id="jiraPanel" class="jira-panel hidden">
                             Posting a visa needs your JIRA Personal Access Token —
@@ -409,14 +409,14 @@
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
                     <div id="watchCard" class="card watch hidden">
-                        <h2>Recently started failing <span id="watchCount"></span></h2>
+                        <h2>Recently started failing <span id="watchCount"></span> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
                         <p class="muted">Failing the last few runs on this branch but passing earlier — a fresh break to watch,
                             not yet a steady blocker. If it keeps failing it becomes a blocker; if it flaps back it won't.</p>
                         <ul id="watch" class="tests"></ul>
                     </div>
                     <div class="card">
                         <details>
-                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky</summary>
+                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></summary>
                             <ul id="filtered" class="tests"></ul>
                         </details>
                     </div>
@@ -543,7 +543,6 @@
             const li = findLi(number);
             setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
             $('actions').classList.remove('hidden');
-            setRerunEnabled(false);
             $('status').textContent = '';
             $('freshness').textContent = '';
             $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
@@ -554,8 +553,37 @@
             loadRuns(number);
         }
 
-        function setRerunEnabled(on) {
-            for (const b of document.querySelectorAll('.rerun')) b.disabled = !on;
+        function suitesOfTests(list) { return [...new Set((list || []).map(t => t.suite).filter(Boolean))]; }
+        function suitesOfBroken(list) { return [...new Set((list || []).map(b => b.suite).filter(Boolean))]; }
+
+        async function rerunSuites(suites, top, btn) {
+            if (!selectedPr || !suites.length) return;
+            const pr = selectedPr;
+            btn.disabled = true;
+            $('status').textContent = 'Queuing ' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + '…';
+            try {
+                const r = await api('/api/rerun-suites?pr=' + pr + '&top=' + top
+                    + '&suites=' + encodeURIComponent(suites.join(',')), { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
+                const links = (res.triggered || [])
+                    .map(b => `#${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
+                $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links;
+                loadRuns(pr);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Wires a section's Rerun / Rerun top buttons to re-run that section's distinct suites; hides
+        // the control when the section has no suites.
+        function wireSectActs(containerId, suites) {
+            const c = $(containerId);
+            if (!c) return;
+            c.classList.toggle('hidden', !suites.length);
+            for (const b of c.querySelectorAll('button'))
+                b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, b.dataset.top === 'true', b); };
         }
 
         let runsTimer = null;
@@ -943,7 +971,10 @@
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0);
             $('results').classList.remove('hidden');
-            setRerunEnabled(res.blockers.length > 0);
+            wireSectActs('brokenActs', suitesOfBroken(broken));
+            wireSectActs('blockerActs', suitesOfTests(res.blockers));
+            wireSectActs('watchActs', suitesOfTests(watch));
+            wireSectActs('filteredActs', suitesOfTests(res.filtered));
             $('visaBtn').disabled = !lastIssueKey;
             $('visaBtn').title = lastIssueKey
                 ? `Post the verdict as a comment to ${lastIssueKey}`
@@ -983,7 +1014,7 @@
             if (!selectedPr) return;
             const pr = selectedPr;
             btn.disabled = true;
-            $('status').textContent = act === 'rerun-blockers' ? 'Queuing blocker suites…' : 'Queuing RunAll…';
+            $('status').textContent = 'Queuing RunAll…';
             try {
                 const r = await api('/api/' + act + '?pr=' + pr + '&top=' + top, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
