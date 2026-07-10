@@ -3,7 +3,7 @@
 **English** · [Русский](features.ru.md)
 
 What Ignite PR Checker can do, screen by screen. The pictures are schematic mockups of the real UI
-(dark theme; there is a light theme too — the ☀/🌙 toggle in the top bar).
+(dark theme; there are four themes — Light, Dark, JetBrains and Terminal — the selector in the top bar).
 
 ## Finding your PR
 
@@ -22,17 +22,22 @@ What Ignite PR Checker can do, screen by screen. The pictures are schematic mock
 
 The one question the tool answers: **which tests did this PR actually break?**
 
-- **Blockers** — failed in the PR's latest RunAll **and** clean in the last ~100 master runs **and** still
-  failing in the last finished run on the branch. Grouped by suite; every name links straight to the
-  failure in TeamCity.
+- **Blockers** — failed in the PR's latest RunAll, clean in the last ~100 master runs, **and failing
+  consistently**: every one of the last N (default 3) finished branch runs failed, with no pass on the
+  same code. Grouped by suite; every name links straight to the failure in TeamCity.
+- **Recently started failing** — an amber card for tests failing the last 2+ runs but passing earlier:
+  a fresh break to watch. If it keeps failing it becomes a blocker; if it flaps back it won't.
+- The verdict is **live**: while a newer RunAll is running (or ended cancelled), failures from its
+  already-finished suites are folded in — the *● includes an unfinished run* tag links to that chain.
+  An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).
 - **Filtered out** — everything else, each with its reason (`pre-existing: fails 39/95 on master`,
   `passed on re-run`, …). Collapsed by default, so noise stays out of the way.
-- **Broken suites** — a suite that failed *without running its tests* (compilation error, timeout, agent
-  crash, failed dependency) is surfaced in its own red card instead of silently vanishing; suites that
-  failed only because a dependency failed collapse into one line.
+- **Broken suites** — a suite without a reliable run (compilation error, **execution timeout,
+  out-of-memory, JVM crash**, failed dependency) is surfaced in its own red card instead of silently
+  vanishing — even when it *does* have failed tests: those are hang cascade, and some tests never ran.
 - Every test carries a **pass/fail strip** of its finished runs on the branch (oldest → newest). A
   fail→pass transition earns a **flaky?** tag; a steady `▮▮▮` means a solid break.
-- **why?** expands the failure message inline, prefixed with a rough triage:
+- **why?** expands the failure message inline as a copyable code block, prefixed with a rough triage:
   `♻ environment/timing — a re-run may pass` vs `⚖ assertion — likely a real logic failure`.
 - The blockers card has two views: **Suites** (default) and **Root causes** — the same blockers
   regrouped by failure signature, each cause a collapsible with its suites and tests inside.
@@ -45,10 +50,14 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **vs previous run: +2 new · −3 fixed · 5 persisting** — the delta against the PR's previous RunAll
   (test names in the tooltips), next to a **trend sparkline**: one bar per run, red while blockers
   remain, green at zero.
-- **Re-runs without leaving the page**: the whole `RunAll`, all blocker suites at once, or one suite —
-  each *plain* or *at the top of the queue*. Live **queued / running** chips appear on the affected
-  suites and in the `runs:` row, each linking to that very build; a running RunAll chain expands into
-  per-suite states. **Cancel all** kills everything you queued.
+- **Re-runs without leaving the page**: the whole `RunAll`, any **section** (broken suites, blockers,
+  recently-started, filtered) or one suite — each *plain* or *at the top of the queue*. Live
+  **queued / running** chips appear on the affected suites and in the `runs:` row with **queue-aware
+  finish estimates** (they account for the agent queue and each suite's actual progress). **Cancel all**
+  kills everything you queued.
+- **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
+  one click now, **Auto visa** (one-shot, fires when the current run finishes), or the settings (⚙)
+  option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish, the analysis **refreshes itself** — no F5.
@@ -75,8 +84,11 @@ triggers a background re-warm.
 ## Everything else
 
 - **Self-update**: when a new release is out, an **Update to vX.Y.Z** button appears — one click swaps
-  the jar and restarts the service.
+  the jar and restarts the service. After a deploy, open tabs show a **UI updated — reload** pill.
+- The status page also has a **Users** tab (who's active now / everyone seen — visible to logged-in
+  viewers only) and a **Restart service** button (danger-styled, confirm-guarded).
 - **Per-user auth**: everyone logs in with their own TeamCity token (encrypted into an HttpOnly
   cookie; no server-side session store, no shared credentials).
-- **Dark / light theme**, per-browser, with no flash on load.
+- **Four themes** — Light, Dark, JetBrains (dense, status stripes) and Terminal (monospace, bracket
+  buttons) — per-browser, with no flash on load.
 - The heavy lifting is cached and pre-warmed in the background, so opening a PR is instant.

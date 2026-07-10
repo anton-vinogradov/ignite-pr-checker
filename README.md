@@ -11,12 +11,15 @@ on it:
 2. **Trigger runs** from the same page: the whole RunAll chain, or a re-run of just the blocker suites
    (or one suite), at the head of the queue if you're in a hurry.
 
+➡ **Live instance for Apache Ignite contributors: <https://ignite-pr-checker.is-a.dev>** — log in with your ci2 token.
+
 ➡ **[Feature tour with screenshots](docs/features.md)**
 
 It's a deliberately lightweight, self-updating alternative to the legacy
-[ignite-teamcity-bot](https://github.com/apache/ignite-teamcity-bot): no database, no GitHub/JIRA
-integration, no notifications — a thin layer over the TeamCity REST API plus the one piece of logic
-that matters. Every user works under their own TeamCity token.
+[ignite-teamcity-bot](https://github.com/apache/ignite-teamcity-bot): no database, no state to babysit —
+a thin layer over the TeamCity REST API plus the one piece of logic that matters. It can also post the
+verdict (a "visa") to the PR's JIRA ticket — manually, once when the run finishes, or automatically for
+every run you trigger. Every user works under their own TeamCity token.
 
 ## The core idea: what is a "blocker"?
 
@@ -26,10 +29,21 @@ A test that failed in your PR's latest **RunAll** is a **blocker** (broken *by y
 - **Clean on master** — it does **not** fail in the last `MASTER_HISTORY_DEPTH` (default **100**) runs of
   that test on the base branch. Any failure there means it's pre-existing or flaky, not your fault →
   filtered out as noise (with the reason shown).
-- **Still failing in the last finished run** on the PR branch — a later re-run that passed clears it
-  (the failure wasn't reproducible). The verdict, its link and its history are always anchored to that
-  **last finished run**, not to the RunAll it was first discovered in.
+- **Fails consistently on the branch** — it fails in all of the last `BLOCKER_FAIL_STREAK` (default **3**)
+  finished runs of its suite on the PR branch, with no pass in that window. A pass *on the same code*
+  means the failure isn't caused by the change:
+  - failed only the latest run but passed just before → filtered as *flaky on branch*;
+  - failing the last 2+ runs but passed earlier → a separate **"Recently started failing"** card — a
+    fresh break to watch, not yet a hard blocker.
+
+  The verdict, its links and its history strips are always anchored to the **newest finished run**.
 - If the test has **no master history at all**, it's kept as a blocker ("can't prove it's pre-existing").
+
+Suites that didn't produce a reliable run — compilation failure, **execution timeout, out-of-memory,
+JVM crash**, or a chain interrupted/cancelled mid-way — are surfaced as **broken suites** instead of
+being mined for cascade failures, and an aborted chain gets an explicit *RunAll interrupted* banner.
+While a newer RunAll is still running (or ended cancelled), results of its finished suites are **folded
+into the verdict live** — no waiting for the whole ~4-hour chain.
 
 Each blocker also shows a **pass/fail history strip** of its finished runs on the branch (green = passed,
 red = failed, oldest → newest) — like the bot's, but computed on the fly.
@@ -43,8 +57,13 @@ from the TeamCity REST API; there is no datastore to maintain.
   put any number in the URL (`?pr=12345`) to open it directly — even if it isn't in the list.
 - Blockers are grouped **by suite** (the suite header links to its CI run); each test links straight to
   its failure **in the last finished run**.
-- **Trigger** controls: `RunAll` and `Blockers` (rerun the blocker suites), each *plain* or *at the top
-  of the queue*, plus a per-suite **Rerun / Rerun top**, a live list of your current runs, and **Cancel all**.
+- **Trigger** controls: `RunAll` (*plain* or *at the top of the queue*), a **Rerun / Rerun top** pair on
+  every section (broken suites, blockers, recently-started, filtered) and on each individual suite, a live
+  list of your current runs with queue-aware ETAs, and **Cancel all**.
+- **JIRA visa**: post the verdict as a comment to the PR's `IGNITE-XXXXX` ticket — one click, armed
+  one-shot for when the current run finishes (**Auto visa**), or a standing option in settings (⚙) that
+  visas **every** run you trigger. Your JIRA PAT travels in the encrypted session cookie; for the
+  deferred variants it is stored encrypted only until the visa is posted / while the option is on.
 - A public **[status page](src/main/resources/static/status.html)** (`/status.html`) with service metrics:
   TeamCity/GitHub calls **by category over the last hour**, a per-minute chart, success rate and latency,
   JVM/cache internals, and a **health** indicator with recent WARN/ERROR from the log.
@@ -57,7 +76,7 @@ Single Spring Boot app, no database:
 |---|---|
 | `TcClient` | Thin wrapper over the TeamCity REST API: find the latest finished RunAll, expand snapshot deps, failed tests, per-test master history, per-branch runs, trigger/cancel builds. Every call takes the caller's token. |
 | `ChainCollector` | Walks a composite RunAll build into its dependency suites and collects the failed tests (plus broken suites that failed without running tests, and the run's ran/reused composition). |
-| `BlockerAnalyzer` | The classifier: master-clean + still-failing-in-last-run → blocker vs noise; runs per-test lookups in parallel; caches results. |
+| `BlockerAnalyzer` | The classifier: master-clean + consistent failure over the last N branch runs → blocker / recently-started (watch) / noise; runs per-test lookups in parallel; caches results. |
 | `AnalysisCache` / `TtlCache` | In-memory caches (per-build result, per-test master history), shared across users and PRs. |
 | `Warmer` / `TokenPool` | Keeps the newest PRs pre-analysed in the background, spread across logged-in users' donated tokens; **cache-aware** (only recomputes PRs whose RunAll build changed). |
 | `RunDeltaStore` / `FlakyStats` / `RerunTracker` | Blocker delta & trend between runs; the persistent fix-master queue; live queued/running states of re-runs. |
@@ -65,7 +84,9 @@ Single Spring Boot app, no database:
 | `GithubClient` | Lists the repo's open PRs for the nav pane (cached to stay within the API rate limit). |
 | `Metrics` / `LogTracker` / `StatusController` | Powers the public status page (rolling last-hour call metrics + log health). |
 | `UpdateService` | In-app self-update: checks GitHub releases and, on request, swaps the jar and restarts. |
-| Web controllers | `/api/analyze`, `/api/refresh`, `/api/trigger`, `/api/rerun-blockers`, `/api/rerun-suite`, `/api/runs`, `/api/cancel-all`, `/api/prs`, `/api/config`, `/api/status`, `/api/version`, `/api/update`, `/api/login`·`/logout`·`/me`. |
+| `JiraClient` / `VisaService` / `VisaSubscriptions` / `StandingVisas` | The JIRA "visa": composes the verdict in wiki markup and posts it to the ticket — manually, one-shot when a tracked run finishes, or via a periodic sweep for every enrolled user's runs (tokens encrypted at rest only while needed). |
+| `UserDirectory` | Who has used the tool (name, activity, logins) — backs the status page's **Users** tab. |
+| Web controllers | `/api/analyze`, `/api/refresh`, `/api/causes`, `/api/delta`, `/api/progress`, `/api/trigger`, `/api/rerun-suite(s)`, `/api/runs`, `/api/cancel-all`, `/api/jira-visa`, `/api/auto-visa(-all)`, `/api/users`, `/api/restart`, `/api/prs`, `/api/config`, `/api/status`, `/api/version`, `/api/update`, `/api/login`·`/logout`·`/me`, … |
 
 ## Authentication
 
@@ -85,6 +106,8 @@ deployment via environment variables:
 export TC_BASE_URL="https://your-teamcity-host/"        # default: https://ci2.ignite.apache.org/
 export TC_RUN_ALL_BUILD_TYPE="IgniteTests24Java8_RunAll"
 export MASTER_HISTORY_DEPTH=100                         # master runs checked per test for the blocker rule
+export BLOCKER_FAIL_STREAK=3                            # consecutive branch-run failures required for a blocker
+export APP_PUBLIC_URL="https://your.host"               # absolute links in posted JIRA visas
 export GITHUB_REPO="apache/ignite"                      # whose open PRs populate the nav pane
 export GITHUB_TOKEN=...                                 # optional: raise the GitHub API limit (60 -> 5000/h)
 export SESSION_SECRET=...                               # stable secret so logins survive restarts (install.sh generates one)
