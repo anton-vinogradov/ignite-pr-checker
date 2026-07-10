@@ -14,7 +14,7 @@ public class VisaService {
     private final String publicUrl;
 
     public VisaService(TeamcityProperties tc,
-        @Value("${app.public-url:https://v888764.hosted-by-vdsina.com}") String publicUrl) {
+        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl) {
         this.tc = tc;
         this.publicUrl = publicUrl;
     }
