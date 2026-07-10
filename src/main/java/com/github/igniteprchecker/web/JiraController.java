@@ -93,6 +93,8 @@ public class JiraController {
         }
         if (jiraToken == null)
             return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
+        if (jira.myself(jiraToken).isEmpty())
+            return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
 
         standing.enable(username, tcToken, jiraToken);
 
@@ -114,6 +116,8 @@ public class JiraController {
             return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
         if (!issue.matches("IGNITE-\\d+"))
             return ResponseEntity.badRequest().body(Map.of("error", "bad issue key"));
+        if (jira.myself(jiraToken).isEmpty())
+            return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
 
         visaSubs.arm(pr, issue, jiraToken, username);
 
