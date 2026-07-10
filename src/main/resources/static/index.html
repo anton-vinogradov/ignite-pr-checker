@@ -769,6 +769,7 @@
             $('status').textContent = 'Analyzing… (walking the RunAll chain)';
             $('freshness').textContent = '';
             $('results').classList.add('hidden');
+            $('deltaRow').classList.add('hidden'); // it lives outside #results — clear the previous PR's delta
             // While the compute runs, show its real progress — a cold analysis of a fresh run takes a
             // while, and a silent spinner reads as "broken". The first viewer fills the cache for everyone.
             const progTimer = setInterval(async () => {
