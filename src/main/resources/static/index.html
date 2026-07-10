@@ -114,8 +114,15 @@
         #status { flex: 1; min-width: 0; }
         #freshness { flex: none; white-space: nowrap; }
         .tag-flaky { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
-        .tabs { margin-left: 0.7rem; }
-        .tabs .act.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .tabs { display: inline-flex; margin-left: 0.3rem; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; }
+        .tabs .act { border: none; border-radius: 0; background: transparent; color: var(--muted); }
+        .tabs .act + .act { border-left: 1px solid var(--line); }
+        .tabs .act.on { background: var(--accent); color: #fff; }
+        .tabs .act:not(.on):hover { color: var(--fg); background: rgba(128, 128, 128, 0.12); }
+        /* the theme blocks' generic button backgrounds outrank .tabs .act — pin the segments per theme */
+        html[data-theme="dark"] .tabs .act:not(.on), html[data-theme="jetbrains"] .tabs .act:not(.on) { background: transparent; color: var(--muted); }
+        html[data-theme="dark"] .tabs .act.on, html[data-theme="jetbrains"] .tabs .act.on { background: var(--accent); color: #fff; }
+        html[data-theme="dark"] .tabs .act:not(.on):hover, html[data-theme="jetbrains"] .tabs .act:not(.on):hover { color: var(--fg); background: rgba(128, 128, 128, 0.15); }
         .cause { margin: 0.35rem 0; }
         .cause > summary { cursor: pointer; font-size: 0.82rem; padding: 0.25rem 0; }
         .cause .sig { font-family: ui-monospace, monospace; word-break: break-all; }
@@ -271,6 +278,8 @@
             .why::before, .suite-rerun::before, .act::before, a.ext::before, .cancel::before { content: "["; color: var(--muted); }
             .why::after, .suite-rerun::after, .act::after, a.ext::after, .cancel::after { content: "]"; color: var(--muted); }
             .why:hover, .suite-rerun:hover, .act:not(:disabled):hover, a.ext:hover, .cancel:hover { text-decoration: underline; background: transparent; }
+            .tabs { border: none; }
+            .tabs .act + .act { border-left: none; }
             .tabs .act.on { background: #21262d; color: var(--fg); }
             #blockersHead { text-transform: uppercase; letter-spacing: 0.04em; }
             .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
