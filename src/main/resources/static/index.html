@@ -280,7 +280,13 @@
             .why:hover, .suite-rerun:hover, .act:not(:disabled):hover, a.ext:hover, .cancel:hover { text-decoration: underline; background: transparent; }
             .tabs { border: none; }
             .tabs .act + .act { border-left: none; }
-            .tabs .act.on { background: #21262d; color: var(--fg); }
+            /* terminal switcher idiom: inverse video for the selected tab (mc/htop style); inactive
+               tabs are muted, so they can't be mistaken for the accent-coloured [action] links */
+            .tabs .act:not(.on) { color: var(--muted); }
+            .tabs .act:not(.on)::before, .tabs .act:not(.on)::after { color: var(--muted); }
+            .tabs .act:not(.on):hover { color: var(--fg); background: transparent; }
+            .tabs .act.on { background: #58a6ff; color: #0d1117; font-weight: 700; }
+            .tabs .act.on::before, .tabs .act.on::after { color: #0d1117; }
             #blockersHead { text-transform: uppercase; letter-spacing: 0.04em; }
             .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
             .my-tag { border: none; padding: 0; }
