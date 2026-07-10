@@ -39,6 +39,7 @@
         .mini-btn.danger:hover { background: rgba(220, 60, 50, 0.12); border-color: var(--bad); }
         .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .pill:hover { border-color: #c0c0c0; }
+        .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; }
         .mini-btn.danger { color: var(--bad); border-color: var(--bad); }
         .mini-btn.danger:hover { background: rgba(220, 60, 50, 0.12); border-color: var(--bad); }
@@ -138,6 +139,8 @@
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></div>
         <div class="topbar-right">
+            <button id="reloadPill" class="pill reload-pill hidden" type="button"
+                title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
             <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
@@ -207,6 +210,24 @@
 
     <script>
         const $ = id => document.getElementById(id);
+
+        // A long-lived tab can't hot-swap its own code: when a deploy changes this page, offer a reload.
+        (function () {
+            let baseline = null;
+            async function check() {
+                try {
+                    const r = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+                    const lm = r.headers.get('last-modified');
+                    if (!lm) return;
+                    if (baseline === null) { baseline = lm; return; }
+                    if (lm !== baseline) document.getElementById('reloadPill').classList.remove('hidden');
+                } catch (e) { /* offline blip: try again next tick */ }
+            }
+            check();
+            setInterval(check, 120000);
+            document.getElementById('reloadPill').onclick = () => location.reload();
+        })();
+
 
         function fmtDur(s) {
             s = Math.floor(s);

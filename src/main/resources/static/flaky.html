@@ -55,6 +55,7 @@
         .live.queued { background: #fff3e0; color: #b26a00; }
         .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .pill:hover { border-color: #c0c0c0; }
+        .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
         a.ext { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin: 0 0.3em; border: 1px solid var(--line); background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
         a.ext:hover { border-color: #c0c0c0; }
         .why { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin-left: 0.35rem; border: 1px solid var(--line); background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
@@ -122,6 +123,8 @@
     <header class="topbar">
         <div class="brand">Ignite PR Checker <small>flaky tests · fix-master queue</small></div>
         <div class="topbar-right">
+            <button id="reloadPill" class="pill reload-pill hidden" type="button"
+                title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
             <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
@@ -141,6 +144,24 @@
 
     <script>
         const $ = id => document.getElementById(id);
+
+        // A long-lived tab can't hot-swap its own code: when a deploy changes this page, offer a reload.
+        (function () {
+            let baseline = null;
+            async function check() {
+                try {
+                    const r = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+                    const lm = r.headers.get('last-modified');
+                    if (!lm) return;
+                    if (baseline === null) { baseline = lm; return; }
+                    if (lm !== baseline) document.getElementById('reloadPill').classList.remove('hidden');
+                } catch (e) { /* offline blip: try again next tick */ }
+            }
+            check();
+            setInterval(check, 120000);
+            document.getElementById('reloadPill').onclick = () => location.reload();
+        })();
+
         let tcBase = '';
         let lastJson = ''; // only re-render on change, so an open "why?" isn't wiped by the poll
 

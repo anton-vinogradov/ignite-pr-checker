@@ -41,6 +41,7 @@
         .topbar-right { display: flex; align-items: center; gap: 1rem; }
         .status-link { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .status-link:hover { border-color: #c0c0c0; }
+        .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
         #logout:hover { border-color: #c0c0c0; }
         .star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
@@ -289,6 +290,8 @@
                 <span id="username"></span>
                 <button id="logout">Log out</button>
             </div>
+            <button id="reloadPill" class="status-link reload-pill hidden" type="button"
+                title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
             <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
@@ -433,6 +436,24 @@
 
     <script>
         const $ = (id) => document.getElementById(id);
+
+        // A long-lived tab can't hot-swap its own code: when a deploy changes this page, offer a reload.
+        (function () {
+            let baseline = null;
+            async function check() {
+                try {
+                    const r = await fetch(location.pathname, { method: 'HEAD', cache: 'no-store' });
+                    const lm = r.headers.get('last-modified');
+                    if (!lm) return;
+                    if (baseline === null) { baseline = lm; return; }
+                    if (lm !== baseline) document.getElementById('reloadPill').classList.remove('hidden');
+                } catch (e) { /* offline blip: try again next tick */ }
+            }
+            check();
+            setInterval(check, 120000);
+            document.getElementById('reloadPill').onclick = () => location.reload();
+        })();
+
         let githubRepo = 'apache/ignite';
         let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
         let selectedPr = null;
