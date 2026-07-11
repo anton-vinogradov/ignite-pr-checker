@@ -341,6 +341,12 @@
                 <span class="muted">Requires your JIRA Personal Access Token. While this is on, your TeamCity and JIRA
                 tokens are stored on the server encrypted at rest; turning it off removes them.</span></span>
         </label>
+        <label class="settings-row" style="margin-top: 0.5rem; margin-left: 1.6rem">
+            <input id="autoRerunToggle" type="checkbox" disabled>
+            <span><b>Re-run blocker suites before posting</b> — if the finished run has blockers, re-run their
+                suites automatically (up to 2 attempts, queued at the top) and post the visa only once they settle.
+                A pass on re-run clears the blocker; what keeps failing is posted red.</span>
+        </label>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
             <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
@@ -1458,7 +1464,12 @@
             if (opening) {
                 try {
                     const r = await api('/api/auto-visa-all');
-                    if (r.ok) $('standingVisaToggle').checked = !!(await r.json()).enabled;
+                    if (r.ok) {
+                        const st = await r.json();
+                        $('standingVisaToggle').checked = !!st.enabled;
+                        $('autoRerunToggle').checked = !!st.autoRerun;
+                        $('autoRerunToggle').disabled = !st.enabled;
+                    }
                 } catch (e) { /* leave unchecked */ }
             }
         };
@@ -1487,6 +1498,17 @@
             }
         };
 
+        $('autoRerunToggle').onchange = async () => {
+            if (!$('standingVisaToggle').checked) return;
+            try {
+                const r = await api('/api/auto-visa-all?enable=true&autoRerun=' + $('autoRerunToggle').checked, { method: 'POST' });
+                const res = await r.json().catch(() => ({}));
+                if (r.ok) $('settingsMsg').textContent = res.autoRerun
+                    ? 'Auto re-run on — blockers get up to 2 re-runs before the visa.'
+                    : 'Auto re-run off — the visa posts the first verdict as is.';
+            } catch (e) { $('settingsMsg').textContent = 'could not reach the service — try again'; }
+        };
+
         $('standingVisaToggle').onchange = async () => {
             const t = $('standingVisaToggle'), msg = $('settingsMsg');
             const enable = t.checked;
@@ -1502,11 +1524,14 @@
                 return;
             }
             try {
-                const r = await api('/api/auto-visa-all?enable=' + enable, { method: 'POST' });
+                const r = await api('/api/auto-visa-all?enable=' + enable
+                    + '&autoRerun=' + (enable && $('autoRerunToggle').checked), { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) { t.checked = false; hasJira = false; pendingJiraAction = 'standing'; await toggleJiraPanel(true); return; }
                 if (!r.ok) { t.checked = !enable; msg.textContent = friendly(res.error, 'could not change the setting'); return; }
+                $('autoRerunToggle').disabled = !res.enabled;
+                if (!res.enabled) $('autoRerunToggle').checked = false;
                 msg.textContent = res.enabled
                     ? 'On — verdicts for your finished runs will land in the tickets automatically.'
                     : 'Off — stored tokens removed.';
