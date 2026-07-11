@@ -251,12 +251,35 @@ public class PrCommands implements SnapshotCache {
                     return;
 
                 if ("finished".equalsIgnoreCase(b.state())) {
-                    boolean cancelled = "UNKNOWN".equalsIgnoreCase(b.status());
-                    edit(actor.get().ghToken(), run.commentId(), run.baseBody()
-                        + (cancelled ? "\n🛑 _Run cancelled._" : "\n🏁 _Run finished — the verdict comment follows._"));
-                    watching.remove(pr);
+                    if ("UNKNOWN".equalsIgnoreCase(b.status())) {
+                        edit(actor.get().ghToken(), run.commentId(), run.baseBody() + "\n🛑 _Run cancelled._");
+                        watching.remove(pr);
 
-                    return;
+                        return;
+                    }
+
+                    // The command comment narrates the whole story: after the chain finishes it keeps
+                    // reporting the blocker/broken auto re-run waves and only closes once the verdict
+                    // has actually landed.
+                    if (standing.buildHandled(run.username(), pr, run.buildId())) {
+                        edit(actor.get().ghToken(), run.commentId(), run.baseBody()
+                            + "\n🏁 _Run finished — the verdict comment has the full story._");
+                        watching.remove(pr);
+
+                        return;
+                    }
+
+                    Optional<StandingVisas.WaveStatus> w = standing.waveStatus(pr, run.buildId());
+                    String line = w.isEmpty()
+                        ? "\n🏁 _Run finished — analysing; the verdict comment follows._"
+                        : "\n🏁 _Run finished._ ♻️ _Auto re-run **#" + w.get().wave() + "** — " + w.get().what()
+                            + (w.get().etaEpochSec() == null ? "" : ", **≈ settled by " + finishAt(
+                                Math.max(0, w.get().etaEpochSec() - System.currentTimeMillis() / 1000),
+                                actor.get().tz()) + "**")
+                            + " — details in the verdict comment._";
+                    edit(actor.get().ghToken(), run.commentId(), run.baseBody() + line);
+
+                    return; // keep narrating until the verdict lands
                 }
 
                 long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId());

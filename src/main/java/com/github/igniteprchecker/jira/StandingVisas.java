@@ -120,6 +120,28 @@ public class StandingVisas implements SnapshotCache {
         return enrolled.values().stream().anyMatch(Enrollment::ghComment);
     }
 
+    /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
+    public Optional<WaveStatus> waveStatus(int pr, long buildId) {
+        Retry r = retries.get(pr);
+        if (r == null || r.buildId() != buildId)
+            return Optional.empty();
+
+        int wave = r.history() != null && !r.history().isEmpty() ? r.history().size() : r.attempts();
+
+        return Optional.of(new WaveStatus(wave, r.what(), activeEtaEpoch(pr)));
+    }
+
+    /** Whether the build's verdict has been posted for the user — i.e. the run's story is over. */
+    public boolean buildHandled(String username, int pr, long buildId) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && Long.valueOf(buildId).equals(e.posted().get(pr));
+    }
+
+    /** One settling wave as seen from outside: its number, what it re-runs, and the settle estimate. */
+    public record WaveStatus(int wave, String what, Long etaEpochSec) {
+    }
+
     /** Same as {@link #actorByGhLogin} but by the TC username — for follow-ups on an accepted command. */
     public Optional<GhActor> actor(String username) {
         Enrollment e = enrolled.get(username);
