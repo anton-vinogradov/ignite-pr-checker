@@ -83,6 +83,7 @@ public class JiraController {
     /** Toggles the standing auto-visa: every finished RunAll the user triggered gets a visa posted. */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam boolean enable,
+        @RequestParam(defaultValue = "false") boolean autoRerun,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
@@ -96,15 +97,15 @@ public class JiraController {
         if (jira.myself(jiraToken).isEmpty())
             return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
 
-        standing.enable(username, tcToken, jiraToken);
+        standing.enable(username, tcToken, jiraToken, autoRerun);
 
-        return ResponseEntity.ok(Map.of("enabled", true));
+        return ResponseEntity.ok(Map.of("enabled", true, "autoRerun", autoRerun));
     }
 
     /** Whether the standing auto-visa is on for the logged-in user. */
     @GetMapping("/auto-visa-all")
     public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        return Map.of("enabled", standing.enabled(username));
+        return Map.of("enabled", standing.enabled(username), "autoRerun", standing.autoRerun(username));
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */

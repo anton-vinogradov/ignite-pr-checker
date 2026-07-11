@@ -56,6 +56,11 @@ public class RerunTracker implements SnapshotCache {
         this.mapper = mapper;
     }
 
+    /** Whether any tracked build (chain or suite re-run) of this PR is still queued/running. */
+    public boolean hasActive(int pr) {
+        return tracked.values().stream().anyMatch(t -> t.pr == pr);
+    }
+
     /** Remember a queued/running build; the UI starts showing its chip immediately. Idempotent by build id. */
     public void record(int pr, TcModel.Build b) {
         if (b == null || b.buildTypeId() == null || "finished".equalsIgnoreCase(b.state()))
