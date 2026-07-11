@@ -1,11 +1,13 @@
 package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -231,16 +233,42 @@ public class BlockerAnalyzer {
         List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
         List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
+        List<BrokenSuite> broken = withoutHealed(token, prNumber, chain.brokenSuites());
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            System.currentTimeMillis(), blockers, watch, filtered, chain.brokenSuites(),
+            System.currentTimeMillis(), blockers, watch, filtered, broken,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId());
 
         cache.putResult(buildId, result);
         prBlockers.put(prNumber, blockers.size());
-        deltas.onResult(prNumber, buildId, blockers, chain.brokenSuites().size());
+        deltas.onResult(prNumber, buildId, blockers, broken.size());
 
         return result;
+    }
+
+    /**
+     * A broken suite stops being broken once a NEWER finished run of it on the branch passed — the
+     * same last-finished-run anchoring tests get, without which re-running a broken suite (manually
+     * or automatically) could never clear it from the verdict. Kept on any doubt.
+     */
+    private List<BrokenSuite> withoutHealed(String token, int prNumber, List<BrokenSuite> broken) {
+        if (broken.isEmpty())
+            return broken;
+
+        List<BrokenSuite> out = new ArrayList<>();
+        for (BrokenSuite s : broken) {
+            try {
+                Optional<TcModel.Build> last = tc.latestSuiteRun(token, prNumber, s.suite());
+                if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status()))
+                    continue;
+            }
+            catch (RuntimeException e) {
+                // TC hiccup — better a possibly stale broken-suite entry than a silently healed one
+            }
+            out.add(s);
+        }
+
+        return out;
     }
 
     private TestVerdict classify(String token, int prNumber, FailedTest t) {

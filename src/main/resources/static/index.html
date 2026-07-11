@@ -350,9 +350,10 @@
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="autoRerunToggle" type="checkbox">
-            <span><b>Auto re-run blocker suites on my runs</b> — if a RunAll I triggered finishes with blockers,
-                re-run their suites automatically (up to 2 attempts). Up to 10 suites jump to the top of the queue;
-                more go to the tail so they don't push everyone else back; a systemic breakage (30+) is left alone.
+            <span><b>Auto re-run blocker suites on my runs</b> — if a RunAll I triggered finishes with blockers
+                or broken suites (timeout, crash, compilation), re-run those suites automatically (up to
+                2 attempts). Up to 10 suites jump to the top of the queue; more go to the tail so they don't
+                push everyone else back; a systemic breakage (30+) is left alone.
                 Identical suites already sitting in the queue are cancelled first.<br>
                 <span class="muted">Works on its own — no JIRA needed; your TeamCity token is stored encrypted
                 at rest while this is on.</span></span>

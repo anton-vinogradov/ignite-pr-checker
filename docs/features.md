@@ -60,10 +60,13 @@ The one question the tool answers: **which tests did this PR actually break?**
   option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically
   (only runs finished after you switch it on; each run is posted once).
 - **Auto re-run blocker suites** (settings, independent of the visa) — when a RunAll you triggered
-  finishes with blockers, their suites are re-run automatically, up to 2 attempts: ≤10 suites jump to
-  the top of the queue, more go to the tail so they don't push others back, and a systemic breakage
-  (30+) is left alone. Identical suites already waiting in the queue are cancelled first. A pass on
-  re-run clears its blocker; with the visa also on, the visa waits until the re-runs settle.
+  finishes with blockers **or broken suites** (timeout, crash, compilation), those suites are re-run
+  automatically, up to 2 attempts: ≤10 suites jump to the top of the queue, more go to the tail so
+  they don't push others back, and a systemic breakage (30+) is left alone. Identical suites already
+  waiting in the queue are cancelled first. A pass on re-run clears its blocker — and a broken suite
+  whose newer run passed stops being broken. With the visa also on, the visa waits until the re-runs
+  settle; the living PR comment's ⏳ line carries a queue-aware **"≈ settled by HH:MM"** estimate,
+  refreshed every sweep.
 - **GitHub PR comment** (settings, independent of the other two) — the same verdict, in GitHub
   markdown, posted on the `apache/ignite` pull request from your own GitHub account (a personal
   access token with the `public_repo` scope; stored encrypted at rest while the option is on).

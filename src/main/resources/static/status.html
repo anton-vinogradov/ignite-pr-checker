@@ -201,8 +201,10 @@
 
         <h2>GitHub</h2>
         <div class="cards" id="ghCards"></div>
-        <div class="subhead">Calls by category · last hour <span class="muted">· user / prComment run under users' own PATs</span></div>
-        <div class="section"><div id="ghCats" class="cats"></div></div>
+        <div class="subhead">App (server) token · last hour <span class="muted">· PR list, comment poll, onboarding replies</span></div>
+        <div class="section"><div id="ghCatsApp" class="cats"></div></div>
+        <div class="subhead">Users' own PATs · last hour <span class="muted">· token checks, verdict comments &amp; edits, reactions</span></div>
+        <div class="section"><div id="ghCatsPat" class="cats"></div></div>
 
         <h2>JIRA <span class="muted" style="font-weight:400;font-size:0.8rem">· all calls run under users' own PATs (visas, token checks)</span></h2>
         <div class="cards" id="jiraCards"></div>
@@ -361,9 +363,19 @@
                     t.total ? sev(t.avgLatencyMs, 500, 2000) : ''),
             ].join('');
 
+            // Categories under users' own PATs; everything else runs under the app (server) token.
+            const PAT_CATS = new Set(['user', 'prComment', 'prCommentEdit', 'react']);
+            const ghApp = {}, ghPat = {};
+            let appCalls = 0, appFails = 0;
+            for (const [k, v] of Object.entries(gh.byCategory || {})) {
+                if (PAT_CATS.has(k)) { ghPat[k] = v; }
+                else { ghApp[k] = v; appCalls += v.total; appFails += v.fail; }
+            }
             $('ghCards').innerHTML = [
                 card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`,
                     g.total ? (g.fail === 0 ? 'ok' : g.fail <= 5 ? 'warn' : 'bad') : ''),
+                card('App token (1h)', appCalls.toLocaleString(), `${appFails} failed · server-side calls`,
+                    appCalls ? (appFails === 0 ? 'ok' : 'warn') : ''),
                 card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
                 card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
                     d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : '',
@@ -394,7 +406,8 @@
                 + (total ? ` <span class="muted">· since app start: ${total}</span>` : '');
 
             renderCats($('tcCats'), tc.byCategory || {});
-            renderCats($('ghCats'), gh.byCategory || {});
+            renderCats($('ghCatsApp'), ghApp);
+            renderCats($('ghCatsPat'), ghPat);
             renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
             renderLog($('logList'), d.log || { recent: [] });
