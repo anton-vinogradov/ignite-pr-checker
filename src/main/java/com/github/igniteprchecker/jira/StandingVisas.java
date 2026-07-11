@@ -73,16 +73,26 @@ public class StandingVisas implements SnapshotCache {
         this.rerunTracker = rerunTracker;
     }
 
-    /** Enrols the user: both tokens go to encrypted-at-rest storage until {@link #disable}. */
-    public void enable(String username, String tcToken, String jiraToken, boolean autoRerun) {
+    /**
+     * Enrols the user with two independent switches: auto-visa (needs the JIRA token) and
+     * auto-rerun (TC token only). Tokens stay encrypted at rest until {@link #disable}.
+     */
+    public void enable(String username, String tcToken, String jiraToken, boolean autoVisa, boolean autoRerun) {
         enrolled.put(username, new Enrollment(
-            codec.encryptString(tcToken), codec.encryptString(jiraToken),
-            System.currentTimeMillis(), new ConcurrentHashMap<>(), autoRerun));
-        log.info("standing auto-visa enabled for {} (autoRerun={})", username, autoRerun);
+            codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
+            System.currentTimeMillis(), new ConcurrentHashMap<>(), autoVisa, autoRerun));
+        log.info("standing options for {}: autoVisa={}, autoRerun={}", username, autoVisa, autoRerun);
     }
 
-    /** Whether auto-rerun-before-visa is on for the user (false when not enrolled). */
-    public boolean autoRerun(String username) {
+    /** Whether the standing auto-visa is on for the user. */
+    public boolean visaOn(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.autoVisa();
+    }
+
+    /** Whether auto-rerun of blocker suites is on for the user. */
+    public boolean rerunOn(String username) {
         Enrollment e = enrolled.get(username);
 
         return e != null && e.autoRerun();
@@ -135,13 +145,13 @@ public class StandingVisas implements SnapshotCache {
                 long buildId = build.get().id();
                 Long last = e.posted().get(pr.number());
                 if (last != null && last == buildId)
-                    continue; // this run is already visa'd
+                    continue; // this run is already handled (visa'd, or settled without one)
 
                 Optional<String> tcToken = codec.decryptString(e.tcToken());
-                Optional<String> jiraToken = codec.decryptString(e.jiraToken());
-                if (tcToken.isEmpty() || jiraToken.isEmpty()) {
+                Optional<String> jiraToken = e.jiraToken() == null ? Optional.empty() : codec.decryptString(e.jiraToken());
+                if (tcToken.isEmpty() || (e.autoVisa() && jiraToken.isEmpty())) {
                     enrolled.remove(who);
-                    log.warn("standing auto-visa for {} dropped: tokens undecryptable (secret rotated?)", who);
+                    log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
                     continue;
                 }
 
@@ -183,6 +193,14 @@ public class StandingVisas implements SnapshotCache {
                             attempts + 1, MAX_RERUNS, pr.number(), suites.size(), top ? "top" : "tail");
                         continue; // the visa waits until the re-runs settle
                     }
+                }
+
+                if (!e.autoVisa()) {
+                    // rerun-only enrollment: the re-runs have settled (or there was nothing to do) —
+                    // mark the build handled so the sweep stops revisiting it.
+                    e.posted().put(pr.number(), buildId);
+                    retries.remove(pr.number());
+                    continue;
                 }
 
                 Retry done = retries.get(pr.number());
@@ -231,7 +249,7 @@ public class StandingVisas implements SnapshotCache {
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.enabledAt(),
-            new HashMap<>(e.posted()), e.autoRerun())));
+            new HashMap<>(e.posted()), e.autoVisa(), e.autoRerun())));
         Snapshots.writeAtomic(mapper, file, snap);
     }
 
@@ -244,12 +262,13 @@ public class StandingVisas implements SnapshotCache {
             ConcurrentMap<Integer, Long> posted = new ConcurrentHashMap<>();
             if (p.posted() != null)
                 posted.putAll(p.posted());
-            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.enabledAt(), posted, p.autoRerun()));
+            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.enabledAt(), posted,
+                p.autoVisa() == null || p.autoVisa(), p.autoRerun()));
         }
     }
 
     private record Enrollment(String tcToken, String jiraToken, long enabledAt, ConcurrentMap<Integer, Long> posted,
-        boolean autoRerun) {
+        boolean autoVisa, boolean autoRerun) {
     }
 
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, and a note for the visa. */
@@ -257,6 +276,6 @@ public class StandingVisas implements SnapshotCache {
     }
 
     private record Persisted(String username, String tcToken, String jiraToken, long enabledAt,
-        Map<Integer, Long> posted, boolean autoRerun) {
+        Map<Integer, Long> posted, Boolean autoVisa, boolean autoRerun) {
     }
 }
