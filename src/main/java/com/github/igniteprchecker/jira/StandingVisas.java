@@ -53,8 +53,10 @@ public class StandingVisas implements SnapshotCache {
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
-    /** Safety cap: a mass breakage should be posted red, not re-run suite by suite. */
-    private static final int MAX_SUITES_PER_RERUN = 12;
+    /** Up to this many blocker suites jump the queue; more go to the tail so others aren't pushed back. */
+    private static final int TOP_QUEUE_LIMIT = 10;
+    /** Above this many blocker suites, auto re-run is pointless (systemic breakage) — the visa posts as-is. */
+    private static final int MAX_SUITES_PER_RERUN = 30;
     private final java.util.concurrent.atomic.AtomicInteger postedTotal = new java.util.concurrent.atomic.AtomicInteger();
     private volatile long lastSweepAt;
     private volatile long lastSweepMs;
@@ -156,20 +158,38 @@ public class StandingVisas implements SnapshotCache {
 
                     Retry r = retries.get(pr.number());
                     int attempts = r != null && r.buildId() == buildId ? r.attempts() : 0;
-                    if (!res.get().blockers().isEmpty() && attempts < MAX_RERUNS) {
-                        List<String> suites = res.get().blockers().stream()
-                            .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
-                            .distinct().limit(MAX_SUITES_PER_RERUN).toList();
+                    List<String> suites = res.get().blockers().stream()
+                        .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
+                        .distinct().toList();
+                    if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
+                        // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
+                        retries.put(pr.number(), new Retry(buildId, MAX_RERUNS,
+                            "(i) Auto re-run skipped: " + suites.size() + " blocker suites is too many — "
+                                + "this looks systemic; fix the cause and re-trigger RunAll."));
+                    }
+                    else if (!suites.isEmpty() && attempts < MAX_RERUNS) {
+                        // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
+                        // re-run doesn't shove everyone else's builds back.
+                        boolean top = suites.size() <= TOP_QUEUE_LIMIT;
                         for (String suite : suites)
-                            rerunTracker.record(pr.number(), tc.triggerBuild(tcToken.get(), suite, pr.number(), true));
-                        retries.put(pr.number(), new Retry(buildId, attempts + 1));
-                        log.info("auto-rerun {}/{} for PR {}: {} blocker suite(s) re-queued at top",
-                            attempts + 1, MAX_RERUNS, pr.number(), suites.size());
+                            rerunTracker.record(pr.number(),
+                                tc.triggerBuildReplacingQueued(tcToken.get(), suite, pr.number(), top));
+                        String note = top ? (r != null ? r.note() : null)
+                            : "(i) " + suites.size() + " blocker suites were re-queued at the TAIL of the queue "
+                                + "(too many to jump it without disturbing others) — this may need a real fix "
+                                + "and a fresh RunAll rather than re-runs.";
+                        retries.put(pr.number(), new Retry(buildId, attempts + 1, note));
+                        log.info("auto-rerun {}/{} for PR {}: {} blocker suite(s) re-queued at {}",
+                            attempts + 1, MAX_RERUNS, pr.number(), suites.size(), top ? "top" : "tail");
                         continue; // the visa waits until the re-runs settle
                     }
                 }
 
-                String url = jira.addComment(jiraToken.get(), m.group(), visas.compose(pr.number(), res.get()));
+                Retry done = retries.get(pr.number());
+                String body = visas.compose(pr.number(), res.get());
+                if (done != null && done.buildId() == buildId && done.note() != null)
+                    body = body + "\n\n" + done.note();
+                String url = jira.addComment(jiraToken.get(), m.group(), body);
                 e.posted().put(pr.number(), buildId);
                 retries.remove(pr.number());
                 posted++;
@@ -232,8 +252,8 @@ public class StandingVisas implements SnapshotCache {
         boolean autoRerun) {
     }
 
-    /** One PR's auto-rerun bookkeeping: which build is being settled and how many attempts were spent. */
-    private record Retry(long buildId, int attempts) {
+    /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, and a note for the visa. */
+    private record Retry(long buildId, int attempts, String note) {
     }
 
     private record Persisted(String username, String tcToken, String jiraToken, long enabledAt,

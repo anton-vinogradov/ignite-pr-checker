@@ -89,7 +89,7 @@ public class TriggerController {
 
         try {
             List<Map<String, Object>> triggered = ids.stream()
-                .map(suite -> brief(track(pr, tc.triggerBuild(token, suite, pr, top))))
+                .map(suite -> brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))
                 .toList();
 
             return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -108,7 +108,7 @@ public class TriggerController {
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
         try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerBuild(token, suite, pr, top))))));
+            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))));
         }
         catch (RestClientResponseException e) {
             return teamCityError(e);

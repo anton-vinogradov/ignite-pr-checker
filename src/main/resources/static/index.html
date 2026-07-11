@@ -344,8 +344,10 @@
         <label class="settings-row" style="margin-top: 0.5rem; margin-left: 1.6rem">
             <input id="autoRerunToggle" type="checkbox" disabled>
             <span><b>Re-run blocker suites before posting</b> — if the finished run has blockers, re-run their
-                suites automatically (up to 2 attempts, queued at the top) and post the visa only once they settle.
-                A pass on re-run clears the blocker; what keeps failing is posted red.</span>
+                suites automatically (up to 2 attempts) and post the visa only once they settle. Up to 10 suites
+                jump to the top of the queue; more are queued at the tail (with a note in the visa) so they don't
+                push everyone else back; a systemic breakage (30+) posts as-is. Identical suites already sitting
+                in the queue are cancelled first. A pass on re-run clears the blocker; what keeps failing is posted red.</span>
         </label>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —

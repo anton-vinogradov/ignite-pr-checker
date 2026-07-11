@@ -234,6 +234,28 @@ public class TcClient {
     }
 
     /** Cancels one build, using the queue endpoint if it is still queued and the build endpoint if running. */
+    /**
+     * Re-runs a suite, first cancelling identical STANDALONE builds of it already sitting in the
+     * queue for the same PR branch (they'd run the same thing later for nothing). Queued dependencies
+     * of a running chain are left alone — cancelling those would break the chain.
+     */
+    public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top) {
+        String branch = "pull/" + prNumber + "/head";
+        for (TcModel.Build q : queuedBuilds(token)) {
+            boolean standalone = q.triggered() != null && "user".equals(q.triggered().type());
+            if (standalone && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName())) {
+                try {
+                    cancelBuild(token, q);
+                }
+                catch (RestClientResponseException e) {
+                    // already started or gone — it is doing useful work now, leave it be
+                }
+            }
+        }
+
+        return triggerBuild(token, buildTypeId, prNumber, top);
+    }
+
     public void cancelBuild(String token, TcModel.Build build) {
         String path = "queued".equalsIgnoreCase(build.state())
             ? "app/rest/buildQueue/id:" + build.id()
@@ -313,7 +335,7 @@ public class TcClient {
     public List<TcModel.Build> queuedBuilds(String token) {
         TcModel.BuildList list = get("buildState", token, url("app/rest/buildQueue", query(
             "locator", "count:1000",
-            "fields", "build(id,buildTypeId,state,webUrl,branchName,startEstimate,finishEstimate,buildType(name))")), TcModel.BuildList.class);
+            "fields", "build(id,buildTypeId,state,webUrl,branchName,startEstimate,finishEstimate,buildType(name),triggered(type))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }
