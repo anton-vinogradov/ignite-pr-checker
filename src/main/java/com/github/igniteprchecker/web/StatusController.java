@@ -93,6 +93,7 @@ public class StatusController {
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
+        out.put("jira", metrics.jira());
         out.put("http", metrics.http());
         Map<String, Object> watcher = new LinkedHashMap<>(tracker.stats());
         watcher.put("autoVisaArmed", visaSubs.armedCount());

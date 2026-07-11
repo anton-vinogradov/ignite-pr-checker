@@ -30,6 +30,7 @@ public class Metrics implements SnapshotCache {
 
     private final Map<String, Ring> tc = new ConcurrentHashMap<>();
     private final Map<String, Ring> github = new ConcurrentHashMap<>();
+    private final Map<String, Ring> jira = new ConcurrentHashMap<>();
     private final Map<String, Ring> http = new ConcurrentHashMap<>();
     private final Map<Integer, AtomicLong> tcByStatus = new ConcurrentHashMap<>();
     /** Failure events of the last hour: {epochMinute, status}. Tiny (failures are rare), pruned on read/write. */
@@ -37,6 +38,7 @@ public class Metrics implements SnapshotCache {
 
     private final AtomicLong tcSinceStart = new AtomicLong();
     private final AtomicLong githubSinceStart = new AtomicLong();
+    private final AtomicLong jiraSinceStart = new AtomicLong();
     private final AtomicLong httpSinceStart = new AtomicLong();
 
     public Metrics(ObjectMapper mapper) {
@@ -54,10 +56,16 @@ public class Metrics implements SnapshotCache {
         }
     }
 
-    /** Record one GitHub call (categories: prs / star / release). */
+    /** Record one GitHub call (categories: prs / star / release, plus user-PAT ones: user / prComment). */
     public void recordGithub(String category, boolean ok, long latencyMs) {
         github.computeIfAbsent(category, c -> new Ring()).record(ok, latencyMs);
         githubSinceStart.incrementAndGet();
+    }
+
+    /** Record one JIRA call — all of them run under a user's PAT (categories: myself / visa). */
+    public void recordJira(String category, boolean ok, long latencyMs) {
+        jira.computeIfAbsent(category, c -> new Ring()).record(ok, latencyMs);
+        jiraSinceStart.incrementAndGet();
     }
 
     /** Record one served HTTP request. {@code endpoint} is the request path (e.g. {@code /api/analyze}).
@@ -80,6 +88,11 @@ public class Metrics implements SnapshotCache {
     public Group github() {
         return new Group(aggregate(github), githubSinceStart.get(), byCategory(github), Map.of(), Map.of(),
             perMinute(github), byCategoryPerMinute(github));
+    }
+
+    public Group jira() {
+        return new Group(aggregate(jira), jiraSinceStart.get(), byCategory(jira), Map.of(), Map.of(),
+            perMinute(jira), byCategoryPerMinute(jira));
     }
 
     /** Latency/volume of the app's own served requests (per endpoint). "since start" resets on restart. */
@@ -165,7 +178,7 @@ public class Metrics implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file, new Persisted(tcSinceStart.get(), githubSinceStart.get()));
+        Snapshots.writeAtomic(mapper, file, new Persisted(tcSinceStart.get(), githubSinceStart.get(), jiraSinceStart.get()));
     }
 
     @Override
@@ -176,6 +189,7 @@ public class Metrics implements SnapshotCache {
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
         tcSinceStart.set(p.tcSinceStart());
         githubSinceStart.set(p.githubSinceStart());
+        jiraSinceStart.set(p.jiraSinceStart());
     }
 
     /** A per-category rolling window of one-minute buckets. */
@@ -272,6 +286,6 @@ public class Metrics implements SnapshotCache {
     public record Minute(long t, long ok, long fail) {
     }
 
-    private record Persisted(long tcSinceStart, long githubSinceStart) {
+    private record Persisted(long tcSinceStart, long githubSinceStart, long jiraSinceStart) {
     }
 }
