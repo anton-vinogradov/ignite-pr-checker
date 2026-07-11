@@ -43,7 +43,7 @@
         .status-link:hover { border-color: #c0c0c0; }
         .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
         .settings-btn { font-size: 1.15rem; line-height: 1; padding: 0.14rem 0.45rem; cursor: pointer; }
-        .settings-panel { padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
+        .settings-panel { max-width: 850px; margin: 0.6rem 1rem 0 auto; padding: 0.9rem 1.1rem; font-size: 0.85rem; }
         .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; max-width: 760px; }
         .settings-row input { margin-top: 0.2rem; }
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
@@ -333,7 +333,7 @@
         </div>
     </header>
 
-    <div id="settingsPanel" class="settings-panel hidden">
+    <div id="settingsPanel" class="card settings-panel hidden">
         <label class="settings-row">
             <input id="standingVisaToggle" type="checkbox">
             <span><b>Auto-visa all my runs</b> — when any RunAll I triggered finishes, post the verdict to the
