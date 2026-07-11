@@ -50,7 +50,7 @@ public class StandingVisas implements SnapshotCache {
     private final VisaService visas;
     private final RerunTracker rerunTracker;
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
-    /** Auto-rerun attempts per PR for the build being settled; in-memory (a restart forfeits a retry). */
+    /** Auto-rerun attempts per PR for the build being settled; persisted with the enrollments. */
     private final ConcurrentMap<Integer, Retry> retries = new ConcurrentHashMap<>();
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
@@ -254,12 +254,18 @@ public class StandingVisas implements SnapshotCache {
                 if (e.autoRerun()) {
                     if (rerunTracker.hasActive(pr.number())) {
                         // Re-runs still going: keep the living comment's ⏳ line honest about when
-                        // they are expected to settle (queue-aware, from the tracker).
+                        // they are expected to settle (queue-aware, from the tracker). Anchored on the
+                        // persisted comment thread, not on the retry bookkeeping — the line must keep
+                        // refreshing even right after a restart.
+                        GhThread t = e.ghThreads().get(pr.number());
                         Retry r0 = retries.get(pr.number());
-                        if (e.ghComment() && r0 != null && r0.buildId() == buildId)
+                        if (e.ghComment() && t != null && t.buildId() == buildId) {
+                            String what = r0 != null && r0.buildId() == buildId ? r0.what() : "re-run suite(s)";
+                            int attempt = r0 != null && r0.buildId() == buildId ? r0.attempts() : 1;
                             upsertGhComment(e, ghToken.get(), pr.number(), buildId,
                                 visas.composeMarkdown(pr.number(), res.get())
-                                    + pendingLine(r0.what(), r0.attempts(), activeEtaEpoch(pr.number()), e.tz()));
+                                    + pendingLine(what, attempt, activeEtaEpoch(pr.number()), e.tz()));
+                        }
 
                         continue; // the visa waits until the re-runs settle
                     }
@@ -398,7 +404,7 @@ public class StandingVisas implements SnapshotCache {
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
             e.tz(), e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
             e.autoVisa(), e.autoRerun(), e.ghComment())));
-        Snapshots.writeAtomic(mapper, file, snap);
+        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries)));
     }
 
     @Override
@@ -406,7 +412,19 @@ public class StandingVisas implements SnapshotCache {
         if (!Files.exists(file))
             return;
 
-        for (Persisted p : mapper.readValue(file.toFile(), Persisted[].class)) {
+        Persisted[] enrollments;
+        try {
+            Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
+            enrollments = s.enrollments() == null ? new Persisted[0] : s.enrollments().toArray(new Persisted[0]);
+            if (s.retries() != null)
+                retries.putAll(s.retries());
+        }
+        catch (com.fasterxml.jackson.databind.exc.MismatchedInputException e) {
+            // The pre-retries snapshot was a bare enrollment array — read it once, save in the new shape.
+            enrollments = mapper.readValue(file.toFile(), Persisted[].class);
+        }
+
+        for (Persisted p : enrollments) {
             ConcurrentMap<Integer, Long> posted = new ConcurrentHashMap<>();
             if (p.posted() != null)
                 posted.putAll(p.posted());
@@ -435,6 +453,11 @@ public class StandingVisas implements SnapshotCache {
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, what was re-queued,
      * and a note for the visa. */
     private record Retry(long buildId, int attempts, String what, String note) {
+    }
+
+    /** The snapshot on disk: enrollments plus the auto-rerun attempt bookkeeping (so a restart can't
+     * grant extra attempts or freeze the ⏳ line's context). */
+    private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries) {
     }
 
     /** The ⏳ status line of the living comment while re-runs settle. */
