@@ -49,6 +49,24 @@ public class GithubClient implements SnapshotCache {
             : new PostedComment(((Number)c.get("id")).longValue(), String.valueOf(c.get("html_url")));
     }
 
+    /**
+     * Posts a PR comment under the APP's own token (the operator's account) — used only for the
+     * one-time onboarding reply to a command from a not-yet-enrolled user. False when no app token.
+     */
+    public boolean addPrCommentAsApp(int prNumber, String body) {
+        if (props.token() == null || props.token().isBlank())
+            return false;
+
+        recorded("onboard", () -> http.post()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+            .header("Authorization", "Bearer " + props.token())
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("body", body))
+            .retrieve().body(java.util.Map.class));
+
+        return true;
+    }
+
     /** Replaces the body of an existing comment — the verdict lives in ONE comment that updates. */
     public void updatePrComment(String pat, long commentId, String body) {
         recorded("prCommentEdit", () -> http.patch()

@@ -21,6 +21,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
@@ -52,16 +53,21 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Long, Long> handled = new ConcurrentHashMap<>();
     /** Accepted commands whose chains are still running — their comments carry a live ETA line. */
     private final ConcurrentMap<Integer, CommandRun> watching = new ConcurrentHashMap<>();
+    /** Logins that already got the one-time onboarding reply — never advertise to the same person twice. */
+    private final ConcurrentMap<String, Long> onboarded = new ConcurrentHashMap<>();
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
+    private final String publicUrl;
 
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
-        RerunTracker tracker) {
+        RerunTracker tracker,
+        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl) {
         this.mapper = mapper;
         this.github = github;
         this.standing = standing;
         this.tc = tc;
         this.tracker = tracker;
+        this.publicUrl = publicUrl;
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
@@ -98,14 +104,13 @@ public class PrCommands implements SnapshotCache {
 
         handled.put(c.id(), System.currentTimeMillis());
 
+        int pr = Integer.parseInt(m.group(1));
         Optional<StandingVisas.GhActor> actor = standing.actorByGhLogin(c.user().login());
         if (actor.isEmpty()) {
-            log.info("{} by {} ignored: not enrolled with the GitHub option", cmd.name(), c.user().login());
+            onboard(pr, c.user().login(), cmd.name());
 
             return;
         }
-
-        int pr = Integer.parseInt(m.group(1));
         if (cmd.name().equals("/top")) {
             top(c, actor.get(), pr);
 
@@ -174,6 +179,36 @@ public class PrCommands implements SnapshotCache {
         catch (RuntimeException e) {
             react(actor.ghToken(), c.id(), "confused");
             log.warn("/top by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
+        }
+    }
+
+    /**
+     * A command from a not-yet-enrolled user is a sales lead, not noise: reply ONCE per login (from
+     * the app's account) with exactly where to go and what to switch on.
+     */
+    private void onboard(int pr, String login, String cmd) {
+        if (onboarded.putIfAbsent(login, System.currentTimeMillis()) != null) {
+            log.info("{} by {} ignored: not enrolled (already onboarded)", cmd, login);
+
+            return;
+        }
+
+        try {
+            boolean sent = github.addPrCommentAsApp(pr,
+                "@" + login + " that looks like an [Ignite PR Checker](" + publicUrl + ") command — but the"
+                + " checker doesn't know your accounts yet, so nothing was triggered. Two steps to make it work:\n\n"
+                + "1. Log in at " + publicUrl + " with your TeamCity ([ci2](https://ci2.ignite.apache.org)) access"
+                + " token.\n"
+                + "2. In settings (⚙) switch on **Comment my runs' verdicts on the GitHub PR** (takes a GitHub"
+                + " personal access token, `public_repo` scope).\n\n"
+                + "After that, commenting `/run-all` (or `/run-all top`) here queues the whole RunAll chain under"
+                + " your own TeamCity account, this thread gets a live ETA, and the verdict lands in the PR when"
+                + " the run settles — JIRA visas and automatic re-runs of blocker suites are separate switches"
+                + " next to it.");
+            log.info("{} by {}: not enrolled, onboarding reply {}", cmd, login, sent ? "posted" : "skipped (no app token)");
+        }
+        catch (RuntimeException e) {
+            log.warn("onboarding reply to {} on PR {} failed: {}", login, pr, e.toString());
         }
     }
 
@@ -284,8 +319,8 @@ public class PrCommands implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file,
-            new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(), new HashMap<>(watching)));
+        Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(),
+            new HashMap<>(watching), new HashMap<>(onboarded)));
     }
 
     @Override
@@ -300,10 +335,12 @@ public class PrCommands implements SnapshotCache {
         handledTotal.set(p.handledTotal());
         if (p.watching() != null)
             watching.putAll(p.watching());
+        if (p.onboarded() != null)
+            onboarded.putAll(p.onboarded());
     }
 
     private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal,
-        Map<Integer, CommandRun> watching) {
+        Map<Integer, CommandRun> watching, Map<String, Long> onboarded) {
     }
 
     /** An accepted command still being narrated: where its comment is and which chain it watches. */
