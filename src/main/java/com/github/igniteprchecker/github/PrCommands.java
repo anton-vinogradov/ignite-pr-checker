@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Slash commands in PR comments: an enrolled user (GitHub option on) comments {@code /run-all} on
@@ -49,6 +50,8 @@ public class PrCommands implements SnapshotCache {
     private volatile long sinceMs = System.currentTimeMillis();
     /** Handled comment ids -> when; survives restarts so a redeploy can't double-trigger. */
     private final ConcurrentMap<Long, Long> handled = new ConcurrentHashMap<>();
+    /** Accepted commands whose chains are still running — their comments carry a live ETA line. */
+    private final ConcurrentMap<Integer, CommandRun> watching = new ConcurrentHashMap<>();
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
 
@@ -107,7 +110,14 @@ public class PrCommands implements SnapshotCache {
             tracker.record(pr, build);
             handledTotal.incrementAndGet();
             react(actor.get().ghToken(), c.id(), "rocket");
-            ackInCommand(actor.get().ghToken(), c, build.id(), build.webUrl());
+
+            String link = build.webUrl() == null || build.webUrl().isBlank()
+                ? "build " + build.id() : "[build " + build.id() + "](" + build.webUrl() + ")";
+            String base = c.body() + "\n\n---\n🚀 **RunAll queued** — " + link
+                + ". The verdict lands here when the run finishes.";
+            edit(actor.get().ghToken(), c.id(), base);
+            watching.put(pr, new CommandRun(c.id(), base, build.id(), actor.get().username()));
+
             log.info("/run-all by {} ({}): RunAll queued for PR {}", c.user().login(), actor.get().username(), pr);
         }
         catch (RuntimeException e) {
@@ -132,18 +142,65 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * The queued-build ack is appended INTO the command comment itself (it's the author's own
-     * comment, edited with their own PAT) — a TC link right in the PR, and still zero extra messages.
+     * The queued-build ack and the remaining-time line live INSIDE the command comment itself (it's
+     * the author's own comment, edited with their own PAT) — still zero extra messages in the thread.
      */
-    private void ackInCommand(String ghToken, GithubClient.IssueComment c, long buildId, String webUrl) {
+    private void edit(String ghToken, long commentId, String body) {
         try {
-            String link = webUrl == null || webUrl.isBlank() ? "build " + buildId : "[build " + buildId + "](" + webUrl + ")";
-            github.updatePrComment(ghToken, c.id(), c.body()
-                + "\n\n---\n🚀 **RunAll queued** — " + link + ". The verdict lands here when the run finishes.");
+            github.updatePrComment(ghToken, commentId, body);
         }
         catch (RuntimeException e) {
-            log.warn("appending the ack to comment {} failed: {}", c.id(), e.toString());
+            log.warn("editing command comment {} failed: {}", commentId, e.toString());
         }
+    }
+
+    /** Refreshes the "~Xh Ym remaining" line of every accepted command's comment; final line on finish. */
+    @Scheduled(fixedDelay = 300_000, initialDelay = 120_000)
+    void updateEtas() {
+        watching.forEach((pr, run) -> {
+            Optional<StandingVisas.GhActor> actor = standing.actor(run.username());
+            if (actor.isEmpty()) {
+                watching.remove(pr); // the option was switched off — stop touching the comment
+
+                return;
+            }
+
+            try {
+                var b = tc.getBuildState(actor.get().tcToken(), run.buildId());
+                if (b == null)
+                    return;
+
+                if ("finished".equalsIgnoreCase(b.state())) {
+                    boolean cancelled = "UNKNOWN".equalsIgnoreCase(b.status());
+                    edit(actor.get().ghToken(), run.commentId(), run.baseBody()
+                        + (cancelled ? "\n🛑 _Run cancelled._" : "\n🏁 _Run finished — the verdict comment follows._"));
+                    watching.remove(pr);
+
+                    return;
+                }
+
+                long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId());
+                if (eta >= 0)
+                    edit(actor.get().ghToken(), run.commentId(), run.baseBody()
+                        + "\n⏱ _~" + fmtDur(eta) + " remaining (updates every ~5 min)._");
+            }
+            catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() == 404)
+                    watching.remove(pr); // the build is gone — nothing left to narrate
+                else
+                    log.warn("ETA update for PR {} failed: {}", pr, e.toString());
+            }
+            catch (RuntimeException e) {
+                log.warn("ETA update for PR {} failed: {}", pr, e.toString());
+            }
+        });
+    }
+
+    private static String fmtDur(long seconds) {
+        long h = seconds / 3600;
+        long m = (seconds % 3600) / 60;
+
+        return h > 0 ? h + "h " + m + "m" : m > 0 ? m + "m" : "<1m";
     }
 
     public int handledCount() {
@@ -161,7 +218,8 @@ public class PrCommands implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get()));
+        Snapshots.writeAtomic(mapper, file,
+            new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(), new HashMap<>(watching)));
     }
 
     @Override
@@ -174,8 +232,15 @@ public class PrCommands implements SnapshotCache {
         if (p.handled() != null)
             handled.putAll(p.handled());
         handledTotal.set(p.handledTotal());
+        if (p.watching() != null)
+            watching.putAll(p.watching());
     }
 
-    private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal) {
+    private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal,
+        Map<Integer, CommandRun> watching) {
+    }
+
+    /** An accepted command still being narrated: where its comment is and which chain it watches. */
+    private record CommandRun(long commentId, String baseBody, long buildId, String username) {
     }
 }
