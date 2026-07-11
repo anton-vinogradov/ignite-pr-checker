@@ -19,6 +19,43 @@ public class VisaService {
         this.publicUrl = publicUrl;
     }
 
+    /** The verdict in GitHub markdown, for a PR comment mirror of the visa. */
+    public String composeMarkdown(int pr, AnalysisResult r) {
+        String base = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
+        StringBuilder b = new StringBuilder();
+        b.append("**[Ignite PR Checker](").append(publicUrl).append("/?pr=").append(pr)
+            .append(")** verdict · RunAll build [").append(r.buildId()).append("](").append(base)
+            .append("build/").append(r.buildId()).append(") · ").append(r.suitesRan())
+            .append(" suites ran, ").append(r.suitesReused()).append(" reused\n\n");
+
+        List<TestVerdict> blockers = r.blockers();
+        if (blockers.isEmpty() && r.brokenSuites().isEmpty()) {
+            b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
+                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
+            return b.toString();
+        }
+
+        if (!r.brokenSuites().isEmpty()) {
+            b.append("⚠️ **").append(r.brokenSuites().size()).append(" broken suite(s)** (no reliable run):\n");
+            r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
+                .append(String.join(" · ", s.problems())).append('\n'));
+            b.append('\n');
+        }
+
+        if (blockers.isEmpty())
+            b.append("✅ No test blockers otherwise; ").append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        else {
+            long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
+            b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):**\n");
+            blockers.stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
+            if (blockers.size() > 10)
+                b.append("… and ").append(blockers.size() - 10).append(" more\n");
+        }
+
+        return b.toString();
+    }
+
     public String compose(int pr, AnalysisResult r) {
         String base = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
         StringBuilder b = new StringBuilder();

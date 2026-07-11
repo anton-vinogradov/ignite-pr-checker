@@ -78,11 +78,21 @@ public class StandingVisas implements SnapshotCache {
      * Enrols the user with two independent switches: auto-visa (needs the JIRA token) and
      * auto-rerun (TC token only). Tokens stay encrypted at rest until {@link #disable}.
      */
-    public void enable(String username, String tcToken, String jiraToken, boolean autoVisa, boolean autoRerun) {
+    public void enable(String username, String tcToken, String jiraToken, String ghToken,
+        boolean autoVisa, boolean autoRerun, boolean ghComment) {
         enrolled.put(username, new Enrollment(
             codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
-            System.currentTimeMillis(), new ConcurrentHashMap<>(), autoVisa, autoRerun));
-        log.info("standing options for {}: autoVisa={}, autoRerun={}", username, autoVisa, autoRerun);
+            ghToken == null ? null : codec.encryptString(ghToken),
+            System.currentTimeMillis(), new ConcurrentHashMap<>(), autoVisa, autoRerun, ghComment));
+        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}",
+            username, autoVisa, autoRerun, ghComment);
+    }
+
+    /** Whether GitHub PR comments are on for the user. */
+    public boolean ghOn(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.ghComment();
     }
 
     /** Whether the standing auto-visa is on for the user. */
@@ -158,7 +168,8 @@ public class StandingVisas implements SnapshotCache {
 
                 Optional<String> tcToken = codec.decryptString(e.tcToken());
                 Optional<String> jiraToken = e.jiraToken() == null ? Optional.empty() : codec.decryptString(e.jiraToken());
-                if (tcToken.isEmpty() || (e.autoVisa() && jiraToken.isEmpty())) {
+                Optional<String> ghToken = e.ghToken() == null ? Optional.empty() : codec.decryptString(e.ghToken());
+                if (tcToken.isEmpty() || (e.autoVisa() && jiraToken.isEmpty()) || (e.ghComment() && ghToken.isEmpty())) {
                     enrolled.remove(who);
                     log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
                     continue;
@@ -204,24 +215,33 @@ public class StandingVisas implements SnapshotCache {
                     }
                 }
 
-                if (!e.autoVisa()) {
-                    // rerun-only enrollment: the re-runs have settled (or there was nothing to do) —
-                    // mark the build handled so the sweep stops revisiting it.
-                    e.posted().put(pr.number(), buildId);
-                    retries.remove(pr.number());
-                    continue;
-                }
-
                 Retry done = retries.get(pr.number());
-                String body = visas.compose(pr.number(), res.get());
-                if (done != null && done.buildId() == buildId && done.note() != null)
-                    body = body + "\n\n" + done.note();
-                String url = jira.addComment(jiraToken.get(), m.group(), body);
+                String note = done != null && done.buildId() == buildId ? done.note() : null;
+
+                if (e.autoVisa()) {
+                    String body = visas.compose(pr.number(), res.get());
+                    if (note != null)
+                        body = body + "\n\n" + note;
+                    String url = jira.addComment(jiraToken.get(), m.group(), body);
+                    posted++;
+                    postedTotal.incrementAndGet();
+                    log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who, url);
+                }
+                if (e.ghComment()) {
+                    try {
+                        String md = visas.composeMarkdown(pr.number(), res.get());
+                        if (note != null)
+                            md = md + "\n\n_" + note + "_";
+                        String url = github.addPrComment(ghToken.get(), pr.number(), md);
+                        log.info("standing GitHub comment posted for PR {} (by {}) -> {}", pr.number(), who, url);
+                    }
+                    catch (RuntimeException ghEx) {
+                        // The JIRA visa (if any) already landed; don't re-post it next sweep over a GitHub blip.
+                        log.warn("standing GitHub comment for PR {} failed: {}", pr.number(), ghEx.toString());
+                    }
+                }
                 e.posted().put(pr.number(), buildId);
                 retries.remove(pr.number());
-                posted++;
-                postedTotal.incrementAndGet();
-                log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who, url);
             }
             catch (RuntimeException ex) {
                 log.warn("standing auto-visa sweep: PR {} skipped: {}", pr.number(), ex.toString());
@@ -257,8 +277,8 @@ public class StandingVisas implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
-        enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.enabledAt(),
-            new HashMap<>(e.posted()), e.autoVisa(), e.autoRerun())));
+        enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.enabledAt(),
+            new HashMap<>(e.posted()), e.autoVisa(), e.autoRerun(), e.ghComment())));
         Snapshots.writeAtomic(mapper, file, snap);
     }
 
@@ -271,20 +291,20 @@ public class StandingVisas implements SnapshotCache {
             ConcurrentMap<Integer, Long> posted = new ConcurrentHashMap<>();
             if (p.posted() != null)
                 posted.putAll(p.posted());
-            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.enabledAt(), posted,
-                p.autoVisa() == null || p.autoVisa(), p.autoRerun()));
+            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.enabledAt(), posted,
+                p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment()));
         }
     }
 
-    private record Enrollment(String tcToken, String jiraToken, long enabledAt, ConcurrentMap<Integer, Long> posted,
-        boolean autoVisa, boolean autoRerun) {
+    private record Enrollment(String tcToken, String jiraToken, String ghToken, long enabledAt,
+        ConcurrentMap<Integer, Long> posted, boolean autoVisa, boolean autoRerun, boolean ghComment) {
     }
 
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, and a note for the visa. */
     private record Retry(long buildId, int attempts, String note) {
     }
 
-    private record Persisted(String username, String tcToken, String jiraToken, long enabledAt,
-        Map<Integer, Long> posted, Boolean autoVisa, boolean autoRerun) {
+    private record Persisted(String username, String tcToken, String jiraToken, String ghToken, long enabledAt,
+        Map<Integer, Long> posted, Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
     }
 }

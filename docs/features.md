@@ -64,6 +64,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   the top of the queue, more go to the tail so they don't push others back, and a systemic breakage
   (30+) is left alone. Identical suites already waiting in the queue are cancelled first. A pass on
   re-run clears its blocker; with the visa also on, the visa waits until the re-runs settle.
+- **GitHub PR comment** (settings, independent of the other two) — the same verdict, in GitHub
+  markdown, posted as a comment on the `apache/ignite` pull request from your own GitHub account
+  (a personal access token with the `public_repo` scope; stored encrypted at rest while the option
+  is on).
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish, the analysis **refreshes itself** — no F5.

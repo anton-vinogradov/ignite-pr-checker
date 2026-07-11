@@ -352,6 +352,24 @@
                 <span class="muted">Works on its own — no JIRA needed; your TeamCity token is stored encrypted
                 at rest while this is on.</span></span>
         </label>
+        <label class="settings-row" style="margin-top: 0.5rem">
+            <input id="ghCommentToggle" type="checkbox">
+            <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes
+                (and settles, if auto re-run is on), post the verdict as a comment on the pull request,
+                from my own GitHub account.<br>
+                <span class="muted">Requires a GitHub personal access token with the <code>public_repo</code>
+                scope; it is stored encrypted at rest while this is on.</span></span>
+        </label>
+        <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
+            A GitHub personal access token is needed —
+            <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
+            then paste it here (kept encrypted in your session cookie):
+            <span class="row" style="margin-top: 0.4rem">
+                <input id="settingsGhToken" type="password" placeholder="GitHub personal access token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
+                <button id="settingsGhSave" class="act" type="button">Save</button>
+                <span id="settingsGhMsg" class="muted"></span>
+            </span>
+        </div>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
             <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
@@ -750,8 +768,9 @@
         async function loadMe() {
             const r = await api('/api/me');
             if (r.ok) {
-                const { username, jira } = await r.json();
+                const { username, jira, github } = await r.json();
                 hasJira = !!jira;
+                hasGithub = !!github;
                 await enterApp(username);
             } else {
                 show('login');
@@ -1354,6 +1373,7 @@
         // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
         // session, the button opens a hint with a deep link to the JIRA profile page to create one.
         let hasJira = false;
+        let hasGithub = false;
         let lastIssueKey = '';
 
         let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
@@ -1473,6 +1493,7 @@
                         const st = await r.json();
                         $('standingVisaToggle').checked = !!st.visa;
                         $('autoRerunToggle').checked = !!st.rerun;
+                        $('ghCommentToggle').checked = !!st.gh;
                     }
                 } catch (e) { /* leave unchecked */ }
             }
@@ -1504,7 +1525,8 @@
 
         // Two independent standing options; every change posts the combined state.
         async function postStandingState() {
-            const visaT = $('standingVisaToggle'), rerunT = $('autoRerunToggle'), msg = $('settingsMsg');
+            const visaT = $('standingVisaToggle'), rerunT = $('autoRerunToggle'), ghT = $('ghCommentToggle');
+            const msg = $('settingsMsg');
             msg.textContent = '';
             if (visaT.checked && !hasJira) {
                 visaT.checked = false;
@@ -1516,25 +1538,59 @@
                 $('settingsJiraToken').focus();
                 return;
             }
+            if (ghT.checked && !hasGithub) {
+                ghT.checked = false;
+                $('settingsGh').classList.remove('hidden');
+                $('settingsGhToken').focus();
+                return;
+            }
             try {
-                const r = await api('/api/auto-visa-all?visa=' + visaT.checked + '&rerun=' + rerunT.checked, { method: 'POST' });
+                const r = await api('/api/auto-visa-all?visa=' + visaT.checked + '&rerun=' + rerunT.checked
+                    + '&gh=' + ghT.checked, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (r.status === 412) { visaT.checked = false; hasJira = false; return postStandingState(); }
+                if (r.status === 412) {
+                    if (res.need === 'github') { ghT.checked = false; hasGithub = false; }
+                    else { visaT.checked = false; hasJira = false; }
+                    return postStandingState();
+                }
                 if (!r.ok) { msg.textContent = friendly(res.error, 'could not change the setting'); return; }
                 visaT.checked = !!res.visa;
                 rerunT.checked = !!res.rerun;
-                msg.textContent = res.visa && res.rerun
-                    ? 'On — blockers get re-runs, then the visa lands in the ticket automatically.'
-                    : res.visa ? 'Auto-visa on — verdicts of your finished runs land in the tickets.'
-                    : res.rerun ? 'Auto re-run on — blockers of your runs get up to 2 re-runs (no visa is posted).'
-                    : 'Both off — stored tokens removed.';
+                ghT.checked = !!res.gh;
+                const on = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment'].filter(Boolean);
+                msg.textContent = on.length ? 'On: ' + on.join(' · ') + '.' : 'All off — stored tokens removed.';
             } catch (e) {
                 msg.textContent = 'could not reach the service — try again';
             }
         }
         $('standingVisaToggle').onchange = postStandingState;
         $('autoRerunToggle').onchange = postStandingState;
+        $('ghCommentToggle').onchange = postStandingState;
+
+        $('settingsGhSave').onclick = async () => {
+            const input = $('settingsGhToken'), m = $('settingsGhMsg');
+            const token = input.value.trim();
+            if (!token) { m.textContent = 'paste the token first'; return; }
+            m.textContent = 'checking…';
+            try {
+                const r = await api('/api/github-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token })
+                });
+                const res = await r.json().catch(() => ({}));
+                if (!r.ok) { m.textContent = res.error || 'GitHub rejected the token'; return; }
+                hasGithub = true;
+                input.value = '';
+                m.textContent = '';
+                $('settingsGh').classList.add('hidden');
+                $('ghCommentToggle').checked = true;
+                postStandingState();
+            } catch (e) {
+                m.textContent = 'could not reach the service — try again';
+            }
+        };
         $('jiraSave').onclick = saveJiraToken;
         $('jiraCancel').onclick = () => toggleJiraPanel(false);
 

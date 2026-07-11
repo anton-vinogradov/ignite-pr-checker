@@ -52,7 +52,7 @@ public class LoginController {
         return users.list();
     }
 
-    public record UserResponse(String username, boolean jira) {
+    public record UserResponse(String username, boolean jira, boolean github) {
     }
 
     @PostMapping("/login")
@@ -70,7 +70,7 @@ public class LoginController {
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
-            .body(new UserResponse(username.get(), false));
+            .body(new UserResponse(username.get(), false, false));
     }
 
     @PostMapping("/logout")
@@ -85,7 +85,7 @@ public class LoginController {
         return codec.decode(cookie)
             .map(s -> {
                 warmer.offerToken(s.token());
-                return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null));
+                return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null));
             })
             .orElseGet(() -> ResponseEntity.status(401).build());
     }
