@@ -103,9 +103,11 @@ public class PrCommands implements SnapshotCache {
 
         int pr = Integer.parseInt(m.group(1));
         try {
-            tracker.record(pr, tc.triggerRunAll(actor.get().tcToken(), pr, false));
+            var build = tc.triggerRunAll(actor.get().tcToken(), pr, false);
+            tracker.record(pr, build);
             handledTotal.incrementAndGet();
             react(actor.get().ghToken(), c.id(), "rocket");
+            ackInCommand(actor.get().ghToken(), c, build.id(), build.webUrl());
             log.info("/run-all by {} ({}): RunAll queued for PR {}", c.user().login(), actor.get().username(), pr);
         }
         catch (RuntimeException e) {
@@ -126,6 +128,21 @@ public class PrCommands implements SnapshotCache {
         }
         catch (RuntimeException e) {
             log.warn("reaction on comment {} failed: {}", commentId, e.toString());
+        }
+    }
+
+    /**
+     * The queued-build ack is appended INTO the command comment itself (it's the author's own
+     * comment, edited with their own PAT) — a TC link right in the PR, and still zero extra messages.
+     */
+    private void ackInCommand(String ghToken, GithubClient.IssueComment c, long buildId, String webUrl) {
+        try {
+            String link = webUrl == null || webUrl.isBlank() ? "build " + buildId : "[build " + buildId + "](" + webUrl + ")";
+            github.updatePrComment(ghToken, c.id(), c.body()
+                + "\n\n---\n🚀 **RunAll queued** — " + link + ". The verdict lands here when the run finishes.");
+        }
+        catch (RuntimeException e) {
+            log.warn("appending the ack to comment {} failed: {}", c.id(), e.toString());
         }
     }
 
