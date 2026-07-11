@@ -201,8 +201,13 @@
 
         <h2>GitHub</h2>
         <div class="cards" id="ghCards"></div>
-        <div class="subhead">Calls by category · last hour</div>
+        <div class="subhead">Calls by category · last hour <span class="muted">· user / prComment run under users' own PATs</span></div>
         <div class="section"><div id="ghCats" class="cats"></div></div>
+
+        <h2>JIRA <span class="muted" style="font-weight:400;font-size:0.8rem">· all calls run under users' own PATs (visas, token checks)</span></h2>
+        <div class="cards" id="jiraCards"></div>
+        <div class="subhead">Calls by category · last hour</div>
+        <div class="section"><div id="jiraCats" class="cats"></div></div>
 
         <h2>Logs &amp; errors</h2>
         <div class="cards" id="logCards"></div>
@@ -365,6 +370,16 @@
                             : 100 * d.app.githubRate.remaining / d.app.githubRate.limit > 10 ? 'warn' : 'bad') : ''),
             ].join('');
 
+            const ji = d.jira || { lastHour: { total: 0, fail: 0, avgLatencyMs: 0, maxLatencyMs: 0 }, sinceStart: 0 };
+            const jh = ji.lastHour;
+            $('jiraCards').innerHTML = [
+                card('JIRA (1h)', jh.total.toLocaleString(), `${jh.fail} failed · ${ji.sinceStart.toLocaleString()} total`,
+                    jh.total ? (jh.fail === 0 ? 'ok' : 'warn') : ''),
+                card('JIRA latency (1h)', jh.total ? `${jh.avgLatencyMs}` : '—',
+                    jh.total ? `ms avg · ${jh.maxLatencyMs} max` : 'no calls',
+                    jh.total ? sev(jh.avgLatencyMs, 1000, 3000) : ''),
+            ].join('');
+
             $('logCards').innerHTML = [
                 card('Log issues', d.log.errors, `${d.log.warnings} warn`,
                     d.log.errors ? 'bad' : d.log.warnings ? 'warn' : 'ok'),
@@ -378,6 +393,7 @@
 
             renderCats($('tcCats'), tc.byCategory || {});
             renderCats($('ghCats'), gh.byCategory || {});
+            renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
             renderLog($('logList'), d.log || { recent: [] });
 

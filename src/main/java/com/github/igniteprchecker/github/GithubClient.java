@@ -24,10 +24,10 @@ public class GithubClient implements SnapshotCache {
     /** Validates a user's PAT: their GitHub login when the token works. */
     public java.util.Optional<String> ghUser(String pat) {
         try {
-            java.util.Map<?, ?> u = http.get().uri(URI.create("https://api.github.com/user"))
+            java.util.Map<?, ?> u = recorded("user", () -> http.get().uri(URI.create("https://api.github.com/user"))
                 .header("Authorization", "Bearer " + pat)
                 .header("Accept", "application/vnd.github+json")
-                .retrieve().body(java.util.Map.class);
+                .retrieve().body(java.util.Map.class));
 
             return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
         }
@@ -38,12 +38,12 @@ public class GithubClient implements SnapshotCache {
 
     /** Posts a comment to the PR under the USER'S OWN PAT; the comment's html url. */
     public String addPrComment(String pat, int prNumber, String body) {
-        java.util.Map<?, ?> c = http.post()
+        java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
             .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
-            .retrieve().body(java.util.Map.class);
+            .retrieve().body(java.util.Map.class));
 
         return c == null ? "" : String.valueOf(c.get("html_url"));
     }
