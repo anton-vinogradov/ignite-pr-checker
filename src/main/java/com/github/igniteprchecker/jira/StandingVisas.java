@@ -475,18 +475,34 @@ public class StandingVisas implements SnapshotCache {
 
     /** Max estimated finish across the just-queued builds (epoch seconds), or null when TC has none yet. */
     private Long queuedEtaEpoch(String tcToken, List<Long> buildIds) {
-        long max = -1;
-        for (Long id : buildIds) {
-            try {
-                TcModel.Build b = tc.getBuildState(tcToken, id);
-                max = Math.max(max, b == null ? -1 : TcDates.epochSeconds(b.finishEstimate()));
+        // TeamCity computes a fresh queued build's estimates asynchronously — right after the trigger
+        // they are often still empty. One short retry catches most of them, so the very first version
+        // of the ⏳ line already tells when the re-runs should settle.
+        for (int attempt = 0; ; attempt++) {
+            long max = -1;
+            for (Long id : buildIds) {
+                try {
+                    TcModel.Build b = tc.getBuildState(tcToken, id);
+                    max = Math.max(max, b == null ? -1 : TcDates.epochSeconds(b.finishEstimate()));
+                }
+                catch (RuntimeException ignored) {
+                    // no estimate for this one — the others still bound the ETA
+                }
             }
-            catch (RuntimeException ignored) {
-                // no estimate for this one — the others still bound the ETA
+            if (max > 0)
+                return max;
+            if (attempt >= 1)
+                return null;
+
+            try {
+                Thread.sleep(7_000);
+            }
+            catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+
+                return null;
             }
         }
-
-        return max > 0 ? max : null;
     }
 
     /** Queue-aware settle estimate for the PR's live re-runs, from the tracker; null when unknown. */
