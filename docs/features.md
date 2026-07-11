@@ -96,7 +96,7 @@ The semantics, fixed:
   builds on the same PR are never touched.
 - **Ack, not chatter**: 🚀 reaction = accepted, 😕 = refused or nothing to act on. The details — the
   queued-build TC link, then a live **"~Xh Ym remaining — ≈ 21:05 MSK"** line (queue-aware, the
-  wall-clock stamp in your JIRA-profile timezone, refreshed every ~5 minutes) — are edited **into
+  wall-clock stamp in your JIRA-profile timezone, refreshed every minute) — are edited **into
   your command comment**, which narrates the whole story: run finished → **"♻️ Auto re-run #2 —
   3 broken suite(s), ≈ settled by 22:21"** while the waves settle → closes when the verdict lands.
   The verdict itself is **one** living comment that updates in place through the auto re-runs.
