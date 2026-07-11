@@ -72,7 +72,8 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **`/run-all` from the PR** — with the GitHub option on, comment `/run-all` on any pull request
   and the whole RunAll chain is queued under your own TeamCity token; the ack is a 🚀 reaction plus
   a queued-build TC link appended **into your command comment itself** (😕 reaction if TeamCity
-  refused) — still zero extra messages. Combined with auto re-run and the verdict comment, the
+  refused) — still zero extra messages. The same comment then carries a live **"~Xh Ym remaining"**
+  line (queue-aware, refreshed every ~5 minutes) until the run finishes. Combined with auto re-run and the verdict comment, the
   entire cycle happens without leaving the PR. Commands are picked up within a minute — one
   repo-wide comments poll covers every PR.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered

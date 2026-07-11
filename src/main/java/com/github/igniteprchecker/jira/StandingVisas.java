@@ -117,6 +117,20 @@ public class StandingVisas implements SnapshotCache {
         return enrolled.values().stream().anyMatch(Enrollment::ghComment);
     }
 
+    /** Same as {@link #actorByGhLogin} but by the TC username — for follow-ups on an accepted command. */
+    public Optional<GhActor> actor(String username) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || !e.ghComment() || e.ghToken() == null)
+            return Optional.empty();
+
+        Optional<String> tcToken = codec.decryptString(e.tcToken());
+        Optional<String> ghToken = codec.decryptString(e.ghToken());
+
+        return tcToken.isPresent() && ghToken.isPresent()
+            ? Optional.of(new GhActor(username, tcToken.get(), ghToken.get()))
+            : Optional.empty();
+    }
+
     /**
      * Backfills {@code ghLogin} for enrollments made before logins were recorded (one GitHub
      * call per such user, once); no-op when every GitHub-enabled enrollment already has one.
