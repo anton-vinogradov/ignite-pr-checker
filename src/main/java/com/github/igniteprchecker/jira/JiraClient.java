@@ -66,6 +66,11 @@ public class JiraClient {
 
     /** Posts a comment to the issue; the URL of the created comment. */
     public String addComment(String token, String issueKey, String body) {
+        return addCommentWithId(token, issueKey, body).url();
+    }
+
+    /** Posts a comment to the issue; its id (for later in-place edits) and browse URL. */
+    public PostedComment addCommentWithId(String token, String issueKey, String body) {
         Comment c = recorded("visa", () -> http.post().uri(baseUrl + "/rest/api/2/issue/" + issueKey + "/comment")
             .header("Authorization", "Bearer " + token)
             .header("Content-Type", "application/json")
@@ -73,8 +78,22 @@ public class JiraClient {
             .retrieve()
             .body(Comment.class));
 
-        return baseUrl + "/browse/" + issueKey
-            + (c != null && c.id() != null ? "?focusedCommentId=" + c.id() + "#comment-" + c.id() : "");
+        return new PostedComment(c == null ? null : c.id(), baseUrl + "/browse/" + issueKey
+            + (c != null && c.id() != null ? "?focusedCommentId=" + c.id() + "#comment-" + c.id() : ""));
+    }
+
+    /** Replaces the body of an existing issue comment — the living visa updates in place. */
+    public void updateComment(String token, String issueKey, String commentId, String body) {
+        recorded("visaEdit", () -> http.put()
+            .uri(baseUrl + "/rest/api/2/issue/" + issueKey + "/comment/" + commentId)
+            .header("Authorization", "Bearer " + token)
+            .header("Content-Type", "application/json")
+            .body(Map.of("body", body))
+            .retrieve()
+            .body(Comment.class));
+    }
+
+    public record PostedComment(String id, String url) {
     }
 
     private <T> T recorded(String category, Supplier<T> call) {

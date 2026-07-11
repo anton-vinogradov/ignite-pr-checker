@@ -58,7 +58,10 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
   one click now, **Auto visa** (one-shot, fires when the current run finishes), or the settings (⚙)
   option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically
-  (only runs finished after you switch it on; each run is posted once).
+  (only runs finished after you switch it on). Like the PR comment, the visa is **one living
+  comment per run**: it appears when the run finishes and is edited in place as re-run waves start
+  and settle — but only on stage changes (ticket watchers get mail on every edit), never on the
+  10-minute ETA refreshes.
 - **Auto re-run blocker suites** (settings, independent of the visa) — when a RunAll you triggered
   finishes with blockers **or broken suites** (timeout, crash, compilation), those suites are re-run
   automatically, up to 2 attempts: ≤10 suites jump to the top of the queue, more go to the tail so
