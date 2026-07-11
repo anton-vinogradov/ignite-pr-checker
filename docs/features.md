@@ -74,7 +74,8 @@ The one question the tool answers: **which tests did this PR actually break?**
   a queued-build TC link appended **into your command comment itself** (😕 reaction if TeamCity
   refused) — still zero extra messages. The same comment then carries a live **"~Xh Ym remaining — ≈ 21:05 MSK"**
   line (queue-aware, the wall-clock stamp in your JIRA-profile timezone; refreshed every ~5 minutes)
-  until the run finishes. Combined with auto re-run and the verdict comment, the
+  until the run finishes. While it waits, reply **`/top`** — your queued builds of the PR jump to
+  the top of the queue. Combined with auto re-run and the verdict comment, the
   entire cycle happens without leaving the PR. Commands are picked up within a minute — one
   repo-wide comments poll covers every PR.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered

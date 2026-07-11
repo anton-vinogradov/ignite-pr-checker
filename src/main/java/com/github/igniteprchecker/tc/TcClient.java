@@ -256,6 +256,17 @@ public class TcClient {
         return triggerBuild(token, buildTypeId, prNumber, top);
     }
 
+    /** Moves an already-queued build to the top of the build queue (position 1). */
+    public void moveToQueueTop(String token, long buildId) {
+        recorded("queueTop", () -> http.put()
+            .uri(url("app/rest/buildQueue/order/1", query("fields", "id")))
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(Map.of("id", buildId))
+            .retrieve()
+            .toBodilessEntity());
+    }
+
     public void cancelBuild(String token, TcModel.Build build) {
         String path = "queued".equalsIgnoreCase(build.state())
             ? "app/rest/buildQueue/id:" + build.id()

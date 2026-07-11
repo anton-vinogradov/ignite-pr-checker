@@ -6,12 +6,14 @@ import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.dto.TcModel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -92,19 +94,25 @@ public class PrCommands implements SnapshotCache {
             return;
 
         Matcher m = c.htmlUrl() == null ? null : PR_URL.matcher(c.htmlUrl());
-        if (m == null || !m.find() || !isRunAllCommand(c.body()))
+        String cmd = m == null || !m.find() ? null : command(c.body());
+        if (cmd == null)
             return;
 
         handled.put(c.id(), System.currentTimeMillis());
 
         Optional<StandingVisas.GhActor> actor = standing.actorByGhLogin(c.user().login());
         if (actor.isEmpty()) {
-            log.info("/run-all by {} ignored: not enrolled with the GitHub option", c.user().login());
+            log.info("{} by {} ignored: not enrolled with the GitHub option", cmd, c.user().login());
 
             return;
         }
 
         int pr = Integer.parseInt(m.group(1));
+        if (cmd.equals("/top")) {
+            top(c, actor.get(), pr);
+
+            return;
+        }
         try {
             var build = tc.triggerRunAll(actor.get().tcToken(), pr, false);
             tracker.record(pr, build);
@@ -126,10 +134,41 @@ public class PrCommands implements SnapshotCache {
         }
     }
 
-    private static boolean isRunAllCommand(String body) {
+    private static String command(String body) {
         String firstLine = body.strip().lines().findFirst().orElse("").strip().toLowerCase();
 
-        return firstLine.equals("/run-all") || firstLine.equals("/runall");
+        return firstLine.equals("/run-all") || firstLine.equals("/runall") ? "/run-all"
+            : firstLine.equals("/top") ? "/top" : null;
+    }
+
+    /** Jumps the author's queued builds of this PR (the chain and any re-run suites) to the queue top. */
+    private void top(GithubClient.IssueComment c, StandingVisas.GhActor actor, int pr) {
+        try {
+            List<TcModel.Build> queued = tc.currentUserBuilds(actor.tcToken(), pr).stream()
+                .filter(b -> "queued".equalsIgnoreCase(b.state()))
+                .toList();
+
+            if (queued.isEmpty()) {
+                react(actor.ghToken(), c.id(), "confused");
+                log.info("/top by {} for PR {}: nothing queued", c.user().login(), pr);
+
+                return;
+            }
+
+            for (TcModel.Build b : queued)
+                tc.moveToQueueTop(actor.tcToken(), b.id());
+
+            handledTotal.incrementAndGet();
+            react(actor.ghToken(), c.id(), "rocket");
+            edit(actor.ghToken(), c.id(), c.body()
+                + "\n\n---\n⬆️ **Moved to the top of the queue** — " + queued.size() + " build(s).");
+            log.info("/top by {} ({}): {} build(s) of PR {} moved to the queue top",
+                c.user().login(), actor.username(), queued.size(), pr);
+        }
+        catch (RuntimeException e) {
+            react(actor.ghToken(), c.id(), "confused");
+            log.warn("/top by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
+        }
     }
 
     private void react(String ghToken, long commentId, String content) {
@@ -183,7 +222,8 @@ public class PrCommands implements SnapshotCache {
                 if (eta >= 0)
                     edit(actor.get().ghToken(), run.commentId(), run.baseBody()
                         + "\n⏱ _~" + fmtDur(eta) + " remaining — ≈ " + finishAt(eta, actor.get().tz())
-                        + " (updates every ~5 min)._");
+                        + " (updates every ~5 min)._"
+                        + ("queued".equalsIgnoreCase(b.state()) ? " _Reply `/top` to jump the queue._" : ""));
             }
             catch (RestClientResponseException e) {
                 if (e.getStatusCode().value() == 404)
