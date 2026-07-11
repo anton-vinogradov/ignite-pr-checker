@@ -10,6 +10,7 @@ import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -146,6 +147,14 @@ public class StandingVisas implements SnapshotCache {
                 Long last = e.posted().get(pr.number());
                 if (last != null && last == buildId)
                     continue; // this run is already handled (visa'd, or settled without one)
+
+                // Only runs that FINISHED after the options were switched on get acted upon: the
+                // first sweep must not spam week-old tickets with back-filled visas or re-runs.
+                long finishedMs = TcDates.epochSeconds(build.get().finishDate()) * 1000L;
+                if (finishedMs > 0 && finishedMs < e.enabledAt()) {
+                    e.posted().put(pr.number(), buildId);
+                    continue;
+                }
 
                 Optional<String> tcToken = codec.decryptString(e.tcToken());
                 Optional<String> jiraToken = e.jiraToken() == null ? Optional.empty() : codec.decryptString(e.jiraToken());
