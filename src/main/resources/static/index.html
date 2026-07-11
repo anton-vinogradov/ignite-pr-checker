@@ -48,6 +48,9 @@
         .settings-row input { margin: 0.2rem 0 0 0; width: 16px; height: 16px; flex: none; }
         #settingsMsg:not(:empty), #settingsGh, #settingsJira { margin-left: calc(16px + 0.6rem); }
         #settingsMsg:not(:empty) { margin-top: 0.5rem; }
+        .settings-cmds { margin: 0.25rem 0 0 calc(16px + 0.6rem); color: var(--muted); font-size: 0.85rem; }
+        .settings-cmds summary { cursor: pointer; }
+        .settings-cmds ul { margin: 0.3rem 0; padding-left: 1.2rem; }
 
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
         #logout:hover { border-color: #c0c0c0; }
@@ -358,11 +361,24 @@
             <input id="ghCommentToggle" type="checkbox">
             <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes
                 (and settles, if auto re-run is on), post the verdict as a comment on the pull request,
-                from my own GitHub account. Also lets me trigger a run right from the PR: comment
-                <code>/run-all</code> there and the chain is queued under my tokens (🚀 reaction = accepted).<br>
+                from my own GitHub account. Also lets me drive runs right from the PR, in comments.<br>
                 <span class="muted">Requires a GitHub personal access token with the <code>public_repo</code>
                 scope; it is stored encrypted at rest while this is on.</span></span>
         </label>
+        <details class="settings-cmds">
+            <summary>PR commands: <code>/run-all</code> · <code>/run-all top</code> · <code>/top</code></summary>
+            <ul>
+                <li><code>/run-all</code> (or <code>/runall</code>) — queue the whole RunAll chain, under my own
+                    TeamCity token;</li>
+                <li><code>/run-all top</code> — the same, entering the build queue at the top;</li>
+                <li><code>/top</code> — move the run my command started to the top of the queue (while it is
+                    still queued). Nobody else's builds are ever touched.</li>
+            </ul>
+            Ack: 🚀 reaction = accepted, 😕 = refused or nothing to act on. The TC link and a live
+            "~1h 23m remaining — ≈ 21:05 MSK" line (in my JIRA-profile timezone) are edited into the command
+            comment itself; the verdict is one living comment that updates through the auto re-runs — two
+            messages per run, total. Commands are picked up within a minute, on any pull request.
+        </details>
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —
             <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
