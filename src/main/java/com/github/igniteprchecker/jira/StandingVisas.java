@@ -81,10 +81,15 @@ public class StandingVisas implements SnapshotCache {
     public void enable(String username, String tcToken, String jiraToken, String ghToken,
         boolean autoVisa, boolean autoRerun, boolean ghComment) {
         String ghLogin = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
+        // A settings change must not forget which builds were already handled (or their comments).
+        Enrollment prev = enrolled.get(username);
         enrolled.put(username, new Enrollment(
             codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
             ghToken == null ? null : codec.encryptString(ghToken), ghLogin,
-            System.currentTimeMillis(), new ConcurrentHashMap<>(), autoVisa, autoRerun, ghComment));
+            System.currentTimeMillis(),
+            prev != null ? prev.posted() : new ConcurrentHashMap<>(),
+            prev != null ? prev.ghThreads() : new ConcurrentHashMap<>(),
+            autoVisa, autoRerun, ghComment));
         log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={} (gh login {})",
             username, autoVisa, autoRerun, ghComment, ghLogin);
     }
@@ -128,7 +133,7 @@ public class StandingVisas implements SnapshotCache {
             log.info("gh login for {} resolved: {}", u, login);
 
             return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, e.enabledAt(),
-                e.posted(), e.autoVisa(), e.autoRerun(), e.ghComment());
+                e.posted(), e.ghThreads(), e.autoVisa(), e.autoRerun(), e.ghComment());
         });
     }
 
@@ -255,6 +260,16 @@ public class StandingVisas implements SnapshotCache {
                         retries.put(pr.number(), new Retry(buildId, attempts + 1, note));
                         log.info("auto-rerun {}/{} for PR {}: {} blocker suite(s) re-queued at {}",
                             attempts + 1, MAX_RERUNS, pr.number(), suites.size(), top ? "top" : "tail");
+
+                        // The PR comment appears as soon as the run finished and then keeps updating
+                        // in place while the re-runs settle — one living comment, no message spam.
+                        if (e.ghComment()) {
+                            String md = visas.composeMarkdown(pr.number(), res.get())
+                                + "\n\n⏳ _Auto re-run in progress — " + suites.size() + " blocker suite(s) re-queued"
+                                + " (attempt " + (attempts + 1) + "/" + MAX_RERUNS + "). This comment updates when"
+                                + " they settle._";
+                            upsertGhComment(e, ghToken.get(), pr.number(), buildId, md);
+                        }
                         continue; // the visa waits until the re-runs settle
                     }
                 }
@@ -272,17 +287,10 @@ public class StandingVisas implements SnapshotCache {
                     log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who, url);
                 }
                 if (e.ghComment()) {
-                    try {
-                        String md = visas.composeMarkdown(pr.number(), res.get());
-                        if (note != null)
-                            md = md + "\n\n_" + note + "_";
-                        String url = github.addPrComment(ghToken.get(), pr.number(), md);
-                        log.info("standing GitHub comment posted for PR {} (by {}) -> {}", pr.number(), who, url);
-                    }
-                    catch (RuntimeException ghEx) {
-                        // The JIRA visa (if any) already landed; don't re-post it next sweep over a GitHub blip.
-                        log.warn("standing GitHub comment for PR {} failed: {}", pr.number(), ghEx.toString());
-                    }
+                    String md = visas.composeMarkdown(pr.number(), res.get());
+                    if (note != null)
+                        md = md + "\n\n_" + note + "_";
+                    upsertGhComment(e, ghToken.get(), pr.number(), buildId, md);
                 }
                 e.posted().put(pr.number(), buildId);
                 retries.remove(pr.number());
@@ -295,6 +303,35 @@ public class StandingVisas implements SnapshotCache {
         lastSweepMs = System.currentTimeMillis() - t0;
         if (posted > 0)
             log.info("standing auto-visa sweep: {} visa(s) posted", posted);
+    }
+
+    /**
+     * The whole run's story lives in ONE PR comment: created when the run first finishes, edited in
+     * place as re-runs settle. A failure never breaks the sweep (the JIRA visa may already be out),
+     * and a failed edit falls back to a fresh comment rather than losing the verdict.
+     */
+    private void upsertGhComment(Enrollment e, String ghToken, int pr, long buildId, String md) {
+        try {
+            GhThread t = e.ghThreads().get(pr);
+            if (t != null && t.buildId() == buildId) {
+                try {
+                    github.updatePrComment(ghToken, t.commentId(), md);
+                    log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
+
+                    return;
+                }
+                catch (RuntimeException editEx) {
+                    log.warn("editing GitHub comment {} for PR {} failed ({}), posting fresh",
+                        t.commentId(), pr, editEx.toString());
+                }
+            }
+            GithubClient.PostedComment posted = github.addPrComment(ghToken, pr, md);
+            e.ghThreads().put(pr, new GhThread(buildId, posted.id()));
+            log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
+        }
+        catch (RuntimeException ghEx) {
+            log.warn("standing GitHub comment for PR {} failed: {}", pr, ghEx.toString());
+        }
     }
 
     public int enrolledCount() {
@@ -322,7 +359,8 @@ public class StandingVisas implements SnapshotCache {
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
-            e.enabledAt(), new HashMap<>(e.posted()), e.autoVisa(), e.autoRerun(), e.ghComment())));
+            e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
+            e.autoVisa(), e.autoRerun(), e.ghComment())));
         Snapshots.writeAtomic(mapper, file, snap);
     }
 
@@ -335,14 +373,22 @@ public class StandingVisas implements SnapshotCache {
             ConcurrentMap<Integer, Long> posted = new ConcurrentHashMap<>();
             if (p.posted() != null)
                 posted.putAll(p.posted());
+            ConcurrentMap<Integer, GhThread> ghThreads = new ConcurrentHashMap<>();
+            if (p.ghThreads() != null)
+                ghThreads.putAll(p.ghThreads());
             enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.ghLogin(),
-                p.enabledAt(), posted,
+                p.enabledAt(), posted, ghThreads,
                 p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment()));
         }
     }
 
     private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, long enabledAt,
-        ConcurrentMap<Integer, Long> posted, boolean autoVisa, boolean autoRerun, boolean ghComment) {
+        ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
+        boolean autoVisa, boolean autoRerun, boolean ghComment) {
+    }
+
+    /** The one living PR comment of a run: which build it narrates and where to edit it. */
+    private record GhThread(long buildId, long commentId) {
     }
 
     /** An enrolled user resolved from a GitHub login, tokens decrypted and ready to act with. */
@@ -354,6 +400,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
-        long enabledAt, Map<Integer, Long> posted, Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
+        long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
+        Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
     }
 }
