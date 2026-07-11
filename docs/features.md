@@ -76,7 +76,9 @@ The one question the tool answers: **which tests did this PR actually break?**
   line (queue-aware, the wall-clock stamp in your JIRA-profile timezone; refreshed every ~5 minutes)
   until the run finishes. Top belongs to the command: **`/run-all top`** queues the chain at the
   top right away, and while your commanded chain still waits, replying **`/top`** promotes it —
-  yours only, nobody else's builds are touched. Combined with auto re-run and the verdict comment, the
+  yours only, nobody else's builds are touched. A command from someone not enrolled yet gets a
+  one-time reply explaining where to log in and which switch to flip — the command itself is a
+  self-serve onboarding path. Combined with auto re-run and the verdict comment, the
   entire cycle happens without leaving the PR. Commands are picked up within a minute — one
   repo-wide comments poll covers every PR.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
