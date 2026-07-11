@@ -65,9 +65,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   (30+) is left alone. Identical suites already waiting in the queue are cancelled first. A pass on
   re-run clears its blocker; with the visa also on, the visa waits until the re-runs settle.
 - **GitHub PR comment** (settings, independent of the other two) — the same verdict, in GitHub
-  markdown, posted as a comment on the `apache/ignite` pull request from your own GitHub account
-  (a personal access token with the `public_repo` scope; stored encrypted at rest while the option
-  is on).
+  markdown, posted on the `apache/ignite` pull request from your own GitHub account (a personal
+  access token with the `public_repo` scope; stored encrypted at rest while the option is on).
+  The whole run lives in **one comment**: it appears when the run finishes, and if auto re-run
+  kicks in it **updates in place** (⏳ re-running → final verdict) instead of spawning new messages.
 - **`/run-all` from the PR** — with the GitHub option on, comment `/run-all` on any pull request
   and the whole RunAll chain is queued under your own TeamCity token; the ack is a 🚀 reaction from
   your own account (😕 if TeamCity refused). Combined with auto re-run and the verdict comment, the

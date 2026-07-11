@@ -36,8 +36,8 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
-    /** Posts a comment to the PR under the USER'S OWN PAT; the comment's html url. */
-    public String addPrComment(String pat, int prNumber, String body) {
+    /** Posts a comment to the PR under the USER'S OWN PAT; its id (for later edits) and html url. */
+    public PostedComment addPrComment(String pat, int prNumber, String body) {
         java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
             .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
             .header("Authorization", "Bearer " + pat)
@@ -45,7 +45,21 @@ public class GithubClient implements SnapshotCache {
             .body(java.util.Map.of("body", body))
             .retrieve().body(java.util.Map.class));
 
-        return c == null ? "" : String.valueOf(c.get("html_url"));
+        return c == null ? new PostedComment(0, "")
+            : new PostedComment(((Number)c.get("id")).longValue(), String.valueOf(c.get("html_url")));
+    }
+
+    /** Replaces the body of an existing comment — the verdict lives in ONE comment that updates. */
+    public void updatePrComment(String pat, long commentId, String body) {
+        recorded("prCommentEdit", () -> http.patch()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId))
+            .header("Authorization", "Bearer " + pat)
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("body", body))
+            .retrieve().body(java.util.Map.class));
+    }
+
+    public record PostedComment(long id, String htmlUrl) {
     }
 
     /**
