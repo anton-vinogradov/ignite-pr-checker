@@ -57,7 +57,13 @@ The one question the tool answers: **which tests did this PR actually break?**
   kills everything you queued.
 - **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
   one click now, **Auto visa** (one-shot, fires when the current run finishes), or the settings (⚙)
-  option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically.
+  option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically
+  (only runs finished after you switch it on; each run is posted once).
+- **Auto re-run blocker suites** (settings, independent of the visa) — when a RunAll you triggered
+  finishes with blockers, their suites are re-run automatically, up to 2 attempts: ≤10 suites jump to
+  the top of the queue, more go to the tail so they don't push others back, and a systemic breakage
+  (30+) is left alone. Identical suites already waiting in the queue are cancelled first. A pass on
+  re-run clears its blocker; with the visa also on, the visa waits until the re-runs settle.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish, the analysis **refreshes itself** — no F5.
