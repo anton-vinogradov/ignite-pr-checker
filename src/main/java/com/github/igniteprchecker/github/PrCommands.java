@@ -6,14 +6,12 @@ import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
-import com.github.igniteprchecker.tc.dto.TcModel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -94,7 +92,7 @@ public class PrCommands implements SnapshotCache {
             return;
 
         Matcher m = c.htmlUrl() == null ? null : PR_URL.matcher(c.htmlUrl());
-        String cmd = m == null || !m.find() ? null : command(c.body());
+        Cmd cmd = m == null || !m.find() ? null : command(c.body());
         if (cmd == null)
             return;
 
@@ -102,31 +100,32 @@ public class PrCommands implements SnapshotCache {
 
         Optional<StandingVisas.GhActor> actor = standing.actorByGhLogin(c.user().login());
         if (actor.isEmpty()) {
-            log.info("{} by {} ignored: not enrolled with the GitHub option", cmd, c.user().login());
+            log.info("{} by {} ignored: not enrolled with the GitHub option", cmd.name(), c.user().login());
 
             return;
         }
 
         int pr = Integer.parseInt(m.group(1));
-        if (cmd.equals("/top")) {
+        if (cmd.name().equals("/top")) {
             top(c, actor.get(), pr);
 
             return;
         }
         try {
-            var build = tc.triggerRunAll(actor.get().tcToken(), pr, false);
+            var build = tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top());
             tracker.record(pr, build);
             handledTotal.incrementAndGet();
             react(actor.get().ghToken(), c.id(), "rocket");
 
             String link = build.webUrl() == null || build.webUrl().isBlank()
                 ? "build " + build.id() : "[build " + build.id() + "](" + build.webUrl() + ")";
-            String base = c.body() + "\n\n---\n🚀 **RunAll queued** — " + link
-                + ". The verdict lands here when the run finishes.";
+            String base = c.body() + "\n\n---\n🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
+                + "** — " + link + ". The verdict lands here when the run finishes.";
             edit(actor.get().ghToken(), c.id(), base);
             watching.put(pr, new CommandRun(c.id(), base, build.id(), actor.get().username()));
 
-            log.info("/run-all by {} ({}): RunAll queued for PR {}", c.user().login(), actor.get().username(), pr);
+            log.info("/run-all by {} ({}): RunAll queued for PR {}{}", c.user().login(), actor.get().username(),
+                pr, cmd.top() ? " (top)" : "");
         }
         catch (RuntimeException e) {
             react(actor.get().ghToken(), c.id(), "confused");
@@ -134,36 +133,43 @@ public class PrCommands implements SnapshotCache {
         }
     }
 
-    private static String command(String body) {
-        String firstLine = body.strip().lines().findFirst().orElse("").strip().toLowerCase();
+    private static Cmd command(String body) {
+        String[] words = body.strip().lines().findFirst().orElse("").strip().toLowerCase().split("\\s+");
 
-        return firstLine.equals("/run-all") || firstLine.equals("/runall") ? "/run-all"
-            : firstLine.equals("/top") ? "/top" : null;
+        return words[0].equals("/run-all") || words[0].equals("/runall")
+            ? new Cmd("/run-all", words.length > 1 && words[1].equals("top"))
+            : words[0].equals("/top") ? new Cmd("/top", true) : null;
     }
 
-    /** Jumps the author's queued builds of this PR (the chain and any re-run suites) to the queue top. */
+    /**
+     * Promotes the run STARTED BY THE AUTHOR'S OWN COMMAND to the top of the queue — top belongs to
+     * the command, so someone else's builds on the same PR are never touched.
+     */
     private void top(GithubClient.IssueComment c, StandingVisas.GhActor actor, int pr) {
         try {
-            List<TcModel.Build> queued = tc.currentUserBuilds(actor.tcToken(), pr).stream()
-                .filter(b -> "queued".equalsIgnoreCase(b.state()))
-                .toList();
-
-            if (queued.isEmpty()) {
+            CommandRun run = watching.get(pr);
+            if (run == null || !run.username().equals(actor.username())) {
                 react(actor.ghToken(), c.id(), "confused");
-                log.info("/top by {} for PR {}: nothing queued", c.user().login(), pr);
+                log.info("/top by {} for PR {}: no commanded run of theirs to promote", c.user().login(), pr);
 
                 return;
             }
 
-            for (TcModel.Build b : queued)
-                tc.moveToQueueTop(actor.tcToken(), b.id());
+            var b = tc.getBuildState(actor.tcToken(), run.buildId());
+            if (b == null || !"queued".equalsIgnoreCase(b.state())) {
+                react(actor.ghToken(), c.id(), "confused");
+                log.info("/top by {} for PR {}: build {} is not queued", c.user().login(), pr, run.buildId());
 
+                return;
+            }
+
+            tc.moveToQueueTop(actor.tcToken(), run.buildId());
             handledTotal.incrementAndGet();
             react(actor.ghToken(), c.id(), "rocket");
             edit(actor.ghToken(), c.id(), c.body()
-                + "\n\n---\n⬆️ **Moved to the top of the queue** — " + queued.size() + " build(s).");
-            log.info("/top by {} ({}): {} build(s) of PR {} moved to the queue top",
-                c.user().login(), actor.username(), queued.size(), pr);
+                + "\n\n---\n⬆️ **Build " + run.buildId() + " moved to the top of the queue.**");
+            log.info("/top by {} ({}): build {} of PR {} moved to the queue top",
+                c.user().login(), actor.username(), run.buildId(), pr);
         }
         catch (RuntimeException e) {
             react(actor.ghToken(), c.id(), "confused");
@@ -302,5 +308,9 @@ public class PrCommands implements SnapshotCache {
 
     /** An accepted command still being narrated: where its comment is and which chain it watches. */
     private record CommandRun(long commentId, String baseBody, long buildId, String username) {
+    }
+
+    /** A parsed command: the canonical name and whether "top" was asked for. */
+    private record Cmd(String name, boolean top) {
     }
 }
