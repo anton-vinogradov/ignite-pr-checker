@@ -252,44 +252,61 @@ public class StandingVisas implements SnapshotCache {
                 // verdict has blockers and attempts remain, re-run their suites (at the top of the
                 // queue, under the user's own token) instead of posting a red visa right away.
                 if (e.autoRerun()) {
-                    if (rerunTracker.hasActive(pr.number()))
-                        continue; // re-runs (or the next chain) still running — settle later
+                    if (rerunTracker.hasActive(pr.number())) {
+                        // Re-runs still going: keep the living comment's ⏳ line honest about when
+                        // they are expected to settle (queue-aware, from the tracker).
+                        Retry r0 = retries.get(pr.number());
+                        if (e.ghComment() && r0 != null && r0.buildId() == buildId)
+                            upsertGhComment(e, ghToken.get(), pr.number(), buildId,
+                                visas.composeMarkdown(pr.number(), res.get())
+                                    + pendingLine(r0.what(), r0.attempts(), activeEtaEpoch(pr.number()), e.tz()));
+
+                        continue; // the visa waits until the re-runs settle
+                    }
 
                     Retry r = retries.get(pr.number());
                     int attempts = r != null && r.buildId() == buildId ? r.attempts() : 0;
-                    List<String> suites = res.get().blockers().stream()
+                    List<String> blockerSuites = res.get().blockers().stream()
                         .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
                         .distinct().toList();
+                    // Broken suites (timeout/crash/compilation) deserve the same retry a human would
+                    // give them — and a passing re-run now clears them from the verdict too.
+                    List<String> suites = java.util.stream.Stream.concat(
+                            blockerSuites.stream(),
+                            res.get().brokenSuites().stream().map(s -> s.suite()))
+                        .filter(x -> x != null && !x.isBlank()).distinct().toList();
+                    String what = suitesLabel(blockerSuites.size(), suites.size() - blockerSuites.size());
                     if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
                         // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
-                        retries.put(pr.number(), new Retry(buildId, MAX_RERUNS,
-                            "(i) Auto re-run skipped: " + suites.size() + " blocker suites is too many — "
+                        retries.put(pr.number(), new Retry(buildId, MAX_RERUNS, what,
+                            "(i) Auto re-run skipped: " + suites.size() + " suites is too many — "
                                 + "this looks systemic; fix the cause and re-trigger RunAll."));
                     }
                     else if (!suites.isEmpty() && attempts < MAX_RERUNS) {
                         // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
                         // re-run doesn't shove everyone else's builds back.
                         boolean top = suites.size() <= TOP_QUEUE_LIMIT;
-                        for (String suite : suites)
-                            rerunTracker.record(pr.number(),
-                                tc.triggerBuildReplacingQueued(tcToken.get(), suite, pr.number(), top));
+                        List<Long> queued = new ArrayList<>();
+                        for (String suite : suites) {
+                            TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken.get(), suite, pr.number(), top);
+                            rerunTracker.record(pr.number(), b);
+                            queued.add(b.id());
+                        }
                         String note = top ? (r != null ? r.note() : null)
-                            : "(i) " + suites.size() + " blocker suites were re-queued at the TAIL of the queue "
+                            : "(i) " + suites.size() + " suites were re-queued at the TAIL of the queue "
                                 + "(too many to jump it without disturbing others) — this may need a real fix "
                                 + "and a fresh RunAll rather than re-runs.";
-                        retries.put(pr.number(), new Retry(buildId, attempts + 1, note));
-                        log.info("auto-rerun {}/{} for PR {}: {} blocker suite(s) re-queued at {}",
-                            attempts + 1, MAX_RERUNS, pr.number(), suites.size(), top ? "top" : "tail");
+                        retries.put(pr.number(), new Retry(buildId, attempts + 1, what, note));
+                        log.info("auto-rerun {}/{} for PR {}: {} re-queued at {}",
+                            attempts + 1, MAX_RERUNS, pr.number(), what, top ? "top" : "tail");
 
                         // The PR comment appears as soon as the run finished and then keeps updating
                         // in place while the re-runs settle — one living comment, no message spam.
-                        if (e.ghComment()) {
-                            String md = visas.composeMarkdown(pr.number(), res.get())
-                                + "\n\n⏳ _Auto re-run in progress — " + suites.size() + " blocker suite(s) re-queued"
-                                + " (attempt " + (attempts + 1) + "/" + MAX_RERUNS + "). This comment updates when"
-                                + " they settle._";
-                            upsertGhComment(e, ghToken.get(), pr.number(), buildId, md);
-                        }
+                        if (e.ghComment())
+                            upsertGhComment(e, ghToken.get(), pr.number(), buildId,
+                                visas.composeMarkdown(pr.number(), res.get())
+                                    + pendingLine(what, attempts + 1, queuedEtaEpoch(tcToken.get(), queued), e.tz()));
+
                         continue; // the visa waits until the re-runs settle
                     }
                 }
@@ -415,8 +432,66 @@ public class StandingVisas implements SnapshotCache {
     public record GhActor(String username, String tcToken, String ghToken, String tz) {
     }
 
-    /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, and a note for the visa. */
-    private record Retry(long buildId, int attempts, String note) {
+    /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, what was re-queued,
+     * and a note for the visa. */
+    private record Retry(long buildId, int attempts, String what, String note) {
+    }
+
+    /** The ⏳ status line of the living comment while re-runs settle. */
+    private static String pendingLine(String what, int attempt, Long etaEpochSec, String tz) {
+        return "\n\n⏳ _Auto re-run in progress — " + what + " re-queued (attempt " + attempt + "/" + MAX_RERUNS + ")"
+            + (etaEpochSec == null ? "" : ", ≈ settled by " + wallClock(etaEpochSec, tz))
+            + ". This comment updates when they settle._";
+    }
+
+    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 3 broken suite(s)"}. */
+    private static String suitesLabel(int blockers, int broken) {
+        return blockers > 0 && broken > 0 ? blockers + " blocker + " + broken + " broken suite(s)"
+            : broken > 0 ? broken + " broken suite(s)" : blockers + " blocker suite(s)";
+    }
+
+    /** Max estimated finish across the just-queued builds (epoch seconds), or null when TC has none yet. */
+    private Long queuedEtaEpoch(String tcToken, List<Long> buildIds) {
+        long max = -1;
+        for (Long id : buildIds) {
+            try {
+                TcModel.Build b = tc.getBuildState(tcToken, id);
+                max = Math.max(max, b == null ? -1 : TcDates.epochSeconds(b.finishEstimate()));
+            }
+            catch (RuntimeException ignored) {
+                // no estimate for this one — the others still bound the ETA
+            }
+        }
+
+        return max > 0 ? max : null;
+    }
+
+    /** Queue-aware settle estimate for the PR's live re-runs, from the tracker; null when unknown. */
+    private Long activeEtaEpoch(int pr) {
+        long now = System.currentTimeMillis() / 1000;
+        long max = -1;
+        for (RerunTracker.ActiveRerun a : rerunTracker.active()) {
+            if (a.pr() == pr && a.leftSec() != null)
+                max = Math.max(max, now + a.leftSec());
+        }
+
+        return max > 0 ? max : null;
+    }
+
+    /** Wall-clock stamp in the user's JIRA-profile timezone (UTC when unknown). */
+    private static String wallClock(long epochSec, String tz) {
+        java.time.ZoneId zone = java.time.ZoneId.of("UTC");
+        if (tz != null) {
+            try {
+                zone = java.time.ZoneId.of(tz);
+            }
+            catch (java.time.DateTimeException ignored) {
+                // an unparsable profile timezone falls back to UTC
+            }
+        }
+
+        return java.time.Instant.ofEpochSecond(epochSec).atZone(zone)
+            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm zzz", java.util.Locale.ENGLISH));
     }
 
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,

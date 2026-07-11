@@ -256,6 +256,18 @@ public class TcClient {
         return triggerBuild(token, buildTypeId, prNumber, top);
     }
 
+    /** The newest finished run of one suite on the PR branch — standalone re-runs included. */
+    public Optional<TcModel.Build> latestSuiteRun(String token, int prNumber, String buildTypeId) {
+        String locator = "buildType:(id:" + buildTypeId + "),branch:(name:pull/" + prNumber + "/head)"
+            + ",state:finished,canceled:false,failedToStart:any,count:1";
+
+        TcModel.BuildList list = get("suiteRun", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(id,status)")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null || list.build().isEmpty()
+            ? Optional.empty() : Optional.of(list.build().get(0));
+    }
+
     /** Moves an already-queued build to the top of the build queue (position 1). */
     public void moveToQueueTop(String token, long buildId) {
         recorded("queueTop", () -> http.put()
