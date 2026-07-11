@@ -21,6 +21,11 @@ a thin layer over the TeamCity REST API plus the one piece of logic that matters
 verdict (a "visa") to the PR's JIRA ticket — manually, once when the run finishes, or automatically for
 every run you trigger. Every user works under their own TeamCity token.
 
+You can drive it without leaving the pull request: comment **`/run-all`** (or `/run-all top`, or
+`/top` to promote your queued run) — the chain runs under your own accounts, your comment carries a
+live ETA, and the verdict lands in the PR when the run settles. See
+[Working from the PR](docs/features.md#working-from-the-pr-commands).
+
 ## The core idea: what is a "blocker"?
 
 A test that failed in your PR's latest **RunAll** is a **blocker** (broken *by your change*) only if

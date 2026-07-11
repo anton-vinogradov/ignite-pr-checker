@@ -69,21 +69,34 @@ The one question the tool answers: **which tests did this PR actually break?**
   access token with the `public_repo` scope; stored encrypted at rest while the option is on).
   The whole run lives in **one comment**: it appears when the run finishes, and if auto re-run
   kicks in it **updates in place** (⏳ re-running → final verdict) instead of spawning new messages.
-- **`/run-all` from the PR** — with the GitHub option on, comment `/run-all` on any pull request
-  and the whole RunAll chain is queued under your own TeamCity token; the ack is a 🚀 reaction plus
-  a queued-build TC link appended **into your command comment itself** (😕 reaction if TeamCity
-  refused) — still zero extra messages. The same comment then carries a live **"~Xh Ym remaining — ≈ 21:05 MSK"**
-  line (queue-aware, the wall-clock stamp in your JIRA-profile timezone; refreshed every ~5 minutes)
-  until the run finishes. Top belongs to the command: **`/run-all top`** queues the chain at the
-  top right away, and while your commanded chain still waits, replying **`/top`** promotes it —
-  yours only, nobody else's builds are touched. A command from someone not enrolled yet gets a
-  one-time reply explaining where to log in and which switch to flip — the command itself is a
-  self-serve onboarding path. Combined with auto re-run and the verdict comment, the
-  entire cycle happens without leaving the PR. Commands are picked up within a minute — one
-  repo-wide comments poll covers every PR.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish, the analysis **refreshes itself** — no F5.
+
+## Working from the PR (commands)
+
+With the GitHub option on, the whole cycle — trigger → progress → verdict — happens in the pull
+request, in comments:
+
+| Command | Effect |
+|---|---|
+| `/run-all` (or `/runall`) | queues the whole RunAll chain under **your own** TeamCity token |
+| `/run-all top` | same, but the chain enters the build queue **at the top** (native `queueAtTop`) |
+| `/top` | promotes **the run your command started** to the top of the queue — only while it is still queued |
+
+The semantics, fixed:
+
+- **Top belongs to the command.** Both forms act on the run *your* command started; other people's
+  builds on the same PR are never touched.
+- **Ack, not chatter**: 🚀 reaction = accepted, 😕 = refused or nothing to act on. The details — the
+  queued-build TC link, then a live **"~Xh Ym remaining — ≈ 21:05 MSK"** line (queue-aware, the
+  wall-clock stamp in your JIRA-profile timezone, refreshed every ~5 minutes) — are edited **into
+  your command comment**; the verdict is **one** living comment that updates in place through the
+  auto re-runs. Two messages per run, total.
+- Commands are picked up **within a minute** (one repo-wide comments poll covers every PR) and work
+  on **any** pull request — commanding a PR means running it under your accounts.
+- A command from someone **not enrolled yet** gets a one-time reply explaining where to log in and
+  which switch to flip — the command is its own onboarding path.
 
 ## The fix-master queue (`/flaky.html`)
 
