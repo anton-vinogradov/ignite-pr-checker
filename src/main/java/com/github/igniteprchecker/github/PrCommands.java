@@ -262,8 +262,8 @@ public class PrCommands implements SnapshotCache {
                 long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId());
                 if (eta >= 0)
                     edit(actor.get().ghToken(), run.commentId(), run.baseBody()
-                        + "\n⏱ _~" + fmtDur(eta) + " remaining — ≈ " + finishAt(eta, actor.get().tz())
-                        + " (updates every ~5 min)._"
+                        + "\n⏱ _~" + fmtDur(eta) + " remaining — **≈ " + finishAt(eta, actor.get().tz())
+                        + "** (updates every ~5 min)._"
                         + ("queued".equalsIgnoreCase(b.state()) ? " _Reply `/top` to jump the queue._" : ""));
             }
             catch (RestClientResponseException e) {

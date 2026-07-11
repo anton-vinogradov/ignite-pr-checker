@@ -463,7 +463,7 @@ public class StandingVisas implements SnapshotCache {
     /** The ⏳ status line of the living comment while re-runs settle. */
     private static String pendingLine(String what, int attempt, Long etaEpochSec, String tz) {
         return "\n\n⏳ _Auto re-run in progress — " + what + " re-queued (attempt " + attempt + "/" + MAX_RERUNS + ")"
-            + (etaEpochSec == null ? "" : ", ≈ settled by " + wallClock(etaEpochSec, tz))
+            + (etaEpochSec == null ? "" : ", **≈ settled by " + wallClock(etaEpochSec, tz) + "**")
             + ". This comment updates when they settle._";
     }
 
