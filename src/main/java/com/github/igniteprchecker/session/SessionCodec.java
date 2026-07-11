@@ -46,8 +46,13 @@ public class SessionCodec {
 
     /** @return the cookie value carrying the encrypted session, with an optional JIRA PAT. */
     public String encode(String username, String token, String jiraToken) {
+        return encode(username, token, jiraToken, null);
+    }
+
+    /** @return the cookie value carrying the encrypted session, with optional JIRA and GitHub PATs. */
+    public String encode(String username, String token, String jiraToken, String ghToken) {
         try {
-            byte[] plain = mapper.writeValueAsBytes(new Payload(username, token, jiraToken));
+            byte[] plain = mapper.writeValueAsBytes(new Payload(username, token, jiraToken, ghToken));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -115,7 +120,7 @@ public class SessionCodec {
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
             Payload p = mapper.readValue(cipher.doFinal(ct), Payload.class);
 
-            return Optional.of(new Session(p.username(), p.token(), p.jiraToken()));
+            return Optional.of(new Session(p.username(), p.token(), p.jiraToken(), p.ghToken()));
         }
         catch (Exception e) {
             return Optional.empty();
@@ -142,11 +147,11 @@ public class SessionCodec {
         return new SecretKeySpec(material, "AES");
     }
 
-    public record Session(String username, String token, String jiraToken) {
+    public record Session(String username, String token, String jiraToken, String ghToken) {
     }
 
     /** Old cookies also carried an {@code exp}; it is ignored now that sessions don't time out. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Payload(String username, String token, String jiraToken) {
+    private record Payload(String username, String token, String jiraToken, String ghToken) {
     }
 }

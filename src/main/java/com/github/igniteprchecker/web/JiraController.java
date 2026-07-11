@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -39,10 +40,11 @@ public class JiraController {
     private final VisaService visas;
     private final VisaSubscriptions visaSubs;
     private final StandingVisas standing;
+    private final GithubClient github;
     private final boolean cookieSecure;
 
     public JiraController(JiraClient jira, BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
-        VisaSubscriptions visaSubs, StandingVisas standing,
+        VisaSubscriptions visaSubs, StandingVisas standing, GithubClient github,
         @Value("${session.cookie-secure:true}") boolean cookieSecure) {
         this.jira = jira;
         this.analyzer = analyzer;
@@ -50,6 +52,7 @@ public class JiraController {
         this.visas = visas;
         this.visaSubs = visaSubs;
         this.standing = standing;
+        this.github = github;
         this.cookieSecure = cookieSecure;
     }
 
@@ -84,13 +87,15 @@ public class JiraController {
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(defaultValue = "false") boolean visa,
         @RequestParam(defaultValue = "false") boolean rerun,
+        @RequestParam(defaultValue = "false") boolean gh,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
-        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
-        if (!visa && !rerun) {
+        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
+        @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
+        if (!visa && !rerun && !gh) {
             standing.disable(username);
 
-            return ResponseEntity.ok(Map.of("visa", false, "rerun", false));
+            return ResponseEntity.ok(Map.of("visa", false, "rerun", false, "gh", false));
         }
         if (visa) { // only the visa needs JIRA; rerun-only works with the TC token alone
             if (jiraToken == null)
@@ -98,16 +103,40 @@ public class JiraController {
             if (jira.myself(jiraToken).isEmpty())
                 return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
         }
+        if (gh && ghToken == null)
+            return ResponseEntity.status(412).body(Map.of("error", "no GitHub token in the session", "need", "github"));
 
-        standing.enable(username, tcToken, visa ? jiraToken : null, visa, rerun);
+        standing.enable(username, tcToken, visa ? jiraToken : null, gh ? ghToken : null, visa, rerun, gh);
 
-        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun));
+        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh));
     }
 
     /** The logged-in user's standing options. */
     @GetMapping("/auto-visa-all")
     public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        return Map.of("visa", standing.visaOn(username), "rerun", standing.rerunOn(username));
+        return Map.of("visa", standing.visaOn(username), "rerun", standing.rerunOn(username),
+            "gh", standing.ghOn(username));
+    }
+
+    /** Validates a GitHub PAT and re-issues the session cookie with it on board. */
+    @PostMapping("/github-token")
+    public ResponseEntity<?> saveGithubToken(@RequestBody TokenRequest req,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
+        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
+        if (req.token() == null || req.token().isBlank())
+            return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
+
+        java.util.Optional<String> who = github.ghUser(req.token().trim());
+        if (who.isEmpty())
+            return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
+
+        String cookie = codec.encode(username, tcToken, jiraToken, req.token().trim());
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE, ResponseCookie.from(AuthInterceptor.COOKIE, cookie)
+                .httpOnly(true).secure(cookieSecure).sameSite("Lax").path("/").maxAge(COOKIE_MAX_AGE).build().toString())
+            .body(Map.of("githubUser", who.get()));
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */

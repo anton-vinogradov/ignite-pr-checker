@@ -21,6 +21,33 @@ import org.springframework.web.client.RestClient;
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
 @Component
 public class GithubClient implements SnapshotCache {
+    /** Validates a user's PAT: their GitHub login when the token works. */
+    public java.util.Optional<String> ghUser(String pat) {
+        try {
+            java.util.Map<?, ?> u = http.get().uri(URI.create("https://api.github.com/user"))
+                .header("Authorization", "Bearer " + pat)
+                .header("Accept", "application/vnd.github+json")
+                .retrieve().body(java.util.Map.class);
+
+            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
+        }
+        catch (RuntimeException e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** Posts a comment to the PR under the USER'S OWN PAT; the comment's html url. */
+    public String addPrComment(String pat, int prNumber, String body) {
+        java.util.Map<?, ?> c = http.post()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+            .header("Authorization", "Bearer " + pat)
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("body", body))
+            .retrieve().body(java.util.Map.class);
+
+        return c == null ? "" : String.valueOf(c.get("html_url"));
+    }
+
     /** This tool's own repo, for the "Star" button (fetched server-side so browser blockers don't hide it). */
     private static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
 
