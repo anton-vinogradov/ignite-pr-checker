@@ -68,6 +68,11 @@ The one question the tool answers: **which tests did this PR actually break?**
   markdown, posted as a comment on the `apache/ignite` pull request from your own GitHub account
   (a personal access token with the `public_repo` scope; stored encrypted at rest while the option
   is on).
+- **`/run-all` from the PR** — with the GitHub option on, comment `/run-all` on any pull request
+  and the whole RunAll chain is queued under your own TeamCity token; the ack is a 🚀 reaction from
+  your own account (😕 if TeamCity refused). Combined with auto re-run and the verdict comment, the
+  entire cycle happens without leaving the PR. Commands are picked up within a minute — one
+  repo-wide comments poll covers every PR.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish, the analysis **refreshes itself** — no F5.

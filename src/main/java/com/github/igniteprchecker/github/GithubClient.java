@@ -48,6 +48,47 @@ public class GithubClient implements SnapshotCache {
         return c == null ? "" : String.valueOf(c.get("html_url"));
     }
 
+    /**
+     * Issue/PR comments of the whole repo updated since the given instant (ISO-8601), oldest first —
+     * ONE call covers every open PR, which is what makes a minute-level command poll affordable.
+     */
+    public java.util.List<IssueComment> recentIssueComments(String sinceIso) {
+        URI uri = URI.create("https://api.github.com/repos/" + props.repo()
+            + "/issues/comments?since=" + sinceIso + "&sort=updated&direction=asc&per_page=100");
+
+        RestClient.RequestHeadersSpec<?> req = http.get()
+            .uri(uri)
+            .header("Accept", "application/vnd.github+json");
+
+        if (props.token() != null && !props.token().isBlank())
+            req = req.header("Authorization", "Bearer " + props.token());
+
+        RestClient.RequestHeadersSpec<?> r = req;
+        IssueComment[] comments = recorded("comments", () -> r.retrieve().body(IssueComment[].class));
+
+        return comments == null ? java.util.List.of() : java.util.List.of(comments);
+    }
+
+    /** Reacts to an issue/PR comment under the USER'S OWN PAT (content: rocket, confused, ...). */
+    public void reactToComment(String pat, long commentId, String content) {
+        recorded("react", () -> http.post()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
+            .header("Authorization", "Bearer " + pat)
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("content", content))
+            .retrieve().body(java.util.Map.class));
+    }
+
+    /** One repo comment from the poll: {@code htmlUrl} tells a PR comment from a plain issue's. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record IssueComment(long id, String body,
+        @JsonProperty("html_url") String htmlUrl, @JsonProperty("created_at") String createdAt, GhUser user) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record GhUser(String login) {
+    }
+
     /** This tool's own repo, for the "Star" button (fetched server-side so browser blockers don't hide it). */
     private static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
 
