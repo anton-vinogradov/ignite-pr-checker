@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -81,17 +82,18 @@ public class StandingVisas implements SnapshotCache {
     public void enable(String username, String tcToken, String jiraToken, String ghToken,
         boolean autoVisa, boolean autoRerun, boolean ghComment) {
         String ghLogin = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
+        String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
         // A settings change must not forget which builds were already handled (or their comments).
         Enrollment prev = enrolled.get(username);
         enrolled.put(username, new Enrollment(
             codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
-            ghToken == null ? null : codec.encryptString(ghToken), ghLogin,
+            ghToken == null ? null : codec.encryptString(ghToken), ghLogin, tz,
             System.currentTimeMillis(),
             prev != null ? prev.posted() : new ConcurrentHashMap<>(),
             prev != null ? prev.ghThreads() : new ConcurrentHashMap<>(),
             autoVisa, autoRerun, ghComment));
-        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={} (gh login {})",
-            username, autoVisa, autoRerun, ghComment, ghLogin);
+        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={} (gh login {}, tz {})",
+            username, autoVisa, autoRerun, ghComment, ghLogin, tz);
     }
 
     /**
@@ -105,7 +107,7 @@ public class StandingVisas implements SnapshotCache {
                 Optional<String> tcToken = codec.decryptString(e.tcToken());
                 Optional<String> ghToken = e.ghToken() == null ? Optional.empty() : codec.decryptString(e.ghToken());
                 if (tcToken.isPresent() && ghToken.isPresent())
-                    return Optional.of(new GhActor(en.getKey(), tcToken.get(), ghToken.get()));
+                    return Optional.of(new GhActor(en.getKey(), tcToken.get(), ghToken.get(), e.tz()));
             }
         }
 
@@ -127,26 +129,30 @@ public class StandingVisas implements SnapshotCache {
         Optional<String> ghToken = codec.decryptString(e.ghToken());
 
         return tcToken.isPresent() && ghToken.isPresent()
-            ? Optional.of(new GhActor(username, tcToken.get(), ghToken.get()))
+            ? Optional.of(new GhActor(username, tcToken.get(), ghToken.get(), e.tz()))
             : Optional.empty();
     }
 
     /**
-     * Backfills {@code ghLogin} for enrollments made before logins were recorded (one GitHub
-     * call per such user, once); no-op when every GitHub-enabled enrollment already has one.
+     * Backfills {@code ghLogin} and {@code tz} for enrollments made before those were recorded
+     * (one GitHub/JIRA call per such user, once); no-op when everything is already resolved.
      */
     public void ensureGhLogins() {
         enrolled.replaceAll((u, e) -> {
-            if (!e.ghComment() || e.ghLogin() != null || e.ghToken() == null)
+            String login = e.ghLogin();
+            if (e.ghComment() && login == null && e.ghToken() != null)
+                login = codec.decryptString(e.ghToken()).flatMap(github::ghUser).orElse(null);
+
+            String tz = e.tz();
+            if (tz == null && e.jiraToken() != null)
+                tz = codec.decryptString(e.jiraToken()).flatMap(jira::myTimezone).orElse(null);
+
+            if (Objects.equals(login, e.ghLogin()) && Objects.equals(tz, e.tz()))
                 return e;
 
-            String login = codec.decryptString(e.ghToken()).flatMap(github::ghUser).orElse(null);
-            if (login == null)
-                return e;
+            log.info("backfilled for {}: gh login {}, tz {}", u, login, tz);
 
-            log.info("gh login for {} resolved: {}", u, login);
-
-            return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, e.enabledAt(),
+            return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, tz, e.enabledAt(),
                 e.posted(), e.ghThreads(), e.autoVisa(), e.autoRerun(), e.ghComment());
         });
     }
@@ -373,7 +379,7 @@ public class StandingVisas implements SnapshotCache {
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
-            e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
+            e.tz(), e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
             e.autoVisa(), e.autoRerun(), e.ghComment())));
         Snapshots.writeAtomic(mapper, file, snap);
     }
@@ -391,13 +397,13 @@ public class StandingVisas implements SnapshotCache {
             if (p.ghThreads() != null)
                 ghThreads.putAll(p.ghThreads());
             enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.ghLogin(),
-                p.enabledAt(), posted, ghThreads,
+                p.tz(), p.enabledAt(), posted, ghThreads,
                 p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment()));
         }
     }
 
-    private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, long enabledAt,
-        ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
+    private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, String tz,
+        long enabledAt, ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
         boolean autoVisa, boolean autoRerun, boolean ghComment) {
     }
 
@@ -406,7 +412,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /** An enrolled user resolved from a GitHub login, tokens decrypted and ready to act with. */
-    public record GhActor(String username, String tcToken, String ghToken) {
+    public record GhActor(String username, String tcToken, String ghToken, String tz) {
     }
 
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, and a note for the visa. */
@@ -414,7 +420,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
-        long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
+        String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
     }
 }

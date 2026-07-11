@@ -182,7 +182,8 @@ public class PrCommands implements SnapshotCache {
                 long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId());
                 if (eta >= 0)
                     edit(actor.get().ghToken(), run.commentId(), run.baseBody()
-                        + "\n⏱ _~" + fmtDur(eta) + " remaining (updates every ~5 min)._");
+                        + "\n⏱ _~" + fmtDur(eta) + " remaining — ≈ " + finishAt(eta, actor.get().tz())
+                        + " (updates every ~5 min)._");
             }
             catch (RestClientResponseException e) {
                 if (e.getStatusCode().value() == 404)
@@ -201,6 +202,25 @@ public class PrCommands implements SnapshotCache {
         long m = (seconds % 3600) / 60;
 
         return h > 0 ? h + "h " + m + "m" : m > 0 ? m + "m" : "<1m";
+    }
+
+    /**
+     * The estimated finish as wall-clock time in the AUTHOR'S timezone (their JIRA-profile one —
+     * GitHub exposes none); UTC when unknown, so the stamp is honest either way.
+     */
+    private static String finishAt(long etaSeconds, String tz) {
+        java.time.ZoneId zone = java.time.ZoneId.of("UTC");
+        if (tz != null) {
+            try {
+                zone = java.time.ZoneId.of(tz);
+            }
+            catch (java.time.DateTimeException ignored) {
+                // an unparsable profile timezone falls back to UTC
+            }
+        }
+
+        return java.time.ZonedDateTime.now(zone).plusSeconds(etaSeconds)
+            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm zzz", java.util.Locale.ENGLISH));
     }
 
     public int handledCount() {

@@ -49,6 +49,21 @@ public class JiraClient {
         }
     }
 
+    /** The user's JIRA-profile timezone (e.g. {@code Europe/Moscow}) — the only place we can get one. */
+    public Optional<String> myTimezone(String token) {
+        try {
+            Myself me = recorded("myself", () -> http.get().uri(baseUrl + "/rest/api/2/myself")
+                .header("Authorization", "Bearer " + token)
+                .retrieve()
+                .body(Myself.class));
+
+            return Optional.ofNullable(me == null ? null : me.timeZone());
+        }
+        catch (RestClientResponseException e) {
+            return Optional.empty();
+        }
+    }
+
     /** Posts a comment to the issue; the URL of the created comment. */
     public String addComment(String token, String issueKey, String body) {
         Comment c = recorded("visa", () -> http.post().uri(baseUrl + "/rest/api/2/issue/" + issueKey + "/comment")
@@ -78,7 +93,7 @@ public class JiraClient {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Myself(String name, String displayName) {
+    private record Myself(String name, String displayName, String timeZone) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
