@@ -46,8 +46,7 @@
         .settings-panel { max-width: 820px; margin: 0.6rem 1rem 0 auto; padding: 0.9rem 1.1rem; font-size: 0.85rem; }
         .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; }
         .settings-row input { margin: 0.2rem 0 0 0; width: 16px; height: 16px; flex: none; }
-        /* nested option: its checkbox sits exactly under the parent's text column (16px box + 0.6rem gap) */
-        .settings-row.nested { margin-left: calc(16px + 0.6rem); }
+
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
         #logout:hover { border-color: #c0c0c0; }
         .star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
@@ -339,17 +338,19 @@
         <label class="settings-row">
             <input id="standingVisaToggle" type="checkbox">
             <span><b>Auto-visa all my runs</b> — when any RunAll I triggered finishes, post the verdict to the
-                PR's IGNITE ticket automatically (checked every ~10 minutes, each run posted once).<br>
-                <span class="muted">Requires your JIRA Personal Access Token. While this is on, your TeamCity and JIRA
-                tokens are stored on the server encrypted at rest; turning it off removes them.</span></span>
+                PR's IGNITE ticket automatically (checked every ~10 minutes, each run posted once; if auto re-run
+                is also on, the visa waits until the re-runs settle).<br>
+                <span class="muted">Requires your JIRA Personal Access Token; your TeamCity and JIRA tokens are
+                stored encrypted at rest while this is on.</span></span>
         </label>
-        <label class="settings-row nested" style="margin-top: 0.5rem">
-            <input id="autoRerunToggle" type="checkbox" disabled>
-            <span><b>Re-run blocker suites before posting</b> — if the finished run has blockers, re-run their
-                suites automatically (up to 2 attempts) and post the visa only once they settle. Up to 10 suites
-                jump to the top of the queue; more are queued at the tail (with a note in the visa) so they don't
-                push everyone else back; a systemic breakage (30+) posts as-is. Identical suites already sitting
-                in the queue are cancelled first. A pass on re-run clears the blocker; what keeps failing is posted red.</span>
+        <label class="settings-row" style="margin-top: 0.5rem">
+            <input id="autoRerunToggle" type="checkbox">
+            <span><b>Auto re-run blocker suites on my runs</b> — if a RunAll I triggered finishes with blockers,
+                re-run their suites automatically (up to 2 attempts). Up to 10 suites jump to the top of the queue;
+                more go to the tail so they don't push everyone else back; a systemic breakage (30+) is left alone.
+                Identical suites already sitting in the queue are cancelled first.<br>
+                <span class="muted">Works on its own — no JIRA needed; your TeamCity token is stored encrypted
+                at rest while this is on.</span></span>
         </label>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
@@ -1470,9 +1471,8 @@
                     const r = await api('/api/auto-visa-all');
                     if (r.ok) {
                         const st = await r.json();
-                        $('standingVisaToggle').checked = !!st.enabled;
-                        $('autoRerunToggle').checked = !!st.autoRerun;
-                        $('autoRerunToggle').disabled = !st.enabled;
+                        $('standingVisaToggle').checked = !!st.visa;
+                        $('autoRerunToggle').checked = !!st.rerun;
                     }
                 } catch (e) { /* leave unchecked */ }
             }
@@ -1496,29 +1496,18 @@
                 m.textContent = '';
                 $('settingsJira').classList.add('hidden');
                 $('standingVisaToggle').checked = true;
-                $('standingVisaToggle').onchange();
+                postStandingState();
             } catch (e) {
                 m.textContent = 'could not reach the service — try again';
             }
         };
 
-        $('autoRerunToggle').onchange = async () => {
-            if (!$('standingVisaToggle').checked) return;
-            try {
-                const r = await api('/api/auto-visa-all?enable=true&autoRerun=' + $('autoRerunToggle').checked, { method: 'POST' });
-                const res = await r.json().catch(() => ({}));
-                if (r.ok) $('settingsMsg').textContent = res.autoRerun
-                    ? 'Auto re-run on — blockers get up to 2 re-runs before the visa.'
-                    : 'Auto re-run off — the visa posts the first verdict as is.';
-            } catch (e) { $('settingsMsg').textContent = 'could not reach the service — try again'; }
-        };
-
-        $('standingVisaToggle').onchange = async () => {
-            const t = $('standingVisaToggle'), msg = $('settingsMsg');
-            const enable = t.checked;
+        // Two independent standing options; every change posts the combined state.
+        async function postStandingState() {
+            const visaT = $('standingVisaToggle'), rerunT = $('autoRerunToggle'), msg = $('settingsMsg');
             msg.textContent = '';
-            if (enable && !hasJira) {
-                t.checked = false;
+            if (visaT.checked && !hasJira) {
+                visaT.checked = false;
                 $('settingsJira').classList.remove('hidden');
                 try {
                     const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {});
@@ -1528,22 +1517,24 @@
                 return;
             }
             try {
-                const r = await api('/api/auto-visa-all?enable=' + enable
-                    + '&autoRerun=' + (enable && $('autoRerunToggle').checked), { method: 'POST' });
+                const r = await api('/api/auto-visa-all?visa=' + visaT.checked + '&rerun=' + rerunT.checked, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (r.status === 412) { t.checked = false; hasJira = false; pendingJiraAction = 'standing'; await toggleJiraPanel(true); return; }
-                if (!r.ok) { t.checked = !enable; msg.textContent = friendly(res.error, 'could not change the setting'); return; }
-                $('autoRerunToggle').disabled = !res.enabled;
-                if (!res.enabled) $('autoRerunToggle').checked = false;
-                msg.textContent = res.enabled
-                    ? 'On — verdicts for your finished runs will land in the tickets automatically.'
-                    : 'Off — stored tokens removed.';
+                if (r.status === 412) { visaT.checked = false; hasJira = false; return postStandingState(); }
+                if (!r.ok) { msg.textContent = friendly(res.error, 'could not change the setting'); return; }
+                visaT.checked = !!res.visa;
+                rerunT.checked = !!res.rerun;
+                msg.textContent = res.visa && res.rerun
+                    ? 'On — blockers get re-runs, then the visa lands in the ticket automatically.'
+                    : res.visa ? 'Auto-visa on — verdicts of your finished runs land in the tickets.'
+                    : res.rerun ? 'Auto re-run on — blockers of your runs get up to 2 re-runs (no visa is posted).'
+                    : 'Both off — stored tokens removed.';
             } catch (e) {
-                t.checked = !enable;
                 msg.textContent = 'could not reach the service — try again';
             }
-        };
+        }
+        $('standingVisaToggle').onchange = postStandingState;
+        $('autoRerunToggle').onchange = postStandingState;
         $('jiraSave').onclick = saveJiraToken;
         $('jiraCancel').onclick = () => toggleJiraPanel(false);
 

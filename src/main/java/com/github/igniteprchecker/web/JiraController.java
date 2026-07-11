@@ -82,30 +82,32 @@ public class JiraController {
 
     /** Toggles the standing auto-visa: every finished RunAll the user triggered gets a visa posted. */
     @PostMapping("/auto-visa-all")
-    public ResponseEntity<?> standingVisa(@RequestParam boolean enable,
-        @RequestParam(defaultValue = "false") boolean autoRerun,
+    public ResponseEntity<?> standingVisa(@RequestParam(defaultValue = "false") boolean visa,
+        @RequestParam(defaultValue = "false") boolean rerun,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
-        if (!enable) {
+        if (!visa && !rerun) {
             standing.disable(username);
 
-            return ResponseEntity.ok(Map.of("enabled", false));
+            return ResponseEntity.ok(Map.of("visa", false, "rerun", false));
         }
-        if (jiraToken == null)
-            return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
-        if (jira.myself(jiraToken).isEmpty())
-            return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
+        if (visa) { // only the visa needs JIRA; rerun-only works with the TC token alone
+            if (jiraToken == null)
+                return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
+            if (jira.myself(jiraToken).isEmpty())
+                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
+        }
 
-        standing.enable(username, tcToken, jiraToken, autoRerun);
+        standing.enable(username, tcToken, visa ? jiraToken : null, visa, rerun);
 
-        return ResponseEntity.ok(Map.of("enabled", true, "autoRerun", autoRerun));
+        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun));
     }
 
-    /** Whether the standing auto-visa is on for the logged-in user. */
+    /** The logged-in user's standing options. */
     @GetMapping("/auto-visa-all")
     public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        return Map.of("enabled", standing.enabled(username), "autoRerun", standing.autoRerun(username));
+        return Map.of("visa", standing.visaOn(username), "rerun", standing.rerunOn(username));
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */
