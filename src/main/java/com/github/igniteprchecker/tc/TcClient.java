@@ -187,11 +187,16 @@ public class TcClient {
 
     /** Enqueues one build type for a PR branch. {@code top} puts it at the head of the queue. */
     public TcModel.Build triggerBuild(String token, String buildTypeId, int prNumber, boolean top) {
+        return triggerBuild(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker");
+    }
+
+    /** Same, with an explicit TeamCity trigger comment — so TC itself tells WHY a build was queued. */
+    public TcModel.Build triggerBuild(String token, String buildTypeId, int prNumber, boolean top, String comment) {
         Map<String, Object> payload = Map.of(
             "branchName", "pull/" + prNumber + "/head",
             "buildType", Map.of("id", buildTypeId),
             "triggeringOptions", Map.of("queueAtTop", top),
-            "comment", Map.of("text", "Triggered by Ignite PR Checker"));
+            "comment", Map.of("text", comment));
 
         return recorded("trigger", () -> http.post()
             .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl,buildType(name)")))
@@ -240,6 +245,12 @@ public class TcClient {
      * of a running chain are left alone — cancelling those would break the chain.
      */
     public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top) {
+        return triggerBuildReplacingQueued(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker");
+    }
+
+    /** Same, with an explicit TeamCity trigger comment. */
+    public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
+        String comment) {
         String branch = "pull/" + prNumber + "/head";
         for (TcModel.Build q : queuedBuilds(token)) {
             boolean standalone = q.triggered() != null && "user".equals(q.triggered().type());
@@ -253,7 +264,7 @@ public class TcClient {
             }
         }
 
-        return triggerBuild(token, buildTypeId, prNumber, top);
+        return triggerBuild(token, buildTypeId, prNumber, top, comment);
     }
 
     /** The newest finished run of one suite on the PR branch — standalone re-runs included. */
