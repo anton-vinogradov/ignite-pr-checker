@@ -225,6 +225,14 @@ public class PrCommands implements SnapshotCache {
      * The queued-build ack and the remaining-time line live INSIDE the command comment itself (it's
      * the author's own comment, edited with their own PAT) — still zero extra messages in the thread.
      */
+    /** Edits the comment only when the narration actually changed — no no-op revisions. */
+    private void narrate(int pr, String ghToken, long commentId, String body) {
+        if (body.equals(lastNarration.put(pr, body)))
+            return;
+
+        edit(ghToken, commentId, body);
+    }
+
     private void edit(String ghToken, long commentId, String body) {
         try {
             github.updatePrComment(ghToken, commentId, body);
@@ -234,8 +242,12 @@ public class PrCommands implements SnapshotCache {
         }
     }
 
+    /** Last narration line rendered per PR — identical re-edits are skipped so the minute-level
+     * cadence doesn't flood the comment's edit history with no-op revisions. */
+    private final ConcurrentMap<Integer, String> lastNarration = new ConcurrentHashMap<>();
+
     /** Refreshes the "~Xh Ym remaining" line of every accepted command's comment; final line on finish. */
-    @Scheduled(fixedDelay = 300_000, initialDelay = 120_000)
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     void updateEtas() {
         watching.forEach((pr, run) -> {
             Optional<StandingVisas.GhActor> actor = standing.actor(run.username());
@@ -252,8 +264,9 @@ public class PrCommands implements SnapshotCache {
 
                 if ("finished".equalsIgnoreCase(b.state())) {
                     if ("UNKNOWN".equalsIgnoreCase(b.status())) {
-                        edit(actor.get().ghToken(), run.commentId(), run.baseBody() + "\n🛑 _Run cancelled._");
+                        narrate(pr, actor.get().ghToken(), run.commentId(), run.baseBody() + "\n🛑 _Run cancelled._");
                         watching.remove(pr);
+                        lastNarration.remove(pr);
 
                         return;
                     }
@@ -262,9 +275,10 @@ public class PrCommands implements SnapshotCache {
                     // reporting the blocker/broken auto re-run waves and only closes once the verdict
                     // has actually landed.
                     if (standing.buildHandled(run.username(), pr, run.buildId())) {
-                        edit(actor.get().ghToken(), run.commentId(), run.baseBody()
+                        narrate(pr, actor.get().ghToken(), run.commentId(), run.baseBody()
                             + "\n🏁 _Run finished — the verdict comment has the full story._");
                         watching.remove(pr);
+                        lastNarration.remove(pr);
 
                         return;
                     }
@@ -277,16 +291,16 @@ public class PrCommands implements SnapshotCache {
                                 Math.max(0, w.get().etaEpochSec() - System.currentTimeMillis() / 1000),
                                 actor.get().tz()) + "**")
                             + " — details in the verdict comment._";
-                    edit(actor.get().ghToken(), run.commentId(), run.baseBody() + line);
+                    narrate(pr, actor.get().ghToken(), run.commentId(), run.baseBody() + line);
 
                     return; // keep narrating until the verdict lands
                 }
 
                 long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId());
                 if (eta >= 0)
-                    edit(actor.get().ghToken(), run.commentId(), run.baseBody()
+                    narrate(pr, actor.get().ghToken(), run.commentId(), run.baseBody()
                         + "\n⏱ _~" + fmtDur(eta) + " remaining — **≈ " + finishAt(eta, actor.get().tz())
-                        + "** (updates every ~5 min)._"
+                        + "** (updates every minute)._"
                         + ("queued".equalsIgnoreCase(b.state()) ? " _Reply `/top` to jump the queue._" : ""));
             }
             catch (RestClientResponseException e) {
