@@ -262,9 +262,10 @@ public class StandingVisas implements SnapshotCache {
                         if (e.ghComment() && t != null && t.buildId() == buildId) {
                             String what = r0 != null && r0.buildId() == buildId ? r0.what() : "re-run suite(s)";
                             int attempt = r0 != null && r0.buildId() == buildId ? r0.attempts() : 1;
+                            List<String> history = r0 != null && r0.buildId() == buildId ? r0.history() : null;
                             upsertGhComment(e, ghToken.get(), pr.number(), buildId,
                                 visas.composeMarkdown(pr.number(), res.get())
-                                    + pendingLine(what, attempt, activeEtaEpoch(pr.number()), e.tz()));
+                                    + pendingLine(what, attempt, history, activeEtaEpoch(pr.number()), e.tz()));
                         }
 
                         continue; // the visa waits until the re-runs settle
@@ -284,7 +285,7 @@ public class StandingVisas implements SnapshotCache {
                     String what = suitesLabel(blockerSuites.size(), suites.size() - blockerSuites.size());
                     if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
                         // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
-                        retries.put(pr.number(), new Retry(buildId, MAX_RERUNS, what,
+                        retries.put(pr.number(), new Retry(buildId, MAX_RERUNS, what, List.of(),
                             "(i) Auto re-run skipped: " + suites.size() + " suites is too many — "
                                 + "this looks systemic; fix the cause and re-trigger RunAll."));
                     }
@@ -292,9 +293,15 @@ public class StandingVisas implements SnapshotCache {
                         // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
                         // re-run doesn't shove everyone else's builds back.
                         boolean top = suites.size() <= TOP_QUEUE_LIMIT;
+                        List<String> history = new ArrayList<>(
+                            r != null && r.buildId() == buildId && r.history() != null ? r.history() : List.of());
+                        history.add(what);
+                        String tcComment = "Auto re-run " + history.size() + " (attempt " + (attempts + 1) + "/"
+                            + MAX_RERUNS + ") by Ignite PR Checker, settling RunAll " + buildId;
                         List<Long> queued = new ArrayList<>();
                         for (String suite : suites) {
-                            TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken.get(), suite, pr.number(), top);
+                            TcModel.Build b =
+                                tc.triggerBuildReplacingQueued(tcToken.get(), suite, pr.number(), top, tcComment);
                             rerunTracker.record(pr.number(), b);
                             queued.add(b.id());
                         }
@@ -302,7 +309,7 @@ public class StandingVisas implements SnapshotCache {
                             : "(i) " + suites.size() + " suites were re-queued at the TAIL of the queue "
                                 + "(too many to jump it without disturbing others) — this may need a real fix "
                                 + "and a fresh RunAll rather than re-runs.";
-                        retries.put(pr.number(), new Retry(buildId, attempts + 1, what, note));
+                        retries.put(pr.number(), new Retry(buildId, attempts + 1, what, history, note));
                         log.info("auto-rerun {}/{} for PR {}: {} re-queued at {}",
                             attempts + 1, MAX_RERUNS, pr.number(), what, top ? "top" : "tail");
 
@@ -311,7 +318,8 @@ public class StandingVisas implements SnapshotCache {
                         if (e.ghComment())
                             upsertGhComment(e, ghToken.get(), pr.number(), buildId,
                                 visas.composeMarkdown(pr.number(), res.get())
-                                    + pendingLine(what, attempts + 1, queuedEtaEpoch(tcToken.get(), queued), e.tz()));
+                                    + pendingLine(what, attempts + 1, history,
+                                        queuedEtaEpoch(tcToken.get(), queued), e.tz()));
 
                         continue; // the visa waits until the re-runs settle
                     }
@@ -319,9 +327,12 @@ public class StandingVisas implements SnapshotCache {
 
                 Retry done = retries.get(pr.number());
                 String note = done != null && done.buildId() == buildId ? done.note() : null;
+                String settled = done != null && done.buildId() == buildId ? settledLine(done.history()) : null;
 
                 if (e.autoVisa()) {
                     String body = visas.compose(pr.number(), res.get());
+                    if (settled != null)
+                        body = body + "\n\n" + settled;
                     if (note != null)
                         body = body + "\n\n" + note;
                     String url = jira.addComment(jiraToken.get(), m.group(), body);
@@ -331,6 +342,8 @@ public class StandingVisas implements SnapshotCache {
                 }
                 if (e.ghComment()) {
                     String md = visas.composeMarkdown(pr.number(), res.get());
+                    if (settled != null)
+                        md = md + "\n\n_" + settled + "_";
                     if (note != null)
                         md = md + "\n\n_" + note + "_";
                     upsertGhComment(e, ghToken.get(), pr.number(), buildId, md);
@@ -452,7 +465,7 @@ public class StandingVisas implements SnapshotCache {
 
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, what was re-queued,
      * and a note for the visa. */
-    private record Retry(long buildId, int attempts, String what, String note) {
+    private record Retry(long buildId, int attempts, String what, List<String> history, String note) {
     }
 
     /** The snapshot on disk: enrollments plus the auto-rerun attempt bookkeeping (so a restart can't
@@ -460,11 +473,37 @@ public class StandingVisas implements SnapshotCache {
     private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries) {
     }
 
-    /** The ⏳ status line of the living comment while re-runs settle. */
-    private static String pendingLine(String what, int attempt, Long etaEpochSec, String tz) {
-        return "\n\n⏳ _Auto re-run in progress — " + what + " re-queued (attempt " + attempt + "/" + MAX_RERUNS + ")"
+    /** The ⏳ status line of the living comment while re-runs settle, numbered, with the waves so far. */
+    private static String pendingLine(String what, int attempt, List<String> history, Long etaEpochSec, String tz) {
+        return "\n\n⏳ _Auto re-run **#" + (history == null || history.isEmpty() ? attempt : history.size())
+            + "** in progress — " + what + " re-queued (attempt " + attempt + "/" + MAX_RERUNS + ")"
             + (etaEpochSec == null ? "" : ", **≈ settled by " + wallClock(etaEpochSec, tz) + "**")
-            + ". This comment updates when they settle._";
+            + ". This comment updates when they settle._"
+            + earlierWaves(history);
+    }
+
+    /** "Earlier re-runs: #1 — …" for every wave before the current one; empty when none. */
+    private static String earlierWaves(List<String> history) {
+        if (history == null || history.size() < 2)
+            return "";
+
+        StringBuilder b = new StringBuilder("\n_Earlier re-runs:");
+        for (int i = 0; i < history.size() - 1; i++)
+            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
+
+        return b.append("._").toString();
+    }
+
+    /** The final "how it settled" line: every re-run wave in order; null when there were none. */
+    private static String settledLine(List<String> history) {
+        if (history == null || history.isEmpty())
+            return null;
+
+        StringBuilder b = new StringBuilder("♻️ Settled after ").append(history.size()).append(" auto re-run wave(s):");
+        for (int i = 0; i < history.size(); i++)
+            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
+
+        return b.append(".").toString();
     }
 
     /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 3 broken suite(s)"}. */
