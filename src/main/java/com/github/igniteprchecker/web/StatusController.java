@@ -27,12 +27,14 @@ public class StatusController {
     private final com.github.igniteprchecker.tc.RerunTracker tracker;
     private final com.github.igniteprchecker.jira.VisaSubscriptions visaSubs;
     private final com.github.igniteprchecker.jira.StandingVisas standing;
+    private final com.github.igniteprchecker.github.PrCommands commands;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
         LogTracker logs, com.github.igniteprchecker.tc.RerunTracker tracker,
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
+        com.github.igniteprchecker.github.PrCommands commands,
         ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
@@ -42,6 +44,7 @@ public class StatusController {
         this.tracker = tracker;
         this.visaSubs = visaSubs;
         this.standing = standing;
+        this.commands = commands;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
@@ -103,6 +106,8 @@ public class StatusController {
         watcher.put("standingPosted", standing.postedCount());
         watcher.put("standingLastSweepAt", standing.lastSweepAt());
         watcher.put("standingLastSweepMs", standing.lastSweepMs());
+        watcher.put("prCommands", commands.handledCount());
+        watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         out.put("watcher", watcher);
         out.put("app", app);
         out.put("log", logSnap);

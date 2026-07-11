@@ -339,6 +339,8 @@
                     `${w.autoVisaPosted ?? 0} posted${w.autoVisaLastPostedAt ? ' · last ' + agoW(w.autoVisaLastPostedAt) : ''}`),
                 card('Standing visas', w.standingEnrolled ?? 0,
                     `users · ${w.standingPosted ?? 0} posted · sweep ${agoW(w.standingLastSweepAt)}${w.standingLastSweepMs ? ' (' + w.standingLastSweepMs + 'ms)' : ''}`),
+                card('PR commands', w.prCommands ?? 0,
+                    `/run-all handled · poll ${agoW(w.prCommandsLastPollAt)}`),
             ].join('');
 
             $('warmerCards').innerHTML = [

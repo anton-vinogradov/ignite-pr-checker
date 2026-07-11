@@ -80,12 +80,56 @@ public class StandingVisas implements SnapshotCache {
      */
     public void enable(String username, String tcToken, String jiraToken, String ghToken,
         boolean autoVisa, boolean autoRerun, boolean ghComment) {
+        String ghLogin = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
         enrolled.put(username, new Enrollment(
             codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
-            ghToken == null ? null : codec.encryptString(ghToken),
+            ghToken == null ? null : codec.encryptString(ghToken), ghLogin,
             System.currentTimeMillis(), new ConcurrentHashMap<>(), autoVisa, autoRerun, ghComment));
-        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}",
-            username, autoVisa, autoRerun, ghComment);
+        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={} (gh login {})",
+            username, autoVisa, autoRerun, ghComment, ghLogin);
+    }
+
+    /**
+     * The user behind a GitHub login, with decrypted tokens — the PR command poll resolves the
+     * comment's author through this. Only users with the GitHub option on are addressable.
+     */
+    public Optional<GhActor> actorByGhLogin(String login) {
+        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
+            Enrollment e = en.getValue();
+            if (e.ghComment() && login.equals(e.ghLogin())) {
+                Optional<String> tcToken = codec.decryptString(e.tcToken());
+                Optional<String> ghToken = e.ghToken() == null ? Optional.empty() : codec.decryptString(e.ghToken());
+                if (tcToken.isPresent() && ghToken.isPresent())
+                    return Optional.of(new GhActor(en.getKey(), tcToken.get(), ghToken.get()));
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /** Whether anyone with the GitHub option is enrolled — gates the PR command poll entirely. */
+    public boolean anyGhEnrolled() {
+        return enrolled.values().stream().anyMatch(Enrollment::ghComment);
+    }
+
+    /**
+     * Backfills {@code ghLogin} for enrollments made before logins were recorded (one GitHub
+     * call per such user, once); no-op when every GitHub-enabled enrollment already has one.
+     */
+    public void ensureGhLogins() {
+        enrolled.replaceAll((u, e) -> {
+            if (!e.ghComment() || e.ghLogin() != null || e.ghToken() == null)
+                return e;
+
+            String login = codec.decryptString(e.ghToken()).flatMap(github::ghUser).orElse(null);
+            if (login == null)
+                return e;
+
+            log.info("gh login for {} resolved: {}", u, login);
+
+            return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, e.enabledAt(),
+                e.posted(), e.autoVisa(), e.autoRerun(), e.ghComment());
+        });
     }
 
     /** Whether GitHub PR comments are on for the user. */
@@ -277,8 +321,8 @@ public class StandingVisas implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
-        enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.enabledAt(),
-            new HashMap<>(e.posted()), e.autoVisa(), e.autoRerun(), e.ghComment())));
+        enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
+            e.enabledAt(), new HashMap<>(e.posted()), e.autoVisa(), e.autoRerun(), e.ghComment())));
         Snapshots.writeAtomic(mapper, file, snap);
     }
 
@@ -291,20 +335,25 @@ public class StandingVisas implements SnapshotCache {
             ConcurrentMap<Integer, Long> posted = new ConcurrentHashMap<>();
             if (p.posted() != null)
                 posted.putAll(p.posted());
-            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.enabledAt(), posted,
+            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.ghLogin(),
+                p.enabledAt(), posted,
                 p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment()));
         }
     }
 
-    private record Enrollment(String tcToken, String jiraToken, String ghToken, long enabledAt,
+    private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, long enabledAt,
         ConcurrentMap<Integer, Long> posted, boolean autoVisa, boolean autoRerun, boolean ghComment) {
+    }
+
+    /** An enrolled user resolved from a GitHub login, tokens decrypted and ready to act with. */
+    public record GhActor(String username, String tcToken, String ghToken) {
     }
 
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, and a note for the visa. */
     private record Retry(long buildId, int attempts, String note) {
     }
 
-    private record Persisted(String username, String tcToken, String jiraToken, String ghToken, long enabledAt,
-        Map<Integer, Long> posted, Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
+    private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
+        long enabledAt, Map<Integer, Long> posted, Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
     }
 }
