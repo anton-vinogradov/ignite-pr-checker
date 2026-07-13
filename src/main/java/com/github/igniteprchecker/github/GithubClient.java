@@ -67,6 +67,124 @@ public class GithubClient implements SnapshotCache {
         return true;
     }
 
+    /** The PR's author and head (source branch) coordinates — where a style-fix commit must go. */
+    public PrHead prHead(int prNumber) {
+        java.util.Map<?, ?> pr = recorded("prHead", () -> appGet(
+            "https://api.github.com/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+
+        java.util.Map<?, ?> user = (java.util.Map<?, ?>)pr.get("user");
+        java.util.Map<?, ?> head = (java.util.Map<?, ?>)pr.get("head");
+        java.util.Map<?, ?> headRepo = (java.util.Map<?, ?>)head.get("repo");
+
+        return new PrHead((String)user.get("login"), (String)headRepo.get("full_name"),
+            (String)head.get("ref"), (String)head.get("sha"));
+    }
+
+    /** Paths of the PR's changed (not removed) .java files, capped at 300. */
+    public java.util.List<String> prJavaFiles(int prNumber) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (int page = 1; page <= 3; page++) {
+            int p = page;
+            java.util.List<?> files = recorded("prFiles", () -> appGet(
+                "https://api.github.com/repos/" + props.repo() + "/pulls/" + prNumber
+                    + "/files?per_page=100&page=" + p).body(java.util.List.class));
+            if (files == null || files.isEmpty())
+                break;
+            for (Object o : files) {
+                java.util.Map<?, ?> f = (java.util.Map<?, ?>)o;
+                if (String.valueOf(f.get("filename")).endsWith(".java") && !"removed".equals(f.get("status")))
+                    out.add((String)f.get("filename"));
+            }
+            if (files.size() < 100)
+                break;
+        }
+
+        return out;
+    }
+
+    /** Raw contents of one file at a ref, from an arbitrary (fork) repo. */
+    public String rawFile(String repo, String ref, String path) {
+        return recorded("rawFile", () -> {
+            RestClient.RequestHeadersSpec<?> req = http.get()
+                .uri(URI.create("https://api.github.com/repos/" + repo + "/contents/"
+                    + path.replace(" ", "%20") + "?ref=" + ref))
+                .header("Accept", "application/vnd.github.raw+json");
+            if (props.token() != null && !props.token().isBlank())
+                req = req.header("Authorization", "Bearer " + props.token());
+
+            return req.retrieve().body(String.class);
+        });
+    }
+
+    /**
+     * Creates ONE commit updating the given files on a branch — pure Git Data API, no clone: blobs ->
+     * tree (on top of the parent's) -> commit -> ref. Runs under the USER'S OWN PAT (their fork,
+     * their branch, their authorship). Returns the new commit sha; fails if the branch moved away
+     * from {@code parentSha} (never force-pushes over someone's newer work).
+     */
+    public String commitFiles(String pat, String repo, String branch, String parentSha,
+        java.util.Map<String, String> files, String message) {
+        java.util.Map<?, ?> parent = patGet(pat,
+            "https://api.github.com/repos/" + repo + "/git/commits/" + parentSha).body(java.util.Map.class);
+        String baseTree = (String)((java.util.Map<?, ?>)parent.get("tree")).get("sha");
+
+        java.util.List<java.util.Map<String, String>> tree = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, String> f : files.entrySet()) {
+            java.util.Map<?, ?> blob = recorded("styleCommit", () -> patPost(pat,
+                "https://api.github.com/repos/" + repo + "/git/blobs",
+                java.util.Map.of("content", f.getValue(), "encoding", "utf-8")).body(java.util.Map.class));
+            tree.add(java.util.Map.of("path", f.getKey(), "mode", "100644", "type", "blob",
+                "sha", (String)blob.get("sha")));
+        }
+
+        java.util.Map<?, ?> newTree = recorded("styleCommit", () -> patPost(pat,
+            "https://api.github.com/repos/" + repo + "/git/trees",
+            java.util.Map.of("base_tree", baseTree, "tree", tree)).body(java.util.Map.class));
+
+        java.util.Map<?, ?> commit = recorded("styleCommit", () -> patPost(pat,
+            "https://api.github.com/repos/" + repo + "/git/commits",
+            java.util.Map.of("message", message, "tree", newTree.get("sha"),
+                "parents", java.util.List.of(parentSha))).body(java.util.Map.class));
+
+        String sha = (String)commit.get("sha");
+        recorded("styleCommit", () -> http.patch()
+            .uri(URI.create("https://api.github.com/repos/" + repo + "/git/refs/heads/" + branch))
+            .header("Authorization", "Bearer " + pat)
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("sha", sha, "force", false))
+            .retrieve().body(java.util.Map.class));
+
+        return sha;
+    }
+
+    private RestClient.ResponseSpec appGet(String url) {
+        RestClient.RequestHeadersSpec<?> req = http.get().uri(URI.create(url))
+            .header("Accept", "application/vnd.github+json");
+        if (props.token() != null && !props.token().isBlank())
+            req = req.header("Authorization", "Bearer " + props.token());
+
+        return req.retrieve();
+    }
+
+    private RestClient.ResponseSpec patGet(String pat, String url) {
+        return http.get().uri(URI.create(url))
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", "Bearer " + pat)
+            .retrieve();
+    }
+
+    private RestClient.ResponseSpec patPost(String pat, String url, Object body) {
+        return http.post().uri(URI.create(url))
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", "Bearer " + pat)
+            .body(body)
+            .retrieve();
+    }
+
+    /** A PR's author and source-branch coordinates. */
+    public record PrHead(String authorLogin, String headRepo, String headRef, String headSha) {
+    }
+
     /** Replaces the body of an existing comment — the verdict lives in ONE comment that updates. */
     public void updatePrComment(String pat, long commentId, String body) {
         recorded("prCommentEdit", () -> http.patch()

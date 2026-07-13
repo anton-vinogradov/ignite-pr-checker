@@ -88,14 +88,15 @@ public class JiraController {
     public ResponseEntity<?> standingVisa(@RequestParam(defaultValue = "false") boolean visa,
         @RequestParam(defaultValue = "false") boolean rerun,
         @RequestParam(defaultValue = "false") boolean gh,
+        @RequestParam(defaultValue = "false") boolean style,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
         @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
-        if (!visa && !rerun && !gh) {
+        if (!visa && !rerun && !gh && !style) {
             standing.disable(username);
 
-            return ResponseEntity.ok(Map.of("visa", false, "rerun", false, "gh", false));
+            return ResponseEntity.ok(Map.of("visa", false, "rerun", false, "gh", false, "style", false));
         }
         if (visa) { // only the visa needs JIRA; rerun-only works with the TC token alone
             if (jiraToken == null)
@@ -103,19 +104,20 @@ public class JiraController {
             if (jira.myself(jiraToken).isEmpty())
                 return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
         }
-        if (gh && ghToken == null)
+        if ((gh || style) && ghToken == null) // the style-fix commit is pushed under the same PAT
             return ResponseEntity.status(412).body(Map.of("error", "no GitHub token in the session", "need", "github"));
 
-        standing.enable(username, tcToken, visa ? jiraToken : null, gh ? ghToken : null, visa, rerun, gh);
+        standing.enable(username, tcToken, visa ? jiraToken : null, gh || style ? ghToken : null,
+            visa, rerun, gh, style);
 
-        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh));
+        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh, "style", style));
     }
 
     /** The logged-in user's standing options. */
     @GetMapping("/auto-visa-all")
     public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         return Map.of("visa", standing.visaOn(username), "rerun", standing.rerunOn(username),
-            "gh", standing.ghOn(username));
+            "gh", standing.ghOn(username), "style", standing.styleFixOn(username));
     }
 
     /** Validates a GitHub PAT and re-issues the session cookie with it on board. */

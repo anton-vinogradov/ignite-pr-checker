@@ -5,6 +5,7 @@ import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
+import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import java.io.IOException;
@@ -48,6 +49,7 @@ public class PrCommands implements SnapshotCache {
     private final StandingVisas standing;
     private final TcClient tc;
     private final RerunTracker tracker;
+    private final StyleFixService styleFix;
 
     private volatile long sinceMs = System.currentTimeMillis();
     /** Handled comment ids -> when; survives restarts so a redeploy can't double-trigger. */
@@ -62,7 +64,7 @@ public class PrCommands implements SnapshotCache {
     private final String tcBaseUrl;
 
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
-        RerunTracker tracker,
+        RerunTracker tracker, StyleFixService styleFix,
         @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl,
         TeamcityProperties teamcity) {
         this.mapper = mapper;
@@ -70,6 +72,7 @@ public class PrCommands implements SnapshotCache {
         this.standing = standing;
         this.tc = tc;
         this.tracker = tracker;
+        this.styleFix = styleFix;
         this.publicUrl = publicUrl;
         String base = teamcity.baseUrl() == null ? "https://ci2.ignite.apache.org" : teamcity.baseUrl();
         this.tcBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
@@ -122,6 +125,10 @@ public class PrCommands implements SnapshotCache {
             return;
         }
         try {
+            // Style first, trigger second: the fix commit must be the revision the chain builds.
+            String styleNote = standing.styleFixOn(actor.get().username())
+                ? styleFix.fixForCommand(pr, actor.get(), c.user().login()) : null;
+
             var build = tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top());
             tracker.record(pr, build);
             handledTotal.incrementAndGet();
@@ -129,7 +136,9 @@ public class PrCommands implements SnapshotCache {
 
             String link = build.webUrl() == null || build.webUrl().isBlank()
                 ? "build " + build.id() : "[build " + build.id() + "](" + build.webUrl() + ")";
-            String base = c.body() + "\n\n---\n🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
+            String base = c.body() + "\n\n---\n"
+                + (styleNote == null ? "" : styleNote + "\n")
+                + "🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
                 + "** — " + link + ". The verdict lands here when the run finishes.";
             edit(actor.get().ghToken(), c.id(), base);
             watching.put(pr, new CommandRun(c.id(), base, build.id(), actor.get().username()));
