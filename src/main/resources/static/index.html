@@ -380,6 +380,15 @@
             comment itself; the verdict is one living comment that updates through the auto re-runs — two
             messages per run, total. Commands are picked up within a minute, on any pull request.
         </details>
+        <label class="settings-row" style="margin-top: 0.5rem">
+            <input id="styleFixToggle" type="checkbox">
+            <span><b>Auto-fix checkstyle on my runs</b> — when I command a run on my own PR and the changed
+                files violate checkstyle, fix what is mechanically fixable (imports, whitespace, modifier
+                order…) and push the fix commit from my account before the run starts. <i>Yes, I trust the
+                robots with my whitespace.</i> 🤖<br>
+                <span class="muted">Uses the same GitHub token as the option above; javadoc/naming/wrapping
+                still need a human — you'll be told what remains.</span></span>
+        </label>
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —
             <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
@@ -1514,6 +1523,7 @@
                         $('standingVisaToggle').checked = !!st.visa;
                         $('autoRerunToggle').checked = !!st.rerun;
                         $('ghCommentToggle').checked = !!st.gh;
+                        $('styleFixToggle').checked = !!st.style;
                     }
                 } catch (e) { /* leave unchecked */ }
             }
@@ -1546,6 +1556,7 @@
         // Two independent standing options; every change posts the combined state.
         async function postStandingState() {
             const visaT = $('standingVisaToggle'), rerunT = $('autoRerunToggle'), ghT = $('ghCommentToggle');
+            const styleT = $('styleFixToggle');
             const msg = $('settingsMsg');
             msg.textContent = '';
             if (visaT.checked && !hasJira) {
@@ -1558,19 +1569,20 @@
                 $('settingsJiraToken').focus();
                 return;
             }
-            if (ghT.checked && !hasGithub) {
+            if ((ghT.checked || styleT.checked) && !hasGithub) {
                 ghT.checked = false;
+                styleT.checked = false;
                 $('settingsGh').classList.remove('hidden');
                 $('settingsGhToken').focus();
                 return;
             }
             try {
                 const r = await api('/api/auto-visa-all?visa=' + visaT.checked + '&rerun=' + rerunT.checked
-                    + '&gh=' + ghT.checked, { method: 'POST' });
+                    + '&gh=' + ghT.checked + '&style=' + styleT.checked, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) {
-                    if (res.need === 'github') { ghT.checked = false; hasGithub = false; }
+                    if (res.need === 'github') { ghT.checked = false; styleT.checked = false; hasGithub = false; }
                     else { visaT.checked = false; hasJira = false; }
                     return postStandingState();
                 }
@@ -1578,7 +1590,9 @@
                 visaT.checked = !!res.visa;
                 rerunT.checked = !!res.rerun;
                 ghT.checked = !!res.gh;
-                const on = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment'].filter(Boolean);
+                styleT.checked = !!res.style;
+                const on = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
+                    res.style && 'checkstyle autofix'].filter(Boolean);
                 msg.textContent = on.length ? 'On: ' + on.join(' · ') + '.' : 'All off — stored tokens removed.';
             } catch (e) {
                 msg.textContent = 'could not reach the service — try again';
@@ -1587,6 +1601,7 @@
         $('standingVisaToggle').onchange = postStandingState;
         $('autoRerunToggle').onchange = postStandingState;
         $('ghCommentToggle').onchange = postStandingState;
+        $('styleFixToggle').onchange = postStandingState;
 
         $('settingsGhSave').onclick = async () => {
             const input = $('settingsGhToken'), m = $('settingsGhMsg');

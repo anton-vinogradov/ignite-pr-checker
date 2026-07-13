@@ -70,6 +70,13 @@ The one question the tool answers: **which tests did this PR actually break?**
   whose newer run passed stops being broken. With the visa also on, the visa waits until the re-runs
   settle; the living PR comment's ⏳ line carries a queue-aware **"≈ settled by HH:MM"** estimate,
   refreshed every sweep.
+- **Auto-fix checkstyle on my runs** (settings; uses the GitHub token) — when you command a run on
+  your **own** PR and the changed files violate checkstyle, the mechanically fixable part (imports,
+  whitespace, tabs, modifier order, empty lines…) is fixed and pushed as one clearly-labelled commit
+  from your account **before** the run starts — a trivial style failure can't waste a four-hour
+  RunAll. The repo's own `checkstyle.xml` is used; what can't be fixed mechanically (javadoc,
+  naming, wrapping) is reported in the command comment. Never touches anyone else's PR, never
+  force-pushes.
 - **GitHub PR comment** (settings, independent of the other two) — the same verdict, in GitHub
   markdown, posted on the `apache/ignite` pull request from your own GitHub account (a personal
   access token with the `public_repo` scope; stored encrypted at rest while the option is on).

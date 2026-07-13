@@ -80,7 +80,7 @@ public class StandingVisas implements SnapshotCache {
      * auto-rerun (TC token only). Tokens stay encrypted at rest until {@link #disable}.
      */
     public void enable(String username, String tcToken, String jiraToken, String ghToken,
-        boolean autoVisa, boolean autoRerun, boolean ghComment) {
+        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
         String ghLogin = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
         String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
         // A settings change must not forget which builds were already handled (or their comments).
@@ -92,9 +92,9 @@ public class StandingVisas implements SnapshotCache {
             prev != null ? prev.posted() : new ConcurrentHashMap<>(),
             prev != null ? prev.ghThreads() : new ConcurrentHashMap<>(),
             prev != null ? prev.jiraThreads() : new ConcurrentHashMap<>(),
-            autoVisa, autoRerun, ghComment));
-        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={} (gh login {}, tz {})",
-            username, autoVisa, autoRerun, ghComment, ghLogin, tz);
+            autoVisa, autoRerun, ghComment, styleFix));
+        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}, styleFix={} (gh login {}, tz {})",
+            username, autoVisa, autoRerun, ghComment, styleFix, ghLogin, tz);
     }
 
     /**
@@ -176,8 +176,16 @@ public class StandingVisas implements SnapshotCache {
             log.info("backfilled for {}: gh login {}, tz {}", u, login, tz);
 
             return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, tz, e.enabledAt(),
-                e.posted(), e.ghThreads(), e.jiraThreads(), e.autoVisa(), e.autoRerun(), e.ghComment());
+                e.posted(), e.ghThreads(), e.jiraThreads(), e.autoVisa(), e.autoRerun(), e.ghComment(),
+                e.styleFix());
         });
+    }
+
+    /** Whether checkstyle autofix on own runs is on for the user. */
+    public boolean styleFixOn(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.styleFix();
     }
 
     /** Whether GitHub PR comments are on for the user. */
@@ -452,7 +460,7 @@ public class StandingVisas implements SnapshotCache {
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
             e.tz(), e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
             new HashMap<>(e.jiraThreads()),
-            e.autoVisa(), e.autoRerun(), e.ghComment())));
+            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix())));
         Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries)));
     }
 
@@ -485,14 +493,15 @@ public class StandingVisas implements SnapshotCache {
                 jiraThreads.putAll(p.jiraThreads());
             enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.ghLogin(),
                 p.tz(), p.enabledAt(), posted, ghThreads, jiraThreads,
-                p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment()));
+                p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment(),
+                p.styleFix() != null && p.styleFix()));
         }
     }
 
     private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, String tz,
         long enabledAt, ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
         ConcurrentMap<Integer, JiraThread> jiraThreads,
-        boolean autoVisa, boolean autoRerun, boolean ghComment) {
+        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
     }
 
     /** The one living visa comment of a run in the JIRA ticket: which build it narrates and where to edit it. */
@@ -646,6 +655,6 @@ public class StandingVisas implements SnapshotCache {
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
-        Boolean autoVisa, boolean autoRerun, Boolean ghComment) {
+        Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix) {
     }
 }
