@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -58,16 +59,20 @@ public class PrCommands implements SnapshotCache {
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
     private final String publicUrl;
+    private final String tcBaseUrl;
 
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
         RerunTracker tracker,
-        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl) {
+        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl,
+        TeamcityProperties teamcity) {
         this.mapper = mapper;
         this.github = github;
         this.standing = standing;
         this.tc = tc;
         this.tracker = tracker;
         this.publicUrl = publicUrl;
+        String base = teamcity.baseUrl() == null ? "https://ci2.ignite.apache.org" : teamcity.baseUrl();
+        this.tcBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
@@ -194,17 +199,30 @@ public class PrCommands implements SnapshotCache {
         }
 
         try {
+            String tcTokens = tcBaseUrl + "/profile.html?item=accessTokens";
+            String ghPat = "https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite+PR+Checker";
+            String jiraPat = "https://issues.apache.org/jira/secure/ViewProfile.jspa"
+                + "?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens";
             boolean sent = github.addPrCommentAsApp(pr,
                 "@" + login + " that looks like an [Ignite PR Checker](" + publicUrl + ") command — but the"
-                + " checker doesn't know your accounts yet, so nothing was triggered. Two steps to make it work:\n\n"
-                + "1. Log in at " + publicUrl + " with your TeamCity ([ci2](https://ci2.ignite.apache.org)) access"
-                + " token.\n"
-                + "2. In settings (⚙) switch on **Comment my runs' verdicts on the GitHub PR** (takes a GitHub"
-                + " personal access token, `public_repo` scope).\n\n"
-                + "After that, commenting `/run-all` (or `/run-all top`) here queues the whole RunAll chain under"
-                + " your own TeamCity account, this thread gets a live ETA, and the verdict lands in the PR when"
-                + " the run settles — JIRA visas and automatic re-runs of blocker suites are separate switches"
-                + " next to it.");
+                + " checker doesn't know your accounts yet, so **nothing was triggered**. Everything it does runs"
+                + " under your own accounts (there is no bot); setting that up takes about two minutes:\n\n"
+                + "1. **Log in** at " + publicUrl + " with a TeamCity ([ci2](" + tcBaseUrl + ")) access token —"
+                + " create one at [ci2 → Profile → Access Tokens](" + tcTokens + ").\n"
+                + "2. In settings (⚙) switch on **Comment my runs' verdicts on the GitHub PR** and paste a GitHub"
+                + " personal access token — [create one here](" + ghPat + ") (classic, `public_repo` scope).\n"
+                + "3. **Optional, same panel:**\n"
+                + "   - **Auto re-run blocker suites on my runs** — blockers and broken suites of your runs get up"
+                + " to 2 automatic re-runs (no extra tokens);\n"
+                + "   - **Auto-visa all my runs** — the verdict is also posted to the PR's IGNITE ticket"
+                + " (needs a [JIRA Personal Access Token](" + jiraPat + ")).\n\n"
+                + "Then comment here:\n\n"
+                + "- `/run-all` — queue the whole RunAll chain under your TeamCity account (`/run-all top` — at"
+                + " the top of the build queue);\n"
+                + "- `/top` — move the run your command started to the top of the queue while it still waits.\n\n"
+                + "Your command comment gets a 🚀 and narrates the run — live ETA, finish, auto re-run waves —"
+                + " and the verdict lands as one comment that updates in place until everything settles."
+                + " Tokens are stored encrypted, and only while the options are on.");
             log.info("{} by {}: not enrolled, onboarding reply {}", cmd, login, sent ? "posted" : "skipped (no app token)");
         }
         catch (RuntimeException e) {
