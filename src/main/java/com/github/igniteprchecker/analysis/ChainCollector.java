@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
@@ -29,6 +30,8 @@ public class ChainCollector {
 
     private final TcClient tc;
 
+    private final SuiteBaseline baseline;
+
     /** Caches the PR -> latest-RunAll-build-id lookup so a warm {@code /api/analyze} (and each warmer/refresh
      * check) doesn't pay a TeamCity round-trip that almost always returns the same build. */
     private final TtlCache<Integer, Long> buildIds = new TtlCache<>(BUILD_ID_TTL_MS);
@@ -36,8 +39,9 @@ public class ChainCollector {
     /** PR -> the TeamCity user who triggered its latest RunAll (best-effort, from the last build lookup). */
     private final ConcurrentMap<Integer, String> triggeredBy = new ConcurrentHashMap<>();
 
-    public ChainCollector(TcClient tc) {
+    public ChainCollector(TcClient tc, SuiteBaseline baseline) {
         this.tc = tc;
+        this.baseline = baseline;
     }
 
     /** Sweeps out expired build-id lookups (see TtlCache.evictExpired). */
@@ -82,6 +86,12 @@ public class ChainCollector {
      * {@code pool} is the caller's fan-out pool: foreground analyses pass the analysis pool, background
      * ones (warmer/refresh) pass their own so they don't compete with user-facing requests.
      */
+    /** A suite running at least this % fewer tests than on master is worth surfacing. */
+    private static final int SHRINK_PCT = 10;
+
+    /** Below this many tests on master the percentages are noise, not signal. */
+    private static final int SHRINK_MIN_BASELINE = 20;
+
     public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool) {
         TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
@@ -152,7 +162,36 @@ public class ChainCollector {
             .count();
         boolean interrupted = "FAILURE".equals(build.status()) && canceled > 0;
 
-        return new Chain(build.id(), build.branchName(), failed, broken, ran, reused, interrupted, canceled, live, liveBuildId);
+        return new Chain(build.id(), build.branchName(), failed, broken,
+            shrunkSuites(depBuilds(build), baseline.counts(token)),
+            ran, reused, interrupted, canceled, live, liveBuildId);
+    }
+
+    /**
+     * Suites whose test count fell well below master's. A suite that TeamCity already reports as
+     * broken (timeout/crash) explains its own missing tests, so it is left to that card; what this
+     * catches is the silent case — a suite that "passed" with half its tests never run.
+     */
+    private static List<ShrunkSuite> shrunkSuites(List<TcModel.Build> deps, java.util.Map<String, Integer> baseline) {
+        if (baseline.isEmpty())
+            return List.of();
+
+        List<ShrunkSuite> out = new ArrayList<>();
+        for (TcModel.Build dep : deps) {
+            Integer master = baseline.get(dep.buildTypeId());
+            if (master == null || master < SHRINK_MIN_BASELINE || dep.testOccurrences() == null)
+                continue;
+
+            int tests = dep.testOccurrences().count();
+            int drop = (int) Math.round(100.0 * (master - tests) / master);
+            if (drop >= SHRINK_PCT)
+                out.add(new ShrunkSuite(dep.buildTypeId(),
+                    dep.buildType() == null ? dep.buildTypeId() : dep.buildType().name(),
+                    dep.id(), tests, master, drop));
+        }
+        out.sort(java.util.Comparator.comparingInt(ShrunkSuite::dropPct).reversed());
+
+        return out;
     }
 
     /** Problems meaning the suite hung or died mid-run, so its per-test failures are unreliable
@@ -223,6 +262,7 @@ public class ChainCollector {
 
     /** A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused. */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
+        List<ShrunkSuite> shrunkSuites,
         int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId) {
     }
 }

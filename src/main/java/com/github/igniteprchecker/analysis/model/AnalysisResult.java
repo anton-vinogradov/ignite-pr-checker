@@ -16,6 +16,7 @@ public record AnalysisResult(
     List<TestVerdict> watch,
     List<TestVerdict> filtered,
     List<BrokenSuite> brokenSuites,
+    List<ShrunkSuite> shrunkSuites,
     int suitesRan,
     int suitesReused,
     boolean interrupted,

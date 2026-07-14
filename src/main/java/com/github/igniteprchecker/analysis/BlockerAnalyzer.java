@@ -236,7 +236,7 @@ public class BlockerAnalyzer {
         List<BrokenSuite> broken = withoutHealed(token, prNumber, chain.brokenSuites());
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            System.currentTimeMillis(), blockers, watch, filtered, broken,
+            System.currentTimeMillis(), blockers, watch, filtered, broken, chain.shrunkSuites(),
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId());
 
         cache.putResult(buildId, result);
