@@ -88,8 +88,11 @@ The one question the tool answers: **which tests did this PR actually break?**
 
 ## Working from the PR (commands)
 
-With the GitHub option on, the whole cycle — trigger → progress → verdict — happens in the pull
-request, in comments:
+The whole cycle — trigger → progress → verdict — happens in the pull request, in comments. A
+GitHub PAT is **optional**: with the GitHub option on, acks and the live status come from your own
+account (and checkstyle autofix works); without one, just link your **GitHub login** in settings
+(any standing option keeps your TC token stored) and the checker acks and narrates from its own
+account instead.
 
 | Command | Effect |
 |---|---|

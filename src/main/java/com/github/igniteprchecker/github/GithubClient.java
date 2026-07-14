@@ -67,6 +67,47 @@ public class GithubClient implements SnapshotCache {
         return true;
     }
 
+    /** Reacts to a comment from the APP's (operator's) account — the ack for PAT-less commanders. */
+    public boolean reactToCommentAsApp(long commentId, String content) {
+        if (props.token() == null || props.token().isBlank())
+            return false;
+
+        recorded("react", () -> http.post()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
+            .header("Authorization", "Bearer " + props.token())
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("content", content))
+            .retrieve().body(java.util.Map.class));
+
+        return true;
+    }
+
+    /** Posts a PR comment from the APP's account, returning its id/url — the PAT-less narration thread. */
+    public PostedComment addPrCommentAsAppWithId(int prNumber, String body) {
+        if (props.token() == null || props.token().isBlank())
+            return null;
+
+        java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+            .header("Authorization", "Bearer " + props.token())
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("body", body))
+            .retrieve().body(java.util.Map.class));
+
+        return c == null ? null
+            : new PostedComment(((Number)c.get("id")).longValue(), String.valueOf(c.get("html_url")));
+    }
+
+    /** Edits the APP's own narration comment in place. */
+    public void updatePrCommentAsApp(long commentId, String body) {
+        recorded("prCommentEdit", () -> http.patch()
+            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId))
+            .header("Authorization", "Bearer " + props.token())
+            .header("Accept", "application/vnd.github+json")
+            .body(java.util.Map.of("body", body))
+            .retrieve().body(java.util.Map.class));
+    }
+
     /** The PR's author and head (source branch) coordinates — where a style-fix commit must go. */
     public PrHead prHead(int prNumber) {
         java.util.Map<?, ?> pr = recorded("prHead", () -> appGet(

@@ -375,6 +375,13 @@
                 <li><code>/top</code> — move the run my command started to the top of the queue (while it is
                     still queued). Nobody else's builds are ever touched.</li>
             </ul>
+            <span class="row" style="margin: 0.3rem 0 0.4rem">
+                Commands need my GitHub login. With the option above ON it's taken from the token; without a
+                token, link it here:&nbsp;
+                <input id="ghLoginInput" type="text" placeholder="GitHub login" style="max-width: 160px" />
+                <button id="ghLoginSave" class="act" type="button">Link</button>
+                <span id="ghLoginMsg" class="muted"></span>
+            </span>
             Ack: 🚀 reaction = accepted, 😕 = refused or nothing to act on. The TC link and a live
             "~1h 23m remaining — ≈ 21:05 MSK" line (in my JIRA-profile timezone) are edited into the command
             comment itself; the verdict is one living comment that updates through the auto re-runs — two
@@ -1524,6 +1531,7 @@
                         $('autoRerunToggle').checked = !!st.rerun;
                         $('ghCommentToggle').checked = !!st.gh;
                         $('styleFixToggle').checked = !!st.style;
+                        if (st.login) $('ghLoginInput').value = st.login;
                     }
                 } catch (e) { /* leave unchecked */ }
             }
@@ -1602,6 +1610,24 @@
         $('autoRerunToggle').onchange = postStandingState;
         $('ghCommentToggle').onchange = postStandingState;
         $('styleFixToggle').onchange = postStandingState;
+
+        $('ghLoginSave').onclick = async () => {
+            const input = $('ghLoginInput'), m = $('ghLoginMsg');
+            const login = input.value.trim();
+            if (!login) { m.textContent = 'enter the login first'; return; }
+            m.textContent = 'saving…';
+            try {
+                const r = await api('/api/github-login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: login })
+                });
+                const res = await r.json().catch(() => ({}));
+                m.textContent = r.ok ? 'linked — PR commands are live' : (res.error || 'could not link');
+            } catch (e) {
+                m.textContent = 'could not reach the service — try again';
+            }
+        };
 
         $('settingsGhSave').onclick = async () => {
             const input = $('settingsGhToken'), m = $('settingsGhMsg');

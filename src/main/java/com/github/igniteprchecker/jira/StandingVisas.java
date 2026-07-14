@@ -81,10 +81,12 @@ public class StandingVisas implements SnapshotCache {
      */
     public void enable(String username, String tcToken, String jiraToken, String ghToken,
         boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
-        String ghLogin = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
-        String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
-        // A settings change must not forget which builds were already handled (or their comments).
+        // A settings change must not forget which builds were already handled (or their comments),
+        // nor a GitHub login the user linked by hand (a PAT-derived one is authoritative though).
         Enrollment prev = enrolled.get(username);
+        String ghLogin = ghToken != null ? github.ghUser(ghToken).orElse(null)
+            : prev != null ? prev.ghLogin() : null;
+        String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
         enrolled.put(username, new Enrollment(
             codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
             ghToken == null ? null : codec.encryptString(ghToken), ghLogin, tz,
@@ -104,20 +106,57 @@ public class StandingVisas implements SnapshotCache {
     public Optional<GhActor> actorByGhLogin(String login) {
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
             Enrollment e = en.getValue();
-            if (e.ghComment() && login.equals(e.ghLogin())) {
+            if (login.equals(e.ghLogin())) {
                 Optional<String> tcToken = codec.decryptString(e.tcToken());
-                Optional<String> ghToken = e.ghToken() == null ? Optional.empty() : codec.decryptString(e.ghToken());
-                if (tcToken.isPresent() && ghToken.isPresent())
-                    return Optional.of(new GhActor(en.getKey(), tcToken.get(), ghToken.get(), e.tz()));
+                if (tcToken.isEmpty())
+                    continue;
+
+                // The PAT is optional for commands: without one the checker acks and narrates
+                // from its own (the operator's) account instead of the user's.
+                String ghToken = e.ghToken() == null ? null : codec.decryptString(e.ghToken()).orElse(null);
+
+                return Optional.of(new GhActor(en.getKey(), tcToken.get(), ghToken, e.tz()));
             }
         }
 
         return Optional.empty();
     }
 
-    /** Whether anyone with the GitHub option is enrolled — gates the PR command poll entirely. */
+    /**
+     * Links a GitHub login to the user's enrollment by hand — the no-PAT way into PR commands.
+     * Returns "ok", "taken" (someone else claimed it) or "none" (no enrollment to attach to).
+     */
+    public String setGhLogin(String username, String login) {
+        String clean = login.strip().replaceFirst("^@", "");
+        if (clean.isBlank())
+            return "none";
+        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
+            if (!en.getKey().equals(username) && clean.equalsIgnoreCase(en.getValue().ghLogin()))
+                return "taken";
+        }
+
+        Enrollment e = enrolled.get(username);
+        if (e == null)
+            return "none";
+
+        enrolled.put(username, new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), clean, e.tz(),
+            e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
+            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix()));
+        log.info("gh login for {} linked by hand: {}", username, clean);
+
+        return "ok";
+    }
+
+    /** The user's linked GitHub login (PAT-derived or hand-linked), or null. */
+    public String ghLoginOf(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e == null ? null : e.ghLogin();
+    }
+
+    /** Whether anyone can be addressed by a GitHub login — gates the PR command poll entirely. */
     public boolean anyGhEnrolled() {
-        return enrolled.values().stream().anyMatch(Enrollment::ghComment);
+        return enrolled.values().stream().anyMatch(e -> e.ghLogin() != null);
     }
 
     /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
@@ -145,15 +184,16 @@ public class StandingVisas implements SnapshotCache {
     /** Same as {@link #actorByGhLogin} but by the TC username — for follow-ups on an accepted command. */
     public Optional<GhActor> actor(String username) {
         Enrollment e = enrolled.get(username);
-        if (e == null || !e.ghComment() || e.ghToken() == null)
+        if (e == null)
             return Optional.empty();
 
         Optional<String> tcToken = codec.decryptString(e.tcToken());
-        Optional<String> ghToken = codec.decryptString(e.ghToken());
+        if (tcToken.isEmpty())
+            return Optional.empty();
 
-        return tcToken.isPresent() && ghToken.isPresent()
-            ? Optional.of(new GhActor(username, tcToken.get(), ghToken.get(), e.tz()))
-            : Optional.empty();
+        String ghToken = e.ghToken() == null ? null : codec.decryptString(e.ghToken()).orElse(null);
+
+        return Optional.of(new GhActor(username, tcToken.get(), ghToken, e.tz()));
     }
 
     /**
