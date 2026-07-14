@@ -29,7 +29,7 @@ public class VisaService {
             .append(" suites ran, ").append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
-        if (blockers.isEmpty() && r.brokenSuites().isEmpty()) {
+        if (blockers.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()) {
             b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
@@ -39,6 +39,15 @@ public class VisaService {
             b.append("⚠️ **").append(r.brokenSuites().size()).append(" broken suite(s)** (no reliable run):\n");
             r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
                 .append(String.join(" · ", s.problems())).append('\n'));
+            b.append('\n');
+        }
+
+        if (!r.shrunkSuites().isEmpty()) {
+            b.append("🔍 **").append(r.shrunkSuites().size())
+                .append(" suite(s) ran fewer tests than on master** (tests that never ran can't fail):\n");
+            r.shrunkSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
+                .append(s.tests()).append(" tests vs ").append(s.baseline())
+                .append(" on master (**−").append(s.dropPct()).append("%**)\n"));
             b.append('\n');
         }
 
@@ -65,7 +74,7 @@ public class VisaService {
             .append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
-        if (blockers.isEmpty() && r.brokenSuites().isEmpty()) {
+        if (blockers.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()) {
             b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
@@ -75,6 +84,15 @@ public class VisaService {
             b.append("(!) *").append(r.brokenSuites().size()).append(" broken suite(s)* (failed without a reliable run):\n");
             r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
                 .append(String.join(" · ", s.problems())).append('\n'));
+            b.append('\n');
+        }
+
+        if (!r.shrunkSuites().isEmpty()) {
+            b.append("(?) *").append(r.shrunkSuites().size())
+                .append(" suite(s) ran fewer tests than on master* (tests that never ran can't fail):\n");
+            r.shrunkSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
+                .append(s.tests()).append(" tests vs ").append(s.baseline())
+                .append(" on master (*-").append(s.dropPct()).append("%*)\n"));
             b.append('\n');
         }
 

@@ -33,7 +33,8 @@ public final class TcModel {
         @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies,
         @JsonProperty("running-info") RunningInfo runningInfo,
         ProblemOccurrences problemOccurrences,
-        Revisions revisions
+        Revisions revisions,
+        TestOccurrences testOccurrences
     ) {
     }
 

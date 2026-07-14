@@ -507,6 +507,13 @@
                             and some tests never ran). Re-run these first: the verdict below can't trust what they would have found.</p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
+                    <div id="shrunkCard" class="card blockers hidden">
+                        <h2>Fewer tests than master <span id="shrunkCount"></span> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <p class="muted">These suites ran noticeably fewer tests than the same suites run on master. Tests that never
+                            ran can't fail — a suite can look green while silently skipping coverage (a broken suite class, an excluded
+                            package, a run that ended early). Intentional if this PR removes tests; otherwise re-run and check.</p>
+                        <ul id="shrunkSuites" class="tests"></ul>
+                    </div>
                     <div class="card blockers">
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
                             <span id="blockerTabs" class="tabs hidden">
@@ -926,6 +933,21 @@
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
         }
 
+        // Suites that ran far fewer tests than master — each with its counts and a re-run button.
+        function renderShrunk(el, suites) {
+            el.innerHTML = suites.map(s => {
+                const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
+                const head = esc(s.suiteName || s.suite)
+                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+                const btns = `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                    + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`;
+                return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
+                    + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
+            }).join('');
+            for (const b of el.querySelectorAll('.suite-rerun'))
+                b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+        }
+
         // Blocker-count trend: one bar per RunAll build (oldest → newest), red while blockers remain.
         function renderTrend(history) {
             const el = $('trend');
@@ -1112,15 +1134,21 @@
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
+            const shrunk = res.shrunkSuites || [];
+            $('shrunkCard').classList.toggle('hidden', shrunk.length === 0);
+            $('shrunkCount').textContent = shrunk.length ? `(${shrunk.length})` : '';
+            renderShrunk($('shrunkSuites'), shrunk);
             $('watchCard').classList.toggle('hidden', watch.length === 0);
             $('watchCount').textContent = watch.length ? countLabel(watch) : '';
             renderList($('watch'), watch, false, true);
             renderList($('blockers'), res.blockers, false, true);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0);
+            $('noBlockers').classList.toggle('hidden',
+                res.blockers.length > 0 || broken.length > 0 || watch.length > 0 || shrunk.length > 0);
             $('results').classList.remove('hidden');
             wireSectActs('brokenActs', suitesOfBroken(broken));
+            wireSectActs('shrunkActs', suitesOfBroken(shrunk));
             wireSectActs('blockerActs', suitesOfTests(res.blockers));
             wireSectActs('watchActs', suitesOfTests(watch));
             wireSectActs('filteredActs', suitesOfTests(res.filtered));

@@ -103,7 +103,38 @@ public class TcClient {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,queuedDate,buildType(id,name),"
                 + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name),"
+                + "testOccurrences(count),"
                 + "problemOccurrences(problemOccurrence(type,details))))")), TcModel.Build.class);
+    }
+
+    /**
+     * How many tests each suite runs on the base branch right now — the honest baseline for spotting a
+     * suite that silently ran far fewer tests in a PR. Two calls for all ~150 suites: the newest
+     * finished master chain, then its dependencies' test counts.
+     */
+    public Map<String, Integer> masterSuiteTestCounts(String token) {
+        TcModel.BuildList chains = get("baseline", token, url("app/rest/builds", query(
+            "locator", "buildType:(id:" + analysis.runAllBuildType() + "),branch:(default:true),"
+                + "state:finished,canceled:false,count:1",
+            "fields", "build(id)")), TcModel.BuildList.class);
+
+        if (chains == null || chains.build() == null || chains.build().isEmpty())
+            return Map.of();
+
+        TcModel.Build chain = get("baseline", token,
+            url("app/rest/builds/id:" + chains.build().get(0).id(), query(
+                "fields", "snapshot-dependencies(build(buildTypeId,testOccurrences(count)))")), TcModel.Build.class);
+
+        if (chain == null || chain.snapshotDependencies() == null || chain.snapshotDependencies().build() == null)
+            return Map.of();
+
+        Map<String, Integer> out = new java.util.HashMap<>();
+        for (TcModel.Build dep : chain.snapshotDependencies().build()) {
+            if (dep.buildTypeId() != null && dep.testOccurrences() != null)
+                out.put(dep.buildTypeId(), dep.testOccurrences().count());
+        }
+
+        return out;
     }
 
     /** Failed test occurrences of a single build. */

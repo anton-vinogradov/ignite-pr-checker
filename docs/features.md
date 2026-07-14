@@ -32,6 +32,11 @@ The one question the tool answers: **which tests did this PR actually break?**
   An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).
 - **Filtered out** — everything else, each with its reason (`pre-existing: fails 39/95 on master`,
   `passed on re-run`, …). Collapsed by default, so noise stays out of the way.
+- **Fewer tests than master** — a suite that ran noticeably fewer tests than the same suite runs on
+  master gets its own card (`ran 57 tests · master runs 439 — −87%`). Tests that never ran can't
+  fail, so a suite can look green while silently skipping coverage. The baseline is master's own
+  latest chain, not TeamCity's built-in metric — that one compares against a pinned reference build
+  and false-alarms on PR branches long after a legitimate test-count change.
 - **Broken suites** — a suite without a reliable run (compilation error, **execution timeout,
   out-of-memory, JVM crash**, failed dependency) is surfaced in its own red card instead of silently
   vanishing — even when it *does* have failed tests: those are hang cascade, and some tests never ran.
