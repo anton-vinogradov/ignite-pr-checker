@@ -116,8 +116,29 @@ public class JiraController {
     /** The logged-in user's standing options. */
     @GetMapping("/auto-visa-all")
     public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        return Map.of("visa", standing.visaOn(username), "rerun", standing.rerunOn(username),
-            "gh", standing.ghOn(username), "style", standing.styleFixOn(username));
+        Map<String, Object> out = new java.util.HashMap<>(Map.of("visa", standing.visaOn(username),
+            "rerun", standing.rerunOn(username),
+            "gh", standing.ghOn(username), "style", standing.styleFixOn(username)));
+        out.put("login", standing.ghLoginOf(username));
+
+        return out;
+    }
+
+    /** Links a GitHub login by hand — the no-PAT way into PR commands (needs an enrollment to attach to). */
+    @PostMapping("/github-login")
+    public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        if (req.token() == null || req.token().isBlank())
+            return ResponseEntity.badRequest().body(Map.of("error", "empty login"));
+
+        String result = standing.setGhLogin(username, req.token());
+        if (result.equals("taken"))
+            return ResponseEntity.status(409).body(Map.of("error", "this GitHub login is linked to another user"));
+        if (result.equals("none"))
+            return ResponseEntity.status(412).body(Map.of("error",
+                "switch on at least one standing option first — the checker needs your TeamCity token stored"));
+
+        return ResponseEntity.ok(Map.of("login", standing.ghLoginOf(username)));
     }
 
     /** Validates a GitHub PAT and re-issues the session cookie with it on board. */
