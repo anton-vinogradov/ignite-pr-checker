@@ -143,6 +143,9 @@
         .trend a.clean { background: #2e7d32; }
         .delta-new { color: var(--bad); font-weight: 600; }
         .delta-fixed { color: #2e7d32; font-weight: 600; }
+        #pendingRow { align-items: center; gap: 0.6rem; }
+        .pending-note { color: #b26a00; font-weight: 600; }
+        html[data-theme="dark"] .pending-note, html[data-theme="jetbrains"] .pending-note { color: #e0a54a; }
         .runs { flex: 1; min-width: 0; }
         .runs .run-item { display: inline-flex; align-items: center; margin-left: 0.6rem; white-space: nowrap; }
         .live-tag { color: #2e7d32; font-weight: 600; text-decoration: none; }
@@ -473,6 +476,10 @@
                     <div class="head-row">
                         <div id="status" class="muted"></div>
                         <div id="freshness" class="muted"></div>
+                    </div>
+                    <div id="pendingRow" class="head-row hidden">
+                        <span id="pending" class="pending-note"></span>
+                        <button id="pendingRerun" class="act" type="button">Re-run RunAll</button>
                     </div>
                     <div id="deltaRow" class="head-row hidden">
                         <span class="muted"><span id="trend" class="trend"></span><span id="delta"></span></span>
@@ -846,6 +853,7 @@
             $('freshness').textContent = '';
             $('results').classList.add('hidden');
             $('deltaRow').classList.add('hidden'); // it lives outside #results — clear the previous PR's delta
+            $('pendingRow').classList.add('hidden');
             // While the compute runs, show its real progress — a cold analysis of a fresh run takes a
             // while, and a silent spinner reads as "broken". The first viewer fills the cache for everyone.
             const progTimer = setInterval(async () => {
@@ -1129,6 +1137,23 @@
             setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
             if (tabsOn) updateCauseCount();
             loadDelta(res);
+            loadPending(res);
+        }
+
+        // Has the PR head moved since the analysed run? Then the verdict is for older code — say so
+        // and offer a re-run. Always fetched fresh (the head can change any time).
+        async function loadPending(res) {
+            $('pendingRow').classList.add('hidden');
+            if (res.live) return; // a newer run is already being folded in — not stale
+            try {
+                const r = await api('/api/pending?pr=' + res.prNumber + '&build=' + res.buildId);
+                if (!r.ok) return;
+                const p = await r.json().catch(() => null);
+                if (!p || !p.pending || res.prNumber !== selectedPr) return;
+                const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
+                $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
+                $('pendingRow').classList.remove('hidden');
+            } catch (e) { /* the staleness note is a bonus; never block the result */ }
         }
 
         // Force a fresh recompute of the current PR's analysis (bypassing the cache).
@@ -1405,6 +1430,7 @@
         // its own handler) — a bare '.act' selector used to steal their clicks for doTrigger.
         for (const b of document.querySelectorAll('#actions .act[data-act]'))
             b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
+        $('pendingRerun').onclick = () => doTrigger('trigger', false, $('pendingRerun'));
 
         // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
         // session, the button opens a hint with a deep link to the JIRA profile page to create one.

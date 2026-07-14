@@ -82,6 +82,9 @@ The one question the tool answers: **which tests did this PR actually break?**
   access token with the `public_repo` scope; stored encrypted at rest while the option is on).
   The whole run lives in **one comment**: it appears when the run finishes, and if auto re-run
   kicks in it **updates in place** (⏳ re-running → final verdict) instead of spawning new messages.
+- **Pending changes** — if new commits were pushed to the PR after the analysed RunAll, a banner
+  says so (**"⚠ N new commits pushed since this run (abc123 → def456) — the verdict is for the older
+  code"**) with a **Re-run RunAll** button, so a stale verdict is never mistaken for the current one.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish, the analysis **refreshes itself** — no F5.

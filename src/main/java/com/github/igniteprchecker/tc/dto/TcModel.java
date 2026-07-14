@@ -32,8 +32,18 @@ public final class TcModel {
         Triggered triggered,
         @JsonProperty("snapshot-dependencies") SnapshotDeps snapshotDependencies,
         @JsonProperty("running-info") RunningInfo runningInfo,
-        ProblemOccurrences problemOccurrences
+        ProblemOccurrences problemOccurrences,
+        Revisions revisions
     ) {
+    }
+
+    /** The VCS revision(s) a build was run on. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Revisions(List<Revision> revision) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Revision(String version) {
     }
 
     /** Live progress of a running build, as TeamCity estimates it. */

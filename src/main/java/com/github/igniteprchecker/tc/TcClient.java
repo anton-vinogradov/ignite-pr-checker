@@ -315,6 +315,16 @@ public class TcClient {
         return list == null || list.build() == null ? List.of() : list.build();
     }
 
+    /** The VCS revision (git SHA) a build was run on — to tell whether the PR head has moved since. */
+    public Optional<String> buildRevision(String token, long buildId) {
+        TcModel.Build b = get("revision", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "revisions(revision(version))")), TcModel.Build.class);
+        if (b == null || b.revisions() == null || b.revisions().revision() == null || b.revisions().revision().isEmpty())
+            return Optional.empty();
+
+        return Optional.ofNullable(b.revisions().revision().get(0).version());
+    }
+
     /** Current state of one build (works for queued builds too — TeamCity keeps the id across the queue). */
     public TcModel.Build getBuildState(String token, long buildId) {
         return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
