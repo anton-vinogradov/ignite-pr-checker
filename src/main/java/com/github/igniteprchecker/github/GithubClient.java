@@ -121,6 +121,29 @@ public class GithubClient implements SnapshotCache {
             (String)head.get("ref"), (String)head.get("sha"));
     }
 
+    /** How many commits {@code head} is ahead of {@code base}, and the head's short sha — for staleness. */
+    public Ahead compareAhead(String base, String head) {
+        if (base == null || head == null || base.equals(head))
+            return new Ahead(0, head == null ? "" : head.substring(0, Math.min(7, head.length())));
+
+        try {
+            java.util.Map<?, ?> cmp = recorded("compare", () -> appGet(
+                "https://api.github.com/repos/" + props.repo() + "/compare/" + base + "..." + head)
+                .body(java.util.Map.class));
+            int ahead = cmp == null || cmp.get("ahead_by") == null ? -1 : ((Number)cmp.get("ahead_by")).intValue();
+
+            return new Ahead(ahead, head.substring(0, Math.min(7, head.length())));
+        }
+        catch (RuntimeException e) {
+            // compare can 404 if the base sha was garbage-collected; still flag the mismatch
+            return new Ahead(-1, head.substring(0, Math.min(7, head.length())));
+        }
+    }
+
+    /** Result of a base…head compare: commits ahead ({@code -1} if unknown), and the head short sha. */
+    public record Ahead(int ahead, String headShort) {
+    }
+
     /** Paths of the PR's changed (not removed) .java files, capped at 300. */
     public java.util.List<String> prJavaFiles(int prNumber) {
         java.util.List<String> out = new java.util.ArrayList<>();
