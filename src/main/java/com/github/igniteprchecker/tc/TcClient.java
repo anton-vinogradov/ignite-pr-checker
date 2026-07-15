@@ -63,15 +63,32 @@ public class TcClient {
     }
 
     /**
-     * Latest <em>finished, non-cancelled</em> RunAll chain build for a pull request branch
-     * ({@code pull/<n>/head}), if any. Cancelled runs (status {@code UNKNOWN}) and still-running or
-     * queued builds are skipped: their test results are absent or partial, so analysing them would
-     * wrongly report zero failures. In particular this stops a freshly triggered (or a cancelled)
-     * run from shadowing the last real verdict.
+     * Latest <em>finished, non-cancelled</em> RunAll chain build for a pull request branch, if any.
+     * Cancelled runs (status {@code UNKNOWN}) and still-running/queued builds are skipped — the strict
+     * baseline used to decide whether to auto-post a visa (never for a run someone cancelled).
      */
     public Optional<TcModel.Build> findRunAllBuildForPr(String token, int prNumber) {
+        return findRunAllBuild(token, prNumber, true);
+    }
+
+    /**
+     * The RunAll build to <em>show</em> for a PR: the clean run if there is one, else — only then —
+     * the latest finished <em>cancelled</em> run, so a chain that got through most of its suites
+     * before being cancelled still shows its real failures (analysed as partial/interrupted) instead
+     * of "no run at all". Strict-first order still keeps a fresh cancel from shadowing a good verdict.
+     */
+    public Optional<TcModel.Build> findRunAllBuildForAnalysis(String token, int prNumber) {
+        Optional<TcModel.Build> clean = findRunAllBuild(token, prNumber, true);
+
+        return clean.isPresent() ? clean : findRunAllBuild(token, prNumber, false);
+    }
+
+    private Optional<TcModel.Build> findRunAllBuild(String token, int prNumber, boolean nonCancelledOnly) {
+        // TeamCity's default build filter already excludes cancelled runs, so the fallback must ask
+        // for them explicitly with canceled:any (dropping canceled:false is not enough).
         String locator = "buildType:" + analysis.runAllBuildType()
-            + ",branch:(name:pull/" + prNumber + "/head),state:finished,canceled:false,failedToStart:any,count:1";
+            + ",branch:(name:pull/" + prNumber + "/head),state:finished,failedToStart:any,count:1"
+            + (nonCancelledOnly ? ",canceled:false" : ",canceled:any");
 
         TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
             "locator", locator,

@@ -63,7 +63,7 @@ public class ChainCollector {
     }
 
     private Optional<Long> lookupBuildId(String token, int prNumber) {
-        Optional<TcModel.Build> build = tc.findRunAllBuildForPr(token, prNumber);
+        Optional<TcModel.Build> build = tc.findRunAllBuildForAnalysis(token, prNumber);
         build.ifPresent(b -> {
             buildIds.put(prNumber, b.id());
             String who = b.triggered() != null && b.triggered().user() != null ? b.triggered().user().username() : null;
@@ -160,7 +160,9 @@ public class ChainCollector {
         int canceled = (int) depBuilds(build).stream()
             .filter(d -> d.status() != null && !"SUCCESS".equals(d.status()) && !"FAILURE".equals(d.status()))
             .count();
-        boolean interrupted = "FAILURE".equals(build.status()) && canceled > 0;
+        // The chain itself failed with suites left unrun, OR the whole chain was cancelled (UNKNOWN)
+        // — in both cases the suites that did run still counted, but the verdict is partial.
+        boolean interrupted = ("FAILURE".equals(build.status()) || "UNKNOWN".equals(build.status())) && canceled > 0;
 
         return new Chain(build.id(), build.branchName(), failed, broken,
             shrunkSuites(depBuilds(build), baseline.counts(token)),

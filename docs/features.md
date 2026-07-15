@@ -27,6 +27,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   same code. Grouped by suite; every name links straight to the failure in TeamCity.
 - **Recently started failing** — an amber card for tests failing the last 2+ runs but passing earlier:
   a fresh break to watch. If it keeps failing it becomes a blocker; if it flaps back it won't.
+- **A cancelled run still counts.** When a PR has no clean finished RunAll but a cancelled one that
+  got through most of its suites, the checker analyses that (partial) run — the *RunAll interrupted*
+  banner plus its real failures — instead of "no run at all". A clean finished run always wins, so a
+  fresh cancel never shadows a good verdict.
 - The verdict is **live**: while a newer RunAll is running (or ended cancelled), failures from its
   already-finished suites are folded in — the *● includes an unfinished run* tag links to that chain.
   An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).
