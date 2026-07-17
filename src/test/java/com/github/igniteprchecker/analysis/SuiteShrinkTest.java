@@ -58,12 +58,12 @@ class SuiteShrinkTest {
 
     private static TcModel.Build chain(TcModel.Build... deps) {
         return new TcModel.Build(999, "FAILURE", "finished", "pull/42/head", "RunAll", null, null, null, null, null,
-            null, null, new TcModel.SnapshotDeps(deps.length, List.of(deps)), null, null, null, null);
+            null, null, null, new TcModel.SnapshotDeps(deps.length, List.of(deps)), null, null, null, null);
     }
 
     private static TcModel.Build dep(long id, String buildTypeId, String name, String status, int tests) {
         return new TcModel.Build(id, status, "finished", "pull/42/head", buildTypeId, null, null, null, null, null,
-            new TcModel.BuildType(buildTypeId, name), null, null, null, null, null,
+            null, new TcModel.BuildType(buildTypeId, name), null, null, null, null, null,
             new TcModel.TestOccurrences(tests, List.of()));
     }
 }

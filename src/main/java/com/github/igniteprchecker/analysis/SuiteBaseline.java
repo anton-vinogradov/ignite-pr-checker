@@ -32,6 +32,7 @@ public class SuiteBaseline implements SnapshotCache {
     private final TcClient tc;
 
     private volatile Map<String, Integer> counts = Map.of();
+    private volatile Map<String, Long> durations = Map.of();
     private volatile long fetchedAt;
     private volatile boolean fetching;
 
@@ -48,6 +49,14 @@ public class SuiteBaseline implements SnapshotCache {
         return counts;
     }
 
+    /** Typical master duration per suite (buildTypeId -> seconds) — the ETA floor for estimate-less deps. */
+    public Map<String, Long> durations(String token) {
+        if (System.currentTimeMillis() - fetchedAt > TTL_MS)
+            refresh(token);
+
+        return durations;
+    }
+
     /** A refresh failure is never fatal: the previous (or empty) baseline just keeps being used. */
     private synchronized void refresh(String token) {
         if (fetching || System.currentTimeMillis() - fetchedAt <= TTL_MS)
@@ -55,11 +64,19 @@ public class SuiteBaseline implements SnapshotCache {
 
         fetching = true;
         try {
-            Map<String, Integer> fresh = tc.masterSuiteTestCounts(token);
-            if (!fresh.isEmpty()) {
-                counts = fresh;
+            TcClient.MasterSuiteStats fresh = tc.masterSuiteStats(token);
+            if (!fresh.counts().isEmpty()) {
+                // Merge over the previous values: one master chain with a cancelled/agent-starved
+                // suite must not blank that suite's baseline — keep the last known good per suite.
+                Map<String, Integer> mergedCounts = new HashMap<>(counts);
+                mergedCounts.putAll(fresh.counts());
+                Map<String, Long> mergedDurations = new HashMap<>(durations);
+                mergedDurations.putAll(fresh.durations());
+                counts = mergedCounts;
+                durations = mergedDurations;
                 fetchedAt = System.currentTimeMillis();
-                log.info("suite baseline refreshed: {} suites from master", fresh.size());
+                log.info("suite baseline refreshed: {} suites, {} durations from master",
+                    mergedCounts.size(), mergedDurations.size());
             }
         }
         catch (RuntimeException e) {
@@ -85,7 +102,7 @@ public class SuiteBaseline implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file, new Persisted(fetchedAt, new HashMap<>(counts)));
+        Snapshots.writeAtomic(mapper, file, new Persisted(fetchedAt, new HashMap<>(counts), new HashMap<>(durations)));
     }
 
     @Override
@@ -96,10 +113,13 @@ public class SuiteBaseline implements SnapshotCache {
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
         if (p.counts() != null && !p.counts().isEmpty()) {
             counts = new HashMap<>(p.counts());
-            fetchedAt = p.fetchedAt();
+            durations = p.durations() == null ? Map.of() : new HashMap<>(p.durations());
+            // A pre-durations snapshot must count as stale, or the ETA floor would stay empty for
+            // hours after the upgrade.
+            fetchedAt = durations.isEmpty() ? 0 : p.fetchedAt();
         }
     }
 
-    private record Persisted(long fetchedAt, Map<String, Integer> counts) {
+    private record Persisted(long fetchedAt, Map<String, Integer> counts, Map<String, Long> durations) {
     }
 }

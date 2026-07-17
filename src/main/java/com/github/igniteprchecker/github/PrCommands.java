@@ -50,6 +50,7 @@ public class PrCommands implements SnapshotCache {
     private final TcClient tc;
     private final RerunTracker tracker;
     private final StyleFixService styleFix;
+    private final com.github.igniteprchecker.analysis.SuiteBaseline baseline;
 
     private volatile long sinceMs = System.currentTimeMillis();
     /** Handled comment ids -> when; survives restarts so a redeploy can't double-trigger. */
@@ -65,6 +66,7 @@ public class PrCommands implements SnapshotCache {
 
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
         RerunTracker tracker, StyleFixService styleFix,
+        com.github.igniteprchecker.analysis.SuiteBaseline baseline,
         @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl,
         TeamcityProperties teamcity) {
         this.mapper = mapper;
@@ -73,6 +75,7 @@ public class PrCommands implements SnapshotCache {
         this.tc = tc;
         this.tracker = tracker;
         this.styleFix = styleFix;
+        this.baseline = baseline;
         this.publicUrl = publicUrl;
         String base = teamcity.baseUrl() == null ? "https://ci2.ignite.apache.org" : teamcity.baseUrl();
         this.tcBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
@@ -359,7 +362,8 @@ public class PrCommands implements SnapshotCache {
                     return; // keep narrating until the verdict lands
                 }
 
-                long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId());
+                long eta = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId(),
+                    baseline.durations(actor.get().tcToken()));
                 if (eta >= 0)
                     narrate(pr, actor.get(), run, run.baseBody()
                         + "\n⏱ _~" + fmtDur(eta) + " remaining — **≈ " + finishAt(eta, actor.get().tz())
