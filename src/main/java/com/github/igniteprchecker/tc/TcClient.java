@@ -129,29 +129,41 @@ public class TcClient {
      * suite that silently ran far fewer tests in a PR. Two calls for all ~150 suites: the newest
      * finished master chain, then its dependencies' test counts.
      */
-    public Map<String, Integer> masterSuiteTestCounts(String token) {
+    public MasterSuiteStats masterSuiteStats(String token) {
         TcModel.BuildList chains = get("baseline", token, url("app/rest/builds", query(
             "locator", "buildType:(id:" + analysis.runAllBuildType() + "),branch:(default:true),"
                 + "state:finished,canceled:false,count:1",
             "fields", "build(id)")), TcModel.BuildList.class);
 
         if (chains == null || chains.build() == null || chains.build().isEmpty())
-            return Map.of();
+            return new MasterSuiteStats(Map.of(), Map.of());
 
         TcModel.Build chain = get("baseline", token,
             url("app/rest/builds/id:" + chains.build().get(0).id(), query(
-                "fields", "snapshot-dependencies(build(buildTypeId,testOccurrences(count)))")), TcModel.Build.class);
+                "fields", "snapshot-dependencies(build(buildTypeId,testOccurrences(count),startDate,finishDate))")),
+            TcModel.Build.class);
 
         if (chain == null || chain.snapshotDependencies() == null || chain.snapshotDependencies().build() == null)
-            return Map.of();
+            return new MasterSuiteStats(Map.of(), Map.of());
 
-        Map<String, Integer> out = new java.util.HashMap<>();
+        Map<String, Integer> counts = new java.util.HashMap<>();
+        Map<String, Long> durations = new java.util.HashMap<>();
         for (TcModel.Build dep : chain.snapshotDependencies().build()) {
-            if (dep.buildTypeId() != null && dep.testOccurrences() != null)
-                out.put(dep.buildTypeId(), dep.testOccurrences().count());
+            if (dep.buildTypeId() == null)
+                continue;
+            if (dep.testOccurrences() != null)
+                counts.put(dep.buildTypeId(), dep.testOccurrences().count());
+            long start = TcDates.epochSeconds(dep.startDate());
+            long finish = TcDates.epochSeconds(dep.finishDate());
+            if (start > 0 && finish > start)
+                durations.put(dep.buildTypeId(), finish - start);
         }
 
-        return out;
+        return new MasterSuiteStats(counts, durations);
+    }
+
+    /** Per-suite master facts: how many tests it runs, and how long it typically takes (seconds). */
+    public record MasterSuiteStats(Map<String, Integer> counts, Map<String, Long> durations) {
     }
 
     /** Failed test occurrences of a single build. */
@@ -387,8 +399,19 @@ public class TcClient {
      * queued seconds apart can be an hour apart in reality. Returns -1 if not determinable.
      */
     public long chainRemainingSeconds(String token, long buildId) {
+        return chainRemainingSeconds(token, buildId, Map.of());
+    }
+
+    /**
+     * Same, with a typical-duration floor: a dependency TeamCity gives NO estimate for (an agent-starved
+     * queued suite has neither a start nor a finish estimate) would otherwise silently vanish from the
+     * ETA — the chain looked 15 minutes from done while a 40-minute suite had not even started. For
+     * such deps the suite's typical master duration (minus elapsed time, when running) is used as an
+     * honest lower bound.
+     */
+    public long chainRemainingSeconds(String token, long buildId, Map<String, Long> typicalDurations) {
         TcModel.Build b = get("chainEta", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", "snapshot-dependencies(build(state,finishEstimate,"
+            "fields", "snapshot-dependencies(build(buildTypeId,state,finishEstimate,"
                 + "running-info(elapsedSeconds,estimatedTotalSeconds)))")), TcModel.Build.class);
 
         if (b == null || b.snapshotDependencies() == null || b.snapshotDependencies().build() == null)
@@ -402,10 +425,15 @@ public class TcClient {
 
             long finish = TcDates.epochSeconds(dep.finishEstimate());
             long left = finish > 0 ? Math.max(0, finish - now) : -1;
+            TcModel.RunningInfo ri = dep.runningInfo();
+            if (left < 0 && ri != null && ri.estimatedTotalSeconds() != null && ri.elapsedSeconds() != null)
+                left = Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds());
             if (left < 0) {
-                TcModel.RunningInfo ri = dep.runningInfo();
-                if (ri != null && ri.estimatedTotalSeconds() != null && ri.elapsedSeconds() != null)
-                    left = Math.max(0, ri.estimatedTotalSeconds() - ri.elapsedSeconds());
+                Long typical = typicalDurations.get(dep.buildTypeId());
+                if (typical != null) {
+                    long elapsed = ri != null && ri.elapsedSeconds() != null ? ri.elapsedSeconds() : 0;
+                    left = Math.max(0, typical - elapsed);
+                }
             }
             if (left > max)
                 max = left;

@@ -28,14 +28,17 @@ public class TriggerController {
     private final BlockerAnalyzer analyzer;
     private final RerunTracker reruns;
     private final com.github.igniteprchecker.github.GithubClient github;
+    private final com.github.igniteprchecker.analysis.SuiteBaseline baseline;
     private final String runAllBuildType;
 
     public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns,
-        com.github.igniteprchecker.github.GithubClient github, AnalysisProperties cfg) {
+        com.github.igniteprchecker.github.GithubClient github,
+        com.github.igniteprchecker.analysis.SuiteBaseline baseline, AnalysisProperties cfg) {
         this.tc = tc;
         this.analyzer = analyzer;
         this.reruns = reruns;
         this.github = github;
+        this.baseline = baseline;
         this.runAllBuildType = cfg.runAllBuildType();
     }
 
@@ -164,7 +167,7 @@ public class TriggerController {
             // estimate knows both the queue and each suite's actual progress — prefer it whenever
             // it exists, and keep the composite's own value only as a fallback.
             if (runAllBuildType.equals(b.buildTypeId()) && "running".equalsIgnoreCase(b.state())) {
-                long depBased = tc.chainRemainingSeconds(token, b.id());
+                long depBased = tc.chainRemainingSeconds(token, b.id(), baseline.durations(token));
                 if (depBased >= 0)
                     m.put("leftSec", depBased);
             }

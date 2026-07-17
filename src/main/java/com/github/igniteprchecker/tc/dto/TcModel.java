@@ -25,6 +25,7 @@ public final class TcModel {
         String buildTypeId,
         String webUrl,
         String queuedDate,
+        String startDate,
         String finishDate,
         String startEstimate,
         String finishEstimate,
