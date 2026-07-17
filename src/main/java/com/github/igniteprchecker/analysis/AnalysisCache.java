@@ -43,6 +43,11 @@ public class AnalysisCache implements SnapshotCache {
         return results.peek(buildId);
     }
 
+    /** Restarts a cached result's TTL — per-build results are immutable, so this is always safe. */
+    public void touchResult(long buildId) {
+        results.touch(buildId);
+    }
+
     public void putResult(long buildId, AnalysisResult result) {
         results.put(buildId, result);
     }

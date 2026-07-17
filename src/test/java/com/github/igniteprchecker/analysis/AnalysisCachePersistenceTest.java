@@ -54,7 +54,7 @@ class AnalysisCachePersistenceTest {
     }
 
     @Test
-    void ttlCacheExportDropsExpiredAndImportKeepsExpiry() throws Exception {
+    void ttlCacheExportDropsExpiredAndImportRevives() throws Exception {
         TtlCache<Long, String> cache = new TtlCache<>(60);
         cache.put(1L, "fresh");
         assertThat(cache.export()).hasSize(1);
@@ -62,9 +62,20 @@ class AnalysisCachePersistenceTest {
         Thread.sleep(80);
         assertThat(cache.export()).isEmpty();
 
-        // Importing an already-expired entry is a no-op.
+        // Importing revives even a formally expired entry with a fresh TTL: snapshot entries are
+        // keyed by immutable identities, so a redeploy must not cold-start what it already knows.
         TtlCache<Long, String> target = new TtlCache<>(60);
-        target.importAll(List.of(new TtlCache.Snapshot<>(9L, "stale", System.currentTimeMillis() - 1)));
-        assertThat(target.peek(9L)).isEmpty();
+        target.importAll(List.of(new TtlCache.Snapshot<>(9L, "revived", System.currentTimeMillis() - 1)));
+        assertThat(target.peek(9L)).contains("revived");
+    }
+
+    @Test
+    void touchExtendsTtl() throws Exception {
+        TtlCache<Long, String> cache = new TtlCache<>(100);
+        cache.put(1L, "v");
+        Thread.sleep(60);
+        cache.touch(1L); // without the touch the entry would die at 100ms
+        Thread.sleep(60);
+        assertThat(cache.peek(1L)).contains("v");
     }
 }
