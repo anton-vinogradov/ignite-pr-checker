@@ -81,6 +81,7 @@ public class BlockerAnalyzer {
         long bid = buildId.get();
         Optional<AnalysisResult> cached = cache.peekResult(bid);
         if (cached.isPresent()) {
+            cache.touchResult(bid); // an immutable per-build result must never expire while in use
             prBlockers.put(prNumber, cached.get().blockers().size());
             if (isStale(cached.get()))
                 refreshAsync(token, prNumber, bid);
@@ -126,6 +127,10 @@ public class BlockerAnalyzer {
 
         Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
         if (cached.isPresent()) {
+            // The warm cycle (10 min) is shorter than the TTL (15 min), but a skip used to leave the
+            // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
+            // cold compute. Touching on skip keeps the warmed set permanently hot.
+            cache.touchResult(buildId.get());
             prBlockers.put(prNumber, cached.get().blockers().size());
             return false;
         }

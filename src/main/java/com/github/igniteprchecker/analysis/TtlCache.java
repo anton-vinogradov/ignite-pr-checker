@@ -42,6 +42,13 @@ final class TtlCache<K, V> {
         map.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
     }
 
+    /** Restarts an existing entry's TTL (even an expired one) — for values that cannot go stale. */
+    void touch(K key) {
+        Entry<V> e = map.get(key);
+        if (e != null)
+            map.put(key, new Entry<>(e.value(), System.currentTimeMillis() + ttlMs));
+    }
+
     int size() {
         return map.size();
     }
@@ -87,13 +94,17 @@ final class TtlCache<K, V> {
         return out;
     }
 
-    /** Repopulate from a snapshot, keeping each entry's original expiry and dropping any now expired. */
+    /**
+     * Repopulate from a snapshot, giving every entry a FRESH TTL rather than honouring the stored
+     * expiry. The entries are keyed by immutable identities (a build's result never changes), so an
+     * "expired" snapshot entry is still correct — reviving it turns a redeploy's cold-start burst
+     * into cache hits; staleness is handled by the serve-path refresh and the build-id change check.
+     */
     void importAll(List<Snapshot<K, V>> entries) {
-        long now = System.currentTimeMillis();
+        long freshExpiry = System.currentTimeMillis() + ttlMs;
 
         for (Snapshot<K, V> s : entries)
-            if (now < s.expiresAt())
-                map.put(s.key(), new Entry<>(s.value(), s.expiresAt()));
+            map.put(s.key(), new Entry<>(s.value(), freshExpiry));
     }
 
     private record Entry<V>(V value, long expiresAt) {
