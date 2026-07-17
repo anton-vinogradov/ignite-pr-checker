@@ -145,6 +145,12 @@
         .delta-fixed { color: #2e7d32; font-weight: 600; }
         #pendingRow { align-items: center; gap: 0.6rem; }
         .pending-note { color: #b26a00; font-weight: 600; }
+        .rev-ok, .rev-stale, .rev-queued { font-size: 0.72rem; margin-left: 0.3rem; white-space: nowrap; }
+        .rev-ok { color: #2e7d32; }
+        .rev-stale { color: #b26a00; font-weight: 600; }
+        .rev-queued { color: var(--muted); }
+        html[data-theme="dark"] .rev-stale, html[data-theme="jetbrains"] .rev-stale { color: #e0a54a; }
+        html[data-theme="dark"] .rev-ok, html[data-theme="jetbrains"] .rev-ok { color: #66bb6a; }
         html[data-theme="dark"] .pending-note, html[data-theme="jetbrains"] .pending-note { color: #e0a54a; }
         .runs { flex: 1; min-width: 0; }
         .runs .run-item { display: inline-flex; align-items: center; margin-left: 0.6rem; white-space: nowrap; }
@@ -771,8 +777,17 @@
                 if (t && t.leftSec != null && t.leftSec > (b.leftSec ?? -1)) b.leftSec = t.leftSec;
             }
             // Same visual language as the suite rows: the name is a plain link, the state is a .live chip.
+            // Revision transparency: a running build started before the latest push tests older
+            // code; a queued one has no revision yet (TeamCity resolves it at start = head then).
+            const revTag = b => b.onHead === true
+                ? `<span class="rev-ok" title="Running on the PR's current head revision">rev ✓ head</span>`
+                : b.onHead === false
+                    ? `<span class="rev-stale" title="Started on ${b.rev} — commits were pushed after; this run tests older code">⚠ rev ${esc(b.rev)}</span>`
+                    : b.state === 'queued'
+                        ? `<span class="rev-queued" title="The revision is resolved when the build starts — it will pick up the head of that moment">rev @start</span>`
+                        : '';
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a></span>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 

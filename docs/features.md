@@ -62,7 +62,10 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **Re-runs without leaving the page**: the whole `RunAll`, any **section** (broken suites, blockers,
   recently-started, filtered) or one suite — each *plain* or *at the top of the queue*. Live
   **queued / running** chips appear on the affected suites and in the `runs:` row with **queue-aware
-  finish estimates** (they account for the agent queue and each suite's actual progress). **Cancel all**
+  finish estimates** (they account for the agent queue and each suite's actual progress) and a
+  **revision tag**: `rev ✓ head` for a run on the PR's current head, `⚠ rev abc123` when commits
+  were pushed after it started (it tests older code), `rev @start` for queued builds — TeamCity
+  resolves their revision at start, so they pick up the head of that moment. **Cancel all**
   kills everything you queued.
 - **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
   one click now, **Auto visa** (one-shot, fires when the current run finishes), or the settings (⚙)
