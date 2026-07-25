@@ -143,7 +143,8 @@ public class PrCommands implements SnapshotCache {
                 ? "build " + build.id() : "[build " + build.id() + "](" + build.webUrl() + ")";
             String ack = (styleNote == null ? "" : styleNote + "\n")
                 + "🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
-                + "** — " + link + ". The verdict lands here when the run finishes.";
+                + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/?pr=" + pr
+                + "). The verdict lands here when the run finishes.";
 
             if (pat) {
                 // Their own PAT: the ack lives inside their command comment.
