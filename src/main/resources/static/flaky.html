@@ -230,6 +230,7 @@
                     ? short + `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="${tcTitle}">TC</a>`
                     : short;
                 const why = b.occurrenceId ? `<button class="why" data-occ="${esc(b.occurrenceId)}" title="Show the failure message">why?</button>` : '';
+                const ai = `<button class="why ai" data-i="${i}" title="Copy an AI-ready prompt to stabilise this flaky test">ai</button>`;
                 // A live re-run of this suite launched through the tool (running preferred over queued).
                 const rr = (reruns || []).find(x => x.buildTypeId === b.suite);
                 const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${rr.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + rr.pct + '% complete' : ''}">${esc(rr.state)} · #${rr.pr}${chipEta(rr)}</a>` : '';
@@ -238,15 +239,63 @@
                 return `<div class="lbrow">
                     <div class="lbhead">
                         <span class="lbrank">${i + 1}.</span>
-                        <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${runStrip(b.branchRuns)}${why}${live}</span>
+                        <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${runStrip(b.branchRuns)}${why}${ai}${live}</span>
                         <span class="lbcount"><span class="flake ${hot}">${b.masterFails}/${b.masterRuns} on master</span><span class="foot" title="Seen in PRs: ${b.prs.map(n => '#' + n).join(', ')}">${pct}% · ${b.prCount} PR${b.prCount === 1 ? '' : 's'}</span></span>
                     </div>
                     <div class="lbprs">${mf.length ? 'failed master runs: ' + mf.map(f => `<a href="${tcBase}buildConfiguration/${encodeURIComponent(f.btId)}/${f.buildId}?buildTab=tests${f.occ ? enc(f.occ) : ''}#testNameId${unsignedTestId(b.testId)}" target="_self" rel="noopener" title="Open this failed master run in TeamCity">#${f.buildId}</a>`).join('') : ''}</div>
                     <div class="details hidden"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div>
                 </div>`;
             }).join('');
-            for (const btn of el.querySelectorAll('.why')) btn.onclick = () => toggleDetails(btn);
+            for (const btn of el.querySelectorAll('.why:not(.ai)')) btn.onclick = () => toggleDetails(btn);
+            for (const btn of el.querySelectorAll('.why.ai')) btn.onclick = () => aiFlakyPrompt(btn, list[+btn.dataset.i]);
             for (const btn of el.querySelectorAll('.details .copy')) btn.onclick = () => copyDetails(btn);
+        }
+
+        // "ai": a paste-ready prompt to STABILISE a master-flaky test — the fail-rate, the noise it
+        // causes across open PRs, and (when the session allows) the failure output.
+        async function aiFlakyPrompt(btn, b) {
+            btn.textContent = '…';
+            let details = '';
+            if (b.occurrenceId) {
+                try {
+                    const r = await fetch('/api/test-details?occ=' + encodeURIComponent(b.occurrenceId), { cache: 'no-store' });
+                    if (r.ok) details = (await r.json().catch(() => ({}))).details || '';
+                } catch (e) { /* public page: without a login the prompt just goes out without the stacktrace */ }
+            }
+            const pct = b.masterRuns ? Math.round(100 * b.masterFails / b.masterRuns) : 0;
+            const mf = (b.masterFailures || []).map(f => `${tcBase}buildConfiguration/${encodeURIComponent(f.btId)}/${f.buildId}`);
+            const head = [
+                'Stabilise a flaky test in Apache Ignite (Java) — it fails on master with no code changes.',
+                '',
+                'Context:',
+                '- Repository: https://github.com/apache/ignite (branch: master)',
+                `- Suite (TeamCity): ${b.suiteName || b.suite}`,
+                `- Test: ${b.name}`,
+                `- Master fail rate: ${b.masterFails}/${b.masterRuns} recent runs (${pct}%)`,
+                `- Currently adding noise to ${b.prCount} open pull request(s)`,
+                mf.length ? `- Failed master runs: ${mf.slice(0, 3).join(' ')}` : null,
+            ].filter(Boolean).join('\n');
+            const fail = details && details.trim() ? '\n\nFailure output:\n```\n' + details.trim() + '\n```' : '';
+            const task = [
+                '',
+                'Task:',
+                '1. Check out apache/ignite master and locate the test class.',
+                '2. Identify the instability: typical causes are timing assumptions (fixed sleeps, short timeouts), ordering/race conditions, port or resource collisions, and state leaking between tests.',
+                '3. Fix the test to be deterministic (wait-for-condition instead of sleeps, proper synchronisation, isolated resources) — or fix the production race if the flakiness is real.',
+                '4. Prove stability: run the test repeatedly (e.g. 20+ iterations) before and after the fix.',
+            ].join('\n');
+            const text = head + fail + task + '\n';
+            let ok = false;
+            try { await navigator.clipboard.writeText(text); ok = true; }
+            catch (e) {
+                const ta = document.createElement('textarea');
+                ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta); ta.select();
+                try { ok = document.execCommand('copy'); } catch (e2) { /* stays not-ok */ }
+                ta.remove();
+            }
+            btn.textContent = ok ? 'copied' : 'copy failed';
+            setTimeout(() => { btn.textContent = 'ai'; }, 1800);
         }
 
         // Rough failure triage from the message: environment/timing noise vs a real assertion.

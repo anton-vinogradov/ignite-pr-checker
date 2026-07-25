@@ -1097,9 +1097,14 @@
                     tests: rest, open: false
                 });
             el.innerHTML = blocks.map((b, i) =>
-                `<details class="cause"${b.open ? ' open' : ''}><summary>${b.head}</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
+                `<details class="cause"${b.open ? ' open' : ''}><summary>${b.head}`
+                + ` <button class="why ai-cause" data-i="${i}" title="Copy an AI-ready fix prompt for this whole root cause">ai</button>`
+                + `</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
                 || '<p class="muted">nothing to group</p>';
             blocks.forEach((b, i) => renderList($('causeTests' + i), b.tests, false, true));
+            for (const b of el.querySelectorAll('.ai-cause')) {
+                b.onclick = e => { e.preventDefault(); aiCausePrompt(b, blocks[+b.dataset.i]); };
+            }
             annotateSuiteChips();
         }
 
@@ -1353,10 +1358,18 @@
                     const why = t.occurrenceId
                         ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
                         : '';
+                    const verdict = t.blocker ? 'BLOCKER — clean on master, failing consistently on this branch'
+                        : t.watch ? 'RECENTLY STARTED FAILING — failing the last runs, passed earlier'
+                        : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
+                    const ai = ` <button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
+                        + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
+                        + ` data-buildid="${t.suiteBuildId || 0}" data-strip="${esc(t.branchRuns || '')}"`
+                        + ` data-verdict="${esc(verdict)}"`
+                        + ` title="Copy an AI-ready fix prompt with the full context">ai</button>`;
                     // a fail->pass transition means it flapped on the same code (not a steady break)
                     const flaky = t.branchRuns && /FP/.test(t.branchRuns)
                         ? `<span class="tag-flaky" title="passed and failed across this branch's runs">flaky?</span>` : '';
-                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}${flaky}${why}</div>`
+                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}${flaky}${why}${ai}</div>`
                         + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
                         + `<div class="details hidden"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div></li>`;
                 }).join('');
@@ -1364,10 +1377,117 @@
             }).join('');
             for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
-            for (const b of el.querySelectorAll('.why'))
+            for (const b of el.querySelectorAll('.why:not(.ai)'))
                 b.onclick = () => toggleDetails(b);
+            for (const b of el.querySelectorAll('.why.ai'))
+                b.onclick = () => aiFixPrompt(b);
             for (const b of el.querySelectorAll('.details .copy'))
                 b.onclick = () => copyDetails(b);
+        }
+
+        // Shared clipboard write with the legacy fallback; flashes the button label.
+        async function copyText(text, btn, idle) {
+            let ok = false;
+            try { await navigator.clipboard.writeText(text); ok = true; }
+            catch (e) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { ok = document.execCommand('copy'); } catch (e2) { /* stays not-ok */ }
+                ta.remove();
+            }
+            btn.textContent = ok ? 'copied' : 'copy failed';
+            setTimeout(() => { btn.textContent = idle; }, 1800);
+        }
+
+        // "ai": assemble EVERYTHING a coding assistant needs to fix this failure — the PR, the suite,
+        // the checker's verdict with run history, the failure output, and concrete repro steps — and
+        // put it on the clipboard as one paste-ready prompt.
+        async function aiFixPrompt(btn) {
+            btn.textContent = '…';
+            let details = '';
+            if (btn.dataset.occ) {
+                try {
+                    const r = await api('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ));
+                    if (r.ok) details = (await r.json().catch(() => ({}))).details || '';
+                } catch (e) { /* the prompt still works without the stacktrace */ }
+            }
+            const kind = details ? failureKind(details) : null;
+            const runUrl = btn.dataset.buildid > 0
+                ? `${tcBase}buildConfiguration/${encodeURIComponent(btn.dataset.suite)}/${btn.dataset.buildid}` : '';
+            const prompt = aiPromptText({
+                title: 'Fix a failing test in Apache Ignite (Java).',
+                pr: selectedPr,
+                lines: [
+                    `- Suite (TeamCity): ${btn.dataset.suitename}${runUrl ? ' — failed run: ' + runUrl : ''}`,
+                    `- Test: ${btn.dataset.name}`,
+                    `- Ignite PR Checker verdict: ${btn.dataset.verdict}`,
+                    btn.dataset.strip ? `- Branch run history (oldest→newest, P=pass F=fail): ${btn.dataset.strip}` : null,
+                    kind ? `- Rough triage: ${kind}` : null,
+                ],
+                details,
+                task: [
+                    '1. Fetch the PR branch: git fetch https://github.com/apache/ignite pull/' + selectedPr + '/head && git checkout FETCH_HEAD (or the PR branch directly).',
+                    '2. Locate the test class and reproduce the failure locally (JDK 17; run the single test via your build tooling or IDE).',
+                    '3. Find the root cause: decide whether this PR broke production code or the test itself needs adjusting for a legitimate behaviour change.',
+                    '4. Fix accordingly (production code fix preferred over weakening the test), keep the Apache Ignite code style, and re-run the test to verify it passes.',
+                ],
+            });
+            await copyText(prompt, btn, 'ai');
+        }
+
+        // "ai" on a root cause: one prompt covering the whole cluster — the shared failure signature,
+        // every affected suite/test, and one exemplar failure output.
+        async function aiCausePrompt(btn, block) {
+            btn.textContent = '…';
+            const tests = block.tests || [];
+            const first = tests.find(t => t.occurrenceId);
+            let details = '';
+            if (first) {
+                try {
+                    const r = await api('/api/test-details?occ=' + encodeURIComponent(first.occurrenceId));
+                    if (r.ok) details = (await r.json().catch(() => ({}))).details || '';
+                } catch (e) { /* prompt still works */ }
+            }
+            const suites = [...new Set(tests.map(t => t.suiteName || t.suite))];
+            const sig = btn.closest('summary').querySelector('.sig');
+            const prompt = aiPromptText({
+                title: 'Fix a group of failing tests in Apache Ignite that share one root cause (Java).',
+                pr: selectedPr,
+                lines: [
+                    `- Shared failure signature: ${sig ? sig.textContent : '(see failure output below)'}`,
+                    `- ${tests.length} failing test(s) across ${suites.length} suite(s): ${suites.join(', ')}`,
+                    ...tests.slice(0, 20).map(t => `  - ${t.name}`),
+                    tests.length > 20 ? `  - … and ${tests.length - 20} more` : null,
+                ],
+                details,
+                task: [
+                    '1. Fetch the PR branch: git fetch https://github.com/apache/ignite pull/' + selectedPr + '/head && git checkout FETCH_HEAD.',
+                    '2. These tests almost certainly fail for ONE reason (the shared signature above). Reproduce one representative test locally (JDK 17).',
+                    '3. Find the single root cause in the PR\'s changes and fix it — do not patch the tests one by one.',
+                    '4. Re-run a few of the affected tests from different suites to verify the whole group is fixed.',
+                ],
+            });
+            await copyText(prompt, btn, 'ai');
+        }
+
+        function aiPromptText({ title, pr, lines, details, task }) {
+            const prTitle = ((allPrs.find(p => p.number === pr) || {}).title || '').trim();
+            const head = [
+                title,
+                '',
+                'Context:',
+                `- Repository: https://github.com/apache/ignite`,
+                pr ? `- Pull request: https://github.com/apache/ignite/pull/${pr}${prTitle ? ' — ' + prTitle : ''}` : null,
+                pr ? `- PR branch on TeamCity: pull/${pr}/head` : null,
+                ...lines,
+            ].filter(Boolean).join('\n');
+            const fail = details && details.trim()
+                ? '\n\nFailure output:\n```\n' + details.trim() + '\n```' : '';
+            return head + fail + '\n\nTask:\n' + task.join('\n') + '\n';
         }
 
         async function copyDetails(btn) {
