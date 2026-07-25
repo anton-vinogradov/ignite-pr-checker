@@ -46,6 +46,13 @@ The one question the tool answers: **which tests did this PR actually break?**
   vanishing — even when it *does* have failed tests: those are hang cascade, and some tests never ran.
 - Every test carries a **pass/fail strip** of its finished runs on the branch (oldest → newest). A
   fail→pass transition earns a **flaky?** tag; a steady `▮▮▮` means a solid break.
+- **ai** (next to *why?*) — copies a **paste-ready fix prompt for a coding assistant**: the PR link
+  and branch, the suite with its failed-run TC link, the full test name, the checker's verdict with
+  the branch run history, the triage tag, the complete failure output, and concrete repro/fix steps.
+  A root cause gets its own **ai** button covering the whole cluster (shared signature, every
+  affected suite/test, one exemplar output — "find the ONE cause, don't patch tests one by one");
+  the flaky board's **ai** builds a stabilisation prompt (fail-rate, noised PRs, typical instability
+  checklist, prove-with-20-runs instruction).
 - **why?** expands the failure message inline as a copyable code block, prefixed with a rough triage:
   `♻ environment/timing — a re-run may pass` vs `⚖ assertion — likely a real logic failure`.
 - The blockers card has two views: **Suites** (default) and **Root causes** — the same blockers
