@@ -97,7 +97,7 @@ public class PrCommands implements SnapshotCache {
             for (GithubClient.IssueComment c : github.recentIssueComments(sinceIso))
                 handle(c);
         }
-        catch (RuntimeException e) {
+        catch (Throwable e) {
             log.warn("PR command poll failed: {}", e.toString());
         }
 
@@ -164,7 +164,8 @@ public class PrCommands implements SnapshotCache {
             log.info("/run-all by {} ({}): RunAll queued for PR {}{}{}", c.user().login(), actor.get().username(),
                 pr, cmd.top() ? " (top)" : "", pat ? "" : " (app-narrated)");
         }
-        catch (RuntimeException e) {
+        catch (Throwable e) {
+            // Throwable: an Error escaping here once took the whole command poll down with it.
             react(actor.get(), c.id(), "confused");
             log.warn("/run-all by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
         }

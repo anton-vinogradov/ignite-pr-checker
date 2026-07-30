@@ -48,13 +48,21 @@ public class CheckstyleRunner {
      * same relative paths. Files are materialized under a temp mirror so suppression path patterns
      * keep matching.
      */
-    public List<Violation> check(java.util.Map<String, String> files) throws Exception {
+    /** Files above this size are not worth an in-process AST on a 512m heap — reported, not fixed. */
+    public static final int MAX_FILE_BYTES = 400_000;
+
+    public CheckResult check(java.util.Map<String, String> files) throws Exception {
         loadConfig();
 
         Path root = Files.createTempDirectory("prc-style");
         try {
             List<File> targets = new ArrayList<>();
+            List<String> skipped = new ArrayList<>();
             for (var e : files.entrySet()) {
+                if (e.getValue().length() > MAX_FILE_BYTES) {
+                    skipped.add(e.getKey());
+                    continue;
+                }
                 Path f = root.resolve(e.getKey());
                 Files.createDirectories(f.getParent());
                 Files.writeString(f, e.getValue(), StandardCharsets.UTF_8);
@@ -101,13 +109,28 @@ public class CheckstyleRunner {
                         // a file checkstyle itself chokes on is left untouched
                     }
                 });
-                checker.process(targets);
+                // One file per process() call: the peak is a single file's AST, and a file that
+                // kills checkstyle (an Error, an OOM near the limit) is skipped — it must never
+                // take the whole service down (that is exactly how the 384m heap died on a 140 KB
+                // GridDhtAtomicCache.java: Checker wraps OOM in java.lang.Error, which sailed past
+                // every catch(Exception) up to the scheduler).
+                for (File f : targets) {
+                    try {
+                        checker.process(List.of(f));
+                    }
+                    catch (Throwable t) {
+                        String rel = root.relativize(f.toPath()).toString();
+                        skipped.add(rel);
+                        org.slf4j.LoggerFactory.getLogger(CheckstyleRunner.class)
+                            .warn("checkstyle choked on {} ({}) — skipped", rel, t.toString());
+                    }
+                }
             }
             finally {
                 checker.destroy();
             }
 
-            return out;
+            return new CheckResult(out, skipped);
         }
         finally {
             try (var walk = Files.walk(root)) {
@@ -129,5 +152,9 @@ public class CheckstyleRunner {
 
     /** One checkstyle finding: where (repo-relative path, 1-based line/column), which rule, and why. */
     public record Violation(String path, int line, int col, String rule, String message) {
+    }
+
+    /** The findings plus the files that were NOT checked (too large, or checkstyle choked on them). */
+    public record CheckResult(List<Violation> violations, List<String> skipped) {
     }
 }

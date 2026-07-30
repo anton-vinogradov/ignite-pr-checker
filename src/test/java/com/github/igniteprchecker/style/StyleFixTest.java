@@ -73,11 +73,11 @@ class StyleFixTest {
         CheckstyleRunner runner = new CheckstyleRunner(github, new GithubProperties("apache/ignite", null, null));
 
         String path = "modules/core/src/main/java/p/C.java";
-        List<CheckstyleRunner.Violation> before = runner.check(Map.of(path, BAD));
+        List<CheckstyleRunner.Violation> before = runner.check(Map.of(path, BAD)).violations();
         assertFalse(before.isEmpty(), "the synthetic file must violate: " + before);
 
         String fixed = Fixers.apply(BAD, before);
-        List<CheckstyleRunner.Violation> after = runner.check(Map.of(path, fixed));
+        List<CheckstyleRunner.Violation> after = runner.check(Map.of(path, fixed)).violations();
 
         assertEquals(List.of(), after, "everything in the synthetic file is mechanically fixable");
         assertTrue(fixed.contains("public static final int F"), "modifiers reordered");
