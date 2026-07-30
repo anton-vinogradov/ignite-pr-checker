@@ -55,9 +55,13 @@ public class StyleFixService {
             for (String path : paths)
                 files.put(path, github.rawFile(head.headRepo(), head.headSha(), path));
 
-            List<Violation> before = checkstyle.check(files);
+            CheckstyleRunner.CheckResult first = checkstyle.check(files);
+            List<Violation> before = first.violations();
+            String skippedNote = first.skipped().isEmpty() ? ""
+                : " " + first.skipped().size() + " file(s) were too large for in-process checkstyle and were"
+                    + " not checked (" + first.skipped().get(0) + (first.skipped().size() > 1 ? ", …" : "") + ").";
             if (before.isEmpty())
-                return null;
+                return skippedNote.isEmpty() ? null : "🎨 _Checkstyle:" + skippedNote + "_";
 
             // Fix -> re-check -> fix once more: import removals shift lines, so one extra pass
             // catches what the first one unblocked.
@@ -69,12 +73,12 @@ public class StyleFixService {
                     if (!mine.isEmpty())
                         fixed.put(path, Fixers.apply(fixed.get(path), mine));
                 }
-                remaining = checkstyle.check(fixed);
+                remaining = checkstyle.check(fixed).violations();
             }
 
             if (remaining.size() >= before.size())
                 return "🎨 _Checkstyle: " + before.size() + " violation(s) in the changed files — none mechanically"
-                    + " fixable (javadoc/naming/wrapping need a human). The Checkstyle suite WILL fail._";
+                    + " fixable (javadoc/naming/wrapping need a human). The Checkstyle suite WILL fail." + skippedNote + "_";
 
             Map<String, String> changed = new LinkedHashMap<>();
             for (var e : fixed.entrySet()) {
@@ -91,9 +95,12 @@ public class StyleFixService {
             return "🎨 _Checkstyle autofix: fixed " + (before.size() - remaining.size()) + " of " + before.size()
                 + " violation(s) in " + changed.size() + " file(s) — commit " + sha.substring(0, 8) + "."
                 + (remaining.isEmpty() ? "" : " " + remaining.size()
-                    + " remain (javadoc/naming/wrapping need a human) — the Checkstyle suite may still fail.") + "_";
+                    + " remain (javadoc/naming/wrapping need a human) — the Checkstyle suite may still fail.")
+                + skippedNote + "_";
         }
-        catch (Exception e) {
+        catch (Throwable e) {
+            // Throwable, not Exception: checkstyle wraps OOM into java.lang.Error, and a style
+            // failure must never cost the user their run — the trigger proceeds regardless.
             log.warn("style autofix for PR {} failed: {}", pr, e.toString());
 
             return "🎨 _Checkstyle autofix failed (" + e.getClass().getSimpleName() + ") — running as-is._";

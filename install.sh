@@ -91,7 +91,7 @@ if [ -f "$MARKER" ]; then
     fi
 fi
 
-exec /usr/bin/java -Xmx384m -jar "$JAR"
+exec /usr/bin/java -Xmx512m -XX:+ExitOnOutOfMemoryError -jar "$JAR"
 RUN
 chown prc:prc "$APP_DIR/run.sh"
 chmod 755 "$APP_DIR/run.sh"
