@@ -129,6 +129,24 @@ public class PrCommands implements SnapshotCache {
         }
         boolean pat = actor.get().ghToken() != null;
         try {
+            // A new commanded run supersedes the commander's previous chain on this PR: cancel it
+            // first (their OWN chains only) — on unchanged revisions the new chain reuses the
+            // finished suites, so nothing useful is lost, and the queue isn't paid twice.
+            int superseded = tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, actor.get().username());
+            CommandRun old = watching.get(pr);
+            if (superseded > 0 && old != null && old.username().equals(actor.get().username())) {
+                try {
+                    String closing = old.baseBody() + "\n🛑 _Superseded by a newer /run-all._";
+                    if (old.app())
+                        github.updatePrCommentAsApp(old.narrationId(), closing);
+                    else if (pat)
+                        github.updatePrComment(actor.get().ghToken(), old.commentId(), closing);
+                }
+                catch (RuntimeException ignored) {
+                    // closing the old narration is a courtesy, never a blocker
+                }
+            }
+
             // Style first, trigger second: the fix commit must be the revision the chain builds
             // (the autofix pushes under the user's PAT, so it needs one).
             String styleNote = pat && standing.styleFixOn(actor.get().username())
@@ -144,7 +162,9 @@ public class PrCommands implements SnapshotCache {
             String ack = (styleNote == null ? "" : styleNote + "\n")
                 + "🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
                 + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/?pr=" + pr
-                + "). The verdict lands here when the run finishes.";
+                + ")."
+                + (superseded > 0 ? " Your previous run was cancelled — this one supersedes it." : "")
+                + " The verdict lands here when the run finishes.";
 
             if (pat) {
                 // Their own PAT: the ack lives inside their command comment.
