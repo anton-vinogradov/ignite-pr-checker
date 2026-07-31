@@ -281,6 +281,30 @@ public class TcClient {
         return builds;
     }
 
+    /**
+     * Cancels the given user's OWN queued/running RunAll chains for the PR — a newer commanded run
+     * supersedes them, and on unchanged revisions the new chain reuses the finished suites anyway.
+     * Other people's chains are never touched.
+     */
+    public int cancelOwnRunAllChains(String token, int prNumber, String username) {
+        int cancelled = 0;
+        for (TcModel.Build b : currentUserBuilds(token, prNumber)) {
+            boolean own = b.triggered() != null && b.triggered().user() != null
+                && username.equals(b.triggered().user().username());
+            if (own && analysis.runAllBuildType().equals(b.buildTypeId())) {
+                try {
+                    cancelBuild(token, b);
+                    cancelled++;
+                }
+                catch (RestClientResponseException e) {
+                    // finished, or changed state between listing and cancelling — nothing to supersede
+                }
+            }
+        }
+
+        return cancelled;
+    }
+
     /** Cancels every user-launched build (RunAll or re-run suite) currently queued or running; returns how many. */
     public int cancelUserBuilds(String token, int prNumber) {
         int cancelled = 0;
@@ -370,7 +394,7 @@ public class TcClient {
 
         TcModel.BuildList list = get("userBuilds", token, url("app/rest/builds", query(
             "locator", locator,
-            "fields", "build(id,state,status,webUrl,buildTypeId,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds))")), TcModel.BuildList.class);
+            "fields", "build(id,state,status,webUrl,buildTypeId,startEstimate,finishEstimate,buildType(name),triggered(type,user(username)),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }

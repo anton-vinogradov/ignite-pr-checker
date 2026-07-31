@@ -135,6 +135,9 @@ The semantics, fixed:
   Two messages per run, total.
 - Commands are picked up **within a minute** (one repo-wide comments poll covers every PR) and work
   on **any** pull request — commanding a PR means running it under your accounts.
+- **A new `/run-all` supersedes your previous one**: your own queued/running chain on the PR is
+  cancelled first (nobody else's), its narration closes with 🛑 *Superseded*, and the ack says so.
+  On unchanged revisions the new chain reuses the finished suites, so nothing useful is lost.
 - A command from someone **not enrolled yet** gets a one-time reply explaining where to log in and
   which switch to flip — the command is its own onboarding path.
 
