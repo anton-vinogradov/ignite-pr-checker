@@ -20,9 +20,10 @@ import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Keeps the newest PRs pre-analysed so opening them is instant. There is no server-side token, so
- * the warmer piggybacks on active users: logged-in requests donate their token, and each warm cycle
- * spreads its PRs round-robin across all currently-pooled tokens, so no single user's token bears
- * the whole background load. It does nothing until the first login after a restart.
+ * the warmer runs on users' own: logged-in requests donate their token, and users with standing
+ * options on re-donate theirs on every sweep — that durable half is what keeps warming (and every
+ * other background job borrowing from this pool) alive while nobody is browsing. Each cycle spreads
+ * its PRs round-robin across all pooled tokens, so no single user's token bears the whole load.
  */
 @Component
 public class Warmer {
@@ -64,7 +65,19 @@ public class Warmer {
 
     /** An authenticated request offers its token; the first token into an empty pool kicks off warming. */
     public void offerToken(String token) {
-        boolean wasEmpty = tokens.offer(token);
+        donate(token, false);
+    }
+
+    /**
+     * Offers a token TeamCity has just accepted (a fresh login), so an earlier rejection of the same
+     * string — a revoked token since re-issued, or one dropped during a TeamCity hiccup — is forgiven.
+     */
+    public void offerVerifiedToken(String token) {
+        donate(token, true);
+    }
+
+    private void donate(String token, boolean verified) {
+        boolean wasEmpty = tokens.offer(token, verified);
 
         if (wasEmpty && props.enabled())
             worker.execute(this::warmCycle);

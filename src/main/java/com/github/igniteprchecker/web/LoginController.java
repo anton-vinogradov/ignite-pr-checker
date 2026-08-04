@@ -66,7 +66,7 @@ public class LoginController {
 
         users.touchLogin(username.get());
         String cookie = codec.encode(username.get(), req.token().trim());
-        warmer.offerToken(req.token().trim());
+        warmer.offerVerifiedToken(req.token().trim()); // TeamCity just accepted it
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())

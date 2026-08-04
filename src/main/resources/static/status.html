@@ -283,6 +283,10 @@
             }
             if (a.lastFailed > 0)
                 return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.lastFailed} warm${a.lastFailed === 1 ? '' : 's'} failed last cycle`, 'bad');
+            // Cycles keep ticking with an empty pool but visit nothing — "N cycles run" would read green
+            // while everything is actually cold.
+            if (!a.pooledTokens)
+                return card('Warmer', 'paused', 'no pooled tokens — nothing to warm with', 'warn');
             if (a.lastWarmCycleAt)
                 return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run`, 'ok');
             return card('Warmer', 'idle', 'no cycle yet');
