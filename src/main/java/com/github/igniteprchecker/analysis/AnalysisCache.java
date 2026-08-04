@@ -2,6 +2,7 @@ package com.github.igniteprchecker.analysis;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -25,17 +26,29 @@ import org.springframework.stereotype.Component;
 public class AnalysisCache implements SnapshotCache {
     private final TtlCache<Long, HistoryStats> history;
     private final TtlCache<Long, AnalysisResult> results;
+    private final TtlCache<Long, String> revisions;
     private final ObjectMapper mapper;
 
     public AnalysisCache(AnalysisProperties cfg, ObjectMapper mapper) {
         long ttlMs = Duration.ofMinutes(cfg.cacheTtlMinutes()).toMillis();
         this.history = new TtlCache<>(ttlMs);
         this.results = new TtlCache<>(ttlMs);
+        this.revisions = new TtlCache<>(ttlMs);
         this.mapper = mapper;
     }
 
     HistoryStats history(long testId, Supplier<HistoryStats> loader) {
         return history.get(testId, loader);
+    }
+
+    /**
+     * The revision a build ran on, {@code ""} when it has none. Only used where TeamCity didn't inline
+     * revisions into the test occurrences; a build's revision never changes, and one suite build backs
+     * the runs of hundreds of tests, so this collapses that fallback to one request per build. Not
+     * snapshotted — it is cheap to re-learn and worthless once the builds age out.
+     */
+    String revision(long buildId, Supplier<String> loader) {
+        return revisions.get(buildId, loader);
     }
 
     /** The cached result for a build, if fresh; never recomputes. */
@@ -78,10 +91,13 @@ public class AnalysisCache implements SnapshotCache {
     void evictExpired() {
         history.evictExpired();
         results.evictExpired();
+        revisions.evictExpired();
     }
 
     /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */
     public Cleared clear() {
+        revisions.clear(); // an input to the results, not a result — nothing to report separately
+
         return new Cleared(results.clear(), history.clear());
     }
 
@@ -96,7 +112,8 @@ public class AnalysisCache implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file, new Persisted(history.export(), results.export()));
+        Snapshots.writeAtomic(mapper, file,
+            new Persisted(history.export(), results.export(), TestVerdict.RULES));
     }
 
     @Override
@@ -106,12 +123,17 @@ public class AnalysisCache implements SnapshotCache {
 
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
         history.importAll(p.history());
-        results.importAll(p.results());
+        // Results carry verdicts, and a cached result for an unchanged build is never recomputed (the
+        // warmer keeps touching it), so verdicts from superseded rules would otherwise outlive the
+        // deploy that fixed them. History is pure TeamCity facts and survives regardless.
+        if (p.rules() != null && p.rules() == TestVerdict.RULES)
+            results.importAll(p.results());
     }
 
     private record Persisted(
         List<TtlCache.Snapshot<Long, HistoryStats>> history,
-        List<TtlCache.Snapshot<Long, AnalysisResult>> results
+        List<TtlCache.Snapshot<Long, AnalysisResult>> results,
+        Integer rules
     ) {
     }
 }

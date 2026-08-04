@@ -29,10 +29,20 @@ public class VisaService {
             .append(" suites ran, ").append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
-        if (blockers.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()) {
+        List<TestVerdict> watch = r.watch();
+        // Green only when nothing at all needs attention — the same bar the web page uses. Tests that
+        // just started failing on this code, or a chain that never finished, make "No blockers" a lie.
+        if (blockers.isEmpty() && watch.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()
+            && !r.interrupted()) {
             b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
+        }
+
+        if (r.interrupted()) {
+            b.append("🛑 **This RunAll never finished** — ").append(r.canceledSuites())
+                .append(" suite(s) were cancelled and never ran, so everything below is a **partial** verdict: ")
+                .append("it says nothing about what those suites would have found.\n\n");
         }
 
         if (!r.brokenSuites().isEmpty()) {
@@ -51,7 +61,24 @@ public class VisaService {
             b.append('\n');
         }
 
-        if (blockers.isEmpty())
+        if (!watch.isEmpty()) {
+            // Never say the re-runs are under way: this composes from the analysis alone and has no
+            // idea whether anyone will re-run anything (a manual visa, a subscription, or auto-rerun
+            // switched off). StandingVisas appends the real re-run state when there is one.
+            b.append("👀 **").append(watch.size()).append(" test(s) started failing on this code** — not proven ")
+                .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
+                .append("of the suite decides it.\n");
+            watch.stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
+            if (watch.size() > 10)
+                b.append("… and ").append(watch.size() - 10).append(" more\n");
+            b.append('\n');
+        }
+
+        if (blockers.isEmpty() && !watch.isEmpty())
+            b.append("⚠️ **No proven blocker yet** — this is not an all-clear: see the tests above. ")
+                .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        else if (blockers.isEmpty())
             b.append("✅ No test blockers otherwise; ").append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
@@ -74,10 +101,20 @@ public class VisaService {
             .append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
-        if (blockers.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()) {
+        List<TestVerdict> watch = r.watch();
+        // Green only when nothing at all needs attention — the same bar the web page uses. Tests that
+        // just started failing on this code, or a chain that never finished, make "No blockers" a lie.
+        if (blockers.isEmpty() && watch.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()
+            && !r.interrupted()) {
             b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
+        }
+
+        if (r.interrupted()) {
+            b.append("(x) *This RunAll never finished* — ").append(r.canceledSuites())
+                .append(" suite(s) were cancelled and never ran, so everything below is a *partial* verdict: ")
+                .append("it says nothing about what those suites would have found.\n\n");
         }
 
         if (!r.brokenSuites().isEmpty()) {
@@ -96,7 +133,22 @@ public class VisaService {
             b.append('\n');
         }
 
-        if (blockers.isEmpty())
+        if (!watch.isEmpty()) {
+            // Never say the re-runs are under way — see composeMarkdown.
+            b.append("(!) *").append(watch.size()).append(" test(s) started failing on this code* — not proven ")
+                .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
+                .append("of the suite decides it.\n");
+            watch.stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
+            if (watch.size() > 10)
+                b.append("… and ").append(watch.size() - 10).append(" more\n");
+            b.append('\n');
+        }
+
+        if (blockers.isEmpty() && !watch.isEmpty())
+            b.append("(!) *No proven blocker yet* — this is not an all-clear: see the tests above. ")
+                .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        else if (blockers.isEmpty())
             b.append("(/) No test blockers otherwise; ").append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();

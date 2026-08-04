@@ -189,11 +189,16 @@ public class TcClient {
      * effectively every run of any real PR). The last element is the latest completed run (a blocker
      * must still be FAILURE there — a passing re-run clears it); the whole sequence backs the
      * per-blocker pass/fail history strip. One request.
+     *
+     * <p>Each run carries the revision its build ran on: a pass only says something about the code
+     * under review if it happened on the <em>same</em> revision as the failure. Asked for in this same
+     * request, so classification can tell "passed on the same code" from "passed on older code".
      */
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId) {
         TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:100",
-            "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name)))")),
+            "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
+                + "revisions(revision(version))))")),
             TcModel.TestOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)

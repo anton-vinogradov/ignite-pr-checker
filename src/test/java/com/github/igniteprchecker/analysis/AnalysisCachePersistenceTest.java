@@ -24,9 +24,9 @@ class AnalysisCachePersistenceTest {
 
         AnalysisCache first = new AnalysisCache(props(), mapper);
         AnalysisResult result = new AnalysisResult(42, 100L, "pull/42/head", System.currentTimeMillis(),
-            List.of(new TestVerdict(7L, "TestA", "SuiteX", 200L, "Suite X", "301", true, false, "blocker", "FFF")),
+            List.of(new TestVerdict(7L, "TestA", "SuiteX", 200L, "Suite X", "301", true, false, "blocker", "FFF", 3)),
             List.of(),
-            List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false, "pre-existing", "")),
+            List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false, "pre-existing", "", 0)),
             List.of(), List.of(), 0, 0, false, 0, false, 0);
         first.putResult(100L, result);
         first.history(7L, () -> new HistoryStats(30, 1));

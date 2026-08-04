@@ -25,8 +25,12 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **Blockers** — failed in the PR's latest RunAll, clean in the last ~100 master runs, **and failing
   consistently**: every one of the last N (default 3) finished branch runs failed, with no pass on the
   same code. Grouped by suite; every name links straight to the failure in TeamCity.
-- **Recently started failing** — an amber card for tests failing the last 2+ runs but passing earlier:
-  a fresh break to watch. If it keeps failing it becomes a blocker; if it flaps back it won't.
+  "The same code" is matched on the **VCS revision each run's build ran on**: a pass from before the
+  breaking commits is discounted (dimmed in the history strip), never read as "it passed on this code".
+- **Recently started failing** — an amber card for tests the run cannot yet call either way: the
+  current revision has too few runs to tell a real break from a flake (typically its first failure,
+  with only older-code passes behind it). The suite is re-run automatically; a second failure on that
+  same revision makes it a blocker, a pass drops it out.
 - **A cancelled run still counts.** When a PR has no clean finished RunAll but a cancelled one that
   got through most of its suites, the checker analyses that (partial) run — the *RunAll interrupted*
   banner plus its real failures — instead of "no run at all". A clean finished run always wins, so a
@@ -82,7 +86,8 @@ The one question the tool answers: **which tests did this PR actually break?**
   and settle — but only on stage changes (ticket watchers get mail on every edit), never on the
   10-minute ETA refreshes.
 - **Auto re-run blocker suites** (settings, independent of the visa) — when a RunAll you triggered
-  finishes with blockers **or broken suites** (timeout, crash, compilation), those suites are re-run
+  finishes with blockers, **recently-started-failing tests** or **broken suites** (timeout, crash,
+  compilation), those suites are re-run
   automatically, up to 2 attempts: ≤10 suites jump to the top of the queue, more go to the tail so
   they don't push others back, and a systemic breakage (30+) is left alone. Identical suites already
   waiting in the queue are cancelled first. A pass on re-run clears its blocker — and a broken suite
