@@ -2,6 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.github.GithubClient;
@@ -53,6 +54,7 @@ public class StandingVisas implements SnapshotCache {
     private final VisaService visas;
     private final RerunTracker rerunTracker;
     private final Warmer warmer;
+    private final PendingCommits pending;
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
     /** Auto-rerun attempts per PR for the build being settled; persisted with the enrollments. */
     private final ConcurrentMap<Integer, Retry> retries = new ConcurrentHashMap<>();
@@ -68,7 +70,7 @@ public class StandingVisas implements SnapshotCache {
     private volatile long lastSweepMs;
 
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
-        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer) {
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer, PendingCommits pending) {
         this.mapper = mapper;
         this.codec = codec;
         this.tc = tc;
@@ -78,6 +80,7 @@ public class StandingVisas implements SnapshotCache {
         this.visas = visas;
         this.rerunTracker = rerunTracker;
         this.warmer = warmer;
+        this.pending = pending;
     }
 
     /**
@@ -441,8 +444,10 @@ public class StandingVisas implements SnapshotCache {
                 String note = done != null && done.buildId() == buildId ? done.note() : null;
                 String settled = done != null && done.buildId() == buildId ? settledLine(done.history()) : null;
 
+                Integer ahead = pending.countSince(tcToken.get(), pr.number(), buildId);
+
                 if (e.autoVisa()) {
-                    String body = visas.compose(pr.number(), res.get());
+                    String body = visas.compose(pr.number(), res.get(), ahead);
                     if (settled != null)
                         body = body + "\n\n" + settled;
                     if (note != null)
@@ -454,7 +459,7 @@ public class StandingVisas implements SnapshotCache {
                         url != null ? url : "updated in place");
                 }
                 if (e.ghComment()) {
-                    String md = visas.composeMarkdown(pr.number(), res.get());
+                    String md = visas.composeMarkdown(pr.number(), res.get(), ahead);
                     if (settled != null)
                         md = md + "\n\n_" + settled + "_";
                     if (note != null)

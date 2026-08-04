@@ -56,6 +56,8 @@ public class BlockerAnalyzer {
 
     /** Last known blocker count per PR (best-effort), for the badges in the PR list. */
     private final Map<Integer, Integer> prBlockers = new ConcurrentHashMap<>();
+    /** Whether the run behind that count covered enough for "0 blockers" to mean anything. */
+    private final Map<Integer, Boolean> prProven = new ConcurrentHashMap<>();
 
     public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg,
         @Qualifier("analysisExecutor") ExecutorService pool,
@@ -82,7 +84,7 @@ public class BlockerAnalyzer {
         Optional<AnalysisResult> cached = cache.peekResult(bid);
         if (cached.isPresent()) {
             cache.touchResult(bid); // an immutable per-build result must never expire while in use
-            prBlockers.put(prNumber, cached.get().blockers().size());
+            rememberVerdict(prNumber, cached.get());
             if (isStale(cached.get()))
                 refreshAsync(token, prNumber, bid);
 
@@ -101,6 +103,19 @@ public class BlockerAnalyzer {
     /** Best-effort blocker count for a PR from the last analysis, or null if it hasn't been analysed. */
     public Integer blockerCount(int prNumber) {
         return prBlockers.get(prNumber);
+    }
+
+    /**
+     * Whether that count came from a run that actually covered the PR — null if not analysed. A zero
+     * count off an interrupted or broken run must not show as a clean tick in the PR list.
+     */
+    public Boolean provenClean(int prNumber) {
+        return prProven.get(prNumber);
+    }
+
+    private void rememberVerdict(int prNumber, AnalysisResult r) {
+        prBlockers.put(prNumber, r.blockers().size());
+        prProven.put(prNumber, Caveats.proven(r));
     }
 
     /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "My?" flag in the PR list. */
@@ -131,7 +146,7 @@ public class BlockerAnalyzer {
             // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
             // cold compute. Touching on skip keeps the warmed set permanently hot.
             cache.touchResult(buildId.get());
-            prBlockers.put(prNumber, cached.get().blockers().size());
+            rememberVerdict(prNumber, cached.get());
             return false;
         }
 
@@ -245,7 +260,7 @@ public class BlockerAnalyzer {
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId());
 
         cache.putResult(buildId, result);
-        prBlockers.put(prNumber, blockers.size());
+        rememberVerdict(prNumber, result);
         deltas.onResult(prNumber, buildId, blockers, broken.size());
 
         return result;

@@ -41,6 +41,12 @@ The one question the tool answers: **which tests did this PR actually break?**
   fail, so a suite can look green while silently skipping coverage. The baseline is master's own
   latest chain, not TeamCity's built-in metric — that one compares against a pinned reference build
   and false-alarms on PR branches long after a legitimate test-count change.
+- **"No blockers" is earned, not automatic.** The green all-clear appears only when the run behind
+  it actually covered the PR. If the RunAll was interrupted, if suites have no reliable result, if
+  suites ran far fewer tests than master, if a newer run is still going, or if commits were pushed
+  since — the verdict reads *no blockers found, but this run can't prove the PR is clean* and lists
+  the reasons. Same wording everywhere: the page, the PR comment and the JIRA visa; in the PR list
+  such a PR gets a **?** badge instead of a tick.
 - **Broken suites** — a suite without a reliable run (compilation error, **execution timeout,
   out-of-memory, JVM crash**, failed dependency) is surfaced in its own red card instead of silently
   vanishing — even when it *does* have failed tests: those are hang cascade, and some tests never ran.

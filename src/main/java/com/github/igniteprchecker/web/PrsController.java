@@ -24,7 +24,8 @@ public class PrsController {
     public List<PrSummary> prs() {
         return github.openPrs().stream()
             .map(p -> new PrSummary(p.number(), p.title(), p.url(),
-                analyzer.triggeredBy(p.number()), analyzer.blockerCount(p.number())))
+                analyzer.triggeredBy(p.number()), analyzer.blockerCount(p.number()),
+                analyzer.provenClean(p.number())))
             .toList();
     }
 }

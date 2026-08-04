@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -41,10 +42,11 @@ public class JiraController {
     private final VisaSubscriptions visaSubs;
     private final StandingVisas standing;
     private final GithubClient github;
+    private final PendingCommits pending;
     private final boolean cookieSecure;
 
     public JiraController(JiraClient jira, BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
-        VisaSubscriptions visaSubs, StandingVisas standing, GithubClient github,
+        VisaSubscriptions visaSubs, StandingVisas standing, GithubClient github, PendingCommits pending,
         @Value("${session.cookie-secure:true}") boolean cookieSecure) {
         this.jira = jira;
         this.analyzer = analyzer;
@@ -53,6 +55,7 @@ public class JiraController {
         this.visaSubs = visaSubs;
         this.standing = standing;
         this.github = github;
+        this.pending = pending;
         this.cookieSecure = cookieSecure;
     }
 
@@ -210,7 +213,7 @@ public class JiraController {
             return ResponseEntity.status(404).body(Map.of("error", "no finished RunAll build for PR " + pr));
 
         try {
-            String url = jira.addComment(jiraToken, issue, visas.compose(pr, res.get()));
+            String url = jira.addComment(jiraToken, issue, visas.compose(pr, res.get(), pending.countSince(tcToken, pr, res.get().buildId())));
 
             return ResponseEntity.ok(Map.of("url", url));
         }
