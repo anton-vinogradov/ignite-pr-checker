@@ -378,7 +378,7 @@ public class GithubClient implements SnapshotCache {
             // triggeredBy is filled in per-request by PrsController (it's TeamCity data, and per-user); the
             // shared GitHub list leaves it null.
             List<PrSummary> result = prs == null ? List.of()
-                : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl(), null, null)).toList();
+                : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl(), null, null, null)).toList();
 
             // Never overwrite a good list with an empty one (e.g. a transient/parsed-away response).
             if (!result.isEmpty()) {

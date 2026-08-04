@@ -2,6 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -36,6 +37,7 @@ public class VisaSubscriptions implements SnapshotCache {
     private final VisaService visas;
     private final BlockerAnalyzer analyzer;
     private final Warmer warmer;
+    private final PendingCommits pending;
     private final ConcurrentMap<Integer, Sub> subs = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicInteger posted = new java.util.concurrent.atomic.AtomicInteger();
     private volatile long lastPostedAt;
@@ -48,13 +50,14 @@ public class VisaSubscriptions implements SnapshotCache {
     });
 
     public VisaSubscriptions(ObjectMapper mapper, SessionCodec codec, JiraClient jira, VisaService visas,
-        BlockerAnalyzer analyzer, Warmer warmer) {
+        BlockerAnalyzer analyzer, Warmer warmer, PendingCommits pending) {
         this.mapper = mapper;
         this.codec = codec;
         this.jira = jira;
         this.visas = visas;
         this.analyzer = analyzer;
         this.warmer = warmer;
+        this.pending = pending;
     }
 
     /** Arms the one-shot subscription: the next finished RunAll of this PR posts the visa to {@code issue}. */
@@ -105,7 +108,7 @@ public class VisaSubscriptions implements SnapshotCache {
                 return;
             }
 
-            String url = jira.addComment(token.get(), sub.issue(), visas.compose(pr, res.get()));
+            String url = jira.addComment(token.get(), sub.issue(), visas.compose(pr, res.get(), pending.countSince(tcToken, pr, res.get().buildId())));
             subs.remove(pr); // one-shot: the token leaves the disk with it
             posted.incrementAndGet();
             lastPostedAt = System.currentTimeMillis();

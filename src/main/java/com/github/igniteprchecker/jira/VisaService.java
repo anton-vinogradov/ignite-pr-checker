@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.jira;
 
+import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.TeamcityProperties;
@@ -7,7 +8,11 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** Composes the verdict ("visa") in JIRA wiki markup — tcbot style: green when clean, red with the list. */
+/**
+ * Composes the verdict ("visa") in JIRA wiki markup — tcbot style: green when clean, red with the
+ * list. "No blockers" is only ever green when the run behind it actually covered the PR; an
+ * interrupted run, suites without a reliable result, or commits pushed since are stated instead.
+ */
 @Component
 public class VisaService {
     private final TeamcityProperties tc;
@@ -21,6 +26,14 @@ public class VisaService {
 
     /** The verdict in GitHub markdown, for a PR comment mirror of the visa. */
     public String composeMarkdown(int pr, AnalysisResult r) {
+        return composeMarkdown(pr, r, null);
+    }
+
+    /**
+     * The verdict in GitHub markdown. {@code commitsAhead} is how many commits the PR head is ahead
+     * of the analysed run (null when unknown) — a verdict for superseded code says so.
+     */
+    public String composeMarkdown(int pr, AnalysisResult r, Integer commitsAhead) {
         String base = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
         StringBuilder b = new StringBuilder();
         b.append("**[Ignite PR Checker](").append(publicUrl).append("/?pr=").append(pr)
@@ -29,10 +42,17 @@ public class VisaService {
             .append(" suites ran, ").append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
-        if (blockers.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()) {
+        List<String> caveats = Caveats.of(r, commitsAhead);
+        if (blockers.isEmpty() && caveats.isEmpty()) {
             b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
+        }
+
+        if (!caveats.isEmpty()) {
+            b.append("⚠️ **This run doesn't cover the PR fully:**\n");
+            caveats.forEach(c -> b.append("- ").append(c).append('\n'));
+            b.append('\n');
         }
 
         if (!r.brokenSuites().isEmpty()) {
@@ -51,8 +71,12 @@ public class VisaService {
             b.append('\n');
         }
 
-        if (blockers.isEmpty())
-            b.append("✅ No test blockers otherwise; ").append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        if (blockers.isEmpty()) {
+            // No blocker was found — but say plainly that this run couldn't have found one either.
+            b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ")
+                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
+                .append("Re-run once the above is sorted out.");
+        }
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
             b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):**\n");
@@ -66,6 +90,11 @@ public class VisaService {
     }
 
     public String compose(int pr, AnalysisResult r) {
+        return compose(pr, r, null);
+    }
+
+    /** The same verdict in JIRA wiki markup; see {@link #composeMarkdown(int, AnalysisResult, Integer)}. */
+    public String compose(int pr, AnalysisResult r, Integer commitsAhead) {
         String base = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
         StringBuilder b = new StringBuilder();
         b.append("[Ignite PR Checker|").append(publicUrl).append("/?pr=").append(pr).append("] verdict for PR ")
@@ -74,10 +103,17 @@ public class VisaService {
             .append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
-        if (blockers.isEmpty() && r.brokenSuites().isEmpty() && r.shrunkSuites().isEmpty()) {
+        List<String> caveats = Caveats.of(r, commitsAhead);
+        if (blockers.isEmpty() && caveats.isEmpty()) {
             b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
+        }
+
+        if (!caveats.isEmpty()) {
+            b.append("(!) *This run doesn't cover the PR fully:*\n");
+            caveats.forEach(c -> b.append("- ").append(c).append('\n'));
+            b.append('\n');
         }
 
         if (!r.brokenSuites().isEmpty()) {
@@ -96,8 +132,11 @@ public class VisaService {
             b.append('\n');
         }
 
-        if (blockers.isEmpty())
-            b.append("(/) No test blockers otherwise; ").append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        if (blockers.isEmpty()) {
+            b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ")
+                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
+                .append("Re-run once the above is sorted out.");
+        }
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
             b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):*\n");

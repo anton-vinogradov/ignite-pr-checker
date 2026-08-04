@@ -1,10 +1,9 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
-import com.github.igniteprchecker.github.GithubClient;
-import com.github.igniteprchecker.tc.TcClient;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,14 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnalyzeController {
     private final BlockerAnalyzer analyzer;
     private final RunDeltaStore deltas;
-    private final TcClient tc;
-    private final GithubClient github;
+    private final PendingCommits pending;
 
-    public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas, TcClient tc, GithubClient github) {
+    public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas, PendingCommits pending) {
         this.analyzer = analyzer;
         this.deltas = deltas;
-        this.tc = tc;
-        this.github = github;
+        this.pending = pending;
     }
 
     /** Serves the cached analysis (recomputing only on a cache miss). */
@@ -71,22 +68,14 @@ public class AnalyzeController {
     @GetMapping("/pending")
     public Map<String, Object> pending(@RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        String builtSha = tc.buildRevision(token, build).orElse(null);
-        String headSha;
-        try {
-            headSha = github.prHead(pr).headSha();
-        }
-        catch (RuntimeException e) {
-            headSha = null; // PR gone/merged, or GitHub blip — say nothing rather than a false alarm
-        }
-        if (builtSha == null || headSha == null || builtSha.equals(headSha))
+        PendingCommits.Ahead ahead = pending.since(token, pr, build);
+        if (ahead == null)
             return Map.of("pending", false);
 
-        GithubClient.Ahead ahead = github.compareAhead(builtSha, headSha);
         Map<String, Object> out = new java.util.HashMap<>();
         out.put("pending", true);
-        out.put("ahead", ahead.ahead());
-        out.put("builtSha", builtSha.substring(0, Math.min(7, builtSha.length())));
+        out.put("ahead", ahead.commits());
+        out.put("builtSha", ahead.builtShort());
         out.put("headSha", ahead.headShort());
 
         return out;
