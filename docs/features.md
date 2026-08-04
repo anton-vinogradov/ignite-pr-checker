@@ -170,4 +170,8 @@ triggers a background re-warm.
   cookie; no server-side session store, no shared credentials).
 - **Four themes** — Light, Dark, JetBrains (dense, status stripes) and Terminal (monospace, bracket
   buttons) — per-browser, with no flash on load.
-- The heavy lifting is cached and pre-warmed in the background, so opening a PR is instant.
+- The heavy lifting is cached and pre-warmed in the background, so opening a PR is instant. There
+  is no service account: warming runs on real users' TeamCity tokens — every logged-in request
+  donates one, and any **standing option** keeps yours in the pool permanently, which is what
+  keeps the background work (warming, the instant re-analysis of a finished run, live run states)
+  going while nobody has the page open.

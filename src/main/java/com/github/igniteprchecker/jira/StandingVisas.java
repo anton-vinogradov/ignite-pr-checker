@@ -2,6 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
@@ -27,6 +28,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -49,6 +52,7 @@ public class StandingVisas implements SnapshotCache {
     private final JiraClient jira;
     private final VisaService visas;
     private final RerunTracker rerunTracker;
+    private final Warmer warmer;
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
     /** Auto-rerun attempts per PR for the build being settled; persisted with the enrollments. */
     private final ConcurrentMap<Integer, Retry> retries = new ConcurrentHashMap<>();
@@ -64,7 +68,7 @@ public class StandingVisas implements SnapshotCache {
     private volatile long lastSweepMs;
 
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
-        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker) {
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer) {
         this.mapper = mapper;
         this.codec = codec;
         this.tc = tc;
@@ -73,6 +77,30 @@ public class StandingVisas implements SnapshotCache {
         this.jira = jira;
         this.visas = visas;
         this.rerunTracker = rerunTracker;
+        this.warmer = warmer;
+    }
+
+    /**
+     * Lends the enrolled users' TeamCity tokens to the warm pool. Standing options already mean "act
+     * on my behalf in the background", and unlike a browsing session they don't expire — without
+     * this the pool empties an hour after the last visitor leaves and every background job (warming,
+     * the eager re-analysis of a finished run, live run states) silently stops until someone opens
+     * the page, so the next visitor pays the full cold analysis.
+     */
+    private void donateWarmTokens() {
+        for (Enrollment e : enrolled.values())
+            codec.decryptString(e.tcToken()).ifPresent(warmer::offerToken);
+    }
+
+    /**
+     * Donates once the whole context is up, so a restart resumes warming without waiting for a
+     * visitor. Deliberately not done while loading the snapshot: cache load order is bean order, and
+     * a token donated before the analysis cache is back would kick a cycle that recomputes 50 PRs
+     * whose results were about to be restored from disk.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    void donateOnStartup() {
+        donateWarmTokens();
     }
 
     /**
@@ -97,6 +125,7 @@ public class StandingVisas implements SnapshotCache {
             autoVisa, autoRerun, ghComment, styleFix));
         log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}, styleFix={} (gh login {}, tz {})",
             username, autoVisa, autoRerun, ghComment, styleFix, ghLogin, tz);
+        donateWarmTokens();
     }
 
     /**
@@ -268,6 +297,7 @@ public class StandingVisas implements SnapshotCache {
         long t0 = System.currentTimeMillis();
         lastSweepAt = t0;
         lastSweepMs = 0;
+        donateWarmTokens(); // keeps the background pool alive between visitors
         if (enrolled.isEmpty())
             return;
 
