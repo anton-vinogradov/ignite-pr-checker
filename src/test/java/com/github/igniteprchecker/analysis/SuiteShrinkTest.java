@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.analysis;
 
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -54,6 +55,49 @@ class SuiteShrinkTest {
         assertEquals(87, s.dropPct());
         assertTrue(shrunk.stream().noneMatch(x -> x.suite().equals("CppLinux")),
             "a suite level with master (595 vs 594) is not a drop");
+    }
+
+    /**
+     * The real shape of ci2 build 9253651 (Cache (Failover) 5 on PR 13434): a hung suite that
+     * TeamCity killed on the execution timeout after 33 of master's 67 tests. TeamCity's own status
+     * line leads with "33 is 51% less than 67", which reads as "tests disappeared" and buries the
+     * timeout — the checker must report the cause, with the shortfall as its evidence.
+     */
+    @Test
+    void aTimedOutSuiteIsReportedAsBrokenNotAsShrunk() {
+        TcClient tc = mock(TcClient.class);
+        SuiteBaseline baseline = mock(SuiteBaseline.class);
+
+        when(baseline.counts(anyString())).thenReturn(Map.of("CacheFailover5", 67));
+        TcModel.Build hung = timedOut(9253651, "CacheFailover5", "Cache (Failover) 5", 33);
+        when(tc.getBuildWithDeps(TOK, 999L)).thenReturn(chain(hung));
+        when(tc.recentChains(TOK, 42, 3)).thenReturn(List.of());
+
+        ChainCollector.Chain chain = new ChainCollector(tc, baseline)
+            .collectForBuild(TOK, 42, 999L, Executors.newSingleThreadExecutor());
+
+        assertTrue(chain.shrunkSuites().isEmpty(), "the timeout owns the missing tests, got: " + chain.shrunkSuites());
+        assertEquals(1, chain.brokenSuites().size());
+        BrokenSuite broken = chain.brokenSuites().get(0);
+        assertEquals(List.of("execution timeout"), broken.problems());
+        assertEquals(33, broken.tests(), "the shortfall rides along as evidence");
+        assertEquals(67, broken.baseline());
+    }
+
+    @Test
+    void aRunBackToFullStrengthIsNoLongerShrunk() {
+        assertTrue(ChainCollector.isFullRun(63, 67), "63 of 67 is within the threshold");
+        assertTrue(!ChainCollector.isFullRun(33, 67), "33 of 67 is still half the suite");
+    }
+
+    private static TcModel.Build timedOut(long id, String buildTypeId, String name, int tests) {
+        TcModel.Build b = dep(id, buildTypeId, name, "FAILURE", tests);
+
+        return new TcModel.Build(b.id(), b.status(), b.state(), b.branchName(), b.buildTypeId(), null, null, null,
+            null, null, null, b.buildType(), null, null, null,
+            new TcModel.ProblemOccurrences(List.of(
+                new TcModel.ProblemOccurrence("TC_EXECUTION_TIMEOUT", "Execution timeout"))),
+            null, b.testOccurrences());
     }
 
     private static TcModel.Build chain(TcModel.Build... deps) {

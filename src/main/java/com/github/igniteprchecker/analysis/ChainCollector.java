@@ -9,6 +9,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -95,9 +96,10 @@ public class ChainCollector {
     public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool) {
         TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
+        Map<String, Integer> masterCounts = baseline.counts(token);
         List<Callable<SuiteResult>> tasks = depBuilds(build).stream()
             .filter(dep -> "FAILURE".equals(dep.status()))
-            .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep))
+            .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep, masterCounts))
             .toList();
 
         List<FailedTest> failed = new ArrayList<>();
@@ -126,7 +128,7 @@ public class ChainCollector {
             TcModel.Build rBuild = tc.getBuildWithDeps(token, chain.id());
             List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()
                 .filter(dep -> "finished".equalsIgnoreCase(dep.state()) && "FAILURE".equals(dep.status()))
-                .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep))
+                .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep, masterCounts))
                 .toList();
             for (SuiteResult r : Parallel.run(pool, rTasks)) {
                 if (r.broken() != null && broken.stream().noneMatch(b -> b.suiteBuildId() == r.broken().suiteBuildId()))
@@ -165,7 +167,7 @@ public class ChainCollector {
         boolean interrupted = ("FAILURE".equals(build.status()) || "UNKNOWN".equals(build.status())) && canceled > 0;
 
         return new Chain(build.id(), build.branchName(), failed, broken,
-            shrunkSuites(depBuilds(build), baseline.counts(token)),
+            shrunkSuites(depBuilds(build), masterCounts, broken),
             ran, reused, interrupted, canceled, live, liveBuildId);
     }
 
@@ -174,12 +176,22 @@ public class ChainCollector {
      * broken (timeout/crash) explains its own missing tests, so it is left to that card; what this
      * catches is the silent case — a suite that "passed" with half its tests never run.
      */
-    private static List<ShrunkSuite> shrunkSuites(List<TcModel.Build> deps, java.util.Map<String, Integer> baseline) {
+    /** Whether a run's test count is back within the shrink threshold of master's. */
+    public static boolean isFullRun(int tests, int master) {
+        return master < SHRINK_MIN_BASELINE || 100.0 * (master - tests) / master < SHRINK_PCT;
+    }
+
+    private static List<ShrunkSuite> shrunkSuites(List<TcModel.Build> deps, java.util.Map<String, Integer> baseline,
+        List<BrokenSuite> broken) {
         if (baseline.isEmpty())
             return List.of();
 
+        Set<Long> brokenBuilds = broken.stream().map(BrokenSuite::suiteBuildId).collect(java.util.stream.Collectors.toSet());
         List<ShrunkSuite> out = new ArrayList<>();
         for (TcModel.Build dep : deps) {
+            if (brokenBuilds.contains(dep.id()))
+                continue; // its cause is already reported, and the missing tests are that cause's doing
+
             Integer master = baseline.get(dep.buildTypeId());
             if (master == null || master < SHRINK_MIN_BASELINE || dep.testOccurrences() == null)
                 continue;
@@ -200,7 +212,7 @@ public class ChainCollector {
      * (timeout/hang cascades, tests that never got to run) — surface the suite, not the noise. */
     private static final Set<String> UNSTABLE_PROBLEMS = Set.of("TC_EXECUTION_TIMEOUT", "TC_OOME", "TC_JVM_CRASH");
 
-    private SuiteResult suiteResultOf(String token, TcModel.Build dep) {
+    private SuiteResult suiteResultOf(String token, TcModel.Build dep, Map<String, Integer> masterCounts) {
         String suiteName = dep.buildType() != null && dep.buildType().name() != null
             ? dep.buildType().name()
             : dep.buildTypeId();
@@ -214,7 +226,7 @@ public class ChainCollector {
         // for blockers (the same reasoning as an interrupted chain, at suite granularity).
         boolean unstable = problems.stream().anyMatch(p -> UNSTABLE_PROBLEMS.contains(p.type()));
         if (unstable)
-            return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems));
+            return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems, masterCounts));
 
         List<FailedTest> tests = tc.getFailedTests(token, dep.id()).stream()
             .filter(occ -> occ.test() != null)
@@ -224,14 +236,18 @@ public class ChainCollector {
         if (!tests.isEmpty())
             return new SuiteResult(tests, null);
 
-        return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems));
+        return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems, masterCounts));
     }
 
-    private static BrokenSuite brokenSuite(TcModel.Build dep, String suiteName, List<TcModel.ProblemOccurrence> problems) {
+    private static BrokenSuite brokenSuite(TcModel.Build dep, String suiteName, List<TcModel.ProblemOccurrence> problems,
+        Map<String, Integer> masterCounts) {
         List<String> descriptions = problems.stream().map(ChainCollector::describeProblem).distinct().toList();
+        int tests = dep.testOccurrences() == null ? 0 : dep.testOccurrences().count();
+        Integer master = masterCounts.get(dep.buildTypeId());
 
         return new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName,
-            descriptions.isEmpty() ? List.of("failed without running tests") : descriptions);
+            descriptions.isEmpty() ? List.of("failed without running tests") : descriptions,
+            tests, master == null ? 0 : master);
     }
 
     /** Human wording for a TeamCity problem type, falling back to its details/raw type. */

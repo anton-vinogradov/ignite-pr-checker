@@ -37,7 +37,7 @@ class CaveatsTest {
 
     @Test
     void brokenAndShrunkSuitesAreEachAReason() {
-        AnalysisResult r = result(List.of(new BrokenSuite("Cache_1", 1L, "Cache 1", List.of("timeout"))),
+        AnalysisResult r = result(List.of(new BrokenSuite("Cache_1", 1L, "Cache 1", List.of("timeout"), 0, 0)),
             List.of(new ShrunkSuite("Cache_2", "Cache 2", 2L, 57, 439, 87)), false, 0, false);
 
         assertThat(Caveats.of(r, null)).hasSize(2);

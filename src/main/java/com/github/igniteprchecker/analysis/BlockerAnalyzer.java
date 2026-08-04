@@ -3,6 +3,7 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
@@ -254,9 +255,10 @@ public class BlockerAnalyzer {
         List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
         List<BrokenSuite> broken = withoutHealed(token, prNumber, chain.brokenSuites());
+        List<ShrunkSuite> shrunk = withFullRunsDropped(token, prNumber, chain.shrunkSuites());
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            System.currentTimeMillis(), blockers, watch, filtered, broken, chain.shrunkSuites(),
+            System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId());
 
         cache.putResult(buildId, result);
@@ -264,6 +266,33 @@ public class BlockerAnalyzer {
         deltas.onResult(prNumber, buildId, blockers, broken.size());
 
         return result;
+    }
+
+    /**
+     * A shrunk suite stops being shrunk once a NEWER finished run of it on the branch got its test
+     * count back — same anchoring as broken suites. Without it, one hung run keeps claiming "tests
+     * disappeared" long after the re-runs put them back, which reads as a coverage hole that no
+     * longer exists.
+     */
+    private List<ShrunkSuite> withFullRunsDropped(String token, int prNumber, List<ShrunkSuite> shrunk) {
+        if (shrunk.isEmpty())
+            return shrunk;
+
+        List<ShrunkSuite> out = new ArrayList<>();
+        for (ShrunkSuite s : shrunk) {
+            try {
+                Optional<TcModel.Build> last = tc.latestSuiteRun(token, prNumber, s.suite());
+                if (last.isPresent() && last.get().id() > s.suiteBuildId() && last.get().testOccurrences() != null
+                    && ChainCollector.isFullRun(last.get().testOccurrences().count(), s.baseline()))
+                    continue;
+            }
+            catch (RuntimeException e) {
+                // TC hiccup — keep the entry rather than silently claiming the coverage is back
+            }
+            out.add(s);
+        }
+
+        return out;
     }
 
     /**

@@ -357,7 +357,7 @@ public class TcClient {
             + ",state:finished,canceled:false,failedToStart:any,count:1";
 
         TcModel.BuildList list = get("suiteRun", token, url("app/rest/builds", query(
-            "locator", locator, "fields", "build(id,status)")), TcModel.BuildList.class);
+            "locator", locator, "fields", "build(id,status,testOccurrences(count))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null || list.build().isEmpty()
             ? Optional.empty() : Optional.of(list.build().get(0));
