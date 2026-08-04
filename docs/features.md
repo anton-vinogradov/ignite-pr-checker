@@ -58,7 +58,11 @@ The one question the tool answers: **which tests did this PR actually break?**
   A root cause gets its own **ai** button covering the whole cluster (shared signature, every
   affected suite/test, one exemplar output — "find the ONE cause, don't patch tests one by one");
   the flaky board's **ai** builds a stabilisation prompt (fail-rate, noised PRs, typical instability
-  checklist, prove-with-20-runs instruction).
+  checklist, prove-with-20-runs instruction). Suite-level problems have their own **ai** too: a
+  broken suite never reaches a stacktrace, so its prompt carries what TeamCity said about the run,
+  which of its tests were seen failing, and how to tell a PR breakage from a master one; a shrunk
+  suite's prompt asks for the test-list diff against master and walks the usual causes (a class
+  dropped from the JUnit suite, a rename, an `@Ignore`, a setup failure, a run that ended early).
 - **why?** expands the failure message inline as a copyable code block, prefixed with a rough triage:
   `♻ environment/timing — a re-run may pass` vs `⚖ assertion — likely a real logic failure`.
 - The blockers card has two views: **Suites** (default) and **Root causes** — the same blockers

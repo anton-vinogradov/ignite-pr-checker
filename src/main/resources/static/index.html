@@ -940,7 +940,7 @@
                 const head = esc(s.suiteName || s.suite)
                     + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
                 const btns = s.suite
-                    ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                    ? `<span class="suite-runs">${suiteAiBtn(s, 'broken')}<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                         + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
                     : '';
                 return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
@@ -950,8 +950,9 @@
                 ? `<li><div class="reason">+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed</div></li>`
                 : '';
             el.innerHTML = rows + victimLine;
-            for (const b of el.querySelectorAll('.suite-rerun'))
+            for (const b of el.querySelectorAll('.suite-rerun:not(.ai-suite)'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+            wireSuiteAi(el);
         }
 
         // Suites that ran far fewer tests than master — each with its counts and a re-run button.
@@ -960,13 +961,76 @@
                 const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
                 const head = esc(s.suiteName || s.suite)
                     + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-                const btns = `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                const btns = `<span class="suite-runs">${suiteAiBtn(s, 'shrunk')}<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                     + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`;
                 return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
                     + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
             }).join('');
-            for (const b of el.querySelectorAll('.suite-rerun'))
+            for (const b of el.querySelectorAll('.suite-rerun:not(.ai-suite)'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+            wireSuiteAi(el);
+        }
+
+        // "ai" on a suite-level problem: a suite that produced no reliable result, or one that ran far
+        // fewer tests than master. These never reach a single test's stacktrace, so the prompt points
+        // at the run, what TeamCity said about it, and how to tell a PR breakage from a master one.
+        function suiteAiBtn(s, kind) {
+            return `<button class="suite-rerun ai-suite" data-kind="${kind}" data-suite="${esc(s.suite || '')}"`
+                + ` data-suitename="${esc(s.suiteName || s.suite || '')}" data-buildid="${s.suiteBuildId || 0}"`
+                + ` data-problems="${esc((s.problems || []).join(' · '))}" data-tests="${s.tests || 0}"`
+                + ` data-baseline="${s.baseline || 0}" data-drop="${s.dropPct || 0}"`
+                + ` title="Copy an AI-ready prompt with the full context of this suite problem">ai</button>`;
+        }
+
+        function wireSuiteAi(el) {
+            for (const b of el.querySelectorAll('.ai-suite'))
+                b.onclick = () => aiSuitePrompt(b);
+        }
+
+        async function aiSuitePrompt(btn) {
+            const suite = btn.dataset.suite;
+            const name = btn.dataset.suitename;
+            const runUrl = tcBase && +btn.dataset.buildid
+                ? `${tcBase}buildConfiguration/${encodeURIComponent(suite)}/${btn.dataset.buildid}` : '';
+            // The configuration page lists this suite's runs on every branch — master included.
+            const cfgUrl = tcBase && suite ? `${tcBase}buildConfiguration/${encodeURIComponent(suite)}` : '';
+            const broken = btn.dataset.kind === 'broken';
+            // Which of this suite's tests the checker did see failing — often none, which is itself
+            // the point: the suite died before or around test execution.
+            const seen = !lastResult ? [] : [...lastResult.blockers, ...(lastResult.watch || []), ...lastResult.filtered]
+                .filter(t => t.suite === suite).map(t => t.name);
+            const prompt = aiPromptText({
+                title: broken
+                    ? 'Find out why a TeamCity suite of Apache Ignite produced no reliable result, and fix it.'
+                    : 'Find out why an Apache Ignite test suite ran far fewer tests than it does on master.',
+                pr: selectedPr,
+                lines: broken ? [
+                    `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run: ' + runUrl : ''}`,
+                    `- What TeamCity reported: ${btn.dataset.problems || 'no reliable run'}`,
+                    seen.length
+                        ? `- Tests of this suite the checker saw failing (${seen.length}): ${seen.slice(0, 8).join(', ')}${seen.length > 8 ? ', …' : ''}`
+                        : '- No failing test was reported for it — the suite died before or around test execution.',
+                    cfgUrl ? `- The same suite on other branches (master included): ${cfgUrl}` : null,
+                ] : [
+                    `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run: ' + runUrl : ''}`,
+                    `- Tests: ran ${btn.dataset.tests}, master runs ${btn.dataset.baseline} — ${btn.dataset.drop}% fewer`,
+                    cfgUrl ? `- The same suite on other branches (master included): ${cfgUrl}` : null,
+                ],
+                task: broken ? [
+                    '1. Open the run above in TeamCity: read the Build Log tail and the Problems/Overview tab, and decide what ended it — compilation error, hang hitting the execution timeout, out of memory, JVM crash, or a failed dependency it only inherited.',
+                    '2. For a hang or timeout: find the last test that started in the log — that test, or whatever it waits on, is where the change bites. For an OOM or crash: look for the thread dump / hs_err fragment in the log.',
+                    '3. Check the same suite on master (link above). If master is healthy, this PR is the suspect; if master is broken too, say so — it is not this PR to fix.',
+                    '4. Fetch the PR branch: git fetch https://github.com/apache/ignite pull/' + selectedPr + '/head && git checkout FETCH_HEAD.',
+                    '5. Reproduce locally on JDK 17 (the suspect test, or the suite class if the failure is at startup), fix the production code where possible, and re-run to verify the suite gets to a clean finish.',
+                ] : [
+                    '1. Open the Tests tab of this run and of a recent master run of the same configuration (links above) and diff the test lists — name the classes/methods that are missing here.',
+                    '2. Work through the usual causes: a test class dropped from the JUnit suite class (@Suite.SuiteClasses in the *TestSuite of this module), a class renamed/moved without updating that list, an @Ignore or assumeTrue that now short-circuits, a failure in @BeforeClass/suite setup that skips the rest, or a run that ended early (check the build log tail).',
+                    '3. Fetch the PR branch: git fetch https://github.com/apache/ignite pull/' + selectedPr + '/head && git checkout FETCH_HEAD, and confirm the cause in the code.',
+                    '4. Decide whether this PR drops those tests on purpose. If it does, state it plainly. If it does not, restore the coverage and re-run the suite.',
+                    '5. Remember tests that never ran cannot fail: a green suite here means nothing until the count is back.',
+                ],
+            });
+            await copyText(prompt, btn, 'ai');
         }
 
         // Blocker-count trend: one bar per RunAll build (oldest → newest), red while blockers remain.
@@ -1418,7 +1482,7 @@
                 }).join('');
                 return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
-            for (const b of el.querySelectorAll('.suite-rerun'))
+            for (const b of el.querySelectorAll('.suite-rerun:not(.ai-suite)'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
             for (const b of el.querySelectorAll('.why:not(.ai)'))
                 b.onclick = () => toggleDetails(b);
