@@ -380,13 +380,20 @@ public class StandingVisas implements SnapshotCache {
                     List<String> blockerSuites = res.get().blockers().stream()
                         .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
                         .distinct().toList();
+                    // A watch item is exactly what a re-run settles: too few runs of this revision to
+                    // tell a real break from a flake. Re-running is what turns it into a verdict —
+                    // without it a PR whose only finding is a watch item waits for a human forever.
+                    List<String> watchSuites = res.get().watch().stream()
+                        .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
+                        .distinct().filter(s -> !blockerSuites.contains(s)).toList();
                     // Broken suites (timeout/crash/compilation) deserve the same retry a human would
                     // give them — and a passing re-run now clears them from the verdict too.
-                    List<String> suites = java.util.stream.Stream.concat(
-                            blockerSuites.stream(),
-                            res.get().brokenSuites().stream().map(s -> s.suite()))
-                        .filter(x -> x != null && !x.isBlank()).distinct().toList();
-                    String what = suitesLabel(blockerSuites.size(), suites.size() - blockerSuites.size());
+                    List<String> brokenSuites = res.get().brokenSuites().stream().map(s -> s.suite())
+                        .filter(x -> x != null && !x.isBlank()).distinct()
+                        .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s)).toList();
+                    List<String> suites = java.util.stream.Stream.of(blockerSuites, watchSuites, brokenSuites)
+                        .flatMap(List::stream).toList();
+                    String what = suitesLabel(blockerSuites.size(), watchSuites.size(), brokenSuites.size());
                     if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
                         // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
                         retries.put(pr.number(), new Retry(buildId, MAX_RERUNS, what, List.of(),
@@ -661,10 +668,17 @@ public class StandingVisas implements SnapshotCache {
         return b.append(".").toString();
     }
 
-    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 3 broken suite(s)"}. */
-    private static String suitesLabel(int blockers, int broken) {
-        return blockers > 0 && broken > 0 ? blockers + " blocker + " + broken + " broken suite(s)"
-            : broken > 0 ? broken + " broken suite(s)" : blockers + " blocker suite(s)";
+    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 1 watch + 3 broken suite(s)"}. */
+    private static String suitesLabel(int blockers, int watch, int broken) {
+        List<String> parts = new ArrayList<>();
+        if (blockers > 0)
+            parts.add(blockers + " blocker");
+        if (watch > 0)
+            parts.add(watch + " watch");
+        if (broken > 0)
+            parts.add(broken + " broken");
+
+        return parts.isEmpty() ? "0 suite(s)" : String.join(" + ", parts) + " suite(s)";
     }
 
     /** Max estimated finish across the just-queued builds (epoch seconds), or null when TC has none yet. */

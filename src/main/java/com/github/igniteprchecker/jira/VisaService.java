@@ -43,8 +43,11 @@ public class VisaService {
             .append(" suites ran, ").append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
+        List<TestVerdict> watch = r.watch();
         List<String> caveats = Caveats.of(r, commitsAhead);
-        if (blockers.isEmpty() && caveats.isEmpty()) {
+        // Green only when nothing at all needs attention — the same bar the web page uses. Tests that
+        // just started failing on this code, or a run that couldn't cover the PR, make "No blockers" a lie.
+        if (blockers.isEmpty() && watch.isEmpty() && caveats.isEmpty()) {
             b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
@@ -53,7 +56,7 @@ public class VisaService {
         if (!caveats.isEmpty()) {
             b.append("⚠️ **This run doesn't cover the PR fully:**\n");
             caveats.forEach(c -> b.append("- ").append(c).append('\n'));
-            b.append('\n');
+            b.append("\nEverything below is what it did manage to say.\n\n");
         }
 
         if (!r.brokenSuites().isEmpty()) {
@@ -72,12 +75,27 @@ public class VisaService {
             b.append('\n');
         }
 
-        if (blockers.isEmpty()) {
-            // No blocker was found — but say plainly that this run couldn't have found one either.
+        if (!watch.isEmpty()) {
+            // Never say the re-runs are under way: this composes from the analysis alone and has no
+            // idea whether anyone will re-run anything (a manual visa, a subscription, or auto-rerun
+            // switched off). StandingVisas appends the real re-run state when there is one.
+            b.append("👀 **").append(watch.size()).append(" test(s) started failing on this code** — not proven ")
+                .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
+                .append("of the suite decides it.\n");
+            watch.stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
+            if (watch.size() > 10)
+                b.append("… and ").append(watch.size() - 10).append(" more\n");
+            b.append('\n');
+        }
+
+        if (blockers.isEmpty() && !watch.isEmpty())
+            b.append("⚠️ **No proven blocker yet** — this is not an all-clear: see the tests above. ")
+                .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        else if (blockers.isEmpty())
             b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
                 .append("Re-run once the above is sorted out.");
-        }
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
             b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):**\n");
@@ -110,8 +128,11 @@ public class VisaService {
             .append(r.suitesReused()).append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
+        List<TestVerdict> watch = r.watch();
         List<String> caveats = Caveats.of(r, commitsAhead);
-        if (blockers.isEmpty() && caveats.isEmpty()) {
+        // Green only when nothing at all needs attention — the same bar the web page uses. Tests that
+        // just started failing on this code, or a run that couldn't cover the PR, make "No blockers" a lie.
+        if (blockers.isEmpty() && watch.isEmpty() && caveats.isEmpty()) {
             b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
@@ -120,7 +141,7 @@ public class VisaService {
         if (!caveats.isEmpty()) {
             b.append("(!) *This run doesn't cover the PR fully:*\n");
             caveats.forEach(c -> b.append("- ").append(c).append('\n'));
-            b.append('\n');
+            b.append("\nEverything below is what it did manage to say.\n\n");
         }
 
         if (!r.brokenSuites().isEmpty()) {
@@ -139,11 +160,25 @@ public class VisaService {
             b.append('\n');
         }
 
-        if (blockers.isEmpty()) {
+        if (!watch.isEmpty()) {
+            // Never say the re-runs are under way — see composeMarkdown.
+            b.append("(!) *").append(watch.size()).append(" test(s) started failing on this code* — not proven ")
+                .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
+                .append("of the suite decides it.\n");
+            watch.stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
+            if (watch.size() > 10)
+                b.append("… and ").append(watch.size() - 10).append(" more\n");
+            b.append('\n');
+        }
+
+        if (blockers.isEmpty() && !watch.isEmpty())
+            b.append("(!) *No proven blocker yet* — this is not an all-clear: see the tests above. ")
+                .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+        else if (blockers.isEmpty())
             b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
                 .append("Re-run once the above is sorted out.");
-        }
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
             b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):*\n");

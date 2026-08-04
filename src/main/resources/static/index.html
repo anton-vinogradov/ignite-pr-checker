@@ -189,6 +189,8 @@
         .run { width: 3px; height: 12px; border-radius: 1px; }
         .run-p { background: #2e7d32; }
         .run-f { background: #c0392b; }
+        /* Runs made on an earlier revision: shown for context, but they say nothing about this code. */
+        .run-old { opacity: 0.3; }
         .why { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; border: 1px solid var(--line); background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
         .why:hover { border-color: #c0c0c0; }
         .details { position: relative; margin: 0.3rem 0 0.2rem 1rem; background: #f7f7f7; border-radius: 6px; }
@@ -550,8 +552,9 @@
                     </div>
                     <div id="watchCard" class="card watch hidden">
                         <h2>Recently started failing <span id="watchCount"></span> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
-                        <p class="muted">Failing the last few runs on this branch but passing earlier — a fresh break to watch,
-                            not yet a steady blocker. If it keeps failing it becomes a blocker; if it flaps back it won't.</p>
+                        <p class="muted">Failing on the current revision, with too few runs of it to tell a real break from a
+                            flake — the passes above them ran on other code. A re-run settles it: keep failing and they become
+                            blockers, pass and they drop out.</p>
                         <ul id="watch" class="tests"></ul>
                     </div>
                     <div class="card">
@@ -1448,11 +1451,16 @@
         }
 
         // tcbot-style pass/fail history of the test's finished runs on the PR branch (oldest → newest).
-        function runStrip(runs) {
+        // Runs made before the current revision are dimmed: the verdict rests only on the trailing
+        // `codeRuns` runs of the code under review — a pass on older code proves nothing about it.
+        function runStrip(runs, codeRuns) {
             if (!runs) return '';
             const failed = [...runs].filter(c => c === 'F').length;
-            const bars = [...runs].map(c => `<span class="run run-${c === 'F' ? 'f' : 'p'}"></span>`).join('');
-            return `<span class="strip" title="${runs.length} branch run(s), ${failed} failed (oldest→newest)">${bars}</span>`;
+            const older = codeRuns > 0 && codeRuns < runs.length ? runs.length - codeRuns : 0;
+            const bars = [...runs].map((c, i) =>
+                `<span class="run run-${c === 'F' ? 'f' : 'p'}${i < older ? ' run-old' : ''}"></span>`).join('');
+            return `<span class="strip" title="${runs.length} branch run(s), ${failed} failed (oldest→newest)`
+                + (older ? ` — the first ${older} ran on other code and don't count` : '') + `">${bars}</span>`;
         }
 
         // Show only "Class.method[params]" (or just "Class" for a class-level failure): drop the
@@ -1507,17 +1515,19 @@
                         ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
                         : '';
                     const verdict = t.blocker ? 'BLOCKER — clean on master, failing consistently on this branch'
-                        : t.watch ? 'RECENTLY STARTED FAILING — failing the last runs, passed earlier'
+                        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this revision to tell a break from a flake'
                         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
                     const ai = ` <button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
                         + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
                         + ` data-buildid="${t.suiteBuildId || 0}" data-strip="${esc(t.branchRuns || '')}"`
                         + ` data-verdict="${esc(verdict)}"`
                         + ` title="Copy an AI-ready fix prompt with the full context">ai</button>`;
-                    // a fail->pass transition means it flapped on the same code (not a steady break)
-                    const flaky = t.branchRuns && /FP/.test(t.branchRuns)
-                        ? `<span class="tag-flaky" title="passed and failed across this branch's runs">flaky?</span>` : '';
-                    return `<li><div class="tname">${link}${runStrip(t.branchRuns)}${flaky}${why}${ai}</div>`
+                    // A fail->pass transition means it flapped — but only when both runs were on the
+                    // SAME revision. Across a push those are two different programs, not a flap.
+                    const sameCode = t.codeRuns > 0 ? (t.branchRuns || '').slice(-t.codeRuns) : (t.branchRuns || '');
+                    const flaky = /FP/.test(sameCode)
+                        ? `<span class="tag-flaky" title="passed and failed across this branch's runs on the same code">flaky?</span>` : '';
+                    return `<li><div class="tname">${link}${runStrip(t.branchRuns, t.codeRuns)}${flaky}${why}${ai}</div>`
                         + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
                         + `<div class="details hidden"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div></li>`;
                 }).join('');

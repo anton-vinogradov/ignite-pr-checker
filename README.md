@@ -41,6 +41,12 @@ A test that failed in your PR's latest **RunAll** is a **blocker** (broken *by y
   - failing the last 2+ runs but passed earlier → a separate **"Recently started failing"** card — a
     fresh break to watch, not yet a hard blocker.
 
+  "The same code" is taken literally: every run is matched against the **VCS revision its build ran
+  on**, so only runs of the revision under review can clear a failure. A green run from before the
+  commits that broke the test proves nothing and is discounted (dimmed in the history strip). That
+  makes the first failure on a fresh revision a *watch* item — the suite is re-run automatically, and
+  a second failure on that same revision makes it a blocker.
+
   The verdict, its links and its history strips are always anchored to the **newest finished run**.
 - If the test has **no master history at all**, it's kept as a blocker ("can't prove it's pre-existing").
 
