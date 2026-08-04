@@ -40,7 +40,12 @@ The one question the tool answers: **which tests did this PR actually break?**
   master gets its own card (`ran 57 tests · master runs 439 — −87%`). Tests that never ran can't
   fail, so a suite can look green while silently skipping coverage. The baseline is master's own
   latest chain, not TeamCity's built-in metric — that one compares against a pinned reference build
-  and false-alarms on PR branches long after a legitimate test-count change.
+  and false-alarms on PR branches long after a legitimate test-count change. This card is for the
+  **silent** case only: when the suite is broken as well, the count rides along under its cause
+  (`execution timeout — ran 33 of master's 67 tests`) instead of becoming a finding of its own —
+  a hung suite runs a fraction of its tests, and leading with the metric reads as "tests
+  disappeared" while hiding the timeout that caused it. And like a broken suite, a shrunk one
+  clears once a newer run of it got the count back.
 - **"No blockers" is earned, not automatic.** The green all-clear appears only when the run behind
   it actually covered the PR. If the RunAll was interrupted, if suites have no reliable result, if
   suites ran far fewer tests than master, if a newer run is still going, or if commits were pushed

@@ -2,6 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.List;
@@ -58,7 +59,7 @@ public class VisaService {
         if (!r.brokenSuites().isEmpty()) {
             b.append("⚠️ **").append(r.brokenSuites().size()).append(" broken suite(s)** (no reliable run):\n");
             r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
-                .append(String.join(" · ", s.problems())).append('\n'));
+                .append(String.join(" · ", s.problems())).append(shortfall(s)).append('\n'));
             b.append('\n');
         }
 
@@ -87,6 +88,12 @@ public class VisaService {
         }
 
         return b.toString();
+    }
+
+    /** The tests a broken suite never got to, stated under its cause rather than as a finding of its own. */
+    private static String shortfall(BrokenSuite s) {
+        return s.tests() > 0 && s.baseline() > s.tests()
+            ? " — ran " + s.tests() + " of master's " + s.baseline() + " tests" : "";
     }
 
     public String compose(int pr, AnalysisResult r) {
@@ -119,7 +126,7 @@ public class VisaService {
         if (!r.brokenSuites().isEmpty()) {
             b.append("(!) *").append(r.brokenSuites().size()).append(" broken suite(s)* (failed without a reliable run):\n");
             r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
-                .append(String.join(" · ", s.problems())).append('\n'));
+                .append(String.join(" · ", s.problems())).append(shortfall(s)).append('\n'));
             b.append('\n');
         }
 

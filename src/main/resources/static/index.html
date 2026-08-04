@@ -943,8 +943,12 @@
                     ? `<span class="suite-runs">${suiteAiBtn(s, 'broken')}<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                         + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
                     : '';
+                // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
+                // "tests disappeared" and hides the timeout that emptied the suite.
+                const short = s.tests && s.baseline && s.tests < s.baseline
+                    ? ` — ran ${s.tests} of master's ${s.baseline} tests` : '';
                 return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
-                    + `<div class="reason">${esc((s.problems || []).join(' · '))}</div></li>`;
+                    + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
             }).join('');
             const victimLine = victims.length
                 ? `<li><div class="reason">+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed</div></li>`
@@ -1007,6 +1011,9 @@
                 lines: broken ? [
                     `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run: ' + runUrl : ''}`,
                     `- What TeamCity reported: ${btn.dataset.problems || 'no reliable run'}`,
+                    +btn.dataset.tests && +btn.dataset.baseline
+                        ? `- It ran ${btn.dataset.tests} tests where master runs ${btn.dataset.baseline} — it died partway through, so the missing tests are a symptom, not the problem`
+                        : null,
                     seen.length
                         ? `- Tests of this suite the checker saw failing (${seen.length}): ${seen.slice(0, 8).join(', ')}${seen.length > 8 ? ', …' : ''}`
                         : '- No failing test was reported for it — the suite died before or around test execution.',
