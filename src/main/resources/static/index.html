@@ -940,21 +940,22 @@
                 const head = esc(s.suiteName || s.suite)
                     + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
                 const btns = s.suite
-                    ? `<span class="suite-runs">${suiteAiBtn(s, 'broken')}<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                    ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                         + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
                     : '';
                 // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
                 // "tests disappeared" and hides the timeout that emptied the suite.
                 const short = s.tests && s.baseline && s.tests < s.baseline
                     ? ` — ran ${s.tests} of master's ${s.baseline} tests` : '';
-                return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
+                return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
+                    + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
                     + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
             }).join('');
             const victimLine = victims.length
                 ? `<li><div class="reason">+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed</div></li>`
                 : '';
             el.innerHTML = rows + victimLine;
-            for (const b of el.querySelectorAll('.suite-rerun:not(.ai-suite)'))
+            for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
             wireSuiteAi(el);
         }
@@ -965,12 +966,13 @@
                 const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
                 const head = esc(s.suiteName || s.suite)
                     + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-                const btns = `<span class="suite-runs">${suiteAiBtn(s, 'shrunk')}<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                const btns = `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                     + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`;
-                return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
+                return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'shrunk')}`
+                    + `<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
                     + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
             }).join('');
-            for (const b of el.querySelectorAll('.suite-rerun:not(.ai-suite)'))
+            for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
             wireSuiteAi(el);
         }
@@ -979,7 +981,7 @@
         // fewer tests than master. These never reach a single test's stacktrace, so the prompt points
         // at the run, what TeamCity said about it, and how to tell a PR breakage from a master one.
         function suiteAiBtn(s, kind) {
-            return `<button class="suite-rerun ai-suite" data-kind="${kind}" data-suite="${esc(s.suite || '')}"`
+            return ` <button class="why ai-suite" data-kind="${kind}" data-suite="${esc(s.suite || '')}"`
                 + ` data-suitename="${esc(s.suiteName || s.suite || '')}" data-buildid="${s.suiteBuildId || 0}"`
                 + ` data-problems="${esc((s.problems || []).join(' · '))}" data-tests="${s.tests || 0}"`
                 + ` data-baseline="${s.baseline || 0}" data-drop="${s.dropPct || 0}"`
@@ -1489,7 +1491,7 @@
                 }).join('');
                 return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
-            for (const b of el.querySelectorAll('.suite-rerun:not(.ai-suite)'))
+            for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
             for (const b of el.querySelectorAll('.why:not(.ai)'))
                 b.onclick = () => toggleDetails(b);
