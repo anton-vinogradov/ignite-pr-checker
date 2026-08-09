@@ -259,7 +259,8 @@ public class BlockerAnalyzer {
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
-            chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId());
+            chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId(),
+            chain.queuedAt(), chain.startedAt(), chain.finishedAt());
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);

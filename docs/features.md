@@ -83,8 +83,11 @@ The one question the tool answers: **which tests did this PR actually break?**
   remain, green at zero.
 - **Re-runs without leaving the page**: the whole `RunAll`, any **section** (broken suites, blockers,
   recently-started, filtered) or one suite — each *plain* or *at the top of the queue*. Live
-  **queued / running** chips appear on the affected suites and in the `runs:` row with **queue-aware
-  finish estimates** (they account for the agent queue and each suite's actual progress) and a
+  **queued / running** chips appear on the affected suites and in the `runs:` row, each carrying
+  **both halves of its timing** — what it has already cost (`running 4m`, `queued 16m` — measured)
+  and what is left (`~14m left`, `starts ~5m` — queue-aware, accounting for the agent queue and each
+  suite's actual progress); a running build's tooltip adds how long it waited before starting. The
+  analysed run states its own in the freshness line: `ran 1h 36m · queued 50m`. Chips also carry a
   **revision tag**: `rev ✓ head` for a run on the PR's current head, `⚠ rev abc123` when commits
   were pushed after it started (it tests older code), `rev @start` for queued builds — TeamCity
   resolves their revision at start, so they pick up the head of that moment. **Cancel all**

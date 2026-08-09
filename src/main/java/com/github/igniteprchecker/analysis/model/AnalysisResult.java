@@ -22,6 +22,10 @@ public record AnalysisResult(
     boolean interrupted,
     int canceledSuites,
     boolean live,
-    long liveBuildId
+    long liveBuildId,
+    /** Epoch seconds of the analysed chain's queue/start/finish; 0 when TeamCity didn't say. */
+    long queuedAt,
+    long startedAt,
+    long finishedAt
 ) {
 }

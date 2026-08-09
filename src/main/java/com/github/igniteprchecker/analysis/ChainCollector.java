@@ -168,7 +168,9 @@ public class ChainCollector {
 
         return new Chain(build.id(), build.branchName(), failed, broken,
             shrunkSuites(depBuilds(build), masterCounts, broken),
-            ran, reused, interrupted, canceled, live, liveBuildId);
+            ran, reused, interrupted, canceled, live, liveBuildId,
+            TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
+            TcDates.epochSeconds(build.finishDate()));
     }
 
     /**
@@ -281,6 +283,7 @@ public class ChainCollector {
     /** A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused. */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
         List<ShrunkSuite> shrunkSuites,
-        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId) {
+        int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId,
+        long queuedAt, long startedAt, long finishedAt) {
     }
 }
