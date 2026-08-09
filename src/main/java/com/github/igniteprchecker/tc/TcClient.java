@@ -75,12 +75,35 @@ public class TcClient {
      * The RunAll build to <em>show</em> for a PR: the clean run if there is one, else — only then —
      * the latest finished <em>cancelled</em> run, so a chain that got through most of its suites
      * before being cancelled still shows its real failures (analysed as partial/interrupted) instead
-     * of "no run at all". Strict-first order still keeps a fresh cancel from shadowing a good verdict.
+     * of "no run at all"; and failing both, the run that is still going. Strict-first order keeps a
+     * fresh cancel (or a fresh start) from shadowing a good verdict.
+     *
+     * <p>The last step matters most on a PR's first RunAll: suites fail hours before the chain ends,
+     * and until it did, the page said "no run at all" while a dozen of them were already red. Nothing
+     * that acts on a verdict uses this — the visa and auto re-run take the strict, finished-only
+     * {@link #findRunAllBuildForPr}.
      */
     public Optional<TcModel.Build> findRunAllBuildForAnalysis(String token, int prNumber) {
         Optional<TcModel.Build> clean = findRunAllBuild(token, prNumber, true);
+        if (clean.isPresent())
+            return clean;
 
-        return clean.isPresent() ? clean : findRunAllBuild(token, prNumber, false);
+        Optional<TcModel.Build> cancelled = findRunAllBuild(token, prNumber, false);
+
+        return cancelled.isPresent() ? cancelled : findRunningRunAll(token, prNumber);
+    }
+
+    /** The chain still running for this PR, newest first; empty when nothing is under way. */
+    private Optional<TcModel.Build> findRunningRunAll(String token, int prNumber) {
+        String locator = "buildType:" + analysis.runAllBuildType()
+            + ",branch:(name:pull/" + prNumber + "/head),state:running,count:1";
+
+        TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
+            "locator", locator,
+            "fields", "build(id,status,state,statusText,branchName,triggered(type,user(username)))")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null || list.build().isEmpty()
+            ? Optional.empty() : Optional.of(list.build().get(0));
     }
 
     private Optional<TcModel.Build> findRunAllBuild(String token, int prNumber, boolean nonCancelledOnly) {
