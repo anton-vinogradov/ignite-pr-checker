@@ -31,10 +31,14 @@ The one question the tool answers: **which tests did this PR actually break?**
   current revision has too few runs to tell a real break from a flake (typically its first failure,
   with only older-code passes behind it). The suite is re-run automatically; a second failure on that
   same revision makes it a blocker, a pass drops it out.
-- **A cancelled run still counts.** When a PR has no clean finished RunAll but a cancelled one that
-  got through most of its suites, the checker analyses that (partial) run — the *RunAll interrupted*
-  banner plus its real failures — instead of "no run at all". A clean finished run always wins, so a
-  fresh cancel never shadows a good verdict.
+- **A cancelled — or still running — run counts.** When a PR has no clean finished RunAll, the
+  checker falls back to the latest cancelled one, and failing that to the chain that is **still
+  going**: its finished suites are real results, and on a PR's first RunAll they land hours before
+  the chain ends. Until then the page said "no run at all" while a dozen suites were already red.
+  Such a verdict is marked *● includes an unfinished run* and can never read green; a suite still
+  running is never called broken, and its partial test count is never read as a shrink. A clean
+  finished run always wins, so neither a fresh cancel nor a fresh start shadows a good verdict —
+  and nothing that acts on a verdict (the visa, auto re-run) uses anything but a finished chain.
 - The verdict is **live**: while a newer RunAll is running (or ended cancelled), failures from its
   already-finished suites are folded in — the *● includes an unfinished run* tag links to that chain.
   An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).

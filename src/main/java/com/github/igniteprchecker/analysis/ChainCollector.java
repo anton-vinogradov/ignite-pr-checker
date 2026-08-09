@@ -96,6 +96,9 @@ public class ChainCollector {
     public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool) {
         TcModel.Build build = tc.getBuildWithDeps(token, buildId);
 
+        // The subject itself may still be running (a PR's first chain, hours before it ends): its
+        // finished suites are real results, so they are analysed exactly as a finished chain's are.
+        boolean subjectRunning = !"finished".equalsIgnoreCase(build.state());
         Map<String, Integer> masterCounts = baseline.counts(token);
         List<Callable<SuiteResult>> tasks = depBuilds(build).stream()
             .filter(dep -> "FAILURE".equals(dep.status()))
@@ -118,8 +121,8 @@ public class ChainCollector {
         // or interrupted. Even a run that didn't fully complete ran (and failed) some suites, and those
         // finished-FAILURE suites must count. classify() re-anchors each test to its newest finished
         // run, so this only needs to ADD candidates that appear in the newer chain(s).
-        boolean live = false;
-        long liveBuildId = 0;
+        boolean live = subjectRunning;
+        long liveBuildId = subjectRunning ? build.id() : 0;
         for (TcModel.Build chain : tc.recentChains(token, prNumber, 3)) {
             if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()))
                 continue; // not newer than the baseline, or nothing has run in it yet
@@ -191,6 +194,9 @@ public class ChainCollector {
         Set<Long> brokenBuilds = broken.stream().map(BrokenSuite::suiteBuildId).collect(java.util.stream.Collectors.toSet());
         List<ShrunkSuite> out = new ArrayList<>();
         for (TcModel.Build dep : deps) {
+            if (!"finished".equalsIgnoreCase(dep.state()))
+                continue; // a suite mid-run has only run part of its tests — that is not a shrink
+
             if (brokenBuilds.contains(dep.id()))
                 continue; // its cause is already reported, and the missing tests are that cause's doing
 
@@ -226,7 +232,11 @@ public class ChainCollector {
         // A suite that timed out / ran out of memory / crashed didn't finish reliably: its failed tests
         // are likely cascade noise and some tests never ran. Show it as a broken suite, don't mine it
         // for blockers (the same reasoning as an interrupted chain, at suite granularity).
-        boolean unstable = problems.stream().anyMatch(p -> UNSTABLE_PROBLEMS.contains(p.type()));
+        // A suite still running has failures worth showing but no final story: its tests are collected,
+        // and it is never called broken — "failed without running tests" would be a lie about a suite
+        // that simply hasn't got there yet.
+        boolean finished = "finished".equalsIgnoreCase(dep.state());
+        boolean unstable = finished && problems.stream().anyMatch(p -> UNSTABLE_PROBLEMS.contains(p.type()));
         if (unstable)
             return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems, masterCounts));
 
@@ -235,7 +245,7 @@ public class ChainCollector {
             .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();
 
-        if (!tests.isEmpty())
+        if (!tests.isEmpty() || !finished)
             return new SuiteResult(tests, null);
 
         return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems, masterCounts));
