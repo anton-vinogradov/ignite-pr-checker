@@ -234,7 +234,7 @@ class BlockerAnalyzerTest {
         FailedTest t = new FailedTest(testId, "CalciteSql2: T.test", "CalciteSql2", 9244697L, "Calcite SQL 2", "o1");
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
         when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
-            "pull/42/head", List.of(t), List.of(), List.of(), 0, 0, false, 0, false, 0));
+            "pull/42/head", List.of(t), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
         when(tc.getBaseBranchHistory(TOK, testId)).thenReturn(repeat("SUCCESS", 100));
 
         return t;

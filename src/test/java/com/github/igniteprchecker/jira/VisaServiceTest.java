@@ -52,15 +52,20 @@ class VisaServiceTest {
         assertThat(visas.compose(42, r)).doesNotContain("being re-run");
     }
 
+    /** Same bar for a chain that never finished — it reaches the reader as a coverage caveat. */
     @Test
     void anInterruptedChainSaysSoInsteadOfClaimingAllClear() {
         AnalysisResult r = result(List.of(), List.of(), true);
 
         assertThat(visas.composeMarkdown(42, r))
-            .doesNotContain("No blockers —")
-            .contains("🛑 **This RunAll never finished**")
-            .contains("7 suite(s) were cancelled");
-        assertThat(visas.compose(42, r)).contains("(x) *This RunAll never finished*");
+            .doesNotContain("✅ **No blockers**")
+            .contains("⚠️ **This run doesn't cover the PR fully:**")
+            .contains("the RunAll was interrupted — 7 suite(s) never ran")
+            .contains("can't prove the PR is clean");
+        assertThat(visas.compose(42, r))
+            .doesNotContain("(/) *No blockers*")
+            .contains("(!) *This run doesn't cover the PR fully:*")
+            .contains("the RunAll was interrupted — 7 suite(s) never ran");
     }
 
     @Test
@@ -75,7 +80,7 @@ class VisaServiceTest {
 
     private static AnalysisResult result(List<TestVerdict> blockers, List<TestVerdict> watch, boolean interrupted) {
         return new AnalysisResult(42, 9244731L, "pull/42/head", System.currentTimeMillis(),
-            blockers, watch, List.of(), List.of(), List.of(), 120, 9, interrupted, interrupted ? 7 : 0, false, 0);
+            blockers, watch, List.of(), List.of(), List.of(), 120, 9, interrupted, interrupted ? 7 : 0, false, 0, 0, 0, 0);
     }
 
     private static TestVerdict verdict(long testId, String name) {
