@@ -606,11 +606,14 @@
         function chipEta(b) {
             // An estimate says when a run ends; the elapsed/waited part says what it has cost so far —
             // a chain an hour deep in the agent queue reads exactly like a fresh one without it.
+            // The tracker sends null where TeamCity said nothing, and `null >= 0` is true in JS —
+            // without this guard a chip renders the empty " ·  left".
+            const has = v => v != null && v >= 0;
             const spent = b.state === 'running'
-                ? (b.elapsedSec >= 0 ? ' ' + fmtSpent(b.elapsedSec) : '')
-                : (b.waitedSec >= 0 ? ' ' + fmtSpent(b.waitedSec) : '');
-            if (b.leftSec >= 0) return spent + ' · ' + fmtLeft(b.leftSec) + ' left';
-            if (b.startSec >= 0) return spent + ' · starts ' + fmtLeft(b.startSec);
+                ? (has(b.elapsedSec) ? ' ' + fmtSpent(b.elapsedSec) : '')
+                : (has(b.waitedSec) ? ' ' + fmtSpent(b.waitedSec) : '');
+            if (has(b.leftSec)) return spent + ' · ' + fmtLeft(b.leftSec) + ' left';
+            if (has(b.startSec)) return spent + ' · starts ' + fmtLeft(b.startSec);
             return spent;
         }
 
@@ -766,12 +769,17 @@
         let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
 
         // Tag each suite header whose build type is currently queued/running with a chip linking to that build.
+        // A suite can have several live builds at once — the chain's own run, a re-run queued on top
+        // of it, another queued behind that. Each gets its own chip with its own timing: showing one
+        // of them silently hides work the PR is actually waiting on.
         function annotateSuiteChips() {
             for (const el of document.querySelectorAll('.suite-live')) {
-                const run = lastRuns.find(b => b.btId && b.btId === el.dataset.btid);
-                el.innerHTML = run
-                    ? `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${run.webUrl}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}">${esc(run.state)}${chipEta(run)}</a>`
-                    : '';
+                const runs = lastRuns.filter(b => b.btId && b.btId === el.dataset.btid);
+                const seen = new Set();
+                el.innerHTML = runs.filter(b => !b.buildId || !seen.has(b.buildId) && seen.add(b.buildId))
+                    .sort((a, b) => (a.state === 'running' ? 0 : 1) - (b.state === 'running' ? 0 : 1))
+                    .map(run => `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${run.webUrl}" target="_self" rel="noopener" title="This suite's run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}${run.state === 'running' && run.waitedSec > 0 ? ' · waited ' + fmtSpent(run.waitedSec) + ' in the queue before starting' : ''}">${esc(run.state)}${chipEta(run)}</a>`)
+                    .join('');
             }
         }
 
@@ -787,7 +795,8 @@
             // so suite chips light up individually while the chain grinds through them.
             const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
             lastRuns = runs.concat(rr.filter(x => x.pr === number)
-                .map(x => ({ btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct, leftSec: x.leftSec, startSec: x.startSec })));
+                .map(x => ({ buildId: x.buildId, btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct,
+                    leftSec: x.leftSec, startSec: x.startSec, waitedSec: x.waitedSec, elapsedSec: x.elapsedSec })));
             annotateSuiteChips();
             // For a chain the tracker knows better: its estimate includes the slowest running suite.
             const trackerById = new Map(rr.map(x => [x.buildId, x]));
@@ -806,7 +815,7 @@
                         ? `<span class="rev-queued" title="The revision is resolved when the build starts — it will pick up the head of that moment">rev @start</span>`
                         : '';
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec >= 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec > 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 
