@@ -391,6 +391,22 @@ public class TcClient {
             ? Optional.empty() : Optional.of(list.build().get(0));
     }
 
+    /**
+     * The newest finished build of any kind on the PR branch — the watermark a verdict was computed
+     * against. A chain's verdict is not immutable: re-running one of its suites changes the answer
+     * without changing the chain's build id, so "same chain build → same result" would keep showing
+     * blockers that a later green re-run already cleared. One cheap call per PR per warm cycle.
+     */
+    public Optional<Long> latestFinishedBranchBuild(String token, int prNumber) {
+        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:any,count:1";
+
+        TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(id)")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null || list.build().isEmpty()
+            ? Optional.empty() : Optional.of(list.build().get(0).id());
+    }
+
     /** Moves an already-queued build to the top of the build queue (position 1). */
     public void moveToQueueTop(String token, long buildId) {
         recorded("queueTop", () -> http.put()

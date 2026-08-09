@@ -207,6 +207,25 @@ class BlockerAnalyzerTest {
         assertThat(analyzer.analyze(TOK, 7)).isEmpty();
     }
 
+    /**
+     * PR 13440: a green re-run of the blocker suite finished at 03:03 and the page still showed the
+     * 20 blockers hours later — the chain build hadn't changed, so the warm cycle kept skipping it.
+     * The watermark is what makes "same chain" stop meaning "same answer".
+     */
+    @Test
+    void warmRecomputesWhenTheBranchFinishedBuildsTheVerdictNeverSaw() {
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        when(tc.latestFinishedBranchBuild(TOK, 42)).thenReturn(Optional.of(1000L));
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
+            "pull/42/head", List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
+
+        assertThat(analyzer.warm(TOK, 42)).as("first warm computes").isTrue();
+        assertThat(analyzer.warm(TOK, 42)).as("nothing moved on the branch: the cached verdict stands").isFalse();
+
+        when(tc.latestFinishedBranchBuild(TOK, 42)).thenReturn(Optional.of(1001L)); // a suite re-ran
+        assertThat(analyzer.warm(TOK, 42)).as("a build the verdict never saw must trigger a recompute").isTrue();
+    }
+
     @Test
     void secondAnalyzeOfSameBuildIsServedFromCache() {
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));

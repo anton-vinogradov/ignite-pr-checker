@@ -130,11 +130,11 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * Warms a PR for the cache-warmer: looks up the latest build (cheap) and recomputes it only if
-     * that build is not already cached — an unchanged RunAll build yields the same result, so there
-     * is nothing to redo. Returns true if it recomputed, false if the cached result was reused (or
-     * the PR has no finished RunAll build yet). This is what keeps the warmer from re-hammering
-     * TeamCity with the heavy history/latest-run lookups every cycle.
+     * Warms a PR for the cache-warmer: looks up the latest build (cheap) and recomputes it only when
+     * the answer can have changed — a different chain build, or new finished builds on the branch
+     * since the cached result was computed (a green re-run of a blocker suite clears it without the
+     * chain build changing). Returns true if it recomputed. This is what keeps the warmer from
+     * re-hammering TeamCity with the heavy history/latest-run lookups every cycle.
      */
     public boolean warm(String token, int prNumber) {
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
@@ -142,7 +142,7 @@ public class BlockerAnalyzer {
             return false;
 
         Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
-        if (cached.isPresent()) {
+        if (cached.isPresent() && !branchMovedSince(token, prNumber, cached.get())) {
             // The warm cycle (10 min) is shorter than the TTL (15 min), but a skip used to leave the
             // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
             // cold compute. Touching on skip keeps the warmed set permanently hot.
@@ -153,6 +153,24 @@ public class BlockerAnalyzer {
 
         computeAndStore(token, prNumber, buildId.get(), bgPool);
         return true;
+    }
+
+    /**
+     * Whether the branch has finished a build the cached verdict never saw. A suite re-run is exactly
+     * that: same chain, later evidence, different answer — and a PR whose blockers were fixed by a
+     * re-run kept showing them until someone opened it (the standing sweep recomputes on its own, so
+     * the posted comment was right while the page was not). Costs one cheap call per PR per cycle.
+     */
+    private boolean branchMovedSince(String token, int prNumber, AnalysisResult cached) {
+        if (cached.branchWatermark() <= 0)
+            return true; // computed before this was recorded: recompute once, then it settles
+
+        try {
+            return tc.latestFinishedBranchBuild(token, prNumber).orElse(0L) > cached.branchWatermark();
+        }
+        catch (RuntimeException e) {
+            return false; // a TeamCity blip must not turn the warm cycle into a full recompute storm
+        }
     }
 
     /**
@@ -178,6 +196,15 @@ public class BlockerAnalyzer {
     /** Progress of an in-flight compute for this PR ({@code done}/{@code total} failed tests), or null. */
     public Progress progressOf(int prNumber) {
         return progress.values().stream().filter(p -> p.pr() == prNumber).findFirst().orElse(null);
+    }
+
+    private long latestBranchBuild(String token, int prNumber) {
+        try {
+            return tc.latestFinishedBranchBuild(token, prNumber).orElse(0L);
+        }
+        catch (RuntimeException e) {
+            return 0L; // unknown watermark = "recompute next cycle", the safe side
+        }
     }
 
     private boolean isStale(AnalysisResult r) {
@@ -260,7 +287,10 @@ public class BlockerAnalyzer {
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId(),
-            chain.queuedAt(), chain.startedAt(), chain.finishedAt());
+            chain.queuedAt(), chain.startedAt(), chain.finishedAt(),
+            // Read after the analysis, so a build that finished while it ran is not silently claimed
+            // as accounted for; at worst this recomputes once more.
+            latestBranchBuild(token, prNumber));
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);
