@@ -118,7 +118,7 @@ public class TcClient {
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", "id,status,state,branchName,queuedDate,buildType(id,name),"
+            "fields", "id,status,state,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
                 + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name),"
                 + "testOccurrences(count),"
                 + "problemOccurrences(problemOccurrence(type,details))))")), TcModel.Build.class);
@@ -394,7 +394,7 @@ public class TcClient {
 
         TcModel.BuildList list = get("userBuilds", token, url("app/rest/builds", query(
             "locator", locator,
-            "fields", "build(id,state,status,webUrl,buildTypeId,startEstimate,finishEstimate,buildType(name),triggered(type,user(username)),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds))")), TcModel.BuildList.class);
+            "fields", "build(id,state,status,webUrl,buildTypeId,queuedDate,startDate,startEstimate,finishEstimate,buildType(name),triggered(type,user(username)),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }

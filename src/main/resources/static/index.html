@@ -604,9 +604,22 @@
         }
         // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
         function chipEta(b) {
-            if (b.leftSec >= 0) return ' · ' + fmtLeft(b.leftSec);
-            if (b.startSec >= 0) return ' · starts ' + fmtLeft(b.startSec);
-            return '';
+            // An estimate says when a run ends; the elapsed/waited part says what it has cost so far —
+            // a chain an hour deep in the agent queue reads exactly like a fresh one without it.
+            const spent = b.state === 'running'
+                ? (b.elapsedSec >= 0 ? ' ' + fmtSpent(b.elapsedSec) : '')
+                : (b.waitedSec >= 0 ? ' ' + fmtSpent(b.waitedSec) : '');
+            if (b.leftSec >= 0) return spent + ' · ' + fmtLeft(b.leftSec) + ' left';
+            if (b.startSec >= 0) return spent + ' · starts ' + fmtLeft(b.startSec);
+            return spent;
+        }
+
+        // "12m" / "1h 05m" — time already spent, stated plainly (no ~: this part is measured, not guessed).
+        function fmtSpent(sec) {
+            if (sec == null || sec < 0) return '';
+            if (sec < 60) return '<1m';
+            const m = Math.round(sec / 60);
+            return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
         }
 
         // "~18m" / "~1h 05m" — TeamCity's estimate of time left for a running build.
@@ -793,7 +806,7 @@
                         ? `<span class="rev-queued" title="The revision is resolved when the build starts — it will pick up the head of that moment">rev @start</span>`
                         : '';
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec >= 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
 
@@ -1187,11 +1200,21 @@
             annotateSuiteChips();
         }
 
+        // What the analysed run cost: how long it ran, and how long it sat in the queue first.
+        function runTiming(res) {
+            if (!res.startedAt || !res.finishedAt || res.finishedAt < res.startedAt) return '';
+            const ran = fmtSpent(res.finishedAt - res.startedAt);
+            const waited = res.queuedAt && res.startedAt > res.queuedAt ? fmtSpent(res.startedAt - res.queuedAt) : '';
+            const when = new Date(res.finishedAt * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+            return ` · <span class="hint" title="The run started ${waited ? 'after waiting ' + waited + ' in the agent queue, ' : ''}and finished at ${when}">ran ${ran}${waited ? ' · queued ' + waited : ''}</span>`;
+        }
+
         function renderResult(res) {
             lastResult = res;
             $('status').textContent = '';
             const buildLabel = 'build ' + res.buildId + (tcBase
-                ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+                ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '')
+                + runTiming(res);
             // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
             const comp = (res.suitesRan || res.suitesReused)
                 ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs</span>`

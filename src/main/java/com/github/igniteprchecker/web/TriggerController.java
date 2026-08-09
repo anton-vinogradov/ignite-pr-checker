@@ -221,6 +221,14 @@ public class TriggerController {
         m.put("pct", ri != null && ri.percentageComplete() != null ? ri.percentageComplete() : -1);
         m.put("leftSec", left);
         m.put("startSec", left < 0 && start > 0 ? Math.max(0, start - now) : -1);
+        // How long it has been in this state — an estimate says when it ends, this says what it has
+        // already cost. A chain sitting an hour in the agent queue looks identical to a fresh one
+        // without it.
+        long queued = TcDates.epochSeconds(b.queuedDate());
+        long started = TcDates.epochSeconds(b.startDate());
+        m.put("waitedSec", queued > 0 ? Math.max(0, (started > 0 ? started : now) - queued) : -1);
+        m.put("elapsedSec", ri != null && ri.elapsedSeconds() != null ? ri.elapsedSeconds()
+            : started > 0 ? Math.max(0, now - started) : -1);
 
         return m;
     }
