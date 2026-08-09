@@ -80,7 +80,7 @@ class VisaServiceTest {
 
     private static AnalysisResult result(List<TestVerdict> blockers, List<TestVerdict> watch, boolean interrupted) {
         return new AnalysisResult(42, 9244731L, "pull/42/head", System.currentTimeMillis(),
-            blockers, watch, List.of(), List.of(), List.of(), 120, 9, interrupted, interrupted ? 7 : 0, false, 0, 0, 0, 0);
+            blockers, watch, List.of(), List.of(), List.of(), 120, 9, interrupted, interrupted ? 7 : 0, false, 0, 0, 0, 0, 0);
     }
 
     private static TestVerdict verdict(long testId, String name) {

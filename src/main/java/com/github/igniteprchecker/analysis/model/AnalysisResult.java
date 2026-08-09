@@ -26,6 +26,12 @@ public record AnalysisResult(
     /** Epoch seconds of the analysed chain's queue/start/finish; 0 when TeamCity didn't say. */
     long queuedAt,
     long startedAt,
-    long finishedAt
+    long finishedAt,
+    /**
+     * The newest finished build on the branch when this was computed. A later suite re-run makes the
+     * verdict wrong without changing the chain build id, so the warmer compares this rather than
+     * trusting "same chain, same answer". 0 when it couldn't be read.
+     */
+    long branchWatermark
 ) {
 }

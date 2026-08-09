@@ -14,7 +14,7 @@ class CaveatsTest {
     private static AnalysisResult result(List<BrokenSuite> broken, List<ShrunkSuite> shrunk,
         boolean interrupted, int canceled, boolean live) {
         return new AnalysisResult(13434, 9253366, "pull/13434/head", System.currentTimeMillis(),
-            List.of(), List.of(), List.of(), broken, shrunk, 147, 0, interrupted, canceled, live, 0, 0, 0, 0);
+            List.of(), List.of(), List.of(), broken, shrunk, 147, 0, interrupted, canceled, live, 0, 0, 0, 0, 0);
     }
 
     private static AnalysisResult covered() {
