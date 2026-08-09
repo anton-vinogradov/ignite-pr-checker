@@ -412,7 +412,7 @@ public class TcClient {
     /** Current state of one build (works for queued builds too — TeamCity keeps the id across the queue). */
     public TcModel.Build getBuildState(String token, long buildId) {
         return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", "id,state,status,webUrl,buildTypeId,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)")), TcModel.Build.class);
+            "fields", "id,state,status,webUrl,buildTypeId,queuedDate,startDate,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)")), TcModel.Build.class);
     }
 
     /** A chain build's state plus the state of each of its dependency suites — one call, for rerun tracking. */
@@ -468,7 +468,7 @@ public class TcClient {
     public TcModel.Build getChainDepStates(String token, long buildId) {
         return get("buildState", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,state,status,"
-                + "snapshot-dependencies(build(id,buildTypeId,state,status,webUrl,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)))")), TcModel.Build.class);
+                + "snapshot-dependencies(build(id,buildTypeId,state,status,webUrl,queuedDate,startDate,startEstimate,finishEstimate,buildType(name),running-info(percentageComplete,elapsedSeconds,estimatedTotalSeconds)))")), TcModel.Build.class);
     }
 
     /**
