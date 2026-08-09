@@ -92,6 +92,114 @@ class BlockerAnalyzerTest {
         assertThat(r.filtered()).extracting(TestVerdict::testId).containsExactly(2L);
     }
 
+    /**
+     * The apache/ignite PR #13421 false negative: 38 deterministic failures whose only green branch run
+     * was on the revision BEFORE the buggy commits. The revision-blind merge called that "passed on the
+     * same code" and filtered them, so the bot posted a green visa on a red RunAll and never re-ran.
+     */
+    @Test
+    void aPassOnAnEarlierRevisionNeverClearsAFailureOnTheCurrentOne() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+            run("SUCCESS", 9243554L, "7e61596b0e1"),   // suite #1607 — before the buggy commits
+            run("FAILURE", 9244697L, "3fdf4460a9c"))); // suite #1609 — the PR head
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.filtered()).isEmpty();
+        assertThat(only(r.watch()).reason()).isEqualTo("first failure on revision 3fdf446 — watch (nothing has "
+            + "passed on this code; the 1 earlier branch run ran on other code)");
+        assertThat(only(r.watch()).codeRuns()).isEqualTo(1); // only the last bar is evidence
+    }
+
+    /** The re-run that a watch item triggers: failing again on the SAME revision proves the break. */
+    @Test
+    void aConfirmingRerunOnTheSameRevisionTurnsAWatchIntoABlocker() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+            run("SUCCESS", 9243554L, "7e61596b0e1"),
+            run("FAILURE", 9244697L, "3fdf4460a9c"),
+            run("FAILURE", 9244800L, "3fdf4460a9c"))); // the auto re-run failed again
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.watch()).isEmpty();
+        assertThat(only(r.blockers()).reason()).contains("failed all 2 runs on revision 3fdf446");
+    }
+
+    /** A pass on the very same revision is real evidence of a flake, and still filters the test out. */
+    @Test
+    void aPassOnTheSameRevisionStillFiltersItAsAFlapOnThisCode() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+            run("SUCCESS", 9243554L, "7e61596b0e1"),   // other code — counts for nothing either way
+            run("SUCCESS", 9244697L, "3fdf4460a9c"),   // passed on THIS code…
+            run("FAILURE", 9244800L, "3fdf4460a9c"))); // …and then failed on it
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.blockers()).isEmpty();
+        assertThat(r.watch()).isEmpty();
+        assertThat(only(r.filtered()).reason()).isEqualTo("flaky on branch: failed only the latest of 2 runs on "
+            + "revision 3fdf446 (an earlier run on the same code passed; the 1 earlier branch run ran on other code)");
+    }
+
+    /** Failing on the old revision AND on the new one is a steady break; the narrower window must not lose it. */
+    @Test
+    void failingOnBothRevisionsStaysABlocker() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+            run("FAILURE", 9243554L, "7e61596b0e1"),
+            run("FAILURE", 9244697L, "3fdf4460a9c")));
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.blockers()).extracting(TestVerdict::testId).containsExactly(1L);
+    }
+
+    /** TeamCity may not inline revisions into a test occurrence — then ask for the build itself. */
+    @Test
+    void revisionsAreFetchedPerBuildWhenTheOccurrenceDoesNotCarryThem() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+            run("SUCCESS", 9243554L, null), run("FAILURE", 9244697L, null)));
+        when(tc.buildRevision(TOK, 9243554L)).thenReturn(Optional.of("7e61596b0e1"));
+        when(tc.buildRevision(TOK, 9244697L)).thenReturn(Optional.of("3fdf4460a9c"));
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(only(r.watch()).reason()).contains("first failure on revision 3fdf446");
+    }
+
+    /**
+     * A revision we cannot read must never widen the window back over runs we cannot place — that is
+     * the revision-blind merge again, and it lands on the green side, which is the bug being fixed.
+     */
+    @Test
+    void anUnreadableRevisionForTheLatestRunDoesNotRestoreTheGreenVerdict() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+            run("SUCCESS", 9243554L, "7e61596b0e1"), run("FAILURE", 9244697L, null)));
+        when(tc.buildRevision(TOK, 9244697L)).thenReturn(Optional.empty()); // TeamCity has none for it
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.filtered()).isEmpty();
+        assertThat(only(r.watch()).reason()).doesNotContain("passed on the same code");
+    }
+
+    /** No revisions anywhere: keep the old whole-strip merge, but never claim runs were on the same code. */
+    @Test
+    void noRevisionsAnywhereKeepsTheOldWindowWithoutClaimingSameCode() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(concat(repeat("SUCCESS", 3), repeat("FAILURE", 1)));
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(only(r.filtered()).reason()).isEqualTo("flaky on branch: failed only the latest of 4 runs "
+            + "(passed just before, but TeamCity gave no revisions to prove that was the same code)");
+    }
+
     @Test
     void emptyWhenNoRunAllBuild() {
         when(chains.findBuildId(TOK, 7)).thenReturn(Optional.empty());
@@ -113,6 +221,32 @@ class BlockerAnalyzerTest {
     private static TestVerdict verdict(AnalysisResult r, long testId) {
         return concat(r.blockers(), r.filtered()).stream()
             .filter(v -> v.testId() == testId).findFirst().orElseThrow();
+    }
+
+    private static TestVerdict only(List<TestVerdict> verdicts) {
+        assertThat(verdicts).hasSize(1);
+
+        return verdicts.get(0);
+    }
+
+    /** Wires up a PR whose chain has exactly one failed test, clean on master. */
+    private FailedTest singleFailure(long testId) {
+        FailedTest t = new FailedTest(testId, "CalciteSql2: T.test", "CalciteSql2", 9244697L, "Calcite SQL 2", "o1");
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
+            "pull/42/head", List.of(t), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
+        when(tc.getBaseBranchHistory(TOK, testId)).thenReturn(repeat("SUCCESS", 100));
+
+        return t;
+    }
+
+    /** One finished branch run: its status, the suite build it ran in, and that build's revision. */
+    private static TcModel.TestOccurrence run(String status, long buildId, String revision) {
+        TcModel.Revisions revs = revision == null ? null
+            : new TcModel.Revisions(List.of(new TcModel.Revision(revision)));
+
+        return new TcModel.TestOccurrence(null, null, status, null,
+            new TcModel.BuildRef(buildId, "pull/42/head", "finished", status, "CalciteSql2", null, revs), null);
     }
 
     private static List<TcModel.TestOccurrence> repeat(String status, int n) {

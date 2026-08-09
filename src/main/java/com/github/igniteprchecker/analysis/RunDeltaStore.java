@@ -121,7 +121,7 @@ public class RunDeltaStore implements SnapshotCache {
         List<Persisted> snap = new ArrayList<>();
         byPr.forEach((pr, e) -> {
             synchronized (e) {
-                snap.add(new Persisted(pr, e.latest, e.prev, List.copyOf(e.history)));
+                snap.add(new Persisted(pr, e.latest, e.prev, List.copyOf(e.history), TestVerdict.RULES));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
@@ -133,6 +133,13 @@ public class RunDeltaStore implements SnapshotCache {
             return;
 
         for (Persisted p : mapper.readValue(file.toFile(), Persisted[].class)) {
+            // A blocker set from superseded rules must not become the "previous run" the next one is
+            // compared against: the first recompute after a deploy would report the rule change as
+            // "+N new since your last run" and blame the author's latest push for it. Losing one
+            // iteration's delta is the honest price; the next RunAll refills it.
+            if (p.rules() == null || p.rules() != TestVerdict.RULES)
+                continue;
+
             Entry e = new Entry();
             e.latest = p.latest();
             e.prev = p.prev();
@@ -155,7 +162,7 @@ public class RunDeltaStore implements SnapshotCache {
     record Ref(String name, String suite, String suiteName) {
     }
 
-    private record Persisted(int pr, Snap latest, Snap prev, List<Point> history) {
+    private record Persisted(int pr, Snap latest, Snap prev, List<Point> history, Integer rules) {
     }
 
     /** One trend point: a distinct RunAll build and what its analysis found. */

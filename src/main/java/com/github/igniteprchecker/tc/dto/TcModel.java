@@ -78,9 +78,13 @@ public final class TcModel {
     public record TestRef(long id) {
     }
 
+    /**
+     * The build a test occurrence came from. {@code revisions} is the VCS state that build ran on —
+     * the only honest way to tell whether two runs of a test were made on the same code.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildRef(long id, String branchName, String state, String status,
-        String buildTypeId, BuildType buildType) {
+        String buildTypeId, BuildType buildType, Revisions revisions) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

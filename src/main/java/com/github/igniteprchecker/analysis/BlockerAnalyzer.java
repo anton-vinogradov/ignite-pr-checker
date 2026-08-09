@@ -329,7 +329,7 @@ public class BlockerAnalyzer {
             // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
             // propagate it and every other verdict would be lost). Keep the test visible as an unverified
             // blocker — it did fail in the PR — and flag that we couldn't check it.
-            return verdict(t, null, true, false, "could not verify (TeamCity error: " + rootMessage(e) + ")", "");
+            return verdict(t, null, true, false, "could not verify (TeamCity error: " + rootMessage(e) + ")", "", 0);
         }
     }
 
@@ -346,34 +346,89 @@ public class BlockerAnalyzer {
         // there means it isn't specific to this PR (pre-existing or flaky on master). It still gets
         // its branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers.
         if (h.fails() > 0) {
-            return verdict(t, lastRun, false, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master", branchRuns);
+            return verdict(t, lastRun, false, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master",
+                branchRuns, 0);
         }
 
         // ...and only if the failure still stands in the last fully-finished run on the branch: a
         // later re-run that passed clears it (the failure wasn't reproducible on the same code).
         String latest = lastRun == null ? null : lastRun.status();
         if (latest != null && !"FAILURE".equals(latest)) {
-            return verdict(t, lastRun, false, false, "not failing in the last finished run (passed on re-run)", branchRuns);
+            return verdict(t, lastRun, false, false, "not failing in the last finished run (passed on re-run)",
+                branchRuns, 0);
         }
 
         String reason = h.runs() == 0
             ? "no master history (can't prove pre-existing)"
             : "not seen failing in " + h.runs() + " master run(s)";
 
-        // Merge of the last N branch runs: a real block fails consistently. A test that passed on the
-        // same code within the recent window is a within-branch flake, not a hard blocker; one that
-        // just started failing (but passed earlier) is a fresh break to watch, not yet a hard blocker.
-        int len = branchRuns.length();
-        int streak = trailingFailStreak(branchRuns);
-        int window = Math.min(cfg.blockerFailStreak(), len);
-        if (streak >= window)
-            return verdict(t, lastRun, true, false, reason, branchRuns);
+        // Merge of the last N branch runs: a real block fails consistently, a test that passed within
+        // the window is a within-branch flake. That merge is only sound over runs of the SAME code —
+        // a pass on the revision before the buggy commits proves nothing, and calling it "passed on
+        // the same code" is how a red RunAll once got a green visa. So the window is the trailing runs
+        // on the revision the latest run was made on; anything older is reported, never counted.
+        String head = revisionOf(token, lastRun);
+        String code = sameCodeStrip(token, runs, head);
+        int len = code.length();
+        int older = branchRuns.length() - len;
+        int streak = trailingFailStreak(code);
+        int allStreak = trailingFailStreak(branchRuns);
+        int allLen = branchRuns.length();
+
+        // Consistent failures over the whole strip block as they always did: widening the window can
+        // only ever add evidence. Without this, a test failing on both the old and the new revision
+        // would lose its blocker status to the narrower same-code window.
+        if (allStreak >= Math.min(cfg.blockerFailStreak(), allLen))
+            return verdict(t, lastRun, true, false,
+                allLen == 0 ? reason : reason + "; " + failedRuns(allStreak, allLen, " on this branch"), branchRuns, len);
+
+        // Every run of THIS code failed, and more than one ran: reproduced, not chance.
+        if (len >= 2 && streak == len)
+            return verdict(t, lastRun, true, false, reason + "; " + failedRuns(streak, len, onRevision(head))
+                + notes(discounted(older, head)), branchRuns, len);
+
+        // One run of this code, and it failed. The passes are from older code, so this is not a flake
+        // — but one run is not proof either. Watch it and let the auto re-run settle it: a green re-run
+        // trips the "last finished run" gate above, a red one makes the gate above this one fire.
+        if (len == 1 && older > 0)
+            return verdict(t, lastRun, false, true, "first failure" + onRevision(head) + " — watch"
+                + notes("nothing has passed on this code", discounted(older, head)), branchRuns, len);
+
         if (streak >= 2)
             return verdict(t, lastRun, false, true,
-                "started failing in the last " + streak + " runs (passed earlier on the branch) — watch", branchRuns);
+                "started failing in the last " + streak + " of " + len + " runs" + onRevision(head) + " — watch"
+                    + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
 
-        return verdict(t, lastRun, false, false,
-            "flaky on branch: failed only the latest of " + len + " runs (passed on the same code)", branchRuns);
+        return verdict(t, lastRun, false, false, "flaky on branch: failed only the latest of " + len + " runs"
+            + onRevision(head) + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
+    }
+
+    /** Joins the non-empty qualifiers of a reason into one trailing {@code " (a; b)"} group. */
+    private static String notes(String... qualifiers) {
+        StringBuilder b = new StringBuilder();
+        for (String q : qualifiers) {
+            if (!q.isEmpty())
+                b.append(b.isEmpty() ? " (" : "; ").append(q);
+        }
+
+        return b.isEmpty() ? "" : b.append(')').toString();
+    }
+
+    /** What the earlier pass in the window does — and does not — prove. */
+    private static String passedEarlier(String head) {
+        return head == null
+            ? "passed just before, but TeamCity gave no revisions to prove that was the same code"
+            : "an earlier run on the same code passed";
+    }
+
+    /** Why the runs outside the window were left out of it. */
+    private static String discounted(int older, String head) {
+        if (older <= 0)
+            return "";
+
+        String runs = "the " + older + " earlier branch run" + (older == 1 ? "" : "s");
+
+        return head == null ? runs + " could not be placed on a revision" : runs + " ran on other code";
     }
 
     /** Length of the trailing run of consecutive failures in a P/F strip (oldest → newest). */
@@ -383,6 +438,76 @@ public class BlockerAnalyzer {
             n++;
 
         return n;
+    }
+
+    /**
+     * The trailing runs made on {@code head} — the only ones that are evidence about the code under
+     * review — as a P/F strip. A run on another revision ends the window: it ran on a different
+     * program. When TeamCity gives no revision for any run at all we fall back to the whole strip
+     * (the old, revision-blind merge); when it gives some but not the latest one's, only the latest
+     * run counts — an unplaceable run must never be read as "the same code".
+     */
+    private String sameCodeStrip(String token, List<TcModel.TestOccurrence> runs, String head) {
+        if (runs.isEmpty())
+            return "";
+        if (head == null)
+            return runs.stream().anyMatch(r -> revisionOf(token, r) != null)
+                ? strip(runs.subList(runs.size() - 1, runs.size())) : strip(runs);
+
+        int i = runs.size();
+        while (i > 0 && head.equals(revisionOf(token, runs.get(i - 1))))
+            i--;
+
+        return strip(runs.subList(i, runs.size()));
+    }
+
+    /**
+     * The VCS revision a run was made on: from the occurrence itself when TeamCity inlined it, else one
+     * request for the build (cached and shared — a build's revision never changes). Null when TeamCity
+     * has none, which is the only case where two runs may not be compared as same-or-different code.
+     * A TeamCity error is deliberately not caught: {@link #classify} turns it into an unverified
+     * blocker, the fail-safe side, whereas swallowing it would silently restore the revision-blind
+     * window and the green visa this whole path exists to prevent.
+     */
+    private String revisionOf(String token, TcModel.TestOccurrence run) {
+        if (run == null || run.build() == null)
+            return null;
+
+        String inline = firstRevision(run.build().revisions());
+        if (inline != null)
+            return inline;
+
+        long buildId = run.build().id();
+        String fetched = cache.revision(buildId, () -> tc.buildRevision(token, buildId).orElse(""));
+
+        return fetched.isEmpty() ? null : fetched; // "" is the cacheable "this build genuinely has none"
+    }
+
+    private static String firstRevision(TcModel.Revisions revs) {
+        if (revs == null || revs.revision() == null || revs.revision().isEmpty())
+            return null;
+
+        String version = revs.revision().get(0).version();
+
+        return version == null || version.isBlank() ? null : version;
+    }
+
+    /** A blocker's evidence sentence: how the test did over the runs the rule that fired looked at. */
+    private static String failedRuns(int streak, int len, String where) {
+        if (len <= 1)
+            return "failed the only run" + where;
+        if (streak >= len)
+            return "failed all " + len + " runs" + where;
+
+        return "failed the last " + streak + " of " + len + " runs" + where;
+    }
+
+    /** {@code " on revision 3fdf446"}, or "" when TeamCity gave us no revision to name. */
+    private static String onRevision(String head) {
+        if (head == null)
+            return "";
+
+        return " on revision " + (head.length() > 7 ? head.substring(0, 7) : head);
     }
 
     /** Short root-cause message of a failure, for the "could not verify" reason (bounded length). */
@@ -418,7 +543,7 @@ public class BlockerAnalyzer {
      * Falls back to the RunAll-dependency occurrence (e.g. for pre-existing tests, where no runs are fetched).
      */
     private static TestVerdict verdict(FailedTest t, TcModel.TestOccurrence lastRun, boolean blocker,
-        boolean watch, String reason, String branchRuns) {
+        boolean watch, String reason, String branchRuns, int codeRuns) {
         long suiteBuildId = t.suiteBuildId();
         String suite = t.suite();
         String suiteName = t.suiteName();
@@ -435,6 +560,7 @@ public class BlockerAnalyzer {
                 occurrenceId = lastRun.id();
         }
 
-        return new TestVerdict(t.testId(), t.name(), suite, suiteBuildId, suiteName, occurrenceId, blocker, watch, reason, branchRuns);
+        return new TestVerdict(t.testId(), t.name(), suite, suiteBuildId, suiteName, occurrenceId, blocker, watch,
+            reason, branchRuns, codeRuns);
     }
 }
