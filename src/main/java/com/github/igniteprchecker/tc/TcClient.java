@@ -407,6 +407,15 @@ public class TcClient {
             ? Optional.empty() : Optional.of(list.build().get(0).id());
     }
 
+    /** Who triggered a build — the early re-run must act under the token of whoever started the chain. */
+    public Optional<String> buildTriggeredBy(String token, long buildId) {
+        TcModel.Build b = get("buildState", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "triggered(type,user(username))")), TcModel.Build.class);
+
+        return b == null || b.triggered() == null || b.triggered().user() == null
+            ? Optional.empty() : Optional.ofNullable(b.triggered().user().username());
+    }
+
     /** Moves an already-queued build to the top of the build queue (position 1). */
     public void moveToQueueTop(String token, long buildId) {
         recorded("queueTop", () -> http.put()

@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
@@ -41,6 +42,7 @@ public class RerunTracker implements SnapshotCache {
     private final VisaSubscriptions visaSubs;
     private final String runAllBuildType;
     private final ObjectMapper mapper;
+    private final ApplicationEventPublisher events;
     private final Map<Long, Tracked> tracked = new ConcurrentHashMap<>();
 
     private volatile long lastRefreshAt;
@@ -48,12 +50,13 @@ public class RerunTracker implements SnapshotCache {
     private final java.util.concurrent.atomic.AtomicInteger chainFinishes = new java.util.concurrent.atomic.AtomicInteger();
 
     public RerunTracker(TcClient tc, Warmer warmer, VisaSubscriptions visaSubs, AnalysisProperties cfg,
-        ObjectMapper mapper) {
+        ObjectMapper mapper, ApplicationEventPublisher events) {
         this.tc = tc;
         this.warmer = warmer;
         this.visaSubs = visaSubs;
         this.runAllBuildType = cfg.runAllBuildType();
         this.mapper = mapper;
+        this.events = events;
     }
 
     /** Whether any tracked build (chain or suite re-run) of this PR is still queued/running. */
@@ -160,6 +163,7 @@ public class RerunTracker implements SnapshotCache {
         }
 
         t.state = b.state();
+        announceFailedDeps(t, b);
 
         // Started suites come from the chain's snapshot-dependencies; the not-yet-started rest sit in
         // the build queue (a running chain's deps aren't listed until they start), so merge both to
@@ -189,6 +193,30 @@ public class RerunTracker implements SnapshotCache {
         t.waitedSec = waitedSeconds(b);
         t.elapsedSec = elapsedSeconds(b);
         t.lastVerified = System.currentTimeMillis();
+    }
+
+    /**
+     * Announces each suite of a running chain the moment it finishes red. The chain has hours of work
+     * left at that point, and a re-run queued now settles the suite in parallel instead of after
+     * everything else. Every suite is announced once (the set lives as long as the tracked chain).
+     */
+    private void announceFailedDeps(Tracked t, TcModel.Build chain) {
+        if (chain.snapshotDependencies() == null || chain.snapshotDependencies().build() == null)
+            return;
+
+        for (TcModel.Build dep : chain.snapshotDependencies().build()) {
+            if (!"finished".equalsIgnoreCase(dep.state()) || !"FAILURE".equals(dep.status())
+                || dep.buildTypeId() == null || !t.failedDeps.add(dep.id()))
+                continue;
+
+            String name = dep.buildType() != null && dep.buildType().name() != null
+                ? dep.buildType().name() : dep.buildTypeId();
+            events.publishEvent(new SuiteFailedMidRun(t.pr, t.buildId, dep.buildTypeId(), dep.id(), name));
+        }
+    }
+
+    /** A suite of a still-running RunAll chain has just finished red. */
+    public record SuiteFailedMidRun(int pr, long chainBuildId, String suite, long suiteBuildId, String suiteName) {
     }
 
     private static void addChild(Map<Long, ActiveRerun> kids, int pr, TcModel.Build dep) {
@@ -265,6 +293,8 @@ public class RerunTracker implements SnapshotCache {
         volatile Long elapsedSec;
         volatile long lastVerified = System.currentTimeMillis();
         volatile List<ActiveRerun> children = List.of();
+        /** Suite builds already announced as failed, so each is acted on once. */
+        final java.util.Set<Long> failedDeps = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
         Tracked(int pr, String buildTypeId, String suiteName, long buildId, String webUrl) {
             this.pr = pr;

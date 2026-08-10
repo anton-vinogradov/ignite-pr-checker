@@ -58,6 +58,16 @@ public class StandingVisas implements SnapshotCache {
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
     /** Auto-rerun attempts per PR for the build being settled; persisted with the enrollments. */
     private final ConcurrentMap<Integer, Retry> retries = new ConcurrentHashMap<>();
+    /** Suites already re-run mid-chain, per chain build — so a restart can't re-queue them again. */
+    private final ConcurrentMap<Long, java.util.Set<String>> earlyReruns = new ConcurrentHashMap<>();
+
+    /** Early re-runs do TeamCity work; one thread keeps them off the tracker's polling thread. */
+    private final java.util.concurrent.ExecutorService earlyPool =
+        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "early-rerun");
+            t.setDaemon(true);
+            return t;
+        });
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
@@ -292,6 +302,83 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
+     * A suite of a running chain just finished red: settle it now instead of at the end of the chain.
+     * The chain still has hours of suites to go, so a re-run queued at this moment runs alongside
+     * them and the answer is usually in before the chain finishes — where the settled sweep would
+     * only start the same re-run afterwards, adding its whole queue wait to the wall clock.
+     *
+     * <p>Same bar as the settled pass: only the chain triggerer's own enrollment, only with auto
+     * re-run on, and only suites the analysis calls a blocker, a watch item or broken — a suite that
+     * failed on pre-existing/flaky tests is left alone. Each suite is re-run once per chain, and a
+     * chain that keeps producing them stops at {@link #TOP_QUEUE_LIMIT}: past that it is systemic and
+     * the settled pass will say so.
+     */
+    @EventListener
+    void onSuiteFailedMidRun(RerunTracker.SuiteFailedMidRun ev) {
+        earlyPool.execute(() -> {
+            try {
+                earlyRerun(ev);
+            }
+            catch (RuntimeException e) {
+                log.info("early re-run of {} for PR {} skipped: {}", ev.suiteName(), ev.pr(), e.toString());
+            }
+        });
+    }
+
+    private void earlyRerun(RerunTracker.SuiteFailedMidRun ev) {
+        if (enrolled.isEmpty())
+            return;
+
+        java.util.Set<String> done = earlyReruns.computeIfAbsent(ev.chainBuildId(), id -> ConcurrentHashMap.newKeySet());
+        if (done.size() >= TOP_QUEUE_LIMIT || done.contains(ev.suite()))
+            return; // already settled this suite, or this chain is failing wholesale
+
+        // Any enrolled token can read who started the chain; only that person's enrollment may act.
+        Map.Entry<String, Enrollment> any = enrolled.entrySet().iterator().next();
+        Optional<String> lookupToken = codec.decryptString(any.getValue().tcToken());
+        if (lookupToken.isEmpty())
+            return;
+
+        Optional<String> who = tc.buildTriggeredBy(lookupToken.get(), ev.chainBuildId());
+        Enrollment e = who.map(enrolled::get).orElse(null);
+        if (e == null || !e.autoRerun())
+            return;
+
+        Optional<String> tcToken = codec.decryptString(e.tcToken());
+        if (tcToken.isEmpty())
+            return;
+
+        Optional<AnalysisResult> res = analyzer.analyze(tcToken.get(), ev.pr());
+        if (res.isEmpty() || !worthRerunning(res.get(), ev.suite()))
+            return;
+
+        if (!done.add(ev.suite()))
+            return; // a concurrent event beat us to it
+
+        TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
+            "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
+                + " is still running, settling it now rather than after the chain");
+        rerunTracker.record(ev.pr(), b);
+        // Count it as the chain's first wave, so the settled pass continues from here instead of
+        // starting over — two waves per chain stays two.
+        Retry r = retries.get(ev.pr());
+        List<String> history = new ArrayList<>(r != null && r.buildId() == ev.chainBuildId() && r.history() != null
+            ? r.history() : List.of());
+        history.add("early: " + ev.suiteName());
+        retries.put(ev.pr(), new Retry(ev.chainBuildId(), 1, "1 suite that failed mid-run", history,
+            r != null && r.buildId() == ev.chainBuildId() ? r.note() : null));
+        log.info("early re-run of {} for PR {} queued at top (chain {} still running, build {})",
+            ev.suiteName(), ev.pr(), ev.chainBuildId(), b.id());
+    }
+
+    /** Whether the analysis blames this suite for something a re-run can settle. */
+    static boolean worthRerunning(AnalysisResult r, String suite) {
+        return r.blockers().stream().anyMatch(v -> suite.equals(v.suite()))
+            || r.watch().stream().anyMatch(v -> suite.equals(v.suite()))
+            || r.brokenSuites().stream().anyMatch(s -> suite.equals(s.suite()));
+    }
+
+    /**
      * Sweep: for every open PR whose latest finished RunAll was triggered by an enrolled user and
      * hasn't been visa'd yet, compute the verdict and post it to the PR's IGNITE ticket.
      */
@@ -475,6 +562,7 @@ public class StandingVisas implements SnapshotCache {
                 }
                 e.posted().put(pr.number(), buildId);
                 retries.remove(pr.number());
+                earlyReruns.remove(buildId); // this chain is settled; its mid-run memo is spent
             }
             catch (RuntimeException ex) {
                 log.warn("standing auto-visa sweep: PR {} skipped: {}", pr.number(), ex.toString());
@@ -543,7 +631,9 @@ public class StandingVisas implements SnapshotCache {
             e.tz(), e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
             new HashMap<>(e.jiraThreads()),
             e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix())));
-        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries)));
+        Map<Long, List<String>> early = new HashMap<>();
+        earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
+        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries), early));
     }
 
     @Override
@@ -557,6 +647,9 @@ public class StandingVisas implements SnapshotCache {
             enrollments = s.enrollments() == null ? new Persisted[0] : s.enrollments().toArray(new Persisted[0]);
             if (s.retries() != null)
                 retries.putAll(s.retries());
+            if (s.earlyReruns() != null)
+                s.earlyReruns().forEach((build, suites) -> earlyReruns
+                    .computeIfAbsent(build, id -> ConcurrentHashMap.newKeySet()).addAll(suites));
         }
         catch (com.fasterxml.jackson.databind.exc.MismatchedInputException e) {
             // The pre-retries snapshot was a bare enrollment array — read it once, save in the new shape.
@@ -605,7 +698,8 @@ public class StandingVisas implements SnapshotCache {
 
     /** The snapshot on disk: enrollments plus the auto-rerun attempt bookkeeping (so a restart can't
      * grant extra attempts or freeze the ⏳ line's context). */
-    private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries) {
+    private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries,
+        Map<Long, List<String>> earlyReruns) {
     }
 
     /** The ⏳ status line of the living comment while re-runs settle, numbered, with the waves so far.
