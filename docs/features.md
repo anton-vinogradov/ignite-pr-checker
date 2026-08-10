@@ -107,10 +107,14 @@ The one question the tool answers: **which tests did this PR actually break?**
   comment per run**: it appears when the run finishes and is edited in place as re-run waves start
   and settle — but only on stage changes (ticket watchers get mail on every edit), never on the
   10-minute ETA refreshes.
-- **Auto re-run blocker suites** (settings, independent of the visa) — when a RunAll you triggered
-  finishes with blockers, **recently-started-failing tests** or **broken suites** (timeout, crash,
-  compilation), those suites are re-run
-  automatically, up to 2 attempts: ≤10 suites jump to the top of the queue, more go to the tail so
+- **Auto re-run blocker suites** (settings, independent of the visa) — a suite of your RunAll is
+  re-run **the moment it fails**, without waiting for the rest of the chain: hours of suites are
+  still ahead at that point, so the re-run rides alongside them and the answer is usually in before
+  the chain finishes. Only suites the analysis blames are touched — a blocker, a
+  **recently-started-failing** test or a **broken suite** (timeout, crash, compilation) — so one
+  that failed on master's own flakes is left alone; each suite is re-run once per chain, and a chain
+  producing more than 10 of them is left to the settled pass as systemic. Whatever is still
+  outstanding when the chain finishes is re-run the same way, up to 2 attempts in total: ≤10 suites jump to the top of the queue, more go to the tail so
   they don't push others back, and a systemic breakage (30+) is left alone. Identical suites already
   waiting in the queue are cancelled first. A pass on re-run clears its blocker — and a broken suite
   whose newer run passed stops being broken. With the visa also on, the visa waits until the re-runs
