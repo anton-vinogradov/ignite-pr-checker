@@ -120,13 +120,22 @@ public class StandingVisas implements SnapshotCache {
      * Enrols the user with two independent switches: auto-visa (needs the JIRA token) and
      * auto-rerun (TC token only). Tokens stay encrypted at rest until {@link #disable}.
      */
-    public void enable(String username, String tcToken, String jiraToken, String ghToken,
+    public boolean enable(String username, String tcToken, String jiraToken, String ghToken,
         boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
         // A settings change must not forget which builds were already handled (or their comments),
         // nor a GitHub login the user linked by hand (a PAT-derived one is authoritative though).
         Enrollment prev = enrolled.get(username);
-        String ghLogin = ghToken != null ? github.ghUser(ghToken).orElse(null)
-            : prev != null ? prev.ghLogin() : null;
+        // A token GitHub can't put a name to is dead — an expired PAT still riding in the session
+        // cookie, say. Storing it buys nothing and costs the login: with no login, the command poll
+        // stops recognising the author of "/run-all" and replies to them as a stranger.
+        String resolved = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
+        boolean tokenRejected = ghToken != null && resolved == null;
+        if (tokenRejected) {
+            log.warn("GitHub token offered for {} was not accepted by GitHub — kept out of the enrollment", username);
+            ghToken = null;
+        }
+
+        String ghLogin = resolved != null ? resolved : prev != null ? prev.ghLogin() : null;
         String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
         enrolled.put(username, new Enrollment(
             codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
@@ -139,6 +148,8 @@ public class StandingVisas implements SnapshotCache {
         log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}, styleFix={} (gh login {}, tz {})",
             username, autoVisa, autoRerun, ghComment, styleFix, ghLogin, tz);
         donateWarmTokens();
+
+        return !tokenRejected;
     }
 
     /**
