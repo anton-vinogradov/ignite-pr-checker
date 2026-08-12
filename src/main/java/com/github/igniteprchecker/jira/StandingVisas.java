@@ -144,7 +144,9 @@ public class StandingVisas implements SnapshotCache {
             prev != null ? prev.posted() : new ConcurrentHashMap<>(),
             prev != null ? prev.ghThreads() : new ConcurrentHashMap<>(),
             prev != null ? prev.jiraThreads() : new ConcurrentHashMap<>(),
-            autoVisa, autoRerun, ghComment, styleFix));
+            autoVisa, autoRerun, ghComment, styleFix,
+            resolved != null || prev == null ? 0 : prev.ghRejectedAt(),
+            jiraToken != null || prev == null ? 0 : prev.jiraRejectedAt()));
         log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}, styleFix={} (gh login {}, tz {})",
             username, autoVisa, autoRerun, ghComment, styleFix, ghLogin, tz);
         donateWarmTokens();
@@ -183,15 +185,46 @@ public class StandingVisas implements SnapshotCache {
      * fresh token is pasted.
      */
     public void dropGhToken(String username) {
-        Enrollment e = enrolled.get(username);
+        Enrollment e = username == null ? null : enrolled.get(username);
         if (e == null || e.ghToken() == null)
             return;
 
+        // The two options that need this token go off with it. Leaving them checked would promise
+        // work the checker can no longer do — the point of the switch is that it means something.
         enrolled.put(username, new Enrollment(e.tcToken(), e.jiraToken(), null, e.ghLogin(), e.tz(),
             e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
-            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix()));
-        log.warn("GitHub token of {} was rejected by GitHub and dropped — narrating from the app account "
-            + "until a fresh PAT is saved", username);
+            e.autoVisa(), e.autoRerun(), false, false, System.currentTimeMillis(), e.jiraRejectedAt()));
+        log.warn("GitHub token of {} was rejected by GitHub: dropped, its options switched off — "
+            + "acks come from the app account until a fresh PAT is saved", username);
+    }
+
+    /**
+     * Same for JIRA: a PAT the ticket tracker refuses can't post a visa, so auto-visa goes off and
+     * the panel asks for a new one instead of silently skipping every ticket from now on.
+     */
+    public void dropJiraToken(String username) {
+        Enrollment e = username == null ? null : enrolled.get(username);
+        if (e == null || e.jiraToken() == null)
+            return;
+
+        enrolled.put(username, new Enrollment(e.tcToken(), null, e.ghToken(), e.ghLogin(), e.tz(),
+            e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
+            false, e.autoRerun(), e.ghComment(), e.styleFix(), e.ghRejectedAt(), System.currentTimeMillis()));
+        log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
+            username);
+    }
+
+    /** Whether a stored credential was refused and is waiting to be replaced. */
+    public boolean ghTokenRejected(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.ghRejectedAt() > 0;
+    }
+
+    public boolean jiraTokenRejected(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.jiraRejectedAt() > 0;
     }
 
     /** Whether this user's GitHub-account features are waiting for a fresh PAT. */
@@ -220,7 +253,7 @@ public class StandingVisas implements SnapshotCache {
 
         enrolled.put(username, new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), clean, e.tz(),
             e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
-            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix()));
+            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix(), e.ghRejectedAt(), e.jiraRejectedAt()));
         log.info("gh login for {} linked by hand: {}", username, clean);
 
         return "ok";
@@ -276,10 +309,35 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
+     * An option whose credential is gone is switched off. A token can leave without a 401 — dropped
+     * as unusable when saved, made undecryptable by a rotated secret, or lost by an older build that
+     * only dropped the token — and a switch left on then promises work that silently never happens.
+     */
+    private void switchOffOptionsWithoutTokens() {
+        enrolled.replaceAll((u, e) -> {
+            boolean ghGone = (e.ghComment() || e.styleFix()) && e.ghToken() == null;
+            boolean jiraGone = e.autoVisa() && e.jiraToken() == null;
+            if (!ghGone && !jiraGone)
+                return e;
+
+            log.warn("options of {} switched off for want of a token: {}{}", u,
+                ghGone ? "GitHub comment/checkstyle autofix " : "", jiraGone ? "auto-visa" : "");
+
+            return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(), e.tz(), e.enabledAt(),
+                e.posted(), e.ghThreads(), e.jiraThreads(),
+                jiraGone ? false : e.autoVisa(), e.autoRerun(),
+                ghGone ? false : e.ghComment(), ghGone ? false : e.styleFix(),
+                ghGone && e.ghRejectedAt() == 0 ? System.currentTimeMillis() : e.ghRejectedAt(),
+                jiraGone && e.jiraRejectedAt() == 0 ? System.currentTimeMillis() : e.jiraRejectedAt());
+        });
+    }
+
+    /**
      * Backfills {@code ghLogin} and {@code tz} for enrollments made before those were recorded
      * (one GitHub/JIRA call per such user, once); no-op when everything is already resolved.
      */
     public void ensureGhLogins() {
+        switchOffOptionsWithoutTokens();
         enrolled.replaceAll((u, e) -> {
             String login = e.ghLogin();
             if (e.ghComment() && login == null && e.ghToken() != null)
@@ -296,7 +354,7 @@ public class StandingVisas implements SnapshotCache {
 
             return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, tz, e.enabledAt(),
                 e.posted(), e.ghThreads(), e.jiraThreads(), e.autoVisa(), e.autoRerun(), e.ghComment(),
-                e.styleFix());
+                e.styleFix(), e.ghRejectedAt(), e.jiraRejectedAt());
         });
     }
 
@@ -636,6 +694,12 @@ public class StandingVisas implements SnapshotCache {
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
         }
         catch (RuntimeException ghEx) {
+            if (refused(ghEx)) {
+                dropGhToken(userOf(e));
+
+                return;
+            }
+
             log.warn("standing GitHub comment for PR {} failed: {}", pr, ghEx.toString());
         }
     }
@@ -667,7 +731,7 @@ public class StandingVisas implements SnapshotCache {
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
             e.tz(), e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
             new HashMap<>(e.jiraThreads()),
-            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix())));
+            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix(), e.ghRejectedAt(), e.jiraRejectedAt())));
         Map<Long, List<String>> early = new HashMap<>();
         earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
         Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries), early));
@@ -706,14 +770,18 @@ public class StandingVisas implements SnapshotCache {
             enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.ghLogin(),
                 p.tz(), p.enabledAt(), posted, ghThreads, jiraThreads,
                 p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment(),
-                p.styleFix() != null && p.styleFix()));
+                p.styleFix() != null && p.styleFix(),
+                p.ghRejectedAt() == null ? 0 : p.ghRejectedAt(),
+                p.jiraRejectedAt() == null ? 0 : p.jiraRejectedAt()));
         }
     }
 
     private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, String tz,
         long enabledAt, ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
         ConcurrentMap<Integer, JiraThread> jiraThreads,
-        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
+        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix,
+        /** When GitHub/JIRA last refused the stored token — cleared when a working one is saved. */
+        long ghRejectedAt, long jiraRejectedAt) {
     }
 
     /** The one living visa comment of a run in the JIRA ticket: which build it narrates and where to edit it. */
@@ -765,14 +833,48 @@ public class StandingVisas implements SnapshotCache {
                 return null;
             }
             catch (RuntimeException editEx) {
+                if (refused(editEx)) {
+                    dropJiraToken(userOf(e));
+
+                    return null;
+                }
+
                 log.warn("editing visa comment {} for PR {} failed ({}), posting fresh",
                     t.commentId(), pr, editEx.toString());
             }
         }
-        JiraClient.PostedComment posted = jira.addCommentWithId(jiraToken, issueKey, body);
+
+        JiraClient.PostedComment posted;
+        try {
+            posted = jira.addCommentWithId(jiraToken, issueKey, body);
+        }
+        catch (RuntimeException e2) {
+            if (!refused(e2))
+                throw e2;
+
+            dropJiraToken(userOf(e));
+
+            return null;
+        }
         e.jiraThreads().put(pr, new JiraThread(buildId, posted.id()));
 
         return posted.url();
+    }
+
+    /** Whether the service refused the credential itself — an expired or revoked token, not a blip. */
+    private static boolean refused(RuntimeException e) {
+        return e instanceof org.springframework.web.client.RestClientResponseException rest
+            && (rest.getStatusCode().value() == 401 || rest.getStatusCode().value() == 403);
+    }
+
+    /** The user an enrollment belongs to (the map is per-user and tiny). */
+    private String userOf(Enrollment e) {
+        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
+            if (en.getValue() == e)
+                return en.getKey();
+        }
+
+        return null;
     }
 
     /** "Earlier re-runs: #1 — …" for every wave before the current one; empty when none. */
@@ -875,6 +977,7 @@ public class StandingVisas implements SnapshotCache {
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
-        Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix) {
+        Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
+        Long ghRejectedAt, Long jiraRejectedAt) {
     }
 }
