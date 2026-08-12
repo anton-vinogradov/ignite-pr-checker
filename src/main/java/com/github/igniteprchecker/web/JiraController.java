@@ -123,6 +123,9 @@ public class JiraController {
             "rerun", standing.rerunOn(username),
             "gh", standing.ghOn(username), "style", standing.styleFixOn(username)));
         out.put("login", standing.ghLoginOf(username));
+        // A PAT GitHub rejected is dropped on the spot, so the panel must say why the account-based
+        // half went quiet instead of leaving the options looking on.
+        out.put("ghTokenMissing", standing.ghOn(username) && standing.ghTokenMissing(username));
 
         return out;
     }
