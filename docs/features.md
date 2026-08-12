@@ -127,6 +127,11 @@ The one question the tool answers: **which tests did this PR actually break?**
   RunAll. The repo's own `checkstyle.xml` is used; what can't be fixed mechanically (javadoc,
   naming, wrapping) is reported in the command comment. Never touches anyone else's PR, never
   force-pushes.
+- **An expired token switches its own options off.** When GitHub or JIRA refuses a stored token, the
+  checker drops it, turns off exactly the options that needed it, and the settings panel says which
+  credential to replace — a switch that promises work the checker can no longer do is worse than an
+  off switch. Your linked GitHub login is kept (it is an identifier, not a credential), so PR
+  commands keep working, narrated from the checker's own account until you paste a fresh PAT.
 - **GitHub PR comment** (settings, independent of the other two) — the same verdict, in GitHub
   markdown, posted on the `apache/ignite` pull request from your own GitHub account (a personal
   access token with the `public_repo` scope; stored encrypted at rest while the option is on).

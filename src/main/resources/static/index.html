@@ -418,9 +418,9 @@
                 <button id="settingsGhSave" class="act" type="button">Save</button>
                 <span id="settingsGhMsg" class="muted"></span>
             </span>
-            <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so it was dropped —
-                acks and the live status now come from the checker's own account. Paste a fresh one above to
-                get your own back.</p>
+            <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so it was dropped and
+                the two options that need it were switched off — acks and the live status come from the checker's
+                own account meanwhile. Paste a fresh one above and switch them back on.</p>
         </div>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
@@ -431,6 +431,8 @@
                 <button id="settingsJiraSave" class="act" type="button">Save</button>
                 <span id="settingsJiraMsg" class="muted"></span>
             </span>
+            <p id="jiraTokenGone" class="caveat hidden">⚠ JIRA rejected your saved token, so it was dropped and
+                auto-visa was switched off. Paste a fresh one above and switch it back on.</p>
         </div>
         <div id="settingsMsg" class="muted"></div>
     </div>
@@ -1882,11 +1884,20 @@
                         $('ghCommentToggle').checked = !!st.gh;
                         $('styleFixToggle').checked = !!st.style;
                         if (st.login) $('ghLoginInput').value = st.login;
-                        $('ghTokenGone').classList.toggle('hidden', !st.ghTokenMissing);
+                        showTokenNotes(st);
                     }
                 } catch (e) { /* leave unchecked */ }
             }
         };
+
+        // A token the service refused takes its options down with it, so the panel must show the
+        // switches off AND say which credential to replace — otherwise the settings look broken.
+        function showTokenNotes(st) {
+            $('ghTokenGone').classList.toggle('hidden', !st.ghTokenRejected);
+            if (st.ghTokenRejected) $('settingsGh').classList.remove('hidden');
+            $('jiraTokenGone').classList.toggle('hidden', !st.jiraTokenRejected);
+            if (st.jiraTokenRejected) $('settingsJira').classList.remove('hidden');
+        }
 
         $('settingsJiraSave').onclick = async () => {
             const input = $('settingsJiraToken'), m = $('settingsJiraMsg');
@@ -1952,8 +1963,7 @@
                 styleT.checked = !!res.style;
                 // The PAT in the session can have died since it was saved; the server refuses to
                 // enrol with it, so the account-based half stays off until a fresh one is pasted.
-                $('ghTokenGone').classList.toggle('hidden', !res.ghTokenRejected);
-                if (res.ghTokenRejected) $('settingsGh').classList.remove('hidden');
+                showTokenNotes(res);
                 const on = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
                     res.style && 'checkstyle autofix'].filter(Boolean);
                 msg.textContent = on.length ? 'On: ' + on.join(' · ') + '.' : 'All off — stored tokens removed.';
