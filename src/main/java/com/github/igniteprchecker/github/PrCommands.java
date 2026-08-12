@@ -166,19 +166,17 @@ public class PrCommands implements SnapshotCache {
                 + (superseded > 0 ? " Your previous run was cancelled — this one supersedes it." : "")
                 + " The verdict lands here when the run finishes.";
 
-            if (pat) {
+            if (pat && !standing.ghTokenMissing(actor.get().username())) {
                 // Their own PAT: the ack lives inside their command comment.
                 String base = c.body() + "\n\n---\n" + ack;
-                edit(actor.get().ghToken(), c.id(), base);
-                watching.put(pr, new CommandRun(c.id(), base, build.id(), actor.get().username(), 0, false));
+                if (edit(actor.get(), c.id(), base))
+                    watching.put(pr, new CommandRun(c.id(), base, build.id(), actor.get().username(), 0, false));
+                else
+                    appNarrate(pr, c, actor.get(), ack + PAT_REJECTED_NOTE, build.id());
             }
             else {
                 // No PAT: the checker narrates from its own account in a separate living comment.
-                GithubClient.PostedComment n = github.addPrCommentAsAppWithId(pr,
-                    "@" + c.user().login() + " " + ack);
-                if (n != null)
-                    watching.put(pr, new CommandRun(c.id(), "@" + c.user().login() + " " + ack, build.id(),
-                        actor.get().username(), n.id(), true));
+                appNarrate(pr, c, actor.get(), ack, build.id());
             }
 
             log.info("/run-all by {} ({}): RunAll queued for PR {}{}{}", c.user().login(), actor.get().username(),
@@ -189,6 +187,11 @@ public class PrCommands implements SnapshotCache {
             react(actor.get(), c.id(), "confused");
             log.warn("/run-all by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
         }
+    }
+
+    /** Whether this text would be picked up as a command — the guard on everything the checker posts. */
+    static boolean readsAsCommand(String body) {
+        return command(body) != null;
     }
 
     private static Cmd command(String body) {
@@ -225,7 +228,7 @@ public class PrCommands implements SnapshotCache {
             handledTotal.incrementAndGet();
             react(actor, c.id(), "rocket");
             if (actor.ghToken() != null)
-                edit(actor.ghToken(), c.id(), c.body()
+                edit(actor, c.id(), c.body()
                     + "\n\n---\n⬆️ **Build " + run.buildId() + " moved to the top of the queue.**");
             log.info("/top by {} ({}): build {} of PR {} moved to the queue top",
                 c.user().login(), actor.username(), run.buildId(), pr);
@@ -294,9 +297,43 @@ public class PrCommands implements SnapshotCache {
                 github.reactToCommentAsApp(commentId, content);
         }
         catch (RuntimeException e) {
-            log.warn("reaction on comment {} failed: {}", commentId, e.toString());
+            if (!patRejected(actor, e)) {
+                log.warn("reaction on comment {} failed: {}", commentId, e.toString());
+
+                return;
+            }
+
+            try {
+                github.reactToCommentAsApp(commentId, content);
+            }
+            catch (RuntimeException app) {
+                log.warn("reaction on comment {} failed under both tokens: {}", commentId, app.toString());
+            }
         }
     }
+
+    /**
+     * Whether GitHub refused the user's own token — a PAT that expired or was revoked. It is dropped
+     * on the spot, so the checker stops retrying a dead credential every minute and switches to its
+     * own account instead of leaving the author with a silent PR.
+     */
+    private boolean patRejected(StandingVisas.GhActor actor, RuntimeException e) {
+        if (actor.ghToken() == null || !(e instanceof RestClientResponseException rest))
+            return false;
+
+        int code = rest.getStatusCode().value();
+        if (code != 401 && code != 403)
+            return false;
+
+        standing.dropGhToken(actor.username());
+
+        return true;
+    }
+
+    /** The line that explains a suddenly app-narrated run — stated once, where the author is looking. */
+    private static final String PAT_REJECTED_NOTE =
+        "\n\n⚠️ _GitHub rejected your personal access token, so this is narrated from the checker's own "
+            + "account. Save a fresh PAT in the checker's settings to get your own back._";
 
     /**
      * The queued-build ack and the remaining-time line live INSIDE the command comment itself (it's
@@ -308,6 +345,14 @@ public class PrCommands implements SnapshotCache {
         if (body.equals(lastNarration.put(pr, body)))
             return;
 
+        // The token was dropped after this run started narrating under it: move the story to the
+        // checker's own comment now, instead of editing with a token that no longer exists.
+        if (!run.app() && actor.ghToken() == null) {
+            takeOverNarration(pr, run, body);
+
+            return;
+        }
+
         try {
             if (run.app())
                 github.updatePrCommentAsApp(run.narrationId(), body);
@@ -315,16 +360,64 @@ public class PrCommands implements SnapshotCache {
                 github.updatePrComment(actor.ghToken(), run.commentId(), body);
         }
         catch (RuntimeException e) {
-            log.warn("editing narration for PR {} failed: {}", pr, e.toString());
+            if (!patRejected(actor, e)) {
+                log.warn("editing narration for PR {} failed: {}", pr, e.toString());
+
+                return;
+            }
+
+            // Their token died mid-run: carry the story on from the checker's own account rather
+            // than repeating the same 401 every minute for the rest of the chain.
+            takeOverNarration(pr, run, body);
         }
     }
 
-    private void edit(String ghToken, long commentId, String body) {
+    private void takeOverNarration(int pr, CommandRun run, String body) {
+        // The story so far lives inside the author's own command comment, so `body` still carries
+        // their "/runall" first line. Posting that verbatim made the poll read the checker's own
+        // comment as a fresh command and trigger another chain — the status half is all that moves.
+        String status = statusOf(body);
+        String login = standing.ghLoginOf(run.username());
+        String mention = login == null || login.isBlank() ? "" : "@" + login + " ";
+        GithubClient.PostedComment n = github.addPrCommentAsAppWithId(pr, mention + status + PAT_REJECTED_NOTE);
+        if (n == null)
+            return;
+
+        watching.put(pr, new CommandRun(run.commentId(), mention + status, run.buildId(), run.username(),
+            n.id(), true));
+        log.info("PR {}: narration taken over by the checker's account — {}'s GitHub token is gone",
+            pr, run.username());
+    }
+
+    /** The checker's half of a command comment — everything after the separator the ack inserts. */
+    static String statusOf(String body) {
+        int sep = body.indexOf("\n---\n");
+
+        return sep < 0 ? body : body.substring(sep + 5);
+    }
+
+    /** Starts (or takes over) the checker-narrated living comment for this command. */
+    private void appNarrate(int pr, GithubClient.IssueComment c, StandingVisas.GhActor actor, String ack, long buildId) {
+        String body = "@" + c.user().login() + " " + ack;
+        if (readsAsCommand(body))
+            throw new IllegalStateException("the checker must never post a comment that reads as a command");
+        GithubClient.PostedComment n = github.addPrCommentAsAppWithId(pr, body);
+        if (n != null)
+            watching.put(pr, new CommandRun(c.id(), body, buildId, actor.username(), n.id(), true));
+    }
+
+    /** Edits the commander's own comment under their PAT; false when the token turned out to be dead. */
+    private boolean edit(StandingVisas.GhActor actor, long commentId, String body) {
         try {
-            github.updatePrComment(ghToken, commentId, body);
+            github.updatePrComment(actor.ghToken(), commentId, body);
+
+            return true;
         }
         catch (RuntimeException e) {
-            log.warn("editing command comment {} failed: {}", commentId, e.toString());
+            if (!patRejected(actor, e))
+                log.warn("editing command comment {} failed: {}", commentId, e.toString());
+
+            return false;
         }
     }
 

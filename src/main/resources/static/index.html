@@ -418,6 +418,9 @@
                 <button id="settingsGhSave" class="act" type="button">Save</button>
                 <span id="settingsGhMsg" class="muted"></span>
             </span>
+            <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so it was dropped —
+                acks and the live status now come from the checker's own account. Paste a fresh one above to
+                get your own back.</p>
         </div>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
@@ -1879,6 +1882,7 @@
                         $('ghCommentToggle').checked = !!st.gh;
                         $('styleFixToggle').checked = !!st.style;
                         if (st.login) $('ghLoginInput').value = st.login;
+                        $('ghTokenGone').classList.toggle('hidden', !st.ghTokenMissing);
                     }
                 } catch (e) { /* leave unchecked */ }
             }

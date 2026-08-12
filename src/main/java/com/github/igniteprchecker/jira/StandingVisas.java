@@ -165,6 +165,32 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
+     * Forgets a GitHub token GitHub itself rejected. Keeping it would fail every reaction, ack and
+     * per-minute narration edit with the same 401 — which is exactly how a working /run-all (the
+     * TeamCity chain was queued) looked to its author like nothing had happened. The login stays:
+     * it is how commands resolve the actor, and the checker narrates from its own account until a
+     * fresh token is pasted.
+     */
+    public void dropGhToken(String username) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || e.ghToken() == null)
+            return;
+
+        enrolled.put(username, new Enrollment(e.tcToken(), e.jiraToken(), null, e.ghLogin(), e.tz(),
+            e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
+            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix()));
+        log.warn("GitHub token of {} was rejected by GitHub and dropped — narrating from the app account "
+            + "until a fresh PAT is saved", username);
+    }
+
+    /** Whether this user's GitHub-account features are waiting for a fresh PAT. */
+    public boolean ghTokenMissing(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.ghToken() == null;
+    }
+
+    /**
      * Links a GitHub login to the user's enrollment by hand — the no-PAT way into PR commands.
      * Returns "ok", "taken" (someone else claimed it) or "none" (no enrollment to attach to).
      */
