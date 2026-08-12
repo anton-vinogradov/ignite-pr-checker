@@ -1950,6 +1950,10 @@
                 rerunT.checked = !!res.rerun;
                 ghT.checked = !!res.gh;
                 styleT.checked = !!res.style;
+                // The PAT in the session can have died since it was saved; the server refuses to
+                // enrol with it, so the account-based half stays off until a fresh one is pasted.
+                $('ghTokenGone').classList.toggle('hidden', !res.ghTokenRejected);
+                if (res.ghTokenRejected) $('settingsGh').classList.remove('hidden');
                 const on = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
                     res.style && 'checkstyle autofix'].filter(Boolean);
                 msg.textContent = on.length ? 'On: ' + on.join(' · ') + '.' : 'All off — stored tokens removed.';

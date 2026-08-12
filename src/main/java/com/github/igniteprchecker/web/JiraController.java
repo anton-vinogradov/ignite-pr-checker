@@ -110,10 +110,13 @@ public class JiraController {
         if ((gh || style) && ghToken == null) // the style-fix commit is pushed under the same PAT
             return ResponseEntity.status(412).body(Map.of("error", "no GitHub token in the session", "need", "github"));
 
-        standing.enable(username, tcToken, visa ? jiraToken : null, gh || style ? ghToken : null,
+        boolean ghTokenOk = standing.enable(username, tcToken, visa ? jiraToken : null, gh || style ? ghToken : null,
             visa, rerun, gh, style);
 
-        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh, "style", style));
+        // The saved PAT can die between sessions while the cookie still carries it: say so instead of
+        // silently enrolling with a token that identifies nobody.
+        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh, "style", style,
+            "ghTokenRejected", !ghTokenOk));
     }
 
     /** The logged-in user's standing options. */
