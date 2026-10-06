@@ -2,11 +2,15 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,6 +20,18 @@ class AnalysisCachePersistenceTest {
 
     private static AnalysisProperties props() {
         return new AnalysisProperties(null, null, null, null, 15, null, null);
+    }
+
+    /** Moves every stored expiry back by {@code downtime}, as if the snapshot had been written that long ago. */
+    private void ageSnapshot(Path file, Duration downtime) throws IOException {
+        JsonNode root = mapper.readTree(file.toFile());
+
+        for (String cache : List.of("history", "results")) {
+            for (JsonNode e : root.get(cache))
+                ((ObjectNode)e).put("expiresAt", e.get("expiresAt").asLong() - downtime.toMillis());
+        }
+
+        mapper.writeValue(file.toFile(), root);
     }
 
     @Test
@@ -45,6 +61,31 @@ class AnalysisCachePersistenceTest {
     }
 
     @Test
+    void historyOutlivedByDowntimeIsRefetchedWhileResultsRevive(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        long testId = 7L;
+        long runAll = 9389046L;
+
+        AnalysisCache before = new AnalysisCache(props(), mapper);
+        AnalysisResult result = new AnalysisResult(13335, runAll, "pull/13335/head", System.currentTimeMillis(),
+            List.of(), List.of(),
+            List.of(new TestVerdict(testId, "TestA", "SuiteX", 200L, "Suite X", "301", false, false,
+                "pre-existing: fails 1/100 on master", "F", 1)),
+            List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
+        before.putResult(runAll, result);
+        before.history(testId, () -> new HistoryStats(100, 1));
+        before.saveTo(file);
+        ageSnapshot(file, Duration.ofHours(3));
+
+        AnalysisCache after = new AnalysisCache(props(), mapper);
+        after.loadFrom(file);
+
+        assertThat(after.historyOf(testId)).as("master history outlived by the downtime").isEmpty();
+        assertThat(after.history(testId, () -> new HistoryStats(100, 0))).isEqualTo(new HistoryStats(100, 0));
+        assertThat(after.peekResult(runAll)).as("a build's result never changes").contains(result);
+    }
+
+    @Test
     void loadFromMissingFileIsNoOp(@TempDir Path dir) throws Exception {
         AnalysisCache cache = new AnalysisCache(props(), mapper);
 
@@ -67,6 +108,20 @@ class AnalysisCachePersistenceTest {
         TtlCache<Long, String> target = new TtlCache<>(60);
         target.importAll(List.of(new TtlCache.Snapshot<>(9L, "revived", System.currentTimeMillis() - 1)));
         assertThat(target.peek(9L)).contains("revived");
+    }
+
+    @Test
+    void ttlCacheImportUnexpiredKeepsStoredExpiryAndDropsExpired() {
+        long now = System.currentTimeMillis();
+        long hourLeft = now + Duration.ofHours(1).toMillis();
+        TtlCache<Long, String> cache = new TtlCache<>(Duration.ofHours(2).toMillis());
+
+        cache.importUnexpired(List.of(
+            new TtlCache.Snapshot<>(1L, "an hour old", hourLeft),
+            new TtlCache.Snapshot<>(2L, "three hours old", now - Duration.ofHours(1).toMillis())));
+
+        assertThat(cache.size()).isEqualTo(1);
+        assertThat(cache.export()).containsExactly(new TtlCache.Snapshot<>(1L, "an hour old", hourLeft));
     }
 
     @Test
