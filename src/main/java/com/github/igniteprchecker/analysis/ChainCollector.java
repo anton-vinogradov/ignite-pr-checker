@@ -81,12 +81,11 @@ public class ChainCollector {
     }
 
     /**
-     * Expands a RunAll build into its failed tests (across its FAILURE suites; muted ones are skipped). A
-     * FAILURE suite with <em>no</em> failed tests, muted or not, broke before/without testing (compilation,
-     * timeout, agent, dependency) — those are collected as {@link BrokenSuite}s so they can't silently
-     * vanish from the verdict. The {@code pool} is the caller's fan-out pool: foreground analyses pass
-     * the analysis pool, background ones (warmer/refresh) pass their own so they don't compete with
-     * user-facing requests.
+     * Expands a RunAll build into its failed tests (across its FAILURE suites). A FAILURE suite with
+     * <em>no</em> failed tests broke before/without testing (compilation, timeout, agent, dependency) —
+     * those are collected as {@link BrokenSuite}s so they can't silently vanish from the verdict. The
+     * {@code pool} is the caller's fan-out pool: foreground analyses pass the analysis pool, background
+     * ones (warmer/refresh) pass their own so they don't compete with user-facing requests.
      */
     /** A suite running at least this % fewer tests than on master is worth surfacing. */
     private static final int SHRINK_PCT = 10;
@@ -246,10 +245,9 @@ public class ChainCollector {
             .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();
 
-        // Muted failures are skipped, so a red suite whose only failures are muted has no candidates —
-        // but it ran its tests, and "failed without running tests" would be a lie about it.
-        boolean mutedFailures = dep.testOccurrences() != null && dep.testOccurrences().muted() > 0;
-        if (!tests.isEmpty() || !finished || mutedFailures)
+        // A suite whose only failures are muted is broken too: muted failures don't turn a suite red, so its
+        // problems name what did.
+        if (!tests.isEmpty() || !finished)
             return new SuiteResult(tests, null);
 
         return new SuiteResult(List.of(), brokenSuite(dep, suiteName, problems, masterCounts));

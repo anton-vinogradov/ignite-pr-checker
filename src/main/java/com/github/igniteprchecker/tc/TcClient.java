@@ -143,7 +143,7 @@ public class TcClient {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
                 + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name),"
-                + "testOccurrences(count,muted),"
+                + "testOccurrences(count),"
                 + "problemOccurrences(problemOccurrence(type,details))))")), TcModel.Build.class);
     }
 
@@ -192,9 +192,9 @@ public class TcClient {
     /**
      * Failed test occurrences of a single build, muted ones left out. TeamCity does not fail a build on a
      * muted test and someone muted it on purpose, so it is never a PR's blocker; skipping it here, in
-     * every suite, is what keeps the count equal to TeamCity's own "Tests failed: N". Counting it only
-     * when its suite failed for another reason made the same muted test a candidate in one suite and
-     * invisible in the next.
+     * every suite, keeps a build's list equal to the failed count TeamCity shows for that build. Counting
+     * it only when its suite failed for another reason made the same muted test a candidate in one suite
+     * and invisible in the next.
      */
     public List<TcModel.TestOccurrence> getFailedTests(String token, long buildId) {
         TcModel.TestOccurrences occ = get("failedTests", token, url("app/rest/testOccurrences", query(
@@ -232,9 +232,10 @@ public class TcClient {
      * under review if it happened on the <em>same</em> revision as the failure. Asked for in this same
      * request, so classification can tell "passed on the same code" from "passed on older code".
      *
-     * <p>Muted runs are left out, as in {@link #getFailedTests}: a muted failure is no evidence the PR
+     * <p>Muted failures are left out, as in {@link #getFailedTests}: a muted failure is no evidence the PR
      * broke the test, and no pass either. Kept in, it would lengthen a blocker's fail streak and make
-     * an occurrence TeamCity ignores the "last finished run" the verdict is anchored to.
+     * an occurrence TeamCity ignores the "last finished run" the verdict is anchored to. The test's
+     * passes stay in: TeamCity records them as not muted even while the test is muted.
      */
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(

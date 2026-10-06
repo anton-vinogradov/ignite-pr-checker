@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,9 +37,11 @@ import org.junit.jupiter.api.Test;
  * counted 16: the muted {@code CacheConfigurationP2PTest} got in only because Cache 14 also failed
  * on another test, while the 7 muted failures of green suites were never looked at.
  *
- * <p>The checker talks to a stand-in for TeamCity that honours the two bits of its REST semantics the
- * rule relies on, both checked against ci2 on this very chain: a {@code muted:false} locator drops
- * muted occurrences, and a build's test summary carries its {@code muted} count only when asked for.
+ * <p>The checker talks to a stand-in for TeamCity that honours the bits of its REST semantics the rule
+ * runs into, all checked against ci2 on this very chain: a {@code muted:false} locator drops muted
+ * occurrences, a build's test summary carries its {@code muted} count only when asked for, and a red
+ * suite carries the problem it went red for. Muted failures are never that problem: Cache 14 failed one
+ * test and one muted, and its {@code TC_FAILED_TESTS} reads "1 failed test detected".
  */
 class MutedOccurrencesTest {
     private static final String TOK = "tok";
@@ -61,8 +65,9 @@ class MutedOccurrencesTest {
     @Test
     void aMutedFailureIsNoCandidateInARedSuiteJustAsInAGreenOne() {
         ci2.chain(9389046,
-            new Suite(9389005, "Cache14", "Cache 14", "FAILURE", 193, 1),
-            new Suite(9388938, "GreenSuite", "a green suite with 3 muted failures", "SUCCESS", 144, 3));
+            new Suite(9389005, "Cache14", "Cache 14", "FAILURE", 193,
+                new Problem("TC_FAILED_TESTS", "1 failed test detected")),
+            new Suite(9388938, "ContinuousQuery2", "Continuous Query 2", "SUCCESS", 144));
         ci2.occurrence(9389005, P2P, "CacheConfigurationP2PTest.testCacheConfigurationP2P", true);
         ci2.occurrence(9389005, READ_ONLY_DDL, "GridCacheSqlDdlClusterReadOnlyModeTest.testAlterTableAllowed", false);
         for (int i = 1; i <= 3; i++)
@@ -75,38 +80,39 @@ class MutedOccurrencesTest {
     }
 
     /**
-     * Skipping muted failures can leave a red suite with no candidates at all. It still ran its tests,
-     * so reporting it as broken — "failed without running tests" — would trade one wrong answer for another.
+     * A muted failure does not turn a suite red, so a red suite whose only failures are muted went red for
+     * another reason, and TeamCity names it: here the run's exit code. With its muted failures skipped it
+     * is a red suite without failed tests, and like any such suite it is reported as broken for that
+     * reason. Dropping it instead would make it vanish from the verdict without a trace.
      */
     @Test
-    void aRedSuiteWhoseOnlyFailuresAreMutedIsNotBroken() {
-        ci2.chain(999, new Suite(101, "RedSuite", "Red suite", "FAILURE", 120, 2));
+    void aRedSuiteWhoseOnlyFailuresAreMutedIsBrokenForTheReasonItWentRed() {
+        Problem exitCode = new Problem("TC_EXIT_CODE", "Process exited with code 1");
+        ci2.chain(999,
+            new Suite(101, "OnlyMutedFailed", "Suite with only muted failures", "FAILURE", 58, exitCode),
+            new Suite(102, "NoneFailed", "Suite without failed tests", "FAILURE", 58, exitCode));
         ci2.occurrence(101, -1, "MutedInRedSuite.test1", true);
         ci2.occurrence(101, -2, "MutedInRedSuite.test2", true);
 
         ChainCollector.Chain chain = collect(999);
 
         assertThat(chain.failedTests()).isEmpty();
-        assertThat(chain.brokenSuites()).isEmpty();
-    }
-
-    /** A suite that failed without a single failed test, muted or not, is still reported as broken. */
-    @Test
-    void aRedSuiteWithNoFailedTestsAtAllStaysBroken() {
-        ci2.chain(999, new Suite(102, "NoTestsSuite", "Suite that never got to its tests", "FAILURE", 0, 0));
-
-        ChainCollector.Chain chain = collect(999);
-
-        assertThat(chain.brokenSuites()).extracting(BrokenSuite::suiteBuildId).containsExactly(102L);
+        assertThat(chain.brokenSuites())
+            .extracting(BrokenSuite::suiteBuildId, BrokenSuite::problems, BrokenSuite::tests)
+            .containsExactlyInAnyOrder(
+                tuple(101L, List.of("non-zero exit code"), 58),
+                tuple(102L, List.of("non-zero exit code"), 58));
     }
 
     /**
-     * A muted run on the branch is no evidence either way. Suppose the test gets muted after the chain and
-     * a re-run of Cache 14 fails it muted. Read as a failure it would extend the blocker streak and anchor the
-     * verdict to an occurrence TeamCity itself ignores; read as a pass it would clear a real failure.
+     * A muted failure on the branch is no evidence either way. Suppose the test gets muted after the chain
+     * and a re-run of Cache 14 fails it muted. Read as a failure it would extend the blocker streak and
+     * anchor the verdict to an occurrence TeamCity itself ignores; read as a pass it would clear a real
+     * failure. The test's passes stay in: TeamCity records them with {@code muted:false} even while the
+     * test is muted.
      */
     @Test
-    void aMutedBranchRunIsLeftOutOfTheTestsBranchHistory() {
+    void aMutedBranchFailureIsLeftOutOfTheTestsBranchHistory() {
         ci2.occurrence(9389005, READ_ONLY_DDL, "GridCacheSqlDdlClusterReadOnlyModeTest.testAlterTableAllowed", false);
         ci2.occurrence(9390000, READ_ONLY_DDL, "GridCacheSqlDdlClusterReadOnlyModeTest.testAlterTableAllowed", true);
 
@@ -118,8 +124,12 @@ class MutedOccurrencesTest {
             .collectForBuild(TOK, PR, chainId, Executors.newSingleThreadExecutor());
     }
 
-    /** A suite build of the chain, with its test summary. */
-    private record Suite(long id, String buildTypeId, String name, String status, int tests, int muted) {
+    /** A suite build of the chain, with its test count and the problems it went red for. */
+    private record Suite(long id, String buildTypeId, String name, String status, int tests, Problem... problems) {
+    }
+
+    /** A build problem as TeamCity reports it. */
+    private record Problem(String type, String details) {
     }
 
     /** One failed occurrence of a test in a suite build of the PR branch. */
@@ -203,9 +213,13 @@ class MutedOccurrencesTest {
                 Map<String, Object> summary = new LinkedHashMap<>();
                 summary.put("count", s.tests());
                 if (withMuted)
-                    summary.put("muted", s.muted());
+                    summary.put("muted", occurrences.stream().filter(o -> o.buildId() == s.id() && o.muted()).count());
+                List<Map<String, String>> problems = Arrays.stream(s.problems())
+                    .map(p -> Map.of("type", p.type(), "details", p.details()))
+                    .toList();
                 deps.add(Map.of("id", s.id(), "buildTypeId", s.buildTypeId(), "status", s.status(),
-                    "state", "finished", "buildType", Map.of("name", s.name()), "testOccurrences", summary));
+                    "state", "finished", "buildType", Map.of("name", s.name()), "testOccurrences", summary,
+                    "problemOccurrences", Map.of("problemOccurrence", problems)));
             }
 
             return Map.of("id", id, "status", "FAILURE", "state", "finished", "branchName", "pull/" + PR + "/head",

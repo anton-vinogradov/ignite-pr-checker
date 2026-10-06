@@ -48,11 +48,12 @@ The one question the tool answers: **which tests did this PR actually break?**
   An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).
 - **Filtered out** — everything else, each with its reason (`pre-existing: fails 39/95 on master`,
   `passed on re-run`, …). Collapsed by default, so noise stays out of the way.
-- **Muted tests are skipped, in every suite.** A failure TeamCity recorded as muted is never a
-  candidate, whether its suite went red for another reason or stayed green, and a muted run is left
-  out of the test's branch strip: TeamCity does not fail a build on a muted test, and someone muted it
-  on purpose. The checker looks at exactly the failures TeamCity counts in its own *Tests failed: N*.
-  A red suite whose only failures are muted did run its tests, so it is not listed as broken either.
+- **Muted failures are skipped, in every suite.** A failure TeamCity recorded as muted is never a
+  candidate, whether its suite went red for another reason or stayed green, and it is left out of the
+  test's branch strip (the test's passes stay in): TeamCity does not fail a build on a muted test, and
+  someone muted it on purpose. TeamCity's own *Tests failed: N* leaves muted failures out the same way.
+  A red suite whose only failures are muted went red for some other reason, such as a non-zero exit
+  code, so it is listed under broken suites with that reason.
 - **Fewer tests than master** — a suite that ran noticeably fewer tests than the same suite runs on
   master gets its own card (`ran 57 tests · master runs 439 — −87%`). Tests that never ran can't
   fail, so a suite can look green while silently skipping coverage. The baseline is master's own
