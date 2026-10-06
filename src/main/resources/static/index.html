@@ -1102,7 +1102,10 @@
                 let hasDelta = false;
                 // only meaningful when the delta's latest run is the one on screen
                 if (d && d.latestBuildId === res.buildId && d.prevBuildId) {
-                    const names = list => list.map(t => shortTestName(t.name)).slice(0, 12).join('\n');
+                    // Per suite since #226: "fixed" on Clang reads wrong next to the same name still failing on
+                    // Linux unless the tooltip says which suite each entry is.
+                    const names = list => list.map(t => shortTestName(t.name) + ' — ' + (t.suiteName || t.suite))
+                        .slice(0, 12).join('\n');
                     const prevLink = 'previous run' + (tcBase
                         ? `<a class="ext" href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous run in TeamCity">TC</a>` : '');
                     const parts = [];
