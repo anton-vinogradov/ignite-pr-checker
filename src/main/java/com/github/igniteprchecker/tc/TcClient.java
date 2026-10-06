@@ -138,6 +138,25 @@ public class TcClient {
         return list == null || list.build() == null ? List.of() : list.build();
     }
 
+    /**
+     * The PR branch's finished FAILURE builds of any kind that started after the given chain did —
+     * the single-suite re-runs among them belong to no chain, so no dependency walk ever sees them.
+     * TeamCity's {@code sinceBuild} compares start times, not ids: the chain's own suites that started
+     * after it come back too, and callers tell them apart. Carries what a chain dependency carries, so
+     * a re-run is judged by the very same suite rules.
+     */
+    public List<TcModel.Build> failedBuildsStartedAfter(String token, int prNumber, long buildId) {
+        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,status:FAILURE"
+            + ",sinceBuild:(id:" + buildId + "),count:100";
+
+        TcModel.BuildList list = get("branchFailures", token, url("app/rest/builds", query(
+            "locator", locator,
+            "fields", "build(id,buildTypeId,status,state,buildType(name),testOccurrences(count),"
+                + "problemOccurrences(problemOccurrence(type,details)))")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
