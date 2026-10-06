@@ -66,8 +66,16 @@ public final class TcModel {
     public record SnapshotDeps(int count, List<Build> build) {
     }
 
+    /**
+     * A page of test occurrences, or a build's test summary. In a summary {@code count} includes the
+     * muted occurrences and {@code muted} is how many of them failed muted; TeamCity sends that count
+     * only when the fields ask for it, so it reads 0 otherwise.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TestOccurrences(int count, List<TestOccurrence> testOccurrence) {
+    public record TestOccurrences(int count, List<TestOccurrence> testOccurrence, int muted) {
+        public TestOccurrences(int count, List<TestOccurrence> testOccurrence) {
+            this(count, testOccurrence, 0);
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
