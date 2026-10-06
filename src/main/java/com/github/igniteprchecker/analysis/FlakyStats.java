@@ -60,7 +60,7 @@ public class FlakyStats implements SnapshotCache {
     void harvest() {
         for (AnalysisResult r : cache.freshResults()) {
             for (TestVerdict f : r.filtered()) {
-                HistoryStats h = cache.historyOf(f.testId()).orElse(null);
+                HistoryStats h = cache.historyOf(f.testId(), f.suite()).orElse(null);
                 if (h != null && h.fails() > 0) // fails on master (not merely a branch re-run pass)
                     record(f, h.fails(), h.runs(), r.prNumber());
             }

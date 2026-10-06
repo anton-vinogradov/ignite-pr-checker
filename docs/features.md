@@ -22,11 +22,15 @@ What Ignite PR Checker can do, screen by screen. The pictures are schematic mock
 
 The one question the tool answers: **which tests did this PR actually break?**
 
-- **Blockers** — failed in the PR's latest RunAll, clean in the last ~100 master runs, **and failing
-  consistently**: every one of the last N (default 3) finished branch runs failed, with no pass on the
-  same code. Grouped by suite; every name links straight to the failure in TeamCity.
+- **Blockers** — failed in the PR's latest RunAll, clean in the last ~100 master runs of the same
+  suite, **and failing consistently**: every one of the last N (default 3) finished branch runs of that
+  suite failed, with no pass on the same code. Grouped by suite; every name links straight to the
+  failure in TeamCity.
   "The same code" is matched on the **VCS revision each run's build ran on**: a pass from before the
   breaking commits is discounted (dimmed in the history strip), never read as "it passed on this code".
+  **Each suite is judged on its own.** One test can run in several suites of a chain (the C++ tests
+  run on Windows, Linux and Clang): a pass on another platform is not a re-run of the failure, and
+  another platform's master failures don't make it pre-existing.
 - **Recently started failing** — an amber card for tests the run cannot yet call either way: the
   current revision has too few runs to tell a real break from a flake (typically its first failure,
   with only older-code passes behind it). The suite is re-run automatically; a second failure on that
@@ -63,8 +67,10 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **Broken suites** — a suite without a reliable run (compilation error, **execution timeout,
   out-of-memory, JVM crash**, failed dependency) is surfaced in its own red card instead of silently
   vanishing — even when it *does* have failed tests: those are hang cascade, and some tests never ran.
-- Every test carries a **pass/fail strip** of its finished runs on the branch (oldest → newest). A
-  fail→pass transition earns a **flaky?** tag; a steady `▮▮▮` means a solid break.
+- Every test carries a **pass/fail strip** of its finished runs in its suite on the branch (oldest →
+  newest). A run where the test was **ignored** gets no bar: nothing passed or failed in it, so it
+  neither clears a failure nor counts as one. A fail→pass transition earns a **flaky?** tag; a steady
+  `▮▮▮` means a solid break.
 - **ai** (next to *why?*) — copies a **paste-ready fix prompt for a coding assistant**: the PR link
   and branch, the suite with its failed-run TC link, the full test name, the checker's verdict with
   the branch run history, the triage tag, the complete failure output, and concrete repro/fix steps.

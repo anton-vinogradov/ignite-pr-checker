@@ -198,28 +198,38 @@ public class TcClient {
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
     }
 
-    /** Recent master history of one test (up to {@code analysis.historyDepth} runs): just the statuses. */
-    public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId) {
+    /**
+     * Recent master history of one test in one suite (up to {@code analysis.historyDepth} runs): just
+     * the statuses. Per suite, because one test id runs in several suites of a chain (the C++ tests run
+     * on Windows, Linux and Clang) and each has its own failure rate: mixed together, a platform that
+     * flakes on master would make a clean break on another platform look pre-existing.
+     */
+    public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = get("history", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(default:true),count:" + analysis.historyDepth(),
+            "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:"
+                + analysis.historyDepth(),
             "fields", "testOccurrence(status)")), TcModel.TestOccurrences.class);
 
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
     }
 
     /**
-     * The test's <em>finished, non-cancelled</em> runs on the PR branch, oldest → newest (up to 100 —
-     * effectively every run of any real PR). The last element is the latest completed run (a blocker
-     * must still be FAILURE there — a passing re-run clears it); the whole sequence backs the
+     * The test's <em>finished, non-cancelled</em> runs in one suite on the PR branch, oldest → newest
+     * (up to 100 — effectively every run of any real PR). The last element is the latest completed run
+     * (a blocker must still be FAILURE there — a passing re-run clears it); the whole sequence backs the
      * per-blocker pass/fail history strip. One request.
+     *
+     * <p>Only that suite's runs: the same test id in a sibling suite of the chain is another platform's
+     * run, not a re-run, and taken for one, its pass would clear a real failure with a lower build id.
      *
      * <p>Each run carries the revision its build ran on: a pass only says something about the code
      * under review if it happened on the <em>same</em> revision as the failure. Asked for in this same
      * request, so classification can tell "passed on the same code" from "passed on older code".
      */
-    public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId) {
+    public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),count:100",
+            "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),buildType:(id:"
+                + buildTypeId + "),count:100",
             "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
                 + "revisions(revision(version))))")),
             TcModel.TestOccurrences.class);

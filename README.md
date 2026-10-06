@@ -32,7 +32,8 @@ A test that failed in your PR's latest **RunAll** is a **blocker** (broken *by y
 **all** of these hold:
 
 - **Clean on master** — it does **not** fail in the last `MASTER_HISTORY_DEPTH` (default **100**) runs of
-  that test on the base branch. Any failure there means it's pre-existing or flaky, not your fault →
+  that test **in the same suite** on the base branch (one test can run in several suites, e.g. the C++
+  tests on Windows, Linux and Clang). Any failure there means it's pre-existing or flaky, not your fault →
   filtered out as noise (with the reason shown).
 - **Fails consistently on the branch** — it fails in all of the last `BLOCKER_FAIL_STREAK` (default **3**)
   finished runs of its suite on the PR branch, with no pass in that window. A pass *on the same code*
@@ -57,7 +58,8 @@ While a newer RunAll is still running (or ended cancelled), results of its finis
 into the verdict live** — no waiting for the whole ~4-hour chain.
 
 Each blocker also shows a **pass/fail history strip** of its finished runs on the branch (green = passed,
-red = failed, oldest → newest) — like the bot's, but computed on the fly.
+red = failed, oldest → newest; a run where the test was ignored gets no bar) — like the bot's, but
+computed on the fly.
 
 Everything else is listed separately as filtered-out noise, each with the reason. History is read live
 from the TeamCity REST API; there is no datastore to maintain.

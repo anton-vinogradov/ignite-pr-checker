@@ -9,7 +9,8 @@ import com.fasterxml.jackson.annotation.JsonFormat;
  * @param watch      true if the test recently started failing on the branch but passed earlier (a fresh
  *                   break to watch, not yet a hard blocker); never true together with {@code blocker}.
  * @param reason     human-readable explanation of the verdict.
- * @param branchRuns pass/fail history on the PR branch, oldest → newest ('P'/'F' per finished run); "" if none.
+ * @param branchRuns pass/fail history in the test's suite on the PR branch, oldest → newest ('P'/'F' per
+ *                   finished run; a run where the test was ignored is left out); "" if none.
  * @param codeRuns   how many of the trailing {@code branchRuns} ran on the same revision as the latest one —
  *                   the runs the verdict is based on, the rest having run on other code. Equals the whole
  *                   strip when TeamCity gave no revisions; 0 when the verdict never needed to look.
@@ -34,5 +35,5 @@ public record TestVerdict(
      * deploy would show a stale verdict, or report the rule change as "new blockers since your last
      * run". Snapshot stores drop what does not match.
      */
-    public static final int RULES = 2;
+    public static final int RULES = 3;
 }
