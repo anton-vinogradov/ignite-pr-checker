@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The test-occurrence locators sent to TeamCity. One test id runs in several suites of a chain (the C++
- * tests of apache/ignite#13335 run on Windows, Linux and Clang), so the queries behind a verdict must
- * name the suite the test failed in.
+ * tests of apache/ignite#13335 run on Windows, Linux and Clang), so the queries behind a verdict and
+ * the master failures on the flaky board must name the suite the test failed in.
  */
 class TcClientTest {
     private static final long RECONNECT = 5272433775095107011L;
@@ -61,6 +61,14 @@ class TcClientTest {
     @Test
     void masterHistoryIsAskedForTheFailingSuiteOnly() {
         client().getBaseBranchHistory("tok", RECONNECT, CLANG);
+
+        assertThat(locators).singleElement().asString()
+            .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")");
+    }
+
+    @Test
+    void masterFailuresAreAskedForTheFailingSuiteOnly() {
+        client().masterFailures("tok", RECONNECT, CLANG);
 
         assertThat(locators).singleElement().asString()
             .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")");

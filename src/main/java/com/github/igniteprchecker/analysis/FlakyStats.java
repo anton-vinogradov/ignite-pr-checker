@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -26,9 +27,14 @@ import org.springframework.stereotype.Component;
  * A durable, accumulating record of tests that fail on master (the "fix master" queue). Unlike the
  * 15-minute analysis cache — which decays to nothing when nobody is using the app, so a live scan
  * would falsely report "master looks clean" — this store harvests each cached analysis into a
- * persisted, per-test tally that survives idle periods and restarts. Entries not re-observed within
+ * persisted tally that survives idle periods and restarts. Entries not re-observed within
  * {@link #RETAIN} are pruned (a test that got fixed drops off), so the list stays current without
  * vanishing between warm cycles.
+ *
+ * <p>The tally is kept per test and suite: one test id runs in several suites of a chain (the C++
+ * thin-client tests run on Windows, Linux and Clang), each with its own master fail rate and its own
+ * failed master runs. One row per test would show one platform's fail rate next to links to another
+ * platform's failures.
  */
 @Component
 public class FlakyStats implements SnapshotCache {
@@ -41,7 +47,7 @@ public class FlakyStats implements SnapshotCache {
     private final ObjectMapper mapper;
     private final TcClient tc;
     private final Warmer warmer;
-    private final ConcurrentMap<Long, Entry> byTest = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TestInSuite, Entry> byTestInSuite = new ConcurrentHashMap<>();
 
     public FlakyStats(AnalysisCache cache, ObjectMapper mapper, TcClient tc, Warmer warmer) {
         this.cache = cache;
@@ -80,7 +86,7 @@ public class FlakyStats implements SnapshotCache {
 
         int budget = 10;
         int strikes = 0;
-        for (Map.Entry<Long, Entry> me : byTest.entrySet()) {
+        for (Map.Entry<TestInSuite, Entry> me : byTestInSuite.entrySet()) {
             if (budget == 0)
                 return;
             Entry e = me.getValue();
@@ -90,7 +96,7 @@ public class FlakyStats implements SnapshotCache {
             }
             budget--;
             try {
-                List<MasterRef> refs = tc.masterFailures(token, me.getKey()).stream()
+                List<MasterRef> refs = tc.masterFailures(token, me.getKey().testId(), me.getKey().suite()).stream()
                     .map(o -> new MasterRef(o.build().id(), o.build().buildTypeId(), o.id()))
                     .toList();
                 synchronized (e) {
@@ -107,10 +113,9 @@ public class FlakyStats implements SnapshotCache {
     }
 
     private void record(TestVerdict f, int masterFails, int masterRuns, int pr) {
-        Entry e = byTest.computeIfAbsent(f.testId(), k -> new Entry());
+        Entry e = byTestInSuite.computeIfAbsent(new TestInSuite(f.testId(), f.suite()), k -> new Entry());
         synchronized (e) {
             e.name = f.name();
-            e.suite = f.suite();
             e.suiteName = f.suiteName();
             e.suiteBuildId = f.suiteBuildId();
             e.occurrenceId = f.occurrenceId();
@@ -122,16 +127,19 @@ public class FlakyStats implements SnapshotCache {
         }
     }
 
-    /** Recently-seen flaky/broken-on-master tests, worst master fail-rate first. Prunes stale entries. */
+    /**
+     * Recently-seen flaky/broken-on-master tests, a row per suite, worst master fail-rate first. Prunes
+     * stale entries.
+     */
     public List<TopFlaky> top(int limit) {
         long now = System.currentTimeMillis();
-        byTest.values().removeIf(e -> now - e.lastSeen > RETAIN);
+        byTestInSuite.values().removeIf(e -> now - e.lastSeen > RETAIN);
 
         List<TopFlaky> out = new ArrayList<>();
-        byTest.forEach((id, e) -> {
+        byTestInSuite.forEach((k, e) -> {
             synchronized (e) {
                 if (e.masterFails > 0)
-                    out.add(new TopFlaky(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
+                    out.add(new TopFlaky(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
                         e.branchRuns, e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList(),
                         e.masterFailures));
             }
@@ -145,9 +153,9 @@ public class FlakyStats implements SnapshotCache {
         return out.size() > limit ? out.subList(0, limit) : out;
     }
 
-    /** How many flaky/broken-on-master tests are currently tracked (to tell "no data yet" from "clean"). */
+    /** How many tests are currently tracked, once per suite (to tell "no data yet" from "clean"). */
     public int trackedCount() {
-        return byTest.size();
+        return byTestInSuite.size();
     }
 
     @Override
@@ -158,9 +166,9 @@ public class FlakyStats implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
-        byTest.forEach((id, e) -> {
+        byTestInSuite.forEach((k, e) -> {
             synchronized (e) {
-                snap.add(new Persisted(id, e.name, e.suite, e.suiteName, e.suiteBuildId, e.occurrenceId,
+                snap.add(new Persisted(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
                     e.branchRuns, e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList(),
                     e.masterFailures, e.masterAnchorAt));
             }
@@ -180,7 +188,6 @@ public class FlakyStats implements SnapshotCache {
                 continue;
             Entry e = new Entry();
             e.name = p.name();
-            e.suite = p.suite();
             e.suiteName = p.suiteName();
             e.suiteBuildId = p.suiteBuildId();
             e.occurrenceId = p.occurrenceId();
@@ -188,19 +195,23 @@ public class FlakyStats implements SnapshotCache {
             e.masterFails = p.masterFails();
             e.masterRuns = p.masterRuns();
             e.lastSeen = p.lastSeen();
-            if (p.masterFailures() != null)
-                e.masterFailures = p.masterFailures();
-            // A recent anchor timestamp with no failures list means a pre-list snapshot: re-anchor now.
-            e.masterAnchorAt = e.masterFailures.isEmpty() ? 0 : p.masterAnchorAt();
+            List<MasterRef> stored = p.masterFailures() == null ? List.of() : p.masterFailures();
+            // Snapshots from before the tally was kept per suite hold failures looked up in every suite.
+            e.masterFailures = stored.stream().filter(f -> Objects.equals(f.btId(), p.suite())).toList();
+            // Nothing to link (a pre-list snapshot) or other suites' failures dropped: re-anchor now.
+            e.masterAnchorAt = !e.masterFailures.isEmpty() && e.masterFailures.size() == stored.size()
+                ? p.masterAnchorAt() : 0;
             if (p.prs() != null)
                 e.prs.addAll(p.prs());
-            byTest.put(p.testId(), e);
+            byTestInSuite.put(new TestInSuite(p.testId(), p.suite()), e);
         }
+    }
+
+    private record TestInSuite(long testId, String suite) {
     }
 
     private static final class Entry {
         String name;
-        String suite;
         String suiteName;
         long suiteBuildId;
         String occurrenceId = "";
@@ -223,9 +234,10 @@ public class FlakyStats implements SnapshotCache {
     }
 
     /**
-     * A flaky/broken-on-master test: identity, master fail-rate ({@code masterFails}/{@code masterRuns}),
-     * how many/which open PRs recently hit it, and its latest occurrence (suite/build/occurrence) so the
-     * UI can link to the failure in TeamCity, expand "why", and draw the branch pass/fail strip.
+     * A flaky/broken-on-master test in one suite: identity, that suite's master fail-rate
+     * ({@code masterFails}/{@code masterRuns}) and failed master runs, how many/which open PRs recently hit
+     * it, and its latest occurrence (build/occurrence) so the UI can link to the failure in TeamCity,
+     * expand "why", and draw the branch pass/fail strip.
      */
     public record TopFlaky(
         @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,

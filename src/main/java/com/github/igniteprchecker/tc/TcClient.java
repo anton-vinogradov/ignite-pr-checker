@@ -303,13 +303,16 @@ public class TcClient {
     }
 
     /**
-     * The test's most recent master failures (occurrence + build, newest first, up to 5). Filtered
-     * client-side: a {@code status:FAILURE} locator only scans a shallow occurrence window, so it
+     * The test's most recent master failures in one suite (occurrence + build, newest first, up to 5).
+     * Filtered client-side: a {@code status:FAILURE} locator only scans a shallow occurrence window, so it
      * misses sparse flaky failures that the plain history query does see.
+     *
+     * <p>Per suite, as {@link #getBaseBranchHistory}: the flaky board links them next to that suite's
+     * fail rate, and a failure of the same test id on another platform is not a failure of this one.
      */
-    public List<TcModel.TestOccurrence> masterFailures(String token, long testId) {
+    public List<TcModel.TestOccurrence> masterFailures(String token, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(default:true),count:50",
+            "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:50",
             "fields", "testOccurrence(id,status,build(id,buildTypeId))")),
             TcModel.TestOccurrences.class);
 

@@ -211,8 +211,11 @@ The semantics, fixed:
 
 Tests the checker filters out because they **fail on master** — not any one PR's fault, but shared
 noise. Ranked by master fail-rate (worst first) with the count of open PRs each one is currently
-noising. The tally is accumulated and persisted, so it survives restarts and idle periods; a test
-drops off ~14 days after it stops failing. Public — no login needed to read it.
+noising. A test that runs in several suites (the C++ tests run on Windows, Linux and Clang) gets a
+row per suite, labelled with the suite name: each row shows that suite's master fail-rate and links
+that suite's failed master runs, never another platform's. The tally is accumulated and persisted,
+so it survives restarts and idle periods; a test drops off ~14 days after it stops failing. Public —
+no login needed to read it.
 
 ## The status page (`/status.html`)
 
