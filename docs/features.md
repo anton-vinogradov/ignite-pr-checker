@@ -30,7 +30,9 @@ The one question the tool answers: **which tests did this PR actually break?**
   breaking commits is discounted (dimmed in the history strip), never read as "it passed on this code".
   **Each suite is judged on its own.** One test can run in several suites of a chain (the C++ tests
   run on Windows, Linux and Clang): a pass on another platform is not a re-run of the failure, and
-  another platform's master failures don't make it pre-existing.
+  another platform's master failures don't make it pre-existing. A test that failed in several
+  suites is listed in each of them with that suite's own verdict, so a Windows re-run that passed
+  doesn't hide a steady break on Linux.
 - **Recently started failing** — an amber card for tests the run cannot yet call either way: the
   current revision has too few runs to tell a real break from a flake (typically its first failure,
   with only older-code passes behind it). The suite is re-run automatically; a second failure on that
@@ -99,14 +101,15 @@ The one question the tool answers: **which tests did this PR actually break?**
 - The blockers card has two views: **Suites** (default) and **Root causes** — the same blockers
   regrouped by failure signature, each cause a collapsible with its suites and tests inside.
   Hundreds of tests usually collapse into a handful of causes; a suite broken by two different
-  things simply appears under both.
+  things simply appears under both, as does a test that fails one way on Linux and another on Windows.
 - `IGNITE-XXXXX` in the PR title links to the ASF JIRA issue.
 
 ## Iterating on a fix
 
 - **vs previous run: +2 new · −3 fixed · 5 persisting** — the delta against the PR's previous RunAll
   (test names in the tooltips), next to a **trend sparkline**: one bar per run, red while blockers
-  remain, green at zero.
+  remain, green at zero. A blocker is a test in a suite: a test fixed on Linux counts as fixed there
+  even while Windows still fails it.
 - **Re-runs without leaving the page**: the whole `RunAll`, any **section** (broken suites, blockers,
   recently-started, filtered) or one suite — each *plain* or *at the top of the queue*. Live
   **queued / running** chips appear on the affected suites and in the `runs:` row, each carrying

@@ -1184,12 +1184,14 @@
                 if (!lastResult || lastResult.buildId !== buildId || !causesCache.data) return; // superseded
             }
             const d = causesCache.data;
-            const byId = new Map(lastResult.blockers.map(t => [String(t.testId), t]));
+            // A test can be a blocker in several suites, each failing its own way: test id + suite is one blocker.
+            const blockerKey = t => t.testId + '@' + (t.suite || '');
+            const byKey = new Map(lastResult.blockers.map(t => [blockerKey(t), t]));
             const used = new Set();
             const blocks = [];
             for (const c of d.clusters) {
-                const tests = (c.testIds || []).map(id => byId.get(String(id))).filter(Boolean);
-                for (const t of tests) used.add(String(t.testId));
+                const tests = (c.tests || []).map(m => byKey.get(blockerKey(m))).filter(Boolean);
+                for (const t of tests) used.add(blockerKey(t));
                 if (!tests.length) continue;
                 const suites = new Set(tests.map(t => t.suiteBuildId));
                 blocks.push({
@@ -1198,7 +1200,7 @@
                     tests, open: blocks.length === 0
                 });
             }
-            const rest = lastResult.blockers.filter(t => !used.has(String(t.testId)));
+            const rest = lastResult.blockers.filter(t => !used.has(blockerKey(t)));
             if (rest.length)
                 blocks.push({
                     head: `<span class="cnt">${rest.length}×</span> <span class="sig">not sampled</span>`

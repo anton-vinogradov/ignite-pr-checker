@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.analysis;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.tc.TcClient;
@@ -50,8 +51,8 @@ public class CauseClusters {
         List<TestVerdict> blockers = res.blockers();
         List<TestVerdict> sample = blockers.size() > SAMPLE_CAP ? blockers.subList(0, SAMPLE_CAP) : blockers;
 
-        List<Callable<String[]>> tasks = sample.stream()
-            .<Callable<String[]>>map(v -> () -> {
+        List<Callable<Hit>> tasks = sample.stream()
+            .<Callable<Hit>>map(v -> () -> {
                 String details;
                 try {
                     details = v.occurrenceId() == null ? null : tc.testDetails(token, v.occurrenceId());
@@ -59,13 +60,13 @@ public class CauseClusters {
                 catch (RuntimeException e) {
                     details = null; // one missing message must not sink the clustering
                 }
-                return new String[] {signature(details), String.valueOf(v.testId())};
+                return new Hit(signature(details), new Member(v.testId(), v.suite()));
             })
             .toList();
 
-        Map<String, List<String>> bySignature = new LinkedHashMap<>();
-        for (String[] r : Parallel.run(pool, tasks))
-            bySignature.computeIfAbsent(r[0], k -> new ArrayList<>()).add(r[1]);
+        Map<String, List<Member>> bySignature = new LinkedHashMap<>();
+        for (Hit h : Parallel.run(pool, tasks))
+            bySignature.computeIfAbsent(h.signature(), k -> new ArrayList<>()).add(h.member());
 
         List<Cluster> clusters = bySignature.entrySet().stream()
             .map(e -> new Cluster(e.getKey(), e.getValue().size(), List.copyOf(e.getValue())))
@@ -93,8 +94,19 @@ public class CauseClusters {
         return line.length() > 160 ? line.substring(0, 160) + "…" : line;
     }
 
-    /** One root cause: the shared failure signature and the blockers (test-name ids) that hit it. */
-    public record Cluster(String signature, int count, List<String> testIds) {
+    /** One root cause: the shared failure signature and the blockers that hit it. */
+    public record Cluster(String signature, int count, List<Member> tests) {
+    }
+
+    /**
+     * A blocker in a cluster: its test and the suite it failed in. One test can be a blocker in several
+     * suites, each failing its own way, so the test id alone can't say which of them hit this cause.
+     */
+    public record Member(@JsonFormat(shape = JsonFormat.Shape.STRING) long testId, String suite) {
+    }
+
+    /** One sampled blocker's failure signature. */
+    private record Hit(String signature, Member member) {
     }
 
     /** Clustering outcome: total blockers, how many were sampled for messages, and all clusters by size. */

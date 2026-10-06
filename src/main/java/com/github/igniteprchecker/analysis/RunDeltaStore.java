@@ -35,9 +35,9 @@ public class RunDeltaStore implements SnapshotCache {
 
     /** Record a computed result: a new build id shifts the previous run down, a recompute updates in place. */
     public void onResult(int pr, long buildId, List<TestVerdict> blockers, int brokenSuites) {
-        Map<Long, Ref> snapshot = new LinkedHashMap<>();
+        Map<String, Ref> snapshot = new LinkedHashMap<>();
         for (TestVerdict b : blockers)
-            snapshot.put(b.testId(), new Ref(b.name(), b.suite(), b.suiteName()));
+            snapshot.put(b.testId() + "@" + b.suite(), new Ref(b.name(), b.suite(), b.suiteName()));
 
         Snap snap = new Snap(buildId, snapshot);
         Point point = new Point(buildId, System.currentTimeMillis(), blockers.size(), brokenSuites);
@@ -93,13 +93,13 @@ public class RunDeltaStore implements SnapshotCache {
         List<ChangedTest> fixed = new ArrayList<>();
         int persisting = 0;
 
-        for (Map.Entry<Long, Ref> b : latest.blockers().entrySet()) {
+        for (Map.Entry<String, Ref> b : latest.blockers().entrySet()) {
             if (prev.blockers().containsKey(b.getKey()))
                 persisting++;
             else
                 appeared.add(changed(b.getValue()));
         }
-        for (Map.Entry<Long, Ref> b : prev.blockers().entrySet()) {
+        for (Map.Entry<String, Ref> b : prev.blockers().entrySet()) {
             if (!latest.blockers().containsKey(b.getKey()))
                 fixed.add(changed(b.getValue()));
         }
@@ -155,8 +155,11 @@ public class RunDeltaStore implements SnapshotCache {
         final List<Point> history = new ArrayList<>();
     }
 
-    /** One run's blocker set: build id + test id -> identity. */
-    record Snap(long buildId, Map<Long, Ref> blockers) {
+    /**
+     * One run's blocker set: build id + {@code testId@suite} -> identity. A test failing in several suites
+     * is a blocker in each, and one suite getting fixed is a fixed blocker while the others still fail.
+     */
+    record Snap(long buildId, Map<String, Ref> blockers) {
     }
 
     record Ref(String name, String suite, String suiteName) {
