@@ -35,6 +35,13 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BlockerAnalyzer {
+    /**
+     * How far before an analysis starts its branch watermark is set. TeamCity stamps finish dates with
+     * its own clock, which may run a little ahead of ours: a watermark set too early costs one more
+     * recompute, one set too late silently misses a re-run. Well below the warm interval, so it settles.
+     */
+    private static final long WATERMARK_MARGIN_SECONDS = 60;
+
     private final TcClient tc;
     private final ChainCollector chains;
     private final AnalysisProperties cfg;
@@ -144,7 +151,7 @@ public class BlockerAnalyzer {
             return false;
 
         Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
-        if (cached.isPresent() && !branchMovedSince(token, prNumber, cached.get())) {
+        if (cached.isPresent() && !branchMovedSince(token, prNumber, cached.get(), false)) {
             // The warm cycle (10 min) is shorter than the TTL (15 min), but a skip used to leave the
             // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
             // cold compute. Touching on skip keeps the warmed set permanently hot.
@@ -158,21 +165,55 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * Whether the branch has finished a build the cached verdict never saw. A suite re-run is exactly
-     * that: same chain, later evidence, different answer — and a PR whose blockers were fixed by a
-     * re-run kept showing them until someone opened it (the standing sweep recomputes on its own, so
-     * the posted comment was right while the page was not). Costs one cheap call per PR per cycle.
+     * Whether the branch has finished a build the cached verdict may never have seen. A suite re-run is
+     * exactly that: same chain, later evidence, different answer — and a PR whose blockers were fixed
+     * by a re-run kept showing them until someone opened it. Costs one cheap call. {@code onError} is
+     * the answer when TeamCity can't be asked: the warm cycle says no, since a blip must not turn it
+     * into a full recompute storm; whatever is about to act on the verdict says yes.
      */
-    private boolean branchMovedSince(String token, int prNumber, AnalysisResult cached) {
-        if (cached.branchWatermark() <= 0)
+    private boolean branchMovedSince(String token, int prNumber, AnalysisResult cached, boolean onError) {
+        if (cached.branchWatermarkAt() <= 0)
             return true; // computed before this was recorded: recompute once, then it settles
 
         try {
-            return tc.latestFinishedBranchBuild(token, prNumber).orElse(0L) > cached.branchWatermark();
+            return tc.branchFinishedAfter(token, prNumber, cached.branchWatermarkAt());
         }
         catch (RuntimeException e) {
-            return false; // a TeamCity blip must not turn the warm cycle into a full recompute storm
+            return onError;
         }
+    }
+
+    /**
+     * The verdict to act on: the standing sweep picks the suites to re-run from it and posts it as the
+     * visa and the PR comment. {@link #analyze} serves whatever is cached and refreshes it in the
+     * background, which suits a page but not an action. On PR 13335 the sweep re-ran the suites of a
+     * verdict cached while the chain was still running, so the suite that failed last was left out of
+     * the first wave and got one attempt instead of two. The cached result is used only if the chain
+     * had finished when it was read ({@code finishedAt} comes from TeamCity itself, so no clocks are
+     * compared) and nothing finished on the branch since; otherwise the verdict is computed now.
+     */
+    public Optional<AnalysisResult> analyzeForAction(String token, int prNumber) {
+        Optional<Long> buildId = chains.findBuildId(token, prNumber);
+        if (buildId.isEmpty())
+            return Optional.empty();
+
+        long bid = buildId.get();
+        Optional<AnalysisResult> cached = cache.peekResult(bid);
+        if (cached.isPresent() && cached.get().finishedAt() > 0
+            && !branchMovedSince(token, prNumber, cached.get(), true)) {
+            cache.touchResult(bid);
+            rememberVerdict(prNumber, cached.get());
+
+            return cached;
+        }
+
+        AnalysisResult fresh = computeAndStore(token, prNumber, bid, bgPool);
+        // A compute already under way for this build is shared, and it may have read the chain before
+        // the chain finished.
+        if (fresh.finishedAt() == 0)
+            fresh = computeAndStore(token, prNumber, bid, bgPool);
+
+        return Optional.of(fresh);
     }
 
     /**
@@ -198,15 +239,6 @@ public class BlockerAnalyzer {
     /** Progress of an in-flight compute for this PR ({@code done}/{@code total} failed tests), or null. */
     public Progress progressOf(int prNumber) {
         return progress.values().stream().filter(p -> p.pr() == prNumber).findFirst().orElse(null);
-    }
-
-    private long latestBranchBuild(String token, int prNumber) {
-        try {
-            return tc.latestFinishedBranchBuild(token, prNumber).orElse(0L);
-        }
-        catch (RuntimeException e) {
-            return 0L; // unknown watermark = "recompute next cycle", the safe side
-        }
     }
 
     private boolean isStale(AnalysisResult r) {
@@ -263,6 +295,9 @@ public class BlockerAnalyzer {
     }
 
     private AnalysisResult doCompute(String token, int prNumber, long buildId, ExecutorService taskPool) {
+        // Taken before anything is read: a build that finishes while this runs may be missing from the
+        // verdict, so it must count as unseen and cost one more recompute rather than be claimed.
+        long watermarkAt = System.currentTimeMillis() / 1000 - WATERMARK_MARGIN_SECONDS;
         ChainCollector.Chain chain = chains.collectForBuild(token, prNumber, buildId, taskPool);
 
         Progress prog = new Progress(prNumber, chain.failedTests().size(), new AtomicInteger());
@@ -289,10 +324,7 @@ public class BlockerAnalyzer {
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId(),
-            chain.queuedAt(), chain.startedAt(), chain.finishedAt(),
-            // Read after the analysis, so a build that finished while it ran is not silently claimed
-            // as accounted for; at worst this recomputes once more.
-            latestBranchBuild(token, prNumber));
+            chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt);
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);

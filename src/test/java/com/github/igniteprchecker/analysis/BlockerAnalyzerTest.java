@@ -2,6 +2,7 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -318,15 +319,44 @@ class BlockerAnalyzerTest {
     @Test
     void warmRecomputesWhenTheBranchFinishedBuildsTheVerdictNeverSaw() {
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
-        when(tc.latestFinishedBranchBuild(TOK, 42)).thenReturn(Optional.of(1000L));
+        when(tc.branchFinishedAfter(eq(TOK), eq(42), anyLong())).thenReturn(false);
         when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
             "pull/42/head", List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
 
         assertThat(analyzer.warm(TOK, 42)).as("first warm computes").isTrue();
         assertThat(analyzer.warm(TOK, 42)).as("nothing moved on the branch: the cached verdict stands").isFalse();
 
-        when(tc.latestFinishedBranchBuild(TOK, 42)).thenReturn(Optional.of(1001L)); // a suite re-ran
+        when(tc.branchFinishedAfter(eq(TOK), eq(42), anyLong())).thenReturn(true); // a suite re-ran
         assertThat(analyzer.warm(TOK, 42)).as("a build the verdict never saw must trigger a recompute").isTrue();
+    }
+
+    /** The watermark is the analysis start, less the skew margin — not the moment the result is stored. */
+    @Test
+    void theWatermarkIsTakenBeforeTheAnalysisReadsAnything() {
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        long[] readAt = new long[1];
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenAnswer(inv -> {
+            readAt[0] = System.currentTimeMillis() / 1000;
+            Thread.sleep(1100); // a slow analysis: stamping at the end would land a second later
+            return new ChainCollector.Chain(999, "pull/42/head", List.of(), List.of(), List.of(), 0, 0, false, 0,
+                false, 0, 0, 0, 0);
+        });
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.branchWatermarkAt()).isBetween(readAt[0] - 62, readAt[0] - 60);
+    }
+
+    /** A blip asking TeamCity must not make every warm cycle recompute every PR. */
+    @Test
+    void warmKeepsTheVerdictWhenTeamCityCannotSayWhetherTheBranchMoved() {
+        when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
+        when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
+            "pull/42/head", List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
+        analyzer.warm(TOK, 42);
+        when(tc.branchFinishedAfter(eq(TOK), eq(42), anyLong())).thenThrow(new IllegalStateException("ci2 timeout"));
+
+        assertThat(analyzer.warm(TOK, 42)).isFalse();
     }
 
     @Test
