@@ -1102,7 +1102,10 @@
                 let hasDelta = false;
                 // only meaningful when the delta's latest run is the one on screen
                 if (d && d.latestBuildId === res.buildId && d.prevBuildId) {
-                    const names = list => list.map(t => shortTestName(t.name)).slice(0, 12).join('\n');
+                    // Per suite since #226: "fixed" on Clang reads wrong next to the same name still failing on
+                    // Linux unless the tooltip says which suite each entry is.
+                    const names = list => list.map(t => shortTestName(t.name) + ' — ' + (t.suiteName || t.suite))
+                        .slice(0, 12).join('\n');
                     const prevLink = 'previous run' + (tcBase
                         ? `<a class="ext" href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous run in TeamCity">TC</a>` : '');
                     const parts = [];
@@ -1184,12 +1187,14 @@
                 if (!lastResult || lastResult.buildId !== buildId || !causesCache.data) return; // superseded
             }
             const d = causesCache.data;
-            const byId = new Map(lastResult.blockers.map(t => [String(t.testId), t]));
+            // A test can be a blocker in several suites, each failing its own way: test id + suite is one blocker.
+            const blockerKey = t => t.testId + '@' + (t.suite || '');
+            const byKey = new Map(lastResult.blockers.map(t => [blockerKey(t), t]));
             const used = new Set();
             const blocks = [];
             for (const c of d.clusters) {
-                const tests = (c.testIds || []).map(id => byId.get(String(id))).filter(Boolean);
-                for (const t of tests) used.add(String(t.testId));
+                const tests = (c.tests || []).map(m => byKey.get(blockerKey(m))).filter(Boolean);
+                for (const t of tests) used.add(blockerKey(t));
                 if (!tests.length) continue;
                 const suites = new Set(tests.map(t => t.suiteBuildId));
                 blocks.push({
@@ -1198,7 +1203,7 @@
                     tests, open: blocks.length === 0
                 });
             }
-            const rest = lastResult.blockers.filter(t => !used.has(String(t.testId)));
+            const rest = lastResult.blockers.filter(t => !used.has(blockerKey(t)));
             if (rest.length)
                 blocks.push({
                     head: `<span class="cnt">${rest.length}×</span> <span class="sig">not sampled</span>`

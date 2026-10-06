@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Walks the RunAll chain build for a PR into its dependency suites and collects the failed tests
- * across all of them, and across the suites re-run on their own since (deduplicated by test id). The
- * per-suite lookups run in parallel.
+ * across all of them, and across the suites re-run on their own since (one candidate per test and
+ * suite). The per-suite lookups run in parallel.
  */
 @Component
 public class ChainCollector {
@@ -110,12 +110,12 @@ public class ChainCollector {
 
         List<FailedTest> failed = new ArrayList<>();
         List<BrokenSuite> broken = new ArrayList<>();
-        Set<Long> seen = new HashSet<>();
+        Set<Candidate> seen = new HashSet<>();
         for (SuiteResult r : Parallel.run(pool, tasks)) {
             if (r.broken() != null)
                 broken.add(r.broken());
             for (FailedTest ft : r.tests()) {
-                if (seen.add(ft.testId()))
+                if (seen.add(new Candidate(ft.testId(), ft.suite())))
                     failed.add(ft);
             }
         }
@@ -146,7 +146,7 @@ public class ChainCollector {
                 if (r.broken() != null && broken.stream().noneMatch(b -> b.suiteBuildId() == r.broken().suiteBuildId()))
                     broken.add(r.broken());
                 for (FailedTest ft : r.tests())
-                    if (seen.add(ft.testId()))
+                    if (seen.add(new Candidate(ft.testId(), ft.suite())))
                         failed.add(ft);
             }
         }
@@ -156,7 +156,7 @@ public class ChainCollector {
             if (r.broken() != null)
                 supersedeBroken(broken, r.broken());
             for (FailedTest ft : r.tests())
-                if (seen.add(ft.testId()))
+                if (seen.add(new Candidate(ft.testId(), ft.suite())))
                     failed.add(ft);
         }
 
@@ -336,6 +336,16 @@ public class ChainCollector {
 
     /** One FAILURE suite's outcome: its failed tests, or (when there are none) why it broke. */
     private record SuiteResult(List<FailedTest> tests, BrokenSuite broken) {
+    }
+
+    /**
+     * What makes a failure a candidate of its own: the test, in the suite it failed in. One test id runs
+     * in several suites of a chain (the C++ tests run on Windows, Linux and Clang), and each suite's
+     * failure is judged by that suite's runs and master history, so another suite's failure of the same
+     * test must not stand in for it. A re-run of the same suite failing it again adds no candidate: it is
+     * one of the runs that candidate is judged by.
+     */
+    private record Candidate(long testId, String suite) {
     }
 
     private static List<TcModel.Build> depBuilds(TcModel.Build build) {
