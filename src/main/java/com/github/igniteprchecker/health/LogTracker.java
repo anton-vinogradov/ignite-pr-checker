@@ -87,11 +87,11 @@ public class LogTracker extends AppenderBase<ILoggingEvent> {
             clientMistakes.incrementAndGet();
         else if (level == Level.ERROR) {
             errors.incrementAndGet();
-            lastErrorAt.set(e.getTimeStamp());
+            lastErrorAt.accumulateAndGet(e.getTimeStamp(), Math::max);
         }
         else {
             warnings.incrementAndGet();
-            lastWarningAt.set(e.getTimeStamp());
+            lastWarningAt.accumulateAndGet(e.getTimeStamp(), Math::max);
         }
 
         recent.addFirst(new Entry(e.getTimeStamp(), level.toString(), shortName(e.getLoggerName()), msg, client));
