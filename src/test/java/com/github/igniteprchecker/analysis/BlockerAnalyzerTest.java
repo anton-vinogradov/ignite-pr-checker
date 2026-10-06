@@ -244,6 +244,50 @@ class BlockerAnalyzerTest {
     }
 
     /**
+     * Master history lists ignored runs (UNKNOWN) as well. The test did not run there, so they are no
+     * master runs of it: counted, three real runs read "not seen failing in 100 master run(s)".
+     */
+    @Test
+    void ignoredMasterRunsAreNotCountedAsMasterRuns() {
+        singleFailure(1L);
+        when(tc.getBaseBranchHistory(TOK, 1L, "CalciteSql2"))
+            .thenReturn(concat(repeat("UNKNOWN", 97), repeat("SUCCESS", 3)));
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(run("FAILURE", 9244697L, "3fdf4460a9c")));
+
+        TestVerdict v = verdict(analyzer.analyze(TOK, 42).orElseThrow(), 1L);
+
+        assertThat(v.reason()).isEqualTo("not seen failing in 3 master run(s); failed the only run on this branch");
+        assertThat(v.blocker()).isTrue();
+    }
+
+    /** A test ignored in every master run of the window has no master history to prove it pre-existing by. */
+    @Test
+    void aTestIgnoredInEveryMasterRunHasNoMasterHistory() {
+        singleFailure(1L);
+        when(tc.getBaseBranchHistory(TOK, 1L, "CalciteSql2")).thenReturn(repeat("UNKNOWN", 100));
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(run("FAILURE", 9244697L, "3fdf4460a9c")));
+
+        TestVerdict v = verdict(analyzer.analyze(TOK, 42).orElseThrow(), 1L);
+
+        assertThat(v.reason())
+            .isEqualTo("no master history (can't prove pre-existing); failed the only run on this branch");
+        assertThat(v.blocker()).isTrue();
+    }
+
+    /** One real master failure among ignored runs still makes the test pre-existing, out of its real runs. */
+    @Test
+    void aMasterFailureAmongIgnoredRunsStillMakesItPreExisting() {
+        singleFailure(1L);
+        when(tc.getBaseBranchHistory(TOK, 1L, "CalciteSql2"))
+            .thenReturn(concat(repeat("UNKNOWN", 96), repeat("FAILURE", 1), repeat("SUCCESS", 3)));
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(r.blockers()).isEmpty();
+        assertThat(only(r.filtered()).reason()).isEqualTo("pre-existing: fails 1/4 on master");
+    }
+
+    /**
      * The runs of a test in sibling suites are not re-runs of it. With the failing Clang build holding
      * the lowest id of the three, the Windows pass read as "passed on re-run", dropped the failure and
      * anchored the row on the Windows build.
