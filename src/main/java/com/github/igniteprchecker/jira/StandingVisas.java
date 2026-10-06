@@ -44,6 +44,7 @@ import org.springframework.stereotype.Component;
 public class StandingVisas implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(StandingVisas.class);
     private static final Pattern ISSUE = Pattern.compile("IGNITE-\\d+");
+    private static final Pattern PR_BRANCH = Pattern.compile("pull/(\\d+)/head");
 
     private final ObjectMapper mapper;
     private final SessionCodec codec;
@@ -420,7 +421,7 @@ public class StandingVisas implements SnapshotCache {
         });
     }
 
-    private void earlyRerun(RerunTracker.SuiteFailedMidRun ev) {
+    void earlyRerun(RerunTracker.SuiteFailedMidRun ev) {
         if (enrolled.isEmpty())
             return;
 
@@ -443,7 +444,12 @@ public class StandingVisas implements SnapshotCache {
         if (tcToken.isEmpty())
             return;
 
+        // The cached verdict of a running chain is usually older than the failure just announced, and
+        // the announcement comes once: judged by a verdict that never saw the suite fail, it would look
+        // innocent and the early re-run would be lost for good.
         Optional<AnalysisResult> res = analyzer.analyze(tcToken.get(), ev.pr());
+        if (res.isPresent() && !sawRun(res.get(), ev.suiteBuildId()))
+            res = analyzer.analyzeAfterNow(tcToken.get(), ev.pr());
         if (res.isEmpty() || !worthRerunning(res.get(), ev.suite()))
             return;
 
@@ -464,6 +470,44 @@ public class StandingVisas implements SnapshotCache {
             r != null && r.buildId() == ev.chainBuildId() ? r.note() : null));
         log.info("early re-run of {} for PR {} queued at top (chain {} still running, build {})",
             ev.suiteName(), ev.pr(), ev.chainBuildId(), b.id());
+    }
+
+    /**
+     * Hands the running RunAll chains of users with auto re-run on to the rerun tracker: its watch is
+     * what raises {@link RerunTracker.SuiteFailedMidRun}, and on its own it only knew the chains the
+     * checker had started or someone had open on the PR page. A chain started from the TeamCity UI ran
+     * unwatched, so its failed suites waited for the settled pass. One call covers every running
+     * chain; a suite that failed before the sweep saw its chain is still announced on the tracker's
+     * first look, so the sweep's period can delay such an early re-run but never loses it.
+     */
+    private void watchRunningChains(String lookupToken) {
+        java.util.Set<String> rerunners = new java.util.HashSet<>();
+        enrolled.forEach((user, e) -> {
+            if (e.autoRerun())
+                rerunners.add(user);
+        });
+        if (rerunners.isEmpty())
+            return; // nobody to re-run for: not worth a TeamCity call
+
+        try {
+            for (TcModel.Build chain : tc.runningRunAllChains(lookupToken)) {
+                Matcher pr = chain.branchName() == null ? null : PR_BRANCH.matcher(chain.branchName());
+                String who = chain.triggered() == null || chain.triggered().user() == null
+                    ? null : chain.triggered().user().username();
+                if (pr != null && pr.matches() && rerunners.contains(who))
+                    rerunTracker.record(Integer.parseInt(pr.group(1)), chain);
+            }
+        }
+        catch (RuntimeException e) {
+            log.warn("running RunAll chains not handed to the rerun tracker this sweep: {}", e.toString());
+        }
+    }
+
+    /** Whether the analysis has looked at this suite build: something in it is anchored there. */
+    private static boolean sawRun(AnalysisResult r, long suiteBuildId) {
+        return java.util.stream.Stream.of(r.blockers(), r.watch(), r.filtered())
+            .flatMap(List::stream).anyMatch(v -> v.suiteBuildId() == suiteBuildId)
+            || r.brokenSuites().stream().anyMatch(b -> b.suiteBuildId() == suiteBuildId);
     }
 
     /** Whether the analysis blames this suite for something a re-run can settle. */
@@ -491,6 +535,8 @@ public class StandingVisas implements SnapshotCache {
         Optional<String> lookupToken = codec.decryptString(any.getValue().tcToken());
         if (lookupToken.isEmpty())
             return;
+
+        watchRunningChains(lookupToken.get());
 
         int posted = 0;
         for (PrSummary pr : github.openPrs()) {

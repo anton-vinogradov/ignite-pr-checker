@@ -164,6 +164,22 @@ public class TcClient {
     }
 
     /**
+     * Every RunAll chain running right now, across all branches, in one call — with who started it
+     * and what {@link RerunTracker#record} needs to watch it. {@code branch:(default:any)} is spelled
+     * out so the answer never depends on TeamCity's default-branch filter.
+     */
+    public List<TcModel.Build> runningRunAllChains(String token) {
+        String locator = "buildType:(id:" + analysis.runAllBuildType() + "),branch:(default:any),state:running,count:100";
+
+        TcModel.BuildList list = get("runningChains", token, url("app/rest/builds", query(
+            "locator", locator,
+            "fields", "build(id,state,branchName,buildTypeId,webUrl,buildType(name),triggered(type,user(username)))")),
+            TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
      * What a suite run is judged by. A chain's dependency and a re-run outside any chain are fetched
      * with the same fields, so the same suite rules see the same facts about both.
      */
