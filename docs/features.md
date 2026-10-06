@@ -33,6 +33,9 @@ The one question the tool answers: **which tests did this PR actually break?**
   another platform's master failures don't make it pre-existing. A test that failed in several
   suites is listed in each of them with that suite's own verdict, so a Windows re-run that passed
   doesn't hide a steady break on Linux.
+  A master run where the test was **ignored** doesn't count: the test did not run there. The reason
+  names real runs only (`not seen failing in 3 master run(s)`), and a test ignored in all of them
+  gets *no master history (can't prove pre-existing)*.
 - **Recently started failing** — an amber card for tests the run cannot yet call either way: the
   current revision has too few runs to tell a real break from a flake (typically its first failure,
   with only older-code passes behind it). The suite is re-run automatically; a second failure on that
