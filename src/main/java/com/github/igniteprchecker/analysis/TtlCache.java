@@ -96,7 +96,7 @@ final class TtlCache<K, V> {
 
     /**
      * Repopulate from a snapshot, giving every entry a FRESH TTL rather than honouring the stored
-     * expiry. The entries are keyed by immutable identities (a build's result never changes), so an
+     * expiry. Only for entries keyed by immutable identities (a build's result never changes): an
      * "expired" snapshot entry is still correct — reviving it turns a redeploy's cold-start burst
      * into cache hits; staleness is handled by the serve-path refresh and the build-id change check.
      */
@@ -105,6 +105,20 @@ final class TtlCache<K, V> {
 
         for (Snapshot<K, V> s : entries)
             map.put(s.key(), new Entry<>(s.value(), freshExpiry));
+    }
+
+    /**
+     * Repopulate from a snapshot, keeping each entry's stored expiry and dropping the ones already
+     * past it. For values that keep changing under the same key (a test's master history is a window
+     * of its latest runs): after a downtime longer than the TTL such an entry may be wrong, and
+     * reviving it would serve it for another full TTL.
+     */
+    void importUnexpired(List<Snapshot<K, V>> entries) {
+        long now = System.currentTimeMillis();
+
+        for (Snapshot<K, V> s : entries)
+            if (now < s.expiresAt())
+                map.put(s.key(), new Entry<>(s.value(), s.expiresAt()));
     }
 
     private record Entry<V>(V value, long expiresAt) {

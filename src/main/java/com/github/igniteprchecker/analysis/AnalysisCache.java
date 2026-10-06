@@ -122,10 +122,12 @@ public class AnalysisCache implements SnapshotCache {
             return;
 
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
-        history.importAll(p.history());
+        // History doesn't depend on the rules, but it is master's latest runs as of its fetch, so it
+        // must not outlive its TTL the way the immutable results below may.
+        history.importUnexpired(p.history());
         // Results carry verdicts, and a cached result for an unchanged build is never recomputed (the
         // warmer keeps touching it), so verdicts from superseded rules would otherwise outlive the
-        // deploy that fixed them. History is pure TeamCity facts and survives regardless.
+        // deploy that fixed them.
         if (p.rules() != null && p.rules() == TestVerdict.RULES)
             results.importAll(p.results());
     }
