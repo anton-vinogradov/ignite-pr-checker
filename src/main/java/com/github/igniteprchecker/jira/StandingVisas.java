@@ -530,7 +530,7 @@ public class StandingVisas implements SnapshotCache {
                     continue;
                 }
 
-                Optional<AnalysisResult> res = analyzer.analyze(tcToken.get(), pr.number());
+                Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken.get(), pr.number());
                 if (res.isEmpty() || res.get().buildId() != buildId)
                     continue; // raced with a newer run; the next sweep settles it
 

@@ -119,9 +119,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   resolves their revision at start, so they pick up the head of that moment. **Cancel all**
   kills everything you queued.
 - **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
-  one click now, **Auto visa** (one-shot, fires when the current run finishes), or the settings (⚙)
-  option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically
-  (only runs finished after you switch it on). Like the PR comment, the visa is **one living
+  one click now, **Auto visa** (one-shot, fires when the current run finishes and posts the verdict of
+  the finished run, not one cached mid-run), or the settings (⚙) option *Auto-visa all my runs* —
+  every RunAll you trigger gets its verdict posted automatically (only runs finished after you switch
+  it on). Like the PR comment, the visa is **one living
   comment per run**: it appears when the run finishes and is edited in place as re-run waves start
   and settle — but only on stage changes (ticket watchers get mail on every edit), never on the
   10-minute ETA refreshes.
@@ -134,7 +135,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   producing more than 10 of them is left to the settled pass as systemic. Whatever is still
   outstanding when the chain finishes is re-run the same way, up to 2 attempts in total: ≤10 suites jump to the top of the queue, more go to the tail so
   they don't push others back, and a systemic breakage (30+) is left alone. Identical suites already
-  waiting in the queue are cancelled first. A pass on re-run clears its blocker — and a broken suite
+  waiting in the queue are cancelled first. The suites to re-run, the visa and the PR comment always
+  come from a verdict computed after the chain finished and after every re-run that has finished
+  since: a verdict cached mid-run is recomputed first, so the suite that failed last still gets both
+  attempts. A pass on re-run clears its blocker — and a broken suite
   whose newer run passed stops being broken. With the visa also on, the visa waits until the re-runs
   settle; the living PR comment's ⏳ line carries a queue-aware **"≈ settled by HH:MM"** estimate,
   refreshed every sweep.
@@ -160,7 +164,8 @@ The one question the tool answers: **which tests did this PR actually break?**
   code"**) with a **Re-run RunAll** button, so a stale verdict is never mistaken for the current one.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
-- When your runs finish, the analysis **refreshes itself** — no F5.
+- When your runs finish — the chain or any re-run of its suites, in whatever order they end — the
+  analysis **refreshes itself**, no F5.
 
 ## Working from the PR (commands)
 

@@ -1,10 +1,12 @@
 package com.github.igniteprchecker.tc;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 
-/** Parsing for TeamCity's {@code yyyyMMdd'T'HHmmssZ} timestamps. */
+/** Parsing and formatting of TeamCity's {@code yyyyMMdd'T'HHmmssZ} timestamps. */
 public final class TcDates {
     private static final DateTimeFormatter TC_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssZ");
 
@@ -22,5 +24,10 @@ public final class TcDates {
         catch (DateTimeParseException e) {
             return 0;
         }
+    }
+
+    /** Epoch seconds as a TeamCity timestamp in UTC, for locator dimensions such as {@code finishDate}. */
+    public static String format(long epochSeconds) {
+        return TC_DATE.format(Instant.ofEpochSecond(epochSeconds).atOffset(ZoneOffset.UTC));
     }
 }

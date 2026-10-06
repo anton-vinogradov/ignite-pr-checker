@@ -29,6 +29,13 @@ import org.springframework.web.client.RestClientResponseException;
  */
 @Component
 public class TcClient {
+    /**
+     * Longer than any build on a PR branch runs: suites are cut off by their execution timeouts, and
+     * a chain finishes together with its last suite. So a build that finished after some moment
+     * started at most this long before it.
+     */
+    private static final long LONGEST_BUILD_SECONDS = 86_400;
+
     private final RestClient http;
 
     private final String baseUrl;
@@ -436,19 +443,26 @@ public class TcClient {
     }
 
     /**
-     * The newest finished build of any kind on the PR branch — the watermark a verdict was computed
-     * against. A chain's verdict is not immutable: re-running one of its suites changes the answer
-     * without changing the chain's build id, so "same chain build → same result" would keep showing
-     * blockers that a later green re-run already cleared. One cheap call per PR per warm cycle.
+     * Whether any build of any kind on the PR branch finished after {@code epochSec} — the watermark a
+     * verdict was computed against. A chain's verdict is not immutable: re-running one of its suites
+     * changes the answer without changing the chain's build id, so "same chain build → same result"
+     * would keep showing blockers that a later green re-run already cleared. Asked by finish date
+     * because TeamCity lists builds newest-START first: the first build of that list hid a suite that
+     * started earlier and finished later (PR 13335: 9389217 started before 9389215, finished ten
+     * minutes after it). The start-date bound is what keeps this cheap: TeamCity only filters by
+     * finish date and stops walking the branch at the first finished build that started before
+     * {@code startDate}, so without it the usual answer, "nothing new", read the branch's whole
+     * history, up to 5000 builds.
      */
-    public Optional<Long> latestFinishedBranchBuild(String token, int prNumber) {
-        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:any,count:1";
+    public boolean branchFinishedAfter(String token, int prNumber, long epochSec) {
+        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:any,"
+            + "startDate:(date:" + TcDates.format(epochSec - LONGEST_BUILD_SECONDS) + ",condition:after),"
+            + "finishDate:(date:" + TcDates.format(epochSec) + ",condition:after),count:1";
 
         TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
             "locator", locator, "fields", "build(id)")), TcModel.BuildList.class);
 
-        return list == null || list.build() == null || list.build().isEmpty()
-            ? Optional.empty() : Optional.of(list.build().get(0).id());
+        return list != null && list.build() != null && !list.build().isEmpty();
     }
 
     /** Who triggered a build — the early re-run must act under the token of whoever started the chain. */
