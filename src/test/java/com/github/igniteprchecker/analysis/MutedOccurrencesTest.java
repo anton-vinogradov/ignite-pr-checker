@@ -116,7 +116,7 @@ class MutedOccurrencesTest {
         ci2.occurrence(9389005, READ_ONLY_DDL, "GridCacheSqlDdlClusterReadOnlyModeTest.testAlterTableAllowed", false);
         ci2.occurrence(9390000, READ_ONLY_DDL, "GridCacheSqlDdlClusterReadOnlyModeTest.testAlterTableAllowed", true);
 
-        assertThat(tc.prBranchRuns(TOK, PR, READ_ONLY_DDL)).extracting(o -> o.build().id()).containsExactly(9389005L);
+        assertThat(tc.prBranchRuns(TOK, PR, READ_ONLY_DDL, "Cache14")).extracting(o -> o.build().id()).containsExactly(9389005L);
     }
 
     private ChainCollector.Chain collect(long chainId) {
