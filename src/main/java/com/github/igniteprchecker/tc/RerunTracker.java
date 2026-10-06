@@ -28,7 +28,8 @@ import org.springframework.web.client.RestClientResponseException;
  * chip while it is queued/running.
  *
  * <p>Entries come from the tool's own trigger endpoints and are also re-seeded from the current-runs
- * listing, and they survive restarts (persisted without any tokens). State refreshes on a timer with
+ * listing and from the standing sweep (running chains of users with auto re-run on, wherever they
+ * were started), and they survive restarts (persisted without any tokens). State refreshes on a timer with
  * one cheap call per active build, using a token borrowed from the warmer's pool; entries are dropped
  * as soon as their build finishes or disappears, so the map stays small and self-cleaning.
  */

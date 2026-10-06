@@ -129,7 +129,9 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **Auto re-run blocker suites** (settings, independent of the visa) — a suite of your RunAll is
   re-run **the moment it fails**, without waiting for the rest of the chain: hours of suites are
   still ahead at that point, so the re-run rides alongside them and the answer is usually in before
-  the chain finishes. Only suites the analysis blames are touched — a blocker, a
+  the chain finishes. A chain started from the checker or with `/run-all` is watched from its start;
+  one started straight from TeamCity is picked up by the 10-minute sweep, and a suite that failed
+  before that is re-run then. Only suites the analysis blames are touched — a blocker, a
   **recently-started-failing** test or a **broken suite** (timeout, crash, compilation) — so one
   that failed on master's own flakes is left alone; each suite is re-run once per chain, and a chain
   producing more than 10 of them is left to the settled pass as systemic. Whatever is still
