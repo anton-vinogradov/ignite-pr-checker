@@ -102,7 +102,7 @@ public class VisaSubscriptions implements SnapshotCache {
         }
 
         try {
-            Optional<AnalysisResult> res = analyzer.analyze(tcToken, pr);
+            Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken, pr);
             if (res.isEmpty()) {
                 log.info("auto-visa for PR {} postponed: no analysable run", pr);
                 return;

@@ -119,9 +119,10 @@ The one question the tool answers: **which tests did this PR actually break?**
   resolves their revision at start, so they pick up the head of that moment. **Cancel all**
   kills everything you queued.
 - **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
-  one click now, **Auto visa** (one-shot, fires when the current run finishes), or the settings (⚙)
-  option *Auto-visa all my runs* — every RunAll you trigger gets its verdict posted automatically
-  (only runs finished after you switch it on). Like the PR comment, the visa is **one living
+  one click now, **Auto visa** (one-shot, fires when the current run finishes and posts the verdict of
+  the finished run, not one cached mid-run), or the settings (⚙) option *Auto-visa all my runs* —
+  every RunAll you trigger gets its verdict posted automatically (only runs finished after you switch
+  it on). Like the PR comment, the visa is **one living
   comment per run**: it appears when the run finishes and is edited in place as re-run waves start
   and settle — but only on stage changes (ticket watchers get mail on every edit), never on the
   10-minute ETA refreshes.

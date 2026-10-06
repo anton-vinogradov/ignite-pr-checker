@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +40,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -48,8 +52,8 @@ import org.mockito.ArgumentCaptor;
 /**
  * PR 13335, RunAll 9389046: the chain finished at 23:00:32 and the 23:08:42 sweep re-ran the suites
  * of a verdict cached while the chain was still running. Queries 5 had failed at 22:31, after that
- * verdict, so wave 1 left it out and it got one attempt instead of two. Whatever the sweep acts on
- * must have been computed after the chain finished.
+ * verdict, so wave 1 left it out and it got one attempt instead of two. Whatever acts on a verdict —
+ * the sweep or the one-shot auto visa — must have it computed after the chain finished.
  */
 class SweepFreshnessTest {
     private static final String USER = "avinogradov";
@@ -89,8 +93,9 @@ class SweepFreshnessTest {
         Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
         cache, new RunDeltaStore(mapper));
 
-    private final StandingVisas standing = new StandingVisas(mapper,
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, analyzer,
+    private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
+
+    private final StandingVisas standing = new StandingVisas(mapper, codec, tc, github, analyzer,
         mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
         mock(PendingCommits.class));
 
@@ -177,6 +182,84 @@ class SweepFreshnessTest {
         standing.sweep();
 
         assertThat(rerunSuites()).containsExactlyInAnyOrder(DPC1.id(), QUERIES5.id(), QUERIES6.id());
+    }
+
+    /**
+     * The 23:07 warm cycle started recomputing the verdict cached mid-run; while it ran, the early
+     * re-run of Disk Page Compressions 1 passed (23:08:30), and the 23:08:42 sweep found that compute
+     * still under way. It had read the suite before the re-run passed, so sharing it would spend an
+     * attempt on a suite that has already settled.
+     */
+    @Test
+    void aComputeAlreadyUnderWayWhenTheSweepAsksIsNotActedOn() throws Exception {
+        cache.putResult(RUN_ALL, verdict((now - 2580) * 1000, RUN_ALL, 0, List.of(DPC1, QUERIES6), now - 2640));
+        when(tc.branchFinishedAfter(eq(TOK), eq(PR), anyLong())).thenReturn(true); // the chain, then the re-run
+        AtomicBoolean rerunPassed = new AtomicBoolean();
+        CountDownLatch warmReadDpc1 = new CountDownLatch(1);
+        CountDownLatch warmMayFinish = new CountDownLatch(1);
+        when(tc.prBranchRuns(TOK, PR, DPC1.testId())).thenAnswer(inv -> {
+            if (rerunPassed.get())
+                return List.of(DPC1.run("FAILURE"), DPC1.rerun(9389150L, "SUCCESS"));
+
+            warmReadDpc1.countDown();
+            warmMayFinish.await();
+
+            return List.of(DPC1.run("FAILURE"));
+        });
+        CountDownLatch sweepAsked = new CountDownLatch(1);
+        when(chains.findBuildId(TOK, PR)).thenAnswer(inv -> {
+            if ("sweep".equals(Thread.currentThread().getName()))
+                sweepAsked.countDown();
+
+            return Optional.of(RUN_ALL);
+        });
+
+        Thread warm = new Thread(() -> analyzer.warm(TOK, PR), "warm");
+        warm.start();
+        assertThat(warmReadDpc1.await(10, TimeUnit.SECONDS)).as("the warm compute reads the suite").isTrue();
+        rerunPassed.set(true);
+
+        Thread sweep = new Thread(standing::sweep, "sweep");
+        sweep.start();
+        assertThat(sweepAsked.await(10, TimeUnit.SECONDS)).as("the sweep asks for the verdict").isTrue();
+        awaitWaiting(sweep);
+        warmMayFinish.countDown();
+        sweep.join(10_000);
+        warm.join(10_000);
+
+        assertThat(rerunSuites())
+            .as("Disk Page Compressions 1 passed its re-run before the sweep asked; a compute that read it earlier must not decide")
+            .containsExactlyInAnyOrder(QUERIES5.id(), QUERIES6.id());
+    }
+
+    /** The one-shot auto visa fires the moment the chain finishes, so it meets the verdict cached mid-run too. */
+    @Test
+    void theOneShotAutoVisaPostsTheVerdictOfTheFinishedChain() {
+        cache.putResult(RUN_ALL, verdict((now - 2580) * 1000, RUN_ALL, 0, List.of(DPC1, QUERIES6), now - 2640));
+        Warmer warmer = mock(Warmer.class);
+        when(warmer.borrowToken()).thenReturn(TOK);
+        VisaService visas = mock(VisaService.class);
+        when(visas.compose(eq(PR), any(), any())).thenReturn("visa");
+        VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, mock(JiraClient.class), visas, analyzer, warmer,
+            mock(PendingCommits.class));
+        subs.arm(PR, "IGNITE-28867", "jira-pat", USER);
+
+        subs.onRunFinished(PR);
+
+        ArgumentCaptor<AnalysisResult> posted = ArgumentCaptor.forClass(AnalysisResult.class);
+        verify(visas, timeout(10_000)).compose(eq(PR), posted.capture(), any());
+        assertThat(posted.getValue().blockers()).extracting(TestVerdict::suite)
+            .as("Queries 5 failed after the verdict cached mid-run; the visa must carry it")
+            .containsExactlyInAnyOrder(DPC1.id(), QUERIES5.id(), QUERIES6.id());
+    }
+
+    /** Waits until the thread parks: past the verdict lookup, the only wait left is on a compute. */
+    private static void awaitWaiting(Thread t) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (t.getState() != Thread.State.WAITING) {
+            assertThat(System.nanoTime()).as(t.getName() + " never waits").isLessThan(deadline);
+            Thread.sleep(5);
+        }
     }
 
     /** Restores the user from a snapshot taken a day before the run, as a restart would. */

@@ -190,7 +190,9 @@ public class BlockerAnalyzer {
      * verdict cached while the chain was still running, so the suite that failed last was left out of
      * the first wave and got one attempt instead of two. The cached result is used only if the chain
      * had finished when it was read ({@code finishedAt} comes from TeamCity itself, so no clocks are
-     * compared) and nothing finished on the branch since; otherwise the verdict is computed now.
+     * compared) and nothing finished on the branch since; otherwise the verdict comes from a compute
+     * that starts after this call. One already under way is waited out, not shared: it may have read
+     * a suite before its re-run finished, and suites of one wave finish close together.
      */
     public Optional<AnalysisResult> analyzeForAction(String token, int prNumber) {
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
@@ -207,13 +209,11 @@ public class BlockerAnalyzer {
             return cached;
         }
 
-        AnalysisResult fresh = computeAndStore(token, prNumber, bid, bgPool);
-        // A compute already under way for this build is shared, and it may have read the chain before
-        // the chain finished.
-        if (fresh.finishedAt() == 0)
-            fresh = computeAndStore(token, prNumber, bid, bgPool);
+        CompletableFuture<AnalysisResult> underWay = inFlight.get(bid);
+        if (underWay != null)
+            underWay.handle((r, e) -> null).join();
 
-        return Optional.of(fresh);
+        return Optional.of(computeAndStore(token, prNumber, bid, bgPool));
     }
 
     /**
@@ -280,18 +280,25 @@ public class BlockerAnalyzer {
 
         try {
             AnalysisResult result = doCompute(token, prNumber, buildId, taskPool);
+            unlist(buildId, mine);
             mine.complete(result);
 
             return result;
         }
-        catch (RuntimeException e) {
+        catch (RuntimeException | Error e) {
+            unlist(buildId, mine);
             mine.completeExceptionally(e);
             throw e;
         }
-        finally {
-            inFlight.remove(buildId);
-            progress.remove(buildId);
-        }
+    }
+
+    /**
+     * Drops a compute from the in-flight map before it completes: whoever wakes on its completion and
+     * asks again must start a new compute, not join this finished one (see {@link #analyzeForAction}).
+     */
+    private void unlist(long buildId, CompletableFuture<AnalysisResult> mine) {
+        progress.remove(buildId);
+        inFlight.remove(buildId, mine);
     }
 
     private AnalysisResult doCompute(String token, int prNumber, long buildId, ExecutorService taskPool) {

@@ -26,6 +26,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -122,6 +123,29 @@ class BranchWatermarkTest {
             .isTrue();
     }
 
+    /**
+     * The usual answer is "nothing new", and TeamCity stops walking the branch's history only at a
+     * start-date bound: a finish-date filter alone made it read every finished build of the branch,
+     * up to 5000, for each PR on every warm cycle.
+     */
+    @Test
+    void askingWhetherTheBranchMovedDoesNotWalkItsWholeHistory() {
+        wallClock = "23:45:00";
+        for (int day = 2; day <= 8; day++)
+            for (int suite = 0; suite < 150; suite++)
+                teamcity.build(9380000L - day * 1000L - suite, at("19:00:00") - day * 86_400L,
+                    at("21:00:00") - day * 86_400L); // the week of earlier RunAlls on the branch
+        teamcity.build(RUN_ALL, at("19:00:00"), at("23:00:32"));
+        teamcity.build(9389217L, at("23:19:48"), at("23:36:11"));
+        teamcity.build(9389215L, at("23:21:09"), at("23:26:41"));
+
+        assertThat(analyzer.warm(TOK, PR)).as("the first warm computes").isTrue();
+        assertThat(analyzer.warm(TOK, PR)).as("nothing finished on the branch since: the verdict stands").isFalse();
+        assertThat(teamcity.lastWalk())
+            .as("only the builds that started in the last day are walked, not the 1050 earlier ones")
+            .isEqualTo(3);
+    }
+
     /** A snapshot from an older release carries a build-id watermark: it loads, recomputes once, then settles. */
     @Test
     void aVerdictFromAnOldSnapshotLoadsAndRecomputesOnce(@TempDir Path dir) throws Exception {
@@ -164,19 +188,26 @@ class BranchWatermarkTest {
 
     /**
      * Just enough of TeamCity's {@code /app/rest/builds} for one PR branch: {@code state:finished},
-     * {@code finishDate:(date:...,condition:after)} and {@code count}, listed newest-start first as
-     * ci2 does. An unparsable date gets a 400, like the real server.
+     * {@code startDate} and {@code finishDate} ({@code (date:...,condition:after)}) and {@code count},
+     * walked newest-start first as ci2 does. Like BuildPromotionFinder, it cuts the walk at the first
+     * finished build that started before {@code startDate}, and only filters by {@code finishDate}.
+     * An unparsable date gets a 400, like the real server.
      */
     private static final class FakeTeamCity {
         private static final DateTimeFormatter TC_DATE = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssZ");
 
         private static final Pattern FINISHED_AFTER = Pattern.compile("finishDate:\\(date:([^,)]*),condition:after\\)");
 
+        private static final Pattern STARTED_AFTER = Pattern.compile("startDate:\\(date:([^,)]*),condition:after\\)");
+
         private static final Pattern COUNT = Pattern.compile("(?:^|,)count:(\\d+)");
 
         private final List<Build> builds = new CopyOnWriteArrayList<>();
 
         private final HttpServer server;
+
+        /** How many builds the last request walked before it stopped. */
+        private volatile int lastWalk;
 
         private FakeTeamCity(HttpServer server) {
             this.server = server;
@@ -212,11 +243,17 @@ class BranchWatermarkTest {
             builds.replaceAll(b -> b.id() == id ? new Build(id, b.startSec(), finishSec) : b);
         }
 
+        int lastWalk() {
+            return lastWalk;
+        }
+
         private void handle(HttpExchange ex) throws IOException {
             String locator = query(ex.getRequestURI().getRawQuery()).getOrDefault("locator", "");
-            long after;
+            long finishedAfter;
+            long startedAfter;
             try {
-                after = finishedAfter(locator);
+                finishedAfter = after(FINISHED_AFTER, locator);
+                startedAfter = after(STARTED_AFTER, locator);
             }
             catch (DateTimeParseException e) {
                 respond(ex, 400, "Error parsing date in locator: " + locator);
@@ -226,19 +263,27 @@ class BranchWatermarkTest {
 
             boolean finishedOnly = locator.contains("state:finished");
             Matcher count = COUNT.matcher(locator);
-            String ids = builds.stream()
-                .filter(b -> !finishedOnly || b.finishSec() != null)
-                .filter(b -> b.finishSec() == null ? after == Long.MIN_VALUE : b.finishSec() > after)
-                .sorted(Comparator.comparingLong(Build::startSec).reversed())
-                .limit(count.find() ? Long.parseLong(count.group(1)) : Long.MAX_VALUE)
-                .map(b -> "{\"id\":" + b.id() + "}")
-                .collect(Collectors.joining(","));
+            long limit = count.find() ? Long.parseLong(count.group(1)) : Long.MAX_VALUE;
+            List<Build> found = new ArrayList<>();
+            int walked = 0;
+            for (Build b : builds.stream().sorted(Comparator.comparingLong(Build::startSec).reversed()).toList()) {
+                if (found.size() >= limit || b.finishSec() != null && b.startSec() < startedAfter)
+                    break;
 
-            respond(ex, 200, "{\"build\":[" + ids + "]}");
+                walked++;
+                if (finishedOnly && b.finishSec() == null || b.startSec() <= startedAfter)
+                    continue;
+                if (b.finishSec() == null ? finishedAfter == Long.MIN_VALUE : b.finishSec() > finishedAfter)
+                    found.add(b);
+            }
+            lastWalk = walked;
+
+            respond(ex, 200, "{\"build\":[" + found.stream().map(b -> "{\"id\":" + b.id() + "}")
+                .collect(Collectors.joining(",")) + "]}");
         }
 
-        private static long finishedAfter(String locator) {
-            Matcher m = FINISHED_AFTER.matcher(locator);
+        private static long after(Pattern dimension, String locator) {
+            Matcher m = dimension.matcher(locator);
 
             return m.find() ? OffsetDateTime.parse(m.group(1), TC_DATE).toEpochSecond() : Long.MIN_VALUE;
         }
