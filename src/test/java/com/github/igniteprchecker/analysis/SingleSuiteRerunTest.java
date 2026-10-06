@@ -32,6 +32,8 @@ class SingleSuiteRerunTest {
 
     private static final long CHAIN = 9389046L;
 
+    private static final String CHAIN_QUEUED = "20261005T202556+0000";
+
     private static final String QUERIES5 = "IgniteTests24Java8_Queries5";
 
     private static final String QUERIES6 = "IgniteTests24Java8_Queries6";
@@ -52,8 +54,8 @@ class SingleSuiteRerunTest {
         failing(9389028L, 1001L, "DynamicEnableIndexingBasicSelfTest.testEnableDynamicIndexing");
         failing(9389029L, 1002L, "IndexingSpiQuerySelfTest.testIndexingSpi");
         failing(9389219L, 1003L, "IgniteCacheQueryNodeRestartSelfTest.testRestarts");
-        // What ci2 really answers for this chain: the re-run plus the chain's own late-starting suites.
-        when(tc.failedBuildsStartedAfter(TOK, PR, CHAIN)).thenReturn(List.of(
+        // What ci2 answers for this chain: the re-run plus the chain's own failed suites.
+        when(tc.failedBuildsSince(TOK, PR, CHAIN_QUEUED)).thenReturn(List.of(
             suite(9389219L, QUERIES5, "Queries 5", "FAILURE"),
             suite(9389029L, QUERIES6, "Queries 6", "FAILURE"),
             suite(9389028L, QUERIES5, "Queries 5", "FAILURE")));
@@ -71,8 +73,7 @@ class SingleSuiteRerunTest {
 
     /**
      * Only a build newer than the chain's own run of that suite is a re-run of it. Suites of a known
-     * newer chain are that chain's business, and the RunAll itself or a build type the chain does not
-     * run (the build step) are not suites of it at all.
+     * newer chain are that chain's business, and the RunAll itself is not a suite of it at all.
      */
     @Test
     void onlyRerunsNewerThanTheChainsOwnRunOfTheSuiteAreFetched() {
@@ -88,10 +89,9 @@ class SingleSuiteRerunTest {
         failing(9389028L, 1001L, "DynamicEnableIndexingBasicSelfTest.testEnableDynamicIndexing");
         failing(9389029L, 1002L, "IndexingSpiQuerySelfTest.testIndexingSpi");
         failing(9390400L, 1004L, "IgniteCacheQueryNodeRestartSelfTest.testRestarts");
-        when(tc.failedBuildsStartedAfter(TOK, PR, CHAIN)).thenReturn(List.of(
+        when(tc.failedBuildsSince(TOK, PR, CHAIN_QUEUED)).thenReturn(List.of(
             suite(9390500L, "IgniteTests24Java8_RunAll", "Run All", "FAILURE"),
             newerQueries5,
-            suite(9389300L, "IgniteTests24Java8_BuildApacheIgnite", "Build Apache Ignite", "FAILURE"),
             suite(9389010L, QUERIES6, "Queries 6", "FAILURE"),
             suite(9389029L, QUERIES6, "Queries 6", "FAILURE")));
 
@@ -101,7 +101,6 @@ class SingleSuiteRerunTest {
         assertThat(chain.brokenSuites()).as("nothing here broke").isEmpty();
         verify(tc, times(1)).getFailedTests(TOK, 9390400L);
         verify(tc, never()).getFailedTests(TOK, 9390500L);
-        verify(tc, never()).getFailedTests(TOK, 9389300L);
         verify(tc, never()).getFailedTests(TOK, 9389010L);
     }
 
@@ -116,7 +115,7 @@ class SingleSuiteRerunTest {
             suite(9389028L, QUERIES5, "Queries 5", "FAILURE"),
             suite(9389033L, FAILOVER5, "Cache (Failover) 5", "FAILURE", "TC_EXECUTION_TIMEOUT"));
         failing(9389028L, 1001L, "DynamicEnableIndexingBasicSelfTest.testEnableDynamicIndexing");
-        when(tc.failedBuildsStartedAfter(TOK, PR, CHAIN)).thenReturn(List.of(
+        when(tc.failedBuildsSince(TOK, PR, CHAIN_QUEUED)).thenReturn(List.of(
             suite(9389250L, FAILOVER5, "Cache (Failover) 5", "FAILURE", "TC_EXECUTION_TIMEOUT"),
             suite(9389219L, QUERIES5, "Queries 5", "FAILURE", "TC_COMPILATION_ERROR")));
 
@@ -128,6 +127,50 @@ class SingleSuiteRerunTest {
                 tuple(FAILOVER5, 9389250L, List.of("execution timeout")),
                 tuple(QUERIES5, 9389219L, List.of("compilation error")));
         assertThat(chain.failedTests()).extracting(FailedTest::testId).containsExactly(1001L);
+    }
+
+    /**
+     * A chain run that broke is not a shrunk suite as well: its own break explains its missing tests.
+     * That holds after a re-run that broke again has taken its place in the broken list, or one suite
+     * would read twice in the visa, as "no reliable result" and as "ran far fewer tests".
+     */
+    @Test
+    void aChainRunThatBrokeStaysOutOfTheShrunkSuitesAfterItsRerunBrokeToo() {
+        chainWith(
+            suite(9389028L, QUERIES5, "Queries 5", "FAILURE"),
+            run(9389033L, FAILOVER5, "Cache (Failover) 5", 30, "TC_EXECUTION_TIMEOUT"));
+        when(baseline.counts(anyString())).thenReturn(Map.of(FAILOVER5, 100));
+        failing(9389028L, 1001L, "DynamicEnableIndexingBasicSelfTest.testEnableDynamicIndexing");
+        when(tc.failedBuildsSince(TOK, PR, CHAIN_QUEUED)).thenReturn(List.of(
+            run(9389250L, FAILOVER5, "Cache (Failover) 5", 25, "TC_EXECUTION_TIMEOUT")));
+
+        ChainCollector.Chain chain = collect();
+
+        assertThat(chain.brokenSuites()).extracting(BrokenSuite::suite, BrokenSuite::suiteBuildId)
+            .containsExactly(tuple(FAILOVER5, 9389250L));
+        assertThat(chain.shrunkSuites())
+            .as("the chain's run 9389033 timed out, so its 30 of 100 tests are that timeout's doing")
+            .isEmpty();
+    }
+
+    /** A re-run between the chain and a newer chain that broke the same suite leaves the newer entry alone. */
+    @Test
+    void aRerunOlderThanANewerChainsBrokenRunDoesNotReplaceIt() {
+        chainWith(run(9389033L, FAILOVER5, "Cache (Failover) 5", 30, "TC_EXECUTION_TIMEOUT"));
+        TcModel.Build newerFailover5 = run(9390400L, FAILOVER5, "Cache (Failover) 5", 20, "TC_EXECUTION_TIMEOUT");
+        when(tc.recentChains(TOK, PR, 3)).thenReturn(List.of(
+            new TcModel.Build(9390500L, "FAILURE", "finished", null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null),
+            chainBuild(CHAIN, List.of())));
+        when(tc.getBuildWithDeps(TOK, 9390500L)).thenReturn(chainBuild(9390500L, List.of(newerFailover5)));
+        when(tc.failedBuildsSince(TOK, PR, CHAIN_QUEUED)).thenReturn(List.of(
+            newerFailover5,
+            run(9389250L, FAILOVER5, "Cache (Failover) 5", 25, "TC_EXECUTION_TIMEOUT")));
+
+        ChainCollector.Chain chain = collect();
+
+        assertThat(chain.brokenSuites()).extracting(BrokenSuite::suite, BrokenSuite::suiteBuildId)
+            .containsExactly(tuple(FAILOVER5, 9390400L));
     }
 
     private ChainCollector.Chain collect() {
@@ -146,16 +189,27 @@ class SingleSuiteRerunTest {
 
     private static TcModel.Build chainBuild(long id, List<TcModel.Build> deps) {
         return new TcModel.Build(id, "FAILURE", "finished", "pull/" + PR + "/head", "IgniteTests24Java8_RunAll", null,
-            null, null, null, null, null, new TcModel.BuildType("IgniteTests24Java8_RunAll", "Run All"), null,
+            id == CHAIN ? CHAIN_QUEUED : null, null, null, null, null,
+            new TcModel.BuildType("IgniteTests24Java8_RunAll", "Run All"), null,
             new TcModel.SnapshotDeps(deps.size(), deps), null, null, null, null);
     }
 
     private static TcModel.Build suite(long id, String buildTypeId, String name, String status, String... problems) {
+        return run(id, buildTypeId, name, status, 100, problems);
+    }
+
+    /** A FAILURE run that got through {@code tests} tests. */
+    private static TcModel.Build run(long id, String buildTypeId, String name, int tests, String... problems) {
+        return run(id, buildTypeId, name, "FAILURE", tests, problems);
+    }
+
+    private static TcModel.Build run(long id, String buildTypeId, String name, String status, int tests,
+        String... problems) {
         TcModel.ProblemOccurrences occurred = new TcModel.ProblemOccurrences(Arrays.stream(problems)
             .map(type -> new TcModel.ProblemOccurrence(type, null)).toList());
 
         return new TcModel.Build(id, status, "finished", "pull/" + PR + "/head", buildTypeId, null, null, null, null,
             null, null, new TcModel.BuildType(buildTypeId, name), null, null, null, occurred, null,
-            new TcModel.TestOccurrences(100, List.of()));
+            new TcModel.TestOccurrences(tests, List.of()));
     }
 }

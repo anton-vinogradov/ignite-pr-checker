@@ -17,6 +17,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -119,6 +120,10 @@ public class ChainCollector {
             }
         }
 
+        // Read before the re-runs: one that broke again replaces the chain's entry for its suite, yet
+        // the chain's run still broke, and the tests it never reached are that break's doing, not a shrink.
+        Set<Long> brokenRuns = broken.stream().map(BrokenSuite::suiteBuildId).collect(Collectors.toSet());
+
         // Overlay results from any chain newer than the baseline finished build — running, cancelled
         // or interrupted. Even a run that didn't fully complete ran (and failed) some suites, and those
         // finished-FAILURE suites must count. classify() re-anchors each test to its newest finished
@@ -183,7 +188,7 @@ public class ChainCollector {
         boolean interrupted = ("FAILURE".equals(build.status()) || "UNKNOWN".equals(build.status())) && canceled > 0;
 
         return new Chain(build.id(), build.branchName(), failed, broken,
-            shrunkSuites(depBuilds(build), masterCounts, broken),
+            shrunkSuites(depBuilds(build), masterCounts, brokenRuns),
             ran, reused, interrupted, canceled, live, liveBuildId,
             TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
             TcDates.epochSeconds(build.finishDate()));
@@ -193,8 +198,9 @@ public class ChainCollector {
      * Failed suite builds on the branch that no chain walk reaches: a suite re-run on its own after the
      * chain (by the checker or by hand) can fail a test the chain passed — on a newer revision, a real
      * break that would otherwise never be classified. A build counts only as a re-run of a suite the
-     * chain itself ran, and only when newer than the chain's run of it; that also leaves out the RunAll
-     * and the build steps, which are not suites of the chain. The newer chains' suites are already
+     * chain itself ran, and only when newer than the chain's run of it; that leaves out the RunAll. The
+     * build step is a dependency of the chain like any suite, so a re-run wave that could not build is
+     * a broken suite, as the chain's own failed build would be. The newer chains' suites are already
      * collected. One list call, plus the failed tests of each re-run.
      */
     private List<Callable<SuiteResult>> singleSuiteReruns(String token, int prNumber, TcModel.Build chain,
@@ -207,7 +213,7 @@ public class ChainCollector {
         if (chainRuns.isEmpty())
             return List.of();
 
-        return tc.failedBuildsStartedAfter(token, prNumber, chain.id()).stream()
+        return tc.failedBuildsSince(token, prNumber, chain.queuedDate()).stream()
             .filter(b -> !newerChainSuites.contains(b.id()))
             .filter(b -> b.id() > chainRuns.getOrDefault(b.buildTypeId(), Long.MAX_VALUE))
             .<Callable<SuiteResult>>map(b -> () -> suiteResultOf(token, b, masterCounts))
@@ -236,17 +242,16 @@ public class ChainCollector {
     }
 
     private static List<ShrunkSuite> shrunkSuites(List<TcModel.Build> deps, java.util.Map<String, Integer> baseline,
-        List<BrokenSuite> broken) {
+        Set<Long> brokenRuns) {
         if (baseline.isEmpty())
             return List.of();
 
-        Set<Long> brokenBuilds = broken.stream().map(BrokenSuite::suiteBuildId).collect(java.util.stream.Collectors.toSet());
         List<ShrunkSuite> out = new ArrayList<>();
         for (TcModel.Build dep : deps) {
             if (!"finished".equalsIgnoreCase(dep.state()))
                 continue; // a suite mid-run has only run part of its tests — that is not a shrink
 
-            if (brokenBuilds.contains(dep.id()))
+            if (brokenRuns.contains(dep.id()))
                 continue; // its cause is already reported, and the missing tests are that cause's doing
 
             Integer master = baseline.get(dep.buildTypeId());
