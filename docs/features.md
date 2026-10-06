@@ -230,6 +230,12 @@ block — whether it is warming right now (with live progress), how long the sta
 and what the last cycle did. **Flush caches** (logged-in only) drops the analysis caches and
 triggers a background re-warm.
 
+The **health dot** next to the title follows recent problems only: yellow for an hour after the
+service's last warning, red for six hours after its last error, green otherwise. Requests Spring
+turns away as the caller's mistake (wrong HTTP method, missing or malformed parameter, unreadable
+body, wrong content type) are listed greyed out under *Logs & errors* and never colour it. The
+counts since start stay on the page as information.
+
 ## Everything else
 
 - **Self-update**: when a new release is out, an **Update to vX.Y.Z** button appears — one click swaps
