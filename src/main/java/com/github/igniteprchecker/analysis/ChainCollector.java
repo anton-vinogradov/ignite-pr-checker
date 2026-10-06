@@ -245,6 +245,8 @@ public class ChainCollector {
             .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();
 
+        // A suite whose only failures are muted is broken too: muted failures don't turn a suite red, so its
+        // problems name what did.
         if (!tests.isEmpty() || !finished)
             return new SuiteResult(tests, null);
 

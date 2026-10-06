@@ -189,10 +189,16 @@ public class TcClient {
     public record MasterSuiteStats(Map<String, Integer> counts, Map<String, Long> durations) {
     }
 
-    /** Failed test occurrences of a single build. */
+    /**
+     * Failed test occurrences of a single build, muted ones left out. TeamCity does not fail a build on a
+     * muted test and someone muted it on purpose, so it is never a PR's blocker; skipping it here, in
+     * every suite, keeps a build's list equal to the failed count TeamCity shows for that build. Counting
+     * it only when its suite failed for another reason made the same muted test a candidate in one suite
+     * and invisible in the next.
+     */
     public List<TcModel.TestOccurrence> getFailedTests(String token, long buildId) {
         TcModel.TestOccurrences occ = get("failedTests", token, url("app/rest/testOccurrences", query(
-            "locator", "build:(id:" + buildId + "),status:FAILURE,count:2000",
+            "locator", "build:(id:" + buildId + "),status:FAILURE,muted:false,count:2000",
             "fields", "testOccurrence(id,name,status,test(id))")), TcModel.TestOccurrences.class);
 
         return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
@@ -225,11 +231,16 @@ public class TcClient {
      * <p>Each run carries the revision its build ran on: a pass only says something about the code
      * under review if it happened on the <em>same</em> revision as the failure. Asked for in this same
      * request, so classification can tell "passed on the same code" from "passed on older code".
+     *
+     * <p>Muted failures are left out, as in {@link #getFailedTests}: a muted failure is no evidence the PR
+     * broke the test, and no pass either. Kept in, it would lengthen a blocker's fail streak and make
+     * an occurrence TeamCity ignores the "last finished run" the verdict is anchored to. The test's
+     * passes stay in: TeamCity records them as not muted even while the test is muted.
      */
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),buildType:(id:"
-                + buildTypeId + "),count:100",
+"locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),buildType:(id:"
+                + buildTypeId + "),muted:false,count:100",
             "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
                 + "revisions(revision(version))))")),
             TcModel.TestOccurrences.class);
