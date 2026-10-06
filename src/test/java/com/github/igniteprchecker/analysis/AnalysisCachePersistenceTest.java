@@ -26,7 +26,7 @@ class AnalysisCachePersistenceTest {
     private void ageSnapshot(Path file, Duration downtime) throws IOException {
         JsonNode root = mapper.readTree(file.toFile());
 
-        for (String cache : List.of("history", "results")) {
+        for (String cache : List.of("suiteHistory", "results")) {
             for (JsonNode e : root.get(cache))
                 ((ObjectNode)e).put("expiresAt", e.get("expiresAt").asLong() - downtime.toMillis());
         }
@@ -98,15 +98,15 @@ class AnalysisCachePersistenceTest {
                 "pre-existing: fails 1/100 on master", "F", 1)),
             List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
         before.putResult(runAll, result);
-        before.history(testId, () -> new HistoryStats(100, 1));
+        before.history(testId, "SuiteX", () -> new HistoryStats(100, 1));
         before.saveTo(file);
         ageSnapshot(file, Duration.ofHours(3));
 
         AnalysisCache after = new AnalysisCache(props(), mapper);
         after.loadFrom(file);
 
-        assertThat(after.historyOf(testId)).as("master history outlived by the downtime").isEmpty();
-        assertThat(after.history(testId, () -> new HistoryStats(100, 0))).isEqualTo(new HistoryStats(100, 0));
+        assertThat(after.historyOf(testId, "SuiteX")).as("master history outlived by the downtime").isEmpty();
+        assertThat(after.history(testId, "SuiteX", () -> new HistoryStats(100, 0))).isEqualTo(new HistoryStats(100, 0));
         assertThat(after.peekResult(runAll)).as("a build's result never changes").contains(result);
     }
 
