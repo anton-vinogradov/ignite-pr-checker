@@ -421,7 +421,7 @@ public class StandingVisas implements SnapshotCache {
         });
     }
 
-    private void earlyRerun(RerunTracker.SuiteFailedMidRun ev) {
+    void earlyRerun(RerunTracker.SuiteFailedMidRun ev) {
         if (enrolled.isEmpty())
             return;
 
@@ -444,7 +444,12 @@ public class StandingVisas implements SnapshotCache {
         if (tcToken.isEmpty())
             return;
 
+        // The cached verdict of a running chain is usually older than the failure just announced, and
+        // the announcement comes once: judged by a verdict that never saw the suite fail, it would look
+        // innocent and the early re-run would be lost for good.
         Optional<AnalysisResult> res = analyzer.analyze(tcToken.get(), ev.pr());
+        if (res.isPresent() && !sawRun(res.get(), ev.suiteBuildId()))
+            res = analyzer.analyzeAfterNow(tcToken.get(), ev.pr());
         if (res.isEmpty() || !worthRerunning(res.get(), ev.suite()))
             return;
 
@@ -496,6 +501,13 @@ public class StandingVisas implements SnapshotCache {
         catch (RuntimeException e) {
             log.warn("running RunAll chains not handed to the rerun tracker this sweep: {}", e.toString());
         }
+    }
+
+    /** Whether the analysis has looked at this suite build: something in it is anchored there. */
+    private static boolean sawRun(AnalysisResult r, long suiteBuildId) {
+        return java.util.stream.Stream.of(r.blockers(), r.watch(), r.filtered())
+            .flatMap(List::stream).anyMatch(v -> v.suiteBuildId() == suiteBuildId)
+            || r.brokenSuites().stream().anyMatch(b -> b.suiteBuildId() == suiteBuildId);
     }
 
     /** Whether the analysis blames this suite for something a re-run can settle. */

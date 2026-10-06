@@ -209,11 +209,24 @@ public class BlockerAnalyzer {
             return cached;
         }
 
-        CompletableFuture<AnalysisResult> underWay = inFlight.get(bid);
+        return Optional.of(computeAfterNow(token, prNumber, bid));
+    }
+
+    /**
+     * The analysis of a compute that starts after this call — for an action that must not be judged by
+     * anything read earlier. One already under way is waited out, not shared: it may have read a suite
+     * before the build that prompted the call finished.
+     */
+    public Optional<AnalysisResult> analyzeAfterNow(String token, int prNumber) {
+        return chains.findBuildId(token, prNumber).map(bid -> computeAfterNow(token, prNumber, bid));
+    }
+
+    private AnalysisResult computeAfterNow(String token, int prNumber, long buildId) {
+        CompletableFuture<AnalysisResult> underWay = inFlight.get(buildId);
         if (underWay != null)
             underWay.handle((r, e) -> null).join();
 
-        return Optional.of(computeAndStore(token, prNumber, bid, bgPool));
+        return computeAndStore(token, prNumber, buildId, bgPool);
     }
 
     /**
