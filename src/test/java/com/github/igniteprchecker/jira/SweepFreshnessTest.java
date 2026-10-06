@@ -119,8 +119,8 @@ class SweepFreshnessTest {
             140, 12, false, 0, false, 0, now - 4 * 3600, now - 4 * 3600, chainFinished));
 
         for (Suite s : List.of(DPC1, QUERIES5, QUERIES6)) {
-            when(tc.getBaseBranchHistory(TOK, s.testId())).thenReturn(statuses("SUCCESS", 100)); // 0/100 on master
-            when(tc.prBranchRuns(TOK, PR, s.testId())).thenReturn(List.of(s.run("FAILURE")));
+            when(tc.getBaseBranchHistory(TOK, s.testId(), s.id())).thenReturn(statuses("SUCCESS", 100)); // 0/100 on master
+            when(tc.prBranchRuns(TOK, PR, s.testId(), s.id())).thenReturn(List.of(s.run("FAILURE")));
         }
 
         when(tc.triggerBuildReplacingQueued(eq(TOK), anyString(), eq(PR), anyBoolean(), anyString()))
@@ -165,7 +165,7 @@ class SweepFreshnessTest {
         cache.putResult(RUN_ALL, verdict((now - 300) * 1000, 0, chainFinished, List.of(DPC1, QUERIES5, QUERIES6),
             now - 360));
         when(tc.branchFinishedAfter(TOK, PR, now - 360)).thenReturn(true);
-        when(tc.prBranchRuns(TOK, PR, DPC1.testId()))
+        when(tc.prBranchRuns(TOK, PR, DPC1.testId(), DPC1.id()))
             .thenReturn(List.of(DPC1.run("FAILURE"), DPC1.rerun(9389150L, "SUCCESS")));
 
         standing.sweep();
@@ -197,7 +197,7 @@ class SweepFreshnessTest {
         AtomicBoolean rerunPassed = new AtomicBoolean();
         CountDownLatch warmReadDpc1 = new CountDownLatch(1);
         CountDownLatch warmMayFinish = new CountDownLatch(1);
-        when(tc.prBranchRuns(TOK, PR, DPC1.testId())).thenAnswer(inv -> {
+        when(tc.prBranchRuns(TOK, PR, DPC1.testId(), DPC1.id())).thenAnswer(inv -> {
             if (rerunPassed.get())
                 return List.of(DPC1.run("FAILURE"), DPC1.rerun(9389150L, "SUCCESS"));
 
