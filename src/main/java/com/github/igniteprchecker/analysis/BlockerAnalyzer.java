@@ -26,10 +26,12 @@ import org.springframework.stereotype.Component;
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise. A test is a
  * blocker only if it (1) fails in the PR, (2) never fails in the last {@code analysis.historyDepth}
- * master runs (any master failure means it is pre-existing or flaky on master, not this PR's fault),
- * and (3) still fails in the last fully-finished run of its suite on the PR branch (a passing re-run
- * clears it). Results are cached per build; a request serves the cached result and, if it is getting
- * stale, triggers a background refresh.
+ * master runs of the suite it failed in (any master failure means it is pre-existing or flaky on
+ * master, not this PR's fault), and (3) still fails in the last fully-finished run of that suite on the
+ * PR branch (a passing re-run clears it). Both look at that one suite only: the same test id runs in
+ * several suites of a chain (the C++ tests run on Windows, Linux and Clang), and another platform's
+ * pass is not a re-run, nor are its master failures this one's. Results are cached per build; a
+ * request serves the cached result and, if it is getting stale, triggers a background refresh.
  */
 @Component
 public class BlockerAnalyzer {
@@ -364,11 +366,11 @@ public class BlockerAnalyzer {
     }
 
     private TestVerdict classifyVerified(String token, int prNumber, FailedTest t) {
-        HistoryStats h = cache.history(t.testId(),
-            () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId())));
+        HistoryStats h = cache.history(t.testId(), t.suite(),
+            () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
-        // The finished runs of this test on the PR branch (one request; also drives the history strip).
-        List<TcModel.TestOccurrence> runs = tc.prBranchRuns(token, prNumber, t.testId());
+        // The finished runs of this test in its suite on the PR branch (one request; also drives the history strip).
+        List<TcModel.TestOccurrence> runs = withResult(tc.prBranchRuns(token, prNumber, t.testId(), t.suite()));
         String branchRuns = strip(runs);
         TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
 
@@ -380,10 +382,10 @@ public class BlockerAnalyzer {
                 branchRuns, 0);
         }
 
-        // ...and only if the failure still stands in the last fully-finished run on the branch: a
-        // later re-run that passed clears it (the failure wasn't reproducible on the same code).
-        String latest = lastRun == null ? null : lastRun.status();
-        if (latest != null && !"FAILURE".equals(latest)) {
+        // ...and only if the failure still stands in the last finished run: if that run passed, it
+        // clears the failure. The revision is not compared here — a pass on the same code makes the
+        // failure a flake, a pass on newer code means the branch fixed it; either way it no longer stands.
+        if (lastRun != null && "SUCCESS".equals(lastRun.status())) {
             return verdict(t, lastRun, false, false, "not failing in the last finished run (passed on re-run)",
                 branchRuns, 0);
         }
@@ -561,9 +563,20 @@ public class BlockerAnalyzer {
     private static String strip(List<TcModel.TestOccurrence> runs) {
         StringBuilder sb = new StringBuilder(runs.size());
         for (TcModel.TestOccurrence o : runs)
-            sb.append("FAILURE".equals(o.status()) ? 'F' : 'P');
+            sb.append("SUCCESS".equals(o.status()) ? 'P' : 'F');
 
         return sb.toString();
+    }
+
+    /**
+     * The runs that have a result. TeamCity lists a run where the test was ignored with status UNKNOWN:
+     * the test did not run, so nothing passed or failed there. Such a run is no evidence either way —
+     * not for the last-run gate, not for the same-code window, and not as a bar on the strip.
+     */
+    private static List<TcModel.TestOccurrence> withResult(List<TcModel.TestOccurrence> runs) {
+        return runs.stream()
+            .filter(o -> "SUCCESS".equals(o.status()) || "FAILURE".equals(o.status()))
+            .toList();
     }
 
     /**

@@ -26,7 +26,7 @@ class AnalysisCachePersistenceTest {
     private void ageSnapshot(Path file, Duration downtime) throws IOException {
         JsonNode root = mapper.readTree(file.toFile());
 
-        for (String cache : List.of("history", "results")) {
+        for (String cache : List.of("suiteHistory", "results")) {
             for (JsonNode e : root.get(cache))
                 ((ObjectNode)e).put("expiresAt", e.get("expiresAt").asLong() - downtime.toMillis());
         }
@@ -45,7 +45,7 @@ class AnalysisCachePersistenceTest {
             List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false, "pre-existing", "", 0)),
             List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
         first.putResult(100L, result);
-        first.history(7L, () -> new HistoryStats(30, 1));
+        first.history(7L, "SuiteX", () -> new HistoryStats(30, 1));
 
         first.saveTo(file);
 
@@ -54,10 +54,35 @@ class AnalysisCachePersistenceTest {
 
         assertThat(reloaded.peekResult(100L)).contains(result);
         // The loader must NOT run: proving the stats came back from disk, not a recompute.
-        HistoryStats restored = reloaded.history(7L, () -> {
+        HistoryStats restored = reloaded.history(7L, "SuiteX", () -> {
             throw new AssertionError("history should have been restored from the snapshot");
         });
         assertThat(restored).isEqualTo(new HistoryStats(30, 1));
+        assertThat(reloaded.historyOf(7L, "SuiteY")).as("another suite's history of the same test").isEmpty();
+    }
+
+    /**
+     * History used to be keyed by test id alone, which mixed every suite the test runs in: such an
+     * entry cannot be split back per suite, so it is dropped, and the rest of the snapshot still loads.
+     */
+    @Test
+    void historyKeyedByTestIdAloneIsDroppedOnLoad(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        AnalysisCache first = new AnalysisCache(props(), mapper);
+        first.putResult(100L, new AnalysisResult(13335, 100L, "pull/13335/head", System.currentTimeMillis(),
+            List.of(), List.of(), List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0));
+        first.saveTo(file);
+
+        ObjectNode old = ((ObjectNode) mapper.readTree(file.toFile())).retain("results", "rules");
+        old.set("history", mapper.readTree("[{\"key\":5272433775095107011,\"value\":{\"runs\":100,\"fails\":9},"
+            + "\"expiresAt\":" + (System.currentTimeMillis() + 60_000) + "}]"));
+        mapper.writeValue(file.toFile(), old);
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+
+        assertThat(reloaded.peekResult(100L)).isPresent();
+        assertThat(reloaded.historyCount()).isZero();
     }
 
     @Test
@@ -73,15 +98,15 @@ class AnalysisCachePersistenceTest {
                 "pre-existing: fails 1/100 on master", "F", 1)),
             List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
         before.putResult(runAll, result);
-        before.history(testId, () -> new HistoryStats(100, 1));
+        before.history(testId, "SuiteX", () -> new HistoryStats(100, 1));
         before.saveTo(file);
         ageSnapshot(file, Duration.ofHours(3));
 
         AnalysisCache after = new AnalysisCache(props(), mapper);
         after.loadFrom(file);
 
-        assertThat(after.historyOf(testId)).as("master history outlived by the downtime").isEmpty();
-        assertThat(after.history(testId, () -> new HistoryStats(100, 0))).isEqualTo(new HistoryStats(100, 0));
+        assertThat(after.historyOf(testId, "SuiteX")).as("master history outlived by the downtime").isEmpty();
+        assertThat(after.history(testId, "SuiteX", () -> new HistoryStats(100, 0))).isEqualTo(new HistoryStats(100, 0));
         assertThat(after.peekResult(runAll)).as("a build's result never changes").contains(result);
     }
 

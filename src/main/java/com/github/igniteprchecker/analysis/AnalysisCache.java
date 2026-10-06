@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.analysis;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
@@ -18,13 +19,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Caches the expensive parts of an analysis, shared across users and PRs (the data is not
- * user-specific): compact base-branch history stats per test id, and the whole result per build id.
- * Entries expire after {@code analysis.cacheTtlMinutes}; results are also refreshed by the warmer,
+ * user-specific): compact base-branch history stats per test and suite, and the whole result per build
+ * id. Entries expire after {@code analysis.cacheTtlMinutes}; results are also refreshed by the warmer,
  * and snapshotted to disk (with their expiry) so a restart doesn't start cold.
  */
 @Component
 public class AnalysisCache implements SnapshotCache {
-    private final TtlCache<Long, HistoryStats> history;
+    private final TtlCache<HistoryKey, HistoryStats> history;
     private final TtlCache<Long, AnalysisResult> results;
     private final TtlCache<Long, String> revisions;
     private final ObjectMapper mapper;
@@ -37,8 +38,8 @@ public class AnalysisCache implements SnapshotCache {
         this.mapper = mapper;
     }
 
-    HistoryStats history(long testId, Supplier<HistoryStats> loader) {
-        return history.get(testId, loader);
+    HistoryStats history(long testId, String buildTypeId, Supplier<HistoryStats> loader) {
+        return history.get(new HistoryKey(testId, buildTypeId), loader);
     }
 
     /**
@@ -70,7 +71,7 @@ public class AnalysisCache implements SnapshotCache {
         return results.size();
     }
 
-    /** Number of cached per-test master-history entries. */
+    /** Number of cached master-history entries (one per test and suite). */
     public int historyCount() {
         return history.size();
     }
@@ -80,9 +81,9 @@ public class AnalysisCache implements SnapshotCache {
         return results.freshValues();
     }
 
-    /** A test's cached master history, if still fresh (gives the fail-rate without a TeamCity call). */
-    public Optional<HistoryStats> historyOf(long testId) {
-        return history.peek(testId);
+    /** A test's cached master history in a suite, if still fresh (gives the fail-rate without a TeamCity call). */
+    public Optional<HistoryStats> historyOf(long testId, String buildTypeId) {
+        return history.peek(new HistoryKey(testId, buildTypeId));
     }
 
     /** Sweeps out expired entries so long uptimes don't accumulate dead results/history in memory
@@ -123,8 +124,10 @@ public class AnalysisCache implements SnapshotCache {
 
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
         // History doesn't depend on the rules, but it is master's latest runs as of its fetch, so it
-        // must not outlive its TTL the way the immutable results below may.
-        history.importUnexpired(p.history());
+        // must not outlive its TTL the way the immutable results below may. A snapshot from before
+        // history was kept per suite has no suiteHistory at all: that history is simply re-fetched.
+        if (p.suiteHistory() != null)
+            history.importUnexpired(p.suiteHistory());
         // Results carry verdicts, and a cached result for an unchanged build is never recomputed (the
         // warmer keeps touching it), so verdicts from superseded rules would otherwise outlive the
         // deploy that fixed them.
@@ -132,8 +135,20 @@ public class AnalysisCache implements SnapshotCache {
             results.importAll(p.results());
     }
 
+    /**
+     * Master history is per suite: one test id runs in several suites of a chain (the C++ tests run on
+     * Windows, Linux and Clang), and each suite has its own failure rate on master.
+     */
+    record HistoryKey(long testId, String buildTypeId) {
+    }
+
+    /**
+     * Snapshots written before history was per suite also carry {@code history}, keyed by test id
+     * alone: those stats mix every suite of the test and cannot be split back, so they are not read.
+     */
+    @JsonIgnoreProperties("history") // the pre-per-suite history, keyed by test id alone
     private record Persisted(
-        List<TtlCache.Snapshot<Long, HistoryStats>> history,
+        List<TtlCache.Snapshot<HistoryKey, HistoryStats>> suiteHistory,
         List<TtlCache.Snapshot<Long, AnalysisResult>> results,
         Integer rules
     ) {

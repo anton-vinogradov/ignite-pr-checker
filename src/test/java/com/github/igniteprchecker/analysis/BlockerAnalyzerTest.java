@@ -15,6 +15,7 @@ import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
@@ -23,6 +24,12 @@ import org.junit.jupiter.api.Test;
 /** Deterministic, offline test of the blocker/noise classification on synthetic master history. */
 class BlockerAnalyzerTest {
     private static final String TOK = "tok";
+
+    /** apache/ignite#13335: a C++ test that runs in three suites of one chain (RunAll 9389046). */
+    private static final long RECONNECT = 5272433775095107011L;
+    private static final String WIN = "IgniteTests24Java8_PlatformCCMakeWinX64Release";
+    private static final String LINUX = "IgniteTests24Java8_PlatformCPPCMakeLinux";
+    private static final String CLANG = "IgniteTests24Java8_PlatformCPPCMakeLinuxClang";
 
     private final TcClient tc = mock(TcClient.class);
     private final ChainCollector chains = mock(ChainCollector.class);
@@ -45,18 +52,18 @@ class BlockerAnalyzerTest {
             List.of(cleanBreak, rareMasterFail, preExisting, brandNew, passedOnRerun), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
 
         // 1) clean on master and still failing in its last finished run -> blocker.
-        when(tc.getBaseBranchHistory(TOK, 1)).thenReturn(repeat("SUCCESS", 50));
-        when(tc.prBranchRuns(TOK, 42, 1)).thenReturn(repeat("FAILURE", 1));
+        when(tc.getBaseBranchHistory(TOK, 1, "SuiteA")).thenReturn(repeat("SUCCESS", 50));
+        when(tc.prBranchRuns(TOK, 42, 1, "SuiteA")).thenReturn(repeat("FAILURE", 1));
         // 2) a single failure in master history -> not PR-specific -> filtered.
-        when(tc.getBaseBranchHistory(TOK, 2)).thenReturn(concat(repeat("SUCCESS", 49), repeat("FAILURE", 1)));
+        when(tc.getBaseBranchHistory(TOK, 2, "SuiteB")).thenReturn(concat(repeat("SUCCESS", 49), repeat("FAILURE", 1)));
         // 3) fails often in master -> pre-existing -> filtered.
-        when(tc.getBaseBranchHistory(TOK, 3)).thenReturn(concat(repeat("FAILURE", 10), repeat("SUCCESS", 40)));
+        when(tc.getBaseBranchHistory(TOK, 3, "SuiteC")).thenReturn(concat(repeat("FAILURE", 10), repeat("SUCCESS", 40)));
         // 4) no master history at all -> can't prove pre-existing -> blocker.
-        when(tc.getBaseBranchHistory(TOK, 4)).thenReturn(List.of());
-        when(tc.prBranchRuns(TOK, 42, 4)).thenReturn(repeat("FAILURE", 1));
+        when(tc.getBaseBranchHistory(TOK, 4, "SuiteD")).thenReturn(List.of());
+        when(tc.prBranchRuns(TOK, 42, 4, "SuiteD")).thenReturn(repeat("FAILURE", 1));
         // 5) clean on master but its last finished run passed (a re-run) -> not reproducible -> filtered.
-        when(tc.getBaseBranchHistory(TOK, 5)).thenReturn(repeat("SUCCESS", 50));
-        when(tc.prBranchRuns(TOK, 42, 5)).thenReturn(repeat("SUCCESS", 1));
+        when(tc.getBaseBranchHistory(TOK, 5, "SuiteE")).thenReturn(repeat("SUCCESS", 50));
+        when(tc.prBranchRuns(TOK, 42, 5, "SuiteE")).thenReturn(repeat("SUCCESS", 1));
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
@@ -80,10 +87,10 @@ class BlockerAnalyzerTest {
             "pull/42/head", List.of(steady, flap, watch), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
 
         for (long id : new long[] {1, 2, 3})
-            when(tc.getBaseBranchHistory(TOK, id)).thenReturn(repeat("SUCCESS", 50)); // all clean on master
-        when(tc.prBranchRuns(TOK, 42, 1)).thenReturn(repeat("FAILURE", 3));                    // FFF -> steady block
-        when(tc.prBranchRuns(TOK, 42, 2)).thenReturn(concat(repeat("SUCCESS", 4), repeat("FAILURE", 1))); // PPPPF -> flap
-        when(tc.prBranchRuns(TOK, 42, 3)).thenReturn(concat(repeat("SUCCESS", 3), repeat("FAILURE", 2))); // PPPFF -> watch
+            when(tc.getBaseBranchHistory(TOK, id, "S")).thenReturn(repeat("SUCCESS", 50)); // all clean on master
+        when(tc.prBranchRuns(TOK, 42, 1, "S")).thenReturn(repeat("FAILURE", 3));                    // FFF -> steady block
+        when(tc.prBranchRuns(TOK, 42, 2, "S")).thenReturn(concat(repeat("SUCCESS", 4), repeat("FAILURE", 1))); // PPPPF -> flap
+        when(tc.prBranchRuns(TOK, 42, 3, "S")).thenReturn(concat(repeat("SUCCESS", 3), repeat("FAILURE", 2))); // PPPFF -> watch
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
@@ -100,7 +107,7 @@ class BlockerAnalyzerTest {
     @Test
     void aPassOnAnEarlierRevisionNeverClearsAFailureOnTheCurrentOne() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
             run("SUCCESS", 9243554L, "7e61596b0e1"),   // suite #1607 — before the buggy commits
             run("FAILURE", 9244697L, "3fdf4460a9c"))); // suite #1609 — the PR head
 
@@ -116,7 +123,7 @@ class BlockerAnalyzerTest {
     @Test
     void aConfirmingRerunOnTheSameRevisionTurnsAWatchIntoABlocker() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
             run("SUCCESS", 9243554L, "7e61596b0e1"),
             run("FAILURE", 9244697L, "3fdf4460a9c"),
             run("FAILURE", 9244800L, "3fdf4460a9c"))); // the auto re-run failed again
@@ -131,7 +138,7 @@ class BlockerAnalyzerTest {
     @Test
     void aPassOnTheSameRevisionStillFiltersItAsAFlapOnThisCode() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
             run("SUCCESS", 9243554L, "7e61596b0e1"),   // other code — counts for nothing either way
             run("SUCCESS", 9244697L, "3fdf4460a9c"),   // passed on THIS code…
             run("FAILURE", 9244800L, "3fdf4460a9c"))); // …and then failed on it
@@ -148,7 +155,7 @@ class BlockerAnalyzerTest {
     @Test
     void failingOnBothRevisionsStaysABlocker() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
             run("FAILURE", 9243554L, "7e61596b0e1"),
             run("FAILURE", 9244697L, "3fdf4460a9c")));
 
@@ -161,7 +168,7 @@ class BlockerAnalyzerTest {
     @Test
     void revisionsAreFetchedPerBuildWhenTheOccurrenceDoesNotCarryThem() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
             run("SUCCESS", 9243554L, null), run("FAILURE", 9244697L, null)));
         when(tc.buildRevision(TOK, 9243554L)).thenReturn(Optional.of("7e61596b0e1"));
         when(tc.buildRevision(TOK, 9244697L)).thenReturn(Optional.of("3fdf4460a9c"));
@@ -178,7 +185,7 @@ class BlockerAnalyzerTest {
     @Test
     void anUnreadableRevisionForTheLatestRunDoesNotRestoreTheGreenVerdict() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(List.of(
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
             run("SUCCESS", 9243554L, "7e61596b0e1"), run("FAILURE", 9244697L, null)));
         when(tc.buildRevision(TOK, 9244697L)).thenReturn(Optional.empty()); // TeamCity has none for it
 
@@ -192,12 +199,108 @@ class BlockerAnalyzerTest {
     @Test
     void noRevisionsAnywhereKeepsTheOldWindowWithoutClaimingSameCode() {
         singleFailure(1L);
-        when(tc.prBranchRuns(TOK, 42, 1L)).thenReturn(concat(repeat("SUCCESS", 3), repeat("FAILURE", 1)));
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(concat(repeat("SUCCESS", 3), repeat("FAILURE", 1)));
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
         assertThat(only(r.filtered()).reason()).isEqualTo("flaky on branch: failed only the latest of 4 runs "
             + "(passed just before, but TeamCity gave no revisions to prove that was the same code)");
+    }
+
+    /**
+     * TeamCity reports an ignored test as status UNKNOWN. Nothing passed in such a run, so it must not
+     * clear the failure before it as "passed on re-run".
+     */
+    @Test
+    void anIgnoredLatestRunDoesNotClearTheFailure() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
+            run("FAILURE", 9244697L, "3fdf4460a9c"),
+            run("UNKNOWN", 9244800L, "3fdf4460a9c")));
+
+        TestVerdict v = verdict(analyzer.analyze(TOK, 42).orElseThrow(), 1L);
+
+        assertThat(v.reason()).doesNotContain("passed on re-run");
+        assertThat(v.blocker()).isTrue();
+        assertThat(v.branchRuns()).isEqualTo("F");
+        assertThat(v.suiteBuildId()).as("anchored on the run that failed, not on the ignored one").isEqualTo(9244697L);
+    }
+
+    /** An ignored run is no bar on the strip either: it neither passed nor failed. */
+    @Test
+    void anIgnoredRunIsLeftOutOfTheStrip() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2")).thenReturn(List.of(
+            run("SUCCESS", 9243554L, "3fdf4460a9c"),
+            run("UNKNOWN", 9244697L, "3fdf4460a9c"),
+            run("FAILURE", 9244800L, "3fdf4460a9c")));
+
+        TestVerdict v = verdict(analyzer.analyze(TOK, 42).orElseThrow(), 1L);
+
+        assertThat(v.branchRuns()).isEqualTo("PF");
+        assertThat(v.reason()).isEqualTo("flaky on branch: failed only the latest of 2 runs on revision 3fdf446 "
+            + "(an earlier run on the same code passed)");
+    }
+
+    /**
+     * The runs of a test in sibling suites are not re-runs of it. With the failing Clang build holding
+     * the lowest id of the three, the Windows pass read as "passed on re-run", dropped the failure and
+     * anchored the row on the Windows build.
+     */
+    @Test
+    void aPassInASiblingSuiteIsNotAReRun() {
+        chainFailing(13335, reconnectIn(CLANG, 9388970L));
+        masterHistory(RECONNECT, new SuiteHistory(CLANG, 33, 0), new SuiteHistory(LINUX, 34, 0),
+            new SuiteHistory(WIN, 33, 0));
+        branchRuns(13335, RECONNECT,
+            run("FAILURE", 9388970L, CLANG, "ec2c458"),
+            run("SUCCESS", 9388971L, LINUX, "ec2c458"),
+            run("SUCCESS", 9388972L, WIN, "ec2c458"));
+
+        TestVerdict v = verdict(analyzer.analyze(TOK, 13335).orElseThrow(), RECONNECT);
+
+        assertThat(v.reason()).doesNotContain("passed on re-run");
+        assertThat(v.blocker()).isTrue();
+        assertThat(v.branchRuns()).isEqualTo("F");
+        assertThat(v.suite()).isEqualTo(CLANG);
+        assertThat(v.suiteBuildId()).isEqualTo(9388970L);
+    }
+
+    /**
+     * Master history is per suite too: a break on Linux, where master is clean, was filtered as
+     * pre-existing because Windows fails the same test now and then.
+     */
+    @Test
+    void masterFailuresInASiblingSuiteDoNotMakeAFailurePreExisting() {
+        chainFailing(13335, reconnectIn(LINUX, 9388971L));
+        masterHistory(RECONNECT, new SuiteHistory(CLANG, 33, 0), new SuiteHistory(LINUX, 34, 0),
+            new SuiteHistory(WIN, 33, 3));
+        branchRuns(13335, RECONNECT,
+            run("SUCCESS", 9388970L, WIN, "ec2c458"),
+            run("FAILURE", 9388971L, LINUX, "ec2c458"),
+            run("SUCCESS", 9388972L, CLANG, "ec2c458"));
+
+        TestVerdict v = verdict(analyzer.analyze(TOK, 13335).orElseThrow(), RECONNECT);
+
+        assertThat(v.reason()).isEqualTo("not seen failing in 34 master run(s); failed the only run on this branch");
+        assertThat(v.blocker()).isTrue();
+    }
+
+    /** The master-history cache is per suite as well, or the first suite asked answers for all of them. */
+    @Test
+    void masterHistoryIsCachedPerSuite() {
+        masterHistory(RECONNECT, new SuiteHistory(CLANG, 33, 7), new SuiteHistory(LINUX, 34, 0),
+            new SuiteHistory(WIN, 33, 0));
+        chainFailing(13335, reconnectIn(CLANG, 9388972L));
+        branchRuns(13335, RECONNECT, run("FAILURE", 9388972L, CLANG, "ec2c458"));
+        chainFailing(13336, reconnectIn(LINUX, 9390001L));
+        branchRuns(13336, RECONNECT, run("FAILURE", 9390001L, LINUX, "1a2b3c4"));
+
+        TestVerdict clang = verdict(analyzer.analyze(TOK, 13335).orElseThrow(), RECONNECT);
+        TestVerdict linux = verdict(analyzer.analyze(TOK, 13336).orElseThrow(), RECONNECT);
+
+        assertThat(clang.reason()).isEqualTo("pre-existing: fails 7/33 on master");
+        assertThat(linux.reason()).isEqualTo("not seen failing in 34 master run(s); failed the only run on this branch");
     }
 
     @Test
@@ -238,7 +341,7 @@ class BlockerAnalyzerTest {
     }
 
     private static TestVerdict verdict(AnalysisResult r, long testId) {
-        return concat(r.blockers(), r.filtered()).stream()
+        return concat(r.blockers(), r.watch(), r.filtered()).stream()
             .filter(v -> v.testId() == testId).findFirst().orElseThrow();
     }
 
@@ -254,18 +357,61 @@ class BlockerAnalyzerTest {
         when(chains.findBuildId(TOK, 42)).thenReturn(Optional.of(999L));
         when(chains.collectForBuild(eq(TOK), eq(42), eq(999L), any())).thenReturn(new ChainCollector.Chain(999,
             "pull/42/head", List.of(t), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
-        when(tc.getBaseBranchHistory(TOK, testId)).thenReturn(repeat("SUCCESS", 100));
+        when(tc.getBaseBranchHistory(TOK, testId, "CalciteSql2")).thenReturn(repeat("SUCCESS", 100));
 
         return t;
     }
 
+    /** Wires up a PR whose chain failed exactly these tests. */
+    private void chainFailing(int pr, FailedTest... tests) {
+        long chain = 9389046L + (pr - 13335); // RunAll 9389046 of apache/ignite#13335, a neighbour id for any other PR
+        when(chains.findBuildId(TOK, pr)).thenReturn(Optional.of(chain));
+        when(chains.collectForBuild(eq(TOK), eq(pr), eq(chain), any())).thenReturn(new ChainCollector.Chain(chain,
+            "pull/" + pr + "/head", List.of(tests), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
+    }
+
+    private static FailedTest reconnectIn(String suite, long suiteBuildId) {
+        return new FailedTest(RECONNECT, "IgniteThinClientTest: IgniteClientTestSuite: IgniteClientReconnect", suite,
+            suiteBuildId, suite, "o-" + suiteBuildId);
+    }
+
+    /** How a test did on master in one suite: {@code fails} failures in its last {@code runs} runs. */
+    private record SuiteHistory(String suite, int runs, int fails) {
+    }
+
+    /** Stubs the test's master history the way TeamCity answers it: one suite at a time. */
+    private void masterHistory(long testId, SuiteHistory... suites) {
+        for (SuiteHistory s : suites) {
+            when(tc.getBaseBranchHistory(TOK, testId, s.suite()))
+                .thenReturn(concat(repeat("FAILURE", s.fails()), repeat("SUCCESS", s.runs() - s.fails())));
+        }
+    }
+
+    /**
+     * Stubs the test's finished runs on the PR branch (oldest → newest) the way TeamCity answers them:
+     * asked for one suite, it gives that suite's runs only.
+     */
+    private void branchRuns(int pr, long testId, TcModel.TestOccurrence... runs) {
+        for (TcModel.TestOccurrence r : runs) {
+            String suite = r.build().buildTypeId();
+            when(tc.prBranchRuns(TOK, pr, testId, suite))
+                .thenReturn(Arrays.stream(runs).filter(o -> suite.equals(o.build().buildTypeId())).toList());
+        }
+    }
+
     /** One finished branch run: its status, the suite build it ran in, and that build's revision. */
     private static TcModel.TestOccurrence run(String status, long buildId, String revision) {
+        return run(status, buildId, "CalciteSql2", revision);
+    }
+
+    /** Same, in a given suite; an ignored test (UNKNOWN) or a pass leave the build itself green. */
+    private static TcModel.TestOccurrence run(String status, long buildId, String suite, String revision) {
         TcModel.Revisions revs = revision == null ? null
             : new TcModel.Revisions(List.of(new TcModel.Revision(revision)));
+        String buildStatus = "FAILURE".equals(status) ? "FAILURE" : "SUCCESS";
 
         return new TcModel.TestOccurrence(null, null, status, null,
-            new TcModel.BuildRef(buildId, "pull/42/head", "finished", status, "CalciteSql2", null, revs), null);
+            new TcModel.BuildRef(buildId, null, "finished", buildStatus, suite, null, revs), null);
     }
 
     private static List<TcModel.TestOccurrence> repeat(String status, int n) {
