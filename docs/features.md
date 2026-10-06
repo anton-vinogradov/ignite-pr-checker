@@ -46,6 +46,12 @@ The one question the tool answers: **which tests did this PR actually break?**
 - The verdict is **live**: while a newer RunAll is running (or ended cancelled), failures from its
   already-finished suites are folded in — the *● includes an unfinished run* tag links to that chain.
   An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).
+- **A suite re-run on its own counts too.** A suite re-run outside any RunAll — by the auto re-run
+  or by hand — can fail a test the chain passed, and on a newer revision that is a real break. Its
+  failures join the verdict and are classified like any other; only a run newer than the chain's
+  own run of that suite counts. A re-run that broke (timeout, crash, compilation error) is a broken
+  suite by the same rules as a chain's suite, and a suite that broke again on its re-run stays one
+  broken suite, shown with its newest run.
 - **Filtered out** — everything else, each with its reason (`pre-existing: fails 39/95 on master`,
   `passed on re-run`, …). Collapsed by default, so noise stays out of the way.
 - **Muted failures are skipped, in every suite.** A failure TeamCity recorded as muted is never a

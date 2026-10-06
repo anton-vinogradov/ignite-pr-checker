@@ -7,6 +7,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -16,12 +17,14 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
  * Walks the RunAll chain build for a PR into its dependency suites and collects the failed tests
- * across all of them (deduplicated by test id). The per-suite lookups run in parallel.
+ * across all of them, and across the suites re-run on their own since (deduplicated by test id). The
+ * per-suite lookups run in parallel.
  */
 @Component
 public class ChainCollector {
@@ -117,18 +120,24 @@ public class ChainCollector {
             }
         }
 
+        // Read before the re-runs: one that broke again replaces the chain's entry for its suite, yet
+        // the chain's run still broke, and the tests it never reached are that break's doing, not a shrink.
+        Set<Long> brokenRuns = broken.stream().map(BrokenSuite::suiteBuildId).collect(Collectors.toSet());
+
         // Overlay results from any chain newer than the baseline finished build — running, cancelled
         // or interrupted. Even a run that didn't fully complete ran (and failed) some suites, and those
         // finished-FAILURE suites must count. classify() re-anchors each test to its newest finished
         // run, so this only needs to ADD candidates that appear in the newer chain(s).
         boolean live = subjectRunning;
         long liveBuildId = subjectRunning ? build.id() : 0;
+        Set<Long> newerChainSuites = new HashSet<>();
         for (TcModel.Build chain : tc.recentChains(token, prNumber, 3)) {
             if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()))
                 continue; // not newer than the baseline, or nothing has run in it yet
             live = true;
             liveBuildId = Math.max(liveBuildId, chain.id());
             TcModel.Build rBuild = tc.getBuildWithDeps(token, chain.id());
+            depBuilds(rBuild).forEach(dep -> newerChainSuites.add(dep.id()));
             List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()
                 .filter(dep -> "finished".equalsIgnoreCase(dep.state()) && "FAILURE".equals(dep.status()))
                 .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep, masterCounts))
@@ -140,6 +149,15 @@ public class ChainCollector {
                     if (seen.add(ft.testId()))
                         failed.add(ft);
             }
+        }
+
+        List<Callable<SuiteResult>> reruns = singleSuiteReruns(token, prNumber, build, newerChainSuites, masterCounts);
+        for (SuiteResult r : Parallel.run(pool, reruns)) {
+            if (r.broken() != null)
+                supersedeBroken(broken, r.broken());
+            for (FailedTest ft : r.tests())
+                if (seen.add(ft.testId()))
+                    failed.add(ft);
         }
 
         // Reuse transparency: a re-triggered chain on unchanged revisions reuses earlier suite builds
@@ -170,10 +188,47 @@ public class ChainCollector {
         boolean interrupted = ("FAILURE".equals(build.status()) || "UNKNOWN".equals(build.status())) && canceled > 0;
 
         return new Chain(build.id(), build.branchName(), failed, broken,
-            shrunkSuites(depBuilds(build), masterCounts, broken),
+            shrunkSuites(depBuilds(build), masterCounts, brokenRuns),
             ran, reused, interrupted, canceled, live, liveBuildId,
             TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
             TcDates.epochSeconds(build.finishDate()));
+    }
+
+    /**
+     * Failed suite builds on the branch that no chain walk reaches: a suite re-run on its own after the
+     * chain (by the checker or by hand) can fail a test the chain passed — on a newer revision, a real
+     * break that would otherwise never be classified. A build counts only as a re-run of a suite the
+     * chain itself ran, and only when newer than the chain's run of it; that leaves out the RunAll. The
+     * build step is a dependency of the chain like any suite, so a re-run wave that could not build is
+     * a broken suite, as the chain's own failed build would be. The newer chains' suites are already
+     * collected. One list call, plus the failed tests of each re-run.
+     */
+    private List<Callable<SuiteResult>> singleSuiteReruns(String token, int prNumber, TcModel.Build chain,
+        Set<Long> newerChainSuites, Map<String, Integer> masterCounts) {
+        Map<String, Long> chainRuns = new HashMap<>();
+        for (TcModel.Build dep : depBuilds(chain)) {
+            if (dep.buildTypeId() != null)
+                chainRuns.merge(dep.buildTypeId(), dep.id(), Math::max);
+        }
+        if (chainRuns.isEmpty())
+            return List.of();
+
+        return tc.failedBuildsSince(token, prNumber, chain.queuedDate()).stream()
+            .filter(b -> !newerChainSuites.contains(b.id()))
+            .filter(b -> b.id() > chainRuns.getOrDefault(b.buildTypeId(), Long.MAX_VALUE))
+            .<Callable<SuiteResult>>map(b -> () -> suiteResultOf(token, b, masterCounts))
+            .toList();
+    }
+
+    /**
+     * Records a re-run's broken result so that a suite keeps one entry, its newest broken run: a suite
+     * re-run because it broke and broken again is one broken suite (the count reaches the visa), and
+     * the newest run is the one its problems and link must describe.
+     */
+    private static void supersedeBroken(List<BrokenSuite> broken, BrokenSuite rerun) {
+        broken.removeIf(b -> rerun.suite().equals(b.suite()) && b.suiteBuildId() < rerun.suiteBuildId());
+        if (broken.stream().noneMatch(b -> rerun.suite().equals(b.suite())))
+            broken.add(rerun);
     }
 
     /**
@@ -187,17 +242,16 @@ public class ChainCollector {
     }
 
     private static List<ShrunkSuite> shrunkSuites(List<TcModel.Build> deps, java.util.Map<String, Integer> baseline,
-        List<BrokenSuite> broken) {
+        Set<Long> brokenRuns) {
         if (baseline.isEmpty())
             return List.of();
 
-        Set<Long> brokenBuilds = broken.stream().map(BrokenSuite::suiteBuildId).collect(java.util.stream.Collectors.toSet());
         List<ShrunkSuite> out = new ArrayList<>();
         for (TcModel.Build dep : deps) {
             if (!"finished".equalsIgnoreCase(dep.state()))
                 continue; // a suite mid-run has only run part of its tests — that is not a shrink
 
-            if (brokenBuilds.contains(dep.id()))
+            if (brokenRuns.contains(dep.id()))
                 continue; // its cause is already reported, and the missing tests are that cause's doing
 
             Integer master = baseline.get(dep.buildTypeId());

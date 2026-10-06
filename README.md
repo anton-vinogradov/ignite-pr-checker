@@ -88,7 +88,7 @@ Single Spring Boot app, no database:
 | Component | Responsibility |
 |---|---|
 | `TcClient` | Thin wrapper over the TeamCity REST API: find the latest finished RunAll, expand snapshot deps, failed tests, per-test master history, per-branch runs, trigger/cancel builds. Every call takes the caller's token. |
-| `ChainCollector` | Walks a composite RunAll build into its dependency suites and collects the failed tests (plus broken suites that failed without running tests, and the run's ran/reused composition). |
+| `ChainCollector` | Walks a composite RunAll build into its dependency suites and collects the failed tests, adding the suites re-run on their own since (plus broken suites that failed without running tests, and the run's ran/reused composition). |
 | `BlockerAnalyzer` | The classifier: master-clean + consistent failure over the last N branch runs → blocker / recently-started (watch) / noise; runs per-test lookups in parallel; caches results. |
 | `AnalysisCache` / `TtlCache` | In-memory caches (per-build result, per-test master history), shared across users and PRs. |
 | `Warmer` / `TokenPool` | Keeps the newest PRs pre-analysed in the background, spread across logged-in users' donated tokens; **cache-aware** (only recomputes PRs whose RunAll build changed). |

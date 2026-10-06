@@ -138,13 +138,36 @@ public class TcClient {
         return list == null || list.build() == null ? List.of() : list.build();
     }
 
+    /**
+     * The PR branch's finished FAILURE builds of any kind that started since the given TeamCity time,
+     * or the newest ones when it is null. The single-suite re-runs among them belong to no chain, so
+     * no dependency walk ever sees them; callers pick them out. Callers bound it by a chain's queue
+     * time rather than by {@code sinceBuild}: on ci2 that cut RunAll 9389046 at 22:05, 43 minutes after
+     * the chain started, and so dropped the early re-runs of the suites that had failed by then. Every
+     * build queued after the chain starts after its queue time, so this bound drops none.
+     */
+    public List<TcModel.Build> failedBuildsSince(String token, int prNumber, String since) {
+        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,status:FAILURE"
+            + (since == null ? "" : ",sinceDate:" + since) + ",count:100";
+
+        TcModel.BuildList list = get("branchFailures", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(" + SUITE_FIELDS + ")")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
+     * What a suite run is judged by. A chain's dependency and a re-run outside any chain are fetched
+     * with the same fields, so the same suite rules see the same facts about both.
+     */
+    private static final String SUITE_FIELDS = "id,buildTypeId,status,state,queuedDate,buildType(name),"
+        + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details))";
+
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
-                + "snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,buildType(name),"
-                + "testOccurrences(count),"
-                + "problemOccurrences(problemOccurrence(type,details))))")), TcModel.Build.class);
+                + "snapshot-dependencies(build(" + SUITE_FIELDS + "))")), TcModel.Build.class);
     }
 
     /**
