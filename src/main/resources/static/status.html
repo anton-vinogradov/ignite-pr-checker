@@ -84,6 +84,7 @@
         .hdot.error { background: var(--bad); }
         .loglist { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-family: ui-monospace, monospace; }
         .logrow { display: grid; grid-template-columns: 62px 46px 130px 1fr; gap: 0.5rem; align-items: baseline; }
+        .logrow.client { opacity: 0.55; }
         .logtime { color: var(--muted); }
         .loglevel { font-weight: 600; }
         .lvl-error { color: var(--bad); }
@@ -310,7 +311,8 @@
             const tcRate = t.total ? (100 * t.ok / t.total) : 100;
             const az = (d.http && d.http.byCategory && d.http.byCategory['/api/analyze']) || null;
             $('healthDot').className = 'hdot ' + (d.health || 'ok');
-            $('healthDot').title = d.health === 'error' ? 'errors logged' : d.health === 'warn' ? 'warnings logged' : 'healthy';
+            $('healthDot').title = d.health === 'error' ? 'error logged ' + agoShort(d.log.lastErrorAt)
+                : d.health === 'warn' ? 'warning logged ' + agoShort(d.log.lastWarningAt) : 'healthy';
             $('systemCards').innerHTML = [
                 card('Version', d.version),
                 card('Uptime', fmtDur(d.uptimeSeconds)),
@@ -399,8 +401,9 @@
             ].join('');
 
             $('logCards').innerHTML = [
-                card('Log issues', d.log.errors, `${d.log.warnings} warn`,
-                    d.log.errors ? 'bad' : d.log.warnings ? 'warn' : 'ok'),
+                card('Log issues', d.log.errors,
+                    `${d.log.warnings} warn · ${d.log.clientMistakes} bad requests · since start`,
+                    d.health === 'error' ? 'bad' : d.health === 'warn' ? 'warn' : 'ok'),
             ].join('');
 
             const codes = m => Object.entries(m || {}).map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ');
@@ -427,7 +430,8 @@
         function renderLog(el, log) {
             const recent = log.recent || [];
             if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }
-            el.innerHTML = recent.map(e => `<div class="logrow">
+            el.innerHTML = recent.map(e => `<div class="logrow${e.client ? ' client' : ''}"${e.client
+                ? ' title="a bad request turned away — does not affect health"' : ''}>
                 <span class="logtime">${new Date(e.t).toLocaleTimeString()}</span>
                 <span class="loglevel lvl-${e.level.toLowerCase()}">${e.level}</span>
                 <span class="loglogger" title="${esc(e.logger)}">${esc(e.logger)}</span>

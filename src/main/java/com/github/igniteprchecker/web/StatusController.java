@@ -87,12 +87,11 @@ public class StatusController {
         app.put("cycleDone", warmer.cycleDone());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
-        String health = logSnap.errors() > 0 ? "error" : logSnap.warnings() > 0 ? "warn" : "ok";
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", version);
         out.put("uptimeSeconds", metrics.uptimeSeconds());
-        out.put("health", health);
+        out.put("health", logSnap.health(System.currentTimeMillis()));
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
