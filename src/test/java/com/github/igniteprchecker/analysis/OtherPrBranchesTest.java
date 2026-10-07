@@ -172,7 +172,7 @@ class OtherPrBranchesTest {
             .isEqualTo("not seen failing in 101 master run(s) on JDK 17; failed the only run on this branch");
     }
 
-    /** Wires a chain of {@code pr} failing the test, with these runs on its branch on {@link #HEAD}, JDK 17, scale 0.1. */
+    /** Wires a chain of {@code pr} failing the test, with these branch runs on {@link #HEAD}, JDK 17 and scale 0.1. */
     private void failing(int pr, String branchRuns, List<TcModel.TestOccurrence> master) {
         long chain = 9391879L + pr - PR;
         FailedTest t = new FailedTest(TEST, "IgniteSnapshotTestSuite: IgniteClusterSnapshotSelfTest.test", SNAPSHOTS,

@@ -35,9 +35,11 @@ class MasterJdkTest {
     private static final String SNAPSHOTS = "IgniteTests24Java8_Snapshots";
 
     /** Newest first: the status of each master run, and the JDK it ran on ('7' for 17, '1' for 21). */
-    private static final String MASTER = "PFPPPPPFPPPPPPPPPFPPPPPPPPFPPPPPFPPPPPFPPPPPPFPPPPFPPPPPPPPFPPPPPPPPPFPPPPPFPPPPPFPPPPPFPPPPPFPPPPPF";
+    private static final String MASTER = "PFPPPPPFPPPPPPPPPFPPPPPPPPFPPPPPFPPPPPFPPPPPPFPPPPFPPPPPP"
+        + "PPFPPPPPPPPPFPPPPPFPPPPPFPPPPPFPPPPPFPPPPPF";
 
-    private static final String MASTER_JDK = "7177777177777777717777777717777717777717777771777717777777717777777771777771777771777771777771777771";
+    private static final String MASTER_JDK = "71777771777777777177777777177777177777177777717777177777"
+        + "77717777777771777771777771777771777771777771";
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -55,7 +57,8 @@ class MasterJdkTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("not seen failing in 85 master run(s) on JDK 17; failed the only run on this branch");
+        assertThat(v.reason())
+            .isEqualTo("not seen failing in 85 master run(s) on JDK 17; failed the only run on this branch");
     }
 
     @Test
@@ -79,7 +82,8 @@ class MasterJdkTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("not seen failing in only 2 master run(s) on JDK 11; failed the only run on this branch");
+        assertThat(v.reason())
+            .isEqualTo("not seen failing in only 2 master run(s) on JDK 11; failed the only run on this branch");
     }
 
     /** No master run on the PR's JDK at all is no master history, whatever ran on other JDKs. */
@@ -89,7 +93,8 @@ class MasterJdkTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("no master history on JDK 11 (can't prove pre-existing); failed the only run on this branch");
+        assertThat(v.reason())
+            .isEqualTo("no master history on JDK 11 (can't prove pre-existing); failed the only run on this branch");
     }
 
     @Test
@@ -111,9 +116,11 @@ class MasterJdkTest {
         when(chains.collectForBuild(eq(TOK), eq(PR), eq(9391879L), any())).thenReturn(new ChainCollector.Chain(9391879L,
             "pull/" + PR + "/head", List.of(t), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
         when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS)).thenReturn(ci2MasterHistory());
-        when(tc.prBranchRuns(TOK, PR, TEST, SNAPSHOTS)).thenReturn(List.of(new TcModel.TestOccurrence("1", null,
-            "FAILURE", null, new TcModel.BuildRef(9392300L, "pull/" + PR + "/head", "finished", "FAILURE", SNAPSHOTS, null,
-                new TcModel.Revisions(List.of(new TcModel.Revision("2ff3f44"))), conditions(javaHome, "0.1")), null)));
+        TcModel.Revisions head = new TcModel.Revisions(List.of(new TcModel.Revision("2ff3f44")));
+        TcModel.BuildRef build = new TcModel.BuildRef(9392300L, "pull/" + PR + "/head", "finished", "FAILURE",
+            SNAPSHOTS, null, head, conditions(javaHome, "0.1"));
+        when(tc.prBranchRuns(TOK, PR, TEST, SNAPSHOTS))
+            .thenReturn(List.of(new TcModel.TestOccurrence("1", null, "FAILURE", null, build, null)));
     }
 
     private static List<TcModel.TestOccurrence> ci2MasterHistory() {

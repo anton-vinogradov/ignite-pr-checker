@@ -488,7 +488,8 @@ public class BlockerAnalyzer {
                     + " master run(s)" + onJdk;
         }
         else if (h.greenStreak() >= RECENT_MASTER_GREEN && outweighs(h.fails(), h.runs(), streak))
-            reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last " + h.greenStreak();
+            reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last "
+                + h.greenStreak();
         else {
             reason = scaleOnlyOnMaster(token, prNumber, t, master, env, h, streak);
             if (reason == null)
@@ -603,8 +604,10 @@ public class BlockerAnalyzer {
      */
     private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env) {
         try {
-            return cache.prBranchHistory(t.testId(), t.suite(),
-                () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite()))).otherPrsAs(env, prNumber);
+            RunHistory onPrs = cache.prBranchHistory(t.testId(), t.suite(),
+                () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite())));
+
+            return onPrs.otherPrsAs(env, prNumber);
         }
         catch (RuntimeException e) {
             return null;

@@ -154,8 +154,8 @@ class FlakyStatsTest {
     }
 
     private void masterHistory(String suite, int runs, int fails) {
-        cache.history(RECONNECT, suite, () -> new RunHistory("F".repeat(fails) + "P".repeat(runs - fails), "a".repeat(runs),
-            List.of(RunEnv.UNKNOWN), List.of()));
+        cache.history(RECONNECT, suite, () -> new RunHistory("F".repeat(fails) + "P".repeat(runs - fails),
+            "a".repeat(runs), List.of(RunEnv.UNKNOWN), List.of()));
     }
 
     /** An analysis of PR {@code pr} that let the test off in each of {@code suites} as failing on master. */

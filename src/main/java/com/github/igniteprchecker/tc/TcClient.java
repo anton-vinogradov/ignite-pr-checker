@@ -287,8 +287,8 @@ public class TcClient {
      * first: the statuses and the conditions each build ran under. Per suite, because one test id runs
      * in several suites of a chain (the C++ tests run on Windows, Linux and Clang) and each has its own
      * failure rate: mixed together, a platform that flakes on master would make a clean break on another
-     * platform look pre-existing. The conditions come in the same request: the nightly master RunAll
-     * alternates JDK 17 and JDK 21, and a test broken only on JDK 21 is no evidence about a JDK 17 run.
+     * platform look pre-existing. The conditions come in the same request: some nightly master RunAlls
+     * run on JDK 21, and a test broken only on JDK 21 is no evidence about a JDK 17 run.
      */
     public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = occurrencesWithConditions("history", token,
@@ -300,7 +300,8 @@ public class TcClient {
             return List.of();
 
         return occ.testOccurrence().stream()
-            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build() == null ? 0 : o.build().id()).reversed())
+            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build() == null ? 0 : o.build().id())
+                .reversed())
             .toList();
     }
 
@@ -696,7 +697,8 @@ public class TcClient {
                 throw e;
 
             TcModel.TestOccurrences occ = get(category, token, url("app/rest/testOccurrences", query(
-                "locator", locator, "fields", fields.replace(CONDITIONS_SLOT, JDK_ONLY))), TcModel.TestOccurrences.class);
+                "locator", locator, "fields", fields.replace(CONDITIONS_SLOT, JDK_ONLY))),
+                TcModel.TestOccurrences.class);
             runConditions = JDK_ONLY;
             log.warn("TeamCity rejected the run-conditions pattern ({}); reading the JDK only, the test scale factor "
                 + "stays unknown", e.getStatusText());

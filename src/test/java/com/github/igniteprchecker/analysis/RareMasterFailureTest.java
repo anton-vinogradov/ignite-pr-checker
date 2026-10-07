@@ -53,7 +53,8 @@ class RareMasterFailureTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("rare on master: fails 1/100, passed the last 21; failed all 4 runs on this branch");
+        assertThat(v.reason())
+            .isEqualTo("rare on master: fails 1/100, passed the last 21; failed all 4 runs on this branch");
     }
 
     /** One failure is no repeat: it stays pre-existing, so no re-run wave is spent on it. */
@@ -88,7 +89,8 @@ class RareMasterFailureTest {
         failing(master(100, 22, 40), "FFF");
         TestVerdict v = only(analyzer.forceRefresh(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("rare on master: fails 2/100, passed the last 21; failed all 3 runs on this branch");
+        assertThat(v.reason())
+            .isEqualTo("rare on master: fails 2/100, passed the last 21; failed all 3 runs on this branch");
     }
 
     /** The branch rules still decide between a blocker and a test to watch. */

@@ -64,13 +64,13 @@ class NewerChainLiveTest {
         when(tc.recentChains(TOK, PR, 3)).thenReturn(List.of(
             chainBuild(NEWER, state, status, null),
             chainBuild(CHAIN, "finished", "SUCCESS", null)));
-        TcModel.Build snapshots8 = new TcModel.Build(9392300L, "FAILURE", "finished", "pull/" + PR + "/head", SNAPSHOTS8,
-            null, null, null, null, null, null, new TcModel.BuildType(SNAPSHOTS8, "Snapshots 8"), null, null, null, null,
-            null, new TcModel.TestOccurrences(120, List.of()));
+        TcModel.Build snapshots8 = new TcModel.Build(9392300L, "FAILURE", "finished", "pull/" + PR + "/head",
+            SNAPSHOTS8, null, null, null, null, null, null, new TcModel.BuildType(SNAPSHOTS8, "Snapshots 8"), null,
+            null, null, null, null, new TcModel.TestOccurrences(120, List.of()));
         when(tc.getBuildWithDeps(TOK, NEWER)).thenReturn(chainBuild(NEWER, state, status, List.of(snapshots8)));
         when(tc.getFailedTests(TOK, 9392300L)).thenReturn(List.of(new TcModel.TestOccurrence(
-            "id:1,build:(id:9392300)", "IgniteClusterSnapshotCheckTest.testSnapshotCheckMetricsLesserTopology", "FAILURE",
-            new TcModel.TestRef(-1661331956011831017L), null, null)));
+            "id:1,build:(id:9392300)", "IgniteClusterSnapshotCheckTest.testSnapshotCheckMetricsLesserTopology",
+            "FAILURE", new TcModel.TestRef(-1661331956011831017L), null, null)));
     }
 
     private ChainCollector.Chain collect() {
@@ -78,8 +78,8 @@ class NewerChainLiveTest {
     }
 
     private static TcModel.Build chainBuild(long id, String state, String status, List<TcModel.Build> deps) {
-        return new TcModel.Build(id, status, state, "pull/" + PR + "/head", "IgniteTests24Java8_RunAll", null, null, null,
-            null, null, null, new TcModel.BuildType("IgniteTests24Java8_RunAll", "Run All"), null,
+        return new TcModel.Build(id, status, state, "pull/" + PR + "/head", "IgniteTests24Java8_RunAll", null, null,
+            null, null, null, null, new TcModel.BuildType("IgniteTests24Java8_RunAll", "Run All"), null,
             deps == null ? null : new TcModel.SnapshotDeps(deps.size(), deps), null, null, null, null);
     }
 }
