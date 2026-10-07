@@ -32,15 +32,14 @@ class CauseClustersTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final CauseClusters causes = new CauseClusters(tc, Executors.newSingleThreadExecutor());
+    private final CauseClusters causes =
+        new CauseClusters(tc, new FailureDetails(tc), Executors.newSingleThreadExecutor());
 
     @Test
     void eachSuitesFailureOfOneTestJoinsTheClusterOfItsOwnMessage() {
         when(tc.testDetails(TOK, "o-linux")).thenReturn("java.lang.AssertionError: reconnect took 31 s");
         when(tc.testDetails(TOK, "o-win")).thenReturn("Connection refused: 127.0.0.1:10800");
-        AnalysisResult res = new AnalysisResult(13335, 9389046L, "pull/13335/head", 0L,
-            List.of(blocker(LINUX, "o-linux"), blocker(WIN, "o-win")), List.of(), List.of(), List.of(), List.of(),
-            0, 0, false, 0, false, 0, 0, 0, 0, 0);
+        AnalysisResult res = run(blocker(RECONNECT, LINUX, "o-linux"), blocker(RECONNECT, WIN, "o-win"));
 
         JsonNode json = new ObjectMapper().valueToTree(causes.clusters(TOK, res));
 
@@ -51,12 +50,17 @@ class CauseClustersTest {
             members.put(c.get("signature").asText(), tests);
         }
         assertThat(members).containsOnly(
-            Map.entry("java.lang.AssertionError: reconnect took N s", List.of(RECONNECT + " in " + LINUX)),
+            Map.entry("reconnect took N s", List.of(RECONNECT + " in " + LINUX)),
             Map.entry("Connection refused: N.N.N.N:N", List.of(RECONNECT + " in " + WIN)));
     }
 
-    private static TestVerdict blocker(String suite, String occurrenceId) {
-        return new TestVerdict(RECONNECT, "IgniteThinClientTest: IgniteClientTestSuite: IgniteClientReconnect", suite,
+    static AnalysisResult run(TestVerdict... blockers) {
+        return new AnalysisResult(13335, 9389046L, "pull/13335/head", 0L, List.of(blockers), List.of(), List.of(),
+            List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
+    }
+
+    static TestVerdict blocker(long testId, String suite, String occurrenceId) {
+        return new TestVerdict(testId, "IgniteThinClientTest: IgniteClientTestSuite: IgniteClientReconnect", suite,
             0L, suite, occurrenceId, true, false, "blocker", "FFF", 3);
     }
 }

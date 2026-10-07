@@ -773,9 +773,10 @@ public class BlockerAnalyzer {
         // A failure only stands if it still stands in the last finished run: if that run passed, it
         // clears the failure. The revision is not compared here — a pass on the same code makes the
         // failure a flake, a pass on newer code means the branch fixed it; either way it no longer stands.
+        // It stays anchored to its latest failure: "why?" on a passing run showed a log with nothing in it.
         if (lastRun != null && "SUCCESS".equals(lastRun.status())) {
-            return verdict(t, lastRun, false, false, "not failing in the last finished run (passed on re-run)",
-                branchRuns, 0);
+            return verdict(t, lastFailure(runs), false, false,
+                "not failing in the last finished run (passed on re-run)", branchRuns, 0);
         }
 
         // A failure in the PR is a blocker unless the test also fails in master history: a failure there
@@ -1181,6 +1182,16 @@ public class BlockerAnalyzer {
         return runs.stream()
             .filter(o -> "SUCCESS".equals(o.status()) || "FAILURE".equals(o.status()))
             .toList();
+    }
+
+    /** The newest failed run, or null when none of them failed (the chain's own occurrence is the anchor then). */
+    private static TcModel.TestOccurrence lastFailure(List<TcModel.TestOccurrence> runs) {
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            if ("FAILURE".equals(runs.get(i).status()))
+                return runs.get(i);
+        }
+
+        return null;
     }
 
     /**

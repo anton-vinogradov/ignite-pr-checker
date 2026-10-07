@@ -1,0 +1,2 @@
+/opt/teamcity/work/7bc1c54bc719b67c/modules/platforms/cpp/thin-client-test/src/ignite_client_test.cpp(209): check WaitForConnections(2) has failed
+/opt/teamcity/work/7bc1c54bc719b67c/modules/platforms/cpp/thin-client-test/src/ignite_client_test.cpp(210): check GetActiveConnections() == 2 has failed [1 != 2]

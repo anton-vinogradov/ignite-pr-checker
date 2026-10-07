@@ -29,7 +29,8 @@ public class PendingCommits {
 
             GithubClient.Ahead ahead = github.compareAhead(built, head);
 
-            return new Ahead(ahead.ahead(), built.substring(0, Math.min(7, built.length())), ahead.headShort());
+            return new Ahead(ahead.ahead(), built.substring(0, Math.min(7, built.length())), ahead.headShort(), built,
+                ahead.rewritten());
         }
         catch (RuntimeException e) {
             return null; // PR gone/merged, or a TeamCity/GitHub blip
@@ -44,7 +45,10 @@ public class PendingCommits {
         return a == null ? null : Math.max(a.commits(), 1);
     }
 
-    /** How far the PR head is ahead of the analysed run, with both revisions short-formatted. */
-    public record Ahead(int commits, String builtShort, String headShort) {
+    /**
+     * How far the PR head is ahead of the analysed run, with both revisions short-formatted, the run's whole
+     * revision (a short one cannot be fetched), and whether a rebase or force-push rewrote the branch since.
+     */
+    public record Ahead(int commits, String builtShort, String headShort, String builtRevision, boolean rewritten) {
     }
 }
