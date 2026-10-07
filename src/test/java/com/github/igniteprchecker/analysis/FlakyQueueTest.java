@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -97,6 +98,64 @@ class FlakyQueueTest {
             .extracting(FlakyStats.TopFlaky::testId, FlakyStats.TopFlaky::broken, FlakyStats.TopFlaky::failStreak)
             .containsExactly(tuple(REBALANCE, false, 3), tuple(NEAR_READER, true, 100),
                 tuple(JOB_ID_COLLISION, true, 12));
+    }
+
+    /** Of 41 flaky rows and one broken, a board of 40 rows a group still shows the broken one, after the flaky. */
+    @Test
+    void eachGroupIsCutOnItsOwn() {
+        long[] flakyOnes = LongStream.rangeClosed(1, 41).map(i -> 1000 + i).toArray();
+        for (long test : flakyOnes)
+            masterHistory(test, "PPFPPPPPPF");
+        masterHistory(NEAR_READER, "F".repeat(100));
+        filtered(13655, LongStream.concat(LongStream.of(flakyOnes), LongStream.of(NEAR_READER)).toArray());
+
+        FlakyStats flaky = flaky();
+        flaky.harvest();
+
+        List<FlakyStats.TopFlaky> top = flaky.top(40);
+        assertThat(top).hasSize(41);
+        assertThat(top.subList(0, 40)).noneMatch(FlakyStats.TopFlaky::broken);
+        assertThat(top.get(40).testId()).isEqualTo(NEAR_READER);
+        assertThat(flaky.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(41, 1));
+    }
+
+    /**
+     * The warmer keeps the verdicts of the newest open PRs fresh, so they are harvested every few minutes: PR 12584,
+     * whose RunAll finished a month ago, counted as a PR the test failed in today.
+     */
+    @Test
+    void aPrCountsFromTheRunItFailedInNotFromTheLastRecompute() {
+        masterHistory(REBALANCE, "PPFPPPPPPF");
+        filtered(12584, 9300000L, Duration.ofDays(30), REBALANCE);
+        filtered(13655, 9389046L, Duration.ofHours(2), REBALANCE);
+
+        FlakyStats flaky = flaky();
+        flaky.harvest();
+
+        assertThat(flaky.top(40)).singleElement()
+            .extracting(FlakyStats.TopFlaky::prCount, FlakyStats.TopFlaky::prs)
+            .containsExactly(1, List.of(13655));
+    }
+
+    /** The test failed in PR 13655 two hours ago; an older RunAll of the PR, still cached, does not date it back. */
+    @Test
+    void anOlderRunOfThePrDoesNotDateItBack(@TempDir Path dir) throws IOException {
+        long now = System.currentTimeMillis();
+        long failedAt = now - Duration.ofHours(2).toMillis();
+        ObjectNode entry = entry(REBALANCE, now);
+        entry.putObject("prSeen").put("13655", failedAt);
+        entry.put("muted", false);
+        Path file = dir.resolve("flaky.json");
+        mapper.writeValue(file.toFile(), List.of(entry));
+        masterHistory(REBALANCE, "PPFPPPPPPF");
+        filtered(13655, 9300000L, Duration.ofDays(10), REBALANCE);
+
+        FlakyStats flaky = flaky();
+        flaky.loadFrom(file);
+        flaky.harvest();
+        flaky.saveTo(file);
+
+        assertThat(mapper.readTree(file.toFile()).get(0).get("prSeen").get("13655").asLong()).isEqualTo(failedAt);
     }
 
     @Test
@@ -177,15 +236,25 @@ class FlakyQueueTest {
             List.of()));
     }
 
-    /** An analysis of PR {@code pr} that let off each of {@code tests} as failing on master. */
+    /** An analysis of PR {@code pr} that let off each of {@code tests} as failing on master, its run still going. */
     private void filtered(int pr, long... tests) {
+        filtered(pr, 9389046L, Duration.ZERO, tests);
+    }
+
+    /**
+     * The same of RunAll {@code chain}, computed now, the run having finished {@code finishedAgo} ago; zero for a run
+     * still going.
+     */
+    private void filtered(int pr, long chain, Duration finishedAgo, long... tests) {
+        long now = System.currentTimeMillis();
+        long finishedAt = finishedAgo.isZero() ? 0 : (now - finishedAgo.toMillis()) / 1000;
         List<TestVerdict> verdicts = Arrays.stream(tests)
             .mapToObj(t -> new TestVerdict(t, "org.apache.ignite.Test" + t + ".test", CACHE, 9388970L, "Cache",
                 "build:(id:9388970),id:" + t, false, false, "pre-existing", "F", 1))
             .toList();
 
-        cache.putResult(9389046L, new AnalysisResult(pr, 9389046L, "pull/" + pr + "/head", System.currentTimeMillis(),
-            List.of(), List.of(), verdicts, List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0));
+        cache.putResult(chain, new AnalysisResult(pr, chain, "pull/" + pr + "/head", now, List.of(), List.of(),
+            verdicts, List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, finishedAt, 0));
     }
 
     /** A row as a snapshot of v1.22.1 kept it, anchored a minute ago to one master failure of its suite. */

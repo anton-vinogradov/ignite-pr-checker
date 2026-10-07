@@ -148,8 +148,8 @@
     <div class="wrap">
         <div id="err" class="muted"></div>
         <p id="intro" class="intro">Tests that fail on master, so they also fail in pull requests that did not break them.
-            Flaky tests come first; the tests that fail every recent master run follow — they broke, and the way to them
-            is the commit that broke them. Muted tests are left out.</p>
+            Flaky tests come first, then the tests that failed each of their latest master runs (10 or more in a row, or
+            every run when a test has fewer): find the commit that broke them. Muted tests are left out.</p>
         <div class="section"><div id="flaky" class="leaderboard"></div></div>
         <div class="updated" id="updated"></div>
     </div>
@@ -219,21 +219,27 @@
             return m < 60 ? `~${m}m` : `~${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
         }
 
-        // The flaky tests first, then those broken on master: the server sends them in that order, each ranked.
-        function render(list, reruns) {
+        // The flaky tests first, then those broken on master: the server sends them in that order, each ranked and cut
+        // to the rows asked for; `sizes` says how many each group holds ({flaky, broken}; empty from an older server).
+        function render(list, reruns, sizes = {}) {
             const el = $('flaky');
             if (!list || !list.length) { el.innerHTML = '<div class="muted">No flaky/broken master tests recorded yet — the queue fills as PRs get analysed (it needs an active login to warm the cache). Check back shortly.</div>'; return; }
             const flaky = list.filter(b => !b.broken);
             const broken = list.filter(b => b.broken);
-            const group = (title, sub, rows) => rows.length
-                ? `<h2 class="group-head">${title} (${rows.length})</h2><p class="group-sub">${sub}</p>`
+            const group = (title, sub, rows, size) => rows.length
+                ? `<h2 class="group-head">${title} (${groupCount(rows.length, size)})</h2><p class="group-sub">${sub}</p>`
                     + rows.map((b, i) => flakyRow(b, i, list.indexOf(b), reruns)).join('')
                 : '';
-            el.innerHTML = group('Flaky on master', 'They fail some master runs and pass others: stabilise them.', flaky)
-                + group('Broken on master', 'They failed each of their latest master runs: find the commit that broke them.', broken);
+            el.innerHTML = group('Flaky on master', 'They fail some master runs and pass others: stabilise them.', flaky, sizes.flaky)
+                + group('Broken on master', 'They failed each of their latest master runs: find the commit that broke them.', broken, sizes.broken);
             for (const btn of el.querySelectorAll('.why:not(.ai)')) btn.onclick = () => toggleDetails(btn, list[+btn.dataset.i]);
             for (const btn of el.querySelectorAll('.why.ai')) btn.onclick = () => aiFlakyPrompt(btn, list[+btn.dataset.i]);
             for (const btn of el.querySelectorAll('.details .copy')) btn.onclick = () => copyDetails(btn);
+        }
+
+        // "40 of 45" when the group holds more tests than it shows.
+        function groupCount(shown, size) {
+            return size > shown ? `${shown} of ${size}` : String(shown);
         }
 
         // One test in one suite: `rank` in its group, `i` its place in the list the buttons look it up in.
@@ -422,8 +428,9 @@
                 renderIntro(data.muted || 0);
                 const reruns = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
                 $('err').textContent = '';
-                const json = JSON.stringify({ list, reruns });
-                if (json !== lastJson) { render(list, reruns); lastJson = json; }
+                const sizes = { flaky: data.flakyCount, broken: data.brokenCount };
+                const json = JSON.stringify({ list, reruns, sizes });
+                if (json !== lastJson) { render(list, reruns, sizes); lastJson = json; }
                 $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
             } catch (e) {
                 // A failed poll with data already on screen is usually a redeploy/restart blip: stay calm,
@@ -435,8 +442,8 @@
         // The board's rules, and how many muted tests it leaves out right now.
         function renderIntro(muted) {
             $('intro').textContent = 'Tests that fail on master, so they also fail in pull requests that did not break them. '
-                + 'Flaky tests come first; the tests that fail every recent master run follow — they broke, and the way to them '
-                + 'is the commit that broke them. '
+                + 'Flaky tests come first, then the tests that failed each of their latest master runs (10 or more in a row, '
+                + 'or every run when a test has fewer): find the commit that broke them. '
                 + (muted ? `${muted} test${muted === 1 ? '' : 's'} muted on TeamCity ${muted === 1 ? 'is' : 'are'} left out. `
                     : 'Muted tests are left out. ')
                 + `PR counts cover the last ${prDays} days.`;

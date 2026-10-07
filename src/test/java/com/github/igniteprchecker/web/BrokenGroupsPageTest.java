@@ -70,6 +70,21 @@ class BrokenGroupsPageTest {
             + "result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
     }
 
+    /**
+     * The Build failed, a re-run of it passed, and the suites it kept from running were all cancelled rather than
+     * failed: no suite is broken, yet 137 never ran, and the page does not call the PR good to go.
+     */
+    @Test
+    void aBuildThatPassedOnARerunStillShowsTheSuitesThatNeverRan() throws Exception {
+        JsonNode out = PageScript.run("index.html", page(BrokenRuns.withBroken(BrokenRuns.buildFailed(false),
+            List.of())));
+
+        assertThat(out.get("cardHidden").asBoolean()).isFalse();
+        assertThat(out.get("broken").asText()).startsWith("Build failed in this run and passed on a re-run since — 137 "
+            + "suites that need it never ran; /run-all to run them");
+        assertThat(out.get("noBlockersHidden").asBoolean()).isTrue();
+    }
+
     /** A problem's text comes from the build log, which the PR's code can write to. */
     @Test
     void aSharedProblemIsDrawnAsText() throws Exception {
@@ -89,6 +104,8 @@ class BrokenGroupsPageTest {
             report({ broken: page.el('brokenSuites').textContent, html: page.el('brokenSuites').innerHTML,
                 bannerHidden: page.el('interruptedBanner').classList.contains('hidden'),
                 sectionRerunHidden: page.el('brokenActs').classList.contains('hidden'),
+                cardHidden: page.el('brokenCard').classList.contains('hidden'),
+                noBlockersHidden: page.el('noBlockers').classList.contains('hidden'),
                 caveat: page.el('verdictCaveat').textContent });
             """;
     }

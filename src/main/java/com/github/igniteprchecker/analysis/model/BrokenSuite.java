@@ -15,7 +15,7 @@ import java.util.List;
  *
  * <p>{@code problemTypes} are TeamCity's types of its problems, as {@code problems} describe them.
  * {@code failedUpstream} is the run it needed that failed, null when every run it needed passed: such a suite
- * never got to run, and only that run tells why.
+ * usually never got to run, and only that run tells why.
  */
 public record BrokenSuite(String suite, long suiteBuildId, String suiteName, List<String> problems,
     int tests, int baseline, List<String> problemTypes, Upstream failedUpstream) {
@@ -50,5 +50,13 @@ public record BrokenSuite(String suite, long suiteBuildId, String suiteName, Lis
     /** Whether it says it failed only because a run it needed failed, which run not known. */
     public boolean failedDependency() {
         return problems != null && problems.contains("failed dependency");
+    }
+
+    /**
+     * Whether it ran no test because a run it needed failed. TeamCity can run a suite past a failed dependency and
+     * add a problem; one that ran tests then ran, and broke its own way.
+     */
+    public boolean keptFromRunning() {
+        return tests == 0 && (failedUpstream != null || failedDependency());
     }
 }

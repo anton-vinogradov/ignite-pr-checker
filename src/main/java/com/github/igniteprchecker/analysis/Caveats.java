@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -20,6 +21,9 @@ public final class Caveats {
     /** How much of a TeamCity message a caveat quotes. */
     private static final int CAUSE_CHARS = 80;
 
+    /** What the caveat about broken suites said of their causes before it named them; see {@link #keyOf}. */
+    private static final String UNNAMED_CAUSES = "compilation error, timeout, crash";
+
     private Caveats() {
     }
 
@@ -28,6 +32,20 @@ public final class Caveats {
      * {@code commitsAhead} is null when nobody checked whether the PR head has moved.
      */
     public static List<String> of(AnalysisResult r, Integer commitsAhead) {
+        return of(r, commitsAhead, Caveats::causesOf);
+    }
+
+    /**
+     * The caveats as a key telling two verdicts of one revision apart. The broken suites' causes are left out, as
+     * TeamCity words them with the numbers of each run, and the caveat reads as it did before it named them, so the
+     * key of a visa an older release posted still matches.
+     */
+    public static List<String> keyOf(AnalysisResult r) {
+        return of(r, null, causes -> UNNAMED_CAUSES);
+    }
+
+    private static List<String> of(AnalysisResult r, Integer commitsAhead,
+        Function<List<BrokenGroup>, String> causesText) {
         List<String> out = new ArrayList<>();
         List<BrokenGroup> groups = BrokenGroup.of(r);
         List<BrokenGroup> upstreams = groups.stream().filter(g -> g.upstream() != null).toList();
@@ -40,7 +58,7 @@ public final class Caveats {
         List<BrokenGroup> causes = groups.stream().filter(g -> g.upstream() == null).toList();
         int broken = causes.stream().mapToInt(g -> g.suites().size()).sum();
         if (broken > 0)
-            out.add(broken + " suite(s) have no reliable result (" + causesOf(causes) + ")");
+            out.add(broken + " suite(s) have no reliable result (" + causesText.apply(causes) + ")");
 
         if (!r.shrunkSuites().isEmpty())
             out.add(r.shrunkSuites().size() + " suite(s) ran far fewer tests than the same suites on master");

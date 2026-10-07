@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Stream;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -80,7 +81,7 @@ public class FlakyStats implements SnapshotCache {
             for (TestVerdict f : r.filtered()) {
                 cache.masterHistoryOf(f.testId(), f.suite())
                     .filter(h -> h.all().fails() > 0) // fails on master (not merely a branch re-run pass)
-                    .ifPresent(h -> record(f, h, r.prNumber()));
+                    .ifPresent(h -> record(f, h, r));
             }
         }
         anchorToMaster();
@@ -129,8 +130,10 @@ public class FlakyStats implements SnapshotCache {
         }
     }
 
-    private void record(TestVerdict f, RunHistory master, int pr) {
+    private void record(TestVerdict f, RunHistory master, AnalysisResult r) {
         HistoryStats all = master.all();
+        long now = System.currentTimeMillis();
+        long failedAt = failedAt(r, now);
         Entry e = byTestInSuite.computeIfAbsent(new TestInSuite(f.testId(), f.suite()), k -> new Entry());
         synchronized (e) {
             e.name = f.name();
@@ -140,16 +143,46 @@ public class FlakyStats implements SnapshotCache {
             e.masterFails = all.fails();
             e.masterRuns = all.runs();
             e.failStreak = master.failStreak();
-            e.lastSeen = System.currentTimeMillis();
-            e.prSeen.put(pr, e.lastSeen);
+            e.lastSeen = now;
+            if (now - failedAt <= RETAIN)
+                e.prSeen.merge(r.prNumber(), failedAt, Math::max);
         }
     }
 
     /**
-     * Recently-seen flaky/broken-on-master tests TeamCity has not muted, a row per suite: the flaky ones first,
-     * then those broken on master, each worst master fail-rate first. Prunes stale entries and PRs.
+     * When the run behind {@code r} failed the PR's tests: when it finished, not when its verdict was harvested, as
+     * the warmer recomputes the verdicts of the newest open PRs every few minutes however long ago their RunAll
+     * finished. A run still going failed them as of its verdict.
+     */
+    private static long failedAt(AnalysisResult r, long now) {
+        if (r.finishedAt() > 0)
+            return r.finishedAt() * 1000;
+
+        return r.computedAt() > 0 ? r.computedAt() : now;
+    }
+
+    /**
+     * Recently-seen flaky/broken-on-master tests TeamCity has not muted, a row per suite: up to {@code limit} flaky
+     * ones, then up to {@code limit} broken on master, each worst master fail-rate first. Each group is cut on its
+     * own: cut as one list, more than {@code limit} flaky ones would leave no broken one.
      */
     public List<TopFlaky> top(int limit) {
+        List<TopFlaky> board = board();
+
+        return Stream.concat(board.stream().filter(f -> !f.broken()).limit(limit),
+            board.stream().filter(TopFlaky::broken).limit(limit)).toList();
+    }
+
+    /** How many rows each group of the board has before {@link #top} cuts it. */
+    public GroupSizes groupSizes() {
+        List<TopFlaky> board = board();
+        int broken = (int) board.stream().filter(TopFlaky::broken).count();
+
+        return new GroupSizes(board.size() - broken, broken);
+    }
+
+    /** Every row of the board in its order, stale entries and PRs pruned. */
+    private List<TopFlaky> board() {
         long now = System.currentTimeMillis();
         byTestInSuite.values().removeIf(e -> now - e.lastSeen > RETAIN);
 
@@ -170,7 +203,7 @@ public class FlakyStats implements SnapshotCache {
                 .reversed())
             .thenComparing(Comparator.comparingInt(TopFlaky::prCount).reversed()));
 
-        return out.size() > limit ? out.subList(0, limit) : out;
+        return out;
     }
 
     /** How many tests are currently tracked, once per suite (to tell "no data yet" from "clean"). */
@@ -281,6 +314,10 @@ public class FlakyStats implements SnapshotCache {
     private record Persisted(long testId, String name, String suite, String suiteName, long suiteBuildId,
         String occurrenceId, int masterFails, int masterRuns, int failStreak, long lastSeen, List<Integer> prs,
         Map<Integer, Long> prSeen, List<MasterRef> masterFailures, long masterAnchorAt, Boolean muted) {
+    }
+
+    /** How many tests the board holds as flaky on master and as broken on master. */
+    public record GroupSizes(int flaky, int broken) {
     }
 
     /** One failed master run of the test: enough to deep-link the occurrence in TeamCity. */

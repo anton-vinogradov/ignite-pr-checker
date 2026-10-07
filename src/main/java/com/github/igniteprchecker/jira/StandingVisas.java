@@ -1483,7 +1483,7 @@ public class StandingVisas implements SnapshotCache {
 
         return String.join("|", tests.apply(r.blockers()), tests.apply(r.watch()), tests.apply(r.unverified()),
             r.brokenSuites().stream().map(BrokenSuite::suite).sorted().collect(java.util.stream.Collectors.joining(",")),
-            String.join(";", Caveats.of(r, null)));
+            String.join(";", Caveats.keyOf(r)));
     }
 
     /** "Tested revision abc1234; the PR head is now def5678." with the revisions wrapped in the markup's code marks. */

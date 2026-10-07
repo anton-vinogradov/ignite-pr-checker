@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.Upstream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -100,6 +101,92 @@ class BrokenGroupTest {
         assertThat(BrokenGroup.of(BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), broken)))
             .extracting(BrokenGroup::kind, g -> g.suites().size())
             .containsExactly(tuple(BrokenGroup.Kind.PROBLEM, 67), tuple(BrokenGroup.Kind.PROBLEM, 2));
+    }
+
+    /**
+     * Two suites hung in one run, as in PR 13632 and 13649, each with its own shortfall in TeamCity's message: the
+     * group names neither suite's numbers, only those they share.
+     */
+    @Test
+    void aGroupIsNotTitledWithTheNumbersOfOneOfItsSuites() {
+        AnalysisResult hung = BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), List.of(
+            new BrokenSuite("IgniteTests24Java8_CacheFailover5", 1L, "Cache (Failover) 5", List.of("execution timeout",
+                "non-zero exit code", "Number of tests 5 is 93% less than 67 in build #1141"), 5, 67),
+            new BrokenSuite("IgniteTests24Java8_DiskPageCompressions8", 2L, "Disk Page Compressions 8",
+                List.of("execution timeout", "non-zero exit code",
+                    "Number of tests 50 is 77% less than 216 in build #2313"), 50, 216)));
+        AnalysisResult killed = BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), List.of(
+            new BrokenSuite("IgniteTests24Java8_Zk", 1L, "Control Utility (Zookeeper)", List.of(
+                "Process exited with code 137", "Number of tests 0 is 100% less than 266 in build #23327"), 0, 266),
+            new BrokenSuite("IgniteTests24Java8_Ml", 2L, "Machine Learning", List.of(
+                "Process exited with code 137", "Number of tests 12 is 66% less than 35 in build #42180"), 12, 35)));
+
+        assertThat(BrokenGroup.of(hung)).singleElement().extracting(BrokenGroup::title).isEqualTo("execution timeout · "
+            + "non-zero exit code · Number of tests N is N% less than N in build #N");
+        assertThat(BrokenGroup.of(killed)).singleElement().extracting(BrokenGroup::title)
+            .isEqualTo("Process exited with code 137 · Number of tests N is N% less than N in build #N");
+    }
+
+    /**
+     * TeamCity can run a suite past a failed Build and add a problem: Cache 5 ran 250 tests and timed out. It ran, so
+     * it is a broken suite of its own, re-run like any other, and not among those the Build kept from running.
+     */
+    @Test
+    void aSuiteThatRanTestsPastAFailedBuildIsBrokenItsOwnWay() {
+        AnalysisResult r = BrokenRuns.buildFailed(false);
+        List<BrokenSuite> broken = new ArrayList<>(r.brokenSuites());
+        broken.add(new BrokenSuite("IgniteTests24Java8_Cache5", 9384900L, "Cache 5",
+            List.of("failed dependency", "execution timeout"), 250, 300, List.of("SNAPSHOT_DEPENDENCY_ERROR",
+            "TC_EXECUTION_TIMEOUT"), r.brokenSuites().get(1).failedUpstream()));
+
+        List<BrokenGroup> groups = BrokenGroup.of(BrokenRuns.withBroken(r, broken));
+
+        assertThat(groups).extracting(BrokenGroup::kind, BrokenGroup::title, g -> g.suites().size())
+            .containsExactly(
+                tuple(BrokenGroup.Kind.UPSTREAM, "Build failed — 145 suites that need it did not run; fix the build, "
+                    + "then /run-all", 8),
+                tuple(BrokenGroup.Kind.PROBLEM, "failed dependency · execution timeout", 1));
+        assertThat(BrokenGroup.rerunSuites(groups)).containsExactly(BrokenRuns.BUILD, "IgniteTests24Java8_Cache5");
+    }
+
+    /** The one suite that needed the failed Build ran past it: the Build kept no suite from running. */
+    @Test
+    void aBuildThatKeptNoSuiteFromRunningIsABrokenSuiteOfItsOwn() {
+        AnalysisResult r = BrokenRuns.buildFailed(false);
+        BrokenSuite build = r.brokenSuites().get(0);
+        BrokenSuite cache = new BrokenSuite("IgniteTests24Java8_Cache5", 9384900L, "Cache 5",
+            List.of("failed dependency", "execution timeout"), 250, 300, List.of("SNAPSHOT_DEPENDENCY_ERROR",
+            "TC_EXECUTION_TIMEOUT"), r.brokenSuites().get(1).failedUpstream());
+        AnalysisResult ranPast = new AnalysisResult(r.prNumber(), r.buildId(), r.branchName(), r.computedAt(),
+            List.of(), List.of(), List.of(), List.of(build, cache), List.of(), 2, 0, false, 0, false, 0, 0, 0, 0, 0);
+
+        assertThat(BrokenGroup.of(ranPast)).extracting(BrokenGroup::kind, BrokenGroup::title)
+            .containsExactlyInAnyOrder(tuple(BrokenGroup.Kind.PROBLEM, "non-zero exit code"),
+                tuple(BrokenGroup.Kind.PROBLEM, "failed dependency · execution timeout"));
+    }
+
+    /**
+     * Two runs the others need failed and a re-run of the Build passed since: the one still broken comes first, as the
+     * thing to fix, in the groups and in the caveats.
+     */
+    @Test
+    void aRunStillBrokenComesBeforeOneThatPassedOnARerun() {
+        AnalysisResult r = BrokenRuns.buildPassedOnRerun();
+        Upstream dotNet = new Upstream("IgniteTests24Java8_BuildDotNet", 9384650L, "> Build .NET");
+        List<BrokenSuite> broken = new ArrayList<>(r.brokenSuites());
+        broken.add(new BrokenSuite(dotNet.suite(), dotNet.buildId(), dotNet.name(), List.of("non-zero exit code"), 0,
+            0, List.of("TC_EXIT_CODE"), null));
+        broken.add(new BrokenSuite("IgniteTests24Java8_PlatformNetLinux", 9384660L, "Platform .NET (Linux)",
+            List.of("failed dependency"), 0, 100, List.of("SNAPSHOT_DEPENDENCY_ERROR"), dotNet));
+
+        AnalysisResult two = BrokenRuns.withBroken(r, broken);
+
+        assertThat(BrokenGroup.of(two)).extracting(BrokenGroup::title).containsExactly(
+            "Build .NET failed — 1 suite that needs it did not run; fix the build, then /run-all",
+            "Build failed in this run and passed on a re-run since — 145 suites that need it never ran; /run-all to "
+                + "run them");
+        assertThat(Caveats.of(two, null)).containsExactly("Build .NET failed — 1 suite that needs it did not run",
+            "Build failed in this run and passed on a re-run since — 145 suites that need it never ran");
     }
 
     /** TeamCity names a run two ways in its messages; a problem naming it either way is one problem. */

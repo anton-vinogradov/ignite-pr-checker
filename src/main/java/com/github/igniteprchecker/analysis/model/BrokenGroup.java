@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -55,7 +57,7 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
         Set<CancelledSuite> kept = new LinkedHashSet<>();
 
         Map<String, Upstream> upstreams = new LinkedHashMap<>();
-        Stream.concat(r.brokenSuites().stream().map(BrokenSuite::failedUpstream),
+        Stream.concat(r.brokenSuites().stream().filter(BrokenSuite::keptFromRunning).map(BrokenSuite::failedUpstream),
                 r.cancelledSuites().stream().map(CancelledSuite::failedUpstream))
             .filter(u -> u != null && u.suite() != null)
             .forEach(u -> upstreams.putIfAbsent(u.suite(), u));
@@ -64,7 +66,8 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
             BrokenSuite root = r.brokenSuites().stream().filter(s -> u.suite().equals(s.suite())).findFirst()
                 .orElse(null);
             List<BrokenSuite> victims = r.brokenSuites().stream()
-                .filter(s -> s != root && s.failedUpstream() != null && u.suite().equals(s.failedUpstream().suite()))
+                .filter(s -> s != root && s.keptFromRunning() && s.failedUpstream() != null
+                    && u.suite().equals(s.failedUpstream().suite()))
                 .toList();
             List<CancelledSuite> neverRan = r.cancelledSuites().stream()
                 .filter(c -> c.failedUpstream() != null && u.suite().equals(c.failedUpstream().suite()))
@@ -78,7 +81,7 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
         out.sort(Comparator.comparing(g -> g.root() == null));
 
         // A verdict kept by an older release does not say which run its suites needed.
-        List<BrokenSuite> unnamed = unplaced(r, placed, BrokenSuite::failedDependency);
+        List<BrokenSuite> unnamed = unplaced(r, placed, BrokenSuite::keptFromRunning);
         if (!unnamed.isEmpty()) {
             placed.addAll(unnamed);
             out.add(new BrokenGroup(Kind.UPSTREAM, suites(unnamed.size()) + " failed only because a run "
@@ -98,8 +101,7 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
             byProblem.computeIfAbsent(problemKey(s), k -> new ArrayList<>()).add(s);
         byProblem.values().stream()
             .sorted(Comparator.comparingInt((List<BrokenSuite> l) -> l.size()).reversed())
-            .forEach(l -> out.add(new BrokenGroup(Kind.PROBLEM, problemsOf(l.get(0)), null, null, l, List.of(),
-                suitesOf(l))));
+            .forEach(l -> out.add(new BrokenGroup(Kind.PROBLEM, titleOf(l), null, null, l, List.of(), suitesOf(l))));
 
         return out;
     }
@@ -129,14 +131,14 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
         int n = victims.size() + neverRan.size();
         String title;
         if (root == null) {
-            title = name + " failed in this run and passed on a re-run since — " + suites(n)
-                + " that need it never ran; " + RUN_ALL + " to run them";
+            title = name + " failed in this run and passed on a re-run since — " + suites(n) + thatNeedIt(n)
+                + " never ran; " + RUN_ALL + " to run them";
         }
         else if (nothingElseRan(r, n)) {
             title = name + " failed — nothing else ran; fix the build, then " + RUN_ALL;
         }
         else
-            title = name + " failed — " + suites(n) + " that need it did not run; fix the build, then " + RUN_ALL;
+            title = name + " failed — " + suites(n) + thatNeedIt(n) + " did not run; fix the build, then " + RUN_ALL;
 
         List<String> rerun = root != null && !root.compileError() ? List.of(root.suite()) : List.of();
 
@@ -161,11 +163,43 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
 
     /** The problems with the run numbers left out, and the two ways TeamCity names a run made one. */
     private static String problemKey(BrokenSuite s) {
-        return DIGITS.matcher(RUN_REF.matcher(problemsOf(s)).replaceAll("build")).replaceAll("#");
+        return DIGITS.matcher(runsMadeOne(problemsOf(s))).replaceAll("#");
     }
 
     private static String problemsOf(BrokenSuite s) {
         return s.problems() == null ? "" : String.join(" · ", s.problems());
+    }
+
+    /**
+     * What the suites of a group broke with: the text of one when they all say the same, and else their shared text
+     * with "N" for each number they do not share. The numbers of one suite are wrong for the others: the shortfall of
+     * a hung suite, the run TeamCity compared it with.
+     */
+    private static String titleOf(List<BrokenSuite> suites) {
+        String first = problemsOf(suites.get(0));
+        if (suites.stream().allMatch(s -> problemsOf(s).equals(first)))
+            return first;
+
+        List<List<String>> numbers = suites.stream().map(s -> numbersIn(runsMadeOne(problemsOf(s)))).toList();
+        Matcher m = DIGITS.matcher(runsMadeOne(first));
+        StringBuilder title = new StringBuilder();
+        for (int i = 0; m.find(); i++) {
+            int at = i;
+            boolean shared = numbers.stream().allMatch(n -> n.size() > at && n.get(at).equals(m.group()));
+            m.appendReplacement(title, shared ? m.group() : "N");
+        }
+        m.appendTail(title);
+
+        return title.toString();
+    }
+
+    /** The text with each of the two ways TeamCity names a run made "build". */
+    private static String runsMadeOne(String text) {
+        return RUN_REF.matcher(text).replaceAll("build");
+    }
+
+    private static List<String> numbersIn(String text) {
+        return DIGITS.matcher(text).results().map(MatchResult::group).toList();
     }
 
     /** The suites a re-run of a group re-queues. */
@@ -176,5 +210,10 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
 
     private static String suites(int n) {
         return n + (n == 1 ? " suite" : " suites");
+    }
+
+    /** "1 suite that needs it", "2 suites that need it". */
+    private static String thatNeedIt(int n) {
+        return n == 1 ? " that needs it" : " that need it";
     }
 }

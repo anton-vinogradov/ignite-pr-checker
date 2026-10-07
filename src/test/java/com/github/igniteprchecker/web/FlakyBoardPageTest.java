@@ -49,9 +49,24 @@ class FlakyBoardPageTest {
         assertThat(board).doesNotContain("open PR");
         assertThat(out.get("html").asText()).doesNotContain("class=\"strip\"");
         assertThat(out.get("intro").asText())
-            .contains("Flaky tests come first")
+            .contains("Flaky tests come first, then the tests that failed each of their latest master runs (10 or "
+                + "more in a row, or every run when a test has fewer): find the commit that broke them.")
             .contains("2 tests muted on TeamCity are left out.")
-            .contains("PR counts cover the last 14 days.");
+            .contains("PR counts cover the last 14 days.")
+            .doesNotContain("every recent master run", "the way to them");
+    }
+
+    /** A board of 40 rows a group says how many tests the group has when it holds more. */
+    @Test
+    void aGroupCutShortSaysHowManyItHas() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD + """
+            page.route('/api/top-flaky', { body: { tracked: 45, muted: 2, prDays: 14, flakyCount: 41, brokenCount: 2,
+                tests: [rebalance, nearReader, recent] } });
+            await page.run('tick')();
+            report({ board: page.el('flaky').textContent });
+            """);
+
+        assertThat(out.get("board").asText()).containsSubsequence("Flaky on master (1 of 41)", "Broken on master (2)");
     }
 
     @Test

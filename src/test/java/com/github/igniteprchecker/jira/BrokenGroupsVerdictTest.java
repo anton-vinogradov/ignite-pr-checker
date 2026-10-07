@@ -3,7 +3,9 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.analysis.BrokenRuns;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -61,5 +63,24 @@ class BrokenGroupsVerdictTest {
                 + "- Cache 5: execution timeout — ran 12 of master's 35 tests\n"
                 + "- Basic 3: Failed to create temporary custom script file")
             .doesNotContain("Suite 6,");
+    }
+
+    /** Two suites hung the same way, each after its own share of master's tests: neither's numbers fit the other. */
+    @Test
+    void aGroupLineGivesEachSuiteItsOwnShortfall() {
+        String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
+            List.of(
+                new BrokenSuite("IgniteTests24Java8_CacheFailover5", 1L, "Cache (Failover) 5", List.of(
+                    "execution timeout", "Number of tests 5 is 93% less than 67 in build #1141"), 5, 67),
+                new BrokenSuite("IgniteTests24Java8_DiskPageCompressions8", 2L, "Disk Page Compressions 8", List.of(
+                    "execution timeout", "Number of tests 50 is 77% less than 216 in build #2313"), 50, 216))));
+
+        assertThat(md)
+            .contains("- 2 suite(s) have no reliable result (2× execution timeout · Number of tests N is N% less than "
+                + "N in build #N)\n")
+            .contains("- execution timeout · Number of tests N is N% less than N in build #N (2 suites): Cache "
+                + "(Failover) 5 (ran 5 of master's 67 tests), Disk Page Compressions 8 (ran 50 of master's 216 "
+                + "tests)\n")
+            .doesNotContain("#1141", "#2313");
     }
 }

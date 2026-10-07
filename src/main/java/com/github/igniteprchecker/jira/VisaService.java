@@ -217,8 +217,26 @@ public class VisaService {
 
     /** The tests a broken suite never got to, stated under its cause rather than as a finding of its own. */
     private static String shortfall(BrokenSuite s) {
+        String ran = ranOf(s);
+
+        return ran == null ? "" : " — " + ran;
+    }
+
+    /**
+     * "Cache 1 (ran 33 of master's 67 tests)": a suite among others broken the same way, with its own shortfall, as
+     * the group's cause gives none.
+     */
+    private static String nameAmongOthers(BrokenSuite s) {
+        String name = BrokenGroup.nameOf(s.suiteName(), s.suite());
+        String ran = ranOf(s);
+
+        return ran == null ? name : name + " (" + ran + ")";
+    }
+
+    /** "ran 33 of master's 67 tests"; null when it ran them all or how many is not known. */
+    private static String ranOf(BrokenSuite s) {
         return s.tests() > 0 && s.baseline() > s.tests()
-            ? " — ran " + s.tests() + " of master's " + s.baseline() + " tests" : "";
+            ? "ran " + s.tests() + " of master's " + s.baseline() + " tests" : null;
     }
 
     /**
@@ -241,7 +259,8 @@ public class VisaService {
         return switch (g.kind()) {
             case UPSTREAM, ARTIFACTS -> g.title() + ": " + names(suites);
             case PROBLEM -> suites.size() == 1 ? suiteLine(g.suites().get(0))
-                : g.title() + " (" + suites.size() + " suites): " + names(suites);
+                : g.title() + " (" + suites.size() + " suites): "
+                    + names(g.suites().stream().map(VisaService::nameAmongOthers).toList());
         };
     }
 

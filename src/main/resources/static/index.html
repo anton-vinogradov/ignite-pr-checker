@@ -1980,8 +1980,9 @@
                     + `A finished re-run of a suite takes it off this list.`;
             }
             renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
+            // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
             const groups = groupsOf(res);
-            $('brokenCard').classList.toggle('hidden', broken.length === 0);
+            $('brokenCard').classList.toggle('hidden', groups.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBrokenGroups($('brokenSuites'), groups, res.buildId);
             const shrunk = res.shrunkSuites || [];
@@ -2002,7 +2003,7 @@
             renderBlockers(res.blockers);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || groups.length > 0 || watch.length > 0
                 || shrunk.length > 0 || unverified.length > 0);
             $('results').classList.remove('hidden');
             wireSectActs('brokenActs', rerunOfGroups(groups));

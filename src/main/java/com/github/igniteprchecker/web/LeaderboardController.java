@@ -19,13 +19,18 @@ public class LeaderboardController {
 
     /**
      * {@code tracked} lets the UI tell "nothing recorded yet" from a genuinely clean master; {@code muted} is how
-     * many tracked tests are left out as muted, and {@code prDays} how far back the PR counts go.
+     * many tracked tests are left out as muted, and {@code prDays} how far back the PR counts go. {@code limit}
+     * cuts each group of {@code tests}; {@code flakyCount} and {@code brokenCount} are how many each holds.
      */
     @GetMapping("/top-flaky")
     public Map<String, Object> topFlaky(@RequestParam(defaultValue = "30") int limit) {
+        FlakyStats.GroupSizes sizes = flaky.groupSizes();
+
         return Map.of(
             "tracked", flaky.trackedCount(),
             "tests", flaky.top(Math.min(Math.max(limit, 1), 100)),
+            "flakyCount", sizes.flaky(),
+            "brokenCount", sizes.broken(),
             "muted", flaky.mutedCount(),
             "prDays", FlakyStats.RETAIN_DAYS);
     }
