@@ -127,6 +127,9 @@ public class BlockerAnalyzer {
     /** Whether the run behind that count covered enough for "0 blockers" to mean anything. */
     private final Map<Integer, Boolean> prProven = new ConcurrentHashMap<>();
 
+    /** The build of each PR's latest verdict: what the warm cycle checks first. */
+    private final Map<Integer, Long> analysedBuild = new ConcurrentHashMap<>();
+
     public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg,
         @Qualifier("analysisExecutor") ExecutorService pool,
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
@@ -188,6 +191,7 @@ public class BlockerAnalyzer {
     private void rememberVerdict(int prNumber, AnalysisResult r) {
         prBlockers.put(prNumber, r.blockers().size());
         prProven.put(prNumber, Caveats.proven(r));
+        analysedBuild.put(prNumber, r.buildId());
     }
 
     /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "My?" flag in the PR list. */
@@ -201,29 +205,50 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * Warms a PR for the cache-warmer: looks up the latest build (cheap) and recomputes it only when
-     * the answer can have changed — a different chain build, or new finished builds on the branch
-     * since the cached result was computed (a green re-run of a blocker suite clears it without the
-     * chain build changing) — or when TeamCity errors left it incomplete and another try is due.
-     * Returns true if it recomputed. This is what keeps the warmer from
+     * Warms a PR for the cache-warmer: recomputes it only when the answer can have changed — a different
+     * chain build, or new finished builds on the branch since the cached result was computed (a green re-run
+     * of a blocker suite clears it without the chain build changing) — or when TeamCity errors left it
+     * incomplete and another try is due. Returns true if it recomputed. This is what keeps the warmer from
      * re-hammering TeamCity with the heavy history/latest-run lookups every cycle.
+     *
+     * <p>Which chain is analysed changes only when a build finishes on the branch: a chain ending clean or
+     * cancelled is one. So a PR with a verdict costs one call while nothing finished, not two: the chain is
+     * looked up only once something did.
      */
     public boolean warm(String token, int prNumber) {
+        Long held = analysedBuild.get(prNumber);
+        Optional<AnalysisResult> verdict = held == null ? Optional.empty() : cache.peekResult(held);
+        if (verdict.isPresent() && keptWarm(token, prNumber, verdict.get()))
+            return false;
+
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
         if (buildId.isEmpty())
             return false;
 
-        Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
-        if (cached.isPresent() && !retryDue(cached.get()) && !branchMovedSince(token, prNumber, cached.get(), false)) {
-            // The warm cycle (10 min) is shorter than the TTL (15 min), but a skip used to leave the
-            // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
-            // cold compute. Touching on skip keeps the warmed set permanently hot.
-            cache.touchResult(buildId.get());
-            rememberVerdict(prNumber, cached.get());
-            return false;
+        if (verdict.isEmpty() || held.longValue() != buildId.get()) {
+            Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
+            if (cached.isPresent() && keptWarm(token, prNumber, cached.get()))
+                return false;
         }
 
         computeAndStore(token, prNumber, buildId.get(), bgPool);
+        return true;
+    }
+
+    /**
+     * Keeps a cached verdict warm if it still stands: nothing finished on the branch since, and it is not an
+     * incomplete one due for another try. Returns whether it did.
+     */
+    private boolean keptWarm(String token, int prNumber, AnalysisResult cached) {
+        if (retryDue(cached) || branchMovedSince(token, prNumber, cached, false))
+            return false;
+
+        // The warm cycle (10 min) is shorter than the TTL (15 min), but a skip used to leave the
+        // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
+        // cold compute. Touching on skip keeps the warmed set permanently hot.
+        cache.touchResult(cached.buildId());
+        rememberVerdict(prNumber, cached);
+
         return true;
     }
 
