@@ -1,0 +1,16 @@
+{
+  "sinceMs": 1759830000000,
+  "handled": {"3381120456": 1759829000000, "3381120999": 1759829500000},
+  "handledTotal": 42,
+  "watching": {
+    "13335": {
+      "commentId": 3381120456,
+      "baseBody": "/run-all\n\n---\n🚀 **RunAll queued** — build 9389046.",
+      "buildId": 9389046,
+      "username": "avinogradov",
+      "narrationId": 0,
+      "app": false
+    }
+  },
+  "onboarded": {"nizhikov": 1759000000000}
+}
