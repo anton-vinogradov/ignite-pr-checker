@@ -516,21 +516,31 @@ public class TcClient {
      *
      * <p>Per suite, as {@link #getBaseBranchHistory}: the flaky board links them next to that suite's
      * fail rate, and a failure of the same test id on another platform is not a failure of this one.
+     *
+     * <p>Whether the test is muted now comes in the same request: a test muted for years still fails every
+     * master run, and someone already decided it is not to be fixed now.
      */
-    public List<TcModel.TestOccurrence> masterFailures(String token, long testId, String buildTypeId) {
-        TcModel.TestOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
+    public MasterFailures masterFailures(String token, long testId, String buildTypeId) {
+        TcModel.MasterOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:50",
-            "fields", "testOccurrence(id,status,build(id,buildTypeId))")),
-            TcModel.TestOccurrences.class);
+            "fields", "testOccurrence(id,status,currentlyMuted,build(id,buildTypeId))")),
+            TcModel.MasterOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)
-            return List.of();
+            return new MasterFailures(List.of(), false);
 
-        return occ.testOccurrence().stream()
+        List<TcModel.MasterOccurrence> failures = occ.testOccurrence().stream()
             .filter(o -> "FAILURE".equals(o.status()) && o.build() != null)
-            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
+            .sorted(Comparator.comparingLong((TcModel.MasterOccurrence o) -> o.build().id()).reversed())
             .limit(5)
             .toList();
+
+        return new MasterFailures(failures,
+            occ.testOccurrence().stream().anyMatch(o -> Boolean.TRUE.equals(o.currentlyMuted())));
+    }
+
+    /** A test's latest master failures in one suite, newest first, and whether TeamCity has the test muted now. */
+    public record MasterFailures(List<TcModel.MasterOccurrence> failures, boolean muted) {
     }
 
     /**

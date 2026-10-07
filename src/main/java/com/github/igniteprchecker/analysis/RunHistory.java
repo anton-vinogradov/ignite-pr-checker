@@ -79,6 +79,15 @@ record RunHistory(String results, String envOf, List<RunEnv> envs, List<Integer>
         return stats(i -> true);
     }
 
+    /** How many of the newest runs in a row failed, whatever they ran under. */
+    int failStreak() {
+        int streak = 0;
+        while (streak < results.length() && results.charAt(streak) == 'F')
+            streak++;
+
+        return streak;
+    }
+
     /** The runs made on the same JDK as {@code env}. */
     HistoryStats onJdkOf(RunEnv env) {
         return stats(i -> envAt(i).sameJdk(env));

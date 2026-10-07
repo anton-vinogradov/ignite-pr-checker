@@ -104,7 +104,12 @@ public class AnalysisCache implements SnapshotCache {
      * without a TeamCity call).
      */
     public Optional<HistoryStats> historyOf(long testId, String buildTypeId) {
-        return history.peek(new HistoryKey(testId, buildTypeId)).map(RunHistory::all);
+        return masterHistoryOf(testId, buildTypeId).map(RunHistory::all);
+    }
+
+    /** A test's cached master runs in a suite, if still fresh: their order tells a broken test from a flaky one. */
+    Optional<RunHistory> masterHistoryOf(long testId, String buildTypeId) {
+        return history.peek(new HistoryKey(testId, buildTypeId));
     }
 
     /** Sweeps out expired entries so long uptimes don't accumulate dead results/history in memory

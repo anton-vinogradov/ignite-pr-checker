@@ -1,23 +1,23 @@
 package com.github.igniteprchecker.analysis;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.TcClient;
-import com.github.igniteprchecker.tc.dto.TcModel;
-import java.util.Map;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,17 +28,29 @@ import org.springframework.stereotype.Component;
  * 15-minute analysis cache — which decays to nothing when nobody is using the app, so a live scan
  * would falsely report "master looks clean" — this store harvests each cached analysis into a
  * persisted tally that survives idle periods and restarts. Entries not re-observed within
- * {@link #RETAIN} are pruned (a test that got fixed drops off), so the list stays current without
+ * {@link #RETAIN_DAYS} days are pruned (a test that got fixed drops off), so the list stays current without
  * vanishing between warm cycles.
  *
  * <p>The tally is kept per test and suite: one test id runs in several suites of a chain (the C++
  * thin-client tests run on Windows, Linux and Clang), each with its own master fail rate and its own
  * failed master runs. One row per test would show one platform's fail rate next to links to another
  * platform's failures.
+ *
+ * <p>A test that fails every recent master run is not flaky: it broke, or fails by design, and the way to it is
+ * the commit that broke it. A test TeamCity has muted is left out: someone decided it waits, and its failures fail
+ * no build. Both topped the board: 12 of its 40 rows failed 100 of 100 runs, the top eight muted since 2017–2018
+ * or failing by design. The PRs a test hit count for {@link #RETAIN_DAYS} days each, not for as long as the test
+ * stays on the board.
  */
 @Component
 public class FlakyStats implements SnapshotCache {
-    private static final long RETAIN = Duration.ofDays(14).toMillis();
+    /** How long a test stays on the board without being seen again, and a PR in its count. */
+    public static final int RETAIN_DAYS = 14;
+
+    private static final long RETAIN = Duration.ofDays(RETAIN_DAYS).toMillis();
+
+    /** A test failing this many of its newest master runs in a row, or all of fewer, is broken on master. */
+    static final int BROKEN_STREAK = 10;
 
     /** Master-failure anchors refresh this often; the page is a queue, not a live dashboard. */
     private static final long ANCHOR_TTL = Duration.ofHours(24).toMillis();
@@ -66,9 +78,9 @@ public class FlakyStats implements SnapshotCache {
     void harvest() {
         for (AnalysisResult r : cache.freshResults()) {
             for (TestVerdict f : r.filtered()) {
-                HistoryStats h = cache.historyOf(f.testId(), f.suite()).orElse(null);
-                if (h != null && h.fails() > 0) // fails on master (not merely a branch re-run pass)
-                    record(f, h.fails(), h.runs(), r.prNumber());
+                cache.masterHistoryOf(f.testId(), f.suite())
+                    .filter(h -> h.all().fails() > 0) // fails on master (not merely a branch re-run pass)
+                    .ifPresent(h -> record(f, h, r.prNumber()));
             }
         }
         anchorToMaster();
@@ -77,31 +89,36 @@ public class FlakyStats implements SnapshotCache {
     /**
      * The page is about master, so the test link must open a MASTER failure, not the PR-branch
      * occurrence the entry was harvested from. Backfills/refreshes a few anchors per cycle with a
-     * pooled token — gentle on TeamCity, converges over a few cycles.
+     * pooled token — gentle on TeamCity, converges over a few cycles. Tests not yet checked for a mute
+     * go first, so the muted ones a snapshot of an older release holds leave the board within minutes.
      */
     private void anchorToMaster() {
         String token = warmer.borrowToken();
         if (token == null)
             return;
 
+        long now = System.currentTimeMillis();
+        List<Map.Entry<TestInSuite, Entry>> due = byTestInSuite.entrySet().stream()
+            .filter(me -> me.getValue().anchorDue(now))
+            .sorted(Comparator.comparing((Map.Entry<TestInSuite, Entry> me) -> me.getValue().muteChecked()))
+            .toList();
+
         int budget = 10;
         int strikes = 0;
-        for (Map.Entry<TestInSuite, Entry> me : byTestInSuite.entrySet()) {
+        for (Map.Entry<TestInSuite, Entry> me : due) {
             if (budget == 0)
                 return;
-            Entry e = me.getValue();
-            synchronized (e) {
-                if (System.currentTimeMillis() - e.masterAnchorAt < ANCHOR_TTL)
-                    continue;
-            }
             budget--;
+            Entry e = me.getValue();
             try {
-                List<MasterRef> refs = tc.masterFailures(token, me.getKey().testId(), me.getKey().suite()).stream()
+                TcClient.MasterFailures found = tc.masterFailures(token, me.getKey().testId(), me.getKey().suite());
+                List<MasterRef> refs = found.failures().stream()
                     .map(o -> new MasterRef(o.build().id(), o.build().buildTypeId(), o.id()))
                     .toList();
                 synchronized (e) {
                     if (!refs.isEmpty())
                         e.masterFailures = refs;
+                    e.muted = found.muted();
                     e.masterAnchorAt = System.currentTimeMillis();
                 }
             }
@@ -112,24 +129,25 @@ public class FlakyStats implements SnapshotCache {
         }
     }
 
-    private void record(TestVerdict f, int masterFails, int masterRuns, int pr) {
+    private void record(TestVerdict f, RunHistory master, int pr) {
+        HistoryStats all = master.all();
         Entry e = byTestInSuite.computeIfAbsent(new TestInSuite(f.testId(), f.suite()), k -> new Entry());
         synchronized (e) {
             e.name = f.name();
             e.suiteName = f.suiteName();
             e.suiteBuildId = f.suiteBuildId();
             e.occurrenceId = f.occurrenceId();
-            e.branchRuns = f.branchRuns() == null ? "" : f.branchRuns();
-            e.masterFails = masterFails;
-            e.masterRuns = masterRuns;
-            e.prs.add(pr);
+            e.masterFails = all.fails();
+            e.masterRuns = all.runs();
+            e.failStreak = master.failStreak();
             e.lastSeen = System.currentTimeMillis();
+            e.prSeen.put(pr, e.lastSeen);
         }
     }
 
     /**
-     * Recently-seen flaky/broken-on-master tests, a row per suite, worst master fail-rate first. Prunes
-     * stale entries.
+     * Recently-seen flaky/broken-on-master tests TeamCity has not muted, a row per suite: the flaky ones first,
+     * then those broken on master, each worst master fail-rate first. Prunes stale entries and PRs.
      */
     public List<TopFlaky> top(int limit) {
         long now = System.currentTimeMillis();
@@ -138,16 +156,18 @@ public class FlakyStats implements SnapshotCache {
         List<TopFlaky> out = new ArrayList<>();
         byTestInSuite.forEach((k, e) -> {
             synchronized (e) {
-                if (e.masterFails > 0)
+                e.prSeen.values().removeIf(at -> now - at > RETAIN);
+                if (e.masterFails > 0 && !Boolean.TRUE.equals(e.muted))
                     out.add(new TopFlaky(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
-                        e.branchRuns, e.masterFails, e.masterRuns, e.prs.size(), e.prs.stream().sorted().toList(),
-                        e.masterFailures));
+                        e.masterFails, e.masterRuns, e.failStreak, e.broken(), e.prSeen.size(),
+                        e.prSeen.keySet().stream().sorted().toList(), e.masterFailures));
             }
         });
 
-        out.sort(Comparator
-            .comparingDouble((TopFlaky f) -> f.masterRuns() == 0 ? 0 : (double) f.masterFails() / f.masterRuns())
-            .reversed()
+        out.sort(Comparator.comparing(TopFlaky::broken)
+            .thenComparing(Comparator
+                .comparingDouble((TopFlaky f) -> f.masterRuns() == 0 ? 0 : (double) f.masterFails() / f.masterRuns())
+                .reversed())
             .thenComparing(Comparator.comparingInt(TopFlaky::prCount).reversed()));
 
         return out.size() > limit ? out.subList(0, limit) : out;
@@ -156,6 +176,11 @@ public class FlakyStats implements SnapshotCache {
     /** How many tests are currently tracked, once per suite (to tell "no data yet" from "clean"). */
     public int trackedCount() {
         return byTestInSuite.size();
+    }
+
+    /** How many of the tracked tests the board leaves out because TeamCity has them muted. */
+    public int mutedCount() {
+        return (int) byTestInSuite.values().stream().filter(Entry::isMuted).count();
     }
 
     @Override
@@ -169,13 +194,18 @@ public class FlakyStats implements SnapshotCache {
         byTestInSuite.forEach((k, e) -> {
             synchronized (e) {
                 snap.add(new Persisted(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
-                    e.branchRuns, e.masterFails, e.masterRuns, e.lastSeen, e.prs.stream().sorted().toList(),
-                    e.masterFailures, e.masterAnchorAt));
+                    e.masterFails, e.masterRuns, e.failStreak, e.lastSeen, e.prSeen.keySet().stream().sorted().toList(),
+                    new HashMap<>(e.prSeen), e.masterFailures, e.masterAnchorAt, e.muted));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
     }
 
+    /**
+     * Snapshots of older releases name the PRs without saying when each was seen, so those PRs are dropped: kept,
+     * a test seen in 252 PRs since it first failed went on counting all of them. Nor do they say whether a test
+     * is muted, so each of their tests is checked on the next harvest.
+     */
     @Override
     public void loadFrom(Path file) throws IOException {
         if (!Files.exists(file))
@@ -191,18 +221,21 @@ public class FlakyStats implements SnapshotCache {
             e.suiteName = p.suiteName();
             e.suiteBuildId = p.suiteBuildId();
             e.occurrenceId = p.occurrenceId();
-            e.branchRuns = p.branchRuns() == null ? "" : p.branchRuns();
             e.masterFails = p.masterFails();
             e.masterRuns = p.masterRuns();
+            // A test that failed every run has a streak of all of them: older snapshots did not keep it.
+            e.failStreak = p.failStreak() == 0 && p.masterFails() == p.masterRuns() ? p.masterRuns() : p.failStreak();
             e.lastSeen = p.lastSeen();
+            e.muted = p.muted();
             List<MasterRef> stored = p.masterFailures() == null ? List.of() : p.masterFailures();
             // Snapshots from before the tally was kept per suite hold failures looked up in every suite.
             e.masterFailures = stored.stream().filter(f -> Objects.equals(f.btId(), p.suite())).toList();
-            // Nothing to link (a pre-list snapshot) or other suites' failures dropped: re-anchor now.
+            // Nothing to link (a pre-list snapshot), other suites' failures dropped or no word on a mute:
+            // re-anchor now.
             e.masterAnchorAt = !e.masterFailures.isEmpty() && e.masterFailures.size() == stored.size()
-                ? p.masterAnchorAt() : 0;
-            if (p.prs() != null)
-                e.prs.addAll(p.prs());
+                && p.muted() != null ? p.masterAnchorAt() : 0;
+            if (p.prSeen() != null)
+                e.prSeen.putAll(p.prSeen());
             byTestInSuite.put(new TestInSuite(p.testId(), p.suite()), e);
         }
     }
@@ -215,18 +248,39 @@ public class FlakyStats implements SnapshotCache {
         String suiteName;
         long suiteBuildId;
         String occurrenceId = "";
-        String branchRuns = "";
         int masterFails;
         int masterRuns;
+        int failStreak;
         long lastSeen;
         List<MasterRef> masterFailures = List.of();
         long masterAnchorAt;
-        final Set<Integer> prs = ConcurrentHashMap.newKeySet();
+        /** Whether TeamCity has the test muted, as of the last anchor; null until it was asked. */
+        Boolean muted;
+        /** PR number -> when the test was last seen failing there. */
+        final Map<Integer, Long> prSeen = new HashMap<>();
+
+        synchronized boolean anchorDue(long now) {
+            return now - masterAnchorAt >= ANCHOR_TTL;
+        }
+
+        synchronized boolean muteChecked() {
+            return muted != null;
+        }
+
+        synchronized boolean isMuted() {
+            return Boolean.TRUE.equals(muted) && masterFails > 0;
+        }
+
+        boolean broken() {
+            return masterRuns >= 2 && failStreak >= Math.min(masterRuns, BROKEN_STREAK);
+        }
     }
 
+    /** {@code prs} is kept next to {@code prSeen} for a release that reads only the PR numbers. */
+    @JsonIgnoreProperties("branchRuns")
     private record Persisted(long testId, String name, String suite, String suiteName, long suiteBuildId,
-        String occurrenceId, String branchRuns, int masterFails, int masterRuns, long lastSeen, List<Integer> prs,
-        List<MasterRef> masterFailures, long masterAnchorAt) {
+        String occurrenceId, int masterFails, int masterRuns, int failStreak, long lastSeen, List<Integer> prs,
+        Map<Integer, Long> prSeen, List<MasterRef> masterFailures, long masterAnchorAt, Boolean muted) {
     }
 
     /** One failed master run of the test: enough to deep-link the occurrence in TeamCity. */
@@ -234,15 +288,15 @@ public class FlakyStats implements SnapshotCache {
     }
 
     /**
-     * A flaky/broken-on-master test in one suite: identity, that suite's master fail-rate
-     * ({@code masterFails}/{@code masterRuns}) and failed master runs, how many/which open PRs recently hit
-     * it, and its latest occurrence (build/occurrence) so the UI can link to the failure in TeamCity,
-     * expand "why", and draw the branch pass/fail strip.
+     * A test failing on master in one suite: identity, that suite's master fail-rate ({@code masterFails}/
+     * {@code masterRuns}), how many of the newest master runs failed in a row and whether that makes it broken
+     * on master rather than flaky, how many/which PRs it hit in the last {@link #RETAIN_DAYS} days, its failed
+     * master runs, and its latest PR occurrence so the UI can expand "why".
      */
     public record TopFlaky(
         @JsonFormat(shape = JsonFormat.Shape.STRING) long testId,
         String name, String suite, String suiteName, long suiteBuildId,
-        String occurrenceId, String branchRuns, int masterFails, int masterRuns,
+        String occurrenceId, int masterFails, int masterRuns, int failStreak, boolean broken,
         int prCount, List<Integer> prs,
         List<MasterRef> masterFailures) {
     }
