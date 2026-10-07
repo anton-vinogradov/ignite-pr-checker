@@ -1,0 +1,60 @@
+{
+  "enrollments": [
+    {
+      "username": "avinogradov",
+      "tcToken": "vbRz4ujVldewlHCDu3s_wKpX__gR2s8-QYZsLLZ_ixkkWaPCmn-bDYOR",
+      "jiraToken": "TjpaoauBUqM1Zlk0AhWMEn8WqzXyXprlVpkfslZ74KZmxAua6ZWsWJdIHZs",
+      "ghToken": "pxQWMYyxfdVFb4rV-4Bej5N99Z5cf-hvNJddw31JAnG7ILWIbRkeSPVR",
+      "ghLogin": "anton-vinogradov",
+      "tz": "Europe/Moscow",
+      "enabledAt": 1759312800000,
+      "posted": {"13335": 9389046, "13583": 9391002},
+      "ghThreads": {"13335": {"buildId": 9389046, "commentId": 3381120456}},
+      "jiraThreads": {"13335": {"buildId": 9389046, "commentId": "17932055"}},
+      "autoVisa": true,
+      "autoRerun": true,
+      "ghComment": true,
+      "styleFix": true,
+      "ghRejectedAt": 0,
+      "jiraRejectedAt": 0
+    },
+    {
+      "username": "nsamelchev",
+      "tcToken": "dBhI_hab0DwnxIu3MRFRTZ72m5D9AJE2EsUYM5lMjtXKU2eXxGOqVF8",
+      "jiraToken": null,
+      "ghToken": null,
+      "ghLogin": "NSAmelchev",
+      "tz": null,
+      "enabledAt": 1759658400000,
+      "posted": {"13653": 9391271},
+      "ghThreads": {},
+      "jiraThreads": {},
+      "autoVisa": false,
+      "autoRerun": true,
+      "ghComment": false,
+      "styleFix": false,
+      "ghRejectedAt": 1759700000000,
+      "jiraRejectedAt": 0
+    },
+    {
+      "username": "oldtimer",
+      "tcToken": "V4cz4CEAng8QoZH2K5Rq3J4QjuCc907kdfPwSB6mEeJKTPysOxDZ",
+      "jiraToken": "EEfuHl2GE0gb6zQv3aJInYtsZkiOR-SHkm162nDr6w4IuLpAeSwQAYc",
+      "enabledAt": 1754000000000,
+      "posted": {"12584": 9300001},
+      "autoRerun": false
+    }
+  ],
+  "retries": {
+    "13335": {
+      "buildId": 9389046,
+      "attempts": 1,
+      "what": "1 suite that failed mid-run",
+      "history": ["early: Queries 5"],
+      "note": null
+    }
+  },
+  "earlyReruns": {
+    "9389046": ["IgniteTests24Java8_Queries5"]
+  }
+}

@@ -65,6 +65,11 @@ public class RerunTracker implements SnapshotCache {
         return tracked.values().stream().anyMatch(t -> t.pr == pr);
     }
 
+    /** Whether this build is still watched: queued or running, as far as the last look could tell. */
+    public boolean tracks(long buildId) {
+        return tracked.containsKey(buildId);
+    }
+
     /** Remember a queued/running build; the UI starts showing its chip immediately. Idempotent by build id. */
     public void record(int pr, TcModel.Build b) {
         if (b == null || b.buildTypeId() == null || "finished".equalsIgnoreCase(b.state()))
