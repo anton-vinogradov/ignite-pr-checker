@@ -2,8 +2,8 @@ package com.github.igniteprchecker.tc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.Warmer;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.dto.TcModel;

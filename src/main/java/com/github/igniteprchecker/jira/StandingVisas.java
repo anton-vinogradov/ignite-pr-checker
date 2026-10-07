@@ -102,10 +102,16 @@ public class StandingVisas implements SnapshotCache {
      * the page, so the next visitor pays the full cold analysis.
      */
     private void donateWarmTokens() {
-        for (Enrollment e : enrolled.values()) {
-            if (!e.tc().rejected())
-                decrypt(e.tc()).ifPresent(warmer::offerToken);
-        }
+        for (Enrollment e : enrolled.values())
+            backgroundToken(e).ifPresent(warmer::offerToken);
+    }
+
+    /**
+     * The TeamCity token background work may borrow: not a refused one, and not one stored for PR
+     * commands alone — that option promises to act on the user's own commands and nothing else.
+     */
+    private Optional<String> backgroundToken(Enrollment e) {
+        return e.tc().rejected() || e.options().commandsOnly() ? Optional.empty() : decrypt(e.tc());
     }
 
     /**
@@ -247,7 +253,7 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The user behind a GitHub login, with decrypted tokens — the PR command poll resolves the
-     * comment's author through this. Only users with the GitHub option on are addressable.
+     * comment's author through this; whether they may command is {@link #commandsOn}.
      */
     public Optional<GhActor> actorByGhLogin(String login) {
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
@@ -395,7 +401,7 @@ public class StandingVisas implements SnapshotCache {
      */
     private <T> T lookup(java.util.function.Function<String, T> read) {
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            Optional<String> token = en.getValue().tc().rejected() ? Optional.empty() : decrypt(en.getValue().tc());
+            Optional<String> token = backgroundToken(en.getValue());
             if (token.isEmpty())
                 continue;
 
@@ -414,7 +420,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     private boolean anyLiveTcToken() {
-        return enrolled.values().stream().anyMatch(e -> !e.tc().rejected() && decrypt(e.tc()).isPresent());
+        return enrolled.values().stream().anyMatch(e -> backgroundToken(e).isPresent());
     }
 
     /** Applies {@code change} to the user's enrollment atomically; true when it changed anything. */
@@ -518,6 +524,11 @@ public class StandingVisas implements SnapshotCache {
     /** Whether the user's comments on pull requests are taken as commands. */
     public boolean commandsOn(String username) {
         return options(username).commands();
+    }
+
+    /** Whether something waits for the user's finished runs: a visa, re-runs or a PR comment. */
+    public boolean settlesRuns(String username) {
+        return options(username).settlesRuns();
     }
 
     /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
@@ -798,9 +809,9 @@ public class StandingVisas implements SnapshotCache {
                 // Only runs that FINISHED after the options were switched on get acted upon: the
                 // first sweep must not spam week-old tickets with back-filled visas or re-runs.
                 long finishedMs = TcDates.epochSeconds(build.get().finishDate()) * 1000L;
-                if (finishedMs > 0 && finishedMs < e.enabledAt()) {
+                if (finishedMs > 0 && finishedMs < e.enabledAt() || !e.options().settlesRuns()) {
                     e.handled().posted().put(pr.number(), buildId);
-                    continue;
+                    continue; // nothing to post or re-run: a verdict computed now would go nowhere
                 }
 
                 Optional<String> tcToken = decrypt(e.tc());
@@ -1152,6 +1163,15 @@ public class StandingVisas implements SnapshotCache {
         boolean switchedOnSince(Options before) {
             return autoVisa && !before.autoVisa || autoRerun && !before.autoRerun || ghComment && !before.ghComment
                 || styleFix && !before.styleFix;
+        }
+
+        /** Whether an option acts on the user's finished runs, so the sweep has something to do for them. */
+        boolean settlesRuns() {
+            return autoVisa || autoRerun || ghComment;
+        }
+
+        boolean commandsOnly() {
+            return commands && !autoVisa && !autoRerun && !ghComment && !styleFix;
         }
 
         /** Both options that act from the user's GitHub account need the GitHub token. */

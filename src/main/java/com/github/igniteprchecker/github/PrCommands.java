@@ -297,7 +297,7 @@ public class PrCommands implements SnapshotCache {
      */
     private void onboard(int pr, long commentId, String login, String cmd) {
         long now = System.currentTimeMillis();
-        if (strangerCommands.putIfAbsent(login.toLowerCase() + "#" + pr, now) == null) {
+        if (strangerCommands.putIfAbsent(login.toLowerCase(java.util.Locale.ROOT) + "#" + pr, now) == null) {
             try {
                 github.reactToCommentAsApp(commentId, "confused");
             }
@@ -501,8 +501,9 @@ public class PrCommands implements SnapshotCache {
 
                     // The command comment narrates the whole story: after the chain finishes it keeps
                     // reporting the blocker/broken auto re-run waves and only closes once the verdict
-                    // has actually landed.
-                    if (standing.buildHandled(run.username(), pr, run.buildId())) {
+                    // has actually landed — or right away when nothing settles the user's runs.
+                    if (standing.buildHandled(run.username(), pr, run.buildId())
+                        || !standing.settlesRuns(run.username())) {
                         narrate(pr, actor.get(), run, run.baseBody()
                             + "\n🏁 _Run finished — " + (standing.ghOn(run.username())
                                 ? "the verdict comment has the full story._"
