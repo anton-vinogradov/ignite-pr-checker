@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
  */
 class StatusPageTest {
     private static final String[] FUNCTIONS = {"card", "esc", "agoShort", "logTime", "renderLog", "healthProblems",
-        "healthTitle", "persistenceCard", "configRows"};
+        "healthTitle", "persistenceCard", "versionCard", "configRows"};
 
     @Test
     void anErrorLoggedWhileStartingIsThisRunsNotThePreviousOnes() throws Exception {
@@ -66,6 +66,21 @@ class StatusPageTest {
             .isEqualTo("[{\"level\":\"error\",\"text\":\"2 problems — log in on the main page to see them\"}]");
         assertThat(page.get("title").asText()).isEqualTo("2 problems — log in on the main page to see them");
         assertThat(page.get("card").asText()).contains("1 problem", "log in on the main page to see it");
+    }
+
+    /** Prod ran "1.20.10-dev", a local build whose code no tag and no release matched. */
+    @Test
+    void theVersionNamesItsCommit() throws Exception {
+        JsonNode page = run("""
+            out({ dev: versionCard({ version: '1.21.0-3-g5f2c9e1-dirty', commit: '5f2c9e1d8a', dirty: true }),
+                release: versionCard({ version: '1.21.1', commit: 'a7b3c4d9e0', dirty: false }),
+                old: versionCard({ version: '1.20.10-dev' }) });
+            """);
+
+        assertThat(page.get("dev").asText()).contains("1.21.0-3-g5f2c9e1-dirty", "commit 5f2c9e1 + uncommitted changes",
+            "v warn");
+        assertThat(page.get("release").asText()).contains("1.21.1", "commit a7b3c4d<").doesNotContain("uncommitted");
+        assertThat(page.get("old").asText()).contains("1.20.10-dev").doesNotContain("commit");
     }
 
     /** What the service ran with was nowhere to be seen; the settings name server paths and the operators. */

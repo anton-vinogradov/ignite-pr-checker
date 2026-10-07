@@ -24,11 +24,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build jar
+      - name: Build and test jar
         run: |
           chmod +x ./gradlew
-          # Embed the release version (tag without a leading 'v') so the running app knows it.
-          ./gradlew bootJar -Pappversion="${GITHUB_REF_NAME#v}"
+          # Embed the release version (tag without a leading 'v') so the running app knows it. "build" runs the
+          # tests, the application-context test included: a jar that cannot start is never published.
+          ./gradlew build -Pappversion="${GITHUB_REF_NAME#v}"
 
       - name: Publish release
         env:

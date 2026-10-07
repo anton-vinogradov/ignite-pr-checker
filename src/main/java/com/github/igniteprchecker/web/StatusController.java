@@ -47,6 +47,12 @@ public class StatusController {
     private final EffectiveConfig config;
     private final String version;
 
+    /** The commit the running jar was built from, null when the build did not know it. */
+    private final String commit;
+
+    /** Built from a tree with uncommitted changes: the commit alone does not tell the code. */
+    private final boolean dirty;
+
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
         LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
@@ -70,6 +76,8 @@ public class StatusController {
         this.config = config;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
+        this.commit = bp != null ? bp.get("commit") : null;
+        this.dirty = bp != null && Boolean.parseBoolean(bp.get("dirty"));
     }
 
     @GetMapping("/status")
@@ -122,6 +130,8 @@ public class StatusController {
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", version);
+        out.put("commit", commit);
+        out.put("dirty", dirty);
         out.put("uptimeSeconds", metrics.uptimeSeconds());
         out.put("startedAt", ManagementFactory.getRuntimeMXBean().getStartTime());
         out.put("health", report.health());

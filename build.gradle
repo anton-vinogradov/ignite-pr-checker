@@ -5,10 +5,34 @@ plugins {
 }
 
 group = 'com.github.igniteprchecker'
-// Release builds pass -Pappversion=<tag without 'v'> (see .github/workflows/release.yml); deploy.sh
-// passes <latest-tag>-dev. The bare fallback is deliberately 0.0.0 so an unversioned build can't
-// masquerade as a real release. Embedded via buildInfo() so the app knows its own version.
-version = project.findProperty('appversion') ?: '0.0.0-SNAPSHOT'
+
+/** Output of a git command run in the project; null without git or outside a repository. */
+String git(String... args) {
+    try {
+        def run = providers.exec {
+            commandLine(['git', '-C', projectDir.absolutePath] + args.toList())
+            ignoreExitValue = true
+        }
+        return run.result.get().exitValue == 0 ? run.standardOutput.asText.get().trim() : null
+    }
+    catch (Exception ignored) {
+        return null
+    }
+}
+
+// What goes into the jar. A change here, committed or not, untracked files included, makes the build "dirty": its
+// commit alone no longer tells the code it runs. deploy.sh checks the same paths.
+def jarSources = ['src', 'build.gradle', 'settings.gradle', 'gradle']
+def gitCommit = git('rev-parse', 'HEAD')
+def gitStatus = git((['status', '--porcelain', '--'] + jarSources) as String[])
+def gitDirty = gitCommit != null && (gitStatus == null || !gitStatus.isEmpty())
+
+// Release builds pass -Pappversion=<tag without 'v'> (see .github/workflows/release.yml). Any other build is named
+// by git describe, e.g. 1.21.0-3-g5f2c9e1-dirty: three commits after v1.21.0, with uncommitted changes. Outside a
+// repository it is 0.0.0-SNAPSHOT, which no release can be mistaken for. Embedded via buildInfo() with the commit.
+def described = git('describe', '--tags', '--always')
+version = project.findProperty('appversion')
+    ?: (described ? described.replaceFirst(/^v/, '') + (gitDirty ? '-dirty' : '') : '0.0.0-SNAPSHOT')
 
 java {
     toolchain {
@@ -39,8 +63,15 @@ dependencies {
 }
 
 springBoot {
-    // Generates META-INF/build-info.properties so BuildProperties (the app's own version) is available.
-    buildInfo()
+    // Generates META-INF/build-info.properties so BuildProperties (the app's own version and commit) is available.
+    buildInfo {
+        properties {
+            if (gitCommit) {
+                additional.put('commit', gitCommit)
+                additional.put('dirty', String.valueOf(gitDirty))
+            }
+        }
+    }
 }
 
 tasks.named('bootJar') {
