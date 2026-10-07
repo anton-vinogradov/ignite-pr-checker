@@ -150,7 +150,7 @@ public class MergedVerdicts {
             return; // GitHub could not be asked: nothing to compare with
 
         Set<Integer> listed = open.stream().map(PrSummary::number).collect(Collectors.toSet());
-        notBefore.keySet().removeAll(listed); // reopened
+        notBefore.keySet().removeAll(listed); // listed again: reopened, and it may yet be merged
 
         long now = System.currentTimeMillis();
         int asked = 0;

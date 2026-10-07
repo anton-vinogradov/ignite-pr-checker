@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.tc.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
@@ -94,10 +95,13 @@ public final class TcModel {
     public record TestOccurrences(int count, List<TestOccurrence> testOccurrence) {
     }
 
-    /** One run of a test; {@code duration} is in milliseconds, null when not asked for. */
+    /**
+     * One run of a test; {@code duration} is in milliseconds, null when not asked for, and then left out of the runs
+     * kept on disk.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details,
-        Long duration) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Long duration) {
         /** A run without its duration, in the shape callers used before it was read. */
         public TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details) {
             this(id, name, status, test, build, details, null);

@@ -86,6 +86,17 @@ class PrTestsQueryTest {
         assertThat(locators).hasSize(1);
     }
 
+    /** Runs kept on disk (analysis.json) read and write as before when no duration was asked for. */
+    @Test
+    void aRunWithoutItsDurationIsKeptAsBefore() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        TcModel.TestOccurrence run = new TcModel.TestOccurrence("o", "t", "FAILURE", null, null, null);
+
+        assertThat(mapper.writeValueAsString(run)).doesNotContain("duration");
+        assertThat(mapper.readValue("{\"id\":\"o\",\"name\":\"t\",\"status\":\"FAILURE\"}",
+            TcModel.TestOccurrence.class)).isEqualTo(run);
+    }
+
     @Test
     void noClassesNoCall() {
         assertThat(client().testRunsOfClasses("t", 9391879L, List.of())).contains(List.of());
