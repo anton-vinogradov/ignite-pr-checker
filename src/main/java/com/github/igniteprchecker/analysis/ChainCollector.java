@@ -347,10 +347,9 @@ public class ChainCollector {
         // A suite that timed out / ran out of memory / crashed usually didn't finish: its failed tests are
         // likely cascade noise and some tests never ran. Show it as a broken suite, don't mine it for
         // blockers (the same reasoning as an interrupted chain, at suite granularity). One that still ran
-        // all of master's tests did finish them, and its failures are as real as any suite's: Snapshots 6
-        // of PR 13644 ran all 233 and failed one, which nobody could see, so a known flake held the PR on
-        // "not proven" and in re-run waves. Its tests are classified, and whether the suite is broken
-        // waits for their verdicts.
+        // all of master's tests did finish them, and its failures are as real as any suite's: hidden, a
+        // known flake in Snapshots 6 held PR 13644 on "not proven" and in re-run waves. Whether such a
+        // suite is broken waits for its tests' verdicts.
         // A suite still running has failures worth showing but no final story: its tests are collected,
         // and it is never called broken — "failed without running tests" would be a lie about a suite
         // that simply hasn't got there yet.

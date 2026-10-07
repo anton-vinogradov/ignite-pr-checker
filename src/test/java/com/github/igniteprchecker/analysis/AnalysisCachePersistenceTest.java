@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import java.io.IOException;
@@ -65,6 +67,51 @@ class AnalysisCachePersistenceTest {
         });
         assertThat(restored).isEqualTo(MASTER_JDK21_BREAK);
         assertThat(reloaded.historyOf(7L, "SuiteY")).as("another suite's history of the same test").isEmpty();
+    }
+
+    /** A crash note, the suites that never ran and the tests left unchecked come back as they were saved. */
+    @Test
+    void theSuitesAndTestsAResultKeepsApartSurviveARestart(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        AnalysisCache first = new AnalysisCache(props(), mapper);
+        AnalysisResult result = new AnalysisResult(13592, 9392000L, "pull/13592/head", System.currentTimeMillis(),
+            List.of(), List.of(), List.of(), List.of(), List.of(), 140, 0, true, 1, false, 0, 0, 0, 0, 0,
+            List.of(new BrokenSuite("Snapshots6", 9392066L, "Snapshots 6", List.of("JVM crash / out of memory"), 233,
+                233)),
+            List.of(new CancelledSuite("Cache1", 9392010L, "Cache 1", "Build revision not found", null)),
+            List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false,
+                "could not verify (TeamCity error: 502 Bad Gateway)", "", 0)),
+            System.currentTimeMillis() - 60_000);
+        first.putResult(9392000L, result);
+        first.saveTo(file);
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+
+        assertThat(reloaded.peekResult(9392000L)).contains(result);
+    }
+
+    /** A result saved before those parts existed reads as having none of them. */
+    @Test
+    void aResultWithoutTheNewerPartsLoadsWithNoneOfThem(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        AnalysisCache first = new AnalysisCache(props(), mapper);
+        first.putResult(100L, new AnalysisResult(42, 100L, "pull/42/head", System.currentTimeMillis(), List.of(),
+            List.of(), List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0));
+        first.saveTo(file);
+        ObjectNode root = (ObjectNode) mapper.readTree(file.toFile());
+        ((ObjectNode) root.get("results").get(0).get("value"))
+            .remove(List.of("unstableSuites", "cancelledSuites", "unverified", "incompleteSince"));
+        mapper.writeValue(file.toFile(), root);
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+
+        AnalysisResult r = reloaded.peekResult(100L).orElseThrow();
+        assertThat(r.unstableSuites()).isEmpty();
+        assertThat(r.cancelledSuites()).isEmpty();
+        assertThat(r.unverified()).isEmpty();
+        assertThat(r.incompleteSince()).isZero();
     }
 
     /** The runs on PR branches are kept like master's: a window of the latest runs, restored until it expires. */
