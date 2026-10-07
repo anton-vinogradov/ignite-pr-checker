@@ -641,7 +641,7 @@ public class TcClient {
         }
         catch (RuntimeException e) {
             metrics.recordTc(category, false, 0, msSince(t0)); // network/other error
-            throw e;
+            throw OutboundHttp.naming("TeamCity", e);
         }
     }
 

@@ -25,7 +25,7 @@ public class GithubClient implements SnapshotCache {
     /** Validates a user's PAT: their GitHub login when the token works. */
     public java.util.Optional<String> ghUser(String pat) {
         try {
-            java.util.Map<?, ?> u = recorded("user", () -> http.get().uri(URI.create("https://api.github.com/user"))
+            java.util.Map<?, ?> u = recorded("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
                 .header("Authorization", "Bearer " + pat)
                 .header("Accept", "application/vnd.github+json")
                 .retrieve().body(java.util.Map.class));
@@ -40,7 +40,7 @@ public class GithubClient implements SnapshotCache {
     /** Posts a comment to the PR under the USER'S OWN PAT; its id (for later edits) and html url. */
     public PostedComment addPrComment(String pat, int prNumber, String body) {
         java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -59,7 +59,7 @@ public class GithubClient implements SnapshotCache {
             return false;
 
         recorded("onboard", () -> http.post()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -74,7 +74,7 @@ public class GithubClient implements SnapshotCache {
             return false;
 
         recorded("react", () -> http.post()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("content", content))
@@ -89,7 +89,7 @@ public class GithubClient implements SnapshotCache {
             return null;
 
         java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -102,7 +102,7 @@ public class GithubClient implements SnapshotCache {
     /** Edits the APP's own narration comment in place. */
     public void updatePrCommentAsApp(long commentId, String body) {
         recorded("prCommentEdit", () -> http.patch()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -112,7 +112,7 @@ public class GithubClient implements SnapshotCache {
     /** The PR's author and head (source branch) coordinates — where a style-fix commit must go. */
     public PrHead prHead(int prNumber) {
         java.util.Map<?, ?> pr = recorded("prHead", () -> appGet(
-            "https://api.github.com/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+            props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
 
         java.util.Map<?, ?> user = (java.util.Map<?, ?>)pr.get("user");
         java.util.Map<?, ?> head = (java.util.Map<?, ?>)pr.get("head");
@@ -129,7 +129,7 @@ public class GithubClient implements SnapshotCache {
 
         try {
             java.util.Map<?, ?> cmp = recorded("compare", () -> appGet(
-                "https://api.github.com/repos/" + props.repo() + "/compare/" + base + "..." + head)
+                props.apiUrl() + "/repos/" + props.repo() + "/compare/" + base + "..." + head)
                 .body(java.util.Map.class));
             int ahead = cmp == null || cmp.get("ahead_by") == null ? -1 : ((Number)cmp.get("ahead_by")).intValue();
 
@@ -151,7 +151,7 @@ public class GithubClient implements SnapshotCache {
         for (int page = 1; page <= 3; page++) {
             int p = page;
             java.util.List<?> files = recorded("prFiles", () -> appGet(
-                "https://api.github.com/repos/" + props.repo() + "/pulls/" + prNumber
+                props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber
                     + "/files?per_page=100&page=" + p).body(java.util.List.class));
             if (files == null || files.isEmpty())
                 break;
@@ -171,7 +171,7 @@ public class GithubClient implements SnapshotCache {
     public String rawFile(String repo, String ref, String path) {
         return recorded("rawFile", () -> {
             RestClient.RequestHeadersSpec<?> req = http.get()
-                .uri(URI.create("https://api.github.com/repos/" + repo + "/contents/"
+                .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/contents/"
                     + path.replace(" ", "%20") + "?ref=" + ref))
                 .header("Accept", "application/vnd.github.raw+json");
             if (props.token() != null && !props.token().isBlank())
@@ -190,30 +190,30 @@ public class GithubClient implements SnapshotCache {
     public String commitFiles(String pat, String repo, String branch, String parentSha,
         java.util.Map<String, String> files, String message) {
         java.util.Map<?, ?> parent = patGet(pat,
-            "https://api.github.com/repos/" + repo + "/git/commits/" + parentSha).body(java.util.Map.class);
+            props.apiUrl() + "/repos/" + repo + "/git/commits/" + parentSha).body(java.util.Map.class);
         String baseTree = (String)((java.util.Map<?, ?>)parent.get("tree")).get("sha");
 
         java.util.List<java.util.Map<String, String>> tree = new java.util.ArrayList<>();
         for (java.util.Map.Entry<String, String> f : files.entrySet()) {
             java.util.Map<?, ?> blob = recorded("styleCommit", () -> patPost(pat,
-                "https://api.github.com/repos/" + repo + "/git/blobs",
+                props.apiUrl() + "/repos/" + repo + "/git/blobs",
                 java.util.Map.of("content", f.getValue(), "encoding", "utf-8")).body(java.util.Map.class));
             tree.add(java.util.Map.of("path", f.getKey(), "mode", "100644", "type", "blob",
                 "sha", (String)blob.get("sha")));
         }
 
         java.util.Map<?, ?> newTree = recorded("styleCommit", () -> patPost(pat,
-            "https://api.github.com/repos/" + repo + "/git/trees",
+            props.apiUrl() + "/repos/" + repo + "/git/trees",
             java.util.Map.of("base_tree", baseTree, "tree", tree)).body(java.util.Map.class));
 
         java.util.Map<?, ?> commit = recorded("styleCommit", () -> patPost(pat,
-            "https://api.github.com/repos/" + repo + "/git/commits",
+            props.apiUrl() + "/repos/" + repo + "/git/commits",
             java.util.Map.of("message", message, "tree", newTree.get("sha"),
                 "parents", java.util.List.of(parentSha))).body(java.util.Map.class));
 
         String sha = (String)commit.get("sha");
         recorded("styleCommit", () -> http.patch()
-            .uri(URI.create("https://api.github.com/repos/" + repo + "/git/refs/heads/" + branch))
+            .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/git/refs/heads/" + branch))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("sha", sha, "force", false))
@@ -253,7 +253,7 @@ public class GithubClient implements SnapshotCache {
     /** Replaces the body of an existing comment — the verdict lives in ONE comment that updates. */
     public void updatePrComment(String pat, long commentId, String body) {
         recorded("prCommentEdit", () -> http.patch()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -268,7 +268,7 @@ public class GithubClient implements SnapshotCache {
      * ONE call covers every open PR, which is what makes a minute-level command poll affordable.
      */
     public java.util.List<IssueComment> recentIssueComments(String sinceIso) {
-        URI uri = URI.create("https://api.github.com/repos/" + props.repo()
+        URI uri = URI.create(props.apiUrl() + "/repos/" + props.repo()
             + "/issues/comments?since=" + sinceIso + "&sort=updated&direction=asc&per_page=100");
 
         RestClient.RequestHeadersSpec<?> req = http.get()
@@ -287,7 +287,7 @@ public class GithubClient implements SnapshotCache {
     /** Reacts to an issue/PR comment under the USER'S OWN PAT (content: rocket, confused, ...). */
     public void reactToComment(String pat, long commentId, String content) {
         recorded("react", () -> http.post()
-            .uri(URI.create("https://api.github.com/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("content", content))
@@ -352,7 +352,7 @@ public class GithubClient implements SnapshotCache {
         }
         catch (RuntimeException e) {
             metrics.recordGithub(category, false, (System.nanoTime() - t0) / 1_000_000L);
-            throw e;
+            throw OutboundHttp.naming("GitHub", e);
         }
     }
 
@@ -366,7 +366,7 @@ public class GithubClient implements SnapshotCache {
         try {
             // sort=updated so recently active PRs (the ones being worked on) are at the top, rather
             // than merely the newest-numbered ones.
-            URI uri = URI.create("https://api.github.com/repos/" + props.repo()
+            URI uri = URI.create(props.apiUrl() + "/repos/" + props.repo()
                 + "/pulls?state=open&sort=updated&direction=desc&per_page=50");
 
             RestClient.RequestHeadersSpec<?> req = http.get()
@@ -413,7 +413,7 @@ public class GithubClient implements SnapshotCache {
 
         try {
             RestClient.RequestHeadersSpec<?> req = http.get()
-                .uri(URI.create("https://api.github.com/repos/" + SELF_REPO))
+                .uri(URI.create(props.apiUrl() + "/repos/" + SELF_REPO))
                 .header("Accept", "application/vnd.github+json");
 
             if (props.token() != null && !props.token().isBlank())
@@ -443,7 +443,7 @@ public class GithubClient implements SnapshotCache {
 
         try {
             RestClient.RequestHeadersSpec<?> req = http.get()
-                .uri(URI.create("https://api.github.com/repos/" + SELF_REPO + "/releases/latest"))
+                .uri(URI.create(props.apiUrl() + "/repos/" + SELF_REPO + "/releases/latest"))
                 .header("Accept", "application/vnd.github+json");
 
             if (props.token() != null && !props.token().isBlank())
@@ -474,7 +474,7 @@ public class GithubClient implements SnapshotCache {
 
         try {
             RestClient.RequestHeadersSpec<?> req = http.get()
-                .uri(URI.create("https://api.github.com/rate_limit"))
+                .uri(URI.create(props.apiUrl() + "/rate_limit"))
                 .header("Accept", "application/vnd.github+json");
 
             if (props.token() != null && !props.token().isBlank())

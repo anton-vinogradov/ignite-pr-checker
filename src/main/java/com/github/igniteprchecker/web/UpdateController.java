@@ -31,11 +31,10 @@ public class UpdateController {
     /** Restarts the service (systemd relaunches the current jar); caches are snapshotted on exit. */
     @PostMapping("/restart")
     public ResponseEntity<?> restart(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
-        Optional<AdminActions.Refusal> refused = admin.refusal(user, AdminActions.Action.RESTART);
+        Optional<AdminActions.Refusal> refused = admin.claim(user, AdminActions.Action.RESTART);
         if (refused.isPresent())
             return refused.get().response();
 
-        admin.record(user, AdminActions.Action.RESTART);
         update.restart();
 
         return ResponseEntity.ok(Map.of("status", "restarting"));
@@ -44,20 +43,23 @@ public class UpdateController {
     /** Downloads the latest release on the next start and restarts into it. */
     @PostMapping("/update")
     public ResponseEntity<?> update(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
-        Optional<AdminActions.Refusal> refused = admin.refusal(user, AdminActions.Action.UPDATE);
+        Optional<AdminActions.Refusal> refused = admin.claim(user, AdminActions.Action.UPDATE);
         if (refused.isPresent())
             return refused.get().response();
 
         try {
             update.performUpdate();
-            admin.record(user, AdminActions.Action.UPDATE);
 
             return ResponseEntity.ok(Map.of("status", "updating"));
         }
         catch (IllegalStateException e) {
+            admin.withdraw(user, AdminActions.Action.UPDATE);
+
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
         catch (Exception e) {
+            admin.withdraw(user, AdminActions.Action.UPDATE);
+
             return ResponseEntity.status(500).body(Map.of("error", "update failed: " + e.getMessage()));
         }
     }

@@ -2,13 +2,15 @@ package com.github.igniteprchecker.config;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.web.ApiExceptionHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -22,13 +24,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.springframework.web.client.ResourceAccessException;
-import org.springframework.web.client.RestClient;
 
 /**
  * The TeamCity and JIRA clients had no timeouts at all, and GitHub got httpclient5's defaults only because
  * checkstyle happened to bring the library in. A peer that accepts the connection and never answers held the
- * caller forever: one such call stalls a PR's analysis for good, and three stall every scheduled job.
+ * caller forever: one such call stalls a PR's analysis for good, and three stall every scheduled job. Once the
+ * calls gave up, the page said "TeamCity is unreachable" whichever service it was.
  */
 class OutboundTimeoutsTest {
     private static final Duration SHORT = Duration.ofMillis(300);
@@ -68,55 +71,63 @@ class OutboundTimeoutsTest {
         return "http://127.0.0.1:" + silent.getLocalPort() + "/";
     }
 
+    /** What the page is told when the call gives up. */
+    private static String answerTo(Executable call) {
+        ResourceAccessException e = assertThrows(ResourceAccessException.class, call);
+
+        return (String)((Map<?, ?>)new ApiExceptionHandler().noAnswer(e).getBody()).get("error");
+    }
+
     @Test
     void teamCityCallGivesUp() {
         TcClient tc = new TcClient(new TeamcityProperties(silentUrl(), SHORT),
             new AnalysisProperties(null, null, null, null, null, null, null), metrics);
 
-        assertTimeoutPreemptively(HANG_GUARD, () ->
-            assertThatThrownBy(() -> tc.currentUsername("tok")).isInstanceOf(ResourceAccessException.class));
+        assertTimeoutPreemptively(HANG_GUARD, () -> assertThat(answerTo(() -> tc.currentUsername("tok")))
+            .isEqualTo("TeamCity did not answer — try again in a moment"));
     }
 
     @Test
     void jiraCallGivesUp() {
         JiraClient jira = new JiraClient(silentUrl(), SHORT, metrics);
 
-        assertTimeoutPreemptively(HANG_GUARD, () ->
-            assertThatThrownBy(() -> jira.myself("tok")).isInstanceOf(ResourceAccessException.class));
+        assertTimeoutPreemptively(HANG_GUARD, () -> assertThat(answerTo(() -> jira.myself("tok")))
+            .isEqualTo("JIRA did not answer — try again in a moment"));
+    }
+
+    private GithubClient github(String apiUrl) {
+        return new GithubClient(new GithubProperties("apache/ignite", null, 300, SHORT, apiUrl), new ObjectMapper(),
+            metrics);
     }
 
     @Test
-    void gitHubFactoryGivesUp() {
-        RestClient http = RestClient.builder().requestFactory(OutboundHttp.withPatch(SHORT)).build();
+    void gitHubCallGivesUp() {
+        GithubClient github = github(silentUrl());
 
-        assertTimeoutPreemptively(HANG_GUARD, () ->
-            assertThatThrownBy(() -> http.patch().uri(silentUrl() + "comments/1").body(Map.of("body", "x"))
-                .retrieve().toBodilessEntity()).isInstanceOf(ResourceAccessException.class));
+        assertTimeoutPreemptively(HANG_GUARD, () -> assertThat(answerTo(() -> github.updatePrComment("pat", 1, "x")))
+            .isEqualTo("GitHub did not answer — try again in a moment"));
     }
 
     @Test
-    void gitHubFactorySendsPatch() throws IOException {
-        HttpServer github = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        List<String> methods = new CopyOnWriteArrayList<>();
-        github.createContext("/", ex -> {
-            methods.add(ex.getRequestMethod());
+    void gitHubCommentEditIsSentAsPatch() throws IOException {
+        HttpServer api = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        List<String> requests = new CopyOnWriteArrayList<>();
+        api.createContext("/", ex -> {
+            requests.add(ex.getRequestMethod() + " " + ex.getRequestURI());
             byte[] body = "{}".getBytes(UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
             ex.sendResponseHeaders(200, body.length);
             ex.getResponseBody().write(body);
             ex.close();
         });
-        github.start();
+        api.start();
         try {
-            RestClient http = RestClient.builder().requestFactory(OutboundHttp.withPatch(SHORT)).build();
+            github("http://127.0.0.1:" + api.getAddress().getPort()).updatePrComment("pat", 1, "x");
 
-            http.patch().uri("http://127.0.0.1:" + github.getAddress().getPort() + "/comments/1")
-                .body(Map.of("body", "x")).retrieve().toBodilessEntity();
-
-            assertThat(methods).containsExactly("PATCH");
+            assertThat(requests).containsExactly("PATCH /repos/apache/ignite/issues/comments/1");
         }
         finally {
-            github.stop(0);
+            api.stop(0);
         }
     }
 }

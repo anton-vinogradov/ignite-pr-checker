@@ -1,9 +1,11 @@
 package com.github.igniteprchecker.config;
 
+import java.io.IOException;
 import java.time.Duration;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * The one place outbound HTTP clients (TeamCity, JIRA, GitHub) get their request factories, each bounded by a
@@ -36,5 +38,31 @@ public final class OutboundHttp {
         return ClientHttpRequestFactorySettings.defaults()
             .withConnectTimeout(CONNECT_TIMEOUT)
             .withReadTimeout(readTimeout);
+    }
+
+    /**
+     * A failed call, with the service named when the call got no answer: the page tells the user which service
+     * that was. Any other failure is returned as is.
+     */
+    public static RuntimeException naming(String service, RuntimeException e) {
+        if (e instanceof NoAnswer || !(e instanceof ResourceAccessException failure))
+            return e;
+
+        return new NoAnswer(service, failure);
+    }
+
+    /** A call that got no answer: the connection failed, or nothing came within the read timeout. */
+    public static final class NoAnswer extends ResourceAccessException {
+        private final String service;
+
+        private NoAnswer(String service, ResourceAccessException failure) {
+            super(failure.getMessage(), failure.getCause() instanceof IOException io ? io : null);
+            this.service = service;
+        }
+
+        /** "TeamCity", "JIRA" or "GitHub". */
+        public String service() {
+            return service;
+        }
     }
 }

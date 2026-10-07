@@ -25,11 +25,10 @@ public class CacheController {
 
     @PostMapping("/flush-caches")
     public ResponseEntity<?> flush(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
-        Optional<AdminActions.Refusal> refused = admin.refusal(user, AdminActions.Action.FLUSH);
+        Optional<AdminActions.Refusal> refused = admin.claim(user, AdminActions.Action.FLUSH);
         if (refused.isPresent())
             return refused.get().response();
 
-        admin.record(user, AdminActions.Action.FLUSH);
         AnalysisCache.Cleared cleared = cache.clear();
         warmer.triggerWarm(); // refill the newest PRs in the background so visitors don't hit a cold recompute
 

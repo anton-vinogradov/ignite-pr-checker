@@ -110,7 +110,7 @@ public class JiraClient {
         catch (RuntimeException e) {
             metrics.recordJira(category, false, (System.nanoTime() - t0) / 1_000_000L);
 
-            throw e;
+            throw OutboundHttp.naming("JIRA", e);
         }
     }
 

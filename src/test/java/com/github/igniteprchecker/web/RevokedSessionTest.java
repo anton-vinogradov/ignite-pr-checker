@@ -5,12 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -19,12 +21,14 @@ import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.Cookie;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.client.HttpClientErrorException;
@@ -71,6 +75,12 @@ class RevokedSessionTest {
             .thenThrow(HttpClientErrorException.create(status, status.getReasonPhrase(), HttpHeaders.EMPTY, new byte[0], UTF_8));
     }
 
+    /** The login that ends the refusal starts another warm cycle, which must not meet the old 401 again. */
+    private void loginWithTheTokenReissued() {
+        doReturn(false).when(analyzer).warm(anyString(), anyInt());
+        warmer.offerVerifiedToken("tok");
+    }
+
     private void warmCycleRuns() throws Exception {
         assertThat(auth.preHandle(session(), new MockHttpServletResponse(), null)).isTrue(); // donates the token
 
@@ -89,9 +99,27 @@ class RevokedSessionTest {
         assertThat(res.getContentAsString()).contains("TeamCity rejected your token");
         assertThat(auth.signedIn(session())).isEmpty();
 
-        warmer.offerVerifiedToken("tok");
+        loginWithTheTokenReissued();
 
         assertThat(auth.preHandle(session(), new MockHttpServletResponse(), null)).isTrue();
+    }
+
+    /** The page shows why only when /api/me refuses: let in there, the user met a bare login form on the next call. */
+    @Test
+    void theRevokedSessionIsToldWhyOnItsFirstCall() throws Exception {
+        LoginController login = new LoginController(null, codec, null, warmer, new UserDirectory(mapper), null,
+            new AdminActions(new AdminProperties(null), mapper));
+        teamCityAnswers(HttpStatus.UNAUTHORIZED);
+        warmCycleRuns();
+
+        ResponseEntity<?> me = login.me(codec.encode("avinogradov", "tok"));
+
+        assertThat(me.getStatusCode().value()).isEqualTo(401);
+        assertThat(me.getBody()).isEqualTo(Map.of("error", "TeamCity rejected your token — log in again"));
+
+        loginWithTheTokenReissued();
+
+        assertThat(login.me(codec.encode("avinogradov", "tok")).getStatusCode().value()).isEqualTo(200);
     }
 
     @Test

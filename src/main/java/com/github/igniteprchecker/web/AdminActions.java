@@ -64,6 +64,9 @@ public class AdminActions implements SnapshotCache {
 
     private final Map<Action, Use> last = new EnumMap<>(Action.class);
 
+    /** What {@link #last} held before each claim, so a claim of an action that did not happen can be taken back. */
+    private final Map<Action, Use> beforeClaim = new EnumMap<>(Action.class);
+
     @Autowired
     public AdminActions(AdminProperties props, ObjectMapper mapper) {
         this(props, mapper, System::currentTimeMillis);
@@ -102,9 +105,32 @@ public class AdminActions implements SnapshotCache {
             + "; try again in " + minutes(allowedAt - now) + "."));
     }
 
-    public synchronized void record(String user, Action action) {
-        last.put(action, new Use(user, nowMs.getAsLong()));
+    /**
+     * Lets this user do this now and records the use, or says why not. Checked and recorded in one step: two
+     * presses at once would otherwise both pass the check before either was recorded.
+     */
+    public synchronized Optional<Refusal> claim(String user, Action action) {
+        Optional<Refusal> refused = refusal(user, action);
+        if (refused.isPresent())
+            return refused;
+
+        beforeClaim.put(action, last.put(action, new Use(user, nowMs.getAsLong())));
         log.info("{} requested by {}", action.key(), user);
+
+        return Optional.empty();
+    }
+
+    /** Takes back this user's claim of an action that did not happen, so it starts no cooldown. */
+    public synchronized void withdraw(String user, Action action) {
+        Use claimed = last.get(action);
+        if (claimed == null || !claimed.by().equals(user))
+            return;
+
+        Use before = beforeClaim.remove(action);
+        if (before == null)
+            last.remove(action);
+        else
+            last.put(action, before);
     }
 
     /** Epoch-ms when this action is allowed again; 0 when it never ran, or operators are named (no cooldown). */

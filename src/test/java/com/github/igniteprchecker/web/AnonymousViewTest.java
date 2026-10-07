@@ -62,7 +62,7 @@ class AnonymousViewTest {
         e.setTimeStamp(System.currentTimeMillis());
         logs.doAppend(e);
 
-        admin.record("avinogradov", AdminActions.Action.FLUSH);
+        admin.claim("avinogradov", AdminActions.Action.FLUSH);
     }
 
     private MockHttpServletRequest signedIn() {
