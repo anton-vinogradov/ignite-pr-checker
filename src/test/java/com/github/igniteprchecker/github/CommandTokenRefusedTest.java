@@ -27,6 +27,7 @@ import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -100,6 +101,6 @@ class CommandTokenRefusedTest {
 
     private static GithubClient.IssueComment runAll(long id) {
         return new GithubClient.IssueComment(id, "/run-all", "https://github.com/apache/ignite/pull/13335#issuecomment-"
-            + id, "2026-10-07T10:00:00Z", new GithubClient.GhUser("NSAmelchev"));
+            + id, Instant.now().toString(), new GithubClient.GhUser("NSAmelchev"));
     }
 }

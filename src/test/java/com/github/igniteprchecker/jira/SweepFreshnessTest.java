@@ -258,10 +258,11 @@ class SweepFreshnessTest {
         VisaService visas = mock(VisaService.class);
         when(visas.compose(eq(PR), any(), any())).thenReturn("visa");
         VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, mock(JiraClient.class), visas, analyzer, warmer,
-            mock(PendingCommits.class));
+            mock(PendingCommits.class), tc, standing);
         subs.arm(PR, "IGNITE-28867", "jira-pat", USER);
+        when(chains.findBuildIdFresh(TOK, PR)).thenReturn(Optional.of(RUN_ALL));
 
-        subs.onRunFinished(PR);
+        subs.onChainFinished(new RerunTracker.ChainFinished(PR, RUN_ALL, false));
 
         ArgumentCaptor<AnalysisResult> posted = ArgumentCaptor.forClass(AnalysisResult.class);
         verify(visas, timeout(10_000)).compose(eq(PR), posted.capture(), any());

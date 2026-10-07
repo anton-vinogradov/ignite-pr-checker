@@ -568,6 +568,68 @@ public class StandingVisas implements SnapshotCache {
         return Optional.of(new WaveStatus(wave, r.what(), activeEtaEpoch(pr)));
     }
 
+    /** The user's PR comment that carries this build's verdict, if one was posted. */
+    public java.util.OptionalLong verdictCommentId(String username, int pr, long buildId) {
+        Enrollment e = enrolled.get(username);
+        GhThread t = e == null ? null : e.handled().ghThreads().get(pr);
+
+        return t != null && t.buildId() == buildId ? java.util.OptionalLong.of(t.commentId())
+            : java.util.OptionalLong.empty();
+    }
+
+    /**
+     * What the user's standing auto-visa does about this build's verdict in {@code issue}: it is in
+     * (the living visa of the build, interim or final), the sweep is still to post it, or neither. A PR
+     * the sweep no longer lists keeps its posted visa: the visa went to the ticket of the PR's title.
+     */
+    public VisaCover visaCover(String username, int pr, long buildId, String issue) {
+        Enrollment e = username == null ? null : enrolled.get(username);
+        Optional<String> ticket = titleTicket(pr);
+        if (e == null || ticket.isPresent() && !ticket.get().equals(issue))
+            return VisaCover.NONE;
+
+        JiraThread t = e.handled().jiraThreads().get(pr);
+        if (t != null && t.buildId() == buildId)
+            return VisaCover.POSTED;
+
+        boolean settled = Long.valueOf(buildId).equals(e.handled().posted().get(pr));
+
+        return !settled && visaTicket(username, pr).isPresent() ? VisaCover.PENDING : VisaCover.NONE;
+    }
+
+    /** See {@link #visaCover}. */
+    public enum VisaCover {
+        POSTED, PENDING, NONE
+    }
+
+    /**
+     * The user whose standing auto-visa posts the verdict of the PR's run under way: the starter of the
+     * chains the rerun tracker watches. Null when no chain is under way or its starter's visa posts none.
+     */
+    public String visaOwnerOfRunUnderWay(int pr) {
+        String starter = rerunTracker.chainStarter(pr);
+
+        return starter != null && visaTicket(starter, pr).isPresent() ? starter : null;
+    }
+
+    /**
+     * The ticket the sweep posts the user's visas for the PR to: their auto-visa is on and not paused,
+     * with a JIRA token, and the PR is among those the sweep goes through.
+     */
+    private Optional<String> visaTicket(String username, int pr) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || !e.options().autoVisa() || e.tc().rejected() || e.jira().token() == null)
+            return Optional.empty();
+
+        return titleTicket(pr);
+    }
+
+    /** The IGNITE ticket in the title of an open PR the sweep goes through. */
+    private Optional<String> titleTicket(int pr) {
+        return github.openPrs().stream().filter(p -> p.number() == pr && p.title() != null).findFirst()
+            .map(p -> ISSUE.matcher(p.title())).filter(Matcher::find).map(Matcher::group);
+    }
+
     /** Whether the build's verdict has been posted for the user — i.e. the run's story is over. */
     public boolean buildHandled(String username, int pr, long buildId) {
         Enrollment e = enrolled.get(username);
@@ -730,17 +792,25 @@ public class StandingVisas implements SnapshotCache {
         if (done.size() >= TOP_QUEUE_LIMIT || !done.add(ev.suite()))
             return; // a concurrent event beat us to it
 
-        TcModel.Build b = asUser(who, () -> tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
-            "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
-                + " is still running, settling it now rather than after the chain"));
+        TcModel.Build b;
+        try {
+            b = asUser(who, () -> tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
+                "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
+                    + " is still running, settling it now rather than after the chain"));
+        }
+        catch (RuntimeException ex) {
+            // The wave counts only what was re-queued; the announcement a restart repeats may try this one again.
+            done.remove(ev.suite());
+
+            throw ex;
+        }
         rerunTracker.record(ev.pr(), b);
-        // Count it as the chain's first wave, so the settled pass continues from here instead of
-        // starting over — two waves per chain stays two.
+        // All re-runs of a running chain are its first wave, so the settled pass continues from here
+        // instead of starting over — two waves per chain stays two. The chain is still running, so no
+        // settled wave can precede it.
         Retry r = retries.get(ev.pr());
-        List<String> history = new ArrayList<>(r != null && r.buildId() == ev.chainBuildId() && r.history() != null
-            ? r.history() : List.of());
-        history.add("early: " + ev.suiteName());
-        retries.put(ev.pr(), new Retry(ev.chainBuildId(), 1, "1 suite that failed mid-run", history,
+        String wave = earlyWave(done.size());
+        retries.put(ev.pr(), new Retry(ev.chainBuildId(), 1, wave, List.of(wave),
             r != null && r.buildId() == ev.chainBuildId() ? r.note() : null));
         log.info("early re-run of {} for PR {} queued at top (chain {} still running, build {})",
             ev.suiteName(), ev.pr(), ev.chainBuildId(), b.id());
@@ -919,8 +989,8 @@ public class StandingVisas implements SnapshotCache {
                         List<String> history = new ArrayList<>(
                             r != null && r.buildId() == buildId && r.history() != null ? r.history() : List.of());
                         history.add(what);
-                        String tcComment = "Auto re-run " + history.size() + " (attempt " + (attempts + 1) + "/"
-                            + MAX_RERUNS + ") by Ignite PR Checker, settling RunAll " + buildId;
+                        String tcComment = "Auto re-run #" + history.size() + " of up to " + MAX_RERUNS
+                            + " by Ignite PR Checker, settling RunAll " + buildId;
                         List<Long> queued = new ArrayList<>();
                         for (String suite : suites) {
                             TcModel.Build b =
@@ -983,6 +1053,8 @@ public class StandingVisas implements SnapshotCache {
                         md = md + "\n\n_" + settled + "_";
                     if (note != null)
                         md = md + "\n\n_" + note + "_";
+                    if (!res.get().blockers().isEmpty())
+                        md = md + NEXT_STEP;
                     upsertGhComment(who, e, ghToken.get(), pr.number(), buildId, md);
                 }
                 e.handled().posted().put(pr.number(), buildId);
@@ -1095,7 +1167,7 @@ public class StandingVisas implements SnapshotCache {
             Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
             enrollments = s.enrollments() == null ? new Persisted[0] : s.enrollments().toArray(new Persisted[0]);
             if (s.retries() != null)
-                retries.putAll(s.retries());
+                s.retries().forEach((pr, r) -> retries.put(pr, r.mergingEarlyWaves()));
             if (s.earlyReruns() != null)
                 s.earlyReruns().forEach((build, suites) -> earlyReruns
                     .computeIfAbsent(build, id -> ConcurrentHashMap.newKeySet()).addAll(suites));
@@ -1277,7 +1349,32 @@ public class StandingVisas implements SnapshotCache {
     /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, what was re-queued,
      * and a note for the visa. */
     private record Retry(long buildId, int attempts, String what, List<String> history, String note) {
+        /**
+         * Snapshots of v1.20.11 and before kept each mid-run re-run as a wave of its own ("early: Cache 1"),
+         * so three of them read as wave #3 of the promised two; they are one wave. A single one already
+         * counts right and is kept as it was.
+         */
+        Retry mergingEarlyWaves() {
+            long early = history == null ? 0 : history.stream().filter(h -> h.startsWith("early: ")).count();
+            if (early < 2)
+                return this;
+
+            List<String> merged = new ArrayList<>();
+            merged.add(earlyWave((int) early));
+            history.stream().filter(h -> !h.startsWith("early: ")).forEach(merged::add);
+
+            return new Retry(buildId, attempts, merged.size() == 1 ? merged.get(0) : what, merged, note);
+        }
     }
+
+    /** The first wave of a chain: every suite re-run while the chain was still going. */
+    private static String earlyWave(int suites) {
+        return suites + (suites == 1 ? " suite" : " suites") + " that failed mid-run";
+    }
+
+    /** The last line of a red verdict in the PR: what the author does next. */
+    private static final String NEXT_STEP = "\n\n➡️ **Next:** fix the blockers, push, and run RunAll again — a "
+        + "`/run-all` comment here does it when PR commands are on in the checker's ⚙.";
 
     /** The snapshot on disk: enrollments plus the auto-rerun attempt bookkeeping (so a restart can't
      * grant extra attempts or freeze the ⏳ line's context). */
@@ -1290,7 +1387,7 @@ public class StandingVisas implements SnapshotCache {
     private static String pendingLine(String what, int attempt, List<String> history, Long etaEpochSec, String tz,
         String b) {
         return "\n\n⏳ _Auto re-run " + b + "#" + (history == null || history.isEmpty() ? attempt : history.size())
-            + b + " in progress — " + what + " re-queued (attempt " + attempt + "/" + MAX_RERUNS + ")"
+            + b + " (of up to " + MAX_RERUNS + ") in progress — " + what + " re-queued"
             + (etaEpochSec == null ? "" : ", " + b + "≈ settled by " + wallClock(etaEpochSec, tz) + b)
             + ". This comment updates when they settle._"
             + earlierWaves(history);

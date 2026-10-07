@@ -58,11 +58,12 @@ class ReleaseSnapshotsTest {
         VisaService visas = mock(VisaService.class);
         Warmer warmer = mock(Warmer.class);
         PendingCommits pending = mock(PendingCommits.class);
-        VisaSubscriptions subs = new VisaSubscriptions(MAPPER, codec, jira, visas, analyzer, warmer, pending);
-        RerunTracker tracker = new RerunTracker(tc, warmer, subs, mock(AnalysisProperties.class), MAPPER,
+        RerunTracker tracker = new RerunTracker(tc, warmer, mock(AnalysisProperties.class), MAPPER,
             mock(ApplicationEventPublisher.class));
         StandingVisas standing = new StandingVisas(MAPPER, codec, tc, github, analyzer, jira, visas, tracker, warmer,
             pending);
+        VisaSubscriptions subs = new VisaSubscriptions(MAPPER, codec, jira, visas, analyzer, warmer, pending, tc,
+            standing);
 
         return Stream.of(standing,
             new PrCommands(MAPPER, github, standing, tc, tracker, mock(StyleFixService.class), mock(SuiteBaseline.class),

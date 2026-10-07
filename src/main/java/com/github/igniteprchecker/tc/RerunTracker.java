@@ -3,7 +3,6 @@ package com.github.igniteprchecker.tc;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -40,7 +39,6 @@ public class RerunTracker implements SnapshotCache {
 
     private final TcClient tc;
     private final Warmer warmer;
-    private final VisaSubscriptions visaSubs;
     private final String runAllBuildType;
     private final ObjectMapper mapper;
     private final ApplicationEventPublisher events;
@@ -50,11 +48,10 @@ public class RerunTracker implements SnapshotCache {
     private volatile long lastRefreshMs;
     private final java.util.concurrent.atomic.AtomicInteger chainFinishes = new java.util.concurrent.atomic.AtomicInteger();
 
-    public RerunTracker(TcClient tc, Warmer warmer, VisaSubscriptions visaSubs, AnalysisProperties cfg,
-        ObjectMapper mapper, ApplicationEventPublisher events) {
+    public RerunTracker(TcClient tc, Warmer warmer, AnalysisProperties cfg, ObjectMapper mapper,
+        ApplicationEventPublisher events) {
         this.tc = tc;
         this.warmer = warmer;
-        this.visaSubs = visaSubs;
         this.runAllBuildType = cfg.runAllBuildType();
         this.mapper = mapper;
         this.events = events;
@@ -79,6 +76,22 @@ public class RerunTracker implements SnapshotCache {
         Tracked t = tracked.computeIfAbsent(b.id(),
             id -> new Tracked(pr, b.buildTypeId(), suiteName, b.id(), b.webUrl() == null ? "" : b.webUrl()));
         t.state = b.state() == null ? "queued" : b.state();
+        if (b.triggered() != null && b.triggered().user() != null && b.triggered().user().username() != null)
+            t.starter = b.triggered().user().username();
+    }
+
+    /**
+     * Who started the PR's RunAll chains still queued or running, when they all have one known starter;
+     * null when none is under way or it is not known whose. TeamCity's answer to a trigger names no
+     * starter; the next listing of the PR's runs, or of all running chains, does.
+     */
+    public String chainStarter(int pr) {
+        long now = System.currentTimeMillis();
+        List<String> starters = tracked.values().stream()
+            .filter(t -> t.pr == pr && runAllBuildType.equals(t.buildTypeId) && now - t.lastVerified <= STALE_MS)
+            .map(t -> t.starter).distinct().toList();
+
+        return starters.size() == 1 ? starters.get(0) : null;
     }
 
     /** Refreshes each active build's state (chains expand to per-suite states); drops finished/gone ones. */
@@ -163,7 +176,7 @@ public class RerunTracker implements SnapshotCache {
             if (b != null) {
                 chainFinishes.incrementAndGet();
                 warmer.warmPr(t.pr);
-                visaSubs.onRunFinished(t.pr);
+                events.publishEvent(new ChainFinished(t.pr, t.buildId, "UNKNOWN".equalsIgnoreCase(b.status())));
             }
             return;
         }
@@ -223,6 +236,10 @@ public class RerunTracker implements SnapshotCache {
 
     /** A suite of a still-running RunAll chain has just finished red. */
     public record SuiteFailedMidRun(int pr, long chainBuildId, String suite, long suiteBuildId, String suiteName) {
+    }
+
+    /** A tracked RunAll chain has just finished; {@code cancelled} when someone stopped it (status UNKNOWN). */
+    public record ChainFinished(int pr, long chainBuildId, boolean cancelled) {
     }
 
     private static void addChild(Map<Long, ActiveRerun> kids, int pr, TcModel.Build dep) {
@@ -303,6 +320,8 @@ public class RerunTracker implements SnapshotCache {
         volatile Long waitedSec;
         volatile Long elapsedSec;
         volatile long lastVerified = System.currentTimeMillis();
+        /** The TeamCity user who started the build, once a listing has named them. */
+        volatile String starter;
         volatile List<ActiveRerun> children = List.of();
         /** Suite builds already announced as failed, so each is acted on once. */
         final java.util.Set<Long> failedDeps = java.util.concurrent.ConcurrentHashMap.newKeySet();

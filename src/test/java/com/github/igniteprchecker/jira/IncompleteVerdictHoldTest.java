@@ -3,6 +3,7 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -103,15 +104,17 @@ class IncompleteVerdictHoldTest {
         JiraClient jira = mock(JiraClient.class);
         Warmer warmer = mock(Warmer.class);
         when(warmer.borrowToken()).thenReturn(TOK);
-        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(incomplete(now - 60_000)))
-            .thenReturn(Optional.of(complete()));
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete(now - 60_000)));
+        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
         VisaService visas = new VisaService(new TeamcityProperties("https://ci2/"), "https://checker");
+        StandingVisas standing = mock(StandingVisas.class);
+        when(standing.visaCover(any(), anyInt(), anyLong(), any())).thenReturn(StandingVisas.VisaCover.NONE);
         VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, jira, visas, analyzer, warmer,
-            mock(PendingCommits.class));
+            mock(PendingCommits.class), tc, standing);
         subs.retryDelayMs = 200;
         subs.arm(PR, "IGNITE-28890", "jira-pat", USER);
 
-        subs.onRunFinished(PR);
+        subs.onChainFinished(new RerunTracker.ChainFinished(PR, RUN_ALL, false));
 
         verify(jira, after(100).never()).addComment(anyString(), anyString(), anyString());
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);

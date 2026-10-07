@@ -19,6 +19,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +66,7 @@ class PrCommandsSnapshotTest {
         commands.loadFrom(file);
         when(standing.anyGhEnrolled()).thenReturn(true);
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(7L,
-            "/run-all", "https://github.com/apache/ignite/pull/13800#issuecomment-7", "2026-10-07T10:00:00Z",
+            "/run-all", "https://github.com/apache/ignite/pull/13800#issuecomment-7", Instant.now().toString(),
             new GithubClient.GhUser("nizhikov"))));
 
         commands.poll();

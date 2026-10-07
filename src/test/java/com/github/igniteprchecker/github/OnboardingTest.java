@@ -28,6 +28,7 @@ import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -135,7 +136,7 @@ class OnboardingTest {
     private void command(int pr, String login) {
         long id = nextId++;
         comments.add(new GithubClient.IssueComment(id, "/run-all",
-            "https://github.com/apache/ignite/pull/" + pr + "#issuecomment-" + id, "2026-10-07T10:00:00Z",
+            "https://github.com/apache/ignite/pull/" + pr + "#issuecomment-" + id, Instant.now().toString(),
             new GithubClient.GhUser(login)));
         commands.poll();
     }
