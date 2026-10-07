@@ -53,9 +53,11 @@ class AnonymousViewTest {
 
     private final EffectiveConfig config = mock(EffectiveConfig.class);
 
+    private final GithubClient github = mock(GithubClient.class);
+
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
-        warmer, mock(GithubClient.class), logs,
+        warmer, github, logs,
         new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store, config),
         mock(RerunTracker.class), mock(VisaSubscriptions.class), mock(StandingVisas.class), mock(PrCommands.class),
         auth, admin, store, config, mock(ObjectProvider.class));
@@ -124,6 +126,16 @@ class AnonymousViewTest {
         assertThat(status.status(new MockHttpServletRequest())).doesNotContainKey("config");
         assertThat(status.status(signedIn())).containsEntry("config", Map.of("PRC_CACHE_DIR",
             "/opt/ignite-pr-checker/cache", "PRC_ADMINS", "avinogradov"));
+    }
+
+    /** Whether the server's GitHub token can push to apache/ignite says how much it is worth to whoever reads it. */
+    @Test
+    void statusTellsWhetherTheAppAccountCanPushToSignedInViewersOnly() throws Exception {
+        when(github.appAccount()).thenReturn(new GithubClient.AppAccount("ok", "ignite-pr-checker-bot", true));
+
+        assertThat(mapper.writeValueAsString(status.status(new MockHttpServletRequest())))
+            .contains("\"login\":\"ignite-pr-checker-bot\"").doesNotContain("\"canPush\":true");
+        assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains("\"canPush\":true");
     }
 
     @Test

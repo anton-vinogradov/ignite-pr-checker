@@ -120,10 +120,11 @@ class RerunWavesTest {
 
         standing.sweep();
 
-        ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), comment.capture());
-        assertThat(comment.getValue()).contains("Auto re-run **#2** (of up to 2) in progress")
-            .contains("Earlier re-runs: #1 — 3 suites that failed mid-run.").doesNotContain("attempt");
+        assertThat(standing.waveStatus(PR, RUN_ALL)).hasValueSatisfying(w -> {
+            assertThat(w.wave()).isEqualTo(2);
+            assertThat(w.what()).isEqualTo("3 blocker suite(s)");
+        });
+        assertThat(standing.phase(PR, RUN_ALL).wave()).isEqualTo(2);
     }
 
     /** A chain was mid-run during the upgrade: its waves were kept one per suite. */

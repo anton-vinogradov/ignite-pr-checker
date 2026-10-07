@@ -94,6 +94,18 @@ public class RerunTracker implements SnapshotCache {
         return starters.size() == 1 ? starters.get(0) : null;
     }
 
+    /**
+     * The newest RunAll chain of the PR still queued or running, as the tracker last saw it; 0 when none.
+     * A run it supersedes is not settled: its verdict would be out of date before it is posted.
+     */
+    public long newestChainUnderWay(int pr) {
+        long now = System.currentTimeMillis();
+
+        return tracked.values().stream()
+            .filter(t -> t.pr == pr && runAllBuildType.equals(t.buildTypeId) && now - t.lastVerified <= STALE_MS)
+            .mapToLong(t -> t.buildId).max().orElse(0);
+    }
+
     /** Refreshes each active build's state (chains expand to per-suite states); drops finished/gone ones. */
     @Scheduled(fixedDelay = 20_000, initialDelay = 10_000)
     void refresh() {
@@ -153,8 +165,10 @@ public class RerunTracker implements SnapshotCache {
             tracked.remove(t.buildId);
             // A finished re-run is a new branch run for its tests: recompute the verdict so a
             // passed re-run clears its blockers without waiting for a viewer or the TTL.
-            if (b != null)
+            if (b != null) {
                 warmer.refreshPr(t.pr);
+                events.publishEvent(new RerunFinished(t.pr, t.buildId));
+            }
             return;
         }
 
@@ -240,6 +254,10 @@ public class RerunTracker implements SnapshotCache {
 
     /** A tracked RunAll chain has just finished; {@code cancelled} when someone stopped it (status UNKNOWN). */
     public record ChainFinished(int pr, long chainBuildId, boolean cancelled) {
+    }
+
+    /** A tracked build outside any chain (a suite re-run) has just finished. */
+    public record RerunFinished(int pr, long buildId) {
     }
 
     private static void addChild(Map<Long, ActiveRerun> kids, int pr, TcModel.Build dep) {

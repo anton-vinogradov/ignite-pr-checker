@@ -395,9 +395,10 @@
         <label class="settings-row">
             <input id="standingVisaToggle" type="checkbox">
             <span><b>Auto-visa all my runs</b> — when any RunAll I triggered finishes, post the verdict to the
-                PR's IGNITE ticket automatically (checked every ~10 minutes, each run posted once; with auto
-                re-run also on, a visa posted while re-runs go says so and is edited to the final verdict once
-                they settle).<br>
+                IGNITE ticket the PR title names (an IGNITE-NNNN key; no key, no visa) automatically, once per run;
+                with auto re-run also on, the visa waits until the re-runs settle and carries the final verdict.
+                No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same
+                revision.<br>
                 <span class="muted">Requires your JIRA Personal Access Token; your TeamCity and JIRA tokens are
                 stored encrypted at rest while this is on.</span>
                 <span id="visaSaved" class="muted hidden"><br>Runs on your saved JIRA token.</span></span>
@@ -411,17 +412,17 @@
                 the suites still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the
                 first; up to 10 suites go to the top of the queue, more go to the tail so they don't push everyone
                 else back. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
-                systemic. Identical suites already in the queue are cancelled first. When a wave is queued after
-                the chain finishes, the visa and the PR comment come out at once, marked as re-running, and are
-                edited to the final verdict once the re-runs settle.<br>
-                <span class="muted">Works on its own — no JIRA needed; your TeamCity token is stored encrypted
-                at rest while this is on.</span></span>
+                systemic. Identical suites already in the queue are cancelled first. The visa and the PR comment
+                wait for the re-runs and come out once, with the final verdict; meanwhile the PR page and the
+                <code>/run-all</code> comment show the waves.<br>
+                <span class="muted">Works on its own, on any PR — no JIRA ticket needed; your TeamCity token is
+                stored encrypted at rest while this is on.</span></span>
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="ghCommentToggle" type="checkbox">
             <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes,
-                post the verdict as a comment on the pull request, from my own GitHub account (while auto
-                re-runs go, it says so and is edited to the final verdict once they settle).<br>
+                post the verdict as a comment on the pull request, from my own GitHub account, once per run (with
+                auto re-run on, once the re-runs settle).<br>
                 <span class="muted">Requires a GitHub personal access token with the <code>public_repo</code>
                 scope; it is stored encrypted at rest while this is on.</span>
                 <span id="ghSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
@@ -565,6 +566,9 @@
                     <div id="pendingRow" class="head-row hidden">
                         <span id="pending" class="pending-note"></span>
                         <button id="pendingRerun" class="act" type="button">Re-run RunAll</button>
+                    </div>
+                    <div id="settlingRow" class="head-row hidden">
+                        <span id="settling" class="pending-note"></span>
                     </div>
                     <div id="deltaRow" class="head-row hidden">
                         <span class="muted"><span id="trend" class="trend"></span><span id="delta"></span></span>
@@ -1088,8 +1092,41 @@
                 lastLiveFetch = Date.now();
                 analyze(number, true);
             }
+            loadSettling(number);
             schedulePoll();
             return true;
+        }
+
+        // Auto re-runs settle a finished run after the fact: until they do, the verdict on screen is not the
+        // final one, and the page has to say so — only the /run-all comment used to.
+        async function loadSettling(number) {
+            const res = lastResult;
+            if (!res || res.prNumber !== number) {
+                $('settlingRow').classList.add('hidden');
+                return;
+            }
+            let phase = null;
+            try {
+                const r = await api('/api/settling?pr=' + number + '&build=' + res.buildId);
+                phase = r.ok ? await r.json() : null;
+            }
+            catch (e) {
+                phase = null; // the next poll asks again
+            }
+            if (number !== selectedPr || lastResult !== res) return;
+            const text = settlingText(phase);
+            $('settlingRow').classList.toggle('hidden', !text);
+            $('settling').textContent = text;
+        }
+
+        // What /api/settling says, in words; empty unless re-runs still settle the verdict.
+        function settlingText(phase) {
+            if (!phase || phase.phase !== 'settling') return '';
+            if (!phase.wave)
+                return '♻️ Deciding on auto re-runs of this run\'s failed suites — the verdict below may still change.';
+            const left = phase.etaEpochSec ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
+            return `♻️ Auto re-run #${phase.wave} of up to ${phase.of} in progress — ${phase.what} re-queued`
+                + (left ? `, settled in ${left}` : '') + '. The verdict below is interim: it is redone when they finish.';
         }
 
         // A PR with nothing to analyse yet: say whether a RunAll is already on its way rather than offer
@@ -1245,6 +1282,7 @@
             $('results').classList.add('hidden');
             $('deltaRow').classList.add('hidden'); // it lives outside #results — clear the previous PR's delta
             $('pendingRow').classList.add('hidden');
+            $('settlingRow').classList.add('hidden');
             return setInterval(async () => {
                 try {
                     const pr = await api('/api/progress?pr=' + number);
@@ -1779,6 +1817,7 @@
             loadDelta(res);
             if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
             if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPrTests(res);
+            if (!prev || prev.buildId !== res.buildId || force) loadSettling(res.prNumber);
         }
 
         // The failure messages the reader has open, by list: the same test can sit in two of them.

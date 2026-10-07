@@ -23,6 +23,8 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -83,8 +85,8 @@ public class GithubClient implements SnapshotCache {
     }
 
     /**
-     * Posts a PR comment under the APP's own token (the operator's account) — used only for the
-     * one-time onboarding reply to a command from a not-yet-enrolled user. False when no app token.
+     * Posts a PR comment under the APP's own token ({@link #appAccount()}): the onboarding reply, a hint or an
+     * explanation to a commander. False when no app token.
      */
     public boolean addPrCommentAsApp(int prNumber, String body) {
         if (props.token() == null || props.token().isBlank())
@@ -100,7 +102,7 @@ public class GithubClient implements SnapshotCache {
         return true;
     }
 
-    /** Reacts to a comment from the APP's (operator's) account — the ack for PAT-less commanders. */
+    /** Reacts to a comment from the app account ({@link #appAccount()}) — the ack for PAT-less commanders. */
     public boolean reactToCommentAsApp(long commentId, String content) {
         if (props.token() == null || props.token().isBlank())
             return false;
@@ -131,14 +133,50 @@ public class GithubClient implements SnapshotCache {
             : new PostedComment(((Number)c.get("id")).longValue(), String.valueOf(c.get("html_url")));
     }
 
-    /** Edits the APP's own narration comment in place. */
-    public void updatePrCommentAsApp(long commentId, String body) {
+    /** Edits the APP's own narration comment in place. False when no app token is configured. */
+    public boolean updatePrCommentAsApp(long commentId, String body) {
+        if (props.token() == null || props.token().isBlank())
+            return false;
+
         recorded("prCommentEdit", () -> http.patch()
             .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
             .retrieve().body(java.util.Map.class));
+
+        return true;
+    }
+
+    /** The text of a comment of the repo; empty when GitHub has no such comment. */
+    public java.util.Optional<String> commentBody(long commentId) {
+        try {
+            java.util.Map<?, ?> c = recorded("comment", () -> appGet(
+                props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId).body(java.util.Map.class));
+
+            return java.util.Optional.ofNullable(c == null ? null : (String)c.get("body"));
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** Whether a PR is still open, and its title; empty when GitHub has no such PR. */
+    public java.util.Optional<PullState> pullState(int prNumber) {
+        try {
+            java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
+                props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+
+            return java.util.Optional.ofNullable(pr == null ? null : new PullState((String)pr.get("title"),
+                "open".equals(pr.get("state")), Boolean.TRUE.equals(pr.get("merged"))));
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** A PR as GitHub has it now: its title, whether it is open, and whether it was merged. */
+    public record PullState(String title, boolean open, boolean merged) {
     }
 
     /** The PR's author and head (source branch) coordinates — where a style-fix commit must go. */
@@ -525,6 +563,110 @@ public class GithubClient implements SnapshotCache {
         }
         catch (Exception e) {
             return cached != null ? cached : List.of();
+        }
+    }
+
+    /**
+     * The GitHub account the checker writes as, the one {@code GITHUB_TOKEN} belongs to: onboarding replies,
+     * reactions, hints and the run narration of users without a GitHub token of their own come from it.
+     * Checked once the service is up; while GitHub could not say, asked again at most every 10 minutes.
+     */
+    public AppAccount appAccount() {
+        AppAccount known = appAccount;
+        long now = System.currentTimeMillis();
+        if (AppAccount.UNKNOWN.equals(known.state()) && now - appAccountCheckedAt > APP_ACCOUNT_RECHECK_MS) {
+            appAccountCheckedAt = now;
+            ownStatsFetch.execute(this::checkAppAccount);
+        }
+
+        return known;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    void checkAppAccountOnStartup() {
+        ownStatsFetch.execute(this::checkAppAccount);
+    }
+
+    /** Asks GitHub whom the app token belongs to, and whether that account may push to the repo. */
+    void checkAppAccount() {
+        appAccountCheckedAt = System.currentTimeMillis();
+        if (props.token() == null || props.token().isBlank()) {
+            appAccount = new AppAccount(AppAccount.NONE, null, null);
+            log.info("no GITHUB_TOKEN: the checker reads GitHub at 60 requests an hour and writes nothing there; "
+                + "commands of users without their own GitHub token get no reaction and no narration");
+
+            return;
+        }
+
+        String login;
+        try {
+            java.util.Map<?, ?> u = recorded("appUser", () -> appGet(props.apiUrl() + "/user").body(java.util.Map.class));
+            login = u == null ? null : (String)u.get("login");
+        }
+        catch (org.springframework.web.client.RestClientResponseException e) {
+            int status = e.getStatusCode().value();
+            appAccount = new AppAccount(status == 401 || status == 403 ? AppAccount.REFUSED : AppAccount.UNKNOWN, null,
+                null);
+            log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", status,
+                status == 401 || status == 403 ? "the token is refused, nothing is written as the app account"
+                    : "asked again later");
+
+            return;
+        }
+        catch (RuntimeException e) {
+            appAccount = new AppAccount(AppAccount.UNKNOWN, null, null);
+            log.warn("could not ask GitHub whom GITHUB_TOKEN belongs to, asked again later: {}", e.toString());
+
+            return;
+        }
+
+        Boolean canPush = canPush();
+        appAccount = new AppAccount(AppAccount.OK, login, canPush);
+        if (Boolean.TRUE.equals(canPush))
+            log.warn("GITHUB_TOKEN belongs to @{}, who can push to {}: anyone who reads the server's token can too. "
+                + "Use an account without write access to the repo", login, props.repo());
+        else
+            log.info("GitHub app account: @{} (GITHUB_TOKEN) writes the onboarding replies, reactions and narration "
+                + "of users without their own GitHub token", login);
+    }
+
+    /** Whether the app account may push to the repo; null when GitHub does not say. */
+    private Boolean canPush() {
+        try {
+            java.util.Map<?, ?> repo = recorded("appRepo", () -> appGet(props.apiUrl() + "/repos/" + props.repo())
+                .body(java.util.Map.class));
+            Object perms = repo == null ? null : repo.get("permissions");
+
+            return perms instanceof java.util.Map<?, ?> m && m.get("push") instanceof Boolean push ? push : null;
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static final long APP_ACCOUNT_RECHECK_MS = 10 * 60_000L;
+
+    private volatile AppAccount appAccount = new AppAccount(AppAccount.UNKNOWN, null, null);
+
+    private volatile long appAccountCheckedAt;
+
+    /**
+     * Whom {@code GITHUB_TOKEN} belongs to. {@code state}: "ok" with the {@code login} (and {@code canPush}, whether
+     * it may push to the repo, null when unknown), "none" without a token, "refused" when GitHub refuses it,
+     * "unknown" until GitHub has said.
+     */
+    public record AppAccount(String state, String login, Boolean canPush) {
+        static final String OK = "ok";
+
+        static final String NONE = "none";
+
+        static final String REFUSED = "refused";
+
+        static final String UNKNOWN = "unknown";
+
+        /** What anyone may see: whether the account can push says how much a leaked server token is worth. */
+        public AppAccount anonymous() {
+            return new AppAccount(state, login, null);
         }
     }
 

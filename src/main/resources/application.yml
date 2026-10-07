@@ -52,7 +52,10 @@ teamcity:
 github:
   # Repo whose open PRs populate the left-hand list.
   repo: ${GITHUB_REPO:apache/ignite}
-  # Optional read token to raise the API rate limit (60 -> 5000/hour). Public-repo scope is enough.
+  # Token of the checker's own GitHub account (classic, public_repo scope). Reads go under it (5000
+  # requests/hour instead of 60), and the checker writes as that account: onboarding replies to PR
+  # commands, reactions, hints and the run narration of users without their own GitHub token. Use a
+  # separate account without write access to the repo. Empty: read-only, and those commands get no reply.
   token: ${GITHUB_TOKEN:}
   # How long to cache the PR list. Longer = fewer GitHub calls (unauthenticated limit is 60/hour).
   cache-seconds: 300

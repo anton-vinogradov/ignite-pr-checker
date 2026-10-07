@@ -142,13 +142,15 @@ class SweepFreshnessTest {
     }
 
     /**
-     * A newer RunAll that someone cancelled keeps the result {@code live} forever, so "not live" is not
-     * the test: the verdict was read from the finished chain, and nothing finished on the branch since.
+     * A newer RunAll that someone cancelled after the verdict was computed leaves it {@code live}, so "not
+     * live" is not the test: the verdict was read from the finished chain, and nothing finished on the branch
+     * since.
      */
     @Test
     void aVerdictComputedAfterTheChainFinishedIsActedOnAsIs() {
         cache.putResult(RUN_ALL, verdict((now - 60) * 1000, 9389300L, chainFinished,
             List.of(DPC1, QUERIES5, QUERIES6), now - 120));
+        newerChainCancelled();
 
         standing.sweep();
 
@@ -165,6 +167,7 @@ class SweepFreshnessTest {
     void aClickOnAnotherOptionAfterTheRunDoesNotHideItFromTheSweep() {
         cache.putResult(RUN_ALL, verdict((now - 60) * 1000, 9389300L, chainFinished,
             List.of(DPC1, QUERIES5, QUERIES6), now - 120));
+        newerChainCancelled();
         standing.linkGhLogin(USER, TOK, "anton-vinogradov");
         standing.change(USER, TOK, null, null, new StandingVisas.OptionChange(null, null, null, null, false));
 
@@ -289,6 +292,12 @@ class SweepFreshnessTest {
         ((ObjectNode) snap.get("enrollments").get(0)).put("enabledAt", (now - 86_400) * 1000);
         mapper.writeValue(file.toFile(), snap);
         standing.loadFrom(file);
+    }
+
+    /** RunAll 9389300, still going when the cached verdict was computed, was cancelled since. */
+    private void newerChainCancelled() {
+        when(tc.getBuildState(TOK, 9389300L)).thenReturn(new TcModel.Build(9389300L, "UNKNOWN", "finished",
+            "pull/13335/head", null, null, null, null, null, null, null, null, null, null, null, null, null, null));
     }
 
     private List<String> rerunSuites() {
