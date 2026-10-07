@@ -111,6 +111,11 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Long, Long> hinted = new ConcurrentHashMap<>();
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
+
+    /** Off in the dev profile, so a local run never acts on PR comments next to the production instance. */
+    @Value("${automation.enabled:true}")
+    private boolean automation = true;
+
     private final String publicUrl;
     private final String tcBaseUrl;
 
@@ -139,7 +144,7 @@ public class PrCommands implements SnapshotCache {
     void poll() {
         long now = System.currentTimeMillis();
         lastPollAt = now;
-        if (!standing.anyGhEnrolled()) {
+        if (!automation || !standing.anyGhEnrolled()) {
             sinceMs = now; // nobody's comments are commands: they must not run once someone switches commands on
 
             return;

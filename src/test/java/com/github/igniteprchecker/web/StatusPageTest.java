@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
  */
 class StatusPageTest {
     private static final String[] FUNCTIONS = {"card", "esc", "agoShort", "logTime", "renderLog", "healthProblems",
-        "healthTitle", "persistenceCard"};
+        "healthTitle", "persistenceCard", "configRows"};
 
     @Test
     void anErrorLoggedWhileStartingIsThisRunsNotThePreviousOnes() throws Exception {
@@ -66,6 +66,19 @@ class StatusPageTest {
             .isEqualTo("[{\"level\":\"error\",\"text\":\"2 problems — log in on the main page to see them\"}]");
         assertThat(page.get("title").asText()).isEqualTo("2 problems — log in on the main page to see them");
         assertThat(page.get("card").asText()).contains("1 problem", "log in on the main page to see it");
+    }
+
+    /** What the service ran with was nowhere to be seen; the settings name server paths and the operators. */
+    @Test
+    void signedInViewersSeeTheSettings() throws Exception {
+        JsonNode page = run("""
+            out({ signedIn: configRows({ config: { APP_PUBLIC_URL: 'https://prc.example.org', SESSION_SECRET: 'set' } }),
+                anonymous: configRows({}) });
+            """);
+
+        assertThat(page.get("signedIn").asText()).contains("APP_PUBLIC_URL", "https://prc.example.org",
+            "SESSION_SECRET");
+        assertThat(page.get("anonymous").asText()).contains("log in on the main page to see the settings");
     }
 
     /** Runs {@code script} after the page's functions; whatever it passes to {@code out} comes back. */

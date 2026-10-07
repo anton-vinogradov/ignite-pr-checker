@@ -9,6 +9,7 @@ import ch.qos.logback.classic.spi.LoggingEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
@@ -50,9 +51,10 @@ class StatusHealthTest {
 
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
-        warmer, mock(GithubClient.class), logs, new ServiceHealth(warmer, standing, commands, store),
-        mock(RerunTracker.class), mock(VisaSubscriptions.class), standing, commands, auth, mock(AdminActions.class),
-        store, mock(ObjectProvider.class));
+        warmer, mock(GithubClient.class), logs,
+        new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)), mock(RerunTracker.class),
+        mock(VisaSubscriptions.class), standing, commands, auth, mock(AdminActions.class), store,
+        mock(EffectiveConfig.class), mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
@@ -31,9 +32,9 @@ class StatusMemoryTest {
         CacheStore store = mock(CacheStore.class);
         StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class), warmer,
             mock(GithubClient.class), new LogTracker(new ObjectMapper()),
-            new ServiceHealth(warmer, standing, commands, store), mock(RerunTracker.class),
-            mock(VisaSubscriptions.class), standing, commands, mock(AuthInterceptor.class), mock(AdminActions.class),
-            store, mock(ObjectProvider.class));
+            new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)),
+            mock(RerunTracker.class), mock(VisaSubscriptions.class), standing, commands, mock(AuthInterceptor.class),
+            mock(AdminActions.class), store, mock(EffectiveConfig.class), mock(ObjectProvider.class));
 
         Map<String, Object> jvm = (Map<String, Object>) status.status(new MockHttpServletRequest()).get("jvm");
 

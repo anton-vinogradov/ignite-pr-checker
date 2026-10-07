@@ -41,7 +41,7 @@ class UpdateServiceTest {
         GithubClient github = mock(GithubClient.class);
         when(github.latestReleaseTag()).thenReturn("1.20.12");
         BlockingQueue<Integer> exits = new LinkedBlockingQueue<>();
-        UpdateService update = new UpdateService(new UpdateProperties(true, dir.resolve("app.jar").toString(), null),
+        UpdateService update = new UpdateService(new UpdateProperties(true, dir.resolve("app.jar").toString()),
             github, mock(ObjectProvider.class), exits::add);
 
         update.restart();

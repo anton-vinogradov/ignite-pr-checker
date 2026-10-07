@@ -1,0 +1,22 @@
+# The profile of ./gradlew bootRun (build.gradle): a local run next to the production instance. It does not warm PRs
+# on the shared TeamCity, act on PRs under stored tokens (standing options, /run-all commands) or update itself, and
+# it listens on this machine only; logins and state survive a restart. Environment variables still win, e.g.
+# WARM_ENABLED=true WARM_COUNT=3 to try the warmer on three PRs.
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+
+warm:
+  enabled: false
+
+automation:
+  enabled: ${AUTOMATION_ENABLED:false}
+
+update:
+  enabled: ${UPDATE_ENABLED:false}
+
+persist:
+  dir: ${PRC_CACHE_DIR:./build/prc-cache}
+
+session:
+  # Encrypts this run's cookies and stored tokens only; the production instance has its own.
+  secret: ${SESSION_SECRET:local-run-only-not-a-secret}

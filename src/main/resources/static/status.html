@@ -229,6 +229,9 @@
         <div class="cards" id="logCards"></div>
         <div class="section"><div id="logList" class="loglist"></div></div>
 
+        <h2>Configuration <span class="muted" style="font-weight:400;font-size:0.8rem">· in effect since the start; set in /etc/ignite-pr-checker/env</span></h2>
+        <div class="section"><div id="configList" class="cats"></div></div>
+
         <div class="updated" id="updated"></div>
     </div>
 
@@ -325,6 +328,13 @@
                 bad.length ? bad.join(' · ') : `log in on the main page to see ${count === 1 ? 'it' : 'them'}`, 'bad');
             const day = p.lastBackup && p.lastBackup.replace(/^cache-|\.zip$/g, '');
             return card('Snapshots', 'active', day ? 'last backup ' + esc(day) : 'no backup yet', 'ok');
+        }
+
+        // The settings name paths on the server and the operators, so only signed-in viewers get them.
+        function configRows(d) {
+            if (!d.config) return '<div class="muted">log in on the main page to see the settings</div>';
+            return Object.entries(d.config).map(([k, v]) =>
+                `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(v)}</span></div>`).join('');
         }
 
         function lastCycleCard(a) {
@@ -466,6 +476,7 @@
             renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
             renderLog($('logList'), d);
+            $('configList').innerHTML = configRows(d);
             renderAdmin(d.admin);
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});

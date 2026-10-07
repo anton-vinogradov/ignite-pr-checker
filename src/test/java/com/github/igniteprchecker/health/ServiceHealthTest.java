@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.CacheStore;
@@ -40,7 +41,7 @@ class ServiceHealthTest {
     }
 
     private static ServiceHealth.Report assess(ServiceHealth.Clocks clocks) {
-        return ServiceHealth.assess(CLEAN_LOG, clocks, SAVING, NOW);
+        return ServiceHealth.assess(CLEAN_LOG, clocks, SAVING, List.of(), NOW);
     }
 
     @Test
@@ -100,7 +101,8 @@ class ServiceHealthTest {
         CacheStore store = mock(CacheStore.class);
         when(store.status()).thenReturn(SAVING);
 
-        return new ServiceHealth(warmer, standing, commands, store).report(CLEAN_LOG, System.currentTimeMillis());
+        return new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)).report(CLEAN_LOG,
+            System.currentTimeMillis());
     }
 
     @Test
@@ -141,7 +143,7 @@ class ServiceHealthTest {
             List.of(new CacheStore.Unreadable("standing-visas.json", "standing-visas.json.bad-20270115-101500")),
             Map.of("pr-commands.json", "java.io.IOException: No space left on device"), null);
 
-        ServiceHealth.Report report = ServiceHealth.assess(CLEAN_LOG, onTime(), broken, NOW);
+        ServiceHealth.Report report = ServiceHealth.assess(CLEAN_LOG, onTime(), broken, List.of(), NOW);
 
         assertThat(report.health()).isEqualTo("error");
         assertThat(report.problems()).extracting(ServiceHealth.Problem::text).containsExactly(
@@ -157,10 +159,10 @@ class ServiceHealthTest {
         CacheStore.Status disabled = new CacheStore.Status(false, false, "disabled (persist.enabled=false)",
             List.of(), Map.of(), null);
 
-        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), off, NOW).problems()).containsExactly(
+        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), off, List.of(), NOW).problems()).containsExactly(
             new ServiceHealth.Problem("warn", "snapshots are off (directory /opt/ignite-pr-checker/cache is not "
                 + "writable): a restart loses all state"));
-        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), disabled, NOW).health()).isEqualTo("ok");
+        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), disabled, List.of(), NOW).health()).isEqualTo("ok");
     }
 
     @Test
@@ -170,10 +172,20 @@ class ServiceHealthTest {
 
         ServiceHealth.Report report = ServiceHealth.assess(erred, new ServiceHealth.Clocks(c.startedAt(),
             c.lastSweepAt(), c.lastPollAt(), false, c.warmStartedAt(), c.warmTried(), c.warmFailed(), 0, 2), SAVING,
-            NOW);
+            List.of(), NOW);
 
         assertThat(report.health()).isEqualTo("error");
         assertThat(report.logHealth()).isEqualTo("error");
         assertThat(report.problems()).extracting(ServiceHealth.Problem::level).containsExactly("warn");
+    }
+
+    /** A fresh install left APP_PUBLIC_URL empty: every link it posted led nowhere, and only the log said so, once. */
+    @Test
+    void aSettingThatIsNotAsMeantKeepsItAmber() {
+        ServiceHealth.Report report = ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING,
+            List.of("APP_PUBLIC_URL is empty"), NOW);
+
+        assertThat(report).isEqualTo(new ServiceHealth.Report("warn", "ok",
+            List.of(new ServiceHealth.Problem("warn", "APP_PUBLIC_URL is empty"))));
     }
 }

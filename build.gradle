@@ -47,6 +47,11 @@ tasks.named('bootJar') {
     archiveFileName = 'ignite-pr-checker.jar'
 }
 
+tasks.named('bootRun') {
+    // application-dev.yml: a local run leaves the shared TeamCity and the PRs alone. SPRING_PROFILES_ACTIVE overrides.
+    systemProperty 'spring.profiles.default', 'dev'
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 }

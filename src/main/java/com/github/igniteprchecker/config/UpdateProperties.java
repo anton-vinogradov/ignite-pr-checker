@@ -8,13 +8,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * and systemd must relaunch on exit — both true for the standard install).
  */
 @ConfigurationProperties(prefix = "update")
-public record UpdateProperties(Boolean enabled, String jarPath, String repo) {
+public record UpdateProperties(Boolean enabled, String jarPath) {
     public UpdateProperties {
         if (enabled == null)
             enabled = true;
         if (jarPath == null || jarPath.isBlank())
             jarPath = "/opt/ignite-pr-checker/app.jar";
-        if (repo == null || repo.isBlank())
-            repo = "anton-vinogradov/ignite-pr-checker";
     }
 }

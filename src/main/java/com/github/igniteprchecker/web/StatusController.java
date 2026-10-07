@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
@@ -24,7 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
  * read the counters, the health and the levels of its problems; the log messages and who restarted or flushed last
- * name people, and the problems' texts name files and errors on the server, so only signed-in viewers get those.
+ * name people, and the problems' texts and the settings name files and errors on the server, so only signed-in
+ * viewers get those.
  */
 @RestController
 @RequestMapping("/api")
@@ -42,6 +44,7 @@ public class StatusController {
     private final AuthInterceptor auth;
     private final AdminActions admin;
     private final CacheStore store;
+    private final EffectiveConfig config;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
@@ -49,7 +52,7 @@ public class StatusController {
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
-        AuthInterceptor auth, AdminActions admin, CacheStore store,
+        AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
         ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
@@ -64,6 +67,7 @@ public class StatusController {
         this.auth = auth;
         this.admin = admin;
         this.store = store;
+        this.config = config;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
@@ -144,6 +148,7 @@ public class StatusController {
         out.put("signedIn", viewer.isPresent());
         out.put("log", viewer.isPresent() ? logSnap : logSnap.countsOnly());
         viewer.ifPresent(v -> out.put("admin", adminView(v.username())));
+        viewer.ifPresent(v -> out.put("config", config.settings()));
 
         return out;
     }
