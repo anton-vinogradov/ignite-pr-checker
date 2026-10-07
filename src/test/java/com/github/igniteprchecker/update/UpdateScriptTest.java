@@ -232,13 +232,14 @@ class UpdateScriptTest {
         assertThat(held).hasContent("held by prc");
 
         Files.writeString(app.resolve("app.jar.new"), "left by the old run.sh");
-        Object leftover = Files.getAttribute(app.resolve("app.jar.new"), "unix:ino");
+        // A second name keeps the leftover's inode alive: compared by inode number, a freed one is reused at once on Linux.
+        Path leftover = Files.createLink(app.resolve("cache").resolve("leftover"), app.resolve("app.jar.new"));
         release("1.21.2", "jar of v1.21.2", sha256("jar of v1.21.2"));
 
         assertThat(run("1.21.2")).isZero();
 
         assertThat(app.resolve("app.jar")).hasContent("jar of v1.21.2");
-        assertThat(Files.getAttribute(app.resolve("app.jar"), "unix:ino")).isNotEqualTo(leftover);
+        assertThat(leftover).hasContent("left by the old run.sh");
     }
 
     /**
