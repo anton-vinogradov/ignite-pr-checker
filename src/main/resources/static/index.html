@@ -924,7 +924,7 @@
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
                 const links = (res.triggered || [])
-                    .map(b => `#${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
+                    .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
                 $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links;
                 loadRuns(pr);
             } finally {
@@ -969,7 +969,7 @@
                 const seen = new Set();
                 el.innerHTML = runs.filter(b => !b.buildId || !seen.has(b.buildId) && seen.add(b.buildId))
                     .sort((a, b) => (a.state === 'running' ? 0 : 1) - (b.state === 'running' ? 0 : 1))
-                    .map(run => `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${run.webUrl}" target="_self" rel="noopener" title="This suite's run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}${run.state === 'running' && run.waitedSec > 0 ? ' · waited ' + fmtSpent(run.waitedSec) + ' in the queue before starting' : ''}">${esc(run.state)}${chipEta(run)}</a>`)
+                    .map(run => `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${esc(run.webUrl)}" target="_self" rel="noopener" title="This suite's run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}${run.state === 'running' && run.waitedSec > 0 ? ' · waited ' + fmtSpent(run.waitedSec) + ' in the queue before starting' : ''}">${esc(run.state)}${chipEta(run)}</a>`)
                     .join('');
             }
         }
@@ -1016,7 +1016,7 @@
             const revTag = b => b.onHead === true
                 ? `<span class="rev-ok" title="Running on the PR's current head revision">rev ✓ head</span>`
                 : b.onHead === false
-                    ? `<span class="rev-stale" title="Started on ${b.rev} — commits were pushed after; this run tests older code">⚠ rev ${esc(b.rev)}</span>`
+                    ? `<span class="rev-stale" title="Started on ${esc(b.rev)} — commits were pushed after; this run tests older code">⚠ rev ${esc(b.rev)}</span>`
                     : b.state === 'queued'
                         ? `<span class="rev-queued" title="The revision is resolved when the build starts — it will pick up the head of that moment">rev @start</span>`
                         : '';
@@ -1030,8 +1030,12 @@
             if (noRunNote && $('status').textContent === noRunNote) showNoRun();
 
             // When the runs we were watching have all finished, refresh the analysis to pick up their results.
-            if (runsWere > 0 && runs.length === 0 && number === selectedPr)
-                refresh();
+            // Until a verdict of the finished run comes, each poll looks again: after a failed refresh, or while
+            // the server still serves the unfinished one as it recomputes, that one would stay on screen for good.
+            if (runs.length === 0 && number === selectedPr) {
+                if (runsWere > 0) refresh();
+                else if (lastResult && lastResult.live) analyze(number, true);
+            }
             runsWere = runs.length;
 
             // Fold in failures from suites that finish while the chain runs, without disturbing the reader.
@@ -1898,7 +1902,7 @@
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
                 const b = (res.triggered || [])[0];
                 $('status').innerHTML = b
-                    ? `Queued #${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`
+                    ? `Queued #${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`
                     : 'Queued.';
                 loadRuns(pr);
             } finally {

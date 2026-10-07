@@ -182,6 +182,56 @@ class SteadyRefreshTest {
         assertThat(out.get("refreshes").asInt()).isEqualTo(1);
     }
 
+    /**
+     * ci2 failing as the run ended once left the page on the unfinished run's verdict for good: the refresh
+     * and the one quiet look after it failed, and nothing asked again once the runs were gone.
+     */
+    @Test
+    void verdictOfTheFinishedRunArrivesAfterAnOutage() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + RUNNING + """
+            page.route('/api/analyze', { body: verdict({ live: true, liveBuildId: 9100 }) });
+            await page.load('?pr=13575');
+            const back = page.now() + 20000;
+            const down = { status: 502, body: { error: 'TeamCity answered 502' } };
+            page.route('/api/runs', { body: [] });
+            page.route('/api/refresh', () => page.now() < back ? down : { body: verdict({ buildId: 9100 }) }, 'POST');
+            page.route('/api/analyze', () => page.now() < back ? down
+                : { body: verdict({ buildId: 9100, computedAt: page.now() }) });
+            await page.tick(600000);
+            const shown = page.run('lastResult');
+            const looks = page.fetches('/api/analyze').length;
+            await page.tick(600000);
+            report({ build: shown.buildId, live: shown.live, fresh: page.el('freshText').textContent,
+                status: page.el('status').textContent, looksAfter: page.fetches('/api/analyze').length - looks });
+            """);
+
+        assertThat(out.get("build").asInt()).isEqualTo(9100);
+        assertThat(out.get("live").asBoolean()).isFalse();
+        assertThat(out.get("fresh").asText()).doesNotContain("unfinished run");
+        assertThat(out.get("status").asText()).isEmpty();
+        assertThat(out.get("looksAfter").asInt()).as("the final verdict is not asked again").isZero();
+    }
+
+    /** A look that brings back the unfinished run's verdict, served while the server recomputes, is not the end. */
+    @Test
+    void verdictOfTheFinishedRunIsAwaitedPastTheUnfinishedOne() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + RUNNING + """
+            page.route('/api/analyze', { body: verdict({ live: true, liveBuildId: 9100 }) });
+            await page.load('?pr=13575');
+            const recomputed = page.now() + 200000;
+            page.route('/api/runs', { body: [] });
+            page.route('/api/refresh', { status: 502, body: { error: 'TeamCity answered 502' } }, 'POST');
+            page.route('/api/analyze', () => ({ body: page.now() < recomputed
+                ? verdict({ live: true, liveBuildId: 9100 }) : verdict({ buildId: 9100, computedAt: page.now() }) }));
+            await page.tick(600000);
+            const shown = page.run('lastResult');
+            report({ build: shown.buildId, live: shown.live });
+            """);
+
+        assertThat(out.get("build").asInt()).isEqualTo(9100);
+        assertThat(out.get("live").asBoolean()).isFalse();
+    }
+
     @Test
     void hiddenTabStopsAskingAndCatchesUpWhenShown() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
