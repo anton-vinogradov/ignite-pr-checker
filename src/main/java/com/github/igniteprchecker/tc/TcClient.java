@@ -345,7 +345,8 @@ public class TcClient {
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
-                + "snapshot-dependencies(build(" + SUITE_FIELDS + "))")), TcModel.Build.class);
+                + "revisions(revision(version)),snapshot-dependencies(build(" + SUITE_FIELDS + "))")),
+            TcModel.Build.class);
     }
 
     /**

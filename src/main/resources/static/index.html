@@ -837,7 +837,7 @@
             $('prList').innerHTML = prs.map(p => `
                 <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(p.title)}">
                     <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(p.title)}">
-                    <span class="pr-num">#${esc(p.number)}</span>${blockerBadge(p.blockers, p.proven)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
+                    <span class="pr-num">#${esc(p.number)}</span>${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
                     <span class="pr-ttl">${esc(p.title)}</span></a>
                 </li>`).join('');
             for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
@@ -878,12 +878,26 @@
                 li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
         }
 
-        // Badge next to a PR number: red count if it has blockers, a check if a run proved it clean,
-        // a question mark when nothing was blamed but the run couldn't prove it, nothing if unanalysed.
-        function blockerBadge(n, proven) {
+        // How a verdict with no blockers stands (Caveats.Standing): only CLEAN, where the page says "No blockers"
+        // for the PR's current code, earns the check.
+        const STANDING_BADGES = {
+            WATCH: ['watch', '!', 'no blockers, but tests started failing on this code — a re-run decides'],
+            UNPROVEN: ['unproven', '?', 'no blockers found, but the run can\'t prove the PR clean (interrupted, broken '
+                + 'suites, fewer tests than master, unchecked tests, or a newer run still going)'],
+            OLD_CODE: ['unproven', '?', 'old code — no blockers in this run, but commits were pushed since it'],
+            UNKNOWN_CODE: ['unproven', '?', 'no blockers, but it is not known whether this run tested the PR\'s current code'],
+        };
+
+        // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
+        // "!" for tests that started failing, a question mark when nothing was blamed but the run couldn't prove
+        // it, nothing if unanalysed.
+        function blockerBadge(n, proven, standing) {
             if (n == null) return '';
             if (n > 0)
                 return `<span class="pr-badge bad" title="${n} blocker(s)">${n}</span>`;
+            const badge = STANDING_BADGES[standing];
+            if (badge)
+                return `<span class="pr-badge ${badge[0]}" title="${esc(badge[2])}">${badge[1]}</span>`;
             return proven === false
                 ? `<span class="pr-badge unproven" title="no blockers found, but the run didn't cover the PR (interrupted, broken suites, or fewer tests than master)">?</span>`
                 : `<span class="pr-badge ok" title="no blockers">✓</span>`;

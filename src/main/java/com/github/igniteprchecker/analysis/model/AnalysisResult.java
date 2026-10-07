@@ -62,12 +62,30 @@ public record AnalysisResult(
      * a suite whose newer runs could not be read); 0 when this one missed none. Such a result is retried
      * on its own, and held back from actions for a while.
      */
-    long incompleteSince
+    long incompleteSince,
+    /**
+     * The VCS revision the analysed chain ran on; null when TeamCity gave none. The PR list shows a clean verdict
+     * as clean only while this is the PR's head: 7 of 13 green ticks on prod were for runs with commits pushed
+     * since, up to 38 of them.
+     */
+    String revision
 ) {
     public AnalysisResult {
         unstableSuites = unstableSuites == null ? List.of() : unstableSuites;
         cancelledSuites = cancelledSuites == null ? List.of() : cancelledSuites;
         unverified = unverified == null ? List.of() : unverified;
+    }
+
+    /** A result whose chain's revision is not known, in the shape callers used before it was kept. */
+    public AnalysisResult(int prNumber, long buildId, String branchName, long computedAt, List<TestVerdict> blockers,
+        List<TestVerdict> watch, List<TestVerdict> filtered, List<BrokenSuite> brokenSuites,
+        List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
+        boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt, long branchWatermarkAt,
+        List<BrokenSuite> unstableSuites, List<CancelledSuite> cancelledSuites, List<TestVerdict> unverified,
+        long incompleteSince) {
+        this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
+            suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
+            branchWatermarkAt, unstableSuites, cancelledSuites, unverified, incompleteSince, null);
     }
 
     /**
@@ -80,6 +98,6 @@ public record AnalysisResult(
         boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt, long branchWatermarkAt) {
         this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
             suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
-            branchWatermarkAt, List.of(), List.of(), List.of(), 0);
+            branchWatermarkAt, List.of(), List.of(), List.of(), 0, null);
     }
 }

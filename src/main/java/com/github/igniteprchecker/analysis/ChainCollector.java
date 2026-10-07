@@ -224,7 +224,18 @@ public class ChainCollector {
             shrunkSuites(depBuilds(build), masterCounts, brokenRuns),
             ran, reused, interrupted, cancelled.size(), live, liveBuildId,
             TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
-            TcDates.epochSeconds(build.finishDate()), unstable, cancelled);
+            TcDates.epochSeconds(build.finishDate()), unstable, cancelled, revisionOf(build));
+    }
+
+    /** The VCS revision a build ran on, or null when TeamCity gave none. */
+    private static String revisionOf(TcModel.Build build) {
+        TcModel.Revisions revs = build.revisions();
+        if (revs == null || revs.revision() == null || revs.revision().isEmpty())
+            return null;
+
+        String version = revs.revision().get(0).version();
+
+        return version == null || version.isBlank() ? null : version;
     }
 
     private TcModel.Build chainWithDeps(String token, long buildId) {
@@ -448,19 +459,30 @@ public class ChainCollector {
      * A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused.
      * {@code unstableSuites} crashed after running nearly all their tests: their failed tests are among the
      * candidates, and the analysis decides whether each suite counts as broken. {@code cancelledSuites}
-     * are the chain's suites that never ran, as the chain left them.
+     * are the chain's suites that never ran, as the chain left them. {@code revision} is the VCS revision the chain
+     * ran on, null when TeamCity gave none.
      */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
         List<ShrunkSuite> shrunkSuites,
         int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId,
         long queuedAt, long startedAt, long finishedAt, List<BrokenSuite> unstableSuites,
-        List<CancelledSuite> cancelledSuites) {
+        List<CancelledSuite> cancelledSuites, String revision) {
+        /** A chain whose revision is not known, in the shape callers used before it was read. */
+        public Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
+            List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
+            boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt,
+            List<BrokenSuite> unstableSuites, List<CancelledSuite> cancelledSuites) {
+            this(buildId, branchName, failedTests, brokenSuites, shrunkSuites, suitesRan, suitesReused, interrupted,
+                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, unstableSuites, cancelledSuites,
+                null);
+        }
+
         /** A chain with no unstable or listed cancelled suites, in the shape callers used before they were tracked. */
         public Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
             List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
             boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt) {
             this(buildId, branchName, failedTests, brokenSuites, shrunkSuites, suitesRan, suitesReused, interrupted,
-                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, List.of(), List.of());
+                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, List.of(), List.of(), null);
         }
     }
 }

@@ -125,10 +125,8 @@ public class BlockerAnalyzer {
     /** How many user-facing requests are currently waiting on a compute — the warmer yields to them. */
     private final AtomicInteger usersWaiting = new AtomicInteger();
 
-    /** Last known blocker count per PR (best-effort), for the badges in the PR list. */
-    private final Map<Integer, Integer> prBlockers = new ConcurrentHashMap<>();
-    /** Whether the run behind that count covered enough for "0 blockers" to mean anything. */
-    private final Map<Integer, Boolean> prProven = new ConcurrentHashMap<>();
+    /** What the PR list badges of each PR's last verdict (best-effort). */
+    private final Map<Integer, Caveats.Glance> prGlance = new ConcurrentHashMap<>();
 
     /** The build of each PR's latest verdict: what the warm cycle checks first. */
     private final Map<Integer, Long> analysedBuild = new ConcurrentHashMap<>();
@@ -190,20 +188,18 @@ public class BlockerAnalyzer {
 
     /** Best-effort blocker count for a PR from the last analysis, or null if it hasn't been analysed. */
     public Integer blockerCount(int prNumber) {
-        return prBlockers.get(prNumber);
+        Caveats.Glance g = prGlance.get(prNumber);
+
+        return g == null ? null : g.blockers();
     }
 
-    /**
-     * Whether that count came from a run that actually covered the PR — null if not analysed. A zero
-     * count off an interrupted or broken run must not show as a clean tick in the PR list.
-     */
-    public Boolean provenClean(int prNumber) {
-        return prProven.get(prNumber);
+    /** What the PR list badges of a PR's last verdict, or null if it hasn't been analysed. */
+    public Caveats.Glance glance(int prNumber) {
+        return prGlance.get(prNumber);
     }
 
     private void rememberVerdict(int prNumber, AnalysisResult r) {
-        prBlockers.put(prNumber, r.blockers().size());
-        prProven.put(prNumber, Caveats.proven(r));
+        prGlance.put(prNumber, Caveats.Glance.of(r));
         analysedBuild.put(prNumber, r.buildId());
     }
 
@@ -554,7 +550,8 @@ public class BlockerAnalyzer {
             now, blockers, watch, filtered, broken, shrunk,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(), cancelled.size(),
             chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt,
-            unstable, cancelled, unverified, incompleteSince);
+            unstable, cancelled, unverified, incompleteSince,
+            chain.revision() != null ? chain.revision() : chainRevision(token, buildId));
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);
@@ -626,6 +623,21 @@ public class BlockerAnalyzer {
         }
 
         return out;
+    }
+
+    /**
+     * The revision a chain ran on, for a chain read before its revision was asked for with it; null when TeamCity
+     * has none or cannot say. The badge then cannot show the verdict clean, which is all it costs.
+     */
+    private String chainRevision(String token, long buildId) {
+        try {
+            String fetched = cache.revision(buildId, () -> tc.buildRevision(token, buildId).orElse(""));
+
+            return fetched.isEmpty() ? null : fetched;
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** The suite's newest finished run on the branch, fetched only if one may have finished since it was last. */
