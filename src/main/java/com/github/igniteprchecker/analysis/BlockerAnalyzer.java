@@ -22,6 +22,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise. A test is a
@@ -285,6 +286,10 @@ public class BlockerAnalyzer {
                 return existing.join(); // this exact build is already being computed: share that run
             }
             catch (CompletionException e) {
+                // TeamCity's answer to the other compute's token, perhaps a 401: rethrown as is, the caller would
+                // take it as the verdict on its own token.
+                if (e.getCause() instanceof RestClientResponseException answer)
+                    throw new IllegalStateException("shared compute of build " + buildId + " failed", answer);
                 if (e.getCause() instanceof RuntimeException re)
                     throw re;
                 throw e;

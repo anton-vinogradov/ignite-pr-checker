@@ -2,20 +2,24 @@ package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.update.UpdateService;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Reports the running vs. latest version and, for a logged-in user, applies an update. */
+/** Reports the running vs. latest version and, for the operator, restarts or updates the service. */
 @RestController
 @RequestMapping("/api")
 public class UpdateController {
     private final UpdateService update;
+    private final AdminActions admin;
 
-    public UpdateController(UpdateService update) {
+    public UpdateController(UpdateService update, AdminActions admin) {
         this.update = update;
+        this.admin = admin;
     }
 
     /** Public: current/latest version and whether an update is available. */
@@ -24,26 +28,38 @@ public class UpdateController {
         return update.status();
     }
 
-    /** Guarded: download the latest release and restart. Any logged-in user may trigger it. */
     /** Restarts the service (systemd relaunches the current jar); caches are snapshotted on exit. */
     @PostMapping("/restart")
-    public ResponseEntity<?> restart() {
+    public ResponseEntity<?> restart(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
+        Optional<AdminActions.Refusal> refused = admin.claim(user, AdminActions.Action.RESTART);
+        if (refused.isPresent())
+            return refused.get().response();
+
         update.restart();
 
         return ResponseEntity.ok(Map.of("status", "restarting"));
     }
 
+    /** Downloads the latest release on the next start and restarts into it. */
     @PostMapping("/update")
-    public ResponseEntity<?> update() {
+    public ResponseEntity<?> update(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
+        Optional<AdminActions.Refusal> refused = admin.claim(user, AdminActions.Action.UPDATE);
+        if (refused.isPresent())
+            return refused.get().response();
+
         try {
             update.performUpdate();
 
             return ResponseEntity.ok(Map.of("status", "updating"));
         }
         catch (IllegalStateException e) {
+            admin.withdraw(user, AdminActions.Action.UPDATE);
+
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
         catch (Exception e) {
+            admin.withdraw(user, AdminActions.Action.UPDATE);
+
             return ResponseEntity.status(500).body(Map.of("error", "update failed: " + e.getMessage()));
         }
     }

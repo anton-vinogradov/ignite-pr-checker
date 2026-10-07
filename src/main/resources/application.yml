@@ -2,6 +2,10 @@ server:
   port: 8080
 
 spring:
+  servlet:
+    multipart:
+      # No endpoint takes uploads; parsing multipart bodies would only add attack surface.
+      enabled: false
   task:
     scheduling:
       pool:
@@ -25,6 +29,8 @@ spring:
 teamcity:
   # Base URL of the TeamCity instance (must end with a slash). Override with TC_BASE_URL.
   base-url: ${TC_BASE_URL:https://ci2.ignite.apache.org/}
+  # Give up on a TeamCity call that sends nothing for this long (the slowest seen on prod took 3.3 s).
+  read-timeout: 60s
 
 github:
   # Repo whose open PRs populate the left-hand list.
@@ -33,6 +39,12 @@ github:
   token: ${GITHUB_TOKEN:}
   # How long to cache the PR list. Longer = fewer GitHub calls (unauthenticated limit is 60/hour).
   cache-seconds: 300
+  # Give up on a GitHub call that sends nothing for this long.
+  read-timeout: 60s
+
+jira:
+  # Give up on a JIRA call that sends nothing for this long.
+  read-timeout: 60s
 
 analysis:
   # Branch to compute the "base" test history against.
@@ -90,6 +102,12 @@ update:
   jar-path: ${UPDATE_JAR_PATH:/opt/ignite-pr-checker/app.jar}
   # Repo whose latest release the update is pulled from.
   repo: anton-vinogradov/ignite-pr-checker
+
+admin:
+  # TeamCity usernames, comma-separated, of the operators: only they may restart, update and flush the
+  # service and see its user list. Unset: any logged-in user may, but restart/update at most once per
+  # 10 minutes and flush once per hour. Set with PRC_ADMINS.
+  logins: ${PRC_ADMINS:}
 
 session:
   # A login lasts until logout — there is no session timeout.

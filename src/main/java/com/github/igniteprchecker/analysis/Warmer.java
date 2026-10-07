@@ -199,8 +199,11 @@ public class Warmer {
                 }
                 catch (RestClientResponseException e) {
                     failed.incrementAndGet();
-                    if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
-                        tokens.remove(token); // revoked/expired: drop it; the next cycle covers this PR
+                    int status = e.getStatusCode().value();
+                    if (status == 401 || status == 403) {
+                        // Revoked/expired: drop it; the next cycle covers this PR. Only a 401 speaks about
+                        // the token itself: the ci2 WAF answers 403 to valid requests too.
+                        tokens.remove(token, status == 401);
                         log.info("warmer token rejected ({}), dropped ({} left in pool)", e.getStatusCode(), tokens.size());
                     }
                 }
@@ -288,6 +291,11 @@ public class Warmer {
     /** Number of donated TeamCity tokens currently in the pool. */
     public int pooledTokens() {
         return tokens.size();
+    }
+
+    /** Whether TeamCity answered 401 for this token and no login has proven it valid since. */
+    public boolean tokenRevoked(String token) {
+        return tokens.revoked(token);
     }
 
     /** Lends a pooled token (round-robin) for other background reads (e.g. rerun-state polling); null if none. */

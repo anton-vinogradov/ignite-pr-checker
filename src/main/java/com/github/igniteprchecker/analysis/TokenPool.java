@@ -2,6 +2,7 @@ package com.github.igniteprchecker.analysis;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -17,6 +18,11 @@ final class TokenPool {
     private final Map<String, Long> lastSeen = new ConcurrentHashMap<>();
     /** Tokens TeamCity rejected, with when — re-donating one before its cooldown ends is pointless. */
     private final Map<String, Long> rejected = new ConcurrentHashMap<>();
+    /**
+     * Tokens TeamCity answered 401 for. Unlike the cooldown this never lapses by itself: a session carrying one
+     * stays refused until a login with the same token proves it valid again.
+     */
+    private final Set<String> revoked = ConcurrentHashMap.newKeySet();
     private final AtomicInteger cursor = new AtomicInteger();
     private final long ttlMs;
 
@@ -34,8 +40,10 @@ final class TokenPool {
         if (token == null || token.isBlank())
             return false;
 
-        if (verified)
+        if (verified) {
             rejected.remove(token);
+            revoked.remove(token);
+        }
         else if (inCooldown(token))
             return false;
 
@@ -47,8 +55,20 @@ final class TokenPool {
 
     /** Drop a token TeamCity rejected (revoked/expired) so it isn't tried again while it cools down. */
     void remove(String token) {
+        remove(token, false);
+    }
+
+    /** Same, and with {@code revoked} (a 401, TeamCity's verdict on the token itself) also refuse its sessions. */
+    void remove(String token, boolean revoked) {
         lastSeen.remove(token);
         rejected.put(token, System.currentTimeMillis());
+        if (revoked)
+            this.revoked.add(token);
+    }
+
+    /** Whether TeamCity answered 401 for this token and no login has proven it valid since. */
+    boolean revoked(String token) {
+        return token != null && revoked.contains(token);
     }
 
     private boolean inCooldown(String token) {

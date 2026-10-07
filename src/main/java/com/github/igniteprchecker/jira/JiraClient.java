@@ -1,12 +1,13 @@
 package com.github.igniteprchecker.jira;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -17,15 +18,17 @@ import org.springframework.web.client.RestClientResponseException;
  */
 @Component
 public class JiraClient {
-    private final RestClient http = RestClient.builder()
-        .requestFactory(new SimpleClientHttpRequestFactory())
-        .build();
+    private final RestClient http;
 
     private final String baseUrl;
 
     private final Metrics metrics;
 
-    public JiraClient(@Value("${jira.base-url:https://issues.apache.org/jira}") String baseUrl, Metrics metrics) {
+    public JiraClient(@Value("${jira.base-url:https://issues.apache.org/jira}") String baseUrl,
+        @Value("${jira.read-timeout:60s}") Duration readTimeout, Metrics metrics) {
+        this.http = RestClient.builder()
+            .requestFactory(OutboundHttp.plain(readTimeout))
+            .build();
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.metrics = metrics;
     }
@@ -107,7 +110,7 @@ public class JiraClient {
         catch (RuntimeException e) {
             metrics.recordJira(category, false, (System.nanoTime() - t0) / 1_000_000L);
 
-            throw e;
+            throw OutboundHttp.naming("JIRA", e);
         }
     }
 

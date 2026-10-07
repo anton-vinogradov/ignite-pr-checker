@@ -4,9 +4,9 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.util.Map;
-import java.util.List;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -14,9 +14,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Per-user login: the user supplies their own TeamCity token, which is validated against TeamCity and
@@ -34,43 +36,91 @@ public class LoginController {
     private final SessionCodec codec;
     private final SessionProperties props;
     private final Warmer warmer;
+    private final LoginThrottle throttle;
+    private final AdminActions admin;
 
-    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users) {
+    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users,
+        LoginThrottle throttle, AdminActions admin) {
         this.users = users;
         this.tc = tc;
         this.codec = codec;
         this.props = props;
         this.warmer = warmer;
+        this.throttle = throttle;
+        this.admin = admin;
     }
 
     public record LoginRequest(String token) {
     }
 
-    /** Everyone who has used the tool (names + activity; auth-guarded — not for anonymous eyes). */
-    @org.springframework.web.bind.annotation.GetMapping("/users")
-    public List<UserDirectory.UserView> users() {
-        return users.list();
+    /** Everyone who has used the tool (names + activity): for the operator, or anyone logged in if none is named. */
+    @GetMapping("/users")
+    public ResponseEntity<?> users(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
+        if (!admin.mayAdminister(user))
+            return ResponseEntity.status(403).body(Map.of("error", "Only the operator can see who uses the service."));
+
+        return ResponseEntity.ok(users.list());
     }
 
-    public record UserResponse(String username, boolean jira, boolean github) {
+    /** {@code admin}: whether this user may restart, update and flush (the page shows those buttons only then). */
+    public record UserResponse(String username, boolean jira, boolean github, boolean admin) {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody(required = false) LoginRequest req) {
+    public ResponseEntity<?> login(@RequestBody(required = false) LoginRequest req, HttpServletRequest http) {
         if (req == null || req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "token required"));
 
-        Optional<String> username = tc.currentUsername(req.token().trim());
-        if (username.isEmpty())
-            return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
+        String token = req.token().trim();
+        Duration wait = throttle.admitAttempt(LoginThrottle.clientOf(http));
+        if (wait != null)
+            return tooMany(wait, "Too many login attempts from your address — try again in " + minutes(wait) + ".");
+
+        if (throttle.recentlyRejected(token))
+            return rejected();
+
+        wait = throttle.admitCheck();
+        if (wait != null)
+            return tooMany(wait, "Too many logins right now — try again in " + minutes(wait) + ".");
+
+        Optional<String> username;
+        try {
+            username = tc.currentUsername(token);
+        }
+        catch (RestClientResponseException e) {
+            return ResponseEntity.status(502).body(Map.of("error",
+                "TeamCity could not check the token (HTTP " + e.getStatusCode().value() + ") — try again in a moment"));
+        }
+
+        if (username.isEmpty()) {
+            throttle.rejected(token);
+
+            return rejected();
+        }
 
         users.touchLogin(username.get());
-        String cookie = codec.encode(username.get(), req.token().trim());
-        warmer.offerVerifiedToken(req.token().trim()); // TeamCity just accepted it
+        String cookie = codec.encode(username.get(), token);
+        warmer.offerVerifiedToken(token); // TeamCity just accepted it
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
-            .body(new UserResponse(username.get(), false, false));
+            .body(new UserResponse(username.get(), false, false, admin.mayAdminister(username.get())));
+    }
+
+    private static ResponseEntity<?> rejected() {
+        return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
+    }
+
+    private static ResponseEntity<?> tooMany(Duration wait, String message) {
+        return ResponseEntity.status(429)
+            .header(HttpHeaders.RETRY_AFTER, String.valueOf(Math.max(1, wait.toSeconds())))
+            .body(Map.of("error", message));
+    }
+
+    private static String minutes(Duration wait) {
+        long min = Math.max(1, (wait.toSeconds() + 59) / 60);
+
+        return min == 1 ? "a minute" : min + " minutes";
     }
 
     @PostMapping("/logout")
@@ -81,13 +131,19 @@ public class LoginController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
-        return codec.decode(cookie)
-            .map(s -> {
-                warmer.offerToken(s.token());
-                return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null));
-            })
-            .orElseGet(() -> ResponseEntity.status(401).build());
+    public ResponseEntity<?> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
+        Optional<SessionCodec.Session> session = codec.decode(cookie);
+        if (session.isEmpty())
+            return ResponseEntity.status(401).build();
+
+        SessionCodec.Session s = session.get();
+        if (warmer.tokenRevoked(s.token()))
+            return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED));
+
+        warmer.offerToken(s.token());
+
+        return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null,
+            admin.mayAdminister(s.username())));
     }
 
     private ResponseCookie sessionCookie(String value) {

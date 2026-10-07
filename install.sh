@@ -51,6 +51,10 @@ if [ ! -f "$ETC_DIR/env" ]; then
 #GITHUB_TOKEN=
 # Set to true once the service is served over HTTPS (e.g. behind Caddy):
 SESSION_COOKIE_SECURE=false
+# TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
+# and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
+# 10 minutes and flush once per hour.
+#PRC_ADMINS=
 ENV
 fi
 # Ensure a stable session secret exists (so logins survive restarts/updates). Generated once.

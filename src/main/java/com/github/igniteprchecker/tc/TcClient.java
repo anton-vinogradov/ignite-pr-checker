@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.tc;
 
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -15,7 +16,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -48,15 +48,16 @@ public class TcClient {
         this.analysis = analysis;
         this.metrics = metrics;
         this.baseUrl = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
-        // Must use SimpleClientHttpRequestFactory (HttpURLConnection): the default JDK factory sends
-        // "Content-Length: 0" on GET, which the TeamCity WAF rejects with 403 "Access Blocked".
         this.http = RestClient.builder()
-            .requestFactory(new SimpleClientHttpRequestFactory())
+            .requestFactory(OutboundHttp.plain(tc.readTimeout()))
             .defaultHeader("Accept", "application/json")
             .build();
     }
 
-    /** The TeamCity username the token belongs to, or empty if the token is not accepted. */
+    /**
+     * The TeamCity username the token belongs to, or empty if TeamCity rejects the token (401). Any other
+     * error answer is thrown: it says nothing about the token (the ci2 WAF answers 403 to valid requests too).
+     */
     public Optional<String> currentUsername(String token) {
         try {
             TcModel.User user = get("whoami", token, url("app/rest/users/current", query("fields", "username")),
@@ -65,7 +66,10 @@ public class TcClient {
             return user == null ? Optional.empty() : Optional.ofNullable(user.username());
         }
         catch (RestClientResponseException e) {
-            return Optional.empty();
+            if (e.getStatusCode().value() == 401)
+                return Optional.empty();
+
+            throw e;
         }
     }
 
@@ -637,7 +641,7 @@ public class TcClient {
         }
         catch (RuntimeException e) {
             metrics.recordTc(category, false, 0, msSince(t0)); // network/other error
-            throw e;
+            throw OutboundHttp.naming("TeamCity", e);
         }
     }
 
