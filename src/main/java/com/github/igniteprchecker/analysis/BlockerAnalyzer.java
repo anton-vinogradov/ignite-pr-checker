@@ -10,6 +10,8 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -380,8 +382,9 @@ public class BlockerAnalyzer {
         for (BrokenSuite s : chain.unstableSuites())
             (blamed.contains(s.suite()) ? chainBroken : unstable).add(s);
 
-        List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken);
-        List<ShrunkSuite> shrunk = withFullRunsDropped(token, prNumber, chain.shrunkSuites());
+        List<ShrunkSuite> shortReruns = new ArrayList<>();
+        List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken, shortReruns);
+        List<ShrunkSuite> shrunk = newestPerSuite(withFullRunsDropped(token, prNumber, chain.shrunkSuites()), shortReruns);
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
@@ -423,11 +426,14 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * A broken suite stops being broken once a NEWER finished run of it on the branch passed — the
-     * same last-finished-run anchoring tests get, without which re-running a broken suite (manually
-     * or automatically) could never clear it from the verdict. Kept on any doubt.
+     * A broken suite stops being broken once a NEWER finished run of it on the branch passed with all its
+     * tests — the same last-finished-run anchoring tests get, without which re-running a broken suite
+     * (manually or automatically) could never clear it from the verdict. A pass with far fewer tests than
+     * master's settles nothing: it goes to {@code shortReruns}, so the hole in coverage stays in sight.
+     * Kept on any doubt. A newer full run that failed tests is settled already: see ChainCollector.
      */
-    private List<BrokenSuite> withoutHealed(String token, int prNumber, List<BrokenSuite> broken) {
+    private List<BrokenSuite> withoutHealed(String token, int prNumber, List<BrokenSuite> broken,
+        List<ShrunkSuite> shortReruns) {
         if (broken.isEmpty())
             return broken;
 
@@ -435,8 +441,13 @@ public class BlockerAnalyzer {
         for (BrokenSuite s : broken) {
             try {
                 Optional<TcModel.Build> last = tc.latestSuiteRun(token, prNumber, s.suite());
-                if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status()))
+                if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status())) {
+                    int tests = last.get().testOccurrences() == null ? 0 : last.get().testOccurrences().count();
+                    if (!ChainCollector.isFullRun(tests, s.baseline()))
+                        shortReruns.add(ChainCollector.shrunk(s.suite(), s.suiteName(), last.get().id(), tests, s.baseline()));
+
                     continue;
+                }
             }
             catch (RuntimeException e) {
                 // TC hiccup — better a possibly stale broken-suite entry than a silently healed one
@@ -445,6 +456,18 @@ public class BlockerAnalyzer {
         }
 
         return out;
+    }
+
+    /** The shrunk suites of both lists, one per suite: its newest run, the one a re-run would have replaced. */
+    private static List<ShrunkSuite> newestPerSuite(List<ShrunkSuite> shrunk, List<ShrunkSuite> more) {
+        if (more.isEmpty())
+            return shrunk;
+
+        Map<String, ShrunkSuite> bySuite = new LinkedHashMap<>();
+        Stream.concat(shrunk.stream(), more.stream())
+            .forEach(s -> bySuite.merge(s.suite(), s, (a, b) -> a.suiteBuildId() >= b.suiteBuildId() ? a : b));
+
+        return bySuite.values().stream().sorted(Comparator.comparingInt(ShrunkSuite::dropPct).reversed()).toList();
     }
 
     private TestVerdict classify(String token, int prNumber, FailedTest t) {
