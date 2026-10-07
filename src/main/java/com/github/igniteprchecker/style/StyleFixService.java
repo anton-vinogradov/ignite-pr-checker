@@ -3,9 +3,12 @@ package com.github.igniteprchecker.style;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.style.CheckstyleRunner.Violation;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -24,6 +27,12 @@ public class StyleFixService {
 
     /** More changed files than this means the run isn't about style anyway — skip quietly. */
     private static final int MAX_FILES = 50;
+
+    /** All changed files of one command downloaded together, at most: the service runs in a 512 MB heap. */
+    private static final long MAX_TOTAL_BYTES = 5_000_000;
+
+    /** Violations left after the fix that the comment lists; the rest are counted. */
+    private static final int LISTED = 50;
 
     private final GithubClient github;
     private final CheckstyleRunner checkstyle;
@@ -52,14 +61,26 @@ public class StyleFixService {
 
         try {
             Map<String, String> files = new LinkedHashMap<>();
-            for (String path : paths)
-                files.put(path, github.rawFile(head.headRepo(), head.headSha(), path));
+            List<String> notChecked = new ArrayList<>();
+            long total = 0;
+            for (String path : paths) {
+                int room = (int)Math.min(CheckstyleRunner.MAX_FILE_BYTES, MAX_TOTAL_BYTES - total);
+                Optional<String> content = room <= 0 ? Optional.empty()
+                    : github.rawFileUpTo(head.headRepo(), head.headSha(), path, room);
+                if (content.isEmpty()) {
+                    notChecked.add(path);
+                    continue;
+                }
+                files.put(path, content.get());
+                total += content.get().getBytes(StandardCharsets.UTF_8).length;
+            }
 
             CheckstyleRunner.CheckResult first = checkstyle.check(files);
             List<Violation> before = first.violations();
-            String skippedNote = first.skipped().isEmpty() ? ""
-                : " " + first.skipped().size() + " file(s) were too large for in-process checkstyle and were"
-                    + " not checked (" + first.skipped().get(0) + (first.skipped().size() > 1 ? ", …" : "") + ").";
+            notChecked.addAll(first.skipped());
+            String skippedNote = notChecked.isEmpty() ? ""
+                : " " + notChecked.size() + " file(s) were too large for the checker and were not checked ("
+                    + notChecked.get(0) + (notChecked.size() > 1 ? ", …" : "") + ").";
             if (before.isEmpty())
                 return skippedNote.isEmpty() ? null : "🎨 _Checkstyle:" + skippedNote + "_";
 
@@ -76,9 +97,11 @@ public class StyleFixService {
                 remaining = checkstyle.check(fixed).violations();
             }
 
+            String check = "[**Check java code**](" + github.checksUrl(pr) + ") check of this PR";
             if (remaining.size() >= before.size())
-                return "🎨 _Checkstyle: " + before.size() + " violation(s) in the changed files — none mechanically"
-                    + " fixable (javadoc/naming/wrapping need a human). The Checkstyle suite WILL fail." + skippedNote + "_";
+                return "🎨 _Checkstyle: " + before.size() + " violation(s) in the changed files, none of them"
+                    + " mechanically fixable (javadoc, naming, wrapping need a human): the " + check
+                    + " may fail on them." + skippedNote + "_" + listed(before);
 
             Map<String, String> changed = new LinkedHashMap<>();
             for (var e : fixed.entrySet()) {
@@ -93,10 +116,11 @@ public class StyleFixService {
                 pr, before.size(), remaining.size(), changed.size(), sha.substring(0, 8));
 
             return "🎨 _Checkstyle autofix: fixed " + (before.size() - remaining.size()) + " of " + before.size()
-                + " violation(s) in " + changed.size() + " file(s) — commit " + sha.substring(0, 8) + "."
-                + (remaining.isEmpty() ? "" : " " + remaining.size()
-                    + " remain (javadoc/naming/wrapping need a human) — the Checkstyle suite may still fail.")
-                + skippedNote + "_";
+                + " violation(s) in " + changed.size() + " file(s) and pushed `" + sha.substring(0, 7)
+                + "` to your branch `" + head.headRef() + "` — `git pull` before your next push."
+                + (remaining.isEmpty() ? "" : " " + remaining.size() + " remain, which need a human (javadoc, naming,"
+                    + " wrapping): the " + check + " may still fail on them.")
+                + skippedNote + "_" + listed(remaining);
         }
         catch (Throwable e) {
             // Throwable, not Exception: checkstyle wraps OOM into java.lang.Error, and a style
@@ -105,5 +129,20 @@ public class StyleFixService {
 
             return "🎨 _Checkstyle autofix failed (" + e.getClass().getSimpleName() + ") — running as-is._";
         }
+    }
+
+    /** The violations as "path:line — rule", folded; empty when there are none. */
+    private static String listed(List<Violation> violations) {
+        if (violations.isEmpty())
+            return "";
+
+        StringBuilder b = new StringBuilder("\n\n<details><summary>").append(violations.size())
+            .append(" violation(s) left</summary>\n\n");
+        violations.stream().limit(LISTED).forEach(v -> b.append("- `").append(v.path()).append(':').append(v.line())
+            .append("` — ").append(v.rule()).append('\n'));
+        if (violations.size() > LISTED)
+            b.append("- … and ").append(violations.size() - LISTED).append(" more\n");
+
+        return b.append("\n</details>").toString();
     }
 }

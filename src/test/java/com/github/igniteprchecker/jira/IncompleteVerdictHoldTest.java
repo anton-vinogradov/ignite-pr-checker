@@ -134,9 +134,9 @@ class IncompleteVerdictHoldTest {
         String wiki = visas.compose(PR, r, null);
 
         assertThat(md).doesNotContain("✅", "blocker(s) in")
-            .contains("1 failed test(s) could not be checked", "Cache 2: `GridCacheTest.testPut`");
+            .contains("1 failed test(s) could not be checked", "- Cache 2 · `GridCacheTest.testPut` · [TC]");
         assertThat(wiki).doesNotContain("(/)", "blocker(s) in")
-            .contains("1 failed test(s) could not be checked", "Cache 2: {{GridCacheTest.testPut}}");
+            .contains("1 failed test(s) could not be checked", "- Cache 2 · {{GridCacheTest.testPut}} · [TC|");
     }
 
     /** A user with auto re-run on, and the sweep finding their finished RunAll with this verdict. */

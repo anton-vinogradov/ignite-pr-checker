@@ -10,7 +10,9 @@ import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -27,6 +29,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriUtils;
 
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
 @Component
@@ -298,16 +302,47 @@ public class GithubClient implements SnapshotCache {
 
     /** Raw contents of one file at a ref, from an arbitrary (fork) repo. */
     public String rawFile(String repo, String ref, String path) {
-        return recorded("rawFile", () -> {
-            RestClient.RequestHeadersSpec<?> req = http.get()
-                .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/contents/"
-                    + path.replace(" ", "%20") + "?ref=" + ref))
-                .header("Accept", "application/vnd.github.raw+json");
-            if (props.token() != null && !props.token().isBlank())
-                req = req.header("Authorization", "Bearer " + props.token());
+        return recorded("rawFile", () -> rawGet(repo, ref, path).retrieve().body(String.class));
+    }
 
-            return req.retrieve().body(String.class);
-        });
+    /**
+     * Raw contents of one file at a ref, as UTF-8, read only while they fit in {@code maxBytes}; empty when the file
+     * is bigger. A file of a pull request can be of any size, and held whole it took the heap.
+     */
+    public java.util.Optional<String> rawFileUpTo(String repo, String ref, String path, int maxBytes) {
+        return recorded("rawFile", () -> rawGet(repo, ref, path).exchange((request, response) -> {
+            if (response.getStatusCode().isError())
+                throw new RestClientResponseException("GitHub answered "
+                    + response.getStatusCode().value() + " for " + path, response.getStatusCode(),
+                    response.getStatusText(), response.getHeaders(), null, null);
+            if (response.getHeaders().getContentLength() > maxBytes)
+                return java.util.Optional.<String>empty();
+
+            try (InputStream body = response.getBody()) {
+                byte[] read = body.readNBytes(maxBytes + 1);
+
+                return read.length > maxBytes ? java.util.Optional.<String>empty()
+                    : java.util.Optional.of(new String(read, StandardCharsets.UTF_8));
+            }
+        }));
+    }
+
+    /**
+     * A request for one file's raw contents. Each segment of the path is encoded: a "#" or "?" in a file name
+     * used to cut the request short.
+     */
+    private RestClient.RequestHeadersSpec<?> rawGet(String repo, String ref, String path) {
+        String encoded = Arrays.stream(path.split("/", -1))
+            .map(seg -> UriUtils.encodePathSegment(seg, StandardCharsets.UTF_8))
+            .collect(java.util.stream.Collectors.joining("/"));
+        RestClient.RequestHeadersSpec<?> req = http.get()
+            .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/contents/" + encoded + "?ref="
+                + UriUtils.encodeQueryParam(ref, StandardCharsets.UTF_8)))
+            .header("Accept", "application/vnd.github.raw+json");
+        if (props.token() != null && !props.token().isBlank())
+            req = req.header("Authorization", "Bearer " + props.token());
+
+        return req;
     }
 
     /**
@@ -390,6 +425,11 @@ public class GithubClient implements SnapshotCache {
     }
 
     public record PostedComment(long id, String htmlUrl) {
+    }
+
+    /** The checks of a PR on GitHub, where "Check java code" runs checkstyle. */
+    public String checksUrl(int prNumber) {
+        return "https://github.com/" + props.repo() + "/pull/" + prNumber + "/checks";
     }
 
     /** Where a comment of a PR is seen on GitHub. */

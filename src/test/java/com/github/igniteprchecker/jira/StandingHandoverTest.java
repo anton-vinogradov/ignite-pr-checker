@@ -84,7 +84,7 @@ class StandingHandoverTest {
         when(analyzer.forceRefresh("tc", PR)).thenReturn(Optional.of(result()));
         when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(result()));
         when(analyzer.analyzeForAction("author-tc", PR)).thenReturn(Optional.of(result()));
-        when(visas.compose(eq(PR), any(), any())).thenReturn("verdict of " + CHAIN);
+        when(visas.compose(eq(PR), any(), any(), any())).thenReturn("verdict of " + CHAIN);
         when(jira.addCommentWithId(anyString(), anyString(), anyString()))
             .thenReturn(new JiraClient.PostedComment("1001", "https://issues.example/" + ISSUE + "#1001"));
 

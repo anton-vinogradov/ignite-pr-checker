@@ -254,7 +254,7 @@ class AutoVisaRetryTest {
         Warmer warmer = mock(Warmer.class);
         when(warmer.borrowToken()).thenReturn(TOK);
         VisaService visas = mock(VisaService.class);
-        when(visas.compose(eq(PR), any(), any())).thenAnswer(inv -> "verdict of " + inv.getArgument(1,
+        when(visas.compose(eq(PR), any(), any(), any())).thenAnswer(inv -> "verdict of " + inv.getArgument(1,
             AnalysisResult.class).buildId());
         StandingVisas standing = mock(StandingVisas.class);
         when(standing.visaCover(any(), anyInt(), anyLong(), any())).thenReturn(StandingVisas.VisaCover.NONE);

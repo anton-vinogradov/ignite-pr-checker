@@ -69,7 +69,7 @@ class OneShotVisaTest {
     @BeforeEach
     void setUp() {
         when(warmer.borrowToken()).thenReturn("tc");
-        when(visas.compose(eq(PR), any(), any())).thenAnswer(inv -> "verdict of " + inv.getArgument(1,
+        when(visas.compose(eq(PR), any(), any(), any())).thenAnswer(inv -> "verdict of " + inv.getArgument(1,
             AnalysisResult.class).buildId());
         when(analyzer.forceRefresh("tc", PR)).thenReturn(Optional.of(result(CHAIN, true)));
         when(standing.visaCover(any(), anyInt(), anyLong(), any())).thenReturn(StandingVisas.VisaCover.NONE);
@@ -118,7 +118,7 @@ class OneShotVisaTest {
         subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         ArgumentCaptor<AnalysisResult> posted = ArgumentCaptor.forClass(AnalysisResult.class);
-        verify(visas).compose(eq(PR), posted.capture(), any());
+        verify(visas).compose(eq(PR), posted.capture(), any(), any());
         assertThat(posted.getValue()).isSameAs(after);
     }
 

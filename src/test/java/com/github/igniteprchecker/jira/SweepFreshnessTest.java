@@ -259,7 +259,7 @@ class SweepFreshnessTest {
         Warmer warmer = mock(Warmer.class);
         when(warmer.borrowToken()).thenReturn(TOK);
         VisaService visas = mock(VisaService.class);
-        when(visas.compose(eq(PR), any(), any())).thenReturn("visa");
+        when(visas.compose(eq(PR), any(), any(), any())).thenReturn("visa");
         VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, mock(JiraClient.class), visas, analyzer, warmer,
             mock(PendingCommits.class), tc, standing);
         subs.arm(PR, "IGNITE-28867", "jira-pat", USER);
@@ -268,7 +268,7 @@ class SweepFreshnessTest {
         subs.onChainFinished(new RerunTracker.ChainFinished(PR, RUN_ALL, false));
 
         ArgumentCaptor<AnalysisResult> posted = ArgumentCaptor.forClass(AnalysisResult.class);
-        verify(visas, timeout(10_000)).compose(eq(PR), posted.capture(), any());
+        verify(visas, timeout(10_000)).compose(eq(PR), posted.capture(), any(), any());
         assertThat(posted.getValue().blockers()).extracting(TestVerdict::suite)
             .as("Queries 5 failed after the verdict cached mid-run; the visa must carry it")
             .containsExactlyInAnyOrder(DPC1.id(), QUERIES5.id(), QUERIES6.id());

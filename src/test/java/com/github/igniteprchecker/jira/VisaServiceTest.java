@@ -30,7 +30,7 @@ class VisaServiceTest {
         assertThat(md)
             .doesNotContain("No blockers")
             .contains("👀 **1 test(s) started failing on this code**")
-            .contains("Calcite SQL 2: `CalciteSql2: T.testJoin`")
+            .contains("- Calcite SQL 2 · `T.testJoin` — one run of this code")
             .contains("⚠️ **No proven blocker yet**");
 
         assertThat(visas.compose(42, r))

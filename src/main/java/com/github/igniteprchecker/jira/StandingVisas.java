@@ -100,9 +100,10 @@ public class StandingVisas implements SnapshotCache {
     private final ConcurrentMap<Integer, Long> settleAsked = new ConcurrentHashMap<>();
 
     /**
-     * The finished RunAll of each PR whose auto re-runs are still to be decided on. The settle that takes it up
-     * marks it, those that cannot decide yet (TeamCity errors, a lookup that named an older run) keep the mark,
-     * and it goes once the run is settled or a newer run takes its place.
+     * The finished RunAll of each PR whose auto re-runs are still to be decided on. Its finish, when someone has
+     * auto re-runs on, or the settle that takes it up marks it, those that cannot decide yet (TeamCity errors, a
+     * lookup that named an older run) keep the mark, and it goes once the run is settled or a newer run takes its
+     * place.
      */
     private final ConcurrentMap<Integer, Long> deciding = new ConcurrentHashMap<>();
 
@@ -1040,10 +1041,20 @@ public class StandingVisas implements SnapshotCache {
             log.info("standing auto-visa sweep: {} visa(s) posted", posted);
     }
 
-    /** A finished chain is settled at once: its first wave of re-runs goes in, or its verdict comes out. */
+    /**
+     * A finished chain is settled at once: its first wave of re-runs goes in, or its verdict comes out. The settle
+     * may wait behind others for minutes, and the page must not call the chain's verdict final meanwhile.
+     */
     @EventListener
     void onChainFinished(RerunTracker.ChainFinished ev) {
+        if (!ev.cancelled() && anyRerunner())
+            deciding.merge(ev.pr(), ev.chainBuildId(), Math::max);
         settleSoon(ev.pr());
+    }
+
+    /** Whether anyone's finished runs may get auto re-runs: someone has them on, with a token to settle with. */
+    private boolean anyRerunner() {
+        return enrolled.values().stream().anyMatch(e -> e.options().autoRerun() && backgroundToken(e).isPresent());
     }
 
     /** A finished re-run is settled at once: once its wave is over, the next one goes in or the verdict comes out. */
@@ -1107,8 +1118,9 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The PRs out of the sweep's list that still have a living comment or a wave open. The list holds the 50
-     * most recently updated open PRs only, and a run whose PR dropped out of it stayed "in progress" for good.
+     * The PRs out of the sweep's list that still have a living comment, a wave open or a finished run to decide on.
+     * The list holds the 50 most recently updated open PRs only, and a run whose PR dropped out of it stayed "in
+     * progress" for good.
      */
     private void settleUnlisted(List<PrSummary> listed) {
         Set<Integer> prs = new java.util.TreeSet<>();
@@ -1123,6 +1135,7 @@ public class StandingVisas implements SnapshotCache {
             });
         });
         waves.values().forEach(r -> prs.add(r.pr()));
+        prs.addAll(deciding.keySet());
         listed.forEach(p -> prs.remove(p.number()));
 
         for (int pr : prs) {
@@ -1145,6 +1158,7 @@ public class StandingVisas implements SnapshotCache {
         synchronized (settleLock) {
             String who = null;
             boolean undecided = false;
+            long settling = Long.MAX_VALUE;
             try {
                 closedPrs.remove(pr.number());
                 Optional<TcModel.Build> build = lookup(token -> tc.findRunAllBuildForPr(token, pr.number()));
@@ -1152,8 +1166,10 @@ public class StandingVisas implements SnapshotCache {
                     return 0;
 
                 long buildId = build.get().id();
+                settling = buildId;
                 newestSeen.merge(pr.number(), buildId, Math::max);
                 endReplaced(pr, buildId);
+                markSuperseded(pr.number(), buildId);
 
                 who = TcClient.starter(build.get());
                 Enrollment e = who == null ? null : enrolled.get(who);
@@ -1177,7 +1193,7 @@ public class StandingVisas implements SnapshotCache {
                 Options acting = e.actingOn(finishedMs);
                 if (!acting.settlesRuns()) {
                     endThreads(who, e, pr, b -> b == buildId,
-                        e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed());
+                        e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed(), 0);
                     settled(e, pr.number(), buildId);
                     return 0; // nothing to post or re-run: a verdict computed now would go nowhere
                 }
@@ -1236,9 +1252,17 @@ public class StandingVisas implements SnapshotCache {
             finally {
                 // A run still to be decided on stays so between settles: the page must not call its verdict final.
                 if (!undecided)
-                    deciding.remove(pr.number());
+                    decided(pr.number(), settling);
             }
         }
+    }
+
+    /**
+     * The PR's runs up to {@code upTo} are decided on. A chain that finished while this settle looked at the run
+     * before it stays marked for its own settle.
+     */
+    private void decided(int pr, long upTo) {
+        deciding.computeIfPresent(pr, (k, marked) -> marked > upTo ? marked : null);
     }
 
     /**
@@ -1378,20 +1402,21 @@ public class StandingVisas implements SnapshotCache {
         String settled = done != null ? settledLine(done.history()) : null;
         PendingCommits.Ahead ahead = pending.since(tcToken, pr.number(), buildId);
         Integer commitsAhead = ahead == null ? null : Math.max(ahead.commits(), 1);
+        String sha = revision(tcToken, buildId);
 
         int posted = 0;
         if (acting.autoVisa()) {
-            String body = visas.compose(pr.number(), res, commitsAhead);
+            String body = visas.compose(pr.number(), res, commitsAhead, sha);
             if (ahead != null)
                 body = body + "\n\n_" + revisions(ahead, "{{", "}}") + "_";
             if (settled != null)
                 body = body + "\n\n" + settled;
             if (note != null)
                 body = body + "\n\n" + note;
-            posted = postVisa(who, e, pr, buildId, res, tcToken, jiraToken, body);
+            posted = postVisa(who, e, pr, buildId, res, jiraToken, body, sha);
         }
         if (acting.ghComment()) {
-            String md = visas.composeMarkdown(pr.number(), res, commitsAhead);
+            String md = visas.composeMarkdown(pr.number(), res, commitsAhead, sha);
             if (ahead != null)
                 md = md + "\n\n_" + revisions(ahead, "`", "`") + "_";
             if (settled != null)
@@ -1411,8 +1436,8 @@ public class StandingVisas implements SnapshotCache {
      * Posts the visa to the ticket the PR title names. None when it names none, and no second one when the
      * last visa there said the same of the same revision: the ticket filled up with copies.
      */
-    private int postVisa(String who, Enrollment e, PrSummary pr, long buildId, AnalysisResult res, String tcToken,
-        String jiraToken, String body) {
+    private int postVisa(String who, Enrollment e, PrSummary pr, long buildId, AnalysisResult res, String jiraToken,
+        String body, String sha) {
         Optional<String> issue = ticketIn(pr.title());
         if (issue.isEmpty()) {
             ticketless.add(buildId);
@@ -1421,7 +1446,6 @@ public class StandingVisas implements SnapshotCache {
             return 0;
         }
 
-        String sha = revision(tcToken, buildId);
         String verdict = verdictKey(res);
         JiraThread last = e.handled().jiraThreads().get(pr.number());
         if (last != null && issue.get().equals(last.issue()) && sha != null && sha.equals(last.sha())
@@ -1492,7 +1516,8 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         Retry r = waves.get(buildId);
-        upsertGhComment(who, e, ghToken.get(), pr, buildId, visas.composeMarkdown(pr, res.get())
+        String verdict = visas.composeMarkdown(pr, res.get(), null, revision(tcToken, buildId));
+        upsertGhComment(who, e, ghToken.get(), pr, buildId, verdict
             + pendingLine(r != null ? r.what() : "re-run suite(s)", r != null ? r.attempts() : 1,
                 r != null ? r.history() : null, activeEtaEpoch(pr), e.tz(), "**"), false);
     }
@@ -1503,8 +1528,71 @@ public class StandingVisas implements SnapshotCache {
      */
     private void endReplaced(PrSummary pr, long latest) {
         VisaService.Ending ending = visas.replaced(pr.number(), latest);
-        enrolled.forEach((user, e) -> endThreads(user, e, pr, b -> b < latest, ending));
+        enrolled.forEach((user, e) -> endThreads(user, e, pr, b -> b < latest, ending, latest));
         waves.values().removeIf(r -> r.pr() == pr.number() && r.buildId() < latest && !rerunTracker.tracks(r.buildId()));
+    }
+
+    /**
+     * Marks the PR's verdict comments of runs before {@code latest}, whoever posted them, as superseded: the PR
+     * read like a pile of current verdicts, the old red ones among them. Each gets one line, once, edited with its
+     * owner's token. A comment that already says a newer run replaced it, or that no token of its owner can edit
+     * any more, is only marked so here; a failure leaves it for the next settle, also once a newer verdict of its
+     * owner has taken its place.
+     */
+    private void markSuperseded(int pr, long latest) {
+        enrolled.forEach((user, e) -> {
+            GhThread t = e.handled().ghThreads().get(pr);
+            if (t == null)
+                return;
+
+            for (long comment : t.unmarked())
+                if (supersede(user, e, pr, comment, latest))
+                    e.handled().ghThreads().computeIfPresent(pr, (k, now) -> now.marked(comment));
+            if (t.buildId() >= latest || t.superseded() || open(e, pr, t.buildId(), t.done()))
+                return; // a comment still waiting for its re-runs gets its own last line from endReplaced
+
+            if (supersede(user, e, pr, t.commentId(), latest))
+                e.handled().ghThreads().computeIfPresent(pr,
+                    (k, now) -> now.commentId() == t.commentId() ? now.supersededNow() : now);
+        });
+    }
+
+    /**
+     * Puts the superseded line on one verdict comment of the user's. False when reading or editing it failed and it
+     * is to be tried again.
+     */
+    private boolean supersede(String user, Enrollment e, int pr, long commentId, long latest) {
+        Optional<String> token = decrypt(e.gh());
+        Optional<String> body;
+        try {
+            body = token.isEmpty() ? Optional.empty() : github.commentBody(commentId);
+        }
+        catch (RuntimeException ex) {
+            log.warn("reading verdict comment {} of PR {} failed, marked superseded later: {}", commentId, pr,
+                ex.toString());
+
+            return false;
+        }
+        try {
+            if (body.isPresent() && !visas.saysSuperseded(body.get()))
+                github.updatePrComment(token.get(), commentId, body.get().stripTrailing()
+                    + visas.superseded(pr, latest));
+            log.info("verdict comment {} of PR {} marked superseded by RunAll {}", commentId, pr, latest);
+
+            return true;
+        }
+        catch (RuntimeException ex) {
+            if (refused(ex)) {
+                dropGhToken(user);
+
+                return true;
+            }
+
+            log.warn("marking verdict comment {} of PR {} superseded failed, tried again later: {}", commentId, pr,
+                ex.toString());
+
+            return false;
+        }
     }
 
     /** A closed PR's runs are not settled any more: its open living comments get their last line, its waves go. */
@@ -1514,18 +1602,21 @@ public class StandingVisas implements SnapshotCache {
             deciding.remove(pr);
             PrSummary summary = new PrSummary(pr, title, null, null, null, null);
             VisaService.Ending ending = visas.prClosed(merged);
-            enrolled.forEach((user, e) -> endThreads(user, e, summary, b -> true, ending));
+            enrolled.forEach((user, e) -> endThreads(user, e, summary, b -> true, ending, 0));
             if (waves.values().removeIf(r -> r.pr() == pr))
                 log.info("PR {} was {}: its auto re-run waves are dropped", pr, merged ? "merged" : "closed");
         }
     }
 
-    /** Ends the user's open living comments of the PR whose build {@code ofBuild} accepts. */
+    /**
+     * Ends the user's open living comments of the PR whose build {@code ofBuild} accepts; {@code newer} is the
+     * RunAll that replaced their runs, 0 when none did.
+     */
     private void endThreads(String user, Enrollment e, PrSummary pr, java.util.function.LongPredicate ofBuild,
-        VisaService.Ending ending) {
+        VisaService.Ending ending, long newer) {
         GhThread g = e.handled().ghThreads().get(pr.number());
         if (g != null && ofBuild.test(g.buildId()) && open(e, pr.number(), g.buildId(), g.done()))
-            endGh(user, e, pr.number(), g, ending.markdown());
+            endGh(user, e, pr.number(), g, ending.markdown(), newer);
 
         JiraThread j = e.handled().jiraThreads().get(pr.number());
         if (j != null && ofBuild.test(j.buildId()) && open(e, pr.number(), j.buildId(), j.done()))
@@ -1542,10 +1633,11 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Puts the last line in place of a PR comment's "re-run in progress" one. A comment without it was
-     * finished already and is only marked ended; one GitHub no longer has, or that no token of its owner can
-     * edit any more, is forgotten. A failure leaves it for the next settle.
+     * finished already: it is only marked ended, or marked superseded when the {@code newer} RunAll replaced
+     * its run. One GitHub no longer has, or that no token of its owner can edit any more, is forgotten. A
+     * failure leaves it for the next settle.
      */
-    private void endGh(String user, Enrollment e, int pr, GhThread t, String line) {
+    private void endGh(String user, Enrollment e, int pr, GhThread t, String line, long newer) {
         Optional<String> token = decrypt(e.gh());
         Optional<String> body;
         try {
@@ -1568,7 +1660,10 @@ public class StandingVisas implements SnapshotCache {
         try {
             if (pendingAt(body.get()) >= 0)
                 github.updatePrComment(token.get(), t.commentId(), withLastLine(body.get(), line));
-            e.handled().ghThreads().replace(pr, t, t.ended());
+            else if (newer > 0 && !visas.saysSuperseded(body.get()))
+                github.updatePrComment(token.get(), t.commentId(), body.get().stripTrailing()
+                    + visas.superseded(pr, newer));
+            e.handled().ghThreads().replace(pr, t, newer > 0 ? t.ended().supersededNow() : t.ended());
             log.info("living comment {} of PR {} (build {}) ended", t.commentId(), pr, t.buildId());
         }
         catch (RuntimeException ex) {
@@ -1639,7 +1734,7 @@ public class StandingVisas implements SnapshotCache {
             if (t != null && t.buildId() == buildId) {
                 try {
                     github.updatePrComment(ghToken, t.commentId(), md);
-                    e.handled().ghThreads().put(pr, new GhThread(buildId, t.commentId(), done));
+                    e.handled().ghThreads().put(pr, new GhThread(buildId, t.commentId(), done, false, t.unmarked()));
                     log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
 
                     return;
@@ -1650,7 +1745,8 @@ public class StandingVisas implements SnapshotCache {
                 }
             }
             GithubClient.PostedComment posted = github.addPrComment(ghToken, pr, md);
-            e.handled().ghThreads().put(pr, new GhThread(buildId, posted.id(), done));
+            e.handled().ghThreads().put(pr, new GhThread(buildId, posted.id(), done, false,
+                unmarkedAfter(e, pr, t, buildId)));
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
         }
         catch (RuntimeException ghEx) {
@@ -1662,6 +1758,22 @@ public class StandingVisas implements SnapshotCache {
 
             log.warn("standing GitHub comment for PR {} failed: {}", pr, ghEx.toString());
         }
+    }
+
+    /**
+     * The owner's verdict comments on the PR still to be marked superseded once a comment of {@code buildId} takes
+     * the place of {@code t}: its own, when it is an earlier verdict not marked yet.
+     */
+    private static List<Long> unmarkedAfter(Enrollment e, int pr, GhThread t, long buildId) {
+        if (t == null)
+            return List.of();
+        if (t.buildId() >= buildId || t.superseded() || open(e, pr, t.buildId(), t.done()))
+            return t.unmarked();
+
+        List<Long> out = new ArrayList<>(t.unmarked());
+        out.add(t.commentId());
+
+        return out;
     }
 
     public int enrolledCount() {
@@ -1932,10 +2044,27 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** The one living PR comment of a run: which build it narrates, where to edit it, whether it is final. */
-    private record GhThread(long buildId, long commentId, boolean done) {
+    /**
+     * The one living PR comment of a run: which build it narrates, where to edit it, whether it is final, whether it
+     * says a newer run superseded it, and the owner's earlier verdict comments on the PR still to be marked so.
+     * Comments of v1.20.11 and before carry the first two only.
+     */
+    private record GhThread(long buildId, long commentId, boolean done, boolean superseded, List<Long> unmarked) {
+        GhThread {
+            unmarked = unmarked == null ? List.of() : List.copyOf(unmarked);
+        }
+
         GhThread ended() {
-            return new GhThread(buildId, commentId, true);
+            return new GhThread(buildId, commentId, true, superseded, unmarked);
+        }
+
+        GhThread supersededNow() {
+            return new GhThread(buildId, commentId, done, true, unmarked);
+        }
+
+        GhThread marked(long comment) {
+            return new GhThread(buildId, commentId, done, superseded,
+                unmarked.stream().filter(c -> c != comment).toList());
         }
     }
 

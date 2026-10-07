@@ -40,8 +40,9 @@ class GithubLoginTest {
         mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
         mock(Warmer.class), mock(PendingCommits.class));
 
-    private final JiraController controller = new JiraController(mock(JiraClient.class), mock(BlockerAnalyzer.class),
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), mock(VisaService.class),
+    private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
+        mock(BlockerAnalyzer.class), new SessionCodec(new SessionProperties(false, "test-secret"), mapper),
+        mock(VisaService.class),
         mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
 
     @BeforeEach

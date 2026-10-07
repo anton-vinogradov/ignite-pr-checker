@@ -59,7 +59,7 @@ class AutoVisaStatusTest {
     private final VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, jira, mock(VisaService.class),
         analyzer, mock(Warmer.class), mock(PendingCommits.class), tc, standing);
 
-    private final JiraController controller = new JiraController(jira, analyzer, codec, mock(VisaService.class),
+    private final JiraController controller = new JiraController(jira, tc, analyzer, codec, mock(VisaService.class),
         subs, standing, github, mock(PendingCommits.class), false);
 
     @BeforeEach
