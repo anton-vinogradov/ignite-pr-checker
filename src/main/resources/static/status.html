@@ -345,8 +345,10 @@
                 card('Load avg', j.loadAverage == null || j.loadAverage < 0 ? '—' : j.loadAverage,
                     `on ${j.cpus} cpu`,
                     j.loadAverage >= 0 ? sev(j.loadAverage / j.cpus, 0.7, 1.001) : ''),
-                card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB`,
+                card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB` + (j.heapPeakMb > 0 ? ` · old gen peak ${j.heapPeakMb}` : ''),
                     j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : ''),
+                card('Process memory', j.rssMb >= 0 ? j.rssMb : '—', j.rssMb >= 0
+                    ? `MB resident · peak ${j.rssPeakMb}` + (j.hostMemMb > 0 ? ` · host ${j.hostMemMb} MB` : '') : 'not measured here'),
                 card('Threads', j.threads, `· ${j.cpus} cpu`),
                 persistenceCard(d.persistence),
             ].join('');

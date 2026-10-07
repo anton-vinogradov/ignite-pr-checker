@@ -22,6 +22,12 @@ public class UpdateService {
     private static final Logger log = LoggerFactory.getLogger(UpdateService.class);
     private static final String MARKER = ".update-requested";
 
+    /**
+     * EX_TEMPFAIL: the unit counts it as a success and restarts on it anyway, so a restart asked for from the
+     * status page is not logged as a failure. An older unit restarts on it as on any failure.
+     */
+    public static final int RESTART_EXIT_CODE = 75;
+
     private final UpdateProperties props;
     private final GithubClient github;
     private final String currentVersion;
@@ -72,7 +78,7 @@ public class UpdateService {
         scheduleRestart();
     }
 
-    /** Plain restart without an update: exits non-zero so systemd relaunches the current jar. */
+    /** Plain restart without an update: exits so that systemd relaunches the current jar. */
     public void restart() {
         log.info("service restart requested from the status page");
         scheduleRestart();
@@ -90,8 +96,7 @@ public class UpdateService {
             catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-            // Non-zero exit -> systemd (Restart=on-failure) reruns run.sh, which fetches + launches the new jar.
-            System.exit(1);
+            System.exit(RESTART_EXIT_CODE);
         }, "self-update-restart");
         t.setDaemon(false);
         t.start();

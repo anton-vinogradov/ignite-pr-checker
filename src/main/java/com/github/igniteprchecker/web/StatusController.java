@@ -6,6 +6,7 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.metrics.ProcessMemory;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.HttpServletRequest;
@@ -74,9 +75,15 @@ public class StatusController {
         MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         long heapMax = heap.getMax() > 0 ? heap.getMax() : heap.getCommitted();
 
+        ProcessMemory.Usage memory = ProcessMemory.read();
+
         Map<String, Object> jvm = new LinkedHashMap<>();
         jvm.put("heapUsedMb", heap.getUsed() / (1024 * 1024));
         jvm.put("heapMaxMb", heapMax / (1024 * 1024));
+        jvm.put("heapPeakMb", memory.heapPeakMb());
+        jvm.put("rssMb", memory.rssMb());
+        jvm.put("rssPeakMb", memory.rssPeakMb());
+        jvm.put("hostMemMb", memory.hostMb());
         jvm.put("threads", ManagementFactory.getThreadMXBean().getThreadCount());
         jvm.put("cpus", Runtime.getRuntime().availableProcessors());
 

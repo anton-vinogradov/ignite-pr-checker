@@ -33,6 +33,8 @@ fi
 # 2. service user + directories
 id prc >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin prc
 install -d -o prc  -g prc  -m 755 "$APP_DIR"
+# Heap dumps hold whatever the JVM had in memory, decrypted tokens included: readable by the service only.
+install -d -o prc  -g prc  -m 700 "$APP_DIR/dumps"
 install -d -o root -g prc  -m 750 "$ETC_DIR"
 
 # 3. config (created once; never overwritten on update). Users log in with their own TeamCity
@@ -55,6 +57,9 @@ SESSION_COOKIE_SECURE=false
 # and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
 # 10 minutes and flush once per hour.
 #PRC_ADMINS=
+# Extra JVM flags, after the defaults (-Xmx512m -XX:+ExitOnOutOfMemoryError, heap dump on OOM), so a
+# repeated flag wins, e.g. -Xmx768m. The status page shows the heap and the process's peak memory.
+#JAVA_OPTS=
 ENV
 fi
 # Ensure a stable session secret exists (so logins survive restarts/updates). Generated once.
@@ -95,7 +100,16 @@ if [ -f "$MARKER" ]; then
     fi
 fi
 
-exec /usr/bin/java -Xmx512m -XX:+ExitOnOutOfMemoryError -jar "$JAR"
+# A heap dump is as big as the heap: keep only the newest. The JVM names them java_pid<pid>.hprof.
+DUMPS="$APP_DIR/dumps"
+[ -d "$DUMPS" ] || mkdir -m 700 "$DUMPS"
+# shellcheck disable=SC2012
+ls -1t "$DUMPS"/*.hprof 2>/dev/null | tail -n +2 | while read -r old; do rm -f "$old"; done
+
+# JAVA_OPTS comes from the env file and goes last, so a flag repeated there wins over the default.
+# shellcheck disable=SC2086
+exec /usr/bin/java -Xmx512m -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath="$DUMPS" ${JAVA_OPTS:-} -jar "$JAR"
 RUN
 chown prc:prc "$APP_DIR/run.sh"
 chmod 755 "$APP_DIR/run.sh"
@@ -115,6 +129,10 @@ EnvironmentFile=${ETC_DIR}/env
 ExecStart=${APP_DIR}/run.sh
 Restart=on-failure
 RestartSec=5
+# 143 is the JVM stopped by SIGTERM (systemctl stop/restart, a deploy); 75 is the restart the status page
+# asks for, which systemd restarts though it is not a failure.
+SuccessExitStatus=143 75
+RestartForceExitStatus=75
 NoNewPrivileges=true
 ProtectSystem=full
 PrivateTmp=true
