@@ -35,9 +35,10 @@ public record AnalysisResult(
     long finishedAt,
     /**
      * Epoch seconds from which a build finishing on the branch may be missing from this verdict: the
-     * moment the analysis started reading TeamCity, less a margin for clock skew. A later suite re-run
-     * makes the verdict wrong without changing the chain build id, so the warmer asks TeamCity whether
-     * anything finished after this rather than trusting "same chain, same answer". 0 when unknown.
+     * moment the analysis started reading TeamCity or looked its chain up, whichever came first, less a margin
+     * for clock skew. A later suite re-run makes the verdict wrong without changing the chain build id, so the
+     * warmer asks TeamCity whether anything finished after this rather than trusting "same chain, same answer".
+     * 0 when unknown.
      */
     long branchWatermarkAt,
     /**

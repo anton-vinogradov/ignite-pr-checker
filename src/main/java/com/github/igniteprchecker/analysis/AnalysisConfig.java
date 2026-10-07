@@ -11,21 +11,23 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Where analysis work runs, and the scheduling that drives the cache warmer. The box has one CPU, so the
- * pools are narrow, and nothing that recomputes on request queues behind warming:
+ * pools are narrow; nothing that recomputes on request queues behind warming, nor holds up a compute a user
+ * waits on:
  * <ul>
  *   <li>A request a user waits on (a PR opened cold, the ↻ button) computes on its own request thread and fans
  *   its per-test calls out on {@code analysisExecutor}.</li>
  *   <li>{@code recomputeExecutor}, one thread, recomputes what changed without anyone waiting for it: a viewed
  *   verdict whose branch finished a build, a PR whose re-run suite finished, a PR whose RunAll just finished.
- *   It fans out on {@code analysisExecutor} too, so it never waits for a warm cycle.</li>
+ *   It fans out on {@code recomputeFanOutExecutor}.</li>
  *   <li>{@code warmerThread} runs the warm cycles, one after another; {@code warmExecutor} warms the PRs of a
  *   cycle two at a time, fanning out on {@code backgroundExecutor}. A PR is skipped while a user waits.</li>
  *   <li>{@code backgroundExecutor} also fans out the computes the standing sweep, early re-runs and the auto
  *   visa act on; the auto visa's first try after a chain finished recomputes as ↻ does.</li>
  *   <li>{@code causesExecutor} clusters the "Top causes".</li>
  *   <li>Spring's scheduler (three threads, {@code spring.task.scheduling.pool.size}) runs the timers, and some
- *   of them call TeamCity, GitHub and JIRA on it: the rerun tracker, the standing sweep, the PR command
- *   poll.</li>
+ *   of them call TeamCity, GitHub and JIRA on it: the rerun tracker, the standing sweep, the PR command poll
+ *   and the narration of accepted commands, the flaky-test harvest (up to 10 TeamCity calls a cycle). The
+ *   cache snapshots are written to disk on it too.</li>
  * </ul>
  * Every pool here is shut down with the application. A few single threads live with the class they serve: the
  * snapshot flusher (CacheStore), early re-runs (StandingVisas), the auto-visa poster (VisaSubscriptions) and the
@@ -34,7 +36,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableScheduling
 public class AnalysisConfig {
-    /** Fans out the per-test / per-suite calls of a compute a user waits on, and of the on-request recomputes. */
+    /** Fans out the per-test / per-suite calls of a compute a user waits on. */
     @Bean(destroyMethod = "shutdown")
     ExecutorService analysisExecutor(AnalysisProperties props) {
         return Executors.newFixedThreadPool(props.concurrency(), named("analysis-"));
@@ -67,6 +69,16 @@ public class AnalysisConfig {
     @Bean(destroyMethod = "shutdown")
     ExecutorService recomputeExecutor() {
         return Executors.newSingleThreadExecutor(named("recompute-"));
+    }
+
+    /**
+     * Fans out the per-test / per-suite calls of the recomputes on {@code recomputeExecutor}. Four threads of its
+     * own: on {@code backgroundExecutor} they waited for a warm cycle's calls, and on {@code analysisExecutor} a
+     * compute a user waits on queued behind the hundreds of calls of a RunAll that just finished.
+     */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService recomputeFanOutExecutor() {
+        return Executors.newFixedThreadPool(4, named("recompute-fan-out-"));
     }
 
     /** Runs the warm cycles; one thread, so cycles never overlap. */

@@ -28,8 +28,8 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 /**
  * One pool of two threads ran the warm cycle's PRs, the refresh a view started and the recompute after a re-run
  * suite finished, first come first served, and the warm cycle's calls held the background fan-out pool too: a
- * re-run's result reached the page up to a minute late. A recompute on request now has a thread of its own and
- * fans out on the pool the computes users wait on use, so a busy warm cycle does not hold it up.
+ * re-run's result reached the page up to a minute late. A recompute on request now has a thread and a fan-out
+ * pool of its own: a busy warm cycle does not hold it up, and it does not hold up a compute a user waits on.
  */
 class RecomputeThreadsTest {
     private static final String TOK = "t";
@@ -37,6 +37,10 @@ class RecomputeThreadsTest {
     private static final int PR = 13654;
 
     private static final long CHAIN = 9391879L;
+
+    private static final int OTHER_PR = 13583;
+
+    private static final long OTHER_CHAIN = 9390000L;
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -56,12 +60,14 @@ class RecomputeThreadsTest {
 
     private final ExecutorService recompute = Executors.newSingleThreadExecutor();
 
+    private final ExecutorService recomputeFanOut = Executors.newSingleThreadExecutor();
+
     private final ExecutorService warmerThread = Executors.newSingleThreadExecutor();
 
     private final CountDownLatch warmCycleWaits = new CountDownLatch(1);
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg, foreground, background, recompute,
-        cache, new RunDeltaStore(new ObjectMapper()));
+        recomputeFanOut, cache, new RunDeltaStore(new ObjectMapper()));
 
     private final long stale = System.currentTimeMillis() - 3_600_000;
 
@@ -85,7 +91,7 @@ class RecomputeThreadsTest {
     @AfterEach
     void stop() {
         warmCycleWaits.countDown();
-        for (ExecutorService pool : List.of(foreground, background, warmPrs, recompute, warmerThread))
+        for (ExecutorService pool : List.of(foreground, background, warmPrs, recompute, recomputeFanOut, warmerThread))
             pool.shutdownNow();
     }
 
@@ -119,6 +125,32 @@ class RecomputeThreadsTest {
     }
 
     /**
+     * RunAll 9391879 of PR 13654 finishes with hundreds of failed tests, the warm that follows fans their calls
+     * out, and a user opens PR 13583 cold at that moment. On the pool of the computes users wait on, the user's
+     * calls would queue behind all of them: a compute a user waits on does not wait for one nobody waits on.
+     */
+    @Test
+    void aUserDoesNotWaitBehindTheWarmOfAFinishedRunAll() throws Exception {
+        Warmer warmer = warmer();
+        warmer.offerToken(TOK);
+
+        assertAUserDoesNotWaitBehind(() -> warmer.warmPr(PR));
+    }
+
+    @Test
+    void aUserDoesNotWaitBehindTheRecomputeAfterAReRun() throws Exception {
+        Warmer warmer = warmer();
+        warmer.offerToken(TOK);
+
+        assertAUserDoesNotWaitBehind(() -> warmer.refreshPr(PR));
+    }
+
+    @Test
+    void aUserDoesNotWaitBehindAViewsRecompute() throws Exception {
+        assertAUserDoesNotWaitBehind(() -> analyzer.analyze(TOK, PR));
+    }
+
+    /**
      * The analysis is wired the way the application wires it: every pool it names is a bean of AnalysisConfig,
      * and every pool stops with the application.
      */
@@ -139,10 +171,41 @@ class RecomputeThreadsTest {
             assertThat(context.getBean(Warmer.class)).isNotNull();
             pools = List.copyOf(context.getBeansOfType(ExecutorService.class).values());
             assertThat(context.getBeansOfType(ExecutorService.class)).containsKeys("analysisExecutor",
-                "backgroundExecutor", "warmExecutor", "recomputeExecutor", "warmerThread", "causesExecutor");
+                "backgroundExecutor", "warmExecutor", "recomputeExecutor", "recomputeFanOutExecutor", "warmerThread",
+                "causesExecutor");
         }
 
         assertThat(pools).allMatch(ExecutorService::isShutdown);
+    }
+
+    /**
+     * Starts a recompute of PR 13654 whose 500 calls wait on TeamCity, then has a user open PR 13583 cold: its
+     * compute must get its one call through.
+     */
+    private void assertAUserDoesNotWaitBehind(Runnable recomputeOfPr) throws Exception {
+        CountDownLatch fannedOut = new CountDownLatch(1);
+        when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenAnswer(inv -> {
+            ExecutorService fanOut = inv.getArgument(3);
+            for (int i = 0; i < 500; i++)
+                fanOut.execute(this::waitForTeamCity);
+            fannedOut.countDown();
+
+            return new ChainCollector.Chain(CHAIN, "pull/13654/head", List.of(), List.of(), List.of(), 150, 0, false,
+                0, false, 0, 0, 0, 0);
+        });
+        when(chains.findBuildId(TOK, OTHER_PR)).thenReturn(Optional.of(OTHER_CHAIN));
+        when(chains.collectForBuild(eq(TOK), eq(OTHER_PR), eq(OTHER_CHAIN), any())).thenAnswer(inv -> {
+            ExecutorService fanOut = inv.getArgument(3);
+            fanOut.submit(() -> { }).get(3, TimeUnit.SECONDS);
+
+            return new ChainCollector.Chain(OTHER_CHAIN, "pull/13583/head", List.of(), List.of(), List.of(), 150, 0,
+                false, 0, false, 0, 0, 0, 0);
+        });
+
+        recomputeOfPr.run();
+        assertThat(fannedOut.await(5, TimeUnit.SECONDS)).as("the recompute fanned its calls out").isTrue();
+
+        assertThat(analyzer.analyze(TOK, OTHER_PR)).isPresent();
     }
 
     private Warmer warmer() {

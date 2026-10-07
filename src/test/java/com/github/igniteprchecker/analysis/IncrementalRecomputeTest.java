@@ -233,6 +233,49 @@ class IncrementalRecomputeTest {
         verify(tc, never()).latestSuiteRun(anyString(), anyInt(), anyString());
     }
 
+    /**
+     * Four rules bumps in one day each made every PR cold. A snapshot written under older rules loses its
+     * verdicts, not what TeamCity said.
+     */
+    @Test
+    void aRulesBumpKeepsWhatTeamCitySaid(@TempDir Path dir) throws Exception {
+        analyzer.forceRefresh(TOK, PR);
+        Path file = dir.resolve("analysis.json");
+        cache.saveTo(file);
+        ObjectNode root = (ObjectNode)mapper.readTree(file.toFile());
+        root.put("rules", TestVerdict.RULES - 1);
+        mapper.writeValue(file.toFile(), root);
+
+        AnalysisCache restarted = new AnalysisCache(cfg, mapper);
+        restarted.loadFrom(file);
+        clearInvocations(tc);
+        when(tc.suitesFinishedAfter(eq(TOK), eq(PR), anyLong())).thenReturn(Optional.of(Set.of()));
+
+        assertThat(restarted.peekResult(CHAIN)).as("the verdict of the older rules").isEmpty();
+        analyzer(restarted).forceRefresh(TOK, PR);
+
+        verify(tc, never()).getBuildWithDeps(anyString(), anyLong());
+        verify(tc, never()).getFailedTests(anyString(), anyLong());
+        verify(tc, never()).prBranchRuns(anyString(), anyInt(), anyLong(), anyString());
+        verify(tc, never()).latestSuiteRun(anyString(), anyInt(), anyString());
+    }
+
+    /** "Flush caches" is how an operator has the next analysis read everything from TeamCity again. */
+    @Test
+    void flushCachesDropsWhatTeamCitySaid() {
+        analyzer.forceRefresh(TOK, PR);
+        when(tc.suitesFinishedAfter(eq(TOK), eq(PR), anyLong())).thenReturn(Optional.of(Set.of()));
+
+        cache.clear();
+        analyzer.forceRefresh(TOK, PR);
+
+        verify(tc, times(2)).getBuildWithDeps(TOK, CHAIN);
+        verify(tc, times(2)).getFailedTests(TOK, CACHE1_RUN);
+        verify(tc, times(2)).prBranchRuns(TOK, PR, 101L, CACHE1);
+        verify(tc, times(2)).latestSuiteRun(TOK, PR, SNAPSHOTS);
+        verify(tc, never()).suitesFinishedAfter(anyString(), anyInt(), anyLong());
+    }
+
     /** The application's own mapper, with the modules Spring adds, reads back what it wrote. */
     @Test
     void theApplicationsMapperReadsTheFactsBack(@TempDir Path dir) throws Exception {

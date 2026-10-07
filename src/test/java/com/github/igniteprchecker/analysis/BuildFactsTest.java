@@ -93,6 +93,25 @@ class BuildFactsTest {
         assertThat(fetches).hasValue(3);
     }
 
+    /**
+     * A test muted later drops out of the branch runs fetched after the mute, so nothing is kept more than three
+     * hours after it was fetched, however often a later compute reuses it.
+     */
+    @Test
+    void aReusedAnswerKeepsItsExpiry() throws Exception {
+        runs(facts.branch(PR, w1, finished()), 1L, CACHE1);
+        long expiresAt = facts.export().testRuns().get(0).expiresAt();
+        Thread.sleep(5);
+
+        runs(facts.branch(PR, w2, finished()), 1L, CACHE1);
+
+        assertThat(fetches).hasValue(1);
+        assertThat(facts.export().testRuns()).singleElement().satisfies(kept -> {
+            assertThat(kept.value().checkedAt()).as("checked up to the second compute").isEqualTo(w2);
+            assertThat(kept.expiresAt()).isEqualTo(expiresAt);
+        });
+    }
+
     /** Past three hours every answer has been fetched again anyway: TeamCity is not asked about that long. */
     @Test
     void aCheckOlderThanTheAnswersKeptIsNotAsked() {

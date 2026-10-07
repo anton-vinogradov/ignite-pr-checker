@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -103,6 +104,7 @@ public class BlockerAnalyzer {
     private final ExecutorService pool;
     private final ExecutorService bgPool;
     private final ExecutorService recomputePool;
+    private final ExecutorService recomputeFanOut;
     private final AnalysisCache cache;
     private final RunDeltaStore deltas;
 
@@ -130,10 +132,12 @@ public class BlockerAnalyzer {
     /** The build of each PR's latest verdict: what the warm cycle checks first. */
     private final Map<Integer, Long> analysedBuild = new ConcurrentHashMap<>();
 
+    @Autowired
     public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg,
         @Qualifier("analysisExecutor") ExecutorService pool,
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
         @Qualifier("recomputeExecutor") ExecutorService recomputePool,
+        @Qualifier("recomputeFanOutExecutor") ExecutorService recomputeFanOut,
         AnalysisCache cache, RunDeltaStore deltas) {
         this.tc = tc;
         this.chains = chains;
@@ -141,12 +145,20 @@ public class BlockerAnalyzer {
         this.pool = pool;
         this.bgPool = bgPool;
         this.recomputePool = recomputePool;
+        this.recomputeFanOut = recomputeFanOut;
         this.cache = cache;
         this.deltas = deltas;
     }
 
+    /** An analyzer whose recomputes on request fan out on {@code pool} too. */
+    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg, ExecutorService pool,
+        ExecutorService bgPool, ExecutorService recomputePool, AnalysisCache cache, RunDeltaStore deltas) {
+        this(tc, chains, cfg, pool, bgPool, recomputePool, pool, cache, deltas);
+    }
+
     /** @return the analysis (cached if available), or empty if no RunAll build exists for the PR yet. */
     public Optional<AnalysisResult> analyze(String token, int prNumber) {
+        long lookedUpAt = System.currentTimeMillis();
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
         if (buildId.isEmpty())
             return Optional.empty();
@@ -159,9 +171,9 @@ public class BlockerAnalyzer {
             // A view recomputes only what can have changed. A timer used to recompute any verdict older
             // than two minutes: 23 views of long-finished PRs cost ci2 up to 695 calls a minute.
             if (retryDue(cached.get()))
-                refreshAsync(token, prNumber, bid, false);
+                refreshAsync(token, prNumber, bid, lookedUpAt, false);
             else if (isStale(cached.get()) && lookedAt.peek(bid).isEmpty())
-                refreshAsync(token, prNumber, bid, true);
+                refreshAsync(token, prNumber, bid, lookedUpAt, true);
 
             return cached;
         }
@@ -201,10 +213,12 @@ public class BlockerAnalyzer {
 
     /**
      * Recomputes and caches the analysis for a PR's latest build, on request: a re-run suite of it finished. Fans
-     * out on the foreground pool, so it never waits behind a warm cycle's calls.
+     * out on a pool of its own, so it neither waits behind a warm cycle's calls nor holds up a compute a user
+     * waits on.
      */
     public void refresh(String token, int prNumber) {
-        chains.findBuildId(token, prNumber).ifPresent(bid -> computeAndStore(token, prNumber, bid, pool));
+        chains.findBuildId(token, prNumber)
+            .ifPresent(bid -> computeAndStore(token, prNumber, bid, recomputeFanOut));
     }
 
     /**
@@ -214,25 +228,29 @@ public class BlockerAnalyzer {
      * incomplete and another try is due. Returns true if it recomputed. This is what keeps the warmer from
      * re-hammering TeamCity with the heavy history/latest-run lookups every cycle.
      *
-     * <p>Which chain is analysed changes only when a build finishes on the branch: a chain ending clean or
-     * cancelled is one. So a PR with a verdict costs one call while nothing finished, not two: the chain is
-     * looked up only once something did.
+     * <p>Once a chain of the PR has finished, which chain is analysed changes only when a build finishes on the
+     * branch: a newer chain ending clean or cancelled is one. So a PR with a finished chain's verdict costs one
+     * call while nothing finished, not two: the chain is looked up only once something did. Before any chain
+     * finished, the newest running one is analysed, and one that starts takes over with nothing finished: such a
+     * PR is looked up every cycle. This rests on no verdict claiming more than its chain's lookup saw (see
+     * {@link #doCompute}).
      */
     public boolean warm(String token, int prNumber) {
         return warm(token, prNumber, bgPool);
     }
 
     /**
-     * Warms a PR on request, the moment its RunAll finished, as {@link #warm} does in a cycle. Fans out on the
-     * foreground pool, so it never waits behind a warm cycle's calls.
+     * Warms a PR on request, the moment its RunAll finished, as {@link #warm} does in a cycle. Fans out on a pool
+     * of its own, so it neither waits behind a warm cycle's calls nor holds up a compute a user waits on.
      */
     public boolean warmNow(String token, int prNumber) {
-        return warm(token, prNumber, pool);
+        return warm(token, prNumber, recomputeFanOut);
     }
 
     private boolean warm(String token, int prNumber, ExecutorService taskPool) {
         Long held = analysedBuild.get(prNumber);
-        Optional<AnalysisResult> verdict = held == null ? Optional.empty() : cache.peekResult(held);
+        Optional<AnalysisResult> verdict = held == null ? Optional.empty()
+            : cache.peekResult(held).filter(r -> r.finishedAt() > 0);
         if (verdict.isPresent() && keptWarm(token, prNumber, verdict.get()))
             return false;
 
@@ -299,6 +317,7 @@ public class BlockerAnalyzer {
      * wave finish close together.
      */
     public Optional<AnalysisResult> analyzeForAction(String token, int prNumber) {
+        long lookedUpAt = System.currentTimeMillis();
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
         if (buildId.isEmpty())
             return Optional.empty();
@@ -313,7 +332,7 @@ public class BlockerAnalyzer {
             return cached;
         }
 
-        return Optional.of(computeAfterNow(token, prNumber, bid));
+        return Optional.of(computeAfterNow(token, prNumber, bid, lookedUpAt));
     }
 
     /**
@@ -322,15 +341,17 @@ public class BlockerAnalyzer {
      * before the build that prompted the call finished.
      */
     public Optional<AnalysisResult> analyzeAfterNow(String token, int prNumber) {
-        return chains.findBuildId(token, prNumber).map(bid -> computeAfterNow(token, prNumber, bid));
+        long lookedUpAt = System.currentTimeMillis();
+
+        return chains.findBuildId(token, prNumber).map(bid -> computeAfterNow(token, prNumber, bid, lookedUpAt));
     }
 
-    private AnalysisResult computeAfterNow(String token, int prNumber, long buildId) {
+    private AnalysisResult computeAfterNow(String token, int prNumber, long buildId, long lookedUpAt) {
         CompletableFuture<AnalysisResult> underWay = inFlight.get(buildId);
         if (underWay != null)
             underWay.handle((r, e) -> null).join();
 
-        return computeAndStore(token, prNumber, buildId, bgPool);
+        return computeAndStore(token, prNumber, buildId, lookedUpAt, bgPool);
     }
 
     /**
@@ -396,9 +417,10 @@ public class BlockerAnalyzer {
     /**
      * Recomputes in the background, on the recompute thread; with {@code ifMoved}, only when something finished
      * on the branch since the result was computed (one cheap call), else the view is marked looked at for a
-     * while. Fans out on the foreground pool: queued behind a warm cycle, the page waited up to a minute.
+     * while. Fans out on a pool of its own: queued behind a warm cycle, the page waited up to a minute, and on
+     * the foreground pool a user's compute queued behind it.
      */
-    private void refreshAsync(String token, int prNumber, long buildId, boolean ifMoved) {
+    private void refreshAsync(String token, int prNumber, long buildId, long lookedUpAt, boolean ifMoved) {
         if (!refreshing.add(buildId))
             return;
 
@@ -411,7 +433,7 @@ public class BlockerAnalyzer {
                     return;
                 }
 
-                computeAndStore(token, prNumber, buildId, pool);
+                computeAndStore(token, prNumber, buildId, lookedUpAt, recomputeFanOut);
             }
             catch (RuntimeException ignore) {
                 // best-effort background refresh; the stale cached value stays until it succeeds
@@ -422,7 +444,14 @@ public class BlockerAnalyzer {
         });
     }
 
+    /** Computes the analysis of a chain looked up just now. */
     private AnalysisResult computeAndStore(String token, int prNumber, long buildId, ExecutorService taskPool) {
+        return computeAndStore(token, prNumber, buildId, System.currentTimeMillis(), taskPool);
+    }
+
+    /** Computes the analysis of a chain looked up at {@code lookedUpAt}, epoch ms; shares one under way. */
+    private AnalysisResult computeAndStore(String token, int prNumber, long buildId, long lookedUpAt,
+        ExecutorService taskPool) {
         CompletableFuture<AnalysisResult> mine = new CompletableFuture<>();
         CompletableFuture<AnalysisResult> existing = inFlight.putIfAbsent(buildId, mine);
         if (existing != null) {
@@ -441,7 +470,7 @@ public class BlockerAnalyzer {
         }
 
         try {
-            AnalysisResult result = doCompute(token, prNumber, buildId, taskPool);
+            AnalysisResult result = doCompute(token, prNumber, buildId, lookedUpAt, taskPool);
             unlist(buildId, mine);
             mine.complete(result);
 
@@ -463,10 +492,14 @@ public class BlockerAnalyzer {
         inFlight.remove(buildId, mine);
     }
 
-    private AnalysisResult doCompute(String token, int prNumber, long buildId, ExecutorService taskPool) {
+    private AnalysisResult doCompute(String token, int prNumber, long buildId, long lookedUpAt,
+        ExecutorService taskPool) {
         // Taken before anything is read: a build that finishes while this runs may be missing from the
-        // verdict, so it must count as unseen and cost one more recompute rather than be claimed.
-        long watermarkAt = System.currentTimeMillis() / 1000 - WATERMARK_MARGIN_SECONDS;
+        // verdict, so it must count as unseen and cost one more recompute rather than be claimed. Nor later than
+        // the chain's lookup: a chain that finished after it may be the one to analyse now, and the warm cycle
+        // looks the chain up again only once something finished after the watermark. A view's refresh waits for
+        // the recompute thread, an action for a compute under way.
+        long watermarkAt = Math.min(System.currentTimeMillis(), lookedUpAt) / 1000 - WATERMARK_MARGIN_SECONDS;
         BuildFacts.Branch branch = cache.facts().branch(prNumber, watermarkAt,
             since -> tc.suitesFinishedAfter(token, prNumber, since));
         ChainCollector.Chain chain = chains.collectForBuild(token, prNumber, buildId, taskPool);
