@@ -21,13 +21,19 @@ import org.springframework.stereotype.Component;
  * makes a PR run anything again.
  *
  * <p>Asked when a PR is viewed: one GitHub call for the PR's files, one TeamCity call for the runs of its test
- * classes in the chain, and the master history of up to 20 tests of the changed classes, shared with the analysis.
- * A class the PR adds has no master history to look up. An answer is kept for 15 minutes per PR and chain, the
- * PR's files for as long.
+ * classes in the chain (more only for hundreds of classes), and the master history of up to 20 tests of the changed
+ * classes, shared with the analysis. A class the PR adds has no master history to look up. An answer is kept for 15
+ * minutes per PR and chain, the PR's files for as long; an answer about a chain still going, for 2 minutes.
  */
 @Component
 public class PrTestRuns {
     private static final long KEEP_MS = 15 * 60_000L;
+
+    /**
+     * How long an answer about a chain still going is kept: its suites go on finishing, and a live verdict is
+     * recomputed after as long (BlockerAnalyzer.isStale).
+     */
+    private static final long KEEP_RUNNING_MS = 2 * 60_000L;
 
     /** The most tests of changed classes whose master history one answer looks up. */
     static final int MASTER_LOOKUPS = 20;
@@ -45,22 +51,28 @@ public class PrTestRuns {
 
     private final TtlCache<Asked, PrTests> answers = new TtlCache<>(KEEP_MS);
 
+    private final TtlCache<Asked, PrTests> runningAnswers = new TtlCache<>(KEEP_RUNNING_MS);
+
     public PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache) {
         this.github = github;
         this.tc = tc;
         this.cache = cache;
     }
 
-    /** How the PR's new and changed test classes ran in its RunAll chain {@code buildId}. */
-    public PrTests of(String token, int pr, long buildId) {
+    /**
+     * How the PR's new and changed test classes ran in its RunAll chain {@code buildId}, which is still going when
+     * {@code running}: an answer about it is not the one about the chain once it finished.
+     */
+    public PrTests of(String token, int pr, long buildId, boolean running) {
+        TtlCache<Asked, PrTests> kept = running ? runningAnswers : answers;
         Asked asked = new Asked(pr, buildId);
-        Optional<PrTests> kept = answers.peek(asked);
-        if (kept.isPresent())
-            return kept.get();
+        Optional<PrTests> was = kept.peek(asked);
+        if (was.isPresent())
+            return was.get();
 
-        Answer answer = lookUp(token, pr, buildId);
+        Answer answer = lookUp(token, pr, buildId, running);
         if (answer.keep())
-            answers.put(asked, answer.tests());
+            kept.put(asked, answer.tests());
 
         return answer.tests();
     }
@@ -70,9 +82,10 @@ public class PrTestRuns {
     void evictExpired() {
         files.evictExpired();
         answers.evictExpired();
+        runningAnswers.evictExpired();
     }
 
-    private Answer lookUp(String token, int pr, long buildId) {
+    private Answer lookUp(String token, int pr, long buildId, boolean running) {
         List<ClassFile> classes;
         try {
             classes = files.get(pr, () -> github.prTestFiles(pr)).stream().map(ClassFile::of).toList();
@@ -107,6 +120,8 @@ public class PrTestRuns {
         }
 
         List<String> notes = new ArrayList<>();
+        if (running)
+            notes.add("the RunAll is still going");
         if (runs.get().size() >= TcClient.CLASS_RUNS_MAX)
             notes.add("only the first " + TcClient.CLASS_RUNS_MAX + " runs were read");
 

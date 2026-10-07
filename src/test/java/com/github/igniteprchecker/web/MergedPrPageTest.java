@@ -26,6 +26,19 @@ class MergedPrPageTest {
         assertThat(out.get("refresh").asBoolean()).isFalse();
     }
 
+    /** The page redraws the run's age every half minute; that brought ↻ back on a merged PR. */
+    @Test
+    void aMergedPrOffersNoRefreshLaterEither() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ mergedAt: Math.floor(page.now() / 1000) - 86400 }) });
+            await page.load('?pr=13575');
+            await page.tick(31000);
+            report({ refresh: !page.el('refreshBtn').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("refresh").asBoolean()).isFalse();
+    }
+
     @Test
     void anOpenPrHasNoSuchNote() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """

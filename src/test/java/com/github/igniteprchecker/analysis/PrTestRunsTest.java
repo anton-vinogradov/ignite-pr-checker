@@ -70,7 +70,7 @@ class PrTestRunsTest {
         when(tc.getBaseBranchHistory(TOK, 2, CONTROL)).thenReturn(masterRuns(85));
         when(tc.getBaseBranchHistory(TOK, 3, CONTROL)).thenReturn(List.of());
 
-        PrTests answer = prTests.of(TOK, PR, CHAIN);
+        PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note()).isNull();
         assertThat(answer.classes()).extracting(PrTests.TestClass::name, PrTests.TestClass::added)
@@ -91,9 +91,9 @@ class PrTestRunsTest {
         when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(GAP, "added")));
         when(tc.testRunsOfClasses(eq(TOK), anyLong(), any())).thenReturn(Optional.of(List.of()));
 
-        prTests.of(TOK, PR, CHAIN);
-        prTests.of(TOK, PR, CHAIN);
-        prTests.of(TOK, PR, CHAIN + 1);
+        prTests.of(TOK, PR, CHAIN, false);
+        prTests.of(TOK, PR, CHAIN, false);
+        prTests.of(TOK, PR, CHAIN + 1, false);
 
         verify(github, times(1)).prTestFiles(PR);
         verify(tc, times(2)).testRunsOfClasses(eq(TOK), anyLong(), any());
@@ -103,7 +103,7 @@ class PrTestRunsTest {
     void aPrThatChangesNoTestAsksTeamCityNothing() {
         when(github.prTestFiles(PR)).thenReturn(List.of());
 
-        PrTests answer = prTests.of(TOK, PR, CHAIN);
+        PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.classes()).isEmpty();
         assertThat(answer.note()).isNull();
@@ -115,8 +115,34 @@ class PrTestRunsTest {
         when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(GAP, "added")));
         when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(List.of()));
 
-        assertThat(prTests.of(TOK, PR, CHAIN).classes()).singleElement()
+        assertThat(prTests.of(TOK, PR, CHAIN, false).classes()).singleElement()
             .satisfies(c -> assertThat(c.runs()).isEmpty());
+    }
+
+    /**
+     * PR 13327's first RunAll was the chain analysed while it ran, and the SPI suite with its new class had not
+     * finished when the page asked. Once the chain finished, the class failed in 298 s, and the page asked again: it
+     * got the answer from before, kept for 15 minutes.
+     */
+    @Test
+    void anAnswerAboutAChainStillGoingIsNotTheOneOnceItFinished() {
+        when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(GAP, "added")));
+        when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(List.of()))
+            .thenReturn(Optional.of(List.of(run(1, "IgniteSpiDiscoverySelfTestSuite: org.apache.ignite.spi.discovery."
+                + "tcp.TcpDiscoveryClientTopologyGapTest.testClientReconnect", "FAILURE", 298_000,
+                "IgniteTests24Java8_Spi"))));
+
+        PrTests going = prTests.of(TOK, PR, CHAIN, true);
+        PrTests goingAgain = prTests.of(TOK, PR, CHAIN, true);
+        PrTests finished = prTests.of(TOK, PR, CHAIN, false);
+
+        assertThat(going.note()).isEqualTo("the RunAll is still going");
+        assertThat(going.classes()).singleElement().satisfies(c -> assertThat(c.runs()).isEmpty());
+        assertThat(goingAgain).as("kept for a little while").isSameAs(going);
+        assertThat(finished.note()).isNull();
+        assertThat(finished.classes()).singleElement().satisfies(c -> assertThat(c.runs())
+            .extracting(PrTests.Run::status, PrTests.Run::durationMs).containsExactly(tuple("FAILURE", 298_000L)));
+        verify(tc, times(2)).testRunsOfClasses(eq(TOK), eq(CHAIN), any());
     }
 
     @Test
@@ -131,7 +157,7 @@ class PrTestRunsTest {
         when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(runs));
         when(tc.getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL))).thenReturn(masterRuns(3));
 
-        PrTests answer = prTests.of(TOK, PR, CHAIN);
+        PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note()).isEqualTo("master history was looked up for 20 of 31 tests of changed classes");
         assertThat(answer.classes().get(0).runs().stream().filter(r -> r.masterRuns() != null)).hasSize(20);
@@ -143,8 +169,8 @@ class PrTestRunsTest {
     void aGithubErrorIsSaidAndAskedAgainNextTime() {
         when(github.prTestFiles(PR)).thenThrow(new IllegalStateException("GitHub: 502")).thenReturn(List.of());
 
-        assertThat(prTests.of(TOK, PR, CHAIN).note()).isEqualTo("GitHub could not list the PR's files");
-        assertThat(prTests.of(TOK, PR, CHAIN).note()).isNull();
+        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isEqualTo("GitHub could not list the PR's files");
+        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isNull();
     }
 
     @Test
@@ -152,7 +178,7 @@ class PrTestRunsTest {
         when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(GAP, "added")));
         when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.empty());
 
-        PrTests answer = prTests.of(TOK, PR, CHAIN);
+        PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note()).isEqualTo("TeamCity does not answer how they ran");
         assertThat(answer.classes()).singleElement().satisfies(c -> assertThat(c.runs()).isEmpty());
@@ -164,8 +190,8 @@ class PrTestRunsTest {
         when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenThrow(new IllegalStateException("TeamCity: 502"))
             .thenReturn(Optional.of(List.of()));
 
-        assertThat(prTests.of(TOK, PR, CHAIN).note()).isEqualTo("TeamCity could not be asked how they ran");
-        assertThat(prTests.of(TOK, PR, CHAIN).note()).isNull();
+        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isEqualTo("TeamCity could not be asked how they ran");
+        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isNull();
     }
 
     private static TcModel.TestOccurrence run(long testId, String name, String status, long durationMs, String suite) {

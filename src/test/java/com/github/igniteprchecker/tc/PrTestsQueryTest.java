@@ -16,16 +16,20 @@ import java.net.URLDecoder;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * How the PR's new and changed test classes ran in its RunAll is one call: the RunAll is a composite build, whose
- * tests are its suites' tests, picked by name with a pattern of the class names, the way run conditions are already
- * asked for. If ci2 rejects the query, it is not asked again.
+ * How the PR's new and changed test classes ran in its RunAll is one call, more only for hundreds of classes: the
+ * RunAll is a composite build, whose tests are its suites' tests, picked by name with a pattern of the class names,
+ * the way run conditions are already asked for. If ci2 rejects the query, it is not asked again.
  */
 class PrTestsQueryTest {
+    /** About as long a request line as the Tomcat TeamCity runs on takes; past it, it answers 400. */
+    private static final int TOMCAT_REQUEST_LINE = 8000;
+
     private final List<String> locators = new CopyOnWriteArrayList<>();
 
     private final List<String> fields = new CopyOnWriteArrayList<>();
@@ -40,14 +44,16 @@ class PrTestsQueryTest {
         server.createContext("/app/rest/testOccurrences", ex -> {
             locators.add(param(ex.getRequestURI().getRawQuery(), "locator"));
             fields.add(param(ex.getRequestURI().getRawQuery(), "fields"));
-            byte[] body = (rejects ? "Error has occurred during request processing, Status: BAD_REQUEST" : """
+            boolean refused = rejects || ex.getRequestURI().getRawPath().length()
+                + ex.getRequestURI().getRawQuery().length() > TOMCAT_REQUEST_LINE;
+            byte[] body = (refused ? "Error has occurred during request processing, Status: BAD_REQUEST" : """
                 {"testOccurrence":[{"id":"build:(id:9391900),id:2000000001","status":"SUCCESS","duration":298000,
                   "name":"IgniteSpiDiscoverySelfTestSuite: org.apache.ignite.spi.discovery.tcp.TcpDiscoveryClientTopologyGapTest.testClientReconnect",
                   "test":{"id":"5272433775095107011"},
                   "build":{"id":9391900,"buildTypeId":"IgniteTests24Java8_Spi","buildType":{"name":"SPI"}}}]}
                 """).getBytes(UTF_8);
-            ex.getResponseHeaders().add("Content-Type", rejects ? "text/plain" : "application/json");
-            ex.sendResponseHeaders(rejects ? 400 : 200, body.length);
+            ex.getResponseHeaders().add("Content-Type", refused ? "text/plain" : "application/json");
+            ex.sendResponseHeaders(refused ? 400 : 200, body.length);
             try (OutputStream out = ex.getResponseBody()) {
                 out.write(body);
             }
@@ -74,6 +80,25 @@ class PrTestsQueryTest {
             assertThat(o.test().id()).isEqualTo(5272433775095107011L);
             assertThat(o.build().buildType().name()).isEqualTo("SPI");
         });
+    }
+
+    /**
+     * A PR reworking 250 test classes made a pattern of over 9 KB, which TeamCity's Tomcat answers with 400, and the
+     * lookup was turned off for every PR until a restart.
+     */
+    @Test
+    void manyClassesAreAskedForInCallsTeamCityTakes() {
+        List<String> names = IntStream.range(0, 250).mapToObj(i -> "GridCacheRebalancingWithModeTest" + (100 + i))
+            .toList();
+        TcClient tc = client();
+
+        assertThat(tc.testRunsOfClasses("t", 9391879L, names)).hasValueSatisfying(runs ->
+            assertThat(runs).isNotEmpty());
+        assertThat(tc.testRunsOfClasses("t", 9391880L, List.of("FooTest"))).hasValueSatisfying(runs ->
+            assertThat(runs).isNotEmpty());
+        assertThat(locators.subList(0, locators.size() - 1)).hasSizeGreaterThan(1)
+            .flatMap(l -> List.of(l.substring(l.indexOf(".*(") + 3, l.indexOf(").*")).split("\\|")))
+            .containsExactlyElementsOf(names);
     }
 
     @Test

@@ -1594,17 +1594,17 @@
                     : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
                 : '';
             $('freshText').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag;
-            $('refreshBtn').classList.remove('hidden');
+            $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
         }
 
-        // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so there is nothing to refresh.
+        // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
+        // no refresh for it.
         function renderMerged(res) {
             const merged = !!res.mergedAt;
             $('mergedNote').classList.toggle('hidden', !merged);
             if (!merged) return;
             $('mergedNote').textContent = `Merged ${fmtDay(res.mergedAt * 1000)}. This is the verdict as it stood at `
                 + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs.';
-            $('refreshBtn').classList.add('hidden');
         }
 
         function clearFreshness() {
@@ -1795,21 +1795,33 @@
         // that passed once here, slowly, has nothing else behind it: TcpDiscoveryClientTopologyGapTest took 298 s
         // in its PR and now fails 18 of 100 master runs.
         const SLOW_TEST_MS = 60000;
-        let lastPrTests = null; // the PR whose tests the card shows
+        let lastPrTests = null; // the PR and run whose tests the card shows, and the answer it shows
+
+        // The analysed chain itself is still going (a PR's first RunAll), not only a newer one.
+        function chainRunning(res) {
+            return !!res.live && res.liveBuildId === res.buildId;
+        }
 
         async function loadPrTests(res) {
             if (!lastPrTests || lastPrTests.pr !== res.prNumber) $('prTestsCard').classList.add('hidden');
             try {
-                const r = await api('/api/pr-tests?pr=' + res.prNumber + '&build=' + res.buildId);
+                const r = await api('/api/pr-tests?pr=' + res.prNumber + '&build=' + res.buildId
+                    + (chainRunning(res) ? '&running=true' : ''));
                 if (!r.ok) return;
                 const body = await r.json().catch(() => null);
                 if (!body || res.prNumber !== selectedPr) return;
-                lastPrTests = { pr: res.prNumber };
-                renderPrTests(body);
+                lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
+                renderPrTests(body, res);
             } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
         }
 
-        function renderPrTests(t) {
+        // Redrawn once the head is known to have moved since the run: a new class with no runs may have come with it.
+        function repaintPrTests(res) {
+            if (lastPrTests && lastPrTests.pr === res.prNumber && lastPrTests.buildId === res.buildId)
+                renderPrTests(lastPrTests.body, res);
+        }
+
+        function renderPrTests(t, res) {
             const classes = t.classes || [];
             $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
             const runs = classes.flatMap(c => c.runs);
@@ -1822,17 +1834,17 @@
             if (fresh) warn.push(`${fresh} test${fresh === 1 ? ' has' : 's have'} no master history: this run is all there is to judge ${fresh === 1 ? 'it' : 'them'} by`);
             $('prTestsWarn').classList.toggle('hidden', !warn.length);
             $('prTestsWarn').textContent = warn.length ? '⚠ ' + warn.join('; ') + '.' : '';
-            $('prTests').innerHTML = classes.map(prTestClass).join('');
+            $('prTests').innerHTML = classes.map(c => prTestClass(c, res)).join('');
             $('prTestsNote').classList.toggle('hidden', !t.note);
             $('prTestsNote').textContent = t.note ? 'Not complete: ' + t.note + '.' : '';
         }
 
-        function prTestClass(c) {
+        function prTestClass(c, res) {
             const name = c.name.slice(c.name.lastIndexOf('.') + 1);
             const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
                 + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span></span></div>`;
             if (!c.runs.length)
-                return `<li>${head}<div class="reason">no runs in this RunAll: an abstract base, or a class no suite runs</div></li>`;
+                return `<li>${head}<div class="reason">${noRunsOf(c, res)}</div></li>`;
             const count = s => c.runs.filter(r => r.status === s).length;
             const parts = [[count('SUCCESS'), 'passed'], [count('FAILURE'), 'failed'], [count('UNKNOWN'), 'ignored']]
                 .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
@@ -1849,6 +1861,13 @@
                 + '</div></li>').join('');
             return `<li>${head}<div class="reason">${esc(summary)}</div>`
                 + (rows ? `<ul class="suite-tests">${rows}</ul>` : '') + '</li>';
+        }
+
+        function noRunsOf(c, res) {
+            if (chainRunning(res)) return 'no runs yet: this RunAll is still going';
+            if (c.added && aheadOf(res) > 0)
+                return 'no runs in this RunAll: added by a commit pushed since, an abstract base, or a class no suite runs';
+            return 'no runs in this RunAll: an abstract base, or a class no suite runs';
         }
 
         // "0.4 s", "12 s", "4 m 58 s": how long a test ran.
@@ -1875,6 +1894,7 @@
                 }
                 const ahead = p.ahead > 0 ? p.ahead : 1; // superseded code can't be a clean verdict
                 pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead };
+                repaintPrTests(res);
                 const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
                 $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
                 $('pendingRow').classList.remove('hidden');
@@ -2074,7 +2094,7 @@
 
         // What a blocker or watch verdict rests on short of proof (TestVerdict.Doubt on the server).
         const DOUBTS = {
-            ONE_RUN: ['1 run', 'It failed the only time it ran on this branch: a re-run of its suite confirms or clears it'],
+            ONE_RUN: ['1 run', 'Only one failure on this branch backs it: a re-run of its suite confirms or clears it'],
             NO_MASTER_HISTORY: ['new test / no master history',
                 'Master has no runs of this test on this JDK to compare with: a new test, or one master does not run'],
             UNCHECKED: ['unverified', 'A TeamCity error kept part of the check from being made; the checker tries again'],

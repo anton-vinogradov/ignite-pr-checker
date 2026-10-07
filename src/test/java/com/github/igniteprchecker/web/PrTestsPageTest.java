@@ -49,6 +49,59 @@ class PrTestsPageTest {
             .contains("AbstractGapTestnew", "no runs in this RunAll");
     }
 
+    /**
+     * On PR 13327's first RunAll the analysed chain is the one still going: the SPI suite that runs the new class has
+     * not finished, which is not "a class no suite runs". The answer is asked for as one that can still change.
+     */
+    @Test
+    void aClassOfARunAllStillGoingHasNoRunsYet() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PR_TESTS + """
+            page.route('/api/analyze', { body: verdict({ live: true, liveBuildId: 9001 }) });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent, asked: page.fetches('/api/pr-tests')[0].url });
+            """);
+
+        assertThat(out.get("asked").asText()).isEqualTo("/api/pr-tests?pr=13575&build=9001&running=true");
+        assertThat(out.get("list").asText()).contains("AbstractGapTestnew", "no runs yet: this RunAll is still going")
+            .doesNotContain("a class no suite runs");
+    }
+
+    /** Once the chain finishes, its tests are asked for as those of a finished run, and the card shows them. */
+    @Test
+    void aRunAllThatFinishedIsAskedForAgainAsFinished() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PR_TESTS + """
+            page.route('/api/analyze', { body: verdict({ live: true, liveBuildId: 9001,
+                computedAt: page.now() - 200000 }) });
+            await page.load('?pr=13575');
+            page.route('/api/analyze', { body: verdict() });
+            page.route('/api/pr-tests', { body: { buildId: 9001, note: null, classes: [
+                { name: 'org.apache.ignite.AbstractGapTest', path: 'p3', added: true,
+                    runs: [prRun('4', 'AbstractGapTest.testGap', 'FAILURE', 298000, null)] }] } });
+            await page.tick(30000);
+            report({ list: page.el('prTests').textContent,
+                asked: page.fetches('/api/pr-tests').map(f => f.url) });
+            """);
+
+        assertThat(out.get("asked")).extracting(JsonNode::asText).containsExactly(
+            "/api/pr-tests?pr=13575&build=9001&running=true", "/api/pr-tests?pr=13575&build=9001");
+        assertThat(out.get("list").asText()).contains("1 failed in Control Utility · longest 4 m 58 s")
+            .doesNotContain("no runs");
+    }
+
+    /** A class added by a commit pushed after the analysed run was not in the code that ran. */
+    @Test
+    void aNewClassWithNoRunsMayComeFromCommitsPushedSince() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PR_TESTS + """
+            page.route('/api/pending', { body: { pending: true, ahead: 2, builtSha: '5be1c0d', headSha: '9a8b7c6' } });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent });
+            """);
+
+        assertThat(out.get("list").asText()).contains(
+            "AbstractGapTestnewno runs in this RunAll: added by a commit pushed since, an abstract base, or a class no "
+                + "suite runs");
+    }
+
     @Test
     void noCardWhenThePrChangesNoTest() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """

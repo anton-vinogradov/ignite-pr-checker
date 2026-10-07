@@ -18,9 +18,11 @@ public class PrTestsController {
         this.runs = runs;
     }
 
+    /** {@code running}: the chain {@code build} is still going, so the answer can still change. */
     @GetMapping("/pr-tests")
     public PrTests prTests(@RequestParam int pr, @RequestParam long build,
+        @RequestParam(defaultValue = "false") boolean running,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return runs.of(token, pr, build);
+        return runs.of(token, pr, build, running);
     }
 }

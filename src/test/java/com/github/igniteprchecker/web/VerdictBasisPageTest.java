@@ -49,6 +49,20 @@ class VerdictBasisPageTest {
         assertThat(out.get("watch").asText()).contains("first failure on revision 5be1c0d", "1 run");
     }
 
+    /** A watch from a first failure on new code ran on the branch before: two passes on older code here. */
+    @Test
+    void theOneRunTagSaysWhatHoldsForAWatchToo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + VERDICT + """
+            await page.load('?pr=13575');
+            report({ watch: page.el('watch').innerHTML, oneRun: page.el('oneRunBlockers').innerHTML });
+            """);
+
+        String tag = "title=\"Only one failure on this branch backs it: a re-run of its suite confirms or clears "
+            + "it\">1 run</span>";
+        assertThat(out.get("watch").asText()).contains(tag).doesNotContain("the only time it ran");
+        assertThat(out.get("oneRun").asText()).contains(tag);
+    }
+
     @Test
     void blockersFromOneRunAreAGroupWithItsSuitesToReRun() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + VERDICT + """
