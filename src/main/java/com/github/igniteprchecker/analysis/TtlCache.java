@@ -42,6 +42,15 @@ final class TtlCache<K, V> {
         map.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
     }
 
+    /**
+     * Replaces the value of a fresh entry and keeps its expiry: a value checked again without being fetched
+     * again is no younger than it was.
+     */
+    void replace(K key, V value) {
+        map.computeIfPresent(key,
+            (k, e) -> System.currentTimeMillis() < e.expiresAt() ? new Entry<>(value, e.expiresAt()) : e);
+    }
+
     /** Restarts an existing entry's TTL (even an expired one) — for values that cannot go stale. */
     void touch(K key) {
         Entry<V> e = map.get(key);

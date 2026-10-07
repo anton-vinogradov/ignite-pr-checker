@@ -8,6 +8,7 @@ import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -506,6 +507,11 @@ public class GithubClient implements SnapshotCache {
                 ownStatsFetching.set(false);
             }
         });
+    }
+
+    @PreDestroy
+    void stopOwnStatsFetch() {
+        ownStatsFetch.shutdown();
     }
 
     private void fetchStars() {

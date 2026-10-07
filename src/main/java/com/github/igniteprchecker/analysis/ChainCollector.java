@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +39,8 @@ public class ChainCollector {
 
     private final SuiteBaseline baseline;
 
+    private final BuildFacts facts;
+
     /** Caches the PR -> latest-RunAll-build-id lookup so a warm {@code /api/analyze} (and each warmer/refresh
      * check) doesn't pay a TeamCity round-trip that almost always returns the same build. */
     private final TtlCache<Integer, Long> buildIds = new TtlCache<>(BUILD_ID_TTL_MS);
@@ -45,9 +48,20 @@ public class ChainCollector {
     /** PR -> the TeamCity user who triggered its latest RunAll (best-effort, from the last build lookup). */
     private final ConcurrentMap<Integer, String> triggeredBy = new ConcurrentHashMap<>();
 
+    @Autowired
+    public ChainCollector(TcClient tc, SuiteBaseline baseline, AnalysisCache cache) {
+        this(tc, baseline, cache.facts());
+    }
+
+    /** A collector that keeps what it learns about finished builds to itself, in memory. */
     public ChainCollector(TcClient tc, SuiteBaseline baseline) {
+        this(tc, baseline, new BuildFacts());
+    }
+
+    private ChainCollector(TcClient tc, SuiteBaseline baseline, BuildFacts facts) {
         this.tc = tc;
         this.baseline = baseline;
+        this.facts = facts;
     }
 
     /** Sweeps out expired build-id lookups (see TtlCache.evictExpired). */
@@ -99,7 +113,7 @@ public class ChainCollector {
     private static final int SHRINK_MIN_BASELINE = 20;
 
     public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool) {
-        TcModel.Build build = tc.getBuildWithDeps(token, buildId);
+        TcModel.Build build = chainWithDeps(token, buildId);
 
         // The subject itself may still be running (a PR's first chain, hours before it ends): its
         // finished suites are real results, so they are analysed exactly as a finished chain's are.
@@ -146,7 +160,7 @@ public class ChainCollector {
                 live = true;
                 liveBuildId = Math.max(liveBuildId, chain.id());
             }
-            TcModel.Build rBuild = tc.getBuildWithDeps(token, chain.id());
+            TcModel.Build rBuild = chainWithDeps(token, chain.id());
             depBuilds(rBuild).forEach(dep -> newerChainSuites.add(dep.id()));
             List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()
                 .filter(dep -> "finished".equalsIgnoreCase(dep.state()) && "FAILURE".equals(dep.status()))
@@ -211,6 +225,10 @@ public class ChainCollector {
             ran, reused, interrupted, cancelled.size(), live, liveBuildId,
             TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
             TcDates.epochSeconds(build.finishDate()), unstable, cancelled);
+    }
+
+    private TcModel.Build chainWithDeps(String token, long buildId) {
+        return facts.chain(buildId, () -> tc.getBuildWithDeps(token, buildId));
     }
 
     private static boolean finishedWithResult(TcModel.Build dep) {
@@ -360,7 +378,7 @@ public class ChainCollector {
         if (unstable && !ranInFull(dep, masterCounts.get(dep.buildTypeId())))
             return new SuiteResult(dep, List.of(), brokenSuite(dep, suiteName, problems, masterCounts), null);
 
-        List<FailedTest> tests = tc.getFailedTests(token, dep.id()).stream()
+        List<FailedTest> tests = facts.failedTests(dep, () -> tc.getFailedTests(token, dep.id())).stream()
             .filter(occ -> occ.test() != null)
             .map(occ -> new FailedTest(occ.test().id(), occ.name(), dep.buildTypeId(), dep.id(), suiteName, occ.id()))
             .toList();

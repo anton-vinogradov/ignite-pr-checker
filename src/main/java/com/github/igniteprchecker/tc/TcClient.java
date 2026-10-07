@@ -10,10 +10,12 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -44,6 +46,15 @@ public class TcClient {
     /** How many of a test's latest runs on other branches its comparison with other PRs reads. */
     private static final int OTHER_BRANCH_RUNS = 200;
 
+    /**
+     * How many of a PR's newest RunAll chains the one lookup of the chain to analyse reads: a chain to show
+     * is nearly always among them, and a fuller list costs nothing more.
+     */
+    private static final int LATEST_CHAINS = 5;
+
+    /** The most builds {@link #suitesFinishedAfter} reads; a branch that finished more is taken as unknown. */
+    private static final int FINISHED_SINCE_MAX = 1000;
+
     /** Where {@link #occurrencesWithConditions} puts the run conditions into a fields spec. */
     private static final String CONDITIONS_SLOT = "{conditions}";
 
@@ -71,6 +82,15 @@ public class TcClient {
      * with. Starts as both, and drops to the JDK alone if TeamCity rejects the pattern that names both.
      */
     private volatile String runConditions = RUN_CONDITIONS;
+
+    /**
+     * Whether the chain to analyse is found with one lookup of the newest chains. Drops to the three
+     * lookups it replaced if TeamCity rejects that lookup.
+     */
+    private volatile boolean oneChainLookup = true;
+
+    /** Whether {@link #suitesFinishedAfter} still asks for failed-to-start builds; dropped if TeamCity rejects it. */
+    private volatile boolean finishedSinceFailedToStart = true;
 
     public TcClient(TeamcityProperties tc, AnalysisProperties analysis, Metrics metrics) {
         this.analysis = analysis;
@@ -139,8 +159,68 @@ public class TcClient {
      * and until it did, the page said "no run at all" while a dozen of them were already red. Nothing
      * that acts on a verdict uses this — the visa and auto re-run take the strict, finished-only
      * {@link #findRunAllBuildForPr}.
+     *
+     * <p>One lookup of the PR's newest chains answers all three questions. Asked one at a time, they cost up to
+     * three calls per PR, for each of the 50 PRs the warmer checks every 10 minutes.
      */
     public Optional<TcModel.Build> findRunAllBuildForAnalysis(String token, int prNumber) {
+        if (!oneChainLookup)
+            return findRunAllBuildOneStateAtATime(token, prNumber);
+
+        List<TcModel.Build> latest;
+        try {
+            latest = latestChains(token, prNumber);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 400)
+                throw e;
+
+            oneChainLookup = false;
+            log.warn("TeamCity rejected the lookup of a PR's newest chains ({}); finding the chain to analyse "
+                + "with three lookups, as before", e.getStatusText());
+
+            return findRunAllBuildOneStateAtATime(token, prNumber);
+        }
+
+        // Past a full list, an older chain may still be the one: asked for as before, which is rare.
+        boolean more = latest.size() >= LATEST_CHAINS;
+        Optional<TcModel.Build> clean = first(latest, b -> finished(b) && b.canceledInfo() == null);
+        if (clean.isEmpty() && more)
+            clean = findRunAllBuild(token, prNumber, true);
+        if (clean.isPresent())
+            return clean;
+
+        Optional<TcModel.Build> cancelled = first(latest, TcClient::finished);
+        if (cancelled.isEmpty() && more)
+            cancelled = findRunAllBuild(token, prNumber, false);
+        if (cancelled.isPresent())
+            return cancelled;
+
+        Optional<TcModel.Build> running = first(latest, b -> "running".equalsIgnoreCase(b.state()));
+
+        return running.isEmpty() && more ? findRunningRunAll(token, prNumber) : running;
+    }
+
+    /**
+     * The PR branch's newest RunAll chains in one call, newest first, whatever their state, with what tells a
+     * cancelled one: TeamCity's {@code canceled} dimension is whether a build has cancellation info. The
+     * locator is that of {@link #recentChains}, which ci2 answers, with personal builds left out as by
+     * default.
+     */
+    private List<TcModel.Build> latestChains(String token, int prNumber) {
+        String locator = "buildType:" + analysis.runAllBuildType()
+            + ",branch:(name:pull/" + prNumber + "/head),defaultFilter:false,personal:false,count:" + LATEST_CHAINS;
+
+        TcModel.BuildList list = get("findBuild", token, url("app/rest/builds", query(
+            "locator", locator,
+            "fields", "build(id,status,state,branchName,finishDate,triggered(type,user(username)),"
+                + "canceledInfo(text,user(username)))")), TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /** The chain to analyse as three lookups found it: the clean one, else the cancelled one, else the running one. */
+    private Optional<TcModel.Build> findRunAllBuildOneStateAtATime(String token, int prNumber) {
         Optional<TcModel.Build> clean = findRunAllBuild(token, prNumber, true);
         if (clean.isPresent())
             return clean;
@@ -148,6 +228,14 @@ public class TcClient {
         Optional<TcModel.Build> cancelled = findRunAllBuild(token, prNumber, false);
 
         return cancelled.isPresent() ? cancelled : findRunningRunAll(token, prNumber);
+    }
+
+    private static boolean finished(TcModel.Build b) {
+        return "finished".equalsIgnoreCase(b.state());
+    }
+
+    private static Optional<TcModel.Build> first(List<TcModel.Build> builds, Predicate<TcModel.Build> matching) {
+        return builds.stream().filter(matching).findFirst();
     }
 
     /** The chain still running for this PR, newest first; empty when nothing is under way. */
@@ -618,6 +706,51 @@ public class TcClient {
             "locator", locator, "fields", "build(id)")), TcModel.BuildList.class);
 
         return list != null && list.build() != null && !list.build().isEmpty();
+    }
+
+    /**
+     * The suites with a build that finished on the PR branch after {@code epochSec}, cancelled and failed-to-start
+     * ones included: the suites whose runs on the branch may have changed since. Empty when TeamCity can't say for
+     * sure, having listed as many builds as it was asked for. Bounded by start date as {@link #branchFinishedAfter}
+     * is. Asking for failed-to-start builds is new to ci2; if it rejects that, they are left out, as by default.
+     */
+    public Optional<Set<String>> suitesFinishedAfter(String token, int prNumber, long epochSec) {
+        boolean failedToStart = finishedSinceFailedToStart;
+        TcModel.BuildList list;
+        try {
+            list = buildsFinishedAfter(token, prNumber, epochSec, failedToStart);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 400 || !failedToStart)
+                throw e;
+
+            list = buildsFinishedAfter(token, prNumber, epochSec, false);
+            finishedSinceFailedToStart = false;
+            log.warn("TeamCity rejected failedToStart:any in the lookup of a branch's finished builds ({}); "
+                + "builds that failed to start are left out of it", e.getStatusText());
+        }
+
+        List<TcModel.Build> builds = list == null || list.build() == null ? List.of() : list.build();
+        if (builds.size() >= FINISHED_SINCE_MAX)
+            return Optional.empty();
+
+        Set<String> suites = new HashSet<>();
+        for (TcModel.Build b : builds) {
+            if (b.buildTypeId() != null)
+                suites.add(b.buildTypeId());
+        }
+
+        return Optional.of(suites);
+    }
+
+    private TcModel.BuildList buildsFinishedAfter(String token, int prNumber, long epochSec, boolean failedToStart) {
+        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:any,"
+            + (failedToStart ? "failedToStart:any," : "")
+            + "startDate:(date:" + TcDates.format(epochSec - LONGEST_BUILD_SECONDS) + ",condition:after),"
+            + "finishDate:(date:" + TcDates.format(epochSec) + ",condition:after),count:" + FINISHED_SINCE_MAX;
+
+        return get("branchMoves", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(id,buildTypeId)")), TcModel.BuildList.class);
     }
 
     /** The user who queued a build, or null for one TeamCity queued by itself (a dependency, a VCS trigger). */
