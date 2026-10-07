@@ -94,8 +94,14 @@ public final class TcModel {
     public record TestOccurrences(int count, List<TestOccurrence> testOccurrence) {
     }
 
+    /** One run of a test; {@code duration} is in milliseconds, null when not asked for. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details) {
+    public record TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details,
+        Long duration) {
+        /** A run without its duration, in the shape callers used before it was read. */
+        public TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details) {
+            this(id, name, status, test, build, details, null);
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

@@ -648,6 +648,13 @@
                             branch. They are not counted as blockers, and the checker tries them again on its own.</p>
                         <ul id="unverified" class="tests"></ul>
                     </div>
+                    <div id="prTestsCard" class="card hidden">
+                        <h2>This PR's tests <span id="prTestsCount"></span></h2>
+                        <p class="muted">How the test classes this PR adds or changes ran in this RunAll.</p>
+                        <p id="prTestsWarn" class="caveat hidden"></p>
+                        <ul id="prTests" class="tests"></ul>
+                        <p id="prTestsNote" class="muted hidden"></p>
+                    </div>
                     <div class="card">
                         <details>
                             <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></summary>
@@ -1710,6 +1717,7 @@
             if (kept) restoreOpen(kept);
             loadDelta(res);
             if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
+            if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPrTests(res);
         }
 
         // The failure messages the reader has open, by list: the same test can sit in two of them.
@@ -1781,6 +1789,73 @@
 
         function aheadOf(res) {
             return !res.live && pendingOf.pr === res.prNumber && pendingOf.buildId === res.buildId ? pendingOf.ahead : null;
+        }
+
+        // How the PR's own new and changed test classes ran in this RunAll (PrTestRuns on the server). A new test
+        // that passed once here, slowly, has nothing else behind it: TcpDiscoveryClientTopologyGapTest took 298 s
+        // in its PR and now fails 18 of 100 master runs.
+        const SLOW_TEST_MS = 60000;
+        let lastPrTests = null; // the PR whose tests the card shows
+
+        async function loadPrTests(res) {
+            if (!lastPrTests || lastPrTests.pr !== res.prNumber) $('prTestsCard').classList.add('hidden');
+            try {
+                const r = await api('/api/pr-tests?pr=' + res.prNumber + '&build=' + res.buildId);
+                if (!r.ok) return;
+                const body = await r.json().catch(() => null);
+                if (!body || res.prNumber !== selectedPr) return;
+                lastPrTests = { pr: res.prNumber };
+                renderPrTests(body);
+            } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
+        }
+
+        function renderPrTests(t) {
+            const classes = t.classes || [];
+            $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
+            const runs = classes.flatMap(c => c.runs);
+            $('prTestsCount').textContent = classes.length
+                ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})` : '';
+            const slow = runs.filter(r => r.durationMs > SLOW_TEST_MS).length;
+            const fresh = classes.reduce((n, c) => n + c.runs.filter(r => c.added || r.masterRuns === 0).length, 0);
+            const warn = [];
+            if (slow) warn.push(`${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s`);
+            if (fresh) warn.push(`${fresh} test${fresh === 1 ? ' has' : 's have'} no master history: this run is all there is to judge ${fresh === 1 ? 'it' : 'them'} by`);
+            $('prTestsWarn').classList.toggle('hidden', !warn.length);
+            $('prTestsWarn').textContent = warn.length ? '⚠ ' + warn.join('; ') + '.' : '';
+            $('prTests').innerHTML = classes.map(prTestClass).join('');
+            $('prTestsNote').classList.toggle('hidden', !t.note);
+            $('prTestsNote').textContent = t.note ? 'Not complete: ' + t.note + '.' : '';
+        }
+
+        function prTestClass(c) {
+            const name = c.name.slice(c.name.lastIndexOf('.') + 1);
+            const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
+                + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span></span></div>`;
+            if (!c.runs.length)
+                return `<li>${head}<div class="reason">no runs in this RunAll: an abstract base, or a class no suite runs</div></li>`;
+            const count = s => c.runs.filter(r => r.status === s).length;
+            const parts = [[count('SUCCESS'), 'passed'], [count('FAILURE'), 'failed'], [count('UNKNOWN'), 'ignored']]
+                .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
+            const suites = [...new Set(c.runs.map(r => r.suiteName || r.suite).filter(Boolean))];
+            const longest = Math.max(...c.runs.map(r => r.durationMs));
+            const summary = parts.join(', ') + (suites.length ? ' in ' + suites.join(', ') : '')
+                + ` · longest ${fmtTestTime(longest)}`;
+            const flagged = c.runs.filter(r => r.status === 'FAILURE' || r.durationMs > SLOW_TEST_MS
+                || (!c.added && r.masterRuns === 0));
+            const rows = flagged.map(r => `<li><div class="tname">${esc(shortTestName(r.name))}`
+                + (r.status === 'FAILURE' ? '<span class="tag-doubt">failed</span>' : '')
+                + (r.durationMs > SLOW_TEST_MS ? `<span class="tag-doubt">${esc(fmtTestTime(r.durationMs))}</span>` : '')
+                + (!c.added && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
+                + '</div></li>').join('');
+            return `<li>${head}<div class="reason">${esc(summary)}</div>`
+                + (rows ? `<ul class="suite-tests">${rows}</ul>` : '') + '</li>';
+        }
+
+        // "0.4 s", "12 s", "4 m 58 s": how long a test ran.
+        function fmtTestTime(ms) {
+            if (ms < 10000) return (Math.round(ms / 100) / 10) + ' s';
+            const sec = Math.round(ms / 1000);
+            return sec < 60 ? sec + ' s' : `${Math.floor(sec / 60)} m ${sec % 60} s`;
         }
 
         // Has the PR head moved since the analysed run? Then the verdict is for older code — say so

@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -52,6 +53,9 @@ public class TcClient {
      */
     private static final int LATEST_CHAINS = 5;
 
+    /** The most runs {@link #testRunsOfClasses} reads. */
+    public static final int CLASS_RUNS_MAX = 2000;
+
     /** The most builds {@link #suitesFinishedAfter} reads; a branch that finished more is taken as unknown. */
     private static final int FINISHED_SINCE_MAX = 1000;
 
@@ -88,6 +92,9 @@ public class TcClient {
      * lookups it replaced if TeamCity rejects that lookup.
      */
     private volatile boolean oneChainLookup = true;
+
+    /** Whether {@link #testRunsOfClasses} is still asked; dropped if TeamCity rejects its query. */
+    private volatile boolean classRunsLookup = true;
 
     /** Whether {@link #suitesFinishedAfter} still asks for failed-to-start builds; dropped if TeamCity rejects it. */
     private volatile boolean finishedSinceFailedToStart = true;
@@ -517,6 +524,40 @@ public class TcClient {
             .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
             .limit(5)
             .toList();
+    }
+
+    /**
+     * The runs in a RunAll chain of the tests whose names contain one of these simple class names, with how long
+     * each took: one call, TeamCity listing a composite build's tests as its suites ran them (up to
+     * {@link #CLASS_RUNS_MAX}). The caller picks the classes it means out of them. Empty when TeamCity rejects the
+     * query; it is then not asked again.
+     */
+    public Optional<List<TcModel.TestOccurrence>> testRunsOfClasses(String token, long chainBuildId,
+        Collection<String> simpleNames) {
+        if (!classRunsLookup)
+            return Optional.empty();
+        if (simpleNames.isEmpty())
+            return Optional.of(List.of());
+
+        try {
+            TcModel.TestOccurrences occ = get("prTests", token, url("app/rest/testOccurrences", query(
+                "locator", "build:(id:" + chainBuildId + "),name:(value:.*(" + String.join("|", simpleNames)
+                    + ").*,matchType:matches),count:" + CLASS_RUNS_MAX,
+                "fields", "testOccurrence(id,name,status,duration,test(id),build(id,buildTypeId,buildType(name)))")),
+                TcModel.TestOccurrences.class);
+
+            return Optional.of(occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence());
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 400)
+                throw e;
+
+            classRunsLookup = false;
+            log.warn("TeamCity rejected the lookup of a PR's test classes in its RunAll ({}); the PR's own tests are "
+                + "not shown", e.getStatusText());
+
+            return Optional.empty();
+        }
     }
 
     /** Failure details (message/stack trace) of a single test occurrence, or null. */

@@ -222,6 +222,36 @@ public class GithubClient implements SnapshotCache {
         return out;
     }
 
+    /**
+     * The PR's test classes it adds or changes ({@code *Test.java}, not removed), with how each changed:
+     * "added", "modified", "renamed"... One call, more only for a PR of over 100 files, up to 300.
+     */
+    public java.util.List<PrFile> prTestFiles(int prNumber) {
+        java.util.List<PrFile> out = new java.util.ArrayList<>();
+        for (int page = 1; page <= 3; page++) {
+            int p = page;
+            java.util.List<?> files = recorded("prFiles", () -> appGet(
+                props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber
+                    + "/files?per_page=100&page=" + p).body(java.util.List.class));
+            if (files == null || files.isEmpty())
+                break;
+            for (Object o : files) {
+                java.util.Map<?, ?> f = (java.util.Map<?, ?>)o;
+                String name = String.valueOf(f.get("filename"));
+                if (name.endsWith("Test.java") && !"removed".equals(f.get("status")))
+                    out.add(new PrFile(name, String.valueOf(f.get("status"))));
+            }
+            if (files.size() < 100)
+                break;
+        }
+
+        return out;
+    }
+
+    /** A file a PR changes: its path and how GitHub says it changed. */
+    public record PrFile(String path, String status) {
+    }
+
     /** Raw contents of one file at a ref, from an arbitrary (fork) repo. */
     public String rawFile(String repo, String ref, String path) {
         return recorded("rawFile", () -> {
