@@ -6,6 +6,7 @@ import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.analysis.model.TestVerdict.Doubt;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
@@ -107,6 +108,7 @@ public class BlockerAnalyzer {
     private final ExecutorService recomputeFanOut;
     private final AnalysisCache cache;
     private final RunDeltaStore deltas;
+    private final MergedVerdicts merged;
 
     private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
 
@@ -124,10 +126,8 @@ public class BlockerAnalyzer {
     /** How many user-facing requests are currently waiting on a compute — the warmer yields to them. */
     private final AtomicInteger usersWaiting = new AtomicInteger();
 
-    /** Last known blocker count per PR (best-effort), for the badges in the PR list. */
-    private final Map<Integer, Integer> prBlockers = new ConcurrentHashMap<>();
-    /** Whether the run behind that count covered enough for "0 blockers" to mean anything. */
-    private final Map<Integer, Boolean> prProven = new ConcurrentHashMap<>();
+    /** What the PR list badges of each PR's last verdict (best-effort). */
+    private final Map<Integer, Caveats.Glance> prGlance = new ConcurrentHashMap<>();
 
     /** The build of each PR's latest verdict: what the warm cycle checks first. */
     private final Map<Integer, Long> analysedBuild = new ConcurrentHashMap<>();
@@ -138,7 +138,7 @@ public class BlockerAnalyzer {
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
         @Qualifier("recomputeExecutor") ExecutorService recomputePool,
         @Qualifier("recomputeFanOutExecutor") ExecutorService recomputeFanOut,
-        AnalysisCache cache, RunDeltaStore deltas) {
+        AnalysisCache cache, RunDeltaStore deltas, MergedVerdicts merged) {
         this.tc = tc;
         this.chains = chains;
         this.cfg = cfg;
@@ -148,6 +148,14 @@ public class BlockerAnalyzer {
         this.recomputeFanOut = recomputeFanOut;
         this.cache = cache;
         this.deltas = deltas;
+        this.merged = merged;
+    }
+
+    /** An analyzer that keeps no merged PR's verdict: it analyses every PR live. */
+    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg, ExecutorService pool,
+        ExecutorService bgPool, ExecutorService recomputePool, ExecutorService recomputeFanOut, AnalysisCache cache,
+        RunDeltaStore deltas) {
+        this(tc, chains, cfg, pool, bgPool, recomputePool, recomputeFanOut, cache, deltas, MergedVerdicts.none());
     }
 
     /** An analyzer whose recomputes on request fan out on {@code pool} too. */
@@ -156,8 +164,15 @@ public class BlockerAnalyzer {
         this(tc, chains, cfg, pool, bgPool, recomputePool, pool, cache, deltas);
     }
 
-    /** @return the analysis (cached if available), or empty if no RunAll build exists for the PR yet. */
+    /**
+     * @return the analysis (cached if available), or empty if no RunAll build exists for the PR yet. A merged PR's
+     * is the one it had at the merge.
+     */
     public Optional<AnalysisResult> analyze(String token, int prNumber) {
+        Optional<AnalysisResult> atMerge = merged.verdict(prNumber);
+        if (atMerge.isPresent())
+            return atMerge;
+
         long lookedUpAt = System.currentTimeMillis();
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
         if (buildId.isEmpty())
@@ -189,20 +204,18 @@ public class BlockerAnalyzer {
 
     /** Best-effort blocker count for a PR from the last analysis, or null if it hasn't been analysed. */
     public Integer blockerCount(int prNumber) {
-        return prBlockers.get(prNumber);
+        Caveats.Glance g = prGlance.get(prNumber);
+
+        return g == null ? null : g.blockers();
     }
 
-    /**
-     * Whether that count came from a run that actually covered the PR — null if not analysed. A zero
-     * count off an interrupted or broken run must not show as a clean tick in the PR list.
-     */
-    public Boolean provenClean(int prNumber) {
-        return prProven.get(prNumber);
+    /** What the PR list badges of a PR's last verdict, or null if it hasn't been analysed. */
+    public Caveats.Glance glance(int prNumber) {
+        return prGlance.get(prNumber);
     }
 
     private void rememberVerdict(int prNumber, AnalysisResult r) {
-        prBlockers.put(prNumber, r.blockers().size());
-        prProven.put(prNumber, Caveats.proven(r));
+        prGlance.put(prNumber, Caveats.Glance.of(r));
         analysedBuild.put(prNumber, r.buildId());
     }
 
@@ -356,9 +369,13 @@ public class BlockerAnalyzer {
 
     /**
      * Recomputes now (ignoring any cached result) and returns the fresh analysis, or empty if no
-     * RunAll build exists yet. Backs the manual "refresh" button.
+     * RunAll build exists yet. Backs the manual "refresh" button. A merged PR keeps the one it had at the merge.
      */
     public Optional<AnalysisResult> forceRefresh(String token, int prNumber) {
+        Optional<AnalysisResult> atMerge = merged.verdict(prNumber);
+        if (atMerge.isPresent())
+            return atMerge;
+
         usersWaiting.incrementAndGet();
         try {
             return chains.findBuildIdFresh(token, prNumber)
@@ -553,7 +570,8 @@ public class BlockerAnalyzer {
             now, blockers, watch, filtered, broken, shrunk,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(), cancelled.size(),
             chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt,
-            unstable, cancelled, unverified, incompleteSince);
+            unstable, cancelled, unverified, incompleteSince,
+            chain.revision() != null ? chain.revision() : chainRevision(token, buildId), 0);
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);
@@ -625,6 +643,21 @@ public class BlockerAnalyzer {
         }
 
         return out;
+    }
+
+    /**
+     * The revision a chain ran on, for a chain read before its revision was asked for with it; null when TeamCity
+     * has none or cannot say. The badge then cannot show the verdict clean, which is all it costs.
+     */
+    private String chainRevision(String token, long buildId) {
+        try {
+            String fetched = cache.revision(buildId, () -> tc.buildRevision(token, buildId).orElse(""));
+
+            return fetched.isEmpty() ? null : fetched;
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** The suite's newest finished run on the branch, fetched only if one may have finished since it was last. */
@@ -705,8 +738,21 @@ public class BlockerAnalyzer {
         }
     }
 
+    /**
+     * The test's verdict, a blocker or a test to watch saying what it rests on short of proof: one run of the
+     * test on the branch, no master history to compare with, a check TeamCity errors kept from being made. On
+     * PRs 13655, 13566 and others all 31 blockers rested on one run, and read like proven ones.
+     */
     private TestVerdict classifyVerified(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
         FailedLookups failedLookups) {
+        Footing footing = new Footing();
+        TestVerdict v = judge(token, prNumber, t, branch, failedLookups, footing);
+
+        return v.blocker() || v.watch() ? withDoubts(v, footing.doubtsOf(v)) : v;
+    }
+
+    private TestVerdict judge(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
+        FailedLookups failedLookups, Footing footing) {
         RunHistory master = cache.history(t.testId(), t.suite(),
             () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
@@ -722,6 +768,7 @@ public class BlockerAnalyzer {
         RunEnv env = RunEnv.of(lastRun == null ? null : lastRun.build());
         HistoryStats h = master.onJdkOf(env);
         String onJdk = env.jdk() != null && master.knowsJdk() ? " on " + env.jdkLabel() : "";
+        footing.noMasterHistory = h.runs() == 0;
 
         // A failure only stands if it still stands in the last finished run: if that run passed, it
         // clears the failure. The revision is not compared here — a pass on the same code makes the
@@ -763,7 +810,7 @@ public class BlockerAnalyzer {
             reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last "
                 + h.greenStreak();
         else {
-            scaleOnlyBar = scaleOnlyOnMaster(token, prNumber, t, master, env, h, failedLookups);
+            scaleOnlyBar = scaleOnlyOnMaster(token, prNumber, t, master, env, h, failedLookups, footing);
             if (scaleOnlyBar == null)
                 return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
 
@@ -789,7 +836,7 @@ public class BlockerAnalyzer {
         // flaky under PR conditions, whatever master says. The nightly master RunAll runs at test scale
         // factor 1.0 and PR chains at 0.1, so a test green in all 101 master runs failed 14 of 131 runs
         // in 13 other PRs, and was a blocker in each.
-        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups);
+        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups, footing);
         if (others == null || others.failingPrs() < FLAKY_IN_PRS)
             return v;
 
@@ -874,11 +921,11 @@ public class BlockerAnalyzer {
      * must stay pre-existing.
      */
     private HistoryStats scaleOnlyOnMaster(String token, int prNumber, FailedTest t, RunHistory master, RunEnv env,
-        HistoryStats h, FailedLookups failedLookups) {
+        HistoryStats h, FailedLookups failedLookups, Footing footing) {
         if (masterScaleOfFailures(master, env, h) == null)
             return null;
 
-        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups);
+        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups, footing);
         if (others == null || others.runs() < MIN_OTHER_PR_RUNS || others.failingPrs() >= FLAKY_IN_PRS)
             return null;
 
@@ -889,9 +936,10 @@ public class BlockerAnalyzer {
      * How the test does in its suite on other PRs' branches under this PR's run conditions, or null when
      * TeamCity can't say. It only ever overrides master's verdict, so a TeamCity error leaves master's
      * verdict standing rather than turning the test into an unverified one; the result is incomplete
-     * all the same, and is retried.
+     * all the same, and is retried, and the verdict says it went unchecked.
      */
-    private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env, FailedLookups failedLookups) {
+    private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env, FailedLookups failedLookups,
+        Footing footing) {
         try {
             RunHistory onPrs = cache.prBranchHistory(t.testId(), t.suite(),
                 () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite())));
@@ -900,6 +948,7 @@ public class BlockerAnalyzer {
         }
         catch (RuntimeException e) {
             failedLookups.add("other PRs' runs of " + t.name(), e);
+            footing.unchecked = true;
 
             return null;
         }
@@ -1064,6 +1113,34 @@ public class BlockerAnalyzer {
 
     /** A failed test's verdict, or, when TeamCity failed to answer for it, what is known: it failed. */
     private record Classified(TestVerdict verdict, boolean verified) {
+    }
+
+    /** What a test's verdict leans on besides its runs on the branch, noted while the test is judged. */
+    private static final class Footing {
+        private boolean noMasterHistory;
+
+        private boolean unchecked;
+
+        /**
+         * A blocker or watch rests on one run when no more than one failure of the test on the branch backs it. A
+         * blocker is made of one failure only when that is the test's only run on the branch ("failed the only run").
+         */
+        List<Doubt> doubtsOf(TestVerdict v) {
+            List<Doubt> out = new ArrayList<>();
+            if (trailingFailStreak(v.branchRuns()) <= 1)
+                out.add(Doubt.ONE_RUN);
+            if (noMasterHistory)
+                out.add(Doubt.NO_MASTER_HISTORY);
+            if (unchecked)
+                out.add(Doubt.UNCHECKED);
+
+            return out;
+        }
+    }
+
+    private static TestVerdict withDoubts(TestVerdict v, List<Doubt> doubts) {
+        return new TestVerdict(v.testId(), v.name(), v.suite(), v.suiteBuildId(), v.suiteName(), v.occurrenceId(),
+            v.blocker(), v.watch(), v.reason(), v.branchRuns(), v.codeRuns(), doubts);
     }
 
     /** The TeamCity lookups one compute could not make: how many, and the first, for the log. */

@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.config.PersistProperties;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.tc.TcClient;
@@ -164,8 +165,9 @@ class RecomputeThreadsTest {
             context.registerBean(GithubClient.class, () -> mock(GithubClient.class));
             context.registerBean(TcClient.class, () -> tc);
             context.registerBean(SuiteBaseline.class, () -> mock(SuiteBaseline.class));
+            context.registerBean(PersistProperties.class, () -> new PersistProperties(false, null, null));
             context.register(AnalysisConfig.class, AnalysisCache.class, RunDeltaStore.class, ChainCollector.class,
-                BlockerAnalyzer.class, Warmer.class);
+                MergedVerdicts.class, BlockerAnalyzer.class, Warmer.class);
             context.refresh();
 
             assertThat(context.getBean(Warmer.class)).isNotNull();

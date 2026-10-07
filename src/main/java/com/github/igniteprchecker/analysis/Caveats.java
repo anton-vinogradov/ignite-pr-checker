@@ -47,4 +47,53 @@ public final class Caveats {
     public static boolean proven(AnalysisResult r) {
         return of(r, null).isEmpty();
     }
+
+    /** How a PR's verdict stands at a glance, as its badge in the PR list shows it. */
+    public enum Standing {
+        /** It has blockers. */
+        BLOCKERS,
+
+        /** No blockers, but tests started failing on its code: a re-run decides. */
+        WATCH,
+
+        /** No blockers or tests to watch, but the run cannot prove the PR clean (see {@link #of}). */
+        UNPROVEN,
+
+        /** A clean run of code the PR has since moved on from. */
+        OLD_CODE,
+
+        /** A clean run, but whether it ran the PR's current code is not known. */
+        UNKNOWN_CODE,
+
+        /** What the page calls "No blockers": the only standing that earns the green tick. */
+        CLEAN
+    }
+
+    /**
+     * What the PR list keeps of a verdict: enough to badge it. {@code covered} is whether the run covers enough for
+     * an empty blocker list to mean something, {@code revision} the code it ran, null when unknown.
+     */
+    public record Glance(int blockers, int watch, boolean covered, String revision) {
+        public static Glance of(AnalysisResult r) {
+            return new Glance(r.blockers().size(), r.watch().size(), proven(r), r.revision());
+        }
+
+        /**
+         * How the verdict stands for a PR whose head is {@code head}, null when unknown. The green tick in the list
+         * once ignored tests to watch (PRs 13583, 13577 and 13389) and commits pushed since the run (7 of 13 ticks
+         * on prod).
+         */
+        public Standing against(String head) {
+            if (blockers > 0)
+                return Standing.BLOCKERS;
+            if (watch > 0)
+                return Standing.WATCH;
+            if (!covered)
+                return Standing.UNPROVEN;
+            if (revision == null || head == null)
+                return Standing.UNKNOWN_CODE;
+
+            return revision.equalsIgnoreCase(head) ? Standing.CLEAN : Standing.OLD_CODE;
+        }
+    }
 }

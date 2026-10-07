@@ -154,6 +154,29 @@ public class GithubClient implements SnapshotCache {
             (String)head.get("ref"), (String)head.get("sha"));
     }
 
+    /** Whether a PR was merged or closed, and when: one call. */
+    public PrOutcome prOutcome(int prNumber) {
+        java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+        if (pr == null)
+            throw new IllegalStateException("GitHub sent no PR " + prNumber);
+
+        Object mergedAt = pr.get("merged_at");
+        java.util.Map<?, ?> head = pr.get("head") instanceof java.util.Map<?, ?> h ? h : java.util.Map.of();
+
+        return new PrOutcome(mergedAt != null, "closed".equals(pr.get("state")),
+            mergedAt == null ? 0 : java.time.Instant.parse(mergedAt.toString()).getEpochSecond(),
+            (String)pr.get("merge_commit_sha"), (String)head.get("sha"), (String)pr.get("title"));
+    }
+
+    /**
+     * How a PR stands on GitHub: an open one is neither {@code merged} nor {@code closed}, a merged one is both.
+     * {@code mergedAt} is epoch seconds, 0 when not merged.
+     */
+    public record PrOutcome(boolean merged, boolean closed, long mergedAt, String mergeCommitSha, String headSha,
+        String title) {
+    }
+
     /** How many commits {@code head} is ahead of {@code base}, and the head's short sha — for staleness. */
     public Ahead compareAhead(String base, String head) {
         if (base == null || head == null || base.equals(head))
@@ -197,6 +220,36 @@ public class GithubClient implements SnapshotCache {
         }
 
         return out;
+    }
+
+    /**
+     * The PR's test classes it adds or changes ({@code *Test.java}, not removed), with how each changed:
+     * "added", "modified", "renamed"... One call, more only for a PR of over 100 files, up to 300.
+     */
+    public java.util.List<PrFile> prTestFiles(int prNumber) {
+        java.util.List<PrFile> out = new java.util.ArrayList<>();
+        for (int page = 1; page <= 3; page++) {
+            int p = page;
+            java.util.List<?> files = recorded("prFiles", () -> appGet(
+                props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber
+                    + "/files?per_page=100&page=" + p).body(java.util.List.class));
+            if (files == null || files.isEmpty())
+                break;
+            for (Object o : files) {
+                java.util.Map<?, ?> f = (java.util.Map<?, ?>)o;
+                String name = String.valueOf(f.get("filename"));
+                if (name.endsWith("Test.java") && !"removed".equals(f.get("status")))
+                    out.add(new PrFile(name, String.valueOf(f.get("status"))));
+            }
+            if (files.size() < 100)
+                break;
+        }
+
+        return out;
+    }
+
+    /** A file a PR changes: its path and how GitHub says it changed. */
+    public record PrFile(String path, String status) {
     }
 
     /** Raw contents of one file at a ref, from an arbitrary (fork) repo. */
@@ -452,7 +505,8 @@ public class GithubClient implements SnapshotCache {
             // triggeredBy is filled in per-request by PrsController (it's TeamCity data, and per-user); the
             // shared GitHub list leaves it null.
             List<PrSummary> result = prs == null ? List.of()
-                : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl(), null, null, null)).toList();
+                : Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl(), null, null, null,
+                    p.head() == null ? null : p.head().sha(), null)).toList();
 
             // Never overwrite a good list with an empty one (e.g. a transient/parsed-away response).
             if (!result.isEmpty()) {
@@ -612,7 +666,11 @@ public class GithubClient implements SnapshotCache {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GhPr(int number, String title, @JsonProperty("html_url") String htmlUrl) {
+    private record GhPr(int number, String title, @JsonProperty("html_url") String htmlUrl, GhRef head) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GhRef(String sha) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

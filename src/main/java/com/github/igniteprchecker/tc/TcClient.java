@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -52,6 +53,16 @@ public class TcClient {
      */
     private static final int LATEST_CHAINS = 5;
 
+    /** The most runs {@link #testRunsOfClasses} reads. */
+    public static final int CLASS_RUNS_MAX = 2000;
+
+    /**
+     * The longest pattern of class names, as sent, in one {@link #testRunsOfClasses} call. Tomcat, which TeamCity runs
+     * on, by default answers a request line over 8 KB with 400, the answer that turns the lookup off; 250 classes make
+     * 9 KB.
+     */
+    private static final int CLASS_PATTERN_MAX = 4000;
+
     /** The most builds {@link #suitesFinishedAfter} reads; a branch that finished more is taken as unknown. */
     private static final int FINISHED_SINCE_MAX = 1000;
 
@@ -88,6 +99,9 @@ public class TcClient {
      * lookups it replaced if TeamCity rejects that lookup.
      */
     private volatile boolean oneChainLookup = true;
+
+    /** Whether {@link #testRunsOfClasses} is still asked; dropped if TeamCity rejects its query. */
+    private volatile boolean classRunsLookup = true;
 
     /** Whether {@link #suitesFinishedAfter} still asks for failed-to-start builds; dropped if TeamCity rejects it. */
     private volatile boolean finishedSinceFailedToStart = true;
@@ -345,7 +359,8 @@ public class TcClient {
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "id,status,state,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
-                + "snapshot-dependencies(build(" + SUITE_FIELDS + "))")), TcModel.Build.class);
+                + "revisions(revision(version)),snapshot-dependencies(build(" + SUITE_FIELDS + "))")),
+            TcModel.Build.class);
     }
 
     /**
@@ -516,6 +531,77 @@ public class TcClient {
             .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
             .limit(5)
             .toList();
+    }
+
+    /**
+     * The runs in a RunAll chain of the tests whose names contain one of these simple class names, with how long
+     * each took: one call, TeamCity listing a composite build's tests as its suites ran them (up to
+     * {@link #CLASS_RUNS_MAX}), and one more for each further {@link #CLASS_PATTERN_MAX} characters of names. The
+     * caller picks the classes it means out of them. Empty when TeamCity rejects the query; it is then not asked again.
+     */
+    public Optional<List<TcModel.TestOccurrence>> testRunsOfClasses(String token, long chainBuildId,
+        Collection<String> simpleNames) {
+        if (!classRunsLookup)
+            return Optional.empty();
+
+        List<TcModel.TestOccurrence> runs = new ArrayList<>();
+        for (List<String> names : patternsOf(simpleNames)) {
+            if (runs.size() >= CLASS_RUNS_MAX)
+                break;
+
+            Optional<List<TcModel.TestOccurrence>> more = classRuns(token, chainBuildId, names,
+                CLASS_RUNS_MAX - runs.size());
+            if (more.isEmpty())
+                return more;
+
+            runs.addAll(more.get());
+        }
+
+        return Optional.of(runs);
+    }
+
+    /** The class names in groups, each short enough to be one call's pattern. */
+    private static List<List<String>> patternsOf(Collection<String> simpleNames) {
+        List<List<String>> patterns = new ArrayList<>();
+        List<String> pattern = new ArrayList<>();
+        int len = 0;
+        for (String name : simpleNames) {
+            int sent = URLEncoder.encode("|" + name, StandardCharsets.UTF_8).length();
+            if (!pattern.isEmpty() && len + sent > CLASS_PATTERN_MAX) {
+                patterns.add(pattern);
+                pattern = new ArrayList<>();
+                len = 0;
+            }
+            pattern.add(name);
+            len += sent;
+        }
+        if (!pattern.isEmpty())
+            patterns.add(pattern);
+
+        return patterns;
+    }
+
+    private Optional<List<TcModel.TestOccurrence>> classRuns(String token, long chainBuildId,
+        List<String> simpleNames, int count) {
+        try {
+            TcModel.TestOccurrences occ = get("prTests", token, url("app/rest/testOccurrences", query(
+                "locator", "build:(id:" + chainBuildId + "),name:(value:.*(" + String.join("|", simpleNames)
+                    + ").*,matchType:matches),count:" + count,
+                "fields", "testOccurrence(id,name,status,duration,test(id),build(id,buildTypeId,buildType(name)))")),
+                TcModel.TestOccurrences.class);
+
+            return Optional.of(occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence());
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 400)
+                throw e;
+
+            classRunsLookup = false;
+            log.warn("TeamCity rejected the lookup of a PR's test classes in its RunAll ({}); the PR's own tests are "
+                + "not shown", e.getStatusText());
+
+            return Optional.empty();
+        }
     }
 
     /** Failure details (message/stack trace) of a single test occurrence, or null. */
