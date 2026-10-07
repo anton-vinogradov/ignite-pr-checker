@@ -155,9 +155,11 @@ fi
 
 release="$(curl -fsSL -m 30 -H 'Accept: application/vnd.github+json' \
     "https://api.github.com/repos/$REPO/releases/tags/v$version")" || fail "GitHub did not describe release v$version"
-expected="$(printf '%s' "$release" | tr -d '\n' \
-    | grep -oE '"name": *"ignite-pr-checker\.jar"([^{}]|\{[^{}]*\})*"digest": *"sha256:[0-9a-f]{64}"' \
-    | grep -oE '[0-9a-f]{64}' | head -n 1)"
+# The digest that follows the jar's "name" before the next asset's: no JSON parser on a bare host, and the strings may
+# hold braces (the uploader's "following{/other_user}"), so the keys are read in order instead of skipping objects.
+expected="$(printf '%s' "$release" \
+    | grep -oE '"name": *"[^"]*"|"digest": *(null|"sha256:[0-9a-f]{64}")' \
+    | awk '/^"name"/ { jar = /"ignite-pr-checker\.jar"$/; next } jar && /sha256:/ { sub(/.*sha256:/, ""); sub(/"$/, ""); print; exit }')"
 [ -n "$expected" ] || fail "release v$version lists no sha256 for ignite-pr-checker.jar"
 
 # curl writes into an existing file, keeping its owner: the jar must land in a new one.

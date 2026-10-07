@@ -108,6 +108,24 @@ class UpdateScriptTest {
             """.replace("VERSION", version).replace("DIGEST", digest == null ? "null" : "\"sha256:" + digest + "\""));
     }
 
+    /**
+     * GitHub's real description of v1.22.0, whose uploader object holds URL templates with braces
+     * ("following{/other_user}"). The digest was read past nested objects without braces only, so on prod every update
+     * failed with "lists no sha256", while the stub releases above passed.
+     */
+    @Test
+    void theDigestIsFoundInGithubsOwnDescriptionOfARelease() throws Exception {
+        String real = Files.readString(Path.of("src/test/resources/update/release-v1.22.0.json"));
+        String jar = "jar of v1.22.0";
+        Files.writeString(stubs.resolve("jar-v1.22.0"), jar);
+        Files.writeString(stubs.resolve("release-v1.22.0.json"),
+            real.replaceAll("sha256:[0-9a-f]{64}", "sha256:" + sha256(jar)));
+
+        assertThat(run("1.22.0")).isZero();
+
+        assertThat(app.resolve("app.jar")).hasContent(jar);
+    }
+
     private static String sha256(String content) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content.getBytes(UTF_8)));
     }
