@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -152,10 +153,7 @@ public class ChainCollector {
                 .<Callable<SuiteResult>>map(dep -> () -> suiteResultOf(token, dep, masterCounts))
                 .toList();
             for (SuiteResult r : Parallel.run(pool, rTasks)) {
-                if (r.broken() != null && broken.stream().noneMatch(b -> b.suiteBuildId() == r.broken().suiteBuildId()))
-                    broken.add(r.broken());
-                if (r.unstable() != null && unstable.stream().noneMatch(u -> u.suiteBuildId() == r.unstable().suiteBuildId()))
-                    unstable.add(r.unstable());
+                supersede(broken, unstable, r);
                 noteFullRun(fullRuns, r, masterCounts);
                 for (FailedTest ft : r.tests())
                     if (seen.add(new Candidate(ft.testId(), ft.suite())))
@@ -165,10 +163,7 @@ public class ChainCollector {
 
         List<Callable<SuiteResult>> reruns = singleSuiteReruns(token, prNumber, build, newerChainSuites, masterCounts);
         for (SuiteResult r : Parallel.run(pool, reruns)) {
-            if (r.broken() != null)
-                supersede(broken, r.broken());
-            if (r.unstable() != null)
-                supersede(unstable, r.unstable());
+            supersede(broken, unstable, r);
             noteFullRun(fullRuns, r, masterCounts);
             for (FailedTest ft : r.tests())
                 if (seen.add(new Candidate(ft.testId(), ft.suite())))
@@ -204,7 +199,7 @@ public class ChainCollector {
         // they never ran, so the verdict is partial — surface that instead of implying they were clean.
         List<CancelledSuite> cancelled = depBuilds(build).stream()
             .filter(d -> d.status() != null && !"SUCCESS".equals(d.status()) && !"FAILURE".equals(d.status()))
-            .map(ChainCollector::cancelledSuite)
+            .map(d -> cancelledSuite(d, masterCounts))
             .toList();
         // The chain itself failed with suites left unrun, OR the whole chain was cancelled (UNKNOWN)
         // — in both cases the suites that did run still counted, but the verdict is partial.
@@ -222,13 +217,14 @@ public class ChainCollector {
         return "finished".equalsIgnoreCase(dep.state()) && ("SUCCESS".equals(dep.status()) || "FAILURE".equals(dep.status()));
     }
 
-    private static CancelledSuite cancelledSuite(TcModel.Build dep) {
+    private static CancelledSuite cancelledSuite(TcModel.Build dep, Map<String, Integer> masterCounts) {
         TcModel.CanceledInfo info = dep.canceledInfo();
         String by = info == null || info.user() == null ? null : info.user().username();
 
         return new CancelledSuite(dep.buildTypeId(), dep.id(),
             dep.buildType() != null && dep.buildType().name() != null ? dep.buildType().name() : dep.buildTypeId(),
-            info == null ? null : info.text(), by, info != null && by == null);
+            info == null ? null : info.text(), by, info != null && by == null,
+            masterCounts.getOrDefault(dep.buildTypeId(), 0));
     }
 
     /**
@@ -269,14 +265,20 @@ public class ChainCollector {
     }
 
     /**
-     * Records a re-run's broken (or unstable) result so that a suite keeps one entry, its newest such run:
-     * a suite re-run because it broke and broken again is one broken suite (the count reaches the visa),
-     * and the newest run is the one its problems and link must describe.
+     * Records a newer run's broken (or unstable) result so that a suite keeps one entry across both lists,
+     * its newest such run: a suite re-run because it broke and broken again is one broken suite (the count
+     * reaches the visa), and the newest run is the one its problems and link must describe. A crash note
+     * goes too: a suite whose re-run timed out is broken by that run, not also a note that its results stand.
      */
-    private static void supersede(List<BrokenSuite> entries, BrokenSuite rerun) {
-        entries.removeIf(b -> rerun.suite().equals(b.suite()) && b.suiteBuildId() < rerun.suiteBuildId());
-        if (entries.stream().noneMatch(b -> rerun.suite().equals(b.suite())))
-            entries.add(rerun);
+    private static void supersede(List<BrokenSuite> broken, List<BrokenSuite> unstable, SuiteResult r) {
+        BrokenSuite entry = r.broken() != null ? r.broken() : r.unstable();
+        if (entry == null || Stream.concat(broken.stream(), unstable.stream())
+            .anyMatch(b -> entry.suite().equals(b.suite()) && b.suiteBuildId() >= entry.suiteBuildId()))
+            return;
+
+        broken.removeIf(b -> entry.suite().equals(b.suite()));
+        unstable.removeIf(u -> entry.suite().equals(u.suite()));
+        (r.broken() != null ? broken : unstable).add(entry);
     }
 
     /**
@@ -347,9 +349,9 @@ public class ChainCollector {
         // A suite that timed out / ran out of memory / crashed usually didn't finish: its failed tests are
         // likely cascade noise and some tests never ran. Show it as a broken suite, don't mine it for
         // blockers (the same reasoning as an interrupted chain, at suite granularity). One that still ran
-        // all of master's tests did finish them, and its failures are as real as any suite's: hidden, a
-        // known flake in Snapshots 6 held PR 13644 on "not proven" and in re-run waves. Whether such a
-        // suite is broken waits for its tests' verdicts.
+        // nearly all of master's tests, within the 10% any full run may miss, did run them, and its failures
+        // are as real as any suite's: hidden, a known flake in Snapshots 6 held PR 13644 on "not proven" and
+        // in re-run waves. Whether such a suite is broken waits for its tests' verdicts.
         // A suite still running has failures worth showing but no final story: its tests are collected,
         // and it is never called broken — "failed without running tests" would be a lie about a suite
         // that simply hasn't got there yet.
@@ -400,7 +402,7 @@ public class ChainCollector {
 
     /**
      * One FAILURE suite run's outcome: its failed tests, or (when there are none) why it broke. {@code unstable}
-     * is the problem of a suite that crashed after running all its tests: broken only if its failures are
+     * is the problem of a suite that crashed after running nearly all its tests: broken only if its failures are
      * not all explained without the PR.
      */
     private record SuiteResult(TcModel.Build run, List<FailedTest> tests, BrokenSuite broken, BrokenSuite unstable) {
@@ -426,7 +428,7 @@ public class ChainCollector {
 
     /**
      * A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused.
-     * {@code unstableSuites} crashed after running all their tests: their failed tests are among the
+     * {@code unstableSuites} crashed after running nearly all their tests: their failed tests are among the
      * candidates, and the analysis decides whether each suite counts as broken. {@code cancelledSuites}
      * are the chain's suites that never ran, as the chain left them.
      */

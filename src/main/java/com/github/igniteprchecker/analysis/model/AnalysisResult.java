@@ -41,7 +41,7 @@ public record AnalysisResult(
      */
     long branchWatermarkAt,
     /**
-     * Suites that hit a timeout, an out-of-memory error or a JVM crash, yet ran all of master's tests, and
+     * Suites that hit a timeout, an out-of-memory error or a JVM crash, yet ran over 90% of master's tests, and
      * failed only tests that are pre-existing or flaky: their results stand, so the problem is a note,
      * not a broken suite.
      */

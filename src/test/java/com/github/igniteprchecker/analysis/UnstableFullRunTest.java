@@ -16,6 +16,9 @@ import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,12 +26,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * PR 13644, Snapshots 6: the suite ran all 233 of master's tests, failed one and then hit a JVM crash.
  * The crash made it a broken suite whose failed test was never asked for, so the page said "JVM crash"
  * without naming the test, a flake master shares held the PR on "not proven", and the suite went into
- * every re-run wave. A suite that crashed after running all its tests has its failures classified.
+ * every re-run wave. A suite that crashed after running nearly all its tests has its failures classified.
  */
 class UnstableFullRunTest {
     private static final String TOK = "t";
@@ -40,6 +45,8 @@ class UnstableFullRunTest {
     private static final String SNAPSHOTS6 = "IgniteTests24Java8_Snapshots6";
 
     private static final long SNAPSHOTS6_RUN = 9391066L;
+
+    private static final long RERUN = 9391500L;
 
     private static final long TEST = 4242L;
 
@@ -80,6 +87,25 @@ class UnstableFullRunTest {
         assertThat(Caveats.proven(r)).as("every test ran, and nothing it failed is this PR's").isTrue();
     }
 
+    /**
+     * 215 of master's 233 tests ran before the crash, as many as any run that counts as full: a note, and the
+     * page says how much ran rather than "every test".
+     */
+    @Test
+    void aCrashNearTheEndIsANoteThatSaysHowMuchRan() throws IOException {
+        chainWith(snapshots6(215, "TC_JVM_CRASH"), 233);
+        testFails();
+        when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS6)).thenReturn(master(12, 100));
+
+        AnalysisResult r = analyze();
+
+        assertThat(r.unstableSuites()).extracting(BrokenSuite::tests, BrokenSuite::baseline)
+            .containsExactly(tuple(215, 233));
+        String page = Files.readString(Path.of("src/main/resources/static/index.html"));
+        assertThat(page.substring(page.indexOf("id=\"unstableCard\""), page.indexOf("id=\"unstableSuites\"")))
+            .contains("over 90% of").doesNotContain("every test", "all of");
+    }
+
     /** The PR may be what crashed the JVM: a suite with a blocker of its own stays broken. */
     @Test
     void aCrashedSuiteWithABlockerStaysBroken() {
@@ -90,6 +116,20 @@ class UnstableFullRunTest {
         AnalysisResult r = analyze();
 
         assertThat(r.blockers()).extracting(TestVerdict::name).containsExactly(NAME);
+        assertThat(r.brokenSuites()).extracting(BrokenSuite::suite).containsExactly(SNAPSHOTS6);
+        assertThat(r.unstableSuites()).isEmpty();
+    }
+
+    /** TeamCity failed to answer for the one test it failed: the PR may still be behind the crash. */
+    @Test
+    void aCrashedSuiteWhoseFailureCouldNotBeCheckedStaysBroken() {
+        chainWith(snapshots6(233, "TC_JVM_CRASH"), 233);
+        testFails();
+        when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS6)).thenThrow(new IllegalStateException("502 Bad Gateway"));
+
+        AnalysisResult r = analyze();
+
+        assertThat(r.unverified()).extracting(TestVerdict::name).containsExactly(NAME);
         assertThat(r.brokenSuites()).extracting(BrokenSuite::suite).containsExactly(SNAPSHOTS6);
         assertThat(r.unstableSuites()).isEmpty();
     }
@@ -125,6 +165,25 @@ class UnstableFullRunTest {
 
         assertThat(chain.brokenSuites()).extracting(BrokenSuite::suite).containsExactly(SNAPSHOTS6);
         assertThat(chain.unstableSuites()).isEmpty();
+    }
+
+    /**
+     * The re-run of the crashed suite timed out after 33 tests: the suite is broken by that newest run, and
+     * listed once. Its crash note, saying the results stand, went with it, whatever the failed test was.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {0, 12})
+    void aRerunThatBrokeReplacesTheCrashNoteOfTheFullRun(int masterFails) {
+        chainWith(snapshots6(233, "TC_JVM_CRASH"), 233);
+        testFails();
+        when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS6)).thenReturn(master(masterFails, 100));
+        when(tc.failedBuildsSince(TOK, PR, null)).thenReturn(List.of(snapshots6(RERUN, 33, "TC_EXECUTION_TIMEOUT")));
+
+        AnalysisResult r = analyze();
+
+        assertThat(r.brokenSuites()).extracting(BrokenSuite::suite, BrokenSuite::suiteBuildId)
+            .containsExactly(tuple(SNAPSHOTS6, RERUN));
+        assertThat(r.unstableSuites()).isEmpty();
     }
 
     private ChainCollector.Chain collect() {
@@ -173,7 +232,11 @@ class UnstableFullRunTest {
     }
 
     private static TcModel.Build snapshots6(int tests, String problem) {
-        return new TcModel.Build(SNAPSHOTS6_RUN, "FAILURE", "finished", "pull/" + PR + "/head", SNAPSHOTS6, null, null,
+        return snapshots6(SNAPSHOTS6_RUN, tests, problem);
+    }
+
+    private static TcModel.Build snapshots6(long id, int tests, String problem) {
+        return new TcModel.Build(id, "FAILURE", "finished", "pull/" + PR + "/head", SNAPSHOTS6, null, null,
             null, null, null, null, new TcModel.BuildType(SNAPSHOTS6, "Snapshots 6"), null, null, null,
             new TcModel.ProblemOccurrences(List.of(new TcModel.ProblemOccurrence(problem, null))), null,
             new TcModel.TestOccurrences(tests, List.of()));

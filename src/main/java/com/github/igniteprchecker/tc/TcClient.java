@@ -197,15 +197,17 @@ public class TcClient {
 
     /**
      * The PR branch's finished, not cancelled builds of any kind that started since the given TeamCity time,
-     * or the newest ones when it is null: what may have run a suite a chain left unrun since. One call
-     * for all its suites; a chain and its re-runs fit well within the count.
+     * or the newest ones when it is null, with their test counts: what may have run a suite a chain left
+     * unrun since, and whether it ran in full. One call for all its suites; a chain and its re-runs fit well
+     * within the count.
      */
     public List<TcModel.Build> finishedBuildsSince(String token, int prNumber, String since) {
         String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:false"
             + (since == null ? "" : ",sinceDate:" + since) + ",count:1000";
 
         TcModel.BuildList list = get("branchRuns", token, url("app/rest/builds", query(
-            "locator", locator, "fields", "build(id,buildTypeId,status)")), TcModel.BuildList.class);
+            "locator", locator, "fields", "build(id,buildTypeId,status,testOccurrences(count))")),
+            TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }

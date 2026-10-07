@@ -73,6 +73,18 @@ class BrokenSuiteRerunTest {
         assertThat(collect().brokenSuites()).isEmpty();
     }
 
+    /** A suite that broke again in a newer chain is one broken suite, described by its newest run. */
+    @Test
+    void aSuiteThatBrokeAgainInANewerChainIsListedOnce() {
+        chainWithTheTimeout();
+        when(tc.recentChains(TOK, PR, 3)).thenReturn(List.of(chainBuild(9260000L, List.of())));
+        when(tc.getBuildWithDeps(TOK, 9260000L)).thenReturn(chainBuild(9260000L,
+            List.of(withProblem(failover5(9260050L, "FAILURE", 20), "TC_EXECUTION_TIMEOUT"))));
+
+        assertThat(collect().brokenSuites()).extracting(BrokenSuite::suite, BrokenSuite::suiteBuildId)
+            .containsExactly(tuple(FAILOVER5, 9260050L));
+    }
+
     @Test
     void aRerunThatAlsoRanShortLeavesTheSuiteBroken() {
         chainWithTheTimeout();

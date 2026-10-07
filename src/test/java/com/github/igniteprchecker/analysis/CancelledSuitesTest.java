@@ -14,7 +14,9 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -60,38 +62,43 @@ class CancelledSuitesTest {
     @Test
     void theChainTellsWhichSuitesWereCancelledAndByWhom() throws IOException {
         List<String> fields = new CopyOnWriteArrayList<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        server.createContext("/app/rest/builds", ex -> {
-            boolean chain = ex.getRequestURI().getPath().endsWith("/id:" + CHAIN);
-            if (chain)
-                fields.add(param(ex.getRequestURI().getRawQuery(), "fields"));
-            byte[] body = (chain ? CHAIN_JSON : "{\"build\":[]}").getBytes(UTF_8);
-            ex.getResponseHeaders().add("Content-Type", "application/json");
-            ex.sendResponseHeaders(200, body.length);
-            ex.getResponseBody().write(body);
-            ex.close();
-        });
-        server.start();
+        HttpServer server = serve("/id:" + CHAIN, CHAIN_JSON, fields);
         try {
-            TcClient client = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
-                + server.getAddress().getPort() + "/"), new AnalysisProperties(null, "RunAll", null, null, null, null,
-                null), new Metrics(new ObjectMapper()));
             SuiteBaseline baseline = mock(SuiteBaseline.class);
-            when(baseline.counts(anyString())).thenReturn(Map.of());
+            when(baseline.counts(anyString())).thenReturn(Map.of("IgniteTests24Java8_Cache1", 300));
 
-            ChainCollector.Chain chain = new ChainCollector(client, baseline)
+            ChainCollector.Chain chain = new ChainCollector(client(server), baseline)
                 .collectForBuild(TOK, PR, CHAIN, Executors.newSingleThreadExecutor());
 
             assertThat(fields).singleElement().asString().contains("canceledInfo(text,user(username))");
             assertThat(chain.cancelledSuites())
                 .extracting(CancelledSuite::suite, CancelledSuite::suiteName, CancelledSuite::reason,
-                    CancelledSuite::cancelledBy, CancelledSuite::byTeamCity)
+                    CancelledSuite::cancelledBy, CancelledSuite::byTeamCity, CancelledSuite::baseline)
                 .containsExactly(
-                    tuple("IgniteTests24Java8_Cache1", "Cache 1", "Build revision not found", null, true),
-                    tuple("IgniteTests24Java8_Cache2", "Cache 2", "Stopped: wrong agent", "avinogradov", false),
-                    tuple("IgniteTests24Java8_Cache3", "Cache 3", null, null, false));
+                    tuple("IgniteTests24Java8_Cache1", "Cache 1", "Build revision not found", null, true, 300),
+                    tuple("IgniteTests24Java8_Cache2", "Cache 2", "Stopped: wrong agent", "avinogradov", false, 0),
+                    tuple("IgniteTests24Java8_Cache3", "Cache 3", null, null, false, 0));
             assertThat(chain.canceledSuites()).isEqualTo(3);
             assertThat(chain.interrupted()).isTrue();
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    /** Whether a run that closes a cancelled suite ran it in full takes its test count, asked in the same call. */
+    @Test
+    void theRunsSinceTheChainComeWithTheirTestCounts() throws IOException {
+        List<String> fields = new CopyOnWriteArrayList<>();
+        HttpServer server = serve("/app/rest/builds", """
+            {"build":[{"id":9392500,"buildTypeId":"IgniteTests24Java8_Cache1","status":"SUCCESS",
+             "testOccurrences":{"count":30}}]}
+            """, fields);
+        try {
+            List<TcModel.Build> runs = client(server).finishedBuildsSince(TOK, PR, CHAIN_QUEUED);
+
+            assertThat(fields).singleElement().asString().contains("testOccurrences(count)");
+            assertThat(runs).extracting(b -> b.testOccurrences().count()).containsExactly(30);
         }
         finally {
             server.stop(0);
@@ -121,9 +128,9 @@ class CancelledSuitesTest {
     @Test
     void aRerunOfACancelledSuiteTakesItOffTheList() {
         when(tc.finishedBuildsSince(TOK, PR, TcDates.format(TcDates.epochSeconds(CHAIN_QUEUED)))).thenReturn(List.of(
-            run(9392500L, CANCELLED.get(0), "SUCCESS"),
-            run(9392501L, CANCELLED.get(1), "FAILURE"),
-            run(9391990L, CANCELLED.get(2), "SUCCESS"))); // older than the chain's own cancelled run of it
+            run(9392500L, CANCELLED.get(0), "SUCCESS", 300),
+            run(9392501L, CANCELLED.get(1), "FAILURE", 300),
+            run(9391990L, CANCELLED.get(2), "SUCCESS", 300))); // older than the chain's own cancelled run of it
 
         AnalysisResult r = analyze();
 
@@ -133,11 +140,38 @@ class CancelledSuitesTest {
         assertThat(r.interrupted()).isTrue();
     }
 
+    /** TeamCity cancelled Cache 1 (300 tests on master); its green re-run ran 30 of them. */
+    @Test
+    void aShortRerunOfACancelledSuiteLeavesAShrunkSuite() {
+        when(tc.finishedBuildsSince(eq(TOK), eq(PR), anyString())).thenReturn(List.of(
+            run(9392500L, CANCELLED.get(0), "SUCCESS", 30)));
+
+        AnalysisResult r = analyze();
+
+        assertThat(r.cancelledSuites()).extracting(CancelledSuite::suite).doesNotContain(CANCELLED.get(0));
+        assertThat(r.shrunkSuites())
+            .extracting(ShrunkSuite::suite, ShrunkSuite::suiteBuildId, ShrunkSuite::tests, ShrunkSuite::baseline)
+            .containsExactly(tuple(CANCELLED.get(0), 9392500L, 30, 300));
+    }
+
+    /** A re-run that broke is a broken suite: the tests it never got to are that break's doing, not a shrink. */
+    @Test
+    void aRerunThatBrokeIsABrokenSuiteNotAShrunkOne() {
+        when(tc.finishedBuildsSince(eq(TOK), eq(PR), anyString())).thenReturn(List.of(
+            run(9392500L, CANCELLED.get(0), "FAILURE", 0)));
+
+        AnalysisResult r = analyze(List.of(new BrokenSuite(CANCELLED.get(0), 9392500L, "Cache 1",
+            List.of("compilation error"), 0, 300)));
+
+        assertThat(r.brokenSuites()).extracting(BrokenSuite::suiteBuildId).containsExactly(9392500L);
+        assertThat(r.shrunkSuites()).isEmpty();
+    }
+
     @Test
     void onceEveryCancelledSuiteRanTheRunCoversThePr() {
         List<TcModel.Build> reruns = new ArrayList<>();
         for (int i = 0; i < CANCELLED.size(); i++)
-            reruns.add(run(9392500L + i, CANCELLED.get(i), "SUCCESS"));
+            reruns.add(run(9392500L + i, CANCELLED.get(i), "SUCCESS", 300));
         when(tc.finishedBuildsSince(eq(TOK), eq(PR), anyString())).thenReturn(reruns);
 
         AnalysisResult r = analyze();
@@ -151,7 +185,10 @@ class CancelledSuitesTest {
     void whenTeamCityCannotSayTheCancelledSuitesStay() {
         when(tc.finishedBuildsSince(eq(TOK), eq(PR), anyString())).thenThrow(new IllegalStateException("502"));
 
-        assertThat(analyze().cancelledSuites()).hasSize(4);
+        AnalysisResult r = analyze();
+
+        assertThat(r.cancelledSuites()).hasSize(4);
+        assertThat(r.incompleteSince()).as("retried like any result TeamCity errors left incomplete").isPositive();
     }
 
     @Test
@@ -167,14 +204,19 @@ class CancelledSuitesTest {
     }
 
     private AnalysisResult analyze() {
+        return analyze(List.of());
+    }
+
+    /** The four cancelled suites, each run 300 times on master, and {@code broken}, as the chain left them. */
+    private AnalysisResult analyze(List<BrokenSuite> broken) {
         List<CancelledSuite> cancelled = new ArrayList<>();
         for (int i = 0; i < CANCELLED.size(); i++)
             cancelled.add(new CancelledSuite(CANCELLED.get(i), 9392010L + i, CANCELLED.get(i), "Build revision not found",
-                null, true));
+                null, true, 300));
         ChainCollector chains = mock(ChainCollector.class);
         when(chains.findBuildId(TOK, PR)).thenReturn(Optional.of(CHAIN));
         when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(new ChainCollector.Chain(CHAIN,
-            "pull/13592/head", List.of(), List.of(), List.of(), 146, 0, true, 4, false, 0,
+            "pull/13592/head", List.of(), broken, List.of(), 146, 0, true, 4, false, 0,
             TcDates.epochSeconds(CHAIN_QUEUED), 0, 0, List.of(), cancelled));
 
         return analyzer(chains).analyze(TOK, PR).orElseThrow();
@@ -200,9 +242,33 @@ class CancelledSuitesTest {
             "UNKNOWN".equals(status) ? new TcModel.CanceledInfo("Canceled", new TcModel.User(cancelledBy)) : null);
     }
 
-    private static TcModel.Build run(long id, String suite, String status) {
+    private static TcModel.Build run(long id, String suite, String status, int tests) {
         return new TcModel.Build(id, status, "finished", "pull/13592/head", suite, null, null, null, null, null, null,
-            null, null, null, null, null, null, null);
+            null, null, null, null, null, null, new TcModel.TestOccurrences(tests, List.of()));
+    }
+
+    /** A stand-in for ci2: answers {@code path} with {@code json} and records the fields asked for. */
+    private static HttpServer serve(String path, String json, List<String> fields) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/app/rest/builds", ex -> {
+            boolean asked = ex.getRequestURI().getPath().endsWith(path);
+            if (asked)
+                fields.add(param(ex.getRequestURI().getRawQuery(), "fields"));
+            byte[] body = (asked ? json : "{\"build\":[]}").getBytes(UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        server.start();
+
+        return server;
+    }
+
+    private static TcClient client(HttpServer server) {
+        return new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
+            + server.getAddress().getPort() + "/"),
+            new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
     }
 
     private static String param(String rawQuery, String name) {

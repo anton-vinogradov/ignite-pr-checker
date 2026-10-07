@@ -450,7 +450,7 @@ public class BlockerAnalyzer {
         List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
 
-        // A suite that crashed after running all its tests is broken only if the PR may be behind the crash:
+        // A suite that crashed after running nearly all its tests is broken only if the PR may be behind the crash:
         // when every test it failed is pre-existing or flaky, the crash is a note next to a reliable result.
         Set<String> blamed = Stream.of(blockers, watch, unverified).flatMap(List::stream).map(TestVerdict::suite)
             .collect(Collectors.toSet());
@@ -461,9 +461,9 @@ public class BlockerAnalyzer {
 
         List<ShrunkSuite> shortReruns = new ArrayList<>();
         List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken, shortReruns, failedLookups);
+        List<CancelledSuite> cancelled = notRunSince(token, prNumber, chain, broken, shortReruns, failedLookups);
         List<ShrunkSuite> shrunk = newestPerSuite(
             withFullRunsDropped(token, prNumber, chain.shrunkSuites(), failedLookups), shortReruns);
-        List<CancelledSuite> cancelled = notRunSince(token, prNumber, chain, failedLookups);
 
         long now = System.currentTimeMillis();
         long incompleteSince = failedLookups.count() == 0 ? 0 : cache.peekResult(buildId)
@@ -555,24 +555,39 @@ public class BlockerAnalyzer {
      * The chain's cancelled suites that have not run since. Any later finished run of the suite on the
      * branch, a re-run or a newer chain's, closes one: that run's own result counts instead. Without this a
      * re-run never lifted "N suite(s) never ran", and PR 13592 kept it for the four suites TeamCity had
-     * cancelled. One request for all of them, and none when nothing was cancelled. Kept on any doubt.
+     * cancelled. A closing run that ran far fewer tests than master and did not break goes to
+     * {@code shortReruns}, as a short re-run of a broken suite does: a green run of 30 of Cache 1's 300 tests
+     * must not read as covering it. One request for all of them, and none when nothing was cancelled. Kept
+     * on any doubt.
      */
     private List<CancelledSuite> notRunSince(String token, int prNumber, ChainCollector.Chain chain,
-        FailedLookups failedLookups) {
+        List<BrokenSuite> broken, List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
         if (chain.cancelledSuites().isEmpty())
             return chain.cancelledSuites();
 
         try {
-            Map<String, Long> newestRuns = new HashMap<>();
+            Map<String, TcModel.Build> newestRuns = new HashMap<>();
             for (TcModel.Build b : tc.finishedBuildsSince(token, prNumber,
                 chain.queuedAt() > 0 ? TcDates.format(chain.queuedAt()) : null)) {
                 if (b.buildTypeId() != null)
-                    newestRuns.merge(b.buildTypeId(), b.id(), Math::max);
+                    newestRuns.merge(b.buildTypeId(), b, (x, y) -> x.id() >= y.id() ? x : y);
             }
 
-            return chain.cancelledSuites().stream()
-                .filter(c -> newestRuns.getOrDefault(c.suite(), 0L) < c.suiteBuildId())
-                .toList();
+            List<CancelledSuite> open = new ArrayList<>();
+            for (CancelledSuite c : chain.cancelledSuites()) {
+                TcModel.Build run = newestRuns.get(c.suite());
+                if (run == null || run.id() < c.suiteBuildId()) {
+                    open.add(c);
+                    continue;
+                }
+
+                int tests = run.testOccurrences() == null ? 0 : run.testOccurrences().count();
+                boolean brokeSince = broken.stream().anyMatch(b -> b.suite().equals(c.suite()));
+                if (!brokeSince && !ChainCollector.isFullRun(tests, c.baseline()))
+                    shortReruns.add(ChainCollector.shrunk(c.suite(), c.suiteName(), run.id(), tests, c.baseline()));
+            }
+
+            return open;
         }
         catch (RuntimeException e) {
             failedLookups.add("runs since the chain", e);
@@ -899,9 +914,10 @@ public class BlockerAnalyzer {
      * The VCS revision a run was made on: from the occurrence itself when TeamCity inlined it, else one
      * request for the build (cached and shared — a build's revision never changes). Null when TeamCity
      * has none, which is the only case where two runs may not be compared as same-or-different code.
-     * A TeamCity error is deliberately not caught: {@link #classify} turns it into an unverified
-     * blocker, the fail-safe side, whereas swallowing it would silently restore the revision-blind
-     * window and the green visa this whole path exists to prevent.
+     * A TeamCity error is deliberately not caught: {@link #classify} then leaves the test unchecked, and
+     * a verdict with unchecked tests never reads green and is held back while it is retried (see
+     * {@link Caveats} and {@link #stillRetrying}). Swallowed here, the error would silently restore the
+     * revision-blind window and the green visa this whole path exists to prevent.
      */
     private String revisionOf(String token, TcModel.TestOccurrence run) {
         if (run == null || run.build() == null)

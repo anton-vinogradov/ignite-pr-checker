@@ -228,14 +228,17 @@ class OtherPrBranchesTest {
         verify(tc, times(1)).otherBranchRuns(TOK, TEST, SNAPSHOTS);
     }
 
-    /** Other PRs only ever override master; when TeamCity can't say, master's verdict stands. */
+    /** Other PRs only ever override master; when TeamCity can't say, master's verdict stands and is retried. */
     @Test
     void aTeamCityErrorAboutOtherPrsLeavesMastersVerdict() {
         failing(PR, "F", master(101, 0, "1.0"));
         when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenThrow(new IllegalStateException("ci2 timeout"));
 
-        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).reason())
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(only(r.blockers()).reason())
             .isEqualTo("not seen failing in 101 master run(s) on JDK 17; failed the only run on this branch");
+        assertThat(r.incompleteSince()).isPositive();
     }
 
     /** Wires a chain of {@code pr} failing the test, with these branch runs on {@link #HEAD}, JDK 17 and scale 0.1. */

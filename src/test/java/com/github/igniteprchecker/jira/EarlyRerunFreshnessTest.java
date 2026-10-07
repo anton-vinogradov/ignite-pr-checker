@@ -83,6 +83,25 @@ class EarlyRerunFreshnessTest {
         verify(tc).triggerBuildReplacingQueued(anyString(), eq(QUERIES5), eq(PR), eq(true), anyString());
     }
 
+    /**
+     * TeamCity failed to answer for the test Queries 5 failed: the cached verdict saw the failure all the same,
+     * and recomputing the whole PR in the middle of TeamCity's trouble would only re-run nothing again.
+     */
+    @Test
+    void aCachedVerdictThatCouldNotCheckTheFailureIsUsedAsIs() {
+        TestVerdict unchecked = new TestVerdict(5L, "DynamicEnableIndexingBasicSelfTest.testEnableDynamicIndexing",
+            QUERIES5, QUERIES5_RUN, "Queries 5", "o5", false, false,
+            "could not verify (TeamCity error: 502 Bad Gateway)", "", 0);
+        when(analyzer.analyze(anyString(), eq(PR))).thenReturn(Optional.of(new AnalysisResult(PR, CHAIN,
+            "pull/13335/head", 0, List.of(), List.of(), List.of(), List.of(), List.of(), 140, 0, false, 0, true, CHAIN,
+            0, 0, 0, 0, List.of(), List.of(), List.of(unchecked), System.currentTimeMillis())));
+
+        standing.earlyRerun(queries5Failed);
+
+        verify(analyzer, never()).analyzeAfterNow(anyString(), eq(PR));
+        verify(tc, never()).triggerBuildReplacingQueued(anyString(), anyString(), eq(PR), anyBoolean(), anyString());
+    }
+
     @Test
     void aFreshVerdictThatFindsOnlyMasterNoiseStillRerunsNothing() {
         when(analyzer.analyze(anyString(), eq(PR))).thenReturn(Optional.of(verdict()));

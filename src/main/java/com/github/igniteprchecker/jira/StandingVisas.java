@@ -504,9 +504,9 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** Whether the analysis has looked at this suite build: something in it is anchored there. */
+    /** Whether the analysis has looked at this suite build: something in it is anchored there, checked or not. */
     private static boolean sawRun(AnalysisResult r, long suiteBuildId) {
-        return java.util.stream.Stream.of(r.blockers(), r.watch(), r.filtered())
+        return java.util.stream.Stream.of(r.blockers(), r.watch(), r.filtered(), r.unverified())
             .flatMap(List::stream).anyMatch(v -> v.suiteBuildId() == suiteBuildId)
             || r.brokenSuites().stream().anyMatch(b -> b.suiteBuildId() == suiteBuildId);
     }

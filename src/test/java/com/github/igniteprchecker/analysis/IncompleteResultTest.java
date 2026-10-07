@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
@@ -95,6 +96,23 @@ class IncompleteResultTest {
         assertThat(deltas.history(PR)).as("an unchecked test is not a fixed blocker").isEmpty();
     }
 
+    /**
+     * TeamCity failed to give the revision the same-code window needs: the tests are unchecked, and the verdict,
+     * left with no blockers, does not read green.
+     */
+    @Test
+    void aTestWhoseRevisionTeamCityFailedToGiveIsUncheckedAndTheVerdictNotGreen() {
+        when(tc.getBaseBranchHistory(TOK, UNLUCKY.testId(), CACHE1)).thenReturn(cleanMaster());
+        when(tc.buildRevision(TOK, 9391901L)).thenThrow(badGateway());
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.blockers()).isEmpty();
+        assertThat(r.unverified()).extracting(TestVerdict::name)
+            .containsExactlyInAnyOrder(UNLUCKY.name(), BROKE.name());
+        assertThat(Caveats.proven(r)).isFalse();
+    }
+
     @Test
     void theFirstFailureIsLoggedOncePerCompute() {
         when(tc.getBaseBranchHistory(TOK, UNLUCKY.testId(), CACHE1)).thenThrow(badGateway());
@@ -124,6 +142,20 @@ class IncompleteResultTest {
         AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
 
         assertThat(r.brokenSuites()).extracting(BrokenSuite::suite).containsExactly(CACHE1);
+        assertThat(r.unverified()).isEmpty();
+        assertThat(r.incompleteSince()).isPositive();
+    }
+
+    /** A shrunk suite stays shrunk when TeamCity can't say whether it has run in full since; the result is retried. */
+    @Test
+    void aShrunkSuiteWhoseNewerRunsCouldNotBeReadMakesTheResultIncomplete() {
+        when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(chain(List.of(),
+            List.of(ChainCollector.shrunk(CACHE1, "Cache 1", 9391901L, 150, 300))));
+        when(tc.latestSuiteRun(TOK, PR, CACHE1)).thenThrow(badGateway());
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.shrunkSuites()).extracting(ShrunkSuite::suite).containsExactly(CACHE1);
         assertThat(r.unverified()).isEmpty();
         assertThat(r.incompleteSince()).isPositive();
     }
@@ -175,9 +207,13 @@ class IncompleteResultTest {
     }
 
     private static ChainCollector.Chain chain(List<BrokenSuite> broken) {
+        return chain(broken, List.of());
+    }
+
+    private static ChainCollector.Chain chain(List<BrokenSuite> broken, List<ShrunkSuite> shrunk) {
         long now = System.currentTimeMillis() / 1000;
 
-        return new ChainCollector.Chain(CHAIN, "pull/13654/head", List.of(UNLUCKY, BROKE), broken, List.of(), 140, 0,
+        return new ChainCollector.Chain(CHAIN, "pull/13654/head", List.of(UNLUCKY, BROKE), broken, shrunk, 140, 0,
             false, 0, false, 0, now - 4 * 3600, now - 4 * 3600, now - 3600);
     }
 

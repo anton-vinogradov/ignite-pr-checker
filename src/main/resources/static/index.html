@@ -531,9 +531,10 @@
                         <ul id="shrunkSuites" class="tests"></ul>
                     </div>
                     <div id="unstableCard" class="card hidden">
-                        <h2>Crashed after running every test <span id="unstableCount"></span></h2>
-                        <p class="muted">These suites hit a timeout, out-of-memory error or JVM crash, but only after running all of
-                            master's tests. Every test they failed is pre-existing or flaky (see Filtered out), so their results stand.</p>
+                        <h2>Crashed near the end of the run <span id="unstableCount"></span></h2>
+                        <p class="muted">These suites hit a timeout, out-of-memory error or JVM crash, but only after running over 90% of
+                            master's tests. Every test they failed is pre-existing or flaky (see Filtered out), so the results of the
+                            tests they ran stand.</p>
                         <ul id="unstableSuites" class="tests"></ul>
                     </div>
                     <div class="card blockers">
