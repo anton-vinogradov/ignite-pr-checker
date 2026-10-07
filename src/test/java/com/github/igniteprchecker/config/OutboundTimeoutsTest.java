@@ -75,7 +75,7 @@ class OutboundTimeoutsTest {
     private static String answerTo(Executable call) {
         ResourceAccessException e = assertThrows(ResourceAccessException.class, call);
 
-        return (String)((Map<?, ?>)new ApiExceptionHandler().noAnswer(e).getBody()).get("error");
+        return (String)((Map<?, ?>)new ApiExceptionHandler(null).noAnswer(e).getBody()).get("error");
     }
 
     @Test

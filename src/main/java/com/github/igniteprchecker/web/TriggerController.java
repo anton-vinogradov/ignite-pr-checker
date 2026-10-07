@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestClientResponseException;
 
 /** Triggers builds for a PR on TeamCity (using the logged-in user's token) and lists current runs. */
 @RestController
@@ -46,12 +45,7 @@ public class TriggerController {
     @PostMapping("/trigger")
     public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerRunAll(token, pr, top))))));
-        }
-        catch (RestClientResponseException e) {
-            return teamCityError(e);
-        }
+        return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerRunAll(token, pr, top))))));
     }
 
     /** Re-run only the suites that contain the current blockers. */
@@ -71,16 +65,11 @@ public class TriggerController {
         if (suites.isEmpty())
             return ResponseEntity.badRequest().body(Map.of("error", "no blocker suites to re-run"));
 
-        try {
-            List<Map<String, Object>> triggered = suites.stream()
-                .map(suite -> brief(track(pr, tc.triggerBuild(token, suite, pr, top))))
-                .toList();
+        List<Map<String, Object>> triggered = suites.stream()
+            .map(suite -> brief(track(pr, tc.triggerBuild(token, suite, pr, top))))
+            .toList();
 
-            return ResponseEntity.ok(Map.of("triggered", triggered));
-        }
-        catch (RestClientResponseException e) {
-            return teamCityError(e);
-        }
+        return ResponseEntity.ok(Map.of("triggered", triggered));
     }
 
     /** Re-run a set of suites (comma-separated buildTypeIds) — backs the per-section Rerun buttons. */
@@ -93,16 +82,11 @@ public class TriggerController {
         if (ids.isEmpty())
             return ResponseEntity.badRequest().body(Map.of("error", "no suites to re-run"));
 
-        try {
-            List<Map<String, Object>> triggered = ids.stream()
-                .map(suite -> brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))
-                .toList();
+        List<Map<String, Object>> triggered = ids.stream()
+            .map(suite -> brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))
+            .toList();
 
-            return ResponseEntity.ok(Map.of("triggered", triggered));
-        }
-        catch (RestClientResponseException e) {
-            return teamCityError(e);
-        }
+        return ResponseEntity.ok(Map.of("triggered", triggered));
     }
 
     /** Re-run a single suite (buildType) for the PR — backs the per-suite Rerun buttons. */
@@ -113,12 +97,7 @@ public class TriggerController {
         if (suite.isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
-        try {
-            return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))));
-        }
-        catch (RestClientResponseException e) {
-            return teamCityError(e);
-        }
+        return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))));
     }
 
     /** Tool-triggered builds that are still queued/running (public; feeds the live suite chips). */
@@ -187,12 +166,7 @@ public class TriggerController {
     @PostMapping("/cancel-all")
     public ResponseEntity<?> cancelAll(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        try {
-            return ResponseEntity.ok(Map.of("cancelled", tc.cancelUserBuilds(token, pr)));
-        }
-        catch (RestClientResponseException e) {
-            return teamCityError(e);
-        }
+        return ResponseEntity.ok(Map.of("cancelled", tc.cancelUserBuilds(token, pr)));
     }
 
     /** Registers a queued/running build with the rerun tracker, passing the build through. */
@@ -231,9 +205,5 @@ public class TriggerController {
             : started > 0 ? Math.max(0, now - started) : -1);
 
         return m;
-    }
-
-    private static ResponseEntity<?> teamCityError(RestClientResponseException e) {
-        return ResponseEntity.status(502).body(Map.of("error", "TeamCity rejected the request (" + e.getStatusCode() + ")"));
     }
 }

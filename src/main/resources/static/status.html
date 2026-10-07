@@ -21,10 +21,10 @@
         * { box-sizing: border-box; }
         body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; background: #fff; }
         a { color: var(--accent); }
-        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
-        .brand { font-weight: 600; }
+        .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 600; color: var(--fg); text-decoration: none; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
-        .topbar-right { display: flex; align-items: center; gap: 0.8rem; }
+        .topbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; }
         .wrap { max-width: 960px; margin: 1.2rem auto; padding: 0 1rem; }
         .muted { color: var(--muted); }
 
@@ -139,11 +139,16 @@
             .mini-btn::after { content: "]"; color: var(--muted); }
             .mini-btn:hover { text-decoration: underline; }
         }
+        @media (max-width: 768px) {
+            .topbar { padding: 0.5rem 0.75rem; }
+            .brand small { display: none; }
+            .wrap { padding: 0 0.75rem; }
+        }
     </style>
 </head>
 <body>
     <header class="topbar">
-        <div class="brand">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></div>
+        <a class="brand" href="/" title="Start page">Ignite PR Checker <small>service status</small><span id="healthDot" class="hdot" title="health"></span></a>
         <div class="topbar-right">
             <button id="reloadPill" class="pill reload-pill hidden" type="button"
                 title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>

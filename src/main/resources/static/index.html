@@ -22,7 +22,7 @@
         })();
     </script>
     <style>
-        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --sel: #eef4ff; --accent: #1565c0; }
+        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --sel: #eef4ff; --accent: #1565c0; --pane-bg: #fff; }
         * { box-sizing: border-box; }
         html, body { height: 100%; margin: 0; }
         body { font-family: system-ui, sans-serif; color: var(--fg); background: #fff; display: flex; flex-direction: column; }
@@ -35,10 +35,10 @@
         .hidden { display: none !important; }
         .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
-        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
-        .brand { font-weight: 600; }
+        .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 600; color: var(--fg); text-decoration: none; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.5rem; }
-        .topbar-right { display: flex; align-items: center; gap: 1rem; }
+        .topbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
         .status-link { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
         .status-link:hover { border-color: #c0c0c0; }
         .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
@@ -69,13 +69,21 @@
         #token { flex: 1; min-width: 0; }
         .login-create { white-space: nowrap; }
         .err { color: var(--bad); font-size: 0.9rem; }
+        .err:not(:empty) { margin-top: 0.4rem; }
+        .login-pr { margin: 0 0 1.1rem; padding: 0.7rem 0.9rem; border-left: 3px solid var(--accent); background: var(--sel); border-radius: 0 6px 6px 0; }
+        .login-pr p { margin: 0; }
+        .login-pr p + p { margin-top: 0.35rem; }
+        .login-pr-head { font-weight: 600; }
+        .login-help { margin-top: 0.85rem; font-size: 0.9rem; }
+        .login-help ol { margin: 0.4rem 0 0; padding-left: 1.3rem; line-height: 1.6; }
 
         .split { display: flex; height: 100%; }
         .pr-pane { width: 320px; flex: none; overflow-y: auto; }
         .resizer { flex: none; width: 7px; cursor: col-resize; position: relative; }
         .resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: var(--line); }
         .resizer:hover::before, .resizer.dragging::before { left: 2px; width: 3px; background: var(--accent); }
-        .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; background: #fff; display: flex; align-items: center; gap: 0.4rem; }
+        .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; z-index: 1; background: #fff; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+        #prFilter { flex: 1 0 100%; min-width: 0; font-size: 0.85rem; text-transform: none; letter-spacing: normal; padding: 0.3rem 0.5rem; }
         .pane-toggle { margin-left: auto; flex: none; border: 1px solid var(--line); background: #fafafa; color: var(--muted); border-radius: 5px; cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0.05rem 0.4rem; }
         .pane-toggle:hover { border-color: #c0c0c0; color: var(--fg); }
         .pane-expand { display: none; flex: none; width: 22px; border: none; border-right: 1px solid var(--line); background: #fafafa; color: var(--muted); cursor: pointer; font-size: 1.1rem; align-items: center; justify-content: center; }
@@ -83,7 +91,10 @@
         .split.collapsed .pr-pane, .split.collapsed .resizer { display: none; }
         .split.collapsed .pane-expand { display: flex; }
         .pr-list { list-style: none; margin: 0; padding: 0; }
-        .pr-list li { padding: 0.5rem 0.9rem; cursor: pointer; }
+        .pr-link { display: block; padding: 0.5rem 0.9rem; color: inherit; text-decoration: none; }
+        .pr-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .pr-open-any { color: var(--accent); border-bottom: 1px solid var(--line); }
+        .pr-none { margin: 0.6rem 0.9rem; }
         .pr-list li:hover { background: #f7f7f7; }
         .pr-list li.sel { background: var(--sel); }
         .pr-list li.mine { box-shadow: inset 3px 0 0 var(--accent); }
@@ -97,13 +108,6 @@
         .pr-badge.ok { background: #e6f4ea; color: #2e7d32; }
 
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
-        .home-search { max-width: 680px; margin: 1.5rem auto 0; }
-        .home-search input { width: 100%; font-size: 1rem; padding: 0.55rem 0.8rem; }
-        .home-results { list-style: none; margin: 0.5rem 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-        .home-results:empty { border: none; }
-                .home-results li:hover { background: #f7f7f7; }
-        .home-results .pr-ttl { flex: 1; }
-        .home-results .open-any { color: var(--accent); }
         .result-head { margin-bottom: 1rem; }
         .result-head > * + * { margin-top: 0.5rem; }
         .pr-title { font-size: 1.1rem; display: flex; align-items: center; flex-wrap: wrap; column-gap: 0.45rem; row-gap: 0.15rem; }
@@ -119,8 +123,10 @@
         .title-row { flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; }
         .title-row .pr-title { flex: 1 1 auto; }
         .title-row .actions { margin-left: auto; }
-        #status { flex: 1; min-width: 0; }
-        #freshness { flex: none; white-space: nowrap; }
+        .status-row { flex-wrap: wrap; row-gap: 0.25rem; }
+        #status { flex: 1 1 auto; min-width: 0; }
+        #freshness { flex: 0 1 auto; min-width: 0; }
+        #freshText .hint, #freshText .live-tag { white-space: nowrap; }
         .tag-flaky { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
         .tabs { display: inline-flex; margin-left: 0.3rem; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; }
         .tabs .act { border: none; border-radius: 0; background: transparent; color: var(--muted); }
@@ -150,16 +156,20 @@
         html[data-theme="dark"] .rev-stale, html[data-theme="jetbrains"] .rev-stale { color: #e0a54a; }
         html[data-theme="dark"] .rev-ok, html[data-theme="jetbrains"] .rev-ok { color: #66bb6a; }
         html[data-theme="dark"] .pending-note, html[data-theme="jetbrains"] .pending-note { color: #e0a54a; }
+        #runsRow { flex-wrap: wrap; row-gap: 0.3rem; }
         .runs { flex: 1; min-width: 0; }
-        .runs .run-item { display: inline-flex; align-items: center; margin-left: 0.6rem; white-space: nowrap; }
+        .runs .run-item { display: inline-flex; flex-wrap: wrap; align-items: center; max-width: 100%; margin-left: 0.6rem; }
         .live-tag { color: #2e7d32; font-weight: 600; text-decoration: none; }
         a.live-tag:hover { text-decoration: underline; }
         html[data-theme="dark"] .live-tag, html[data-theme="jetbrains"] .live-tag, html[data-theme="terminal"] .live-tag { color: #7fce90; }
         .cancel { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; color: var(--bad); border-color: var(--bad); }
-        .refresh { margin-left: 0.4rem; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
-        .refresh:hover { color: var(--fg); }
+        .refresh { margin-right: 0.4rem; padding: 0; border: none; background: none; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
+        html[data-theme] button.refresh { padding: 0; border: none; background: none; color: var(--accent); }
+        .refresh:hover, html[data-theme] button.refresh:hover { color: var(--fg); }
         .refresh.spin { animation: spin 0.7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .old-run { color: #b26a00; font-weight: 600; }
+        html[data-theme="dark"] .old-run, html[data-theme="jetbrains"] .old-run, html[data-theme="terminal"] .old-run { color: #e0a54a; }
         #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: 10px; padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
@@ -218,7 +228,7 @@
         .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
 
         html[data-theme="dark"] {
-            --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff;
+            --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --sel: #22303f; --accent: #6ab0ff; --pane-bg: #17191c;
             body { background: #17191c; }
             button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act, .theme-sel { background: #24282d; color: var(--fg); }
             a.ext { background: #24282d; }
@@ -232,7 +242,6 @@
             .pane-toggle, .pane-expand { background: #24282d; }
             .pane-toggle:hover, .pane-expand:hover { background: #2b2f34; border-color: #4a4f55; }
             .pr-list li:hover { background: #20242a; }
-            .home-results li:hover { background: #20242a; }
             .pr-badge.ok { background: #1e3324; color: #7fce90; }
             .delta-fixed { color: #7fce90; }
             .blockers h2.clean { color: #7fce90; }
@@ -245,7 +254,7 @@
         }
 
         html[data-theme="jetbrains"] {
-            --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --bad: #fa6675; --sel: #2e436e; --accent: #548af7;
+            --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --bad: #fa6675; --sel: #2e436e; --accent: #548af7; --pane-bg: #1c1f23;
             body { background: #17191c; }
             .card { background: #1c1f23; }
             button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act, .theme-sel, a.ext { background: #24282d; color: var(--fg); }
@@ -256,10 +265,10 @@
             input { background: #1f2328; color: var(--fg); }
             .pr-pane { background: #1c1f23; }
             .pane-head { background: #1c1f23; }
-            .pr-list li { padding: 0.35rem 0.75rem; }
+            .pr-link { padding: 0.35rem 0.75rem; }
             .pane-toggle, .pane-expand { background: #24282d; }
             .pane-toggle:hover, .pane-expand:hover { background: #2b2f34; border-color: #4a4f55; }
-            .pr-list li:hover, .home-results li:hover { background: #20242a; }
+            .pr-list li:hover { background: #20242a; }
             .pr-badge.ok { background: #253b2a; color: #6aab73; }
             .delta-fixed, .blockers h2.clean { color: #6aab73; }
             .tag-flaky { background: #3d3223; color: #d5b778; }
@@ -274,7 +283,7 @@
         }
 
         html[data-theme="terminal"] {
-            --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --bad: #f85149; --sel: #0d2440; --accent: #58a6ff;
+            --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --bad: #f85149; --sel: #0d2440; --accent: #58a6ff; --pane-bg: #0d1117;
             body { background: #0d1117; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
             button, .star-btn, .status-link, #logout, .why, .suite-rerun, .act, .theme-sel, a.ext { background: transparent; color: var(--accent); }
             .status-link, .star-btn, .theme-sel { color: var(--fg); }
@@ -285,7 +294,7 @@
             .pane-head { background: #0d1117; }
             .pane-toggle, .pane-expand { background: transparent; }
             .pane-toggle:hover, .pane-expand:hover { background: #161b22; }
-            .pr-list li:hover, .home-results li:hover { background: #161b22; }
+            .pr-list li:hover { background: #161b22; }
             .pr-badge.ok { background: transparent; color: #3fb950; border: none; }
             .delta-fixed, .blockers h2.clean { color: #3fb950; }
             .tag-flaky { background: transparent; color: #d29922; border: none; padding: 0 0.15rem; }
@@ -316,11 +325,31 @@
             .my-tag::after { content: "]"; color: var(--muted); }
             .pr-list li.sel .pr-num::before { content: "> "; color: #3fb950; }
         }
+
+        /* Phones and narrow windows: the list folds away while a PR is open and slides over the result
+           when brought back; with no PR open it takes the whole width. */
+        @media (max-width: 768px) {
+            .topbar { padding: 0.5rem 0.75rem; }
+            .brand small { display: none; }
+            .topbar-right { gap: 0.4rem 0.6rem; }
+            .settings-panel { margin: 0.6rem 0.75rem 0; }
+            .login-card { margin: 1.5rem 0.75rem; padding: 1.1rem; }
+            .login-card .row { flex-wrap: wrap; }
+            #token { flex: 1 0 100%; }
+            .split { position: relative; }
+            .resizer { display: none; }
+            .pr-pane { width: min(320px, 85vw) !important; }
+            .split:not(.home):not(.collapsed) .pr-pane { position: absolute; top: 0; bottom: 0; left: 0; z-index: 5;
+                background: var(--pane-bg); box-shadow: 2px 0 12px rgba(0, 0, 0, 0.25); }
+            .split.home .pr-pane { flex: 1; width: auto !important; }
+            .split.home .result-pane { display: none; }
+            .result-pane { padding: 0.9rem 0.8rem; }
+        }
     </style>
 </head>
 <body>
     <header class="topbar">
-        <div class="brand">Ignite PR Checker <small>which tests your PR actually broke</small></div>
+        <a id="brand" class="brand" href="/" title="Start page">Ignite PR Checker <small>which tests your PR actually broke</small></a>
         <div class="topbar-right">
             <a id="updateBtn" class="update-btn hidden" href="#" title="A new version is available"></a>
             <div id="session" class="row muted hidden">
@@ -345,7 +374,7 @@
                 <span>Star</span>
                 <span id="starCount" class="star-count"></span>
             </a>
-            <button id="settingsBtn" class="status-link settings-btn" type="button" title="Settings" aria-label="Settings">⚙</button>
+            <button id="settingsBtn" class="status-link settings-btn hidden" type="button" title="Settings" aria-label="Settings">⚙</button>
         </div>
     </header>
 
@@ -450,6 +479,10 @@
     <div class="content">
         <!-- login -->
         <section id="loginView" class="login-card hidden">
+            <div id="loginPr" class="login-pr hidden">
+                <p id="loginPrHead" class="login-pr-head"></p>
+                <p id="loginPrNote" class="muted"></p>
+            </div>
             <p class="login-intro">
                 See which tests your Apache Ignite PR actually broke —<br>
                 not the ones already failing or flaky on master.<br>
@@ -467,13 +500,24 @@
                 <button id="loginBtn" class="primary">Log in</button>
                 <a id="tokenLink" class="login-create" href="#" target="_self" rel="noopener">Create a token</a>
             </div>
+            <div id="loginErr" class="err"></div>
             <div class="login-note muted">
                 Log in with your own TeamCity (ci2) access token.<br>
                 Everything runs under your account — there is no shared server token.<br>
                 It is kept encrypted in your session cookie, never on the server.<br>
                 Your login lasts until you log out.
             </div>
-            <div id="loginErr" class="err"></div>
+            <details class="login-help">
+                <summary>No ci2 account or token yet?</summary>
+                <ol>
+                    <li>Register an account on <a id="registerLink" href="#" target="_self" rel="noopener">ci2</a>, the
+                        TeamCity of Apache Ignite.</li>
+                    <li>Create an access token there: Profile → Access Tokens (“Create a token” above opens it).</li>
+                    <li>The token acts with your account's rights. Reading verdicts needs only view access; Rerun
+                        needs the right to run builds, “Rerun top” also to reorder the build queue, and “Cancel all” to
+                        stop builds and remove them from the queue.</li>
+                </ol>
+            </details>
         </section>
 
         <!-- split navigation -->
@@ -482,8 +526,12 @@
             <aside class="pr-pane">
                 <div class="pane-head">Open PRs <span id="prCount"></span>
                     <button id="paneCollapse" class="pane-toggle" type="button" title="Collapse panel" aria-label="Collapse panel">‹</button>
+                    <input id="prFilter" type="search" placeholder="Filter, or a PR number" autocomplete="off" spellcheck="false"
+                        aria-label="Filter the open PRs, or open any PR by number" title="Filter by number or title; Enter opens the first match (press / to jump here)">
                 </div>
+                <a id="prOpenAny" class="pr-link pr-open-any hidden" href="/"></a>
                 <ul id="prList" class="pr-list"></ul>
+                <p id="prNone" class="pr-none muted hidden">No open PR matches.</p>
             </aside>
 
             <div class="resizer" id="paneResizer" title="Drag to resize · double-click to reset"></div>
@@ -491,16 +539,17 @@
             <section class="result-pane">
                 <div class="result-head">
                     <div class="head-row title-row">
-                        <div id="prTitle" class="pr-title muted">Pick a PR on the left — or search below.</div>
+                        <div id="prTitle" class="pr-title muted">Pick a PR on the left, or type its number in the filter.</div>
                         <div id="actions" class="actions hidden">
                             <span class="muted">RunAll:</span>
                             <button class="act" data-act="trigger" data-top="false">Rerun</button>
                             <button class="act" data-act="trigger" data-top="true">Rerun top</button>
                         </div>
                     </div>
-                    <div class="head-row">
+                    <div class="head-row status-row">
                         <div id="status" class="muted"></div>
-                        <div id="freshness" class="muted"></div>
+                        <div id="freshness" class="muted"><button id="refreshBtn" class="refresh hidden" type="button"
+                            title="Recompute this verdict now" aria-label="Refresh now">↻</button><span id="freshText"></span></div>
                     </div>
                     <div id="pendingRow" class="head-row hidden">
                         <span id="pending" class="pending-note"></span>
@@ -513,11 +562,6 @@
                         <span id="runs" class="runs muted"></span>
                         <button id="cancelAll" class="cancel">Cancel all</button>
                     </div>
-                </div>
-
-                <div id="homeSearch" class="home-search hidden">
-                    <input id="homeQuery" type="text" placeholder="Search open PRs — number or title…" autocomplete="off" spellcheck="false">
-                    <ul id="homeResults" class="home-results"></ul>
                 </div>
 
                 <div id="results" class="hidden">
@@ -623,7 +667,7 @@
         let lastResult = null; // the currently rendered analysis (drives the root-cause view)
         let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
         let canAdmin = false; // may update the service: the operator, or anyone when no operator is named
-        let allPrs = []; // last-loaded open-PR list, for the home search
+        let allPrs = []; // last-loaded open-PR list, for the list filter
 
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -635,8 +679,10 @@
         // Our own API errors are meaningful ('no RunAll build…', 'TeamCity rejected…'); anything else
         // (Spring's bare 'Not Found', proxy 502 text) is a restart blip and shouldn't be shown raw.
         function friendly(error, fallback) {
-            const generic = !error || /^(Not Found|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)$/i.test(error.trim());
-            return generic ? fallback + ' — the service may be restarting, try again in a moment' : error;
+            return genericError(error) ? fallback + ' — the service may be restarting, try again in a moment' : error;
+        }
+        function genericError(error) {
+            return !error || /^(Not Found|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)$/i.test(error.trim());
         }
         // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
         function chipEta(b) {
@@ -672,7 +718,43 @@
             $('loginView').classList.toggle('hidden', view !== 'login');
             $('analyzeView').classList.toggle('hidden', view !== 'analyze');
             $('session').classList.toggle('hidden', view !== 'analyze');
+            // The settings need a signed-in user: shown before login, the button could only answer "Unauthorized".
+            $('settingsBtn').classList.toggle('hidden', view !== 'analyze');
+            if (view !== 'analyze') $('settingsPanel').classList.add('hidden');
+            if (view === 'login') paintLoginPr();
         }
+
+        // Someone arriving from a PR's "live progress & verdict" link must see which PR the form is for,
+        // and where to read the verdict without an account.
+        function paintLoginPr() {
+            const pr = prFromUrl();
+            $('loginPr').classList.toggle('hidden', !pr);
+            if (!pr) return;
+            $('loginPrHead').textContent = `Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
+            $('loginPrNote').innerHTML = 'No ci2 account? The verdict may also be posted as a comment on the pull request — '
+                + `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">open #${esc(pr)} on GitHub</a>.`;
+        }
+
+        // A 401 is either the guard (no session) or TeamCity refusing the saved token. The second must say
+        // why the user is suddenly at the login form, and end the session that still carries the dead token.
+        async function loggedOut(r) {
+            const body = r ? await r.json().catch(() => ({})) : {};
+            if (body.tokenRejected) {
+                await api('/api/logout', { method: 'POST' }).catch(() => {});
+                $('loginErr').textContent = body.error;
+            }
+            signedOut();
+        }
+
+        // Nothing of the ended session may keep polling, or offer what only a signed-in user may do.
+        function signedOut() {
+            stopRunsPoll();
+            canAdmin = false;
+            $('updateBtn').classList.add('hidden');
+            $('cmdHint').classList.add('hidden');
+            show('login');
+        }
+
         function prUrl(number) { return 'https://github.com/' + githubRepo + '/pull/' + number; }
         function ago(ts) {
             if (!ts) return 'just now';
@@ -680,7 +762,19 @@
             if (s < 10) return 'just now';
             if (s < 60) return s + 's ago';
             const m = Math.round(s / 60);
-            return m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago';
+            if (m < 60) return m + 'm ago';
+            const h = Math.round(m / 60);
+            return h < 48 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+        }
+
+        const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        // "15 Sep 21:05" in the viewer's time zone; the year only when it is not this one.
+        function fmtDay(ms) {
+            const d = new Date(ms);
+            const year = d.getFullYear() === new Date(Date.now()).getFullYear() ? '' : ' ' + d.getFullYear();
+            const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+            return `${d.getDate()} ${MONTHS[d.getMonth()]}${year} ${hm}`;
         }
 
         function setPrTitle(number, title, url) {
@@ -699,9 +793,12 @@
                 if (!r.ok) return;
                 const cfg = await r.json();
                 if (cfg.githubRepo) githubRepo = cfg.githubRepo;
+                if (cfg.refreshAfterSeconds >= 0) refreshAfterMs = cfg.refreshAfterSeconds * 1000;
                 const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
                 tcBase = base;
                 $('tokenLink').href = base + 'profile.html?item=accessTokens';
+                $('registerLink').href = base;
+                if (!$('loginView').classList.contains('hidden')) paintLoginPr();
                 if (typeof cfg.starCount === 'number' && cfg.starCount >= 0)
                     $('starCount').textContent = cfg.starCount; // always show the project's star count, incl. 0
             } catch { /* ignore */ }
@@ -714,15 +811,42 @@
             if (!prs.length && $('prList').children.length) return; // keep the current list on an empty response
             $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
             allPrs = prs;
+            // Links, so a PR opens in a new tab or from the keyboard; a plain click stays in the page.
             $('prList').innerHTML = prs.map(p => `
-                <li data-num="${p.number}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" title="${esc(p.title)}">
-                    <span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers, p.proven)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
-                    <span class="pr-ttl">${esc(p.title)}</span>
+                <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(p.title)}">
+                    <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(p.title)}">
+                    <span class="pr-num">#${esc(p.number)}</span>${blockerBadge(p.blockers, p.proven)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
+                    <span class="pr-ttl">${esc(p.title)}</span></a>
                 </li>`).join('');
-            for (const li of $('prList').children) {
-                li.onclick = () => openPr(+li.dataset.num, true);
-            }
+            for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
             markMine();
+            applyPrFilter();
+        }
+
+        // What the list filter keeps — by number or title — and the number to open when it is not among
+        // the open PRs (the analysis works for any PR). `first` is what Enter opens.
+        function prMatches(prs, query) {
+            const q = query.trim().toLowerCase().replace(/^#/, '');
+            if (!q) return { nums: null, open: null, first: null };
+            const nums = prs.filter(p => String(p.number).includes(q) || (p.title || '').toLowerCase().includes(q))
+                .map(p => p.number);
+            const exact = nums.find(n => String(n) === q);
+            const open = /^\d+$/.test(q) && exact === undefined ? +q : null;
+            return { nums, open, first: exact ?? open ?? nums[0] ?? null };
+        }
+
+        function applyPrFilter() {
+            const { nums, open } = prMatches(allPrs, $('prFilter').value);
+            for (const li of $('prList').children)
+                li.classList.toggle('hidden', !!nums && !nums.includes(+li.dataset.num));
+            const any = $('prOpenAny');
+            any.classList.toggle('hidden', open == null);
+            if (open != null) {
+                any.href = '?pr=' + open;
+                any.dataset.num = open;
+                any.textContent = `Open PR #${open} →`;
+            }
+            $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null);
         }
 
         // Flag PRs whose latest RunAll you triggered (matched by TeamCity username).
@@ -750,16 +874,20 @@
         // Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it.
         function openPr(number, push) {
             selectedPr = number;
-            $('homeSearch').classList.add('hidden');
+            narrowListOpen = false;
             syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
             for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
             const li = findLi(number);
-            setPrTitle(number, li ? li.title : null, li ? li.dataset.url : prUrl(number));
+            setPrTitle(number, li ? li.dataset.title : null, li ? li.dataset.url : prUrl(number));
             $('actions').classList.remove('hidden');
             $('status').textContent = '';
-            $('freshness').textContent = '';
+            clearFreshness();
             $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
             runsWere = 0;
+            lastLiveFetch = Date.now(); // the analysis below is this PR's first look
+            lastResult = null;
+            detailsCache.clear();
+            resetStaleLook();
             stopRunsPoll();
             if (push) history.pushState({ pr: number }, '', '?pr=' + number);
             analyze(number);
@@ -777,7 +905,7 @@
             try {
                 const r = await api('/api/rerun-suites?pr=' + pr + '&top=' + top
                     + '&suites=' + encodeURIComponent(suites.join(',')), { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
                 const links = (res.triggered || [])
@@ -799,7 +927,12 @@
                 b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, b.dataset.top === 'true', b); };
         }
 
-        let runsTimer = null;
+        // One poll loop for the open PR: often while its runs go, rarely when nothing runs, never from a
+        // hidden tab, which would otherwise ask ci2 every 15 s around the clock.
+        const POLL_RUNNING_MS = 15000;
+        const POLL_IDLE_MS = 90000;
+        const LIVE_ANALYZE_MS = 55000;
+        let pollTimer = null;
         let runsWere = 0;
         let lastLiveFetch = 0;
         let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
@@ -820,12 +953,26 @@
         }
 
         function stopRunsPoll() {
-            if (runsTimer) { clearTimeout(runsTimer); runsTimer = null; }
+            if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+        }
+
+        function schedulePoll() {
+            stopRunsPoll();
+            if (selectedPr && !document.hidden)
+                pollTimer = setTimeout(() => loadRuns(selectedPr), runsWere > 0 ? POLL_RUNNING_MS : POLL_IDLE_MS);
         }
 
         async function loadRuns(number) {
-            const r = await api('/api/runs?pr=' + number);
-            if (!r.ok || number !== selectedPr) return;
+            let r;
+            try {
+                r = await api('/api/runs?pr=' + number);
+            }
+            catch (e) {
+                r = null; // network blip: the next poll asks again
+            }
+            if (number !== selectedPr) return;
+            if (r && r.status === 401) return loggedOut(r);
+            if (!r || !r.ok) { schedulePoll(); return; }
             const runs = await r.json();
             // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
             // so suite chips light up individually while the chain grinds through them.
@@ -860,16 +1007,12 @@
                 refresh();
             runsWere = runs.length;
 
-            // Keep polling while any run is active, so the view updates itself once they finish.
-            stopRunsPoll();
-            if (runs.length > 0 && number === selectedPr) {
-                runsTimer = setTimeout(() => loadRuns(number), 15000);
-                // Fold in failures from suites that finish while the chain runs (throttled ~60s).
-                if (Date.now() - lastLiveFetch > 55000) {
-                    lastLiveFetch = Date.now();
-                    analyze(number);
-                }
+            // Fold in failures from suites that finish while the chain runs, without disturbing the reader.
+            if (runs.length > 0 && Date.now() - lastLiveFetch > LIVE_ANALYZE_MS) {
+                lastLiveFetch = Date.now();
+                analyze(number, true);
             }
+            schedulePoll();
         }
 
         function prFromUrl() {
@@ -885,13 +1028,24 @@
             $('runsRow').classList.add('hidden');
             await loadPrs();
             const pr = prFromUrl();
-            if (pr) {
-                openPr(pr, false);
-            }
-            else {
-                $('homeSearch').classList.remove('hidden');
-                $('homeQuery').focus();
-            }
+            if (pr) openPr(pr, false);
+            else goHome(false);
+        }
+
+        function goHome(push) {
+            selectedPr = null;
+            lastResult = null;
+            stopRunsPoll();
+            if (push) history.pushState({}, '', location.pathname);
+            for (const li of $('prList').children) li.classList.remove('sel');
+            $('prTitle').classList.add('muted');
+            $('prTitle').textContent = 'Pick a PR on the left, or type its number in the filter.';
+            $('actions').classList.add('hidden');
+            $('status').textContent = '';
+            clearFreshness();
+            for (const id of ['results', 'runsRow', 'pendingRow', 'deltaRow']) $(id).classList.add('hidden');
+            syncPane();
+            $('prFilter').focus();
         }
 
         async function loadMe() {
@@ -904,9 +1058,7 @@
                 checkUpdate();
                 await enterApp(username);
             } else {
-                const { error } = await r.json().catch(() => ({}));
-                show('login');
-                if (error) $('loginErr').textContent = error;
+                await loggedOut(r);
             }
         }
 
@@ -934,33 +1086,18 @@
         }
 
         async function logout() {
+            stopRunsPoll();
             await api('/api/logout', { method: 'POST' });
-            canAdmin = false;
-            $('updateBtn').classList.add('hidden');
-            show('login');
+            signedOut();
         }
 
         let analyzeRetries = 0;
 
-        async function analyze(number) {
+        // `quiet` is a background look while the page is being read: no "Analyzing…", nothing hidden,
+        // nothing redrawn unless the verdict changed, and a failure waits for the next poll.
+        async function analyze(number, quiet) {
             if (!number) return;
-            $('status').textContent = 'Analyzing… (walking the RunAll chain)';
-            $('freshness').textContent = '';
-            $('results').classList.add('hidden');
-            $('deltaRow').classList.add('hidden'); // it lives outside #results — clear the previous PR's delta
-            $('pendingRow').classList.add('hidden');
-            // While the compute runs, show its real progress — a cold analysis of a fresh run takes a
-            // while, and a silent spinner reads as "broken". The first viewer fills the cache for everyone.
-            const progTimer = setInterval(async () => {
-                try {
-                    const pr = await api('/api/progress?pr=' + number);
-                    if (!pr.ok || number !== selectedPr) return;
-                    const p = await pr.json().catch(() => null);
-                    if (p && p.total > 0 && $('results').classList.contains('hidden'))
-                        $('status').textContent = `Analyzing a fresh run — ${p.done}/${p.total} failed tests classified… `
-                            + '(first view of a new run computes it for everyone)';
-                } catch (e) { /* progress is decoration */ }
-            }, 2500);
+            const progTimer = quiet ? null : startAnalyzing(number);
             let r;
             try {
                 r = await api('/api/analyze?pr=' + encodeURIComponent(number));
@@ -972,7 +1109,8 @@
                 clearInterval(progTimer);
             }
             if (number !== selectedPr) return; // a newer selection superseded this one
-            if (r && r.status === 401) { show('login'); return; }
+            if (r && r.status === 401) return loggedOut(r);
+            if (quiet && (!r || !r.ok)) return;
             if (!r || !r.ok) {
                 const { error } = r ? await r.json().catch(() => ({})) : {};
                 // A real "this PR has no run" answer comes with our own message; anything else
@@ -983,17 +1121,55 @@
                         + '(A cancelled or still-running build doesn\'t count; an old one may have been cleaned up by TeamCity.)';
                     return;
                 }
+                const why = genericError(error) ? null : error;
                 if (analyzeRetries < 6) {
                     analyzeRetries++;
-                    $('status').textContent = 'service is busy or restarting — retrying…';
+                    $('status').textContent = (why || 'service is busy or restarting') + ' — retrying…';
                     setTimeout(() => { if (number === selectedPr) analyze(number); }, 4000);
                     return;
                 }
-                $('status').textContent = 'analysis failed (' + (r ? 'HTTP ' + r.status : 'network') + ') — reload or press ↻';
+                $('status').textContent = (why || 'analysis failed (' + (r ? 'HTTP ' + r.status : 'network') + ')')
+                    + ' — reload or press ↻';
                 return;
             }
             analyzeRetries = 0;
-            renderResult(await r.json());
+            const res = await r.json();
+            if (number !== selectedPr) return;
+            clearFailedRefresh();
+            if (quiet && sameVerdict(lastResult, res)) {
+                lastResult = res;
+                renderFreshness(res);
+                lookAgainIfStale(res);
+                return;
+            }
+            renderResult(res, { quiet });
+        }
+
+        // Blanks the result while a PR's first analysis runs, and shows that compute's real progress — a
+        // cold analysis of a fresh run takes a while, and a silent spinner reads as "broken". The first
+        // viewer fills the cache for everyone.
+        function startAnalyzing(number) {
+            $('status').textContent = 'Analyzing… (walking the RunAll chain)';
+            clearFreshness();
+            $('results').classList.add('hidden');
+            $('deltaRow').classList.add('hidden'); // it lives outside #results — clear the previous PR's delta
+            $('pendingRow').classList.add('hidden');
+            return setInterval(async () => {
+                try {
+                    const pr = await api('/api/progress?pr=' + number);
+                    if (!pr.ok || number !== selectedPr) return;
+                    const p = await pr.json().catch(() => null);
+                    if (p && p.total > 0 && $('results').classList.contains('hidden'))
+                        $('status').textContent = `Analyzing a fresh run — ${p.done}/${p.total} failed tests classified… `
+                            + '(first view of a new run computes it for everyone)';
+                } catch (e) { /* progress is decoration */ }
+            }, 2500);
+        }
+
+        // The verdict as the page shows it: a recompute that found nothing new only moves computedAt.
+        function sameVerdict(a, b) {
+            const shown = res => JSON.stringify({ ...res, computedAt: 0, branchWatermarkAt: 0 });
+            return !!a && !!b && shown(a) === shown(b);
         }
 
         // Suites that failed with zero failed tests (build problems). Root causes get full rows with
@@ -1029,12 +1205,15 @@
 
         // Suites the chain never ran. Those TeamCity cancelled by itself get rows with re-run buttons (the
         // auto re-run takes them too), and so do those TeamCity said nothing about; those a person
-        // cancelled were meant not to run, so they fold into one line per person.
-        function renderCancelled(el, suites) {
+        // cancelled were meant not to run, so they fold into one line per person. A redraw of the same
+        // build keeps the people's lines the reader opened.
+        function renderCancelled(el, suites, buildId) {
+            const kept = el.dataset.build === String(buildId)
+                ? new Set([...el.querySelectorAll('details[open]')].map(d => d.dataset.who)) : new Set();
             const rows = suites.filter(s => !s.cancelledBy).map(s => {
                 const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
                 const head = esc(s.suiteName || s.suite)
-                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+                    + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
                 const btns = s.suite
                     ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
                         + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
@@ -1047,8 +1226,9 @@
             for (const s of suites.filter(s => s.cancelledBy))
                 byPerson.set(s.cancelledBy, [...(byPerson.get(s.cancelledBy) || []), s.suiteName || s.suite]);
             for (const [who, names] of byPerson)
-                rows.push(`<li><details><summary>${names.length} suite${names.length === 1 ? '' : 's'} cancelled by ${esc(who)}</summary>`
+                rows.push(`<li><details data-who="${esc(who)}"${kept.has(who) ? ' open' : ''}><summary>${names.length} suite${names.length === 1 ? '' : 's'} cancelled by ${esc(who)}</summary>`
                     + `<div class="reason">${names.map(esc).join(', ')}</div></details></li>`);
+            el.dataset.build = buildId;
             el.innerHTML = rows.join('');
             for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
@@ -1155,7 +1335,6 @@
 
         // "What changed since my previous run": trend sparkline + (+new / -fixed / persisting).
         async function loadDelta(res) {
-            $('deltaRow').classList.add('hidden');
             try {
                 const r = await api('/api/delta?pr=' + res.prNumber);
                 if (!r.ok) return;
@@ -1199,7 +1378,7 @@
             if (!causesPromise) {
                 const pr = selectedPr, buildId = lastResult.buildId;
                 causesPromise = api('/api/causes?pr=' + pr).then(async r => {
-                    if (r.status === 401) { show('login'); throw new Error('unauthorized'); }
+                    if (r.status === 401) { loggedOut(r); throw new Error('unauthorized'); }
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     const d = await r.json();
                     if (pr === selectedPr && lastResult && lastResult.buildId === buildId)
@@ -1251,6 +1430,9 @@
                 if (!lastResult || lastResult.buildId !== buildId || !causesCache.data) return; // superseded
             }
             const d = causesCache.data;
+            // A redraw of this build's groups keeps the ones the reader opened or closed.
+            const kept = el.dataset.build === String(lastResult.buildId)
+                ? new Set([...el.querySelectorAll('details.cause[open]')].map(c => c.dataset.sig)) : null;
             // A test can be a blocker in several suites, each failing its own way: test id + suite is one blocker.
             const blockerKey = t => t.testId + '@' + (t.suite || '');
             const byKey = new Map(lastResult.blockers.map(t => [blockerKey(t), t]));
@@ -1262,6 +1444,7 @@
                 if (!tests.length) continue;
                 const suites = new Set(tests.map(t => t.suiteBuildId));
                 blocks.push({
+                    sig: c.signature,
                     head: `<span class="cnt">${tests.length}×</span> <span class="sig">${esc(c.signature)}</span>`
                         + ` <span class="muted">— ${suites.size} suite${suites.size > 1 ? 's' : ''}</span>`,
                     tests, open: blocks.length === 0
@@ -1270,12 +1453,14 @@
             const rest = lastResult.blockers.filter(t => !used.has(blockerKey(t)));
             if (rest.length)
                 blocks.push({
+                    sig: '',
                     head: `<span class="cnt">${rest.length}×</span> <span class="sig">not sampled</span>`
                         + ` <span class="muted">— messages were fetched for the first ${d.sampled} of ${d.total} blockers</span>`,
                     tests: rest, open: false
                 });
+            el.dataset.build = lastResult.buildId;
             el.innerHTML = blocks.map((b, i) =>
-                `<details class="cause"${b.open ? ' open' : ''}><summary>${b.head}`
+                `<details class="cause" data-sig="${esc(b.sig)}"${(kept ? kept.has(b.sig) : b.open) ? ' open' : ''}><summary>${b.head}`
                 + ` <button class="why ai-cause" data-i="${i}" title="Copy an AI-ready fix prompt for this whole root cause">ai</button>`
                 + `</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
                 || '<p class="muted">nothing to group</p>';
@@ -1286,21 +1471,33 @@
             annotateSuiteChips();
         }
 
-        // What the analysed run cost: how long it ran, and how long it sat in the queue first.
-        function runTiming(res) {
-            if (!res.startedAt || !res.finishedAt || res.finishedAt < res.startedAt) return '';
-            const ran = fmtSpent(res.finishedAt - res.startedAt);
-            const waited = res.queuedAt && res.startedAt > res.queuedAt ? fmtSpent(res.startedAt - res.queuedAt) : '';
-            const when = new Date(res.finishedAt * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-            return ` · <span class="hint" title="The run started ${waited ? 'after waiting ' + waited + ' in the agent queue, ' : ''}and finished at ${when}">ran ${ran}${waited ? ' · queued ' + waited : ''}</span>`;
+        // A run older than this has likely been overtaken by master and by the PR itself.
+        const OLD_RUN_DAYS = 7;
+
+        // When the analysed run ended, in words, and flagged once it is old; what it cost stays in the tooltip.
+        function runWhen(res) {
+            const at = (res.finishedAt || res.startedAt) * 1000;
+            if (!at) return '';
+            const what = res.finishedAt ? 'finished' : 'started';
+            const old = Date.now() - at > OLD_RUN_DAYS * 86400000;
+            const tip = [runCost(res), `${what} ${new Date(at).toLocaleString()}`,
+                old ? 'over a week old: master and this PR have likely moved on — a fresh RunAll tells more' : '']
+                .filter(Boolean).join(' · ');
+            return ` · <span class="hint${old ? ' old-run' : ''}" title="${esc(tip)}">run ${what} ${fmtDay(at)}, ${ago(at)}</span>`;
         }
 
-        function renderResult(res) {
-            lastResult = res;
-            $('status').textContent = '';
+        // What the analysed run cost: how long it ran, and how long it sat in the queue first.
+        function runCost(res) {
+            if (!res.startedAt || !res.finishedAt || res.finishedAt < res.startedAt) return '';
+            const waited = res.queuedAt && res.startedAt > res.queuedAt ? fmtSpent(res.startedAt - res.queuedAt) : '';
+            return `ran ${fmtSpent(res.finishedAt - res.startedAt)}` + (waited ? ` after ${waited} in the agent queue` : '');
+        }
+
+        // Redrawn by itself every half minute, so "analysed …" and the run's age never freeze.
+        function renderFreshness(res) {
             const buildLabel = 'build ' + res.buildId + (tcBase
                 ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '')
-                + runTiming(res);
+                + runWhen(res);
             // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
             const comp = (res.suitesRan || res.suitesReused)
                 ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs</span>`
@@ -1310,16 +1507,60 @@
                     ? `<a class="live-tag" href="${tcBase}build/${res.liveBuildId}" target="_self" rel="noopener" title="Includes results from a RunAll that is still running — click to open that run in TeamCity">● includes an unfinished run</a>`
                     : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
                 : '';
-            $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag
-                + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';
-            $('refreshBtn').onclick = refresh;
+            $('freshText').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag;
+            $('refreshBtn').classList.remove('hidden');
+        }
+
+        function clearFreshness() {
+            $('freshText').textContent = '';
+            $('refreshBtn').classList.add('hidden');
+        }
+
+        // The server checks a verdict older than its window in the background, from the very request that
+        // served it stale, and recomputes it if something finished on the branch since; one quiet look a
+        // little later shows the new one. Each look at a stale verdict makes the server ask TeamCity again,
+        // so there is one per opened PR: a refresh that failed, or a window shorter than the delay, must not
+        // turn it into a poll. A hidden tab looks too, so the recompute its opening started is what the
+        // reader finds on coming back.
+        const STALE_LOOK_MS = 25000;
+        const LIVE_REFRESH_MS = 120000; // BlockerAnalyzer.isStale: a live verdict goes stale in two minutes
+        let refreshAfterMs = 120000;
+        let staleLook = { timer: null, spent: false };
+
+        function isStale(res) {
+            return Date.now() - res.computedAt > (res.live ? LIVE_REFRESH_MS : refreshAfterMs);
+        }
+
+        function resetStaleLook() {
+            clearTimeout(staleLook.timer);
+            staleLook = { timer: null, spent: false };
+        }
+
+        function lookAgainIfStale(res) {
+            if (staleLook.spent || !isStale(res)) return;
+            staleLook.spent = true;
+            staleLook.timer = setTimeout(() => {
+                if (selectedPr === res.prNumber) analyze(res.prNumber, true);
+            }, STALE_LOOK_MS);
+        }
+
+        // Draws an analysis. A redraw of the PR already on screen hands back what the reader had open;
+        // the head-moved note costs a TeamCity and a GitHub call, so it is asked for again only when the
+        // build changed, or when `force`d by the reader.
+        function renderResult(res, { quiet = false, force = false } = {}) {
+            const prev = lastResult && lastResult.prNumber === res.prNumber ? lastResult : null;
+            const kept = prev ? openState() : null;
+            lastResult = res;
+            if (!quiet || !prev) $('status').textContent = ''; // a first verdict replaces "no run yet"
+            renderFreshness(res);
+            lookAgainIfStale(res);
             const broken = res.brokenSuites || [];
             const watch = res.watch || [];
             const hasBlockers = res.blockers.length > 0;
             // "Clean" (green, celebratory) only when nothing needs attention — no blockers, no broken
             // suites, no recently-started-failing tests. A broken/timed-out suite is a real problem,
             // so the verdict must not read as all-clear just because no individual test is a blocker.
-            renderVerdictHead(res, null);
+            renderVerdictHead(res, aheadOf(res));
             $('blockerCount').textContent = hasBlockers ? countLabel(res.blockers) : '';
             $('filteredCount').textContent = countLabel(res.filtered);
             const interrupted = !!res.interrupted;
@@ -1333,7 +1574,7 @@
                     + `${one ? 'was' : 'were'} cancelled and never ran. The verdict below is <b>partial</b>: it says nothing about them. `
                     + `A finished re-run of a suite takes it off this list.`;
             }
-            renderCancelled($('cancelledSuites'), interrupted ? res.cancelledSuites || [] : []);
+            renderCancelled($('cancelledSuites'), interrupted ? res.cancelledSuites || [] : [], res.buildId);
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
@@ -1375,8 +1616,29 @@
             if (causesCache.buildId !== res.buildId) causesCache = { buildId: res.buildId, data: null };
             setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
             if (tabsOn) updateCauseCount();
+            if (kept) restoreOpen(kept);
             loadDelta(res);
-            loadPending(res);
+            if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
+        }
+
+        // The failure messages the reader has open, by list: the same test can sit in two of them.
+        function openState() {
+            const boxes = [...document.querySelectorAll('#results .details:not(.hidden)')];
+            return {
+                occs: new Set(boxes.map(box => listOf(box) + '|' + box.dataset.occ)),
+                scroll: document.querySelector('.result-pane').scrollTop,
+            };
+        }
+
+        function restoreOpen(kept) {
+            for (const box of document.querySelectorAll('#results .details'))
+                if (kept.occs.has(listOf(box) + '|' + box.dataset.occ)) openDetails(box);
+            document.querySelector('.result-pane').scrollTop = kept.scroll;
+        }
+
+        function listOf(el) {
+            const list = el.closest('#blockers, #causesView, #watch, #unverified, #filtered');
+            return list ? list.id : '';
         }
 
         // Why an empty blocker list may not mean the PR is clean — the same reasons the server states
@@ -1423,21 +1685,44 @@
                 : 'Nothing in this run looks caused by your PR — good to go.';
         }
 
+        // Commits pushed since the analysed build, as /api/pending last said for it; null while unknown.
+        let pendingOf = { pr: 0, buildId: 0, ahead: null };
+
+        function aheadOf(res) {
+            return !res.live && pendingOf.pr === res.prNumber && pendingOf.buildId === res.buildId ? pendingOf.ahead : null;
+        }
+
         // Has the PR head moved since the analysed run? Then the verdict is for older code — say so
-        // and offer a re-run. Always fetched fresh (the head can change any time).
+        // and offer a re-run.
         async function loadPending(res) {
-            $('pendingRow').classList.add('hidden');
+            if (aheadOf(res) == null) $('pendingRow').classList.add('hidden');
             if (res.live) return; // a newer run is already being folded in — not stale
             try {
                 const r = await api('/api/pending?pr=' + res.prNumber + '&build=' + res.buildId);
                 if (!r.ok) return;
                 const p = await r.json().catch(() => null);
-                if (!p || !p.pending || res.prNumber !== selectedPr) return;
+                if (!p || res.prNumber !== selectedPr) return;
+                if (!p.pending) {
+                    pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead: null };
+                    $('pendingRow').classList.add('hidden');
+                    return;
+                }
+                const ahead = p.ahead > 0 ? p.ahead : 1; // superseded code can't be a clean verdict
+                pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead };
                 const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
                 $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
                 $('pendingRow').classList.remove('hidden');
-                renderVerdictHead(res, p.ahead > 0 ? p.ahead : 1); // superseded code can't be a clean verdict
+                renderVerdictHead(res, ahead);
             } catch (e) { /* the staleness note is a bonus; never block the result */ }
+        }
+
+        // A background look leaves the status line alone ("Queued …" must outlive it), but a failed ↻'s
+        // reason is answered by the verdict that look brings.
+        let failedRefresh = '';
+
+        function clearFailedRefresh() {
+            if (failedRefresh && $('status').textContent === failedRefresh) $('status').textContent = '';
+            failedRefresh = '';
         }
 
         // Force a fresh recompute of the current PR's analysis (bypassing the cache).
@@ -1446,20 +1731,31 @@
             const pr = selectedPr;
             const icon = $('refreshBtn');
             if (icon) icon.classList.add('spin');
-            const r = await api('/api/refresh?pr=' + pr, { method: 'POST' });
+            let r;
+            try {
+                r = await api('/api/refresh?pr=' + pr, { method: 'POST' });
+            }
+            catch (e) {
+                r = null;
+            }
+            finally {
+                if (icon) icon.classList.remove('spin');
+            }
             if (pr !== selectedPr) return; // a newer selection superseded this one
-            if (r.status === 401) { show('login'); return; }
-            if (!r.ok) {
-                const { error } = await r.json().catch(() => ({ error: 'refresh failed' }));
-                if (!/no RunAll build/i.test(error || '') && pr === selectedPr) {
-                    $('status').textContent = 'service is busy or restarting — retrying…';
-                    setTimeout(() => { if (pr === selectedPr) analyze(pr); }, 4000);
+            if (r && r.status === 401) return loggedOut(r);
+            if (!r || !r.ok) {
+                const { error } = r ? await r.json().catch(() => ({ error: 'refresh failed' })) : {};
+                if (/no RunAll build/i.test(error || '')) {
+                    $('status').textContent = friendly(error, 'refresh failed');
                     return;
                 }
-                $('status').textContent = friendly(error, 'refresh failed');
+                // With a verdict on screen, keep it and look again quietly; with none, retry visibly.
+                failedRefresh = lastResult ? friendly(error, 'refresh failed') : '';
+                $('status').textContent = failedRefresh || 'service is busy or restarting — retrying…';
+                setTimeout(() => { if (pr === selectedPr) analyze(pr, !!lastResult); }, 4000);
                 return;
             }
-            renderResult(await r.json());
+            renderResult(await r.json(), { force: true });
             loadRuns(pr);
         }
 
@@ -1470,7 +1766,7 @@
             $('status').textContent = 'Queuing RunAll…';
             try {
                 const r = await api('/api/' + act + '?pr=' + pr + '&top=' + top, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'trigger failed'); return; }
                 const links = (res.triggered || [])
@@ -1490,7 +1786,7 @@
             $('status').textContent = 'Cancelling runs…';
             try {
                 const r = await api('/api/cancel-all?pr=' + pr, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'cancel failed'); return; }
                 $('status').textContent = 'Cancelled ' + (res.cancelled || 0) + ' run(s).';
@@ -1509,7 +1805,7 @@
             btn.textContent = '…';
             try {
                 const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=' + top, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
                 const b = (res.triggered || [])[0];
@@ -1614,7 +1910,7 @@
                         ? `<span class="tag-flaky" title="passed and failed across this branch's runs on the same code">flaky?</span>` : '';
                     return `<li><div class="tname">${link}${runStrip(t.branchRuns, t.codeRuns)}${flaky}${why}${ai}</div>`
                         + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
-                        + `<div class="details hidden"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div></li>`;
+                        + `<div class="details hidden" data-occ="${esc(t.occurrenceId || '')}"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div></li>`;
                 }).join('');
                 return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
             }).join('');
@@ -1651,13 +1947,7 @@
         // put it on the clipboard as one paste-ready prompt.
         async function aiFixPrompt(btn) {
             btn.textContent = '…';
-            let details = '';
-            if (btn.dataset.occ) {
-                try {
-                    const r = await api('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ));
-                    if (r.ok) details = (await r.json().catch(() => ({}))).details || '';
-                } catch (e) { /* the prompt still works without the stacktrace */ }
-            }
+            const details = btn.dataset.occ ? await testDetails(btn.dataset.occ).catch(() => '') : '';
             const kind = details ? failureKind(details) : null;
             const runUrl = btn.dataset.buildid > 0
                 ? `${tcBase}buildConfiguration/${encodeURIComponent(btn.dataset.suite)}/${btn.dataset.buildid}` : '';
@@ -1688,13 +1978,7 @@
             btn.textContent = '…';
             const tests = block.tests || [];
             const first = tests.find(t => t.occurrenceId);
-            let details = '';
-            if (first) {
-                try {
-                    const r = await api('/api/test-details?occ=' + encodeURIComponent(first.occurrenceId));
-                    if (r.ok) details = (await r.json().catch(() => ({}))).details || '';
-                } catch (e) { /* prompt still works */ }
-            }
+            const details = first ? await testDetails(first.occurrenceId).catch(() => '') : '';
             const suites = [...new Set(tests.map(t => t.suiteName || t.suite))];
             const sig = btn.closest('summary').querySelector('.sig');
             const prompt = aiPromptText({
@@ -1752,28 +2036,44 @@
             setTimeout(() => { btn.textContent = 'copy'; }, 1500);
         }
 
-        // Lazily fetch and toggle a test's failure message (details) from TeamCity.
-        async function toggleDetails(btn) {
+        function toggleDetails(btn) {
             const box = btn.closest('li').querySelector('.details');
             if (!box) return;
-            if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+            if (box.classList.contains('hidden')) openDetails(box);
+            else box.classList.add('hidden');
+        }
+
+        async function openDetails(box) {
             box.classList.remove('hidden');
             const pre = box.querySelector('pre');
             if (pre.dataset.loaded) return;
             pre.textContent = 'loading…';
             try {
-                const r = await api('/api/test-details?occ=' + encodeURIComponent(btn.dataset.occ));
-                if (r.status === 401) { show('login'); return; }
-                const { details } = await r.json().catch(() => ({ details: '' }));
+                const details = await testDetails(box.dataset.occ);
                 const kind = details ? failureKind(details) : null;
-                pre.dataset.raw = details || '';
-                pre.textContent = details && details.trim()
+                pre.dataset.raw = details;
+                pre.textContent = details.trim()
                     ? (kind ? kind + '\n\n' : '') + details
                     : '(no failure message available)';
                 pre.dataset.loaded = '1';
             } catch (e) {
                 pre.textContent = 'failed to load details';
             }
+        }
+
+        // A test occurrence's failure message never changes, so each is fetched from TeamCity once per
+        // page: reopening it, a redraw that reopens it, or an "ai" prompt reuses the first answer.
+        const detailsCache = new Map();
+
+        function testDetails(occ) {
+            if (!detailsCache.has(occ)) {
+                detailsCache.set(occ, api('/api/test-details?occ=' + encodeURIComponent(occ)).then(async r => {
+                    if (r.status === 401) { loggedOut(r); throw new Error('unauthorized'); }
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return (await r.json().catch(() => ({}))).details || '';
+                }).catch(e => { detailsCache.delete(occ); throw e; }));
+            }
+            return detailsCache.get(occ);
         }
 
         // Rough failure triage from the message: environment/timing noise vs a real assertion.
@@ -1805,7 +2105,7 @@
             const btn = $('updateBtn');
             btn.textContent = 'Updating…';
             const r = await api('/api/update', { method: 'POST' });
-            if (r.status === 401) { show('login'); return; }
+            if (r.status === 401) return loggedOut(r);
             if (!r.ok) {
                 const { error } = await r.json().catch(() => ({ error: 'update failed' }));
                 btn.textContent = error || 'update failed';
@@ -1855,7 +2155,7 @@
             $('status').textContent = 'Posting the visa…';
             try {
                 const r = await api(`/api/jira-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) { hasJira = false; await toggleJiraPanel(true); $('status').textContent = ''; return; }
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'visa failed'); return; }
@@ -1946,7 +2246,7 @@
                 const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + selectedPr
                     : `/api/auto-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`;
                 const r = await api(path, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) { hasJira = false; pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'auto-visa failed'); return; }
@@ -1984,7 +2284,7 @@
             lockSettings('Loading your settings…');
             try {
                 const r = await api('/api/auto-visa-all');
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 if (!r.ok) { lockSettings('Could not load your settings — close ⚙ and open it again.'); return; }
                 renderSettings(await r.json());
                 $('settingsMsg').textContent = '';
@@ -2059,7 +2359,7 @@
             toggle.disabled = true;
             try {
                 const r = await api('/api/auto-visa-all?' + name + '=' + on, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) {
                     toggle.checked = !on;
@@ -2133,7 +2433,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: login })
                 });
-                if (r.status === 401) { show('login'); return; }
+                if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { m.textContent = res.error || 'could not link'; return; }
                 pendingOption = null;
@@ -2185,8 +2485,28 @@
 
 
         $('cancelAll').onclick = cancelAll;
-        window.addEventListener('popstate', () => { const pr = prFromUrl(); if (pr) openPr(pr, false); });
-        setInterval(() => { if (selectedPr && !$('analyzeView').classList.contains('hidden')) loadRuns(selectedPr); }, 15000);
+        $('refreshBtn').onclick = refresh;
+        window.addEventListener('popstate', () => {
+            if ($('analyzeView').classList.contains('hidden')) {
+                paintLoginPr();
+                return;
+            }
+            const pr = prFromUrl();
+            if (pr) openPr(pr, false);
+            else goHome(false);
+        });
+        // A hidden tab stops polling; coming back asks for the runs at once instead of waiting out the
+        // interval, and through them re-reads a running verdict or refreshes one whose run finished
+        // meanwhile. A finished verdict is not asked for again.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) { stopRunsPoll(); return; }
+            if (!selectedPr || $('analyzeView').classList.contains('hidden')) return;
+            loadRuns(selectedPr);
+            if (lastResult && lastResult.prNumber === selectedPr) renderFreshness(lastResult);
+        });
+        setInterval(() => {
+            if (!document.hidden && lastResult && lastResult.prNumber === selectedPr) renderFreshness(lastResult);
+        }, 30000);
         setInterval(checkUpdate, 5 * 60 * 1000); // re-check for updates every 5 min
         loadConfig();
         loadMe();
@@ -2243,55 +2563,69 @@
         })();
 
         // Collapse / restore the PR list pane. It is only collapsible while a PR is selected — with none
-        // selected the list stays open so you can pick one. The collapsed choice persists.
+        // selected the list stays open so you can pick one. On a wide screen the collapsed choice
+        // persists; on a narrow one the list covers the result, so it folds away whenever a PR opens.
+        const narrowScreen = matchMedia('(max-width: 768px)');
+        let narrowListOpen = false;
+
         function syncPane() {
-            const split = document.getElementById('analyzeView');
-            const collapseBtn = document.getElementById('paneCollapse');
-            if (!split) return;
+            const split = $('analyzeView');
             const hasPr = !!selectedPr;
             let saved = false;
             try { saved = localStorage.getItem('prPaneCollapsed') === '1'; } catch (e) { /* private mode */ }
-            split.classList.toggle('collapsed', hasPr && saved);
-            if (collapseBtn) collapseBtn.classList.toggle('hidden', !hasPr);
+            split.classList.toggle('collapsed', hasPr && (narrowScreen.matches ? !narrowListOpen : saved));
+            split.classList.toggle('home', !hasPr);
+            $('paneCollapse').classList.toggle('hidden', !hasPr);
         }
-        (function () {
-            const collapseBtn = document.getElementById('paneCollapse');
-            const expandBtn = document.getElementById('paneExpand');
-            if (!collapseBtn || !expandBtn) return;
-            const setCollapsed = c => {
-                try { localStorage.setItem('prPaneCollapsed', c ? '1' : '0'); } catch (e) { /* private mode */ }
-                syncPane();
-            };
-            collapseBtn.addEventListener('click', () => setCollapsed(true));
-            expandBtn.addEventListener('click', () => setCollapsed(false));
+        function setPaneCollapsed(collapsed) {
+            if (narrowScreen.matches)
+                narrowListOpen = !collapsed;
+            else
+                try { localStorage.setItem('prPaneCollapsed', collapsed ? '1' : '0'); } catch (e) { /* private mode */ }
             syncPane();
-        })();
+        }
+        $('paneCollapse').addEventListener('click', () => setPaneCollapsed(true));
+        $('paneExpand').addEventListener('click', () => setPaneCollapsed(false));
+        narrowScreen.addEventListener('change', syncPane);
+        syncPane();
 
-        // Home search (shown while no PR is selected): filter the open PRs by number/title and open on
-        // click; a bare number that isn't in the list can still be opened directly (analysis works by URL).
-        (function () {
-            const input = $('homeQuery');
-            const out = $('homeResults');
-            if (!input || !out) return;
-            function renderMatches() {
-                const q = input.value.trim().toLowerCase();
-                if (!q) { out.innerHTML = ''; return; }
-                const matches = allPrs.filter(p => String(p.number).includes(q)
-                    || (p.title || '').toLowerCase().includes(q)).slice(0, 15);
-                let html = matches.map(p => `<li data-num="${p.number}"><span class="pr-num">#${p.number}</span>${blockerBadge(p.blockers, p.proven)}<span class="pr-ttl" title="${esc(p.title)}">${esc(p.title)}</span></li>`).join('');
-                if (/^\d+$/.test(q) && !matches.some(p => String(p.number) === q))
-                    html += `<li data-num="${q}"><span class="open-any">Open PR #${q}…</span></li>`;
-                out.innerHTML = html || '<li class="muted" style="cursor:default">no open PRs match</li>';
-                for (const li of out.querySelectorAll('li[data-num]'))
-                    li.onclick = () => openPr(+li.dataset.num, true);
+        function plainClick(e) {
+            return e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey;
+        }
+
+        document.querySelector('.pr-pane').addEventListener('click', e => {
+            const link = e.target.closest('a[data-num]');
+            if (!link || !plainClick(e)) return;
+            e.preventDefault();
+            openPr(+link.dataset.num, true);
+        });
+        $('brand').addEventListener('click', e => {
+            if ($('analyzeView').classList.contains('hidden') || !plainClick(e)) return;
+            e.preventDefault();
+            if (selectedPr) goHome(true);
+        });
+        $('prFilter').addEventListener('input', applyPrFilter);
+        $('prFilter').addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                $('prFilter').value = '';
+                applyPrFilter();
+                return;
             }
-            input.addEventListener('input', renderMatches);
-            input.addEventListener('keydown', e => {
-                if (e.key !== 'Enter') return;
-                const first = out.querySelector('li[data-num]');
-                if (first) openPr(+first.dataset.num, true);
-            });
-        })();
+            if (e.key !== 'Enter') return;
+            const { first } = prMatches(allPrs, $('prFilter').value);
+            if (first == null) return;
+            $('prFilter').value = '';
+            applyPrFilter();
+            openPr(first, true);
+        });
+        document.addEventListener('keydown', e => {
+            if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || $('analyzeView').classList.contains('hidden')) return;
+            const t = e.target;
+            if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+            e.preventDefault();
+            setPaneCollapsed(false);
+            $('prFilter').focus();
+        });
     </script>
 </body>
 </html>
