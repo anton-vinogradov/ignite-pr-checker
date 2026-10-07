@@ -603,7 +603,10 @@
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
         }
-        function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+        // Quotes too: the result also lands inside attribute values (title="…", data-*="…").
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
         // Our own API errors are meaningful ('no RunAll build…', 'TeamCity rejected…'); anything else
         // (Spring's bare 'Not Found', proxy 502 text) is a restart blip and shouldn't be shown raw.
         function friendly(error, fallback) {

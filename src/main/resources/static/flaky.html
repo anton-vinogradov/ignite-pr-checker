@@ -166,7 +166,7 @@
         let lastJson = ''; // only re-render on change, so an open "why?" isn't wiped by the poll
 
         function esc(s) {
-            return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+            return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
         // "Class.method[params]" without the package/namespace (dots inside (...)/[...] kept intact).
