@@ -97,7 +97,7 @@ class RevokedSessionTest {
 
         assertThat(auth.preHandle(session(), res, null)).isFalse();
         assertThat(res.getStatus()).isEqualTo(401);
-        assertThat(res.getContentAsString()).contains("TeamCity rejected your token");
+        assertThat(res.getContentAsString()).contains("TeamCity rejected your token").contains("\"tokenRejected\":true");
         assertThat(auth.signedIn(session())).isEmpty();
 
         loginWithTheTokenReissued();
@@ -116,7 +116,8 @@ class RevokedSessionTest {
         ResponseEntity<?> me = login.me(codec.encode("avinogradov", "tok"));
 
         assertThat(me.getStatusCode().value()).isEqualTo(401);
-        assertThat(me.getBody()).isEqualTo(Map.of("error", "TeamCity rejected your token — log in again"));
+        assertThat(me.getBody()).isEqualTo(Map.of("error", "TeamCity rejected your token — log in again",
+            "tokenRejected", true));
 
         loginWithTheTokenReissued();
 

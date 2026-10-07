@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.web;
 
+import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -15,18 +16,23 @@ public class ConfigController {
     private final TeamcityProperties teamcity;
     private final GithubProperties github;
     private final GithubClient githubClient;
+    private final AnalysisProperties analysis;
 
-    public ConfigController(TeamcityProperties teamcity, GithubProperties github, GithubClient githubClient) {
+    public ConfigController(TeamcityProperties teamcity, GithubProperties github, GithubClient githubClient,
+        AnalysisProperties analysis) {
         this.teamcity = teamcity;
         this.github = github;
         this.githubClient = githubClient;
+        this.analysis = analysis;
     }
 
+    /** {@code refreshAfterSeconds}: how old a verdict may get before a view refreshes it in the background. */
     @GetMapping("/config")
     public Map<String, Object> config() {
         return Map.of(
             "teamcityUrl", teamcity.baseUrl(),
             "githubRepo", github.repo(),
-            "starCount", githubClient.starCount());
+            "starCount", githubClient.starCount(),
+            "refreshAfterSeconds", analysis.refreshAfterSeconds());
     }
 }

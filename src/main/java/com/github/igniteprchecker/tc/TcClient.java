@@ -19,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -98,6 +97,24 @@ public class TcClient {
                 return Optional.empty();
 
             throw e;
+        }
+    }
+
+    /**
+     * Whether TeamCity itself refuses this token (401). A firewall 403 or an outage says nothing about
+     * the token, so neither counts.
+     */
+    public boolean tokenRejected(String token) {
+        try {
+            get("whoami", token, url("app/rest/users/current", query("fields", "username")), TcModel.User.class);
+
+            return false;
+        }
+        catch (RestClientResponseException e) {
+            return e.getStatusCode().value() == 401;
+        }
+        catch (RuntimeException e) {
+            return false;
         }
     }
 
@@ -484,9 +501,14 @@ public class TcClient {
         return cancelled;
     }
 
-    /** Cancels every user-launched build (RunAll or re-run suite) currently queued or running; returns how many. */
+    /**
+     * Cancels every user-launched build (RunAll or re-run suite) currently queued or running; returns how
+     * many. A refusal is thrown rather than skipped: a dead token, or a 403 on every build, would
+     * otherwise read as "cancelled 0 runs".
+     */
     public int cancelUserBuilds(String token, int prNumber) {
         int cancelled = 0;
+        RestClientResponseException refused = null;
 
         for (TcModel.Build b : currentUserBuilds(token, prNumber)) {
             try {
@@ -494,9 +516,18 @@ public class TcClient {
                 cancelled++;
             }
             catch (RestClientResponseException e) {
-                // The build finished, or moved queued->running, between listing and cancelling: skip it.
+                int status = e.getStatusCode().value();
+                if (status == 401)
+                    throw e;
+                if (status == 403)
+                    refused = e;
+                // Any other answer: the build finished, or moved queued->running, between listing and
+                // cancelling — skip it.
             }
         }
+
+        if (cancelled == 0 && refused != null)
+            throw refused;
 
         return cancelled;
     }
@@ -709,8 +740,8 @@ public class TcClient {
             return get(category, token, url("app/rest/testOccurrences", query(
                 "locator", locator, "fields", fields.replace(CONDITIONS_SLOT, asked))), TcModel.TestOccurrences.class);
         }
-        catch (HttpClientErrorException.BadRequest e) {
-            if (!RUN_CONDITIONS.equals(asked))
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 400 || !RUN_CONDITIONS.equals(asked))
                 throw e;
 
             TcModel.TestOccurrences occ = get(category, token, url("app/rest/testOccurrences", query(
@@ -743,7 +774,7 @@ public class TcClient {
         }
         catch (RestClientResponseException e) {
             metrics.recordTc(category, false, e.getStatusCode().value(), msSince(t0));
-            throw e;
+            throw new TcResponseException(e);
         }
         catch (RuntimeException e) {
             metrics.recordTc(category, false, 0, msSince(t0)); // network/other error

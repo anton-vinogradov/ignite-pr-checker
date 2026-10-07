@@ -13,7 +13,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
 /**
  * Guards protected endpoints: resolves the session cookie and exposes the user's token as a request attribute.
  * A session whose TeamCity token TeamCity has since rejected (401) is refused: the cookie never expires, so
- * otherwise a revoked token would keep working here for good.
+ * otherwise a revoked token would keep working here for good. The refusal carries {@code tokenRejected}, as
+ * {@link ApiExceptionHandler}'s does, so the page can tell it from a missing session and say why it logs out.
  */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
@@ -51,7 +52,7 @@ public class AuthInterceptor implements HandlerInterceptor {
             resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             resp.setContentType("application/json");
             resp.setCharacterEncoding("UTF-8");
-            resp.getWriter().write("{\"error\":\"" + REVOKED + "\"}");
+            resp.getWriter().write("{\"error\":\"" + REVOKED + "\",\"tokenRejected\":true}");
 
             return false;
         }

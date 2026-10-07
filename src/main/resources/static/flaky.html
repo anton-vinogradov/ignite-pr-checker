@@ -21,10 +21,10 @@
         * { box-sizing: border-box; }
         body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; background: #fff; }
         a { color: var(--accent); }
-        .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
-        .brand { font-weight: 600; }
+        .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 600; color: var(--fg); text-decoration: none; }
         .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
-        .topbar-right { display: flex; align-items: center; gap: 0.8rem; }
+        .topbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; }
         .theme-btn { font: inherit; font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
         .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
         .theme-btn:hover { border-color: #c0c0c0; }
@@ -117,11 +117,16 @@
             .why::after, a.ext::after { content: "]"; color: var(--muted); }
             .why:hover, a.ext:hover { text-decoration: underline; }
         }
+        @media (max-width: 768px) {
+            .topbar { padding: 0.5rem 0.75rem; }
+            .brand small { display: none; }
+            .wrap { padding: 0 0.75rem; }
+        }
     </style>
 </head>
 <body>
     <header class="topbar">
-        <div class="brand">Ignite PR Checker <small>flaky tests · fix-master queue</small></div>
+        <a class="brand" href="/" title="Start page">Ignite PR Checker <small>flaky tests · fix-master queue</small></a>
         <div class="topbar-right">
             <button id="reloadPill" class="pill reload-pill hidden" type="button"
                 title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>

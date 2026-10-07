@@ -142,7 +142,7 @@ public class LoginController {
 
         SessionCodec.Session s = session.get();
         if (warmer.tokenRevoked(s.token()))
-            return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED));
+            return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED, "tokenRejected", true));
 
         warmer.offerToken(s.token());
 
