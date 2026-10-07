@@ -22,6 +22,8 @@ import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,6 +68,9 @@ class ChainFinishedEventTest {
         context.registerBean(JiraClient.class, () -> mock(JiraClient.class));
         context.registerBean(VisaService.class, () -> mock(VisaService.class));
         context.registerBean(PendingCommits.class, () -> mock(PendingCommits.class));
+        for (String pool : List.of("earlyRerunExecutor", "settleExecutor", "visaPosterExecutor"))
+            context.registerBean(pool, ExecutorService.class, () -> Executors.newSingleThreadExecutor(),
+                bd -> bd.setDestroyMethodName("shutdown"));
         context.register(RerunTracker.class, StandingVisas.class, VisaSubscriptions.class);
         context.refresh();
 

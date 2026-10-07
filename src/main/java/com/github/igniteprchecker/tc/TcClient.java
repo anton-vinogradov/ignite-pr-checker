@@ -19,6 +19,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -66,6 +68,12 @@ public class TcClient {
     /** The most builds {@link #suitesFinishedAfter} reads; a branch that finished more is taken as unknown. */
     private static final int FINISHED_SINCE_MAX = 1000;
 
+    /** The most chains {@link #prsWithChainsFinishedAfter} reads; past that, which PRs they ran for is taken as unknown. */
+    private static final int FINISHED_CHAINS_MAX = 200;
+
+    /** A PR's branch as TeamCity names it. */
+    private static final Pattern PR_BRANCH = Pattern.compile("pull/(\\d+)/head");
+
     /** Where {@link #occurrencesWithConditions} puts the run conditions into a fields spec. */
     private static final String CONDITIONS_SLOT = "{conditions}";
 
@@ -105,6 +113,9 @@ public class TcClient {
 
     /** Whether {@link #suitesFinishedAfter} still asks for failed-to-start builds; dropped if TeamCity rejects it. */
     private volatile boolean finishedSinceFailedToStart = true;
+
+    /** Whether {@link #prsWithChainsFinishedAfter} is still asked; dropped if TeamCity rejects its query. */
+    private volatile boolean finishedChainsLookup = true;
 
     public TcClient(TeamcityProperties tc, AnalysisProperties analysis, Metrics metrics) {
         this.analysis = analysis;
@@ -346,6 +357,50 @@ public class TcClient {
             TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
+     * The PRs with a RunAll chain that finished after {@code epochSec}, cancelled and failed-to-start ones included, in
+     * one call across all branches: the PRs whose latest finished chain may have changed since. Empty when TeamCity
+     * can't say for sure: it listed as many chains as it was asked for, or it rejected the query, which is then not
+     * asked again. Bounded by start date as {@link #branchFinishedAfter} is.
+     */
+    public Optional<Set<Integer>> prsWithChainsFinishedAfter(String token, long epochSec) {
+        if (!finishedChainsLookup)
+            return Optional.empty();
+
+        String locator = "buildType:(id:" + analysis.runAllBuildType() + "),branch:(default:any),state:finished,"
+            + "canceled:any,failedToStart:any,"
+            + "startDate:(date:" + TcDates.format(epochSec - LONGEST_BUILD_SECONDS) + ",condition:after),"
+            + "finishDate:(date:" + TcDates.format(epochSec) + ",condition:after),count:" + FINISHED_CHAINS_MAX;
+        TcModel.BuildList list;
+        try {
+            list = get("finishedChains", token, url("app/rest/builds", query(
+                "locator", locator, "fields", "build(id,branchName)")), TcModel.BuildList.class);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 400)
+                throw e;
+
+            finishedChainsLookup = false;
+            log.warn("TeamCity rejected the lookup of the RunAll chains finished since the last sweep ({}); the sweep "
+                + "looks every PR up, as before", e.getStatusText());
+
+            return Optional.empty();
+        }
+
+        List<TcModel.Build> builds = list == null || list.build() == null ? List.of() : list.build();
+        if (builds.size() >= FINISHED_CHAINS_MAX)
+            return Optional.empty();
+
+        Set<Integer> prs = new HashSet<>();
+        for (TcModel.Build b : builds) {
+            Matcher pr = b.branchName() == null ? null : PR_BRANCH.matcher(b.branchName());
+            if (pr != null && pr.matches())
+                prs.add(Integer.parseInt(pr.group(1)));
+        }
+
+        return Optional.of(prs);
     }
 
     /**

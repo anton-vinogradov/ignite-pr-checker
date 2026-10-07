@@ -1322,56 +1322,24 @@ function listOf(el) {
     return list ? list.id : '';
 }
 
-// Why an empty blocker list may not mean the PR is clean — the same reasons the server states
-// in the PR comment and the visa (analysis/Caveats.java). `ahead` is the commits pushed since
-// the analysed run, known only once /api/pending answers.
+// Why an empty blocker list may not mean the PR is clean, as the server words it in the PR comment and the
+// visa (analysis/Caveats.java). `ahead` is the commits pushed since the analysed run, known only once
+// /api/pending answers, and the caveat about them comes from there.
 function caveatsOf(res, ahead) {
-    const out = [];
-    out.push(...brokenCaveats(res));
-    const shrunk = (res.shrunkSuites || []).length;
-    if (shrunk)
-        out.push(`${shrunk} suite${shrunk === 1 ? '' : 's'} ran far fewer tests than on master`);
-    const unverified = (res.unverified || []).length;
-    if (unverified)
-        out.push(`${unverified} failed test${unverified === 1 ? '' : 's'} could not be checked (TeamCity errors)`);
-    if (res.live)
-        out.push('a newer run is still going — its unfinished suites can still fail');
-    if (ahead > 0)
-        out.push(`${ahead} commit${ahead === 1 ? '' : 's'} pushed since this run — it tested older code`);
-    return out;
+    return (res.caveats || []).concat(ahead > 0 && pendingOf.caveat ? [pendingOf.caveat] : []);
 }
 
-// What the broken groups say against a clean verdict, as the server says it (Caveats.java): a failed Build and the
-// suites it kept from running, the suites cancelled for other reasons, and the causes of the other broken suites.
-function brokenCaveats(res) {
-    const out = [];
-    const groups = groupsOf(res);
-    const upstreams = groups.filter(g => g.upstream);
-    for (const g of upstreams) out.push(g.title.split('; ')[0]);
-    const kept = upstreams.reduce((n, g) => n + (g.cancelled || []).length, 0);
-    const notRun = res.canceledSuites - kept;
-    if (res.interrupted && notRun > 0)
-        out.push(`the RunAll was interrupted — ${notRun} suite${notRun === 1 ? '' : 's'} never ran`);
-    const causes = groups.filter(g => !g.upstream);
-    const broken = causes.reduce((n, g) => n + (g.suites || []).length, 0);
-    if (broken) {
-        const cause = g => {
-            const text = g.kind === 'ARTIFACTS' ? 'ci2 glitch: artifacts unavailable'
-                : g.kind === 'UPSTREAM' ? 'a run they need failed' : g.title;
-            return (g.suites.length > 1 ? g.suites.length + '× ' : '') + (text.length > 80 ? text.slice(0, 79) + '…' : text);
-        };
-        out.push(`${broken} suite${broken === 1 ? '' : 's'} with no reliable result (`
-            + causes.slice(0, 3).map(cause).join('; ') + (causes.length > 3 ? '; …' : '') + ')');
-    }
-    return out;
+// How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run of code the PR
+// has moved past since is old code.
+function standingOf(res, ahead) {
+    return res.standing === 'CLEAN' && ahead > 0 ? 'OLD_CODE' : res.standing;
 }
 
-// "No blockers 🎉" is earned, not automatic: it needs a run that actually covered the PR.
+// "No blockers 🎉" is earned, not automatic: only a clean standing gets it, the one that gets ✓ in the PR list.
 function renderVerdictHead(res, ahead) {
     const hasBlockers = res.blockers.length > 0;
-    const watch = res.watch || [];
     const caveats = caveatsOf(res, ahead);
-    const clean = !hasBlockers && watch.length === 0 && caveats.length === 0;
+    const clean = standingOf(res, ahead) === 'CLEAN';
     $('blockersTitle').classList.toggle('clean', clean);
     $('blockersTitle').classList.toggle('neutral', !hasBlockers && !clean);
     $('blockersHead').textContent = hasBlockers ? 'Blockers'
@@ -1388,7 +1356,7 @@ function renderVerdictHead(res, ahead) {
 }
 
 // Commits pushed since the analysed build, as /api/pending last said for it; null while unknown.
-let pendingOf = { pr: 0, buildId: 0, ahead: null };
+let pendingOf = { pr: 0, buildId: 0, ahead: null, caveat: null };
 
 function aheadOf(res) {
     return !res.live && pendingOf.pr === res.prNumber && pendingOf.buildId === res.buildId ? pendingOf.ahead : null;
@@ -1491,12 +1459,12 @@ async function loadPending(res) {
         const p = await r.json().catch(() => null);
         if (!p || res.prNumber !== selectedPr) return;
         if (!p.pending) {
-            pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead: null };
+            pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead: null, caveat: null };
             $('pendingRow').classList.add('hidden');
             return;
         }
         const ahead = p.ahead > 0 ? p.ahead : 1; // superseded code can't be a clean verdict
-        pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead };
+        pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead, caveat: p.caveat || null };
         repaintPrTests(res);
         const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
         $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;

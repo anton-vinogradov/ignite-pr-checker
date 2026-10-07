@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -73,14 +75,12 @@ public class VisaSubscriptions implements SnapshotCache {
     private static final long RETRY_FOR_MS = 3_600_000;
 
     /** Posting waits for the (potentially heavy) analysis; one background thread is plenty. */
-    private final ExecutorService poster = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "auto-visa");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExecutorService poster;
 
+    @Autowired
     public VisaSubscriptions(ObjectMapper mapper, SessionCodec codec, JiraClient jira, VisaService visas,
-        BlockerAnalyzer analyzer, Warmer warmer, PendingCommits pending, TcClient tc, StandingVisas standing) {
+        BlockerAnalyzer analyzer, Warmer warmer, PendingCommits pending, TcClient tc, StandingVisas standing,
+        @Qualifier("visaPosterExecutor") ExecutorService poster) {
         this.mapper = mapper;
         this.codec = codec;
         this.jira = jira;
@@ -90,6 +90,18 @@ public class VisaSubscriptions implements SnapshotCache {
         this.pending = pending;
         this.tc = tc;
         this.standing = standing;
+        this.poster = poster;
+    }
+
+    /** Subscriptions whose visas are posted on a daemon thread of their own. */
+    public VisaSubscriptions(ObjectMapper mapper, SessionCodec codec, JiraClient jira, VisaService visas,
+        BlockerAnalyzer analyzer, Warmer warmer, PendingCommits pending, TcClient tc, StandingVisas standing) {
+        this(mapper, codec, jira, visas, analyzer, warmer, pending, tc, standing, Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "auto-visa");
+            t.setDaemon(true);
+
+            return t;
+        }));
     }
 
     /** Arms the user's one-shot subscription: the next finished RunAll of this PR posts the visa to {@code issue}. */

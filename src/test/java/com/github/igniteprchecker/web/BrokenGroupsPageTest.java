@@ -66,7 +66,7 @@ class BrokenGroupsPageTest {
             "Cache 5", "execution timeout — ran 12 of master's 35 tests", "Basic 3");
         assertThat(broken.split("ci2 glitch: artifacts unavailable", -1)).hasSize(2);
         assertThat(out.get("html").asText()).doesNotContain("<[Apache").contains("&lt;[Apache Ignite 2.x / Tests]");
-        assertThat(out.get("caveat").asText()).endsWith("this run can't prove it is clean: 64 suites with no reliable "
+        assertThat(out.get("caveat").asText()).endsWith("this run can't prove it is clean: 64 suite(s) have no reliable "
             + "result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
     }
 
@@ -98,7 +98,8 @@ class BrokenGroupsPageTest {
 
     /** The scenario: PR 13575's page showing {@code verdict}, as the server serializes it, and what it drew. */
     private static String page(AnalysisResult verdict) throws Exception {
-        return PageScript.SIGNED_IN + "const SERVED = " + JSON.writeValueAsString(verdict) + ";\n" + """
+        return PageScript.SIGNED_IN + "const SERVED = " + JSON.writeValueAsString(AnalyzeController.Served.of(verdict))
+            + ";\n" + """
             page.route('/api/analyze', { body: Object.assign(SERVED, { prNumber: 13575 }) });
             await page.load('?pr=13575');
             report({ broken: page.el('brokenSuites').textContent, html: page.el('brokenSuites').innerHTML,

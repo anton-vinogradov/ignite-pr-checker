@@ -1,10 +1,13 @@
 package com.github.igniteprchecker.jira;
 
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.analysis.model.TestVerdict.Doubt;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,7 +17,8 @@ import java.util.regex.Pattern;
 /**
  * The failed tests a verdict names, grouped by the suite run they failed in and their class, the biggest group first:
  * 489 failures of one class read as one line instead of ten lines of package names and "… and 479 more". Each line
- * names the test as {@code Class.method}, says in a few words why it is listed, and links the run in TeamCity.
+ * names the test as {@code Class.method}, says in a few words why it is listed and what it rests on short of proof,
+ * with the tags the checker's page shows, and links the run in TeamCity.
  */
 final class TestGroups {
     /** Groups a PR comment shows; the rest fold under a summary. */
@@ -37,6 +41,19 @@ final class TestGroups {
 
     /** Characters JIRA reads as markup inside {@code {{…}}}: a parameterized name became a link or a broken macro. */
     private static final Pattern WIKI_MARKUP = Pattern.compile("[\\[\\]{}\\\\]");
+
+    /** What a blocker or a test to watch rests on short of proof, tagged as the checker's page tags it. */
+    private static final Map<Doubt, String> TAGS = new EnumMap<>(Map.of(
+        Doubt.ONE_RUN, "1 run",
+        Doubt.NO_MASTER_HISTORY, "new test / no master history",
+        Doubt.UNCHECKED, "unverified"));
+
+    /** What each tag means: the page says it in a tooltip, the PR comment and the visa under their lists. */
+    private static final Map<Doubt, String> MEANS = new EnumMap<>(Map.of(
+        Doubt.ONE_RUN, "only one failure on this branch backs it: a re-run of its suite confirms or clears it",
+        Doubt.NO_MASTER_HISTORY, "master has no runs of the test on this JDK to compare with: a new test, or one "
+            + "master does not run",
+        Doubt.UNCHECKED, "a TeamCity error kept the check of other PRs' runs of the test from being made"));
 
     private final String tcBase;
 
@@ -101,8 +118,9 @@ final class TestGroups {
         List<String> methods = g.tests().stream().limit(METHODS_NAMED).map(t -> Name.of(t.name()))
             .map(n -> n.classLevel() ? "(class-level failure)" : code(n.method())).toList();
 
-        return "- " + g.suiteName() + " · " + code(g.className()) + " — " + g.tests().size() + " tests: "
-            + String.join(", ", methods) + rest(g) + (url == null ? "" : " · [TC](" + url + ")") + "\n";
+        return "- " + g.suiteName() + " · " + code(g.className()) + " — " + g.tests().size() + " tests"
+            + (why ? groupTags(g) : "") + ": " + String.join(", ", methods) + rest(g)
+            + (url == null ? "" : " · [TC](" + url + ")") + "\n";
     }
 
     private String wikiLine(Group g, boolean why) {
@@ -120,8 +138,41 @@ final class TestGroups {
         List<String> methods = g.tests().stream().limit(METHODS_NAMED).map(t -> Name.of(t.name()))
             .map(n -> n.classLevel() ? "(class-level failure)" : "{{" + wikiText(n.method()) + "}}").toList();
 
-        return "- " + g.suiteName() + " · {{" + wikiText(g.className()) + "}} — " + g.tests().size() + " tests: "
-            + String.join(", ", methods) + rest(g) + (url == null ? "" : " · [TC|" + url + "]") + "\n";
+        return "- " + g.suiteName() + " · {{" + wikiText(g.className()) + "}} — " + g.tests().size() + " tests"
+            + (why ? groupTags(g) : "") + ": " + String.join(", ", methods) + rest(g)
+            + (url == null ? "" : " · [TC|" + url + "]") + "\n";
+    }
+
+    /** "(1 run; unverified: 2 of 489)": each tag all of the group's tests carry, or how many of them do. */
+    private static String groupTags(Group g) {
+        int n = g.tests().size();
+        List<String> parts = new ArrayList<>();
+        for (Doubt d : Doubt.values()) {
+            long k = g.tests().stream().filter(t -> t.doubts().contains(d)).count();
+            if (k > 0)
+                parts.add(k == n ? TAGS.get(d) : TAGS.get(d) + ": " + k + " of " + n);
+        }
+
+        return parts.isEmpty() ? "" : " (" + String.join("; ", parts) + ")";
+    }
+
+    /** What the tags the tests carry mean, in GitHub's markdown; empty when they carry none. */
+    String markdownLegend(List<TestVerdict> tests) {
+        List<String> meanings = tagged(tests).stream().map(d -> "**" + TAGS.get(d) + "**: " + MEANS.get(d)).toList();
+
+        return meanings.isEmpty() ? "" : "<sub>" + String.join(" · ", meanings) + ".</sub>";
+    }
+
+    /** The same in JIRA's wiki markup. */
+    String wikiLegend(List<TestVerdict> tests) {
+        List<String> meanings = tagged(tests).stream().map(d -> TAGS.get(d) + ": " + MEANS.get(d)).toList();
+
+        return meanings.isEmpty() ? "" : "_" + String.join(" · ", meanings) + "._";
+    }
+
+    /** The tags any of the tests carries, in the order the page shows them. */
+    private static List<Doubt> tagged(List<TestVerdict> tests) {
+        return Arrays.stream(Doubt.values()).filter(d -> tests.stream().anyMatch(t -> t.doubts().contains(d))).toList();
     }
 
     private static String rest(Group g) {
@@ -165,8 +216,8 @@ final class TestGroups {
     }
 
     /**
-     * Why a test is listed, in a few words: how many runs of the code under review it failed, and that master never
-     * ran it when it did not. A verdict that rests on one run says so.
+     * Why a test is listed, in a few words: how many runs of the code under review it failed, and the tags of what
+     * it rests on short of proof. A verdict that rests on one failure is tagged "1 run".
      */
     static String shortReason(TestVerdict t) {
         String runs = t.branchRuns() == null ? "" : t.branchRuns();
@@ -174,14 +225,21 @@ final class TestGroups {
             : runs;
         long failed = code.chars().filter(c -> c == 'F').count();
         List<String> parts = new ArrayList<>();
-        if (code.length() == 1)
+        if (code.length() == 1 && !t.doubts().contains(Doubt.ONE_RUN))
             parts.add("one run of this code");
-        else if (!code.isEmpty())
+        else if (code.length() > 1)
             parts.add("failed " + failed + " of " + code.length() + " runs of this code");
-        if (t.reason() != null && t.reason().startsWith("no master history"))
-            parts.add("no master history");
+        for (Doubt d : Doubt.values()) {
+            if (t.doubts().contains(d))
+                parts.add(TAGS.get(d));
+        }
 
         return String.join("; ", parts);
+    }
+
+    /** How many of the tests rest on one failure. */
+    static long oneRun(List<TestVerdict> tests) {
+        return tests.stream().filter(t -> t.doubts().contains(Doubt.ONE_RUN)).count();
     }
 
     /** Text for inside JIRA's {@code {{…}}}, its markup characters escaped so a test name reads as written. */
