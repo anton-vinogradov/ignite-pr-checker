@@ -529,6 +529,12 @@
                             package, a run that ended early). Intentional if this PR removes tests; otherwise re-run and check.</p>
                         <ul id="shrunkSuites" class="tests"></ul>
                     </div>
+                    <div id="unstableCard" class="card hidden">
+                        <h2>Crashed after running every test <span id="unstableCount"></span></h2>
+                        <p class="muted">These suites hit a timeout, out-of-memory error or JVM crash, but only after running all of
+                            master's tests. Every test they failed is pre-existing or flaky (see Filtered out), so their results stand.</p>
+                        <ul id="unstableSuites" class="tests"></ul>
+                    </div>
                     <div class="card blockers">
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
                             <span id="blockerTabs" class="tabs hidden">
@@ -1289,6 +1295,10 @@
             $('shrunkCard').classList.toggle('hidden', shrunk.length === 0);
             $('shrunkCount').textContent = shrunk.length ? `(${shrunk.length})` : '';
             renderShrunk($('shrunkSuites'), shrunk);
+            const unstable = res.unstableSuites || [];
+            $('unstableCard').classList.toggle('hidden', unstable.length === 0);
+            $('unstableCount').textContent = unstable.length ? `(${unstable.length})` : '';
+            renderBroken($('unstableSuites'), unstable);
             $('watchCard').classList.toggle('hidden', watch.length === 0);
             $('watchCount').textContent = watch.length ? countLabel(watch) : '';
             renderList($('watch'), watch, false, true);

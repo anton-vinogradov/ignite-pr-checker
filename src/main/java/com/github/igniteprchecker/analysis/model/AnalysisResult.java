@@ -39,6 +39,25 @@ public record AnalysisResult(
      * makes the verdict wrong without changing the chain build id, so the warmer asks TeamCity whether
      * anything finished after this rather than trusting "same chain, same answer". 0 when unknown.
      */
-    long branchWatermarkAt
+    long branchWatermarkAt,
+    /**
+     * Suites that hit a timeout, an out-of-memory error or a JVM crash, yet ran all of master's tests, and
+     * failed only tests that are pre-existing or flaky: their results stand, so the problem is a note,
+     * not a broken suite.
+     */
+    List<BrokenSuite> unstableSuites
 ) {
+    public AnalysisResult {
+        unstableSuites = unstableSuites == null ? List.of() : unstableSuites;
+    }
+
+    /** A result with no unstable suites, in the shape callers used before they were tracked. */
+    public AnalysisResult(int prNumber, long buildId, String branchName, long computedAt, List<TestVerdict> blockers,
+        List<TestVerdict> watch, List<TestVerdict> filtered, List<BrokenSuite> brokenSuites,
+        List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
+        boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt, long branchWatermarkAt) {
+        this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
+            suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
+            branchWatermarkAt, List.of());
+    }
 }

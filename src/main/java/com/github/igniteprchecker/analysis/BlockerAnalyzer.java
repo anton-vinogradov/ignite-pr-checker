@@ -21,6 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
@@ -368,13 +370,23 @@ public class BlockerAnalyzer {
         List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
         List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
-        List<BrokenSuite> broken = withoutHealed(token, prNumber, chain.brokenSuites());
+
+        // A suite that crashed after running all its tests is broken only if the PR may be behind the crash:
+        // when every test it failed is pre-existing or flaky, the crash is a note next to a reliable result.
+        Set<String> blamed = Stream.concat(blockers.stream(), watch.stream()).map(TestVerdict::suite)
+            .collect(Collectors.toSet());
+        List<BrokenSuite> chainBroken = new ArrayList<>(chain.brokenSuites());
+        List<BrokenSuite> unstable = new ArrayList<>();
+        for (BrokenSuite s : chain.unstableSuites())
+            (blamed.contains(s.suite()) ? chainBroken : unstable).add(s);
+
+        List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken);
         List<ShrunkSuite> shrunk = withFullRunsDropped(token, prNumber, chain.shrunkSuites());
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
             chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId(),
-            chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt);
+            chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt, unstable);
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);
