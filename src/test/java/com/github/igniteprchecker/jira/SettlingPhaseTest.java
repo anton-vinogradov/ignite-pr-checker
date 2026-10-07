@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -154,6 +156,94 @@ class SettlingPhaseTest {
     }
 
     /**
+     * The settle of a chain that has just finished waits behind the sweep and other settles, minutes at times: all
+     * that time the page called the chain's verdict final, and "Notify me" went off before the re-runs started.
+     */
+    @Test
+    void aChainJustFinishedIsNotFinalBeforeItsSettle() throws Exception {
+        CountDownLatch settling = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(github.openPrs()).thenAnswer(inv -> {
+            settling.countDown();
+            release.await(10, TimeUnit.SECONDS);
+
+            return List.of(new PrSummary(PR, "IGNITE-28867 Hot reload of SSL certificates", null, null, null, null));
+        });
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict()));
+
+        standing.onChainFinished(new RerunTracker.ChainFinished(PR, CHAIN, false));
+        assertThat(settling.await(10, TimeUnit.SECONDS)).isTrue();
+        StandingVisas.Phase beforeSettle = standing.phase(PR, CHAIN);
+        release.countDown();
+
+        assertThat(beforeSettle.phase()).isEqualTo("settling");
+        assertThat(beforeSettle.wave()).isZero();
+        assertThat(finalWithin(CHAIN)).isTrue();
+    }
+
+    /** The sweep was deciding on the run before when the chain finished: its end dropped the chain's mark. */
+    @Test
+    void aSettleOfTheRunBeforeKeepsTheChainUndecided() throws Exception {
+        long next = CHAIN + 500;
+        CountDownLatch analysing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(analyzer.analyzeForAction("tc", PR)).thenAnswer(inv -> {
+            analysing.countDown();
+            release.await(10, TimeUnit.SECONDS);
+
+            return Optional.of(verdict());
+        });
+        CountDownLatch eventSettle = new CountDownLatch(1);
+        AtomicInteger lists = new AtomicInteger();
+        List<PrSummary> open = List.of(new PrSummary(PR, "IGNITE-28867 Hot reload of SSL certificates", null, null,
+            null, null));
+        when(github.openPrs()).thenAnswer(inv -> {
+            if (lists.incrementAndGet() > 1)
+                eventSettle.await(10, TimeUnit.SECONDS);
+
+            return open;
+        });
+        Thread sweep = new Thread(standing::sweep, "sweep");
+        sweep.start();
+        assertThat(analysing.await(10, TimeUnit.SECONDS)).isTrue();
+
+        standing.onChainFinished(new RerunTracker.ChainFinished(PR, next, false));
+        release.countDown();
+        sweep.join(10_000);
+        StandingVisas.Phase afterSweep = standing.phase(PR, next);
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(next)));
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict(next)));
+        eventSettle.countDown();
+
+        assertThat(afterSweep.phase()).isEqualTo("settling");
+        assertThat(finalWithin(next)).isTrue();
+    }
+
+    /** The chain's own settle failed on GitHub, and its PR is out of the sweep's list of the 50 latest. */
+    @Test
+    void aChainWhoseSettleFailedIsSettledByTheNextSweep() throws Exception {
+        CountDownLatch failed = new CountDownLatch(1);
+        when(github.openPrs()).thenAnswer(inv -> {
+            failed.countDown();
+
+            throw new IllegalStateException("GitHub 502");
+        });
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict()));
+
+        standing.onChainFinished(new RerunTracker.ChainFinished(PR, CHAIN, false));
+        assertThat(failed.await(10, TimeUnit.SECONDS)).isTrue();
+        StandingVisas.Phase afterFailure = standing.phase(PR, CHAIN);
+        doReturn(List.of()).when(github).openPrs();
+        when(github.pullState(PR)).thenReturn(Optional.of(new GithubClient.PullState(
+            "IGNITE-28867 Hot reload of SSL certificates", true, false)));
+
+        standing.sweep();
+
+        assertThat(afterFailure.phase()).isEqualTo("settling");
+        assertThat(standing.phase(PR, CHAIN).phase()).isEqualTo("final");
+    }
+
+    /**
      * v1.20.11 marked a run handled when its options went off, and left its wave behind: the page showed "Auto re-run
      * #1 in progress … the verdict below is interim" over the run's last verdict for good.
      */
@@ -176,13 +266,31 @@ class SettlingPhaseTest {
         assertThat(mapper.readTree(file.toFile()).get("waves").size()).isZero();
     }
 
+    /** Whether the verdict of the run reads final within a few seconds, once the settle thread is through. */
+    private boolean finalWithin(long buildId) throws InterruptedException {
+        long until = System.currentTimeMillis() + 5_000;
+        while (!"final".equals(standing.phase(PR, buildId).phase()) && System.currentTimeMillis() < until)
+            Thread.sleep(20);
+
+        return "final".equals(standing.phase(PR, buildId).phase());
+    }
+
+    private static TcModel.Build finished(long buildId) {
+        return new TcModel.Build(buildId, "FAILURE", "finished", "pull/13335/head", null, null, null, null, null, null,
+            null, null, new TcModel.Triggered("user", new TcModel.User(USER)), null, null, null, null, null);
+    }
+
     private static TestVerdict blocker() {
         return new TestVerdict(9389011L, "Cache1Test.test", "Cache1", 9389011L, "Cache 1", "o1", true, false,
             "not seen failing in 100 master run(s)", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... blockers) {
-        return new AnalysisResult(PR, CHAIN, "pull/13335/head", System.currentTimeMillis(), List.of(blockers),
+        return verdict(CHAIN, blockers);
+    }
+
+    private static AnalysisResult verdict(long buildId, TestVerdict... blockers) {
+        return new AnalysisResult(PR, buildId, "pull/13335/head", System.currentTimeMillis(), List.of(blockers),
             List.of(), List.of(), List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 1, 0);
     }
 }

@@ -556,6 +556,7 @@
                             <span id="runAllLabel" class="muted">RunAll:</span>
                             <button class="act" data-act="trigger" data-top="false" title="Queue the whole RunAll chain for this PR">Rerun</button>
                             <button class="act" data-act="trigger" data-top="true" title="Queue the whole RunAll chain for this PR, at the top of the queue">Rerun top</button>
+                            <button id="notifyBtn" class="act act-sep hidden" type="button">🔔 Notify me</button>
                         </div>
                     </div>
                     <div class="head-row status-row">
@@ -753,6 +754,7 @@
             $('settingsBtn').classList.toggle('hidden', view !== 'analyze');
             if (view !== 'analyze') $('settingsPanel').classList.add('hidden');
             if (view === 'login') paintLoginPr();
+            paintTab();
         }
 
         // Someone arriving from a PR's "live progress & verdict" link must see which PR the form is for,
@@ -940,6 +942,7 @@
             $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
             runsWere = 0;
             runsNow = [];
+            verdictDue = false;
             noRunNote = '';
             lastLiveFetch = Date.now(); // the analysis below is this PR's first look
             lastResult = null;
@@ -996,8 +999,9 @@
             }
         }
 
-        // One poll loop for the open PR: often while its runs go, rarely when nothing runs, never from a
-        // hidden tab, which would otherwise ask ci2 every 15 s around the clock.
+        // One poll loop for the open PR: often while its runs go, rarely when nothing runs. A hidden tab asks only
+        // while the verdict is not final, at the rare pace: its title and icon are how a reader on another tab
+        // learns that it is, and asking every 15 s around the clock would load ci2 for a tab nobody reads.
         const POLL_RUNNING_MS = 15000;
         const POLL_IDLE_MS = 90000;
         const LIVE_ANALYZE_MS = 55000;
@@ -1006,6 +1010,7 @@
         let lastLiveFetch = 0;
         let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
         let runsNow = []; // the PR's runs as /api/runs lists them, with who started each
+        let verdictDue = false; // the PR's runs just finished and the verdict of what they ran has not come yet
         let noRunNote = ''; // the status line's "no run to analyse" text while it is shown, so new runs can update it
 
         // Tag each suite header whose build type is currently queued/running with a chip linking to that build.
@@ -1029,8 +1034,9 @@
 
         function schedulePoll() {
             stopRunsPoll();
-            if (selectedPr && !document.hidden)
-                pollTimer = setTimeout(() => loadRuns(selectedPr), runsWere > 0 ? POLL_RUNNING_MS : POLL_IDLE_MS);
+            if (selectedPr && (!document.hidden || waitingForFinal()))
+                pollTimer = setTimeout(() => loadRuns(selectedPr),
+                    runsWere > 0 && !document.hidden ? POLL_RUNNING_MS : POLL_IDLE_MS);
         }
 
         async function loadRuns(number) {
@@ -1082,16 +1088,20 @@
             // Until a verdict of the finished run comes, each poll looks again: after a failed refresh, or while
             // the server still serves the unfinished one as it recomputes, that one would stay on screen for good.
             if (runs.length === 0 && number === selectedPr) {
-                if (runsWere > 0) refresh();
-                else if (lastResult && lastResult.live) analyze(number, true);
+                if (runsWere > 0) {
+                    verdictDue = true;
+                    refresh();
+                }
+                else if (lastResult && lastResult.live || verdictDue) analyze(number, true);
             }
             runsWere = runs.length;
 
             // Fold in failures from suites that finish while the chain runs, without disturbing the reader.
-            if (runs.length > 0 && Date.now() - lastLiveFetch > LIVE_ANALYZE_MS) {
+            if (runs.length > 0 && !document.hidden && Date.now() - lastLiveFetch > LIVE_ANALYZE_MS) {
                 lastLiveFetch = Date.now();
                 analyze(number, true);
             }
+            paintTab();
             loadSettling(number);
             schedulePoll();
             return true;
@@ -1103,20 +1113,144 @@
             const res = lastResult;
             if (!res || res.prNumber !== number) {
                 $('settlingRow').classList.add('hidden');
+                phaseNow = null;
+                paintTab();
                 return;
             }
-            let phase = null;
+            let phase;
             try {
                 const r = await api('/api/settling?pr=' + number + '&build=' + res.buildId);
-                phase = r.ok ? await r.json() : null;
+                phase = r.ok ? await r.json() : undefined;
             }
             catch (e) {
-                phase = null; // the next poll asks again
+                phase = undefined;
             }
             if (number !== selectedPr || lastResult !== res) return;
+            // A failed answer leaves the run where it was last known to be; the next poll asks again.
+            if (phase === undefined) phase = phaseNow && phaseNow.pr === number && phaseNow.build === res.buildId
+                ? phaseNow : null;
             const text = settlingText(phase);
             $('settlingRow').classList.toggle('hidden', !text);
             $('settling').textContent = text;
+            phaseNow = phase ? { ...phase, pr: number, build: res.buildId } : null;
+            paintTab();
+            // A hidden tab whose poll found nothing to wait for may learn only now that re-runs settle the verdict.
+            if (!pollTimer && waitingForFinal()) schedulePoll();
+        }
+
+        // Where the open PR's verdict stands, for the tab: its RunAll runs, auto re-runs settle it, it is final, or
+        // that is not known yet; null while nothing is known.
+        let phaseNow = null; // /api/settling's last answer, with the PR and build it was asked for
+        const BASE_TITLE = document.title || 'Ignite PR Checker';
+        const BASE_ICON = '/favicon.png';
+        const TAB_COLORS = {
+            running: '#1cb6ed', settling: '#e3a008', blockers: '#d73a49', clean: '#2da44e', other: '#8b949e' };
+
+        function tabState() {
+            if (!selectedPr || $('analyzeView').classList.contains('hidden')) return null;
+            const chain = runsNow.find(b => b.runAll);
+            const phase = phaseNow && phaseNow.pr === selectedPr ? phaseNow : null;
+            if (chain)
+                return { kind: 'running', queued: chain.state === 'queued', leftSec: chain.leftSec };
+            if (phase && phase.phase === 'running') return { kind: 'running' };
+            if (phase && phase.phase === 'settling') return { kind: 'settling', phase };
+            if (verdictDue) return { kind: 'running', analysing: true };
+            const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+            if (!res) return null;
+            if (res.live) return { kind: 'running' };
+            // Final only when /api/settling says so of this very run: without its answer, re-runs may still follow.
+            if (!phase || phase.phase !== 'final' || phase.build !== res.buildId) return { kind: 'unknown' };
+            const verdict = res.blockers.length > 0 ? 'blockers'
+                : $('blockersTitle').classList.contains('clean') ? 'clean' : 'other';
+            return { kind: 'final', verdict, res };
+        }
+
+        // Re-runs or a RunAll still decide the open PR's verdict, or whether they do is not known yet.
+        function waitingForFinal() {
+            const st = tabState();
+            return !!st && st.kind !== 'final';
+        }
+
+        // The tab's title and icon say how the open PR's run stands, so a reader on another tab sees it finish.
+        function paintTab() {
+            const st = tabState();
+            const pr = selectedPr ? ' · #' + selectedPr + ' — Ignite PR Checker' : '';
+            let title = BASE_TITLE, color = null;
+            if (st && st.kind === 'running') {
+                color = TAB_COLORS.running;
+                title = (st.analysing ? '⌛ analysing' : st.queued ? '⏳ queued'
+                    : st.leftSec >= 0 ? '⏱ ' + fmtLeft(st.leftSec) + ' left' : '▶ running') + pr;
+            }
+            else if (st && st.kind === 'settling') {
+                color = TAB_COLORS.settling;
+                const left = st.phase.etaEpochSec ? ' ' + fmtLeft(st.phase.etaEpochSec - Date.now() / 1000) : '';
+                title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ settling') + pr;
+            }
+            else if (st && st.kind === 'final') {
+                color = TAB_COLORS[st.verdict];
+                const n = st.res.blockers.length;
+                title = (st.verdict === 'blockers' ? `❌ ${n} blocker${n === 1 ? '' : 's'}`
+                    : st.verdict === 'clean' ? '✅ no blockers' : '⚠ no test blockers') + pr;
+            }
+            else if (selectedPr && !$('analyzeView').classList.contains('hidden'))
+                title = '#' + selectedPr + ' — Ignite PR Checker';
+            document.title = title;
+            const icon = document.querySelector('link[rel="icon"]');
+            if (icon) icon.href = color ? 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns='
+                + `"http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${color}"/></svg>`)
+                : BASE_ICON;
+            notifyIfFinal(st);
+            paintNotify(st);
+        }
+
+        // "Notify me": one desktop notification once the open PR's verdict is final, for the run under way when it
+        // was asked or a newer one. This tab has to stay open; it keeps asking in the background meanwhile.
+        let notifyFor = null; // { pr, build }
+
+        function notificationsOn() {
+            return typeof Notification !== 'undefined' && Notification.permission !== 'denied';
+        }
+
+        function paintNotify(st) {
+            const btn = $('notifyBtn');
+            const armed = !!notifyFor && notifyFor.pr === selectedPr;
+            btn.classList.toggle('hidden', !notificationsOn() || !st || st.kind === 'final');
+            btn.textContent = armed ? '🔔 Will notify' : '🔔 Notify me';
+            btn.setAttribute('aria-pressed', String(armed));
+            btn.title = armed ? 'A notification comes when the verdict is final — keep this tab open. Click to cancel.'
+                : 'Show a desktop notification when the verdict of this PR is final, after its run and auto re-runs'
+                    + ' (keep this tab open)';
+        }
+
+        async function toggleNotify() {
+            if (notifyFor && notifyFor.pr === selectedPr) {
+                notifyFor = null;
+                paintTab();
+                return;
+            }
+            const pr = selectedPr;
+            const st = tabState();
+            const chain = runsNow.find(b => b.runAll);
+            const build = chain ? chain.buildId : lastResult && lastResult.prNumber === pr ? lastResult.buildId : 0;
+            let permission = Notification.permission;
+            if (permission === 'default') permission = await Notification.requestPermission();
+            if (permission === 'granted' && pr === selectedPr && st && st.kind !== 'final') notifyFor = { pr, build };
+            paintTab();
+        }
+
+        function notifyIfFinal(st) {
+            if (!notifyFor || notifyFor.pr !== selectedPr || !st || st.kind !== 'final'
+                || st.res.buildId < notifyFor.build)
+                return;
+            const n = st.res.blockers.length;
+            const head = st.verdict === 'blockers' ? `${n} blocker${n === 1 ? '' : 's'}`
+                : st.verdict === 'clean' ? 'no blockers' : 'no test blockers, see the caveats';
+            notifyFor = null;
+            try {
+                const note = new Notification(`PR #${selectedPr}: ${head}`, {
+                    body: `The verdict of RunAll ${st.res.buildId} is final.`, tag: 'prc-' + selectedPr });
+                note.onclick = () => { window.focus(); note.close(); };
+            } catch (e) { /* a browser that refuses page notifications still has the tab title */ }
         }
 
         // What /api/settling says, in words; empty unless re-runs still settle the verdict.
@@ -1163,7 +1297,10 @@
             selectedPr = null;
             lastResult = null;
             runsNow = [];
+            verdictDue = false;
             noRunNote = '';
+            phaseNow = null;
+            paintTab();
             stopRunsPoll();
             if (push) history.pushState({}, '', location.pathname);
             for (const li of $('prList').children) li.classList.remove('sel');
@@ -1264,13 +1401,16 @@
             const res = await r.json();
             if (number !== selectedPr) return;
             clearFailedRefresh();
+            verdictDue = false;
             if (quiet && sameVerdict(lastResult, res)) {
                 lastResult = res;
                 renderFreshness(res);
                 lookAgainIfStale(res);
+                paintTab();
                 return;
             }
             renderResult(res, { quiet });
+            paintTab();
         }
 
         // Blanks the result while a PR's first analysis runs, and shows that compute's real progress — a
@@ -2032,7 +2172,9 @@
             if (!r || !r.ok) {
                 const { error } = r ? await r.json().catch(() => ({ error: 'refresh failed' })) : {};
                 if (/no RunAll build/i.test(error || '')) {
+                    verdictDue = false;
                     showNoRun();
+                    paintTab();
                     return;
                 }
                 // With a verdict on screen, keep it and look again quietly; with none, retry visibly.
@@ -2041,7 +2183,9 @@
                 setTimeout(() => { if (pr === selectedPr) analyze(pr, !!lastResult); }, 4000);
                 return;
             }
+            verdictDue = false;
             renderResult(await r.json(), { force: true });
+            paintTab();
             loadRuns(pr);
         }
 
@@ -2980,6 +3124,7 @@
 
 
         $('cancelMine').onclick = cancelMine;
+        $('notifyBtn').onclick = toggleNotify;
         $('refreshBtn').onclick = refresh;
         window.addEventListener('popstate', () => {
             if ($('analyzeView').classList.contains('hidden')) {
@@ -2990,11 +3135,11 @@
             if (pr) openPr(pr, false);
             else goHome(false);
         });
-        // A hidden tab stops polling; coming back asks for the runs at once instead of waiting out the
-        // interval, and through them re-reads a running verdict or refreshes one whose run finished
-        // meanwhile. A finished verdict is not asked for again.
+        // A hidden tab stops polling once the verdict is final; coming back asks for the runs at once instead of
+        // waiting out the interval, and through them re-reads a running verdict or refreshes one whose run
+        // finished meanwhile. A finished verdict is not asked for again.
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) { stopRunsPoll(); return; }
+            if (document.hidden) { if (!waitingForFinal()) stopRunsPoll(); return; }
             if (!selectedPr || $('analyzeView').classList.contains('hidden')) return;
             loadRuns(selectedPr);
             if (lastResult && lastResult.prNumber === selectedPr) renderFreshness(lastResult);

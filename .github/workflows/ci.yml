@@ -22,3 +22,10 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew build
+
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: build/reports/jacoco/test/

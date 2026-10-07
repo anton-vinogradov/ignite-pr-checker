@@ -317,8 +317,8 @@ public class VisaSubscriptions implements SnapshotCache {
         }
 
         try {
-            String url = jira.addComment(token.get(), sub.issue(),
-                visas.compose(pr, res, pending.countSince(tcToken, pr, res.buildId())));
+            String url = jira.addComment(token.get(), sub.issue(), visas.compose(pr, res,
+                pending.countSince(tcToken, pr, res.buildId()), revision(tcToken, res.buildId())));
             subs.remove(key, sub); // one-shot: the token leaves the disk with it (a re-armed one stays)
             postedTo.add(sub.issue());
             posted.incrementAndGet();
@@ -329,6 +329,16 @@ public class VisaSubscriptions implements SnapshotCache {
         catch (RuntimeException e) {
             log.warn("auto-visa of {} for PR {} failed (kept armed): {}", sub.username(), pr, e.toString());
             return false;
+        }
+    }
+
+    /** The commit the build tested, for the visa to name; null when TeamCity does not say. */
+    private String revision(String tcToken, long buildId) {
+        try {
+            return tc.buildRevision(tcToken, buildId).orElse(null);
+        }
+        catch (RuntimeException e) {
+            return null;
         }
     }
 

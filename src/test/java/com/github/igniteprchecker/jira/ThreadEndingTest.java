@@ -8,7 +8,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -113,16 +112,21 @@ class ThreadEndingTest {
         assertThat(standing.waveStatus(PR, OLD)).isEmpty();
     }
 
+    /** A comment that already carries its final verdict keeps it; it only says that a newer run superseded it. */
     @Test
-    void aCommentThatAlreadyEndedIsLeftAsItIs() {
+    void aCommentThatAlreadyEndedIsOnlyMarkedSuperseded() {
         listed();
         when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
-        when(github.commentBody(COMMENT)).thenReturn(Optional.of("**[Ignite PR Checker](…)** verdict\n\n✅ **No blockers**"));
+        String verdict = "**[Ignite PR Checker](…)** verdict\n\n✅ **No blockers**";
+        when(github.commentBody(COMMENT)).thenReturn(Optional.of(verdict));
 
         standing.sweep();
         standing.sweep();
 
-        verify(github, never()).updatePrComment(anyString(), anyLong(), anyString());
+        verify(github, times(1)).updatePrComment(anyString(), anyLong(), anyString());
+        verify(github).updatePrComment("gh-pat", COMMENT, verdict + "\n\n🔁 _Superseded by the newer RunAll [" + NEW
+            + "](https://ci2.example/build/" + NEW + ") — its verdict is on [the checker's page]"
+            + "(https://checker.example/?pr=13427)._");
         verify(github, times(1)).commentBody(COMMENT);
     }
 

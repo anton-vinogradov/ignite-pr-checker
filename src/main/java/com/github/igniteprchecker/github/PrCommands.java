@@ -250,7 +250,7 @@ public class PrCommands implements SnapshotCache {
             long buildId = build.id();
             String link = build.webUrl() == null || build.webUrl().isBlank()
                 ? "build " + buildId : "[build " + buildId + "](" + build.webUrl() + ")";
-            String ack = (styleNote == null ? "" : styleNote + "\n")
+            String ack = (styleNote == null ? "" : styleNote + "\n\n")
                 + "🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
                 + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/?pr=" + pr
                 + ")."
@@ -714,6 +714,8 @@ public class PrCommands implements SnapshotCache {
                         + (standing.visaOn(run.username()) && standing.settledWithoutTicket(run.buildId())
                             ? " No JIRA visa: the PR title names no IGNITE ticket." : "") + "_");
                     stopNarrating(run);
+                    if (run.app())
+                        announceVerdict(run);
 
                     return;
                 }
@@ -773,6 +775,28 @@ public class PrCommands implements SnapshotCache {
         }
         catch (RuntimeException e) {
             log.warn("ETA update for PR {} failed: {}", pr, e.toString());
+        }
+    }
+
+    /**
+     * Tells a commander without a GitHub token of their own, in a new comment, that the verdict of their run is in.
+     * Their story lives in the checker's comment, and GitHub tells nobody about an edit, so its last line reached
+     * no one; a mention in a new comment does.
+     */
+    private void announceVerdict(CommandRun run) {
+        String login = standing.ghLoginOf(run.username());
+        if (login == null || login.isBlank())
+            return;
+
+        String body = "@" + login + " the verdict of your `/run-all` is ready: RunAll [" + run.buildId() + "]("
+            + tcBaseUrl + "/build/" + run.buildId() + ") — " + verdictLink(run, run.pr(), "see the verdict") + ".";
+        if (readsAsCommand(body))
+            throw new IllegalStateException("the checker must never post a comment that reads as a command");
+        try {
+            github.addPrCommentAsApp(run.pr(), body);
+        }
+        catch (RuntimeException e) {
+            log.warn("telling {} on PR {} that the verdict is ready failed: {}", login, run.pr(), e.toString());
         }
     }
 

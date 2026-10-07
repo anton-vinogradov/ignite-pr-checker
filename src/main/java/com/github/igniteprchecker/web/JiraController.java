@@ -9,6 +9,7 @@ import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
+import com.github.igniteprchecker.tc.TcClient;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -37,6 +38,7 @@ public class JiraController {
     private static final Duration COOKIE_MAX_AGE = Duration.ofDays(3650);
 
     private final JiraClient jira;
+    private final TcClient tc;
     private final BlockerAnalyzer analyzer;
     private final SessionCodec codec;
     private final VisaService visas;
@@ -46,10 +48,12 @@ public class JiraController {
     private final PendingCommits pending;
     private final boolean cookieSecure;
 
-    public JiraController(JiraClient jira, BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
+    public JiraController(JiraClient jira, TcClient tc,
+        BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
         VisaSubscriptions visaSubs, StandingVisas standing, GithubClient github, PendingCommits pending,
         @Value("${session.cookie-secure}") boolean cookieSecure) {
         this.jira = jira;
+        this.tc = tc;
         this.analyzer = analyzer;
         this.codec = codec;
         this.visas = visas;
@@ -240,14 +244,26 @@ public class JiraController {
         if (res.isEmpty())
             return ResponseEntity.status(404).body(Map.of("error", "no finished RunAll build for PR " + pr));
 
+        long buildId = res.get().buildId();
         try {
-            String url = jira.addComment(jiraToken, issue, visas.compose(pr, res.get(), pending.countSince(tcToken, pr, res.get().buildId())));
+            String url = jira.addComment(jiraToken, issue, visas.compose(pr, res.get(),
+                pending.countSince(tcToken, pr, buildId), revision(tcToken, buildId)));
 
             return ResponseEntity.ok(Map.of("url", url));
         }
         catch (RestClientResponseException e) {
             return ResponseEntity.status(502)
                 .body(Map.of("error", "JIRA rejected the comment (" + e.getStatusCode() + ")"));
+        }
+    }
+
+    /** The commit the build tested, for the visa to name; null when TeamCity does not say. */
+    private String revision(String tcToken, long buildId) {
+        try {
+            return tc.buildRevision(tcToken, buildId).orElse(null);
+        }
+        catch (RuntimeException e) {
+            return null;
         }
     }
 

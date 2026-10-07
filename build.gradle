@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'jacoco'
     id 'org.springframework.boot' version '3.5.16'
     id 'io.spring.dependency-management' version '1.1.7'
 }
@@ -85,4 +86,16 @@ tasks.named('bootRun') {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// Coverage is reported, not enforced: the report shows which paths the tests still miss.
+tasks.named('jacocoTestReport') {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('test') {
+    finalizedBy tasks.named('jacocoTestReport')
 }

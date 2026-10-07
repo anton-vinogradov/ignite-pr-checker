@@ -51,6 +51,7 @@ final class PageScript {
         page.route('/api/delta', { body: { delta: null, history: [] } });
         page.route('/api/pending', { body: { pending: false } });
         page.route('/api/auto-visa', { body: { armed: false } });
+        page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2 } });
         page.route('/api/version', { body: { updateAvailable: false } });
         page.route('/api/logout', { status: 204, body: {} });
         page.route('/api/test-details', { body: { details: 'java.lang.AssertionError: expected:<1> but was:<2>' } });

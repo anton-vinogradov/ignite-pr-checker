@@ -4,8 +4,10 @@ import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -16,13 +18,26 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class VisaService {
+    /** How the line that marks a verdict comment superseded starts. */
+    private static final String SUPERSEDED = "🔁 _Superseded";
+
+    /** How the last line of a comment whose re-runs a newer run cut short starts, after its emoji. */
+    private static final String REPLACED = "Re-runs stopped: RunAll ";
+
     private final TeamcityProperties tc;
     private final String publicUrl;
+    private final String repo;
 
+    @Autowired
     public VisaService(TeamcityProperties tc,
-        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl) {
+        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl, GithubProperties github) {
         this.tc = tc;
         this.publicUrl = publicUrl;
+        this.repo = github.repo();
+    }
+
+    public VisaService(TeamcityProperties tc, String publicUrl) {
+        this(tc, publicUrl, new GithubProperties(null, null, null));
     }
 
     /** The verdict in GitHub markdown, for a PR comment mirror of the visa. */
@@ -30,17 +45,25 @@ public class VisaService {
         return composeMarkdown(pr, r, null);
     }
 
+    public String composeMarkdown(int pr, AnalysisResult r, Integer commitsAhead) {
+        return composeMarkdown(pr, r, commitsAhead, null);
+    }
+
     /**
      * The verdict in GitHub markdown. {@code commitsAhead} is how many commits the PR head is ahead
-     * of the analysed run (null when unknown) — a verdict for superseded code says so.
+     * of the analysed run (null when unknown) — a verdict for superseded code says so. {@code sha} is
+     * the commit the run tested, named in the head line; null when TeamCity did not say.
      */
-    public String composeMarkdown(int pr, AnalysisResult r, Integer commitsAhead) {
-        String base = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
+    public String composeMarkdown(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
+        String base = tcBase();
+        TestGroups tests = new TestGroups(base, page(pr));
         StringBuilder b = new StringBuilder();
-        b.append("**[Ignite PR Checker](").append(publicUrl).append("/?pr=").append(pr)
+        b.append("**[Ignite PR Checker](").append(page(pr))
             .append(")** verdict · RunAll build [").append(r.buildId()).append("](").append(base)
-            .append("build/").append(r.buildId()).append(") · ").append(r.suitesRan())
-            .append(" suites ran, ").append(r.suitesReused()).append(" reused\n\n");
+            .append("build/").append(r.buildId()).append(")")
+            .append(sha == null ? "" : " · tested [" + shortSha(sha) + "](" + commitUrl(pr, sha) + ")")
+            .append(" · ").append(r.suitesRan()).append(" suites ran, ").append(r.suitesReused())
+            .append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
         List<TestVerdict> watch = r.watch();
@@ -82,22 +105,14 @@ public class VisaService {
             b.append("👀 **").append(watch.size()).append(" test(s) started failing on this code** — not proven ")
                 .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
                 .append("of the suite decides it.\n");
-            watch.stream().limit(10).forEach(t ->
-                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
-            if (watch.size() > 10)
-                b.append("… and ").append(watch.size() - 10).append(" more\n");
-            b.append('\n');
+            b.append(tests.markdown(watch, true)).append('\n');
         }
 
         if (!r.unverified().isEmpty()) {
             b.append("❔ **").append(r.unverified().size()).append(" failed test(s) could not be checked** — ")
                 .append("TeamCity errors kept them from being compared with master and the branch; not counted as ")
                 .append("blockers.\n");
-            r.unverified().stream().limit(10).forEach(t ->
-                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
-            if (r.unverified().size() > 10)
-                b.append("… and ").append(r.unverified().size() - 10).append(" more\n");
-            b.append('\n');
+            b.append(tests.markdown(r.unverified(), false)).append('\n');
         }
 
         if (blockers.isEmpty() && !watch.isEmpty())
@@ -109,11 +124,8 @@ public class VisaService {
                 .append("Re-run once the above is sorted out.");
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
-            b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):**\n");
-            blockers.stream().limit(10).forEach(t ->
-                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
-            if (blockers.size() > 10)
-                b.append("… and ").append(blockers.size() - 10).append(" more\n");
+            b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):**\n")
+                .append(tests.markdown(blockers, true));
         }
 
         return b.toString();
@@ -124,12 +136,23 @@ public class VisaService {
      * verdict above stays as that run's last, and the newest one is on the page.
      */
     public Ending replaced(int pr, long newer) {
-        String page = publicUrl + "/?pr=" + pr;
-        String says = "Re-runs stopped: RunAll " + newer + " replaced this run before they settled. The verdict above"
+        String page = page(pr);
+        String says = REPLACED + newer + " replaced this run before they settled. The verdict above"
             + " is this run's last; the newest is on ";
 
         return new Ending("🛑 _" + says + "[the checker's page](" + page + ")._", "_" + says + "[the checker's page|"
             + page + "]._");
+    }
+
+    /** The line added to a PR verdict comment once a newer RunAll of the PR has finished. */
+    public String superseded(int pr, long newer) {
+        return "\n\n" + SUPERSEDED + " by the newer RunAll [" + newer + "](" + tcBase() + "build/" + newer
+            + ") — its verdict is on [the checker's page](" + page(pr) + ")._";
+    }
+
+    /** Whether a PR verdict comment already says a newer run took its place: marked superseded, or replaced. */
+    public boolean saysSuperseded(String body) {
+        return body.contains(SUPERSEDED) || body.contains(REPLACED);
     }
 
     /** The last line of a living comment whose PR was merged or closed before the run's re-runs settled. */
@@ -159,6 +182,24 @@ public class VisaService {
         return new Ending("⏹ _" + says + "_", "_" + says + "_");
     }
 
+    private String tcBase() {
+        return tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
+    }
+
+    /** The checker's page of the PR. */
+    private String page(int pr) {
+        return publicUrl + "/?pr=" + pr;
+    }
+
+    /** The commit as GitHub shows it among the PR's commits. */
+    private String commitUrl(int pr, String sha) {
+        return "https://github.com/" + repo + "/pull/" + pr + "/commits/" + sha;
+    }
+
+    private static String shortSha(String sha) {
+        return sha.substring(0, Math.min(7, sha.length()));
+    }
+
     /** One closing line in both markups: GitHub's markdown and JIRA's wiki markup. */
     public record Ending(String markdown, String wiki) {
     }
@@ -173,14 +214,21 @@ public class VisaService {
         return compose(pr, r, null);
     }
 
-    /** The same verdict in JIRA wiki markup; see {@link #composeMarkdown(int, AnalysisResult, Integer)}. */
     public String compose(int pr, AnalysisResult r, Integer commitsAhead) {
-        String base = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
+        return compose(pr, r, commitsAhead, null);
+    }
+
+    /** The same verdict in JIRA wiki markup; see {@link #composeMarkdown(int, AnalysisResult, Integer, String)}. */
+    public String compose(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
+        String base = tcBase();
+        TestGroups tests = new TestGroups(base, page(pr));
         StringBuilder b = new StringBuilder();
-        b.append("[Ignite PR Checker|").append(publicUrl).append("/?pr=").append(pr).append("] verdict for PR ")
+        b.append("[Ignite PR Checker|").append(page(pr)).append("] verdict for PR ")
             .append(pr).append(" · RunAll build [").append(r.buildId()).append('|').append(base).append("build/")
-            .append(r.buildId()).append("] · ").append(r.suitesRan()).append(" suites ran, ")
-            .append(r.suitesReused()).append(" reused\n\n");
+            .append(r.buildId()).append(']')
+            .append(sha == null ? "" : " · tested [" + shortSha(sha) + "|" + commitUrl(pr, sha) + "]")
+            .append(" · ").append(r.suitesRan()).append(" suites ran, ").append(r.suitesReused())
+            .append(" reused\n\n");
 
         List<TestVerdict> blockers = r.blockers();
         List<TestVerdict> watch = r.watch();
@@ -220,22 +268,14 @@ public class VisaService {
             b.append("(!) *").append(watch.size()).append(" test(s) started failing on this code* — not proven ")
                 .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
                 .append("of the suite decides it.\n");
-            watch.stream().limit(10).forEach(t ->
-                b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
-            if (watch.size() > 10)
-                b.append("… and ").append(watch.size() - 10).append(" more\n");
-            b.append('\n');
+            b.append(tests.wiki(watch, true)).append('\n');
         }
 
         if (!r.unverified().isEmpty()) {
             b.append("(?) *").append(r.unverified().size()).append(" failed test(s) could not be checked* — ")
                 .append("TeamCity errors kept them from being compared with master and the branch; not counted as ")
                 .append("blockers.\n");
-            r.unverified().stream().limit(10).forEach(t ->
-                b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
-            if (r.unverified().size() > 10)
-                b.append("… and ").append(r.unverified().size() - 10).append(" more\n");
-            b.append('\n');
+            b.append(tests.wiki(r.unverified(), false)).append('\n');
         }
 
         if (blockers.isEmpty() && !watch.isEmpty())
@@ -247,11 +287,8 @@ public class VisaService {
                 .append("Re-run once the above is sorted out.");
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
-            b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):*\n");
-            blockers.stream().limit(10).forEach(t ->
-                b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
-            if (blockers.size() > 10)
-                b.append("… and ").append(blockers.size() - 10).append(" more\n");
+            b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):*\n")
+                .append(tests.wiki(blockers, true));
         }
 
         return b.toString();

@@ -47,7 +47,7 @@ class StandingSettingsTest {
         mock(BlockerAnalyzer.class), jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
         mock(PendingCommits.class));
 
-    private final JiraController controller = new JiraController(jira, mock(BlockerAnalyzer.class),
+    private final JiraController controller = new JiraController(jira, mock(TcClient.class), mock(BlockerAnalyzer.class),
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), mock(VisaService.class),
         mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
 
