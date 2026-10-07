@@ -123,6 +123,23 @@ class MasterJdkTest {
         assertThat(RunEnv.jdkOf("/opt/temurin")).isEqualTo("/opt/temurin");
     }
 
+    /**
+     * A suite run outside a RunAll reports {@code JAVA_HOME} as the unresolved reference it inherits from
+     * the chain. Taken as a JDK of its own, it left the PR run with only the master runs that carried the
+     * same text; unknown, it is judged by every master run.
+     */
+    @Test
+    void anUnresolvedJavaHomeIsAnUnknownJdk() {
+        assertThat(RunEnv.jdkOf("%reverse.dep.*.env.JAVA_HOME%")).isNull();
+
+        failingOn("%reverse.dep.*.env.JAVA_HOME%");
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.blockers()).isEmpty();
+        assertThat(only(r.filtered()).reason()).isEqualTo("pre-existing: fails 15/100 on master");
+    }
+
     /** Adoptium's Debian packages name the architecture after "jdk": that is no JDK version. */
     @Test
     void theArchitectureAfterJdkIsNotTheVersion() {

@@ -35,5 +35,5 @@ public record TestVerdict(
      * deploy would show a stale verdict, or report the rule change as "new blockers since your last
      * run". Snapshot stores drop what does not match.
      */
-    public static final int RULES = 8;
+    public static final int RULES = 9;
 }
