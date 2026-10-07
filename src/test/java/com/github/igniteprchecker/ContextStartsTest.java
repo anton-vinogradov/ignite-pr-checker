@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -66,6 +69,26 @@ class ContextStartsTest {
         assertThat(output.getAll()).contains("effective config: SERVER_ADDRESS=127.0.0.1; ")
             .contains("TC_BASE_URL=http://127.0.0.1:9/").contains("SESSION_SECRET=set")
             .doesNotContain("context-test");
+    }
+
+    /**
+     * Under {@code script-src 'self'} and {@code nosniff} a browser runs a page's script only from this origin and
+     * only when it is served as JavaScript; anything else leaves the page dead.
+     */
+    @Test
+    void thePagesScriptsAreServedAsJavaScriptUnderAPolicyThatAllowsOnlyThem() {
+        for (String page : List.of("/", "/flaky.html", "/status.html")) {
+            ResponseEntity<String> html = http.getForEntity(page, String.class);
+            assertThat(html.getHeaders().getFirst("Content-Security-Policy")).as(page).contains("script-src 'self'");
+            List<String> scripts = Pattern.compile("<script src=\"(/[^\"]+)\"></script>").matcher(html.getBody())
+                .results().map(m -> m.group(1)).toList();
+            assertThat(scripts).as(page).contains("/theme.js", "/common.js");
+            for (String script : scripts) {
+                ResponseEntity<String> js = http.getForEntity(script, String.class);
+                assertThat(js.getStatusCode().is2xxSuccessful()).as(script).isTrue();
+                assertThat(js.getHeaders().getContentType()).as(script).hasToString("text/javascript");
+            }
+        }
     }
 
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */

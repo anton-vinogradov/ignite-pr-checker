@@ -65,7 +65,8 @@ class HtmlEscapeTest {
 
         new SecurityHeadersFilter().doFilter(new MockHttpServletRequest("GET", "/"), res, new MockFilterChain());
 
-        assertThat(res.getHeader("Content-Security-Policy")).contains("frame-ancestors 'none'");
+        assertThat(res.getHeader("Content-Security-Policy")).contains("frame-ancestors 'none'")
+            .contains("script-src 'self'").doesNotContain("unsafe");
         assertThat(res.getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
         assertThat(res.getHeader("X-Frame-Options")).isEqualTo("DENY");
     }

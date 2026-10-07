@@ -14,8 +14,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Component
 public class SecurityHeadersFilter extends OncePerRequestFilter {
-    /** No {@code script-src} yet: the pages still run inline scripts. */
-    static final String CSP = "frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'";
+    /**
+     * Scripts only from the app's own {@code static/*.js}: markup that slips past {@code esc()} (a PR title, a test
+     * name) cannot run an inline handler or script in a committer's session.
+     */
+    static final String CSP = "script-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; "
+        + "form-action 'self'";
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
