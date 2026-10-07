@@ -200,6 +200,8 @@ public class StandingVisas implements SnapshotCache {
 
             return loginNext == null ? next : next.withGhLogin(loginNext);
         });
+        if (loginNext != null && e != null)
+            releaseLogin(loginNext, username);
         log.info("standing options for {}: {} (gh login {}, tz {})", username, e == null ? "off" : e.options(),
             e == null ? null : e.ghLogin(), e == null ? null : e.tz());
         donateWarmTokens();
@@ -243,8 +245,14 @@ public class StandingVisas implements SnapshotCache {
      */
     public Optional<GhActor> actorByGhLogin(String login) {
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            if (!login.equals(en.getValue().ghLogin()))
+            String held = en.getValue().ghLogin();
+            if (!login.equalsIgnoreCase(held))
                 continue;
+
+            // GitHub logins ignore case and the poll gets GitHub's own spelling: a login typed in
+            // another case still matches, and is stored the way GitHub spells it from now on.
+            if (!login.equals(held))
+                enrolled.computeIfPresent(en.getKey(), (u, e) -> held.equals(e.ghLogin()) ? e.withGhLogin(login) : e);
 
             // The PAT is optional for commands: without one the checker acks and narrates
             // from its own (the operator's) account instead of the user's.
@@ -437,24 +445,46 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Links a GitHub login to the user's enrollment by hand — the no-PAT way into PR commands.
-     * Returns "ok", "taken" (someone else claimed it) or "none" (no enrollment to attach to).
+     * Links a GitHub login, as GitHub spells it, to the user's enrollment by hand — the no-PAT way
+     * into PR commands. Returns "ok", "taken" (someone else holds it), "token" (the user's login comes
+     * from their GitHub token, which proves it, so a typed one cannot replace it) or "none" (no
+     * enrollment to attach to).
      */
     public String setGhLogin(String username, String login) {
-        String clean = login.strip().replaceFirst("^@", "");
-        if (clean.isBlank())
-            return "none";
-        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            if (!en.getKey().equals(username) && clean.equalsIgnoreCase(en.getValue().ghLogin()))
-                return "taken";
-        }
+        if (heldByAnother(login, username))
+            return "taken";
 
-        if (enrolled.computeIfPresent(username, (u, e) -> e.withGhLogin(clean)) == null)
-            return "none";
+        String[] result = {"none"};
+        enrolled.computeIfPresent(username, (u, e) -> {
+            boolean fromToken = e.gh().token() != null && e.ghLogin() != null;
+            result[0] = fromToken && !login.equalsIgnoreCase(e.ghLogin()) ? "token" : "ok";
 
-        log.info("gh login for {} linked by hand: {}", username, clean);
+            return result[0].equals("ok") && !fromToken ? e.withGhLogin(login) : e;
+        });
+        if (result[0].equals("ok"))
+            log.info("gh login for {} linked by hand: {}", username, login);
 
-        return "ok";
+        return result[0];
+    }
+
+    private boolean heldByAnother(String login, String username) {
+        return enrolled.entrySet().stream()
+            .anyMatch(en -> !en.getKey().equals(username) && login.equalsIgnoreCase(en.getValue().ghLogin()));
+    }
+
+    /**
+     * A login proven by a GitHub token belongs to its owner alone: a claim someone typed in by hand
+     * (a typo, or someone else's login) would route the owner's commands to the claimant's account.
+     */
+    private void releaseLogin(String login, String owner) {
+        enrolled.forEach((u, e) -> {
+            if (u.equals(owner) || !login.equalsIgnoreCase(e.ghLogin()))
+                return;
+
+            enrolled.computeIfPresent(u, (k, cur) -> login.equalsIgnoreCase(cur.ghLogin()) ? cur.withGhLogin(null) : cur);
+            log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account", login, u, owner,
+                owner);
+        });
     }
 
     /** The user's linked GitHub login (PAT-derived or hand-linked), or null. */
@@ -534,7 +564,7 @@ public class StandingVisas implements SnapshotCache {
         switchOffOptionsWithoutTokens();
         enrolled.forEach((u, e) -> {
             String login = e.options().ghComment() && e.ghLogin() == null && e.gh().token() != null
-                ? decrypt(e.gh()).flatMap(github::ghUser).orElse(null) : null;
+                ? decrypt(e.gh()).flatMap(github::ghUser).filter(l -> !heldByAnother(l, u)).orElse(null) : null;
             String tz = e.tz() == null && e.jira().token() != null
                 ? decrypt(e.jira()).flatMap(jira::myTimezone).orElse(null) : null;
             if (login == null && tz == null)

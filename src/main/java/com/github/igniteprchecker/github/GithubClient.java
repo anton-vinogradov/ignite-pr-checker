@@ -40,6 +40,29 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
+    /**
+     * GitHub's own spelling of a login, or empty when GitHub has no such user (or the text cannot be
+     * a login at all). Throws when GitHub cannot be asked.
+     */
+    public java.util.Optional<String> canonicalLogin(String login) {
+        if (!LOGIN.matcher(login).matches())
+            return java.util.Optional.empty();
+
+        try {
+            java.util.Map<?, ?> u = recorded("user", () -> appGet("https://api.github.com/users/" + login)
+                .body(java.util.Map.class));
+
+            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** What GitHub allows in a login: letters, digits and single hyphens inside, up to 39 characters. */
+    private static final java.util.regex.Pattern LOGIN =
+        java.util.regex.Pattern.compile("[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}");
+
     /** Posts a comment to the PR under the USER'S OWN PAT; its id (for later edits) and html url. */
     public PostedComment addPrComment(String pat, int prNumber, String body) {
         java.util.Map<?, ?> c = recorded("prComment", () -> http.post()

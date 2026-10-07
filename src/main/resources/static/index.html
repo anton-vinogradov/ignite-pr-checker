@@ -2101,7 +2101,8 @@
                     body: JSON.stringify({ token: login })
                 });
                 const res = await r.json().catch(() => ({}));
-                m.textContent = r.ok ? 'linked — PR commands are live' : (res.error || 'could not link');
+                if (r.ok) input.value = res.login;
+                m.textContent = r.ok ? 'linked as @' + res.login : (res.error || 'could not link');
             } catch (e) {
                 m.textContent = 'could not reach the service — try again';
             }

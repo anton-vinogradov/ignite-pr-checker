@@ -113,21 +113,37 @@ public class JiraController {
         return standing.settings(username);
     }
 
-    /** Links a GitHub login by hand — the no-PAT way into PR commands (needs an enrollment to attach to). */
+    /**
+     * Links a GitHub login by hand — the no-PAT way into PR commands (needs an enrollment to attach
+     * to). The login is stored the way GitHub spells it, and only if GitHub knows such a user.
+     */
     @PostMapping("/github-login")
     public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        if (req.token() == null || req.token().isBlank())
+        String typed = req.token() == null ? "" : req.token().strip().replaceFirst("^@", "");
+        if (typed.isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty login"));
 
-        String result = standing.setGhLogin(username, req.token());
-        if (result.equals("taken"))
-            return ResponseEntity.status(409).body(Map.of("error", "this GitHub login is linked to another user"));
-        if (result.equals("none"))
-            return ResponseEntity.status(412).body(Map.of("error",
-                "switch on at least one standing option first — the checker needs your TeamCity token stored"));
+        Optional<String> login;
+        try {
+            login = github.canonicalLogin(typed);
+        }
+        catch (RuntimeException e) {
+            return ResponseEntity.status(502).body(Map.of("error", "GitHub could not be asked — try again in a minute"));
+        }
+        if (login.isEmpty())
+            return ResponseEntity.status(404).body(Map.of("error", "no such GitHub user: " + typed));
 
-        return ResponseEntity.ok(Map.of("login", standing.ghLoginOf(username)));
+        return switch (standing.setGhLogin(username, login.get())) {
+            case "taken" -> ResponseEntity.status(409).body(Map.of("error", "@" + login.get() + " is linked to another"
+                + " checker user. If the account is yours, switch on \"Comment my runs' verdicts\" with your GitHub"
+                + " token: the token proves the account and takes the login over."));
+            case "token" -> ResponseEntity.status(409).body(Map.of("error",
+                "your login comes from your GitHub token: @" + standing.ghLoginOf(username)));
+            case "none" -> ResponseEntity.status(412).body(Map.of("error",
+                "switch on at least one standing option first — the checker needs your TeamCity token stored"));
+            default -> ResponseEntity.ok(Map.of("login", standing.ghLoginOf(username)));
+        };
     }
 
     /** Validates a GitHub PAT and re-issues the session cookie with it on board. */
