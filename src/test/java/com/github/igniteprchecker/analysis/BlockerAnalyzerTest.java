@@ -485,7 +485,7 @@ class BlockerAnalyzerTest {
         String buildStatus = "FAILURE".equals(status) ? "FAILURE" : "SUCCESS";
 
         return new TcModel.TestOccurrence(null, null, status, null,
-            new TcModel.BuildRef(buildId, null, "finished", buildStatus, suite, null, revs), null);
+            new TcModel.BuildRef(buildId, null, "finished", buildStatus, suite, null, revs, null), null);
     }
 
     private static List<TcModel.TestOccurrence> repeat(String status, int n) {

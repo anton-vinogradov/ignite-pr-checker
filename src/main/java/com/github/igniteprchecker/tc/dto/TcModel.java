@@ -9,6 +9,12 @@ import java.util.List;
  * Unknown fields are ignored (TeamCity returns far more than we map).
  */
 public final class TcModel {
+    /** The build parameter holding the JDK a build ran on. */
+    public static final String JAVA_HOME = "env.JAVA_HOME";
+
+    /** The build parameter Ignite tests scale their workloads by. */
+    public static final String TEST_SCALE_FACTOR = "TEST_SCALE_FACTOR";
+
     private TcModel() {
     }
 
@@ -81,10 +87,19 @@ public final class TcModel {
     /**
      * The build a test occurrence came from. {@code revisions} is the VCS state that build ran on —
      * the only honest way to tell whether two runs of a test were made on the same code.
+     * {@code resultingProperties} holds the few build parameters asked for by name, such as the JDK.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildRef(long id, String branchName, String state, String status,
-        String buildTypeId, BuildType buildType, Revisions revisions) {
+        String buildTypeId, BuildType buildType, Revisions revisions, Properties resultingProperties) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Properties(List<Property> property) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Property(String name, String value) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

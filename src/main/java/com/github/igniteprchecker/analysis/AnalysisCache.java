@@ -19,13 +19,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Caches the expensive parts of an analysis, shared across users and PRs (the data is not
- * user-specific): compact base-branch history stats per test and suite, and the whole result per build
+ * user-specific): a compact base-branch history per test and suite, and the whole result per build
  * id. Entries expire after {@code analysis.cacheTtlMinutes}; results are also refreshed by the warmer,
  * and snapshotted to disk (with their expiry) so a restart doesn't start cold.
  */
 @Component
 public class AnalysisCache implements SnapshotCache {
-    private final TtlCache<HistoryKey, HistoryStats> history;
+    private final TtlCache<HistoryKey, RunHistory> history;
     private final TtlCache<Long, AnalysisResult> results;
     private final TtlCache<Long, String> revisions;
     private final ObjectMapper mapper;
@@ -38,7 +38,7 @@ public class AnalysisCache implements SnapshotCache {
         this.mapper = mapper;
     }
 
-    HistoryStats history(long testId, String buildTypeId, Supplier<HistoryStats> loader) {
+    RunHistory history(long testId, String buildTypeId, Supplier<RunHistory> loader) {
         return history.get(new HistoryKey(testId, buildTypeId), loader);
     }
 
@@ -81,9 +81,12 @@ public class AnalysisCache implements SnapshotCache {
         return results.freshValues();
     }
 
-    /** A test's cached master history in a suite, if still fresh (gives the fail-rate without a TeamCity call). */
+    /**
+     * A test's cached master history in a suite over all its runs, if still fresh (gives the fail-rate
+     * without a TeamCity call).
+     */
     public Optional<HistoryStats> historyOf(long testId, String buildTypeId) {
-        return history.peek(new HistoryKey(testId, buildTypeId));
+        return history.peek(new HistoryKey(testId, buildTypeId)).map(RunHistory::all);
     }
 
     /** Sweeps out expired entries so long uptimes don't accumulate dead results/history in memory
@@ -125,9 +128,10 @@ public class AnalysisCache implements SnapshotCache {
         Persisted p = mapper.readValue(file.toFile(), Persisted.class);
         // History doesn't depend on the rules, but it is master's latest runs as of its fetch, so it
         // must not outlive its TTL the way the immutable results below may. A snapshot from before
-        // history was kept per suite has no suiteHistory at all: that history is simply re-fetched.
-        if (p.suiteHistory() != null)
-            history.importUnexpired(p.suiteHistory());
+        // history kept its runs in order with their conditions has no masterHistory at all: that
+        // history is simply re-fetched.
+        if (p.masterHistory() != null)
+            history.importUnexpired(p.masterHistory());
         // Results carry verdicts, and a cached result for an unchanged build is never recomputed (the
         // warmer keeps touching it), so verdicts from superseded rules would otherwise outlive the
         // deploy that fixed them.
@@ -143,12 +147,13 @@ public class AnalysisCache implements SnapshotCache {
     }
 
     /**
-     * Snapshots written before history was per suite also carry {@code history}, keyed by test id
-     * alone: those stats mix every suite of the test and cannot be split back, so they are not read.
+     * Older snapshots carry master history this release cannot use, so it is not read: {@code history},
+     * keyed by test id alone, mixes every suite of the test; {@code suiteHistory} keeps per suite only how
+     * many runs failed, without their order or the JDK each ran on.
      */
-    @JsonIgnoreProperties("history") // the pre-per-suite history, keyed by test id alone
+    @JsonIgnoreProperties({"history", "suiteHistory"})
     private record Persisted(
-        List<TtlCache.Snapshot<HistoryKey, HistoryStats>> suiteHistory,
+        List<TtlCache.Snapshot<HistoryKey, RunHistory>> masterHistory,
         List<TtlCache.Snapshot<Long, AnalysisResult>> results,
         Integer rules
     ) {

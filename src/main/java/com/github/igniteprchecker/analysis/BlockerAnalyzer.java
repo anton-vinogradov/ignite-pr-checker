@@ -27,12 +27,13 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise. A test is a
  * blocker only if it (1) fails in the PR, (2) never fails in the last {@code analysis.historyDepth}
- * master runs of the suite it failed in (any master failure means it is pre-existing or flaky on
- * master, not this PR's fault), and (3) still fails in the last fully-finished run of that suite on the
- * PR branch (a passing re-run clears it). Both look at that one suite only: the same test id runs in
- * several suites of a chain (the C++ tests run on Windows, Linux and Clang), and another platform's
- * pass is not a re-run, nor are its master failures this one's. Results are cached per build; a
- * request serves the cached result and, if it is getting stale, triggers a background refresh.
+ * master runs of the suite it failed in that ran on the PR run's JDK (any such master failure means it
+ * is pre-existing or flaky on master, not this PR's fault), and (3) still fails in the last
+ * fully-finished run of that suite on the PR branch (a passing re-run clears it). Both look at that one
+ * suite only: the same test id runs in several suites of a chain (the C++ tests run on Windows, Linux
+ * and Clang), and another platform's pass is not a re-run, nor are its master failures this one's.
+ * Results are cached per build; a request serves the cached result and, if it is getting stale,
+ * triggers a background refresh.
  */
 @Component
 public class BlockerAnalyzer {
@@ -42,6 +43,9 @@ public class BlockerAnalyzer {
      * recompute, one set too late silently misses a re-run. Well below the warm interval, so it settles.
      */
     private static final long WATERMARK_MARGIN_SECONDS = 60;
+
+    /** Fewer master runs than this on the PR's JDK are called out as thin evidence. */
+    private static final int FEW_MASTER_RUNS = 10;
 
     private final TcClient tc;
     private final ChainCollector chains;
@@ -423,20 +427,26 @@ public class BlockerAnalyzer {
     }
 
     private TestVerdict classifyVerified(String token, int prNumber, FailedTest t) {
-        HistoryStats h = cache.history(t.testId(), t.suite(),
-            () -> HistoryStats.of(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
+        RunHistory master = cache.history(t.testId(), t.suite(),
+            () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
         // The finished runs of this test in its suite on the PR branch (one request; also drives the history strip).
         List<TcModel.TestOccurrence> runs = withResult(tc.prBranchRuns(token, prNumber, t.testId(), t.suite()));
         String branchRuns = strip(runs);
         TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
 
+        // Master runs on another JDK are no evidence either way: some nightly master RunAlls run on JDK
+        // 21, and a test broken only there read "15/98 on master" for every PR run on JDK 17.
+        RunEnv env = RunEnv.of(lastRun == null ? null : lastRun.build());
+        HistoryStats h = master.onJdkOf(env);
+        String onJdk = env.jdk() != null && master.knowsJdk() ? " on " + env.jdkLabel() : "";
+
         // A failure in the PR is a blocker unless the test also fails in master history: any failure
         // there means it isn't specific to this PR (pre-existing or flaky on master). It still gets
         // its branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers.
         if (h.fails() > 0) {
-            return verdict(t, lastRun, false, false, "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master",
-                branchRuns, 0);
+            return verdict(t, lastRun, false, false,
+                "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master" + onJdk, branchRuns, 0);
         }
 
         // ...and only if the failure still stands in the last finished run: if that run passed, it
@@ -448,8 +458,9 @@ public class BlockerAnalyzer {
         }
 
         String reason = h.runs() == 0
-            ? "no master history (can't prove pre-existing)"
-            : "not seen failing in " + h.runs() + " master run(s)";
+            ? "no master history" + onJdk + " (can't prove pre-existing)"
+            : "not seen failing in " + (!onJdk.isEmpty() && h.runs() < FEW_MASTER_RUNS ? "only " : "") + h.runs()
+                + " master run(s)" + onJdk;
 
         // Merge of the last N branch runs: a real block fails consistently, a test that passed within
         // the window is a within-branch flake. That merge is only sound over runs of the SAME code —

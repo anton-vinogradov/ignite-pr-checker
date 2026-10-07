@@ -157,7 +157,7 @@ class CandidatesPerSuiteTest {
     private static TcModel.TestOccurrence run(String status, long buildId, String suite) {
         return new TcModel.TestOccurrence("id:1,build:(id:" + buildId + ")", NAME, status, null,
             new TcModel.BuildRef(buildId, null, "finished", status, suite, null,
-                new TcModel.Revisions(List.of(new TcModel.Revision("ec2c458")))), null);
+                new TcModel.Revisions(List.of(new TcModel.Revision("ec2c458"))), null), null);
     }
 
     private static TcModel.TestOccurrence pass() {
