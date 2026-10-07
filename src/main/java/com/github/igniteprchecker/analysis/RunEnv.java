@@ -33,7 +33,7 @@ record RunEnv(String jdk, String scale) {
                 continue;
             if (TcModel.JAVA_HOME.equals(p.name()))
                 jdk = jdkOf(p.value().strip());
-            else if (TcModel.TEST_SCALE_FACTOR.equals(p.name()))
+            else if (TcModel.TEST_SCALE_FACTOR.equals(p.name()) && !unresolved(p.value().strip()))
                 scale = p.value().strip();
         }
 
@@ -43,6 +43,9 @@ record RunEnv(String jdk, String scale) {
     /**
      * The first number in the path element that names a JDK. Not the first number after "jdk": in
      * {@code temurin-21-jdk-amd64} that is the architecture, and JDK 17 and 21 would both read as 64.
+     * Null for a parameter TeamCity left unresolved, such as {@code %reverse.dep.*.env.JAVA_HOME%} of a
+     * suite run outside a RunAll: it says nothing about the JDK, and as a value of its own it matched
+     * only the master runs that carried the same text.
      */
     static String jdkOf(String javaHome) {
         Matcher dir = JDK_DIR.matcher(javaHome);
@@ -52,7 +55,12 @@ record RunEnv(String jdk, String scale) {
                 return "1.8".equals(v.group()) ? "8" : v.group();
         }
 
-        return javaHome;
+        return unresolved(javaHome) ? null : javaHome;
+    }
+
+    /** A {@code %name%} reference TeamCity could not resolve. */
+    private static boolean unresolved(String value) {
+        return value.length() > 1 && value.startsWith("%") && value.endsWith("%");
     }
 
     boolean sameJdk(RunEnv other) {
