@@ -2,10 +2,13 @@ package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -79,6 +82,7 @@ class StandingHandoverTest {
             "finished", "pull/13335/head", null, null, null, null, null, null, null, null,
             new TcModel.Triggered("user", new TcModel.User("author")), null, null, null, null, null)));
         when(analyzer.forceRefresh("tc", PR)).thenReturn(Optional.of(result()));
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(result()));
         when(analyzer.analyzeForAction("author-tc", PR)).thenReturn(Optional.of(result()));
         when(visas.compose(eq(PR), any(), any())).thenReturn("verdict of " + CHAIN);
         when(jira.addCommentWithId(anyString(), anyString(), anyString()))
@@ -92,7 +96,7 @@ class StandingHandoverTest {
         when(github.openPrs()).thenReturn(IntStream.range(13700, 13750)
             .mapToObj(n -> new PrSummary(n, "IGNITE-" + n + " Something else", null, null, null, null)).toList());
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
         standing.sweep();
 
         verify(jira).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
@@ -101,7 +105,7 @@ class StandingHandoverTest {
 
     @Test
     void theOneShotVisaWaitsForTheStandingOneAndEndsWhenItIsIn() {
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         assertThat(subs.armed(PR, "reviewer").issue()).as("waits for the standing visa").isEqualTo(ISSUE);
 
@@ -117,7 +121,7 @@ class StandingHandoverTest {
     void aStandingVisaJiraRefusedLeavesTheVisaToTheOneShot() {
         when(jira.addCommentWithId(anyString(), anyString(), anyString()))
             .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED));
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         standing.sweep();
         subs.settleLeftToStanding();
@@ -130,14 +134,14 @@ class StandingHandoverTest {
     void aPausedStandingVisaLeavesTheVisaToTheOneShot() {
         standing.markTcRejected("author");
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         verify(jira).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
     }
 
     @Test
     void aRestartKeepsWaitingForTheStandingVisa(@TempDir Path dir) throws Exception {
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
         Path file = dir.resolve("visa-subs.json");
         subs.saveTo(file);
         subs = subscriptions();
@@ -148,6 +152,33 @@ class StandingHandoverTest {
 
         verify(jira, never()).addComment(anyString(), anyString(), anyString());
         assertThat(subs.armedCount()).isZero();
+    }
+
+    /**
+     * The standing visa never came, and the verdict could not be had when the one-shot visa took the ticket back.
+     * Its tries, kept across a restart, post the verdict to the reviewer, armed before the chain finished, and
+     * leave one armed since for the next chain; none of them recomputes the PR from scratch.
+     */
+    @Test
+    void theTriesOfAVisaTakenBackGoOnlyToThoseArmedBeforeTheChainFinished(@TempDir Path dir) throws Exception {
+        when(analyzer.analyzeForAction("tc", PR)).thenThrow(new IllegalStateException("502 Bad Gateway"))
+            .thenReturn(Optional.of(result()));
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
+        Path file = dir.resolve("visa-subs.json");
+        subs.saveTo(file);
+        subs = subscriptions();
+        subs.loadFrom(file);
+        subs.retryDelayMs = 100;
+        Thread.sleep(5);
+        subs.arm(PR, "IGNITE-28900", "late-pat", "late");
+
+        standing.markTcRejected("author");
+        subs.settleLeftToStanding();
+
+        verify(jira, timeout(5_000)).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
+        verify(jira, after(500).never()).addComment(eq("late-pat"), anyString(), anyString());
+        assertThat(subs.armed(PR, "late").issue()).isEqualTo("IGNITE-28900");
+        verify(analyzer, never()).forceRefresh(anyString(), anyInt());
     }
 
     private VisaSubscriptions subscriptions() {

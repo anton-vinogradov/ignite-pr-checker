@@ -104,8 +104,8 @@ class IncompleteVerdictHoldTest {
         JiraClient jira = mock(JiraClient.class);
         Warmer warmer = mock(Warmer.class);
         when(warmer.borrowToken()).thenReturn(TOK);
-        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete(now - 60_000)))
-            .thenReturn(Optional.of(complete()));
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete(now - 60_000)));
+        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
         VisaService visas = new VisaService(new TeamcityProperties("https://ci2/"), "https://checker");
         StandingVisas standing = mock(StandingVisas.class);
         when(standing.visaCover(any(), anyInt(), anyLong(), any())).thenReturn(StandingVisas.VisaCover.NONE);

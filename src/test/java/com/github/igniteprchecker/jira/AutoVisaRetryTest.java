@@ -55,8 +55,8 @@ class AutoVisaRetryTest {
     @Test
     void aTryThatFailsAfterTheHoldIsFollowedByAnother() {
         BlockerAnalyzer analyzer = analyzer();
-        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete()))
-            .thenThrow(new IllegalStateException("502 Bad Gateway"))
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete()));
+        when(analyzer.analyzeForAction(TOK, PR)).thenThrow(new IllegalStateException("502 Bad Gateway"))
             .thenReturn(Optional.of(complete()));
         JiraClient jira = mock(JiraClient.class);
         VisaSubscriptions subs = subscriptions(analyzer, jira);
@@ -81,7 +81,8 @@ class AutoVisaRetryTest {
 
         subs.cancel(PR, USER);
 
-        verify(analyzer, after(500).times(1)).forceRefresh(TOK, PR);
+        verify(analyzer, after(500).never()).analyzeForAction(anyString(), anyInt());
+        verify(analyzer).forceRefresh(TOK, PR);
     }
 
     @Test
@@ -97,7 +98,7 @@ class AutoVisaRetryTest {
         running.cancel(PR, USER);
 
         BlockerAnalyzer after = analyzer();
-        when(after.forceRefresh(TOK, PR)).thenReturn(Optional.of(complete()));
+        when(after.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
         JiraClient jira = mock(JiraClient.class);
         subscriptions(after, jira).loadFrom(file);
 
@@ -115,8 +116,8 @@ class AutoVisaRetryTest {
             + codec.encryptString("jira-pat") + "\",\"username\":\"" + USER + "\",\"armedAt\":" + (now - 3_600_000)
             + "}]");
         BlockerAnalyzer analyzer = analyzer();
-        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete()))
-            .thenReturn(Optional.of(complete()));
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete()));
+        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
         JiraClient jira = mock(JiraClient.class);
         VisaSubscriptions subs = subscriptions(analyzer, jira);
         subs.retryDelayMs = 100;
@@ -140,16 +141,16 @@ class AutoVisaRetryTest {
         Path file = dir.resolve("visa-subs.json");
         Files.writeString(file, "[{\"pr\":" + PR + ",\"issue\":\"" + ISSUE + "\",\"token\":\""
             + codec.encryptString("jira-pat") + "\",\"username\":\"" + USER + "\",\"armedAt\":" + (now - 7_200_000)
-            + ",\"retryChain\":" + RUN_ALL + ",\"retryAt\":" + (now - 1_000) + ",\"retryingSince\":"
-            + (now - 3_660_000) + "}]");
+            + ",\"retryChain\":" + RUN_ALL + ",\"retryChainSeenAt\":" + (now - 3_670_000) + ",\"retryAt\":"
+            + (now - 1_000) + ",\"retryingSince\":" + (now - 3_660_000) + "}]");
         BlockerAnalyzer analyzer = analyzer();
-        when(analyzer.forceRefresh(TOK, PR)).thenThrow(new IllegalStateException("502 Bad Gateway"));
+        when(analyzer.analyzeForAction(TOK, PR)).thenThrow(new IllegalStateException("502 Bad Gateway"));
         VisaSubscriptions subs = subscriptions(analyzer, mock(JiraClient.class));
         subs.retryDelayMs = 100;
 
         subs.loadFrom(file);
 
-        verify(analyzer, after(1_000).times(1)).forceRefresh(TOK, PR);
+        verify(analyzer, after(1_000).times(1)).analyzeForAction(TOK, PR);
         assertThat(subs.armed(PR, USER).issue()).isEqualTo(ISSUE);
         subs.saveTo(file);
         assertThat(mapper.readTree(file.toFile()).get(0).has("retryAt")).isFalse();
@@ -163,8 +164,8 @@ class AutoVisaRetryTest {
     @Test
     void theTriesPostTheChainsVerdictToThoseArmedWhenItFinished(@TempDir Path dir) throws Exception {
         BlockerAnalyzer analyzer = analyzer();
-        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete()))
-            .thenReturn(Optional.of(complete()));
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete()));
+        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
         JiraClient jira = mock(JiraClient.class);
         VisaSubscriptions subs = subscriptions(analyzer, jira);
         subs.retryDelayMs = 300;
@@ -180,6 +181,55 @@ class AutoVisaRetryTest {
         verify(jira, after(500).times(1)).addComment(anyString(), anyString(), anyString());
         assertThat(subs.armed(PR, "late").issue()).isEqualTo("IGNITE-28900");
         assertThat(subs.armed(PR, "late").others()).isEmpty();
+    }
+
+    /**
+     * The author and a reviewer armed on one ticket, and JIRA failed the author's post but took the reviewer's:
+     * the ticket has its visa, and the author's subscription is served by it, not posted again by a later try.
+     */
+    @Test
+    void aTicketGetsOneVisaThoughJiraFailedOneOfThoseArmedOnIt() throws Exception {
+        BlockerAnalyzer analyzer = analyzer();
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(complete()));
+        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
+        JiraClient jira = mock(JiraClient.class);
+        when(jira.addComment("author-pat", ISSUE, "verdict of " + RUN_ALL))
+            .thenThrow(new IllegalStateException("502 Bad Gateway")).thenReturn("https://issues/" + ISSUE + "#2");
+        VisaSubscriptions subs = subscriptions(analyzer, jira);
+        subs.retryDelayMs = 100;
+        subs.arm(PR, ISSUE, "author-pat", "author");
+        Thread.sleep(5);
+        subs.arm(PR, ISSUE, "reviewer-pat", "reviewer");
+
+        subs.onChainFinished(finished());
+
+        verify(jira, timeout(5_000)).addComment("reviewer-pat", ISSUE, "verdict of " + RUN_ALL);
+        verify(jira, after(500).times(2)).addComment(anyString(), anyString(), anyString());
+        assertThat(subs.armedCount()).isZero();
+    }
+
+    /**
+     * Only the try made when the chain finishes looks its build up afresh and recomputes. A later one takes the
+     * verdict as any action does, cached while nothing changed: an hour of JIRA errors used to recompute the PR
+     * on every try.
+     */
+    @Test
+    void aLaterTryTakesTheVerdictWithoutARecompute() {
+        BlockerAnalyzer analyzer = analyzer();
+        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(complete()));
+        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
+        JiraClient jira = mock(JiraClient.class);
+        when(jira.addComment("jira-pat", ISSUE, "verdict of " + RUN_ALL))
+            .thenThrow(new IllegalStateException("502 Bad Gateway")).thenReturn("https://issues/" + ISSUE + "#1");
+        VisaSubscriptions subs = subscriptions(analyzer, jira);
+        subs.retryDelayMs = 100;
+        subs.arm(PR, ISSUE, "jira-pat", USER);
+
+        subs.onChainFinished(finished());
+
+        verify(jira, timeout(5_000).times(2)).addComment("jira-pat", ISSUE, "verdict of " + RUN_ALL);
+        verify(analyzer).forceRefresh(TOK, PR);
+        verify(analyzer).analyzeForAction(TOK, PR);
     }
 
     /** Saves the subscriptions once the held visa has its next try set: what a deploy in between finds. */

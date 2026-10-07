@@ -95,7 +95,7 @@ public class VisaSubscriptions implements SnapshotCache {
     /** Arms the user's one-shot subscription: the next finished RunAll of this PR posts the visa to {@code issue}. */
     public void arm(int pr, String issue, String jiraToken, String username) {
         subs.put(new Key(pr, username), new Sub(issue, codec.encryptString(jiraToken), username,
-            System.currentTimeMillis(), 0, null));
+            System.currentTimeMillis(), null));
         log.info("auto-visa armed for PR {} -> {} (by {})", pr, issue, username);
     }
 
@@ -133,46 +133,46 @@ public class VisaSubscriptions implements SnapshotCache {
             return;
         }
 
-        poster.execute(() -> settle(ev.pr(), ev.chainBuildId()));
+        long seenAt = System.currentTimeMillis();
+        poster.execute(() -> settle(ev.pr(), ev.chainBuildId(), seenAt));
     }
 
     /**
      * Posts the verdict of the chain that finished to the tickets armed on the PR, or leaves them armed.
      * Tries left for an earlier chain end here: this chain's verdict is the one owed now.
      */
-    void settle(int pr, long chainBuildId) {
+    void settle(int pr, long chainBuildId, long seenAt) {
         Retry earlier = retries.get(pr);
-        if (earlier != null && earlier.chain() < chainBuildId)
+        if (earlier != null && earlier.chain().buildId() < chainBuildId)
             retries.remove(pr, earlier);
 
-        settle(pr, chainBuildId, Long.MAX_VALUE);
+        attempt(new Chain(pr, chainBuildId, seenAt), true);
     }
 
     /**
-     * Posts the chain's verdict to the subscriptions armed on the PR by {@code armedBy}. A later try is owed
-     * only to those armed when the first one did not post: one armed since waits for the next chain, and
-     * does not take the verdict of the chain before it.
+     * Posts the chain's verdict to the subscriptions armed on the PR by the time it was seen finished: one
+     * armed since waits for the next chain, and does not take the verdict of the chain before it.
      */
-    private void settle(int pr, long chainBuildId, long armedBy) {
-        List<Map.Entry<Key, Sub>> due = armedOn(pr).stream().filter(en -> en.getValue().armedAt() <= armedBy)
-            .toList();
+    private void attempt(Chain chain, boolean justFinished) {
+        List<Map.Entry<Key, Sub>> due = armedOn(chain.pr()).stream()
+            .filter(en -> en.getValue().armedAt() <= chain.seenAt()).toList();
         if (due.isEmpty())
             return;
 
         String tcToken = warmer.borrowToken();
         if (tcToken == null) {
-            log.info("auto-visa for PR {} postponed: no pooled TeamCity token to compute the verdict", pr);
-            retryLater(pr, chainBuildId);
+            log.info("auto-visa for PR {} postponed: no pooled TeamCity token to compute the verdict", chain.pr());
+            retryLater(chain);
             return;
         }
 
         try {
-            String owner = tc.buildTriggeredBy(tcToken, chainBuildId).orElse(null);
-            deliver(tcToken, pr, chainBuildId, owner, due);
+            String owner = tc.buildTriggeredBy(tcToken, chain.buildId()).orElse(null);
+            deliver(tcToken, chain, owner, due, justFinished);
         }
         catch (RuntimeException e) {
-            log.warn("auto-visa for PR {} failed (kept armed): {}", pr, e.toString());
-            retryLater(pr, chainBuildId);
+            log.warn("auto-visa for PR {} failed (kept armed): {}", chain.pr(), e.toString());
+            retryLater(chain);
         }
     }
 
@@ -193,8 +193,7 @@ public class VisaSubscriptions implements SnapshotCache {
     void settleLeftToStanding() {
         Map<Handover, List<Map.Entry<Key, Sub>>> waiting = subs.entrySet().stream()
             .filter(en -> en.getValue().leftTo() != null)
-            .collect(Collectors.groupingBy(en -> new Handover(en.getKey().pr(), en.getValue().chainBuildId(),
-                en.getValue().leftTo())));
+            .collect(Collectors.groupingBy(en -> en.getValue().leftTo()));
         if (waiting.isEmpty())
             return;
 
@@ -204,11 +203,11 @@ public class VisaSubscriptions implements SnapshotCache {
 
         waiting.forEach((h, due) -> {
             try {
-                deliver(tcToken, h.pr(), h.chainBuildId(), h.owner(), due);
+                deliver(tcToken, h.chain(), h.owner(), due, false);
             }
             catch (RuntimeException e) {
-                log.warn("auto-visa for PR {} failed (kept armed): {}", h.pr(), e.toString());
-                retryLater(h.pr(), h.chainBuildId());
+                log.warn("auto-visa for PR {} failed (kept armed): {}", h.chain().pr(), e.toString());
+                retryLater(h.chain());
             }
         });
     }
@@ -216,9 +215,13 @@ public class VisaSubscriptions implements SnapshotCache {
     /**
      * The chain's verdict for each subscription in {@code due}: left to the standing auto-visa of the
      * chain's starter while that one is still to post it to the same ticket, dropped once it is in, and
-     * posted here otherwise, tried again while it cannot be.
+     * posted here otherwise, tried again while it cannot be. Once one of those armed on a ticket posts it,
+     * the ticket has the visa, and the others on it are served, even one whose own post JIRA failed.
      */
-    private void deliver(String tcToken, int pr, long chainBuildId, String owner, List<Map.Entry<Key, Sub>> due) {
+    private void deliver(String tcToken, Chain chain, String owner, List<Map.Entry<Key, Sub>> due,
+        boolean justFinished) {
+        int pr = chain.pr();
+        long chainBuildId = chain.buildId();
         List<Map.Entry<Key, Sub>> own = new ArrayList<>();
         for (Map.Entry<Key, Sub> en : due) {
             Key key = en.getKey();
@@ -230,7 +233,7 @@ public class VisaSubscriptions implements SnapshotCache {
                             sub.username(), pr, owner, chainBuildId);
                 }
                 case PENDING -> {
-                    Sub left = sub.handedTo(owner, chainBuildId);
+                    Sub left = sub.handedTo(new Handover(chain, owner));
                     if (!left.equals(sub) && subs.replace(key, sub, left))
                         log.info("auto-visa of {} for PR {} waits: the standing auto-visa of {} posts RunAll {}",
                             sub.username(), pr, owner, chainBuildId);
@@ -245,7 +248,7 @@ public class VisaSubscriptions implements SnapshotCache {
         if (own.isEmpty())
             return;
 
-        Optional<AnalysisResult> res = latestVerdict(tcToken, pr, chainBuildId);
+        Optional<AnalysisResult> res = verdict(tcToken, chain, justFinished);
         if (res.isPresent() && res.get().buildId() > chainBuildId) {
             log.info("auto-visa for PR {} kept armed: RunAll {} finished after {}", pr, res.get().buildId(),
                 chainBuildId);
@@ -253,32 +256,48 @@ public class VisaSubscriptions implements SnapshotCache {
         }
         if (res.isEmpty() || res.get().buildId() != chainBuildId) {
             log.info("auto-visa for PR {} postponed: no verdict of the finished RunAll {}", pr, chainBuildId);
-            retryLater(pr, chainBuildId);
+            retryLater(chain);
             return;
         }
         if (analyzer.stillRetrying(res.get())) {
             log.info("auto-visa for PR {} postponed: TeamCity errors left part of the verdict unchecked", pr);
-            retryLater(pr, chainBuildId);
+            retryLater(chain);
             return;
         }
 
         Set<String> postedTo = new HashSet<>();
-        boolean allIn = true;
-        for (Map.Entry<Key, Sub> en : own)
-            allIn &= post(pr, en.getKey(), en.getValue(), res.get(), tcToken, postedTo);
-        if (!allIn)
-            retryLater(pr, chainBuildId);
+        List<Map.Entry<Key, Sub>> failed = new ArrayList<>();
+        for (Map.Entry<Key, Sub> en : own) {
+            if (!post(pr, en.getKey(), en.getValue(), res.get(), tcToken, postedTo))
+                failed.add(en);
+        }
+
+        boolean owed = false;
+        for (Map.Entry<Key, Sub> en : failed) {
+            if (postedTo.contains(en.getValue().issue()))
+                served(pr, en.getKey(), en.getValue());
+            else
+                owed = true;
+        }
+        if (owed)
+            retryLater(chain);
     }
 
     /**
-     * The PR's verdict, computed after the chain finished. The PR's build lookup is cached for half a
-     * minute and still named the chain before it, whose verdict then went out as this one's.
+     * The PR's verdict once the chain finished. Right after the finish, the PR's build lookup is cached for
+     * half a minute and still named the chain before it, whose verdict then went out as this one's: that try
+     * looks the build up afresh and recomputes. A later one takes the verdict as any action does, cached until
+     * something changes or an incomplete one is due another compute, so a JIRA or TeamCity outage does not
+     * recompute the PR on every try.
      */
-    private Optional<AnalysisResult> latestVerdict(String tcToken, int pr, long chainBuildId) {
-        Optional<AnalysisResult> res = analyzer.forceRefresh(tcToken, pr);
+    private Optional<AnalysisResult> verdict(String tcToken, Chain chain, boolean justFinished) {
+        if (!justFinished)
+            return analyzer.analyzeForAction(tcToken, chain.pr());
+
+        Optional<AnalysisResult> res = analyzer.forceRefresh(tcToken, chain.pr());
         // A compute under way since before the finish is shared, and it saw the chain unfinished.
-        if (res.isPresent() && res.get().buildId() == chainBuildId && res.get().finishedAt() == 0)
-            res = analyzer.analyzeAfterNow(tcToken, pr);
+        if (res.isPresent() && res.get().buildId() == chain.buildId() && res.get().finishedAt() == 0)
+            res = analyzer.analyzeAfterNow(tcToken, chain.pr());
 
         return res;
     }
@@ -286,8 +305,7 @@ public class VisaSubscriptions implements SnapshotCache {
     /** Posts the visa for one subscription; false when JIRA failed it and it is still to be posted. */
     private boolean post(int pr, Key key, Sub sub, AnalysisResult res, String tcToken, Set<String> postedTo) {
         if (postedTo.contains(sub.issue())) {
-            subs.remove(key, sub);
-            log.info("auto-visa of {} for PR {} served: the visa is already in {}", sub.username(), pr, sub.issue());
+            served(pr, key, sub);
             return true;
         }
 
@@ -314,40 +332,49 @@ public class VisaSubscriptions implements SnapshotCache {
         }
     }
 
+    /** Ends a subscription whose ticket got the chain's visa from another one armed on it. */
+    private void served(int pr, Key key, Sub sub) {
+        if (subs.remove(key, sub))
+            log.info("auto-visa of {} for PR {} served: the visa is already in {}", sub.username(), pr, sub.issue());
+    }
+
     /**
      * Tries again after a while, for an hour from the first try that did not post. One later try used to be
      * all a held verdict got: a 502 on it, or a restart before it, left the visa to the next finished RunAll,
      * which may never come. The next try is saved with the PR's subscriptions, so a restart does not lose it.
      */
-    private void retryLater(int pr, long chainBuildId) {
+    private void retryLater(Chain chain) {
+        int pr = chain.pr();
         long now = System.currentTimeMillis();
         Retry prev = retries.get(pr);
-        if (prev != null && prev.chain() > chainBuildId)
+        if (prev != null && prev.chain().buildId() > chain.buildId())
             return; // the tries for the newer chain serve the same subscriptions
 
-        long since = prev != null && prev.chain() == chainBuildId ? prev.since() : now;
+        boolean again = prev != null && prev.chain().buildId() == chain.buildId();
+        long since = again ? prev.since() : now;
         if (now - since >= RETRY_FOR_MS) {
             retries.remove(pr, prev);
             log.warn("auto-visa for PR {} not posted for an hour; the next finished RunAll tries again", pr);
             return;
         }
 
-        Retry next = new Retry(chainBuildId, now + retryDelayMs, since);
+        Retry next = new Retry(again ? prev.chain() : chain, now + retryDelayMs, since);
         retries.put(pr, next);
-        schedule(pr, next);
+        schedule(next);
     }
 
     /**
      * The try stays recorded while it runs, so a failure in it keeps counting the hour from the first one; a
      * try superseded since, by another retry, a newer chain or the hour's end, does nothing.
      */
-    private void schedule(int pr, Retry r) {
+    private void schedule(Retry r) {
+        int pr = r.chain().pr();
         long wait = Math.max(0, r.at() - System.currentTimeMillis());
         CompletableFuture.delayedExecutor(wait, TimeUnit.MILLISECONDS, poster).execute(() -> {
             if (!r.equals(retries.get(pr)))
                 return;
 
-            settle(pr, r.chain(), r.since());
+            attempt(r.chain(), false);
             retries.remove(pr, r);
         });
     }
@@ -394,15 +421,14 @@ public class VisaSubscriptions implements SnapshotCache {
 
         Map<Integer, Retry> tries = new HashMap<>();
         for (Persisted p : mapper.readValue(file.toFile(), Persisted[].class)) {
-            Sub sub = new Sub(p.issue(), p.token(), p.username(), p.armedAt(), 0, null);
-            boolean handed = p.leftTo() != null && p.chainBuildId() != null;
-            subs.put(new Key(p.pr(), p.username()), handed ? sub.handedTo(p.leftTo(), p.chainBuildId()) : sub);
-            if (p.retryChain() != null && p.retryAt() != null && p.retryingSince() != null)
-                tries.putIfAbsent(p.pr(), new Retry(p.retryChain(), p.retryAt(), p.retryingSince()));
+            subs.put(new Key(p.pr(), p.username()), p.sub());
+            Retry r = p.retry();
+            if (r != null)
+                tries.putIfAbsent(p.pr(), r);
         }
         tries.forEach((pr, r) -> {
             retries.put(pr, r);
-            schedule(pr, r);
+            schedule(r);
         });
     }
 
@@ -411,28 +437,32 @@ public class VisaSubscriptions implements SnapshotCache {
     }
 
     /**
-     * One armed subscription. {@code leftTo} is the user whose standing auto-visa is to post the verdict
-     * of chain {@code chainBuildId} to the same ticket; null while nothing was handed over.
+     * One armed subscription. {@code leftTo} is the standing auto-visa that is to post the chain's verdict to
+     * the same ticket; null while nothing was handed over.
      */
-    private record Sub(String issue, String token, String username, long armedAt, long chainBuildId, String leftTo) {
-        Sub handedTo(String owner, long chain) {
-            return new Sub(issue, token, username, armedAt, chain, owner);
+    private record Sub(String issue, String token, String username, long armedAt, Handover leftTo) {
+        Sub handedTo(Handover h) {
+            return new Sub(issue, token, username, armedAt, h);
         }
 
         Sub takenBack() {
-            return leftTo == null ? this : new Sub(issue, token, username, armedAt, 0, null);
+            return leftTo == null ? this : new Sub(issue, token, username, armedAt, null);
         }
     }
 
-    /**
-     * The next try of the verdict of chain {@code chain}, due {@code at}; {@code since} is when the first
-     * try that did not post was.
-     */
-    private record Retry(long chain, long at, long since) {
+    /** A PR's chain that finished, and when it was seen finished: a subscription armed later waits for the next. */
+    private record Chain(int pr, long buildId, long seenAt) {
     }
 
-    /** The subscriptions waiting for one standing visa: of which PR's chain, from whom. */
-    private record Handover(int pr, long chainBuildId, String owner) {
+    /**
+     * The next try of the chain's verdict, due {@code at}; {@code since} is when the first try that did not post
+     * was.
+     */
+    private record Retry(Chain chain, long at, long since) {
+    }
+
+    /** The standing visa subscriptions wait for: of which chain, from whom. */
+    private record Handover(Chain chain, String owner) {
     }
 
     /**
@@ -441,11 +471,29 @@ public class VisaSubscriptions implements SnapshotCache {
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private record Persisted(int pr, String issue, String token, String username, long armedAt, Long chainBuildId,
-        String leftTo, Long retryChain, Long retryAt, Long retryingSince) {
+        Long chainSeenAt, String leftTo, Long retryChain, Long retryChainSeenAt, Long retryAt, Long retryingSince) {
         static Persisted of(Key k, Sub s, Retry r) {
+            Chain left = s.leftTo() == null ? null : s.leftTo().chain();
+            Chain tried = r == null ? null : r.chain();
+
             return new Persisted(k.pr(), s.issue(), s.token(), s.username(), s.armedAt(),
-                s.leftTo() == null ? null : s.chainBuildId(), s.leftTo(), r == null ? null : r.chain(),
-                r == null ? null : r.at(), r == null ? null : r.since());
+                left == null ? null : left.buildId(), left == null ? null : left.seenAt(),
+                s.leftTo() == null ? null : s.leftTo().owner(), tried == null ? null : tried.buildId(),
+                tried == null ? null : tried.seenAt(), r == null ? null : r.at(), r == null ? null : r.since());
+        }
+
+        Sub sub() {
+            boolean handed = leftTo != null && chainBuildId != null && chainSeenAt != null;
+
+            return new Sub(issue, token, username, armedAt,
+                handed ? new Handover(new Chain(pr, chainBuildId, chainSeenAt), leftTo) : null);
+        }
+
+        Retry retry() {
+            if (retryChain == null || retryChainSeenAt == null || retryAt == null || retryingSince == null)
+                return null;
+
+            return new Retry(new Chain(pr, retryChain, retryChainSeenAt), retryAt, retryingSince);
         }
     }
 }

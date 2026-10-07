@@ -102,7 +102,7 @@ class OneShotVisaTest {
         subs.arm(PR, ISSUE, "author-pat", "author");
         when(analyzer.forceRefresh("tc", PR)).thenReturn(Optional.of(result(PREVIOUS, true)));
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         verify(jira, never()).addComment(anyString(), anyString(), anyString());
         assertThat(subs.armed(PR, "author").issue()).isEqualTo(ISSUE);
@@ -115,7 +115,7 @@ class OneShotVisaTest {
         AnalysisResult after = result(CHAIN, true);
         when(analyzer.analyzeAfterNow("tc", PR)).thenReturn(Optional.of(after));
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         ArgumentCaptor<AnalysisResult> posted = ArgumentCaptor.forClass(AnalysisResult.class);
         verify(visas).compose(eq(PR), posted.capture(), any());
@@ -139,7 +139,7 @@ class OneShotVisaTest {
         subs.arm(PR, ISSUE, "author-pat", "author");
         subs.arm(PR, ISSUE, "reviewer-pat", "reviewer");
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         verify(jira, times(1)).addComment(anyString(), anyString(), anyString());
         verify(jira).addComment("author-pat", ISSUE, "verdict of " + CHAIN);
@@ -152,7 +152,7 @@ class OneShotVisaTest {
         when(tc.buildTriggeredBy("tc", CHAIN)).thenReturn(Optional.of("author"));
         when(standing.visaCover("author", PR, CHAIN, ISSUE)).thenReturn(StandingVisas.VisaCover.PENDING);
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         verify(jira, never()).addComment(anyString(), anyString(), anyString());
         verify(analyzer, never()).forceRefresh(anyString(), anyInt());
@@ -165,7 +165,7 @@ class OneShotVisaTest {
         when(tc.buildTriggeredBy("tc", CHAIN)).thenReturn(Optional.of("author"));
         when(standing.visaCover("author", PR, CHAIN, ISSUE)).thenReturn(StandingVisas.VisaCover.POSTED);
 
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         verify(jira, never()).addComment(anyString(), anyString(), anyString());
         assertThat(subs.armedCount()).isZero();
@@ -186,7 +186,7 @@ class OneShotVisaTest {
 
         assertThat(subs.armed(PR, "author").issue()).isEqualTo(ISSUE);
         assertThat(mapper.readTree(saved.toFile())).isEqualTo(mapper.readTree(file.toFile()));
-        subs.settle(PR, CHAIN);
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
         verify(jira).addComment("author-pat", ISSUE, "verdict of " + CHAIN);
     }
 
