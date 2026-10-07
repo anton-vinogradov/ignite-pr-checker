@@ -51,7 +51,8 @@ class ChainRevisionTest {
                "queuedDate":"20261001T080001+0000","buildType":{"name":"Basic 1"},"testOccurrences":{"count":512}}]}}
             """);
 
-        ChainCollector.Chain chain = collector().collectForBuild("t", 13636, CHAIN, Executors.newSingleThreadExecutor());
+        ChainCollector.Chain chain = collector()
+            .collectForBuild("t", 13636, CHAIN, Executors.newSingleThreadExecutor());
 
         assertThat(fields).singleElement().asString().contains("revisions(revision(version))");
         assertThat(chain.revision()).isEqualTo("5be1c0d9a2f84f0b8a2d51c3e8e0f6b0c1d2e3f4");

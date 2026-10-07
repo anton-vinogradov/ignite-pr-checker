@@ -22,7 +22,8 @@ class VerdictBasisPageTest {
                     + 'JDK 17; failed all 3 runs on this branch', doubts: [] }),
                 test('GridCommandHandlerTest.testCacheIdle', 'occ-2', { suite: 'IgniteTests24Java8_ControlUtility',
                     suiteBuildId: 9003, suiteName: 'Control Utility', branchRuns: 'F', codeRuns: 1,
-                    reason: 'no master history on JDK 17 (can\\'t prove pre-existing); failed the only run on this branch',
+                    reason: 'no master history on JDK 17 (can\\'t prove pre-existing); failed the only run on this '
+                        + 'branch',
                     doubts: ['ONE_RUN', 'NO_MASTER_HISTORY'] }),
             ],
             watch: [test('TxRecoveryTest.testRecovery', 'occ-3', { blocker: false, watch: true, branchRuns: 'PPF',
@@ -82,8 +83,8 @@ class VerdictBasisPageTest {
             """);
 
         assertThat(out.get("html").asText())
-            .contains("data-verdict=\"BLOCKER — no master history on JDK 17 (can&#39;t prove pre-existing); failed the "
-                + "only run on this branch\"")
+            .contains("data-verdict=\"BLOCKER — no master history on JDK 17 (can&#39;t prove pre-existing); "
+                + "failed the only run on this branch\"")
             .doesNotContain("failing consistently");
     }
 }

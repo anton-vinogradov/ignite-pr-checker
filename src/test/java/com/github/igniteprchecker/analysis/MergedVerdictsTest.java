@@ -60,7 +60,8 @@ class MergedVerdictsTest {
         AnalysisResult kept = restarted.verdict(PR).orElseThrow();
         assertThat(kept.buildId()).as("the one shown last").isEqualTo(9391879L);
         assertThat(kept.mergedAt()).isEqualTo(MERGED_AT);
-        assertThat(kept.blockers()).extracting(TestVerdict::name).containsExactly("GridCommandHandlerTest.testCacheIdle");
+        assertThat(kept.blockers()).extracting(TestVerdict::name)
+            .containsExactly("GridCommandHandlerTest.testCacheIdle");
         assertThat(kept.filtered()).extracting(TestVerdict::reason)
             .containsExactly("pre-existing: fails 15/98 on master on JDK 17");
     }
@@ -178,8 +179,9 @@ class MergedVerdictsTest {
     }
 
     private static AnalysisResult verdict(long buildId, long computedAt) {
-        TestVerdict blocker = new TestVerdict(42L, "GridCommandHandlerTest.testCacheIdle", "Suite", buildId + 1, "Suite",
-            "occ", true, false, "not seen failing in 85 master run(s); failed all 3 runs on this branch", "FFF", 3);
+        TestVerdict blocker = new TestVerdict(42L, "GridCommandHandlerTest.testCacheIdle", "Suite", buildId + 1,
+            "Suite", "occ", true, false, "not seen failing in 85 master run(s); failed all 3 runs on this branch",
+            "FFF", 3);
         TestVerdict filtered = new TestVerdict(43L, "TxRecoveryTest.testRecovery", "Suite", buildId + 1, "Suite", "occ",
             false, false, "pre-existing: fails 15/98 on master on JDK 17", "", 0);
 

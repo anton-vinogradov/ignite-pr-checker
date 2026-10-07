@@ -33,8 +33,8 @@ class PrOutcomeTest {
              "merge_commit_sha":"c0ffee1","head":{"sha":"5be1c0d"}}
             """, MediaType.APPLICATION_JSON));
 
-        assertThat(github.prOutcome(13566))
-            .isEqualTo(new GithubClient.PrOutcome(true, true, 1_791_208_920L, "c0ffee1", "5be1c0d", "IGNITE-28890 Fix it"));
+        assertThat(github.prOutcome(13566)).isEqualTo(
+            new GithubClient.PrOutcome(true, true, 1_791_208_920L, "c0ffee1", "5be1c0d", "IGNITE-28890 Fix it"));
     }
 
     @Test
