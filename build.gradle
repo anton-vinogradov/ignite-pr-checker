@@ -30,7 +30,7 @@ dependencies {
     // GitHub calls (PATCH included) run on it; checkstyle 10 used to bring it in by accident.
     implementation 'org.apache.httpcomponents.client5:httpclient5'
     // The version Ignite's own build runs, so the style autofix counts violations by the same rules.
-    implementation('com.puppycrawl.tools:checkstyle:12.3.1') {
+    implementation('com.puppycrawl.tools:checkstyle:14.3.0') {
         // A second SLF4J backend next to Logback, and a commons-logging that spring-jcl already replaces.
         exclude group: 'org.slf4j', module: 'slf4j-simple'
         exclude group: 'commons-logging', module: 'commons-logging'
