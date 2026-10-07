@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -271,7 +272,7 @@ public class TcClient {
             "fields", "build(id)")), TcModel.BuildList.class);
 
         if (chains == null || chains.build() == null || chains.build().isEmpty())
-            return new MasterSuiteStats(Map.of(), Map.of());
+            return new MasterSuiteStats(Map.of(), Map.of(), 0);
 
         TcModel.Build chain = get("baseline", token,
             url("app/rest/builds/id:" + chains.build().get(0).id(), query(
@@ -279,13 +280,15 @@ public class TcClient {
             TcModel.Build.class);
 
         if (chain == null || chain.snapshotDependencies() == null || chain.snapshotDependencies().build() == null)
-            return new MasterSuiteStats(Map.of(), Map.of());
+            return new MasterSuiteStats(Map.of(), Map.of(), 0);
 
         Map<String, Integer> counts = new java.util.HashMap<>();
         Map<String, Long> durations = new java.util.HashMap<>();
+        java.util.Set<String> suites = new java.util.HashSet<>();
         for (TcModel.Build dep : chain.snapshotDependencies().build()) {
             if (dep.buildTypeId() == null)
                 continue;
+            suites.add(dep.buildTypeId());
             if (dep.testOccurrences() != null)
                 counts.put(dep.buildTypeId(), dep.testOccurrences().count());
             long start = TcDates.epochSeconds(dep.startDate());
@@ -294,11 +297,14 @@ public class TcClient {
                 durations.put(dep.buildTypeId(), finish - start);
         }
 
-        return new MasterSuiteStats(counts, durations);
+        return new MasterSuiteStats(counts, durations, suites.size());
     }
 
-    /** Per-suite master facts: how many tests it runs, and how long it typically takes (seconds). */
-    public record MasterSuiteStats(Map<String, Integer> counts, Map<String, Long> durations) {
+    /**
+     * Per-suite master facts: how many tests it runs, and how long it typically takes (seconds); and how
+     * many suites the chain has, those that run no tests included.
+     */
+    public record MasterSuiteStats(Map<String, Integer> counts, Map<String, Long> durations, int suites) {
     }
 
     /**
@@ -485,9 +491,7 @@ public class TcClient {
     public int cancelOwnRunAllChains(String token, int prNumber, String username) {
         int cancelled = 0;
         for (TcModel.Build b : currentUserBuilds(token, prNumber)) {
-            boolean own = b.triggered() != null && b.triggered().user() != null
-                && username.equals(b.triggered().user().username());
-            if (own && analysis.runAllBuildType().equals(b.buildTypeId())) {
+            if (username.equals(starter(b)) && analysis.runAllBuildType().equals(b.buildTypeId())) {
                 try {
                     cancelBuild(token, b);
                     cancelled++;
@@ -502,15 +506,20 @@ public class TcClient {
     }
 
     /**
-     * Cancels every user-launched build (RunAll or re-run suite) currently queued or running; returns how
-     * many. A refusal is thrown rather than skipped: a dead token, or a 403 on every build, would
-     * otherwise read as "cancelled 0 runs".
+     * Cancels the builds {@code username} launched (RunAll or re-run suite) that are queued or running for
+     * the PR and that {@code chosen} accepts; returns how many. Other people's builds are never touched:
+     * ci2 lets every signed-in user cancel any build, so this is the only thing that keeps one user from
+     * stopping another's chain. A refusal is thrown rather than skipped: a dead token, or a 403 on every
+     * build, would otherwise read as "cancelled 0 runs".
      */
-    public int cancelUserBuilds(String token, int prNumber) {
+    public int cancelOwnBuilds(String token, int prNumber, String username, Predicate<TcModel.Build> chosen) {
         int cancelled = 0;
         RestClientResponseException refused = null;
 
         for (TcModel.Build b : currentUserBuilds(token, prNumber)) {
+            if (!username.equals(starter(b)) || !chosen.test(b))
+                continue;
+
             try {
                 cancelBuild(token, b);
                 cancelled++;
@@ -532,23 +541,38 @@ public class TcClient {
         return cancelled;
     }
 
-    /** Cancels one build, using the queue endpoint if it is still queued and the build endpoint if running. */
     /**
-     * Re-runs a suite, first cancelling identical STANDALONE builds of it already sitting in the
-     * queue for the same PR branch (they'd run the same thing later for nothing). Queued dependencies
-     * of a running chain are left alone — cancelling those would break the chain.
+     * Re-runs a suite for {@code username}, first cancelling identical STANDALONE builds of it that the same
+     * user already has in the queue for the PR branch (they'd run the same thing later for nothing).
+     * Someone else's queued build of the suite stays, and the new one queues next to it: ci2 lets anyone
+     * cancel anyone's build, so a click on the page must not take another person's build off the queue,
+     * top place and all. Queued dependencies of a running chain are left alone — cancelling those would
+     * break the chain.
      */
-    public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top) {
-        return triggerBuildReplacingQueued(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker");
+    public TcModel.Build triggerOwnBuildReplacingQueued(String token, String username, String buildTypeId,
+        int prNumber, boolean top) {
+        return triggerReplacingQueued(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker",
+            q -> username.equals(starter(q)));
     }
 
-    /** Same, with an explicit TeamCity trigger comment. */
+    /**
+     * Re-runs a suite for the automation, first cancelling identical STANDALONE builds of it already
+     * sitting in the queue for the same PR branch, whoever queued them (they'd run the same thing later
+     * for nothing). Queued dependencies of a running chain are left alone — cancelling those would break
+     * the chain. {@code comment} tells on TeamCity why the build was queued.
+     */
     public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
         String comment) {
+        return triggerReplacingQueued(token, buildTypeId, prNumber, top, comment, q -> true);
+    }
+
+    private TcModel.Build triggerReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
+        String comment, Predicate<TcModel.Build> replaceable) {
         String branch = "pull/" + prNumber + "/head";
         for (TcModel.Build q : queuedBuilds(token)) {
             boolean standalone = q.triggered() != null && "user".equals(q.triggered().type());
-            if (standalone && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName())) {
+            if (standalone && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName())
+                && replaceable.test(q)) {
                 try {
                     cancelBuild(token, q);
                 }
@@ -596,13 +620,17 @@ public class TcClient {
         return list != null && list.build() != null && !list.build().isEmpty();
     }
 
+    /** The user who queued a build, or null for one TeamCity queued by itself (a dependency, a VCS trigger). */
+    public static String starter(TcModel.Build b) {
+        return b.triggered() == null || b.triggered().user() == null ? null : b.triggered().user().username();
+    }
+
     /** Who triggered a build — the early re-run must act under the token of whoever started the chain. */
     public Optional<String> buildTriggeredBy(String token, long buildId) {
         TcModel.Build b = get("buildState", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "triggered(type,user(username))")), TcModel.Build.class);
 
-        return b == null || b.triggered() == null || b.triggered().user() == null
-            ? Optional.empty() : Optional.ofNullable(b.triggered().user().username());
+        return b == null ? Optional.empty() : Optional.ofNullable(starter(b));
     }
 
     /** Moves an already-queued build to the top of the build queue (position 1). */
@@ -616,6 +644,7 @@ public class TcClient {
             .toBodilessEntity());
     }
 
+    /** Cancels one build, using the queue endpoint if it is still queued and the build endpoint if running. */
     public void cancelBuild(String token, TcModel.Build build) {
         String path = "queued".equalsIgnoreCase(build.state())
             ? "app/rest/buildQueue/id:" + build.id()
@@ -721,7 +750,7 @@ public class TcClient {
     public List<TcModel.Build> queuedBuilds(String token) {
         TcModel.BuildList list = get("buildState", token, url("app/rest/buildQueue", query(
             "locator", "count:1000",
-            "fields", "build(id,buildTypeId,state,webUrl,branchName,startEstimate,finishEstimate,buildType(name),triggered(type))")), TcModel.BuildList.class);
+            "fields", "build(id,buildTypeId,state,webUrl,branchName,startEstimate,finishEstimate,buildType(name),triggered(type,user(username)))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
     }

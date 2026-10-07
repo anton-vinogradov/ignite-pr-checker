@@ -4,6 +4,7 @@ import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,9 @@ public class ApiExceptionHandler {
     static final String FORBIDDEN = "ci2 refused the request (403). Its firewall sometimes blocks valid requests, "
         + "so try again in a minute; if Rerun or Cancel keeps failing, your ci2 account may lack the rights for it";
 
+    static final String PREVIOUS_RUNALL_CANCELLED =
+        "Your previous RunAll was cancelled, but queuing the new one failed";
+
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     private final TcClient tc;
@@ -34,7 +38,7 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(ResourceAccessException.class)
-    public ResponseEntity<?> noAnswer(ResourceAccessException e) {
+    public ResponseEntity<Map<String, Object>> noAnswer(ResourceAccessException e) {
         String service = e instanceof OutboundHttp.NoAnswer named ? named.service() : "A service this page needs";
         log.warn("{} did not answer: {}", service, e.getMessage());
 
@@ -47,7 +51,7 @@ public class ApiExceptionHandler {
      * rights, so it never logs anyone out.
      */
     @ExceptionHandler(TcResponseException.class)
-    public ResponseEntity<?> teamCityRefused(TcResponseException e, HttpServletRequest req) {
+    public ResponseEntity<Map<String, Object>> teamCityRefused(TcResponseException e, HttpServletRequest req) {
         int status = e.getStatusCode().value();
         if (status == 401 && req.getAttribute(AuthInterceptor.TOKEN_ATTR) instanceof String token
             && tc.tokenRejected(token)) {
@@ -60,5 +64,28 @@ public class ApiExceptionHandler {
 
         return ResponseEntity.status(502).body(Map.of("error", status == 403 ? FORBIDDEN
             : "TeamCity answered " + status + " — try again in a moment"));
+    }
+
+    /** Why queuing failed, as it would be answered alone, led by the news that the previous chain is gone. */
+    @ExceptionHandler(ReplacementNotQueuedException.class)
+    public ResponseEntity<Map<String, Object>> replacementNotQueued(ReplacementNotQueuedException e,
+        HttpServletRequest req) {
+        ResponseEntity<Map<String, Object>> alone;
+        if (e.getCause() instanceof TcResponseException refused)
+            alone = teamCityRefused(refused, req);
+        else if (e.getCause() instanceof ResourceAccessException unreachable)
+            alone = noAnswer(unreachable);
+        else {
+            log.warn("RunAll not queued after cancelling the previous one", e.getCause());
+
+            return ResponseEntity.status(502).body(Map.of("error", PREVIOUS_RUNALL_CANCELLED + " — try RunAll again",
+                "replaced", e.replaced()));
+        }
+
+        Map<String, Object> body = new HashMap<>(alone.getBody());
+        body.put("error", PREVIOUS_RUNALL_CANCELLED + ": " + body.get("error"));
+        body.put("replaced", e.replaced());
+
+        return ResponseEntity.status(alone.getStatusCode()).body(body);
     }
 }

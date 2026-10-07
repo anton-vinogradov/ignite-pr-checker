@@ -48,6 +48,8 @@ import org.springframework.web.client.HttpClientErrorException;
 class TeamCityRefusalTest {
     private static final String TOKEN = "tok";
 
+    private static final String USER = "someone";
+
     /** Status TeamCity answers per "METHOD /path" prefix; anything unlisted gets an empty 200. */
     private final Map<String, Integer> answers = new ConcurrentHashMap<>();
 
@@ -87,12 +89,14 @@ class TeamCityRefusalTest {
         answers.put("GET /", 401);
         answers.put("POST /", 401);
 
-        mvc.perform(get("/api/runs").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN))
+        mvc.perform(get("/api/runs").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.tokenRejected").value(true))
             .andExpect(jsonPath("$.error").value(ApiExceptionHandler.TOKEN_REJECTED));
 
-        mvc.perform(post("/api/trigger").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN))
+        mvc.perform(post("/api/trigger").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.tokenRejected").value(true));
     }
@@ -101,7 +105,8 @@ class TeamCityRefusalTest {
     void firewallRefusalExplainsItselfAndKeepsTheSession() throws Exception {
         answers.put("POST /app/rest/buildQueue", 403);
 
-        mvc.perform(post("/api/trigger").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN))
+        mvc.perform(post("/api/trigger").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER))
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.tokenRejected").doesNotExist())
             .andExpect(jsonPath("$.error").value(ApiExceptionHandler.FORBIDDEN));
@@ -131,7 +136,8 @@ class TeamCityRefusalTest {
     void cancelRefusedOnEveryBuildIsReportedNotCountedAsZero() throws Exception {
         answers.put("POST /app/rest/builds/id:", 403);
 
-        mvc.perform(post("/api/cancel-all").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN))
+        mvc.perform(post("/api/cancel-all").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER))
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.error").value(ApiExceptionHandler.FORBIDDEN));
     }
@@ -140,7 +146,8 @@ class TeamCityRefusalTest {
     void cancelCountsTheBuildsItCouldStop() throws Exception {
         answers.put("POST /app/rest/builds/id:101", 403);
 
-        mvc.perform(post("/api/cancel-all").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN))
+        mvc.perform(post("/api/cancel-all").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.cancelled").value(1));
     }
@@ -178,10 +185,15 @@ class TeamCityRefusalTest {
         if (ex.getRequestURI().getPath().startsWith("/app/rest/users/current"))
             return "{\"username\":\"someone\"}";
         if ("GET".equals(ex.getRequestMethod()) && query != null && query.contains("state:running"))
-            return "{\"build\":[{\"id\":101,\"state\":\"running\"},{\"id\":102,\"state\":\"running\"}]}";
+            return "{\"build\":[" + running(101) + "," + running(102) + "]}";
         if ("GET".equals(ex.getRequestMethod()) && ex.getRequestURI().getPath().startsWith("/app/rest/builds"))
             return "{\"build\":[]}";
 
         return "{\"id\":1,\"state\":\"queued\"}";
+    }
+
+    private static String running(long id) {
+        return "{\"id\":" + id + ",\"state\":\"running\",\"triggered\":{\"type\":\"user\",\"user\":{\"username\":\""
+            + USER + "\"}}}";
     }
 }

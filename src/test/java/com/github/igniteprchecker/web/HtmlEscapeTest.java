@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,6 +38,37 @@ class HtmlEscapeTest {
     @ValueSource(strings = {"index.html", "flaky.html", "status.html"})
     void rendersMissingValuesAsEmpty(String page) throws Exception {
         assertThat(runEsc(escSource(page), null)).isEmpty();
+    }
+
+    /** Build links and revisions from ci2 land in the same attributes on the PR page, next to ones already escaped. */
+    @Test
+    void ciValuesStayInsideTheirAttributesOnThePrPage() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            const q = '" onmouseover="alert(1)';
+            page.route('/api/runs', { body: [{ buildId: 9100, state: 'running', name: 'RunAll', btId: 'RunAll',
+                webUrl: 'https://ci2.example/build/9100' + q, pct: 40, leftSec: 3000, startSec: -1, waitedSec: 60,
+                elapsedSec: 600, onHead: false, rev: 'abc123' + q }] });
+            page.route('/api/rerun-suites', { body: { triggered: [{ buildId: 9200,
+                webUrl: 'https://ci2.example/build/9200' + q }] } }, 'POST');
+            page.route('/api/rerun-suite', { body: { triggered: [{ buildId: 9201,
+                webUrl: 'https://ci2.example/build/9201' + q }] } }, 'POST');
+            const chip = page.el('chip');
+            chip.dataset.btid = 'RunAll';
+            page.run('document').querySelectorAll = sel => sel === '.suite-live' ? [chip] : [];
+            await page.load('?pr=13575');
+            const runs = page.el('runs').innerHTML;
+            await page.run('rerunSuites')(['IgniteTests24Java8_Cache'], false, page.el('rerunBtn'));
+            const suites = page.el('status').innerHTML;
+            await page.run('rerunSuite')('IgniteTests24Java8_Cache', false, page.el('rerunBtn'));
+            report({ runs, chip: chip.innerHTML, suites, suite: page.el('status').innerHTML });
+            """);
+
+        for (String part : new String[] {"runs", "chip", "suites", "suite"}) {
+            assertThat(out.get(part).asText()).as(part)
+                .contains("&quot; onmouseover=&quot;alert(1)")
+                .doesNotContain("\" onmouseover");
+        }
+        assertThat(out.get("runs").asText()).contains("Started on abc123&quot; onmouseover");
     }
 
     @Test
