@@ -16,6 +16,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class AnalysisCachePersistenceTest {
+    private static final RunEnv JDK17 = new RunEnv("17", "1.0");
+
+    /** A test's master runs, newest first: green on JDK 17, failing on the nightly JDK 21 run. */
+    private static final RunHistory MASTER_JDK21_BREAK = new RunHistory("PFPP", "abaa",
+        List.of(JDK17, new RunEnv("21", "1.0")), List.of());
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static AnalysisProperties props() {
@@ -26,7 +32,7 @@ class AnalysisCachePersistenceTest {
     private void ageSnapshot(Path file, Duration downtime) throws IOException {
         JsonNode root = mapper.readTree(file.toFile());
 
-        for (String cache : List.of("suiteHistory", "results")) {
+        for (String cache : List.of("masterHistory", "prBranchHistory", "results")) {
             for (JsonNode e : root.get(cache))
                 ((ObjectNode)e).put("expiresAt", e.get("expiresAt").asLong() - downtime.toMillis());
         }
@@ -45,7 +51,7 @@ class AnalysisCachePersistenceTest {
             List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false, "pre-existing", "", 0)),
             List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
         first.putResult(100L, result);
-        first.history(7L, "SuiteX", () -> new HistoryStats(30, 1));
+        first.history(7L, "SuiteX", () -> MASTER_JDK21_BREAK);
 
         first.saveTo(file);
 
@@ -54,11 +60,33 @@ class AnalysisCachePersistenceTest {
 
         assertThat(reloaded.peekResult(100L)).contains(result);
         // The loader must NOT run: proving the stats came back from disk, not a recompute.
-        HistoryStats restored = reloaded.history(7L, "SuiteX", () -> {
+        RunHistory restored = reloaded.history(7L, "SuiteX", () -> {
             throw new AssertionError("history should have been restored from the snapshot");
         });
-        assertThat(restored).isEqualTo(new HistoryStats(30, 1));
+        assertThat(restored).isEqualTo(MASTER_JDK21_BREAK);
         assertThat(reloaded.historyOf(7L, "SuiteY")).as("another suite's history of the same test").isEmpty();
+    }
+
+    /** The runs on PR branches are kept like master's: a window of the latest runs, restored until it expires. */
+    @Test
+    void prBranchHistoryIsRestoredUntilItExpires(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        RunHistory onPrs = new RunHistory("FPP", "aaa", List.of(new RunEnv("17", "0.1")), List.of(13653, 13554, 13644));
+        AnalysisCache first = new AnalysisCache(props(), mapper);
+        first.prBranchHistory(7L, "SuiteX", () -> onPrs);
+        first.saveTo(file);
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+        ageSnapshot(file, Duration.ofHours(3));
+        AnalysisCache afterDowntime = new AnalysisCache(props(), mapper);
+        afterDowntime.loadFrom(file);
+
+        assertThat(reloaded.prBranchHistory(7L, "SuiteX", () -> {
+            throw new AssertionError("PR-branch history should have been restored from the snapshot");
+        })).isEqualTo(onPrs);
+        RunHistory refetched = new RunHistory("P", "a", List.of(new RunEnv("17", "0.1")), List.of(13653));
+        assertThat(afterDowntime.prBranchHistory(7L, "SuiteX", () -> refetched)).isEqualTo(refetched);
     }
 
     /**
@@ -85,6 +113,29 @@ class AnalysisCachePersistenceTest {
         assertThat(reloaded.historyCount()).isZero();
     }
 
+    /**
+     * The previous release kept per suite only how many master runs there were and how many failed. That
+     * cannot tell a JDK 21 failure from a JDK 17 one, or a recent failure from an old one, so it is
+     * re-fetched; results from the previous rules are dropped, and the snapshot still loads.
+     */
+    @Test
+    void historyCountsWithoutOrderOrJdkAreRefetched(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        long expiresAt = System.currentTimeMillis() + 60_000;
+        mapper.writeValue(file.toFile(), mapper.readTree("{\"suiteHistory\":[{\"key\":{\"testId\":"
+            + "-1661331956011831017,\"buildTypeId\":\"IgniteTests24Java8_Snapshots8\"},\"value\":{\"runs\":100,"
+            + "\"fails\":1},\"expiresAt\":" + expiresAt + "}],\"results\":[{\"key\":9391879,\"value\":"
+            + mapper.writeValueAsString(new AnalysisResult(13654, 9391879L, "pull/13654/head", 1791307406924L,
+                List.of(), List.of(), List.of(), List.of(), List.of(), 22, 125, false, 0, true, 9392791L, 0, 0, 0, 0))
+            + ",\"expiresAt\":" + expiresAt + "}],\"rules\":6}"));
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+
+        assertThat(reloaded.historyCount()).isZero();
+        assertThat(reloaded.peekResult(9391879L)).as("a verdict made by the previous rules").isEmpty();
+    }
+
     @Test
     void historyOutlivedByDowntimeIsRefetchedWhileResultsRevive(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("analysis.json");
@@ -98,7 +149,7 @@ class AnalysisCachePersistenceTest {
                 "pre-existing: fails 1/100 on master", "F", 1)),
             List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0);
         before.putResult(runAll, result);
-        before.history(testId, "SuiteX", () -> new HistoryStats(100, 1));
+        before.history(testId, "SuiteX", () -> MASTER_JDK21_BREAK);
         before.saveTo(file);
         ageSnapshot(file, Duration.ofHours(3));
 
@@ -106,7 +157,8 @@ class AnalysisCachePersistenceTest {
         after.loadFrom(file);
 
         assertThat(after.historyOf(testId, "SuiteX")).as("master history outlived by the downtime").isEmpty();
-        assertThat(after.history(testId, "SuiteX", () -> new HistoryStats(100, 0))).isEqualTo(new HistoryStats(100, 0));
+        RunHistory refetched = new RunHistory("PPP", "aaa", List.of(JDK17), List.of());
+        assertThat(after.history(testId, "SuiteX", () -> refetched)).isEqualTo(refetched);
         assertThat(after.peekResult(runAll)).as("a build's result never changes").contains(result);
     }
 

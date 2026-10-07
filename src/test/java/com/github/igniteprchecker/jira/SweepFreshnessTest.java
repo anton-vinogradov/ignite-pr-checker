@@ -320,7 +320,7 @@ class SweepFreshnessTest {
         /** The test's run in a build of this suite. */
         TcModel.TestOccurrence rerun(long suiteBuildId, String status) {
             return new TcModel.TestOccurrence("o" + testId, test, status, null, new TcModel.BuildRef(suiteBuildId,
-                "pull/13335/head", "finished", status, id, new TcModel.BuildType(id, name), null), null);
+                "pull/13335/head", "finished", status, id, new TcModel.BuildType(id, name), null, null), null);
         }
 
         TestVerdict blocker() {

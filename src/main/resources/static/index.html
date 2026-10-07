@@ -1255,8 +1255,8 @@
                 : '';
             const liveTag = res.live
                 ? ' · ' + (res.liveBuildId && tcBase
-                    ? `<a class="live-tag" href="${tcBase}build/${res.liveBuildId}" target="_self" rel="noopener" title="Includes results from a newer RunAll that has not fully completed (running, cancelled or interrupted) — click to open that run in TeamCity">● includes an unfinished run</a>`
-                    : '<span class="live-tag" title="Includes results from a newer RunAll that has not fully completed — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
+                    ? `<a class="live-tag" href="${tcBase}build/${res.liveBuildId}" target="_self" rel="noopener" title="Includes results from a RunAll that is still running — click to open that run in TeamCity">● includes an unfinished run</a>`
+                    : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
                 : '';
             $('freshness').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag
                 + ' <span id="refreshBtn" class="refresh" role="button" title="Refresh cache now" aria-label="Refresh now">↻</span>';

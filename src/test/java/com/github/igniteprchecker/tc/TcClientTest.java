@@ -66,6 +66,17 @@ class TcClientTest {
             .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")");
     }
 
+    /** One answer about every other branch serves all PRs, so the PR under review is left out by the caller. */
+    @Test
+    void otherBranchRunsAreAskedForTheFailingSuiteOnEveryBranchButMaster() {
+        client().otherBranchRuns("tok", RECONNECT, CLANG);
+
+        assertThat(locators).singleElement().asString()
+            .contains("test:(id:" + RECONNECT + ")", "branch:(default:false)", "buildType:(id:" + CLANG + ")",
+                "muted:false", "count:200")
+            .doesNotContain("pull/");
+    }
+
     @Test
     void masterFailuresAreAskedForTheFailingSuiteOnly() {
         client().masterFailures("tok", RECONNECT, CLANG);

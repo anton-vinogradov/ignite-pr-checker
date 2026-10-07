@@ -127,15 +127,19 @@ public class ChainCollector {
         // Overlay results from any chain newer than the baseline finished build — running, cancelled
         // or interrupted. Even a run that didn't fully complete ran (and failed) some suites, and those
         // finished-FAILURE suites must count. classify() re-anchors each test to its newest finished
-        // run, so this only needs to ADD candidates that appear in the newer chain(s).
+        // run, so this only needs to ADD candidates that appear in the newer chain(s). Only a chain
+        // still running makes the verdict live: a cancelled one will never finish its other suites, and
+        // calling it "still going" held PR 13654 on "a newer run is still going" for good.
         boolean live = subjectRunning;
         long liveBuildId = subjectRunning ? build.id() : 0;
         Set<Long> newerChainSuites = new HashSet<>();
         for (TcModel.Build chain : tc.recentChains(token, prNumber, 3)) {
             if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()))
                 continue; // not newer than the baseline, or nothing has run in it yet
-            live = true;
-            liveBuildId = Math.max(liveBuildId, chain.id());
+            if ("running".equalsIgnoreCase(chain.state())) {
+                live = true;
+                liveBuildId = Math.max(liveBuildId, chain.id());
+            }
             TcModel.Build rBuild = tc.getBuildWithDeps(token, chain.id());
             depBuilds(rBuild).forEach(dep -> newerChainSuites.add(dep.id()));
             List<Callable<SuiteResult>> rTasks = depBuilds(rBuild).stream()

@@ -15,8 +15,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -29,12 +32,31 @@ import org.springframework.web.client.RestClientResponseException;
  */
 @Component
 public class TcClient {
+    private static final Logger log = LoggerFactory.getLogger(TcClient.class);
+
     /**
      * Longer than any build on a PR branch runs: suites are cut off by their execution timeouts, and
      * a chain finishes together with its last suite. So a build that finished after some moment
      * started at most this long before it.
      */
     private static final long LONGEST_BUILD_SECONDS = 86_400;
+
+    /** How many of a test's latest runs on other branches its comparison with other PRs reads. */
+    private static final int OTHER_BRANCH_RUNS = 200;
+
+    /** Where {@link #occurrencesWithConditions} puts the run conditions into a fields spec. */
+    private static final String CONDITIONS_SLOT = "{conditions}";
+
+    /**
+     * The build parameters a test run is compared by: the JDK and the scale factor Ignite tests shrink
+     * their workloads by. Master's nightly RunAll runs with 1.0, PR chains with 0.1.
+     */
+    private static final String RUN_CONDITIONS = "resultingProperties($locator(name:(value:("
+        + TcModel.JAVA_HOME + "|" + TcModel.TEST_SCALE_FACTOR + "),matchType:matches)),property(name,value))";
+
+    /** The JDK alone, in the form ci2 is known to answer. */
+    private static final String JDK_ONLY = "resultingProperties($locator(name:" + TcModel.JAVA_HOME
+        + "),property(name,value))";
 
     private final RestClient http;
 
@@ -43,6 +65,12 @@ public class TcClient {
     private final AnalysisProperties analysis;
 
     private final Metrics metrics;
+
+    /**
+     * The run conditions asked for with each test run: the JDK and the test scale factor its build ran
+     * with. Starts as both, and drops to the JDK alone if TeamCity rejects the pattern that names both.
+     */
+    private volatile String runConditions = RUN_CONDITIONS;
 
     public TcClient(TeamcityProperties tc, AnalysisProperties analysis, Metrics metrics) {
         this.analysis = analysis;
@@ -255,18 +283,26 @@ public class TcClient {
     }
 
     /**
-     * Recent master history of one test in one suite (up to {@code analysis.historyDepth} runs): just
-     * the statuses. Per suite, because one test id runs in several suites of a chain (the C++ tests run
-     * on Windows, Linux and Clang) and each has its own failure rate: mixed together, a platform that
-     * flakes on master would make a clean break on another platform look pre-existing.
+     * Recent master history of one test in one suite (up to {@code analysis.historyDepth} runs), newest
+     * first: the statuses and the conditions each build ran under. Per suite, because one test id runs
+     * in several suites of a chain (the C++ tests run on Windows, Linux and Clang) and each has its own
+     * failure rate: mixed together, a platform that flakes on master would make a clean break on another
+     * platform look pre-existing. The conditions come in the same request: some nightly master RunAlls
+     * run on JDK 21, and a test broken only on JDK 21 is no evidence about a JDK 17 run.
      */
     public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId, String buildTypeId) {
-        TcModel.TestOccurrences occ = get("history", token, url("app/rest/testOccurrences", query(
-            "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:"
+        TcModel.TestOccurrences occ = occurrencesWithConditions("history", token,
+            "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:"
                 + analysis.historyDepth(),
-            "fields", "testOccurrence(status)")), TcModel.TestOccurrences.class);
+            "testOccurrence(status,build(id," + CONDITIONS_SLOT + "))");
 
-        return occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence();
+        if (occ == null || occ.testOccurrence() == null)
+            return List.of();
+
+        return occ.testOccurrence().stream()
+            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build() == null ? 0 : o.build().id())
+                .reversed())
+            .toList();
     }
 
     /**
@@ -280,7 +316,8 @@ public class TcClient {
      *
      * <p>Each run carries the revision its build ran on: a pass only says something about the code
      * under review if it happened on the <em>same</em> revision as the failure. Asked for in this same
-     * request, so classification can tell "passed on the same code" from "passed on older code".
+     * request, so classification can tell "passed on the same code" from "passed on older code". So do
+     * the conditions the build ran under, which pick the master runs the PR's failure is compared with.
      *
      * <p>Muted failures are left out, as in {@link #getFailedTests}: a muted failure is no evidence the PR
      * broke the test, and no pass either. Kept in, it would lengthen a blocker's fail streak and make
@@ -288,12 +325,11 @@ public class TcClient {
      * passes stay in: TeamCity records them as not muted even while the test is muted.
      */
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId, String buildTypeId) {
-        TcModel.TestOccurrences occ = get("prRuns", token, url("app/rest/testOccurrences", query(
-"locator", "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),buildType:(id:"
+        TcModel.TestOccurrences occ = occurrencesWithConditions("prRuns", token,
+            "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),buildType:(id:"
                 + buildTypeId + "),muted:false,count:100",
-            "fields", "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
-                + "revisions(revision(version))))")),
-            TcModel.TestOccurrences.class);
+            "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
+                + "revisions(revision(version))," + CONDITIONS_SLOT + "))");
 
         if (occ == null || occ.testOccurrence() == null)
             return List.of();
@@ -303,6 +339,30 @@ public class TcClient {
                 && "finished".equals(o.build().state())
                 && !"UNKNOWN".equals(o.build().status()))
             .sorted(Comparator.comparingLong(o -> o.build().id())) // oldest → newest
+            .toList();
+    }
+
+    /**
+     * The test's latest runs in one suite on every branch but the default one, newest first (up to 200),
+     * with the conditions each build ran under: how the test does on other PRs' branches, which run the
+     * way this PR's do. Master runs differ: the nightly RunAll runs at test scale factor 1.0, PR chains at
+     * 0.1. The caller keeps the PR branches and leaves out the PR under review, so one answer serves every
+     * PR. Finished, non-cancelled runs only, muted failures left out, as in {@link #prBranchRuns}.
+     */
+    public List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId) {
+        TcModel.TestOccurrences occ = occurrencesWithConditions("otherBranchRuns", token,
+            "test:(id:" + testId + "),branch:(default:false),buildType:(id:" + buildTypeId + "),muted:false,count:"
+                + OTHER_BRANCH_RUNS,
+            "testOccurrence(status,build(id,state,status,branchName," + CONDITIONS_SLOT + "))");
+
+        if (occ == null || occ.testOccurrence() == null)
+            return List.of();
+
+        return occ.testOccurrence().stream()
+            .filter(o -> o.build() != null
+                && "finished".equals(o.build().state())
+                && !"UNKNOWN".equals(o.build().status()))
+            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
             .toList();
     }
 
@@ -616,6 +676,35 @@ public class TcClient {
             "fields", "build(id,buildTypeId,state,webUrl,branchName,startEstimate,finishEstimate,buildType(name),triggered(type))")), TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
+     * Test occurrences with their builds' run conditions, which {@code fields} asks for at
+     * {@link #CONDITIONS_SLOT}. Matching two property names takes a pattern that ci2 has never been
+     * asked; if it answers 400, the request is repeated naming the JDK alone, the form known to work,
+     * and that form is kept. Without the fallback, a rejected pattern would fail every history request
+     * and turn every failed test into an unverified blocker.
+     */
+    private TcModel.TestOccurrences occurrencesWithConditions(String category, String token, String locator,
+        String fields) {
+        String asked = runConditions;
+        try {
+            return get(category, token, url("app/rest/testOccurrences", query(
+                "locator", locator, "fields", fields.replace(CONDITIONS_SLOT, asked))), TcModel.TestOccurrences.class);
+        }
+        catch (HttpClientErrorException.BadRequest e) {
+            if (!RUN_CONDITIONS.equals(asked))
+                throw e;
+
+            TcModel.TestOccurrences occ = get(category, token, url("app/rest/testOccurrences", query(
+                "locator", locator, "fields", fields.replace(CONDITIONS_SLOT, JDK_ONLY))),
+                TcModel.TestOccurrences.class);
+            runConditions = JDK_ONLY;
+            log.warn("TeamCity rejected the run-conditions pattern ({}); reading the JDK only, the test scale factor "
+                + "stays unknown", e.getStatusText());
+
+            return occ;
+        }
     }
 
     private <T> T get(String category, String token, URI uri, Class<T> type) {
