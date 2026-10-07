@@ -18,6 +18,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # Names the file and line of a syntax error, also in a script no page test loads.
+      - name: Check the page scripts
+        run: |
+          for f in src/main/resources/static/*.js; do
+            node --check "$f"
+          done
+
       - name: Build and test
         run: |
           chmod +x ./gradlew

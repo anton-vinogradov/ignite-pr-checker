@@ -1,15 +1,17 @@
-// Runs a page's main script in node against a fake DOM, a fake clock and a routed fetch, then runs a
+// Runs a page's scripts in node against a fake DOM, a fake clock and a routed fetch, then runs a
 // scenario and prints what it reports as JSON. Usage: node harness.js <page.html> <scenario.js>.
 // A scenario is the body of an async function receiving `page` (see below) and `report(obj)`.
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const vm = require('vm');
 
 const [, , pagePath, scenarioPath] = process.argv;
 const html = fs.readFileSync(pagePath, 'utf8');
-const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
-const mainScript = scripts[scripts.length - 1];
+// The page's <script src="/…"> files in page order, as the browser runs them.
+const scripts = [...html.matchAll(/<script src="\/([^"]+)"><\/script>/g)]
+    .map(m => ({ file: m[1], code: fs.readFileSync(path.join(path.dirname(pagePath), m[1]), 'utf8') }));
 
 function stripTags(s) {
     return String(s).replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -169,7 +171,8 @@ const page = {
     now: () => clock,
     async load(search) {
         location.search = search || '';
-        vm.runInContext(mainScript, ctx);
+        for (const s of scripts)
+            vm.runInContext(s.code, ctx, { filename: s.file });
         await settle();
     },
     // Moves the clock forward, firing every timer that falls due on the way.

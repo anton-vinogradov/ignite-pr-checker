@@ -90,6 +90,23 @@ class FlakyBoardPageTest {
             .doesNotContain("open pull request");
     }
 
+    /**
+     * The board kept its own copy of the run chip and left out what the PR page shows from the same data: how long the
+     * re-run has gone and that the estimate is what is left.
+     */
+    @Test
+    void aReRunChipSaysHowLongTheRunHasGoneAndWhatIsLeft() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD.replace("page.route('/api/reruns', { body: [] });", """
+            page.route('/api/reruns', { body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13655, state: 'running',
+                webUrl: 'https://ci2.example/build/9400', pct: 40, leftSec: 1080, startSec: -1, elapsedSec: 2700,
+                waitedSec: 60 }] });
+            """) + """
+            report({ board: page.el('flaky').textContent });
+            """);
+
+        assertThat(out.get("board").asText()).contains("running · #13655 45m · ~18m left");
+    }
+
     @Test
     void aTestThatBrokeRecentlyIsNotToldARerunMayPass() throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD + """
