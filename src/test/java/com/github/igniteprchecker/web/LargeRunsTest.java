@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.RETURNS_MOCKS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -10,6 +11,7 @@ import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.jira.JiraClient;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -128,7 +130,8 @@ class LargeRunsTest {
         when(baseline.chainSuites()).thenReturn(152);
         ConfigController config = new ConfigController(new TeamcityProperties("https://ci2.example/"),
             new GithubProperties(null, null, null), mock(GithubClient.class),
-            new AnalysisProperties(null, "RunAll", null, null, null, 300, null), baseline);
+            new AnalysisProperties(null, "RunAll", null, null, null, 300, null), baseline,
+            mock(JiraClient.class, RETURNS_MOCKS));
 
         assertThat(config.config()).containsEntry("runAllSuites", 152);
     }

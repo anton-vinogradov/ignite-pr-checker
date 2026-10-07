@@ -63,7 +63,8 @@ public class AnalyzeController {
 
     /**
      * Whether the PR head has moved since the analysed build — the verdict would then describe older
-     * code. Always fresh (the head can change any time), and cheap: one TeamCity + one GitHub call.
+     * code. Always fresh (the head can change any time), and cheap: one TeamCity + one GitHub call. The
+     * build may be any run, a single suite's too: the "ai" prompts ask it about the run they quote.
      */
     @GetMapping("/pending")
     public Map<String, Object> pending(@RequestParam int pr, @RequestParam long build,
@@ -77,6 +78,8 @@ public class AnalyzeController {
         out.put("ahead", ahead.commits());
         out.put("builtSha", ahead.builtShort());
         out.put("headSha", ahead.headShort());
+        out.put("builtRevision", ahead.builtRevision());
+        out.put("rewritten", ahead.rewritten());
 
         return out;
     }

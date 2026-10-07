@@ -1,0 +1,361 @@
+expected:<false> but was:<true>
+------- Stdout: -------
+java.lang.AssertionError: expected:<false> but was:<true>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at org.apache.ignite.testframework.junits.JUnitAssertAware.assertEquals(JUnitAssertAware.java:70)
+	at org.apache.ignite.internal.processors.cache.distributed.dht.topology.EvictionWhilePartitionGroupIsReservedTest.testGroupReservation(EvictionWhilePartitionGroupIsReservedTest.java:164)
+	at org.apache.ignite.internal.processors.cache.distributed.dht.topology.EvictionWhilePartitionGroupIsReservedTest.testGroupReservation_2(EvictionWhilePartitionGroupIsReservedTest.java:78)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.apache.ignite.testframework.junits.GridAbstractTest$6.run(GridAbstractTest.java:2464)
+	at java.base/java.lang.Thread.run(Thread.java:840)java.lang.AssertionError: expected:<false> but was:<true>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at org.apache.ignite.testframework.junits.JUnitAssertAware.assertEquals(JUnitAssertAware.java:70)
+	at org.apache.ignite.internal.processors.cache.distributed.dht.topology.EvictionWhilePartitionGroupIsReservedTest.testGroupReservation(EvictionWhilePartitionGroupIsReservedTest.java:164)
+	at org.apache.ignite.internal.processors.cache.distributed.dht.topology.EvictionWhilePartitionGroupIsReservedTest.testGroupReservation_2(EvictionWhilePartitionGroupIsReservedTest.java:78)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.apache.ignite.testframework.junits.GridAbstractTest$6.run(GridAbstractTest.java:2464)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+------- Stdout: -------
+[01:16:38] >>> Stopping test class: MovingPartitionIsEvictedDuringClearingTest <<<
+[01:16:38] >>> Starting test class: EvictionWhilePartitionGroupIsReservedTest <<<
+
+
+
+##teamcity[importData type='surefire' path='/data/tcAgent/temp/buildTmp/ignite-tools-junit-reports791930778268132053/test-org.apache.ignite.testsuites.IgniteCacheTestSuite121791238593825.xml']
+
+[01:16:38] >>> Starting test: EvictionWhilePartitionGroupIsReservedTest#testGroupReservation_2 <<<
+[01:16:38] >>> Heap: 962 MB used / 2048 MB commited / 2048 MB max <<<
+[01:16:38] >>> Non-Heap: 154 MB used / 205 MB commited / 0 MB max <<<
+[01:16:38]    __________  ________________ 
+[01:16:38]   /  _/ ___/ |/ /  _/_  __/ __/ 
+[01:16:38]  _/ // (7 7    // /  / / / _/   
+[01:16:38] /___/\___/_/|_/___/ /_/ /x___/  
+[01:16:38] 
+[01:16:38] ver. 2.19.0-SNAPSHOT#19700101-sha1:00000000
+[01:16:38] 2026 Copyright(C) Apache Software Foundation
+[01:16:38] 
+[01:16:38] Ignite documentation: https://ignite.apache.org
+[01:16:38] 
+[01:16:38] Quiet mode.
+[01:16:38]   ^-- Logging by 'GridTestLog4jLogger [quiet=true, config=null]'
+[01:16:38]   ^-- To see **FULL** console log here add -DIGNITE_QUIET=false or "-v" to ignite.{sh|bat}
+[01:16:38] 
+[01:16:38] OS: Linux 5.4.0-164-generic amd64
+[01:16:38] VM information: OpenJDK Runtime Environment 17.0.18+8 Eclipse Adoptium OpenJDK 64-Bit Server VM 17.0.18+8
+[01:16:38] Configured plugins:
+[01:16:38]   ^-- StandByClusterTestProvider 1.0 
+[01:16:38]   ^-- null
+[01:16:38] 
+[01:16:38]   ^-- PageMemory tracker plugin 1.0 
+[01:16:38]   ^-- null
+[01:16:38] 
+[01:16:38]   ^-- TestDistibutedConfigurationPlugin 1.0 
+[01:16:38]   ^-- null
+[01:16:38] 
+[01:16:38]   ^-- NodeValidationPluginProvider 1.0 
+[01:16:38]   ^-- null
+[01:16:38] 
+[01:16:38] Configured failure handler: [hnd=NoOpFailureHandler [super=AbstractFailureHandler [ignoredFailureTypes=UnmodifiableSet [SYSTEM_WORKER_BLOCKED, SYSTEM_CRITICAL_OPERATION_TIMEOUT]]]]
+[01:16:38] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[01:16:39] Data Regions Started: 3
+[01:16:39] 
+[01:16:39]     ^--   sysMemPlc region [type=internal, persistence=false, lazyAlloc=false,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=40MB]
+[01:16:39]     ^--   default region [type=default, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=256MB, maxCfg=6420MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39]     ^--   volatileDsMemPlc region [type=user, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39] Security status [authentication=off, sandbox=off, tls/ssl=off]
+[01:16:39] 
+[01:16:39] Ignite node started OK (id=9532e730, instance name=topology.EvictionWhilePartitionGroupIsReservedTest0)
+[01:16:39] Topology snapshot [ver=1, locNode=9532e730, servers=1, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=1, online=1, offline=0]
+[01:16:39]    __________  ________________ 
+[01:16:39]   /  _/ ___/ |/ /  _/_  __/ __/ 
+[01:16:39]  _/ // (7 7    // /  / / / _/   
+[01:16:39] /___/\___/_/|_/___/ /_/ /x___/  
+[01:16:39] 
+[01:16:39] ver. 2.19.0-SNAPSHOT#19700101-sha1:00000000
+[01:16:39] 2026 Copyright(C) Apache Software Foundation
+[01:16:39] 
+[01:16:39] Ignite documentation: https://ignite.apache.org
+[01:16:39] 
+[01:16:39] Quiet mode.
+[01:16:39]   ^-- Logging by 'GridTestLog4jLogger [quiet=true, config=null]'
+[01:16:39]   ^-- To see **FULL** console log here add -DIGNITE_QUIET=false or "-v" to ignite.{sh|bat}
+[01:16:39] 
+[01:16:39] OS: Linux 5.4.0-164-generic amd64
+[01:16:39] VM information: OpenJDK Runtime Environment 17.0.18+8 Eclipse Adoptium OpenJDK 64-Bit Server VM 17.0.18+8
+[01:16:39] Configured plugins:
+[01:16:39]   ^-- StandByClusterTestProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- PageMemory tracker plugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- TestDistibutedConfigurationPlugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- NodeValidationPluginProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39] Configured failure handler: [hnd=NoOpFailureHandler [super=AbstractFailureHandler [ignoredFailureTypes=UnmodifiableSet [SYSTEM_WORKER_BLOCKED, SYSTEM_CRITICAL_OPERATION_TIMEOUT]]]]
+[01:16:39] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[01:16:39] Joining node doesn't have stored group keys [node=7920fb44-5fe5-4f64-9060-ad7e3b500001]
+[01:16:39] Topology snapshot [ver=2, locNode=9532e730, servers=2, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=2, online=2, offline=0]
+[01:16:39] Data Regions Started: 3
+[01:16:39] 
+[01:16:39]     ^--   sysMemPlc region [type=internal, persistence=false, lazyAlloc=false,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=40MB]
+[01:16:39]     ^--   default region [type=default, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=256MB, maxCfg=6420MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39]     ^--   volatileDsMemPlc region [type=user, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39] Security status [authentication=off, sandbox=off, tls/ssl=off]
+[01:16:39] 
+[01:16:39] Ignite node started OK (id=7920fb44, instance name=topology.EvictionWhilePartitionGroupIsReservedTest1)
+[01:16:39] Topology snapshot [ver=2, locNode=7920fb44, servers=2, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=2, online=2, offline=0]
+[01:16:39]    __________  ________________ 
+[01:16:39]   /  _/ ___/ |/ /  _/_  __/ __/ 
+[01:16:39]  _/ // (7 7    // /  / / / _/   
+[01:16:39] /___/\___/_/|_/___/ /_/ /x___/  
+[01:16:39] 
+[01:16:39] ver. 2.19.0-SNAPSHOT#19700101-sha1:00000000
+[01:16:39] 2026 Copyright(C) Apache Software Foundation
+[01:16:39] 
+[01:16:39] Ignite documentation: https://ignite.apache.org
+[01:16:39] 
+[01:16:39] Quiet mode.
+[01:16:39]   ^-- Logging by 'GridTestLog4jLogger [quiet=true, config=null]'
+[01:16:39]   ^-- To see **FULL** console log here add -DIGNITE_QUIET=false or "-v" to ignite.{sh|bat}
+[01:16:39] 
+[01:16:39] OS: Linux 5.4.0-164-generic amd64
+[01:16:39] VM information: OpenJDK Runtime Environment 17.0.18+8 Eclipse Adoptium OpenJDK 64-Bit Server VM 17.0.18+8
+[01:16:39] Configured plugins:
+[01:16:39]   ^-- StandByClusterTestProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- PageMemory tracker plugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- TestDistibutedConfigurationPlugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- NodeValidationPluginProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39] Configured failure handler: [hnd=NoOpFailureHandler [super=AbstractFailureHandler [ignoredFailureTypes=UnmodifiableSet [SYSTEM_WORKER_BLOCKED, SYSTEM_CRITICAL_OPERATION_TIMEOUT]]]]
+[01:16:39] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[01:16:39] Joining node doesn't have stored group keys [node=cca8eff4-e740-4b49-81b7-c89784d00002]
+[01:16:39] Topology snapshot [ver=3, locNode=7920fb44, servers=3, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39] Topology snapshot [ver=3, locNode=9532e730, servers=3, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=25704MB, available=32100MB, recommended=25680MB]
+[01:16:39] Data Regions Started: 3
+[01:16:39] 
+[01:16:39]     ^--   sysMemPlc region [type=internal, persistence=false, lazyAlloc=false,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=40MB]
+[01:16:39]     ^--   default region [type=default, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=256MB, maxCfg=6420MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39]     ^--   volatileDsMemPlc region [type=user, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39] Security status [authentication=off, sandbox=off, tls/ssl=off]
+[01:16:39] 
+[01:16:39] Ignite node started OK (id=cca8eff4, instance name=topology.EvictionWhilePartitionGroupIsReservedTest2)
+[01:16:39] Topology snapshot [ver=3, locNode=cca8eff4, servers=3, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39]    __________  ________________ 
+[01:16:39]   /  _/ ___/ |/ /  _/_  __/ __/ 
+[01:16:39]  _/ // (7 7    // /  / / / _/   
+[01:16:39] /___/\___/_/|_/___/ /_/ /x___/  
+[01:16:39] 
+[01:16:39] ver. 2.19.0-SNAPSHOT#19700101-sha1:00000000
+[01:16:39] 2026 Copyright(C) Apache Software Foundation
+[01:16:39] 
+[01:16:39] Ignite documentation: https://ignite.apache.org
+[01:16:39] 
+[01:16:39] Quiet mode.
+[01:16:39]   ^-- Logging by 'GridTestLog4jLogger [quiet=true, config=null]'
+[01:16:39]   ^-- To see **FULL** console log here add -DIGNITE_QUIET=false or "-v" to ignite.{sh|bat}
+[01:16:39] 
+[01:16:39] OS: Linux 5.4.0-164-generic amd64
+[01:16:39] VM information: OpenJDK Runtime Environment 17.0.18+8 Eclipse Adoptium OpenJDK 64-Bit Server VM 17.0.18+8
+[01:16:39] Configured plugins:
+[01:16:39]   ^-- StandByClusterTestProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- PageMemory tracker plugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- TestDistibutedConfigurationPlugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- NodeValidationPluginProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39] Configured failure handler: [hnd=NoOpFailureHandler [super=AbstractFailureHandler [ignoredFailureTypes=UnmodifiableSet [SYSTEM_WORKER_BLOCKED, SYSTEM_CRITICAL_OPERATION_TIMEOUT]]]]
+[01:16:39] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[01:16:39] Topology snapshot [ver=4, locNode=9532e730, servers=3, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39] Topology snapshot [ver=4, locNode=7920fb44, servers=3, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39] Topology snapshot [ver=4, locNode=cca8eff4, servers=3, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=27752MB, available=32100MB, recommended=25680MB]
+[01:16:39] Security status [authentication=off, sandbox=off, tls/ssl=off]
+[01:16:39] 
+[01:16:39] Ignite node started OK (id=5df61ee6, instance name=client)
+[01:16:39] Topology snapshot [ver=4, locNode=5df61ee6, servers=3, clients=1, state=ACTIVE, CPUs=8, offheap=0.1GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:39]    __________  ________________ 
+[01:16:39]   /  _/ ___/ |/ /  _/_  __/ __/ 
+[01:16:39]  _/ // (7 7    // /  / / / _/   
+[01:16:39] /___/\___/_/|_/___/ /_/ /x___/  
+[01:16:39] 
+[01:16:39] ver. 2.19.0-SNAPSHOT#19700101-sha1:00000000
+[01:16:39] 2026 Copyright(C) Apache Software Foundation
+[01:16:39] 
+[01:16:39] Ignite documentation: https://ignite.apache.org
+[01:16:39] 
+[01:16:39] Quiet mode.
+[01:16:39]   ^-- Logging by 'GridTestLog4jLogger [quiet=true, config=null]'
+[01:16:39]   ^-- To see **FULL** console log here add -DIGNITE_QUIET=false or "-v" to ignite.{sh|bat}
+[01:16:39] 
+[01:16:39] OS: Linux 5.4.0-164-generic amd64
+[01:16:39] VM information: OpenJDK Runtime Environment 17.0.18+8 Eclipse Adoptium OpenJDK 64-Bit Server VM 17.0.18+8
+[01:16:39] Configured plugins:
+[01:16:39]   ^-- StandByClusterTestProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- PageMemory tracker plugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- TestDistibutedConfigurationPlugin 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39]   ^-- NodeValidationPluginProvider 1.0 
+[01:16:39]   ^-- null
+[01:16:39] 
+[01:16:39] Configured failure handler: [hnd=NoOpFailureHandler [super=AbstractFailureHandler [ignoredFailureTypes=UnmodifiableSet [SYSTEM_WORKER_BLOCKED, SYSTEM_CRITICAL_OPERATION_TIMEOUT]]]]
+[01:16:39] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[01:16:39] Joining node doesn't have stored group keys [node=a11c7469-c123-4af7-8904-89b2d1000003]
+[01:16:39] Topology snapshot [ver=5, locNode=9532e730, servers=4, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:39] Topology snapshot [ver=5, locNode=7920fb44, servers=4, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:39] Topology snapshot [ver=5, locNode=cca8eff4, servers=4, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:39] Topology snapshot [ver=5, locNode=5df61ee6, servers=4, clients=1, state=ACTIVE, CPUs=8, offheap=0.1GB, heap=2.0GB]
+[01:16:39]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:39] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=36320MB, available=32100MB, recommended=25680MB]
+[01:16:39] Data Regions Started: 3
+[01:16:39] 
+[01:16:39]     ^--   sysMemPlc region [type=internal, persistence=false, lazyAlloc=false,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=40MB]
+[01:16:39]     ^--   default region [type=default, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=256MB, maxCfg=6420MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:39]     ^--   volatileDsMemPlc region [type=user, persistence=false, lazyAlloc=true,
+[01:16:39]       ...  initCfg=40MB, maxCfg=100MB, usedRam=0MB, freeRam=100%, allocRam=0MB]
+[01:16:40] Security status [authentication=off, sandbox=off, tls/ssl=off]
+[01:16:40] 
+[01:16:40] Ignite node started OK (id=a11c7469, instance name=topology.EvictionWhilePartitionGroupIsReservedTest3)
+[01:16:40] Topology snapshot [ver=5, locNode=a11c7469, servers=4, clients=1, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:40] >>> Stopping test: EvictionWhilePartitionGroupIsReservedTest#testGroupReservation_2 in 1093 ms <<<
+[01:16:40] >>> Heap: 1212 MB used / 2048 MB commited / 2048 MB max <<<
+[01:16:40] >>> Non-Heap: 156 MB used / 205 MB commited / 0 MB max <<<
+[01:16:40] Topology snapshot [ver=6, locNode=cca8eff4, servers=4, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:40] Topology snapshot [ver=6, locNode=7920fb44, servers=4, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:40] Topology snapshot [ver=6, locNode=9532e730, servers=4, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:40] Topology snapshot [ver=6, locNode=a11c7469, servers=4, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[01:16:40] Ignite node stopped OK [name=client, uptime=00:00:00.202]
+[01:16:40] Topology snapshot [ver=7, locNode=9532e730, servers=3, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:40] Topology snapshot [ver=7, locNode=cca8eff4, servers=3, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:40] Topology snapshot [ver=7, locNode=a11c7469, servers=3, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+[01:16:40] Ignite node stopped OK [name=topology.EvictionWhilePartitionGroupIsReservedTest1, uptime=00:00:00.909]
+[01:16:40] Topology snapshot [ver=8, locNode=cca8eff4, servers=2, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40] Coordinator changed [prev=TcpDiscoveryNode [id=9532e730-a285-4987-93e2-1ea7aa200000, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest0, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47500], discPort=47500, order=1, intOrder=1, loc=false, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null], cur=TcpDiscoveryNode [id=cca8eff4-e740-4b49-81b7-c89784d00002, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest2, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47502], discPort=47502, order=3, intOrder=3, loc=true, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null]]
+[01:16:40]   ^-- Baseline [id=0, size=2, online=2, offline=0]
+[01:16:40] Topology snapshot [ver=8, locNode=a11c7469, servers=2, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40] Coordinator changed [prev=TcpDiscoveryNode [id=9532e730-a285-4987-93e2-1ea7aa200000, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest0, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47500], discPort=47500, order=1, intOrder=1, loc=false, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null], cur=TcpDiscoveryNode [id=cca8eff4-e740-4b49-81b7-c89784d00002, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest2, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47502], discPort=47502, order=3, intOrder=3, loc=false, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null]]
+[01:16:40]   ^-- Baseline [id=0, size=2, online=2, offline=0]
+[01:16:40] Ignite node stopped OK [name=topology.EvictionWhilePartitionGroupIsReservedTest0, uptime=00:00:01.050]
+[01:16:40] Topology snapshot [ver=9, locNode=cca8eff4, servers=1, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[01:16:40]   ^-- Baseline [id=0, size=1, online=1, offline=0]
+[01:16:40] Ignite node stopped OK [name=topology.EvictionWhilePartitionGroupIsReservedTest3, uptime=00:00:00.091]
+[01:16:40] Ignite node stopped OK [name=topology.EvictionWhilePartitionGroupIsReservedTest2, uptime=00:00:00.798]
+------- Stderr: -------
+[2026-10-06T01:16:38,941][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][G] Ignite work directory is not provided, automatically resolved to: /data/tcAgent/work/7bc1c54bc719b67c/work
+[2026-10-06T01:16:38,944][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][EvictionWhilePartitionGroupIsReservedTest0] Peer class loading is enabled (disable it in production for performance and deployment consistency reasons)
+[2026-10-06T01:16:38,970][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][TcpCommunicationSpi] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[2026-10-06T01:16:39,040][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][G] Ignite work directory is not provided, automatically resolved to: /data/tcAgent/work/7bc1c54bc719b67c/work
+[2026-10-06T01:16:39,042][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][EvictionWhilePartitionGroupIsReservedTest1] Peer class loading is enabled (disable it in production for performance and deployment consistency reasons)
+[2026-10-06T01:16:39,057][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][TcpCommunicationSpi] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[2026-10-06T01:16:39,168][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][G] Ignite work directory is not provided, automatically resolved to: /data/tcAgent/work/7bc1c54bc719b67c/work
+[2026-10-06T01:16:39,171][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][EvictionWhilePartitionGroupIsReservedTest2] Peer class loading is enabled (disable it in production for performance and deployment consistency reasons)
+[2026-10-06T01:16:39,200][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][TcpCommunicationSpi] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[2026-10-06T01:16:39,260][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][EvictionWhilePartitionGroupIsReservedTest2] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=25704MB, available=32100MB, recommended=25680MB]
+[2026-10-06T01:16:39,318][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][] Waiting for topology map update [igniteInstanceName=topology.EvictionWhilePartitionGroupIsReservedTest1, cache=default, cacheId=1544803905, topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], p=0, affNodesCnt=2, ownersCnt=2, affNodes=[9532e730-a285-4987-93e2-1ea7aa200000, cca8eff4-e740-4b49-81b7-c89784d00002], owners=[9532e730-a285-4987-93e2-1ea7aa200000, 7920fb44-5fe5-4f64-9060-ad7e3b500001], topFut=GridDhtPartitionsExchangeFuture [firstDiscoEvt=DiscoveryEvent [evtNode=TcpDiscoveryNode [id=cca8eff4-e740-4b49-81b7-c89784d00002, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest2, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47502], discPort=47502, order=3, intOrder=3, loc=false, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null], topVer=3, msgTemplate=null, nodeId8=7920fb44, msg=Node joined, type=NODE_JOINED, tstamp=1791238599251], crd=TcpDiscoveryNode [id=9532e730-a285-4987-93e2-1ea7aa200000, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest0, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47500], discPort=47500, order=1, intOrder=1, loc=false, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null], exchId=GridDhtPartitionExchangeId [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], discoEvt=DiscoveryEvent [evtNode=TcpDiscoveryNode [id=cca8eff4-e740-4b49-81b7-c89784d00002, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest2, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47502], discPort=47502, order=3, intOrder=3, loc=false, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null], topVer=3, msgTemplate=null, nodeId8=7920fb44, msg=Node joined, type=NODE_JOINED, tstamp=1791238599251], nodeId=cca8eff4, evt=NODE_JOINED], added=true, exchangeType=ALL, initFut=GridFutureAdapter [ignoreInterrupts=false, state=DONE, res=true, hash=1171405849], init=true, lastVer=null, partReleaseFut=PartitionReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=5, futures=[ExplicitLockReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=0, futures=[]], AtomicUpdateReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=0, futures=[]], DataStreamerReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=0, futures=[]], LocalTxReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=0, futures=[]], AllTxReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=1, futures=[RemoteTxReleaseFuture [topVer=AffinityTopologyVersion [topVer=3, minorTopVer=0], totalFutures=0, futures=[]]]]]], exchActions=ExchangeActions [startCaches=null, stopCaches=null, startGrps=[], stopGrps=[], resetParts=null, finalizePartitionCounters=false, stateChangeRequest=StateChangeRequest [msg=ChangeGlobalStateMessage [reqId=15354a04-c6ca-4190-9d0e-36af66cf1f98, initiatingNodeId=7920fb44-5fe5-4f64-9060-ad7e3b500001, state=ACTIVE, baselineTopology=BaselineTopology [id=0, branchingHash=-5202801489, branchingType='New BaselineTopology', baselineNodes=[topology.EvictionWhilePartitionGroupIsReservedTest1, topology.EvictionWhilePartitionGroupIsReservedTest0, topology.EvictionWhilePartitionGroupIsReservedTest2]], forceChangeBaselineTopology=true, forceDeactivation=true], prevBltHistItem=o.a.i.i.processors.cluster.BaselineTopologyHistoryItem@4d9a0d7e, prevState=ACTIVE, topVer=null, isBaselineChangeRequest=false]], affChangeMsg=null, centralizedAff=false, forceAffReassignment=false, exchangeLocE=null, isExchangeFailureMsgSent=false, done=true, state=DONE, registerCachesFuture=GridFinishedFuture [resFlag=2], startTime=1791238599258, initTime=1791238599259, rebalanced=false, evtLatch=0, remaining=HashSet [9532e730-a285-4987-93e2-1ea7aa200000, cca8eff4-e740-4b49-81b7-c89784d00002], mergedJoinExchMsgs=null, awaitMergedMsgs=0, super=GridFutureAdapter [ignoreInterrupts=false, state=DONE, res=AffinityTopologyVersion [topVer=3, minorTopVer=0], hash=1955701270]], locNode=TcpDiscoveryNode [id=7920fb44-5fe5-4f64-9060-ad7e3b500001, consistentId=topology.EvictionWhilePartitionGroupIsReservedTest1, addrs=ArrayList [127.0.0.1], sockAddrs=HashSet [/127.0.0.1:47501], discPort=47501, order=2, intOrder=2, loc=true, ver=2.19.0-SNAPSHOT#19700101-sha1:00000000, isClient=false, dataCenterId=null]]
+[2026-10-06T01:16:39,358][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][] Finished waiting for topology map update [igniteInstanceName=topology.EvictionWhilePartitionGroupIsReservedTest1, p=0, duration=40ms]
+[2026-10-06T01:16:39,747][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][G] Ignite work directory is not provided, automatically resolved to: /data/tcAgent/work/7bc1c54bc719b67c/work
+[2026-10-06T01:16:39,749][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][IgniteKernal%client] Peer class loading is enabled (disable it in production for performance and deployment consistency reasons)
+[2026-10-06T01:16:39,765][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][TcpCommunicationSpi] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[2026-10-06T01:16:39,818][WARN ][disco-notifier-worker-#82344%client%][GridClusterStateProcessor] Received state finish message with unexpected ID: ChangeGlobalStateFinishMessage [reqId=5df61ee6-397c-41ab-9403-650a9e8ab2e9, state=ACTIVE, transitionRes=true]
+[2026-10-06T01:16:39,820][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][IgniteKernal%client] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=27752MB, available=32100MB, recommended=25680MB]
+[2026-10-06T01:16:39,845][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][G] Ignite work directory is not provided, automatically resolved to: /data/tcAgent/work/7bc1c54bc719b67c/work
+[2026-10-06T01:16:39,847][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][EvictionWhilePartitionGroupIsReservedTest3] Peer class loading is enabled (disable it in production for performance and deployment consistency reasons)
+[2026-10-06T01:16:39,868][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][TcpCommunicationSpi] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[2026-10-06T01:16:39,947][WARN ][test-runner-#82101%topology.EvictionWhilePartitionGroupIsReservedTest%][EvictionWhilePartitionGroupIsReservedTest3] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=36320MB, available=32100MB, recommended=25680MB]
+[2026-10-06T01:16:40,028][ERROR][main][] Test failed [test=EvictionWhilePartitionGroupIsReservedTest#testGroupReservation_2, duration=1092]
+java.lang.AssertionError: expected:<false> but was:<true>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at org.apache.ignite.testframework.junits.JUnitAssertAware.assertEquals(JUnitAssertAware.java:70)
+	at org.apache.ignite.internal.processors.cache.distributed.dht.topology.EvictionWhilePartitionGroupIsReservedTest.testGroupReservation(EvictionWhilePartitionGroupIsReservedTest.java:164)
+	at org.apache.ignite.internal.processors.cache.distributed.dht.topology.EvictionWhilePartitionGroupIsReservedTest.testGroupReservation_2(EvictionWhilePartitionGroupIsReservedTest.java:78)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.apache.ignite.testframework.junits.GridAbstractTest$6.run(GridAbstractTest.java:2464)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+[2026-10-06T01:16:40,036][WARN ][sys-#82153%topology.EvictionWhilePartitionGroupIsReservedTest0%][GridDhtPartitionTopologyImpl] Stale update for single partition map update (will ignore) [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, grp=ignite-sys-cache, exchId=null, curMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=116, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], updateSeq=116, size=100], newMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=115, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], updateSeq=115, size=100]]
+[2026-10-06T01:16:40,036][WARN ][sys-#82153%topology.EvictionWhilePartitionGroupIsReservedTest0%][GridDhtPartitionTopologyImpl] Stale update for single partition map update (will ignore) [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, grp=default, exchId=null, curMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=869, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], updateSeq=869, size=482], newMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=683, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], updateSeq=683, size=667]]
+[2026-10-06T01:16:40,036][WARN ][sys-#82153%topology.EvictionWhilePartitionGroupIsReservedTest0%][GridDhtPartitionTopologyImpl] Stale update for single partition map update (will ignore) [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, grp=ignite-sys-cache, exchId=null, curMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=116, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], updateSeq=116, size=100], newMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=115, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], updateSeq=115, size=100]]
+[2026-10-06T01:16:40,036][WARN ][sys-#82153%topology.EvictionWhilePartitionGroupIsReservedTest0%][GridDhtPartitionTopologyImpl] Stale update for single partition map update (will ignore) [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, grp=default, exchId=null, curMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=869, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=1], updateSeq=869, size=482], newMap=GridDhtPartitionMap [nodeId=cca8eff4-e740-4b49-81b7-c89784d00002, updateSeq=683, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], moving=0, top=AffinityTopologyVersion [topVer=5, minorTopVer=0], updateSeq=683, size=667]]

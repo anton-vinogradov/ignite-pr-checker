@@ -1,0 +1,81 @@
+System.InvalidOperationException : Sequence contains more than one element
+   at System.Linq.ThrowHelper.ThrowMoreThanOneElementException()
+   at System.Linq.Enumerable.TryGetSingle[TSource](IEnumerable`1 source, Boolean& found)
+   at System.Linq.Enumerable.Single[TSource](IEnumerable`1 source)
+   at Apache.Ignite.Core.Tests.Client.Services.ServicesAwarenessTests.ExtractServiceTopology(ListLogger log, String stringToSearch) in /data/tcAgent/work/7bc1c54bc719b67c/modules/platforms/dotnet/Apache.Ignite.Core.Tests/Client/Services/ServiceAwarenessTests.cs:line 346
+   at Apache.Ignite.Core.Tests.Client.Services.ServicesAwarenessTests.DoTestServiceAwareness(String srcName, ICollection`1 expectedTop, ICollection`1 clusterGroup) in /data/tcAgent/work/7bc1c54bc719b67c/modules/platforms/dotnet/Apache.Ignite.Core.Tests/Client/Services/ServiceAwarenessTests.cs:line 236
+   at Apache.Ignite.Core.Tests.Client.Services.ServicesAwarenessTests.TestClusterTopologyChanges(String serviceName) in /data/tcAgent/work/7bc1c54bc719b67c/modules/platforms/dotnet/Apache.Ignite.Core.Tests/Client/Services/ServiceAwarenessTests.cs:line 143
+------- Stdout: -------
+[00:50:39] [Debug] [ClientSocket] Socket connection attempt: 127.0.0.1:10800
+[00:50:39] [Debug] [ClientSocket] Socket connection established: 127.0.0.1:57612 -> 127.0.0.1:10800
+[00:50:39] [Debug] [ClientSocket] Handshake completed on 127.0.0.1:10800, protocol version = 1.7.0
+[00:50:39] [Debug] [ClientFailoverSocket] Server binary configuration retrieved: BinaryConfigurationClientInternal [CompactFooter=True, NameMapperMode=BasicFull]
+[00:50:39] [Debug] [ClientSocket] Socket connection attempt: 127.0.0.1:10801
+[00:50:39] [Debug] [ClientSocket] Socket connection established: 127.0.0.1:53688 -> 127.0.0.1:10801
+[00:50:39] [Debug] [ClientSocket] Handshake completed on 127.0.0.1:10801, protocol version = 1.7.0
+[00:50:39] [Debug] [ClientSocket] Socket connection attempt: 127.0.0.1:10802
+[00:50:39] [Debug] [ClientSocket] Socket connection established: 127.0.0.1:33316 -> 127.0.0.1:10802
+[00:50:39] [Debug] [ClientSocket] Handshake completed on 127.0.0.1:10802, protocol version = 1.7.0
+[00:50:39] [Debug] [] Topology of service 'PlatformTestService' has been updated. The service instance nodes: b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32. Effective topology with the cluster group is: b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32.
+[21:50:42]    __________  ________________ 
+[21:50:42]   /  _/ ___/ |/ /  _/_  __/ __/ 
+[21:50:42]  _/ // (7 7    // /  / / / _/   
+[21:50:42] /___/\___/_/|_/___/ /_/ /x___/  
+[21:50:42] 
+[21:50:42] ver. 2.19.0-SNAPSHOT#19700101-sha1:00000000
+[21:50:42] 2026 Copyright(C) Apache Software Foundation
+[21:50:42] 
+[21:50:42] Ignite documentation: https://ignite.apache.org
+[21:50:42] 
+[21:50:42] Quiet mode.
+[21:50:42]   ^-- Logging by 'PlatformLogger [traceEnabled=true, debugEnabled=true, infoEnabled=false, isQuiet=true]'
+[21:50:42]   ^-- To see **FULL** console log here add -DIGNITE_QUIET=false or "-v" to ignite.{sh|bat}
+[21:50:42] 
+[21:50:42] OS: Linux 5.4.0-163-generic amd64
+[21:50:42] VM information: OpenJDK Runtime Environment 17.0.18+8 Eclipse Adoptium OpenJDK 64-Bit Server VM 17.0.18+8
+[21:50:42] Please set system property '-Djava.net.preferIPv4Stack=true' to avoid possible problems in mixed environments.
+[21:50:42] Configured plugins:
+[21:50:42]   ^-- StandByClusterTestProvider 1.0 
+[21:50:42]   ^-- null
+[21:50:42] 
+[21:50:42]   ^-- PageMemory tracker plugin 1.0 
+[21:50:42]   ^-- null
+[21:50:42] 
+[21:50:42]   ^-- TestDistibutedConfigurationPlugin 1.0 
+[21:50:42]   ^-- null
+[21:50:42] 
+[21:50:42]   ^-- NodeValidationPluginProvider 1.0 
+[21:50:42]   ^-- null
+[21:50:42] 
+[21:50:42]   ^-- Ignite Native I/O Plugin [Direct I/O]  
+[21:50:42]   ^-- Copyright(C) Apache Software Foundation
+[21:50:42] 
+[21:50:42]   ^-- TestCompatibilityPlugin 1.0 
+[21:50:42]   ^-- 
+[21:50:42] 
+[21:50:42]   ^-- TestPlatformPlugin 1.0 
+[21:50:42]   ^-- -
+[21:50:42] 
+[21:50:42] Configured failure handler: [hnd=NoOpFailureHandler [super=AbstractFailureHandler [ignoredFailureTypes=UnmodifiableSet [SYSTEM_WORKER_BLOCKED, SYSTEM_CRITICAL_OPERATION_TIMEOUT]]]]
+[21:50:42] Message queue limit is set to 0 which may lead to potential OOMEs when running cache operations in FULL_ASYNC or PRIMARY_SYNC modes due to message queues growth on sender and receiver sides.
+[21:50:42] The total amount of RAM configured for nodes running on the local host exceeds the recommended maximum value. This may lead to significant slowdown due to swapping, or even JVM/Ignite crash with OutOfMemoryError (please decrease JVM heap size, data region size or checkpoint buffer size) [configured=34272MB, available=32100MB, recommended=25680MB]
+[21:50:42] Security status [authentication=off, sandbox=off, tls/ssl=off]
+[21:50:42] Performance suggestions for grid 'newNode' (fix if possible)
+[21:50:42] To disable, set -DIGNITE_PERFORMANCE_SUGGESTIONS_DISABLED=true
+[21:50:42]   ^-- Set max direct memory size if getting 'OOME: Direct buffer memory' (add '-XX:MaxDirectMemorySize=<size>[g|G|m|M|k|K]' to JVM options)
+[21:50:42]   ^-- Speed up flushing of dirty pages by OS (alter vm.dirty_expire_centisecs parameter by setting to 500)
+[21:50:42]   ^-- Reduce pages swapping ratio (set vm.swappiness=10 or less)
+[21:50:42]   ^-- Disable assertions (remove '-ea' from JVM options)
+[21:50:42] Refer to this page for more performance suggestions: https://ignite.apache.org/docs/latest/perf-and-troubleshooting/memory-tuning
+[21:50:42] 
+[21:50:42] 
+[21:50:42] Ignite node started OK (id=d8c6f78a, instance name=newNode)
+[21:50:42] Topology snapshot [ver=6, locNode=d8c6f78a, servers=4, clients=0, state=ACTIVE, CPUs=8, offheap=6.3GB, heap=2.0GB]
+[21:50:42]   ^-- Baseline [id=0, size=4, online=4, offline=0]
+[00:50:42] [Debug] [ClientSocket] Socket connection attempt: 127.0.0.1:10803
+[00:50:42] [Debug] [ClientSocket] Socket connection established: 127.0.0.1:38662 -> 127.0.0.1:10803
+[00:50:42] [Debug] [ClientSocket] Handshake completed on 127.0.0.1:10803, protocol version = 1.7.0
+[00:50:43] [Debug] [] Topology of service 'PlatformTestService' has been updated. The service instance nodes: d8c6f78a-d4e4-4279-b905-cc67524e0f99, b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32. Effective topology with the cluster group is: d8c6f78a-d4e4-4279-b905-cc67524e0f99, b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32.
+[21:50:46] Ignite node stopped OK [name=newNode, uptime=00:00:03.300]
+[00:50:46] [Debug] [] Topology of service 'PlatformTestService' has been updated. The service instance nodes: b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32. Effective topology with the cluster group is: b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32.
+[00:50:46] [Debug] [] Topology of service 'PlatformTestService' has been updated. The service instance nodes: b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32. Effective topology with the cluster group is: b82220ae-d37f-466f-8250-46c822bbe955, 65d49f84-a657-4a00-90f4-03e1718dce32.
