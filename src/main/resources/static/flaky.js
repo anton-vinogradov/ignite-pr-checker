@@ -46,7 +46,7 @@ function flakyRow(b, rank, i, reruns) {
     const ai = `<button class="why ai" data-i="${i}" title="${b.broken ? 'Copy an AI-ready prompt to find the commit that broke this test' : 'Copy an AI-ready prompt to stabilise this flaky test'}">ai</button>`;
     // A live re-run of this suite launched through the tool (running preferred over queued).
     const rr = (reruns || []).find(x => x.buildTypeId === b.suite);
-    const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${esc(rr.webUrl)}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + esc(rr.pct) + '% complete' : ''}">${esc(rr.state)} · #${esc(rr.pr)}${chipEta(rr)}</a>` : '';
+    const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${esc(rr.webUrl)}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + esc(rr.pct) + '% complete' : ''}">#${esc(rr.pr)} · ${esc(rr.state)}${chipEta(rr)}</a>` : '';
     const pct = b.masterRuns ? Math.round(100 * b.masterFails / b.masterRuns) : 0;
     const hot = pct >= 30 ? 'hot' : pct >= 10 ? 'warm' : '';
     const prs = b.prCount ? `${b.prCount} PR${b.prCount === 1 ? '' : 's'} in ${prDays} days` : '';

@@ -30,7 +30,8 @@ class PageScriptsTest {
     private static final Pattern SCRIPT_SRC = Pattern.compile("<script src=\"([^\"]+)\"></script>");
 
     /** An {@code onclick=…} or the like inside a tag, in the markup or in markup a script builds. */
-    private static final Pattern INLINE_HANDLER = Pattern.compile("<[a-zA-Z][^<>\\n]*\\son[a-z]+\\s*=");
+    private static final Pattern INLINE_HANDLER =
+        Pattern.compile("<[a-zA-Z][^<>]*\\son[a-z]+\\s*=", Pattern.CASE_INSENSITIVE);
 
     /** Code made from a string: {@code script-src 'self'} blocks it, so it would break the page. */
     private static final Pattern CODE_FROM_STRING =
@@ -49,6 +50,20 @@ class PageScriptsTest {
             assertThat(tags.group(1)).as(tags.group()).isEmpty();
         assertThat(found(INLINE_HANDLER, html)).as("inline event handlers in " + page).isEmpty();
         assertThat(found(CODE_FROM_STRING, html)).as("code from strings in " + page).isEmpty();
+    }
+
+    /**
+     * The pages have tags that span lines (the reload pill, the suite "ai" button a script builds piece by piece), and
+     * HTML takes {@code onClick} as {@code onclick}: a handler there would pass a line-bound, lower-case check and
+     * silently stop working under the CSP.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "<button id=\"reloadPill\" type=\"button\"\n    title=\"Reload\" onclick=\"location.reload()\">",
+        "` <button class=\"why ai-suite\" data-kind=\"${kind}\"`\n    + ` onclick=\"copySuitePrompt(this)\"`",
+        "<button id=\"logout\" onClick=\"logout()\">Log out</button>"})
+    void theHandlerCheckSeesAHandlerOnAnyLineOfATagInAnyCase(String markup) {
+        assertThat(found(INLINE_HANDLER, markup)).isNotEmpty();
     }
 
     @ParameterizedTest
