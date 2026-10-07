@@ -107,6 +107,8 @@
         .pr-badge.bad { background: var(--bad); color: #fff; }
         .pr-badge.unproven { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
         .pr-badge.ok { background: #e6f4ea; color: #2e7d32; }
+        .pr-badge.watch { background: transparent; color: #b26a00; border: 1px solid #b26a00; }
+        html[data-theme="dark"] .pr-badge.watch, html[data-theme="jetbrains"] .pr-badge.watch, html[data-theme="terminal"] .pr-badge.watch { color: #d99a3a; border-color: #d99a3a; }
 
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
         .result-head { margin-bottom: 1rem; }
@@ -129,6 +131,10 @@
         #freshness { flex: 0 1 auto; min-width: 0; }
         #freshText .hint, #freshText .live-tag { white-space: nowrap; }
         .tag-flaky { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
+        .tag-doubt { font-size: 0.7rem; padding: 0 0.4em; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; white-space: nowrap; }
+        .one-run { margin-top: 0.8rem; }
+        .one-run > h3 { font-size: 0.95rem; margin: 0 0 0.2rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+        .one-run > h3 .sect-act { margin-left: auto; }
         .tabs { display: inline-flex; margin-left: 0.3rem; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; }
         .tabs .act { border: none; border-radius: 0; background: transparent; color: var(--muted); }
         .tabs .act + .act { border-left: 1px solid var(--line); }
@@ -618,6 +624,12 @@
                             </span>
                         </div>
                         <ul id="blockers" class="tests"></ul>
+                        <div id="oneRunGroup" class="one-run hidden">
+                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun top</button></span></h3>
+                            <p class="muted">Each of these failed the only time it ran on this branch. One failure is not proof: re-run
+                                their suites. A test that fails again stays a blocker, one that passes drops out.</p>
+                            <ul id="oneRunBlockers" class="tests"></ul>
+                        </div>
                         <div id="causesView" class="hidden"></div>
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
@@ -1460,6 +1472,7 @@
             $('tabCauses').classList.toggle('on', v === 'causes');
             $('blockers').classList.toggle('hidden', v !== 'suites');
             $('causesView').classList.toggle('hidden', v !== 'causes');
+            paintOneRunGroup();
             if (v === 'causes') renderCausesView();
         }
         $('tabSuites').onclick = () => setBlockerView('suites');
@@ -1639,12 +1652,12 @@
             renderBroken($('unstableSuites'), unstable);
             $('watchCard').classList.toggle('hidden', watch.length === 0);
             $('watchCount').textContent = watch.length ? countLabel(watch) : '';
-            renderList($('watch'), watch, false, true);
+            renderList($('watch'), watch, true, true);
             const unverified = res.unverified || [];
             $('unverifiedCard').classList.toggle('hidden', unverified.length === 0);
             $('unverifiedCount').textContent = unverified.length ? countLabel(unverified) : '';
             renderList($('unverified'), unverified, true, true);
-            renderList($('blockers'), res.blockers, false, true);
+            renderBlockers(res.blockers);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
             $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0
@@ -1688,7 +1701,7 @@
         }
 
         function listOf(el) {
-            const list = el.closest('#blockers, #causesView, #watch, #unverified, #filtered');
+            const list = el.closest('#blockers, #oneRunBlockers, #causesView, #watch, #unverified, #filtered');
             return list ? list.id : '';
         }
 
@@ -1957,6 +1970,38 @@
             return segs.slice(noMethod ? -1 : -2).join('.');
         }
 
+        // What a blocker or watch verdict rests on short of proof (TestVerdict.Doubt on the server).
+        const DOUBTS = {
+            ONE_RUN: ['1 run', 'It failed the only time it ran on this branch: a re-run of its suite confirms or clears it'],
+            NO_MASTER_HISTORY: ['new test / no master history',
+                'Master has no runs of this test on this JDK to compare with: a new test, or one master does not run'],
+            UNCHECKED: ['unverified', 'A TeamCity error kept part of the check from being made; the checker tries again'],
+        };
+
+        function doubtTags(t) {
+            return (t.doubts || []).filter(d => DOUBTS[d])
+                .map(d => `<span class="tag-doubt" title="${esc(DOUBTS[d][1])}">${esc(DOUBTS[d][0])}</span>`).join('');
+        }
+
+        function oneRun(t) {
+            return (t.doubts || []).includes('ONE_RUN');
+        }
+
+        // A blocker that failed once is listed apart, with its suites to re-run: one failure can still be a flake.
+        function renderBlockers(blockers) {
+            const single = blockers.filter(oneRun);
+            renderList($('blockers'), blockers.filter(t => !oneRun(t)), true, true);
+            renderList($('oneRunBlockers'), single, true, true);
+            $('oneRunCount').textContent = single.length ? countLabel(single) : '';
+            wireSectActs('oneRunActs', suitesOfTests(single));
+            paintOneRunGroup();
+        }
+
+        function paintOneRunGroup() {
+            const any = !!lastResult && (lastResult.blockers || []).some(oneRun);
+            $('oneRunGroup').classList.toggle('hidden', !any || blockerView !== 'suites');
+        }
+
         // Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its
         // tests. Links use the Sakura-native build URL so the Tests tab + test anchor survive
         // (viewLog.html would redirect to Sakura and drop them).
@@ -1991,7 +2036,7 @@
                     const why = t.occurrenceId
                         ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
                         : '';
-                    const verdict = t.blocker ? 'BLOCKER — clean on master, failing consistently on this branch'
+                    const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
                         : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this revision to tell a break from a flake'
                         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
                     const ai = ` <button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
@@ -2004,7 +2049,7 @@
                     const sameCode = t.codeRuns > 0 ? (t.branchRuns || '').slice(-t.codeRuns) : (t.branchRuns || '');
                     const flaky = /FP/.test(sameCode)
                         ? `<span class="tag-flaky" title="passed and failed across this branch's runs on the same code">flaky?</span>` : '';
-                    return `<li><div class="tname">${link}${runStrip(t.branchRuns, t.codeRuns)}${flaky}${why}${ai}</div>`
+                    return `<li><div class="tname">${link}${runStrip(t.branchRuns, t.codeRuns)}${flaky}${doubtTags(t)}${why}${ai}</div>`
                         + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
                         + `<div class="details hidden" data-occ="${esc(t.occurrenceId || '')}"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div></li>`;
                 }).join('');
