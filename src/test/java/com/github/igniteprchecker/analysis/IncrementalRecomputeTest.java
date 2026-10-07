@@ -35,6 +35,7 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
 /**
  * PR 13583 kept 489 tests on watch, and every recompute asked ci2 for the branch runs of each of them and
@@ -226,6 +227,27 @@ class IncrementalRecomputeTest {
         assertThat(again.blockers()).extracting(TestVerdict::testId).containsExactlyInAnyOrder(101L, 102L, 201L);
         assertThat(again.brokenSuites()).hasSize(1);
         verify(tc).suitesFinishedAfter(TOK, PR, first.branchWatermarkAt());
+        verify(tc, never()).getBuildWithDeps(anyString(), anyLong());
+        verify(tc, never()).getFailedTests(anyString(), anyLong());
+        verify(tc, never()).prBranchRuns(anyString(), anyInt(), anyLong(), anyString());
+        verify(tc, never()).latestSuiteRun(anyString(), anyInt(), anyString());
+    }
+
+    /** The application's own mapper, with the modules Spring adds, reads back what it wrote. */
+    @Test
+    void theApplicationsMapperReadsTheFactsBack(@TempDir Path dir) throws Exception {
+        ObjectMapper app = Jackson2ObjectMapperBuilder.json().build();
+        AnalysisCache before = new AnalysisCache(cfg, app);
+        analyzer(before).forceRefresh(TOK, PR);
+        Path file = dir.resolve("analysis.json");
+        before.saveTo(file);
+
+        AnalysisCache after = new AnalysisCache(cfg, app);
+        after.loadFrom(file);
+        clearInvocations(tc);
+        when(tc.suitesFinishedAfter(eq(TOK), eq(PR), anyLong())).thenReturn(Optional.of(Set.of()));
+        analyzer(after).forceRefresh(TOK, PR);
+
         verify(tc, never()).getBuildWithDeps(anyString(), anyLong());
         verify(tc, never()).getFailedTests(anyString(), anyLong());
         verify(tc, never()).prBranchRuns(anyString(), anyInt(), anyLong(), anyString());
