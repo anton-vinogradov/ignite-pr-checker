@@ -5,17 +5,24 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.session.SessionCodec;
+import jakarta.servlet.http.HttpServletRequest;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Public service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. */
+/**
+ * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
+ * read the counters; the log messages and who restarted or flushed last name people, so only signed-in viewers
+ * get those.
+ */
 @RestController
 @RequestMapping("/api")
 public class StatusController {
@@ -28,6 +35,8 @@ public class StatusController {
     private final com.github.igniteprchecker.jira.VisaSubscriptions visaSubs;
     private final com.github.igniteprchecker.jira.StandingVisas standing;
     private final com.github.igniteprchecker.github.PrCommands commands;
+    private final AuthInterceptor auth;
+    private final AdminActions admin;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
@@ -35,6 +44,7 @@ public class StatusController {
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
+        AuthInterceptor auth, AdminActions admin,
         ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
@@ -45,12 +55,16 @@ public class StatusController {
         this.visaSubs = visaSubs;
         this.standing = standing;
         this.commands = commands;
+        this.auth = auth;
+        this.admin = admin;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
 
     @GetMapping("/status")
-    public Map<String, Object> status() {
+    public Map<String, Object> status(HttpServletRequest req) {
+        Optional<SessionCodec.Session> viewer = auth.signedIn(req);
+
         MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         long heapMax = heap.getMax() > 0 ? heap.getMax() : heap.getCommitted();
 
@@ -109,9 +123,23 @@ public class StatusController {
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         out.put("watcher", watcher);
         out.put("app", app);
-        out.put("log", logSnap);
+        out.put("signedIn", viewer.isPresent());
+        out.put("log", viewer.isPresent() ? logSnap : logSnap.countsOnly());
+        viewer.ifPresent(v -> out.put("admin", adminView(v.username())));
 
         return out;
+    }
+
+    /** What this viewer may do with restart/update/flush, and who used them last. */
+    private Map<String, Object> adminView(String user) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("canAdminister", admin.mayAdminister(user));
+        view.put("operatorsNamed", admin.operatorsNamed());
+        view.put("restartAllowedAt", admin.allowedAt(AdminActions.Action.RESTART));
+        view.put("flushAllowedAt", admin.allowedAt(AdminActions.Action.FLUSH));
+        view.put("last", admin.lastUses());
+
+        return view;
     }
 
     /** A CPU-load fraction (0..1) as a whole-number percent, or -1 when the JVM can't measure it yet. */

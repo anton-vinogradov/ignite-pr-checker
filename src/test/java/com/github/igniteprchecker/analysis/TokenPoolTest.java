@@ -74,6 +74,34 @@ class TokenPoolTest {
         assertThat(pool.size()).isEqualTo(1);
     }
 
+    /** The session cookie never expires, so a session must not outlive TeamCity's 401 on its token. */
+    @Test
+    void a401KeepsTheTokenRevokedPastTheCooldownUntilALogin() throws Exception {
+        TokenPool pool = new TokenPool(40);
+        pool.offer("dead", false);
+        pool.remove("dead", true);
+
+        Thread.sleep(70);
+        pool.offer("dead", false); // an enrollment re-donates it after the cooldown
+
+        assertThat(pool.revoked("dead")).isTrue();
+
+        pool.offer("dead", true);
+
+        assertThat(pool.revoked("dead")).isFalse();
+    }
+
+    /** The ci2 WAF answers 403 to valid requests too, so a 403 drops the token from the pool only. */
+    @Test
+    void a403DoesNotRevokeTheToken() {
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
+        pool.offer("t", false);
+        pool.remove("t", false);
+
+        assertThat(pool.revoked("t")).isFalse();
+        assertThat(pool.size()).isZero();
+    }
+
     @Test
     void emptyPoolHandsOutNull() {
         assertThat(new TokenPool(TimeUnit.MINUTES.toMillis(60)).next()).isNull();

@@ -167,9 +167,10 @@
         </div>
 
         <h2>System
-            <button id="restartBtn" class="mini-btn danger" type="button"
+            <button id="restartBtn" class="mini-btn danger" type="button" hidden
                 title="Restart the service — it will be unavailable for ~10 seconds">Restart service</button>
             <span id="restartMsg" class="flush-msg"></span>
+            <span id="restartLast" class="flush-msg"></span>
         </h2>
         <div class="cards" id="systemCards"></div>
 
@@ -179,9 +180,10 @@
         <div class="section"><div id="httpCats" class="cats"></div></div>
 
         <h2>Cache warmer
-            <button id="flushBtn" class="mini-btn" type="button"
+            <button id="flushBtn" class="mini-btn" type="button" hidden
                 title="Drop cached analysis results &amp; per-test history; the next analysis recomputes from scratch">Flush caches</button>
             <span id="flushMsg" class="flush-msg"></span>
+            <span id="flushLast" class="flush-msg"></span>
         </h2>
         
         <div class="cards" id="warmerCards"></div>
@@ -417,7 +419,8 @@
             renderCats($('ghCatsPat'), ghPat);
             renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
-            renderLog($('logList'), d.log || { recent: [] });
+            renderLog($('logList'), d.log || { recent: [] }, d.signedIn);
+            renderAdmin(d.admin);
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
             $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
@@ -427,8 +430,12 @@
             return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
-        function renderLog(el, log) {
+        function renderLog(el, log, signedIn) {
             const recent = log.recent || [];
+            if (!signedIn && (log.errors || log.warnings || log.clientMistakes)) {
+                el.innerHTML = '<div class="muted">log in on the main page to see the messages</div>';
+                return;
+            }
             if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }
             el.innerHTML = recent.map(e => `<div class="logrow${e.client ? ' client' : ''}"${e.client
                 ? ' title="a bad request turned away — does not affect health"' : ''}>
@@ -437,6 +444,20 @@
                 <span class="loglogger" title="${esc(e.logger)}">${esc(e.logger)}</span>
                 <span class="logmsg">${esc(e.message)}</span>
             </div>`).join('');
+        }
+
+        function renderAdmin(a) {
+            $('restartBtn').hidden = $('flushBtn').hidden = !(a && a.canAdminister);
+            const last = (a && a.last) || {};
+            const restart = [last.restart && ['restart', last.restart], last.update && ['update', last.update]]
+                .filter(Boolean).sort((x, y) => y[1].at - x[1].at)[0];
+            $('restartLast').textContent = restart ? `last ${restart[0]}: ${restart[1].by} · ${agoShort(restart[1].at)}` : '';
+            $('flushLast').textContent = last.flush ? `last flush: ${last.flush.by} · ${agoShort(last.flush.at)}` : '';
+        }
+
+        async function errorText(r) {
+            const body = await r.json().catch(() => null);
+            return (body && body.error) || 'HTTP ' + r.status;
         }
 
         function renderCats(el, byCategory) {
@@ -529,9 +550,10 @@
                 + `<span class="catval">${verb} ${agoMs(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${agoMs(u.firstSeen)}</span></div>`;
             try {
                 const r = await fetch('/api/users', { cache: 'no-store' });
-                if (r.status === 401) {
-                    $('usersActive').innerHTML = $('usersSeen').innerHTML =
-                        '<div class="muted">log in on the main page to see who is here</div>';
+                if (r.status === 401 || r.status === 403) {
+                    $('usersActive').innerHTML = $('usersSeen').innerHTML = r.status === 401
+                        ? '<div class="muted">log in on the main page to see who is here</div>'
+                        : '<div class="muted">only the operator can see who uses the service</div>';
                     return;
                 }
                 if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -565,6 +587,7 @@
             try {
                 const r = await fetch('/api/restart', { method: 'POST' });
                 if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; return; }
+                if (r.status === 403 || r.status === 429) { msg.textContent = await errorText(r); btn.disabled = false; return; }
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 accepted = true;
             } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; }
@@ -586,6 +609,7 @@
             try {
                 const r = await fetch('/api/flush-caches', { method: 'POST', cache: 'no-store' });
                 if (r.status === 401) { msg.textContent = 'log in on the main page to flush'; return; }
+                if (r.status === 403 || r.status === 429) { msg.textContent = await errorText(r); return; }
                 if (!r.ok) throw new Error('HTTP ' + r.status);
                 const c = await r.json();
                 msg.textContent = `cleared ${c.results} result(s), ${c.history} history entr${c.history === 1 ? 'y' : 'ies'}`;

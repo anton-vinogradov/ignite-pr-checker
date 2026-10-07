@@ -6,7 +6,6 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
@@ -15,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,27 +37,33 @@ public class LoginController {
     private final SessionProperties props;
     private final Warmer warmer;
     private final LoginThrottle throttle;
+    private final AdminActions admin;
 
     public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users,
-        LoginThrottle throttle) {
+        LoginThrottle throttle, AdminActions admin) {
         this.users = users;
         this.tc = tc;
         this.codec = codec;
         this.props = props;
         this.warmer = warmer;
         this.throttle = throttle;
+        this.admin = admin;
     }
 
     public record LoginRequest(String token) {
     }
 
-    /** Everyone who has used the tool (names + activity; auth-guarded — not for anonymous eyes). */
-    @org.springframework.web.bind.annotation.GetMapping("/users")
-    public List<UserDirectory.UserView> users() {
-        return users.list();
+    /** Everyone who has used the tool (names + activity): for the operator, or anyone logged in if none is named. */
+    @GetMapping("/users")
+    public ResponseEntity<?> users(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
+        if (!admin.mayAdminister(user))
+            return ResponseEntity.status(403).body(Map.of("error", "Only the operator can see who uses the service."));
+
+        return ResponseEntity.ok(users.list());
     }
 
-    public record UserResponse(String username, boolean jira, boolean github) {
+    /** {@code admin}: whether this user may restart, update and flush (the page shows those buttons only then). */
+    public record UserResponse(String username, boolean jira, boolean github, boolean admin) {
     }
 
     @PostMapping("/login")
@@ -98,7 +104,7 @@ public class LoginController {
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
-            .body(new UserResponse(username.get(), false, false));
+            .body(new UserResponse(username.get(), false, false, admin.mayAdminister(username.get())));
     }
 
     private static ResponseEntity<?> rejected() {
@@ -125,13 +131,19 @@ public class LoginController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
-        return codec.decode(cookie)
-            .map(s -> {
-                warmer.offerToken(s.token());
-                return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null));
-            })
-            .orElseGet(() -> ResponseEntity.status(401).build());
+    public ResponseEntity<?> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
+        Optional<SessionCodec.Session> session = codec.decode(cookie);
+        if (session.isEmpty())
+            return ResponseEntity.status(401).build();
+
+        SessionCodec.Session s = session.get();
+        if (warmer.tokenRevoked(s.token()))
+            return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED));
+
+        warmer.offerToken(s.token());
+
+        return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null,
+            admin.mayAdminister(s.username())));
     }
 
     private ResponseCookie sessionCookie(String value) {

@@ -598,6 +598,7 @@
         let selectedPr = null;
         let lastResult = null; // the currently rendered analysis (drives the root-cause view)
         let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
+        let canAdmin = false; // may update the service: the operator, or anyone when no operator is named
         let allPrs = []; // last-loaded open-PR list, for the home search
 
         async function api(path, opts = {}) {
@@ -872,12 +873,16 @@
         async function loadMe() {
             const r = await api('/api/me');
             if (r.ok) {
-                const { username, jira, github } = await r.json();
+                const { username, jira, github, admin } = await r.json();
                 hasJira = !!jira;
                 hasGithub = !!github;
+                canAdmin = !!admin;
+                checkUpdate();
                 await enterApp(username);
             } else {
+                const { error } = await r.json().catch(() => ({}));
                 show('login');
+                if (error) $('loginErr').textContent = error;
             }
         }
 
@@ -889,8 +894,10 @@
             try {
                 const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
                 if (r.ok) {
-                    const { username } = await r.json();
+                    const { username, admin } = await r.json();
                     $('token').value = '';
+                    canAdmin = !!admin;
+                    checkUpdate();
                     await enterApp(username);
                 } else {
                     const { error } = await r.json().catch(() => ({ error: 'login failed' }));
@@ -903,6 +910,8 @@
 
         async function logout() {
             await api('/api/logout', { method: 'POST' });
+            canAdmin = false;
+            $('updateBtn').classList.add('hidden');
             show('login');
         }
 
@@ -1719,7 +1728,7 @@
                 const r = await fetch('/api/version', { cache: 'no-store' });
                 if (!r.ok) return;
                 const v = await r.json();
-                if (v.updateAvailable) {
+                if (v.updateAvailable && canAdmin) {
                     $('updateBtn').textContent = 'Update to v' + v.latest;
                     $('updateBtn').classList.remove('hidden');
                 } else {

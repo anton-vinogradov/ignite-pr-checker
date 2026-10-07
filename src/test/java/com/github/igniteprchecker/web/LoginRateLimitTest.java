@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
@@ -56,7 +57,7 @@ class LoginRateLimitTest {
         SessionProperties session = new SessionProperties(true, "test-secret");
 
         login = new LoginController(tc, new SessionCodec(session, mapper), session, mock(Warmer.class),
-            new UserDirectory(mapper), new LoginThrottle());
+            new UserDirectory(mapper), new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper));
     }
 
     @AfterEach

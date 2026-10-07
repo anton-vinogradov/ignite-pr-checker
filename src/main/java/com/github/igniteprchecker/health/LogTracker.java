@@ -141,6 +141,11 @@ public class LogTracker extends AppenderBase<ILoggingEvent> {
 
             return now - lastWarningAt < WARN_WINDOW_MS ? "warn" : "ok";
         }
+
+        /** The same without the messages, which name users and PRs: what anonymous viewers may see. */
+        public Snapshot countsOnly() {
+            return new Snapshot(errors, warnings, clientMistakes, lastErrorAt, lastWarningAt, List.of());
+        }
     }
 
     /** One logged problem; {@code client} marks a request Spring turned away as the caller's mistake. */

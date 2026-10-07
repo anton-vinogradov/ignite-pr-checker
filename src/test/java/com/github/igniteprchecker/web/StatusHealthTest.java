@@ -18,6 +18,7 @@ import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
  * Prod reported health "warn" for weeks after its last warning: the flag followed counters that never go
@@ -32,7 +33,8 @@ class StatusHealthTest {
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         mock(Warmer.class), mock(GithubClient.class), logs, mock(RerunTracker.class), mock(VisaSubscriptions.class),
-        mock(StandingVisas.class), mock(PrCommands.class), mock(ObjectProvider.class));
+        mock(StandingVisas.class), mock(PrCommands.class), mock(AuthInterceptor.class), mock(AdminActions.class),
+        mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {
@@ -49,7 +51,7 @@ class StatusHealthTest {
     }
 
     private Object health() {
-        return status.status().get("health");
+        return status.status(new MockHttpServletRequest()).get("health");
     }
 
     @Test

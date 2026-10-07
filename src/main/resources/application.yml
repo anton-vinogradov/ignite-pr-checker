@@ -103,6 +103,12 @@ update:
   # Repo whose latest release the update is pulled from.
   repo: anton-vinogradov/ignite-pr-checker
 
+admin:
+  # TeamCity usernames, comma-separated, of the operators: only they may restart, update and flush the
+  # service and see its user list. Unset: any logged-in user may, but restart/update at most once per
+  # 10 minutes and flush once per hour. Set with PRC_ADMINS.
+  logins: ${PRC_ADMINS:}
+
 session:
   # A login lasts until logout — there is no session timeout.
   # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.
