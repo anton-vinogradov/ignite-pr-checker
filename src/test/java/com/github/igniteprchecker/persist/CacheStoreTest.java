@@ -2,6 +2,8 @@ package com.github.igniteprchecker.persist;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.PersistProperties;
@@ -14,12 +16,15 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.info.BuildProperties;
 
 /**
  * Subscriptions, stored tokens and handled commands were written once every 5 minutes, and an OOM exit skips the
@@ -27,6 +32,10 @@ import org.junit.jupiter.api.io.TempDir;
  * and then overwritten with the empty state, so one bad release wiped everyone's options for good, with no backup.
  */
 class CacheStoreTest {
+    private static final String GOOD_RELEASE = "1.20.11-built-20260920-090000";
+
+    private static final String BAD_RELEASE = "1.20.12-built-20261007-120000";
+
     /** A fake cache that records how often it is asked to load/save and where. */
     private static class RecordingCache implements SnapshotCache {
         final AtomicInteger loads = new AtomicInteger();
@@ -51,7 +60,6 @@ class CacheStoreTest {
     /** State that acts on the outside world, held as one string and written as the file's whole content. */
     private static class StateCache implements SnapshotCache {
         volatile String state = "";
-        volatile String loaded;
 
         @Override public String fileName() {
             return "state.json";
@@ -73,13 +81,31 @@ class CacheStoreTest {
             if (!text.startsWith("{"))
                 throw new IOException("Unexpected character ('x' (code 120))");
 
-            loaded = text;
             state = text;
         }
     }
 
     private static CacheStore store(Path dir, SnapshotCache... caches) {
-        return new CacheStore(List.of(caches), new PersistProperties(true, dir.toString(), 5));
+        return store(dir, GOOD_RELEASE, caches);
+    }
+
+    private static CacheStore store(Path dir, String build, SnapshotCache... caches) {
+        return new CacheStore(List.of(caches), new PersistProperties(true, dir.toString(), 5), build);
+    }
+
+    /** Starts and stops the build of this version made at that time, as its jar would. */
+    @SuppressWarnings("unchecked")
+    private static void start(Path dir, String version, String builtAt) {
+        Properties info = new Properties();
+        info.setProperty("version", version);
+        info.setProperty("time", builtAt);
+        ObjectProvider<BuildProperties> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(new BuildProperties(info));
+        StateCache state = new StateCache();
+        CacheStore store = new CacheStore(List.of(state), new PersistProperties(true, dir.toString(), 5), provider);
+
+        store.init();
+        store.onShutdown();
     }
 
     private static void awaitContent(Path file, String expected) throws Exception {
@@ -133,7 +159,8 @@ class CacheStoreTest {
     @Test
     void doesNothingWhenDisabled(@TempDir Path dir) {
         RecordingCache cache = new RecordingCache();
-        CacheStore store = new CacheStore(List.of(cache), new PersistProperties(false, dir.toString(), 5));
+        CacheStore store =
+            new CacheStore(List.of(cache), new PersistProperties(false, dir.toString(), 5), GOOD_RELEASE);
 
         store.init();
         store.snapshot();
@@ -177,6 +204,7 @@ class CacheStoreTest {
         assertThat(kept.get(0)).hasContent("xx-not-json");
         assertThat(store.status().unreadable())
             .containsExactly(new CacheStore.Unreadable("state.json", kept.get(0).getFileName().toString()));
+        assertThat(store.summary().problems()).isEqualTo(1);
     }
 
     @Test
@@ -198,19 +226,62 @@ class CacheStoreTest {
         assertThat(store.status().unreadable()).isEmpty();
     }
 
+    /**
+     * A release that drops a field writes what is left within a second. Its crash loop and the rollback from it
+     * restart the service, and a copy refreshed on every start would hold that loss by then.
+     */
     @Test
-    void theStateAsTheLastRunLeftItIsKeptAsPrev(@TempDir Path dir) throws Exception {
-        Files.writeString(dir.resolve("state.json"), "{\"run\":1}");
-        StateCache state = new StateCache();
-        CacheStore store = store(dir, state);
+    void theStateFromBeforeABadReleaseOutlivesItsCrashesAndTheRollback(@TempDir Path dir) throws Exception {
+        String good = "{\"enrollments\":[{\"username\":\"alice\",\"tcToken\":\"enc\"}]}";
+        String lost = "{\"enrollments\":[]}";
+        Files.writeString(dir.resolve("state.json"), good);
 
+        for (int start = 0; start < 2; start++) {
+            StateCache state = new StateCache();
+            CacheStore badRelease = store(dir, BAD_RELEASE, state);
+            badRelease.init();
+            state.state = lost;
+            badRelease.onShutdown();
+        }
+        for (int start = 0; start < 2; start++) {
+            CacheStore rollback = store(dir, GOOD_RELEASE, new StateCache());
+            rollback.init();
+            rollback.onShutdown();
+        }
+
+        assertThat(dir.resolve("state.json")).hasContent(lost);
+        assertThat(dir.resolve("state.json.before-" + BAD_RELEASE)).hasContent(good);
+    }
+
+    @Test
+    void devBuildsOfOneVersionAreToldApartByTheirBuildTime(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("state.json"), "{\"run\":1}");
+        start(dir, "1.20.11-dev", "2026-10-06T10:00:00Z");
+        Files.writeString(dir.resolve("state.json"), "{\"run\":2}");
+
+        start(dir, "1.20.11-dev", "2026-10-07T12:30:00Z");
+
+        assertThat(dir.resolve("state.json.before-1.20.11-dev-built-20261006-100000")).hasContent("{\"run\":1}");
+        assertThat(dir.resolve("state.json.before-1.20.11-dev-built-20261007-123000")).hasContent("{\"run\":2}");
+    }
+
+    @Test
+    void theCopiesOfTheLastFiveBuildsAreKept(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("state.json"), "{}");
+        for (int daysAgo = 1; daysAgo <= 6; daysAgo++) {
+            Path old = Files.writeString(dir.resolve("state.json.before-1.20." + (10 - daysAgo)), "{}");
+            Files.setLastModifiedTime(old, FileTime.fromMillis(System.currentTimeMillis() - daysAgo * 86_400_000L));
+        }
+
+        CacheStore store = store(dir, BAD_RELEASE, new StateCache());
         store.init();
-        state.state = "{\"run\":2}";
         store.onShutdown();
 
-        assertThat(state.loaded).isEqualTo("{\"run\":1}");
-        assertThat(dir.resolve("state.json")).hasContent("{\"run\":2}");
-        assertThat(dir.resolve("state.json.prev")).hasContent("{\"run\":1}");
+        try (Stream<Path> files = Files.list(dir)) {
+            assertThat(files.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("state.json.before-")))
+                .containsExactlyInAnyOrder("state.json.before-" + BAD_RELEASE, "state.json.before-1.20.9",
+                    "state.json.before-1.20.8", "state.json.before-1.20.7", "state.json.before-1.20.6");
+        }
     }
 
     @Test
@@ -231,10 +302,12 @@ class CacheStoreTest {
         store.snapshot();
         assertThat(store.status().failingSaves())
             .containsExactly(Map.entry("fake.json", "java.io.IOException: No space left on device"));
+        assertThat(store.summary().problems()).isEqualTo(1);
 
         cache.diskFull = false;
         store.snapshot();
         assertThat(store.status().failingSaves()).isEmpty();
+        assertThat(store.summary().problems()).isZero();
         store.onShutdown();
     }
 

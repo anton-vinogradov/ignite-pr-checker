@@ -27,10 +27,9 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,7 +41,8 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 /**
  * The state files on prod were written by v1.20.11, and no test read one: a renamed record field would have loaded
  * as empty without a word, and the next save would have written the loss to disk. Each sample of that release must
- * load and save back with nothing lost. Unknown fields fail here, though the app itself ignores them.
+ * load and save back with nothing lost; a field added since may show up in what is saved. Unknown fields fail here,
+ * though the app itself ignores them.
  */
 class ReleaseSnapshotsTest {
     private static final String RELEASE = "/snapshots/v1.20.11/";
@@ -85,7 +85,17 @@ class ReleaseSnapshotsTest {
         cache.loadFrom(sample);
         cache.saveTo(saved);
 
-        assertThat(canonical(MAPPER.readTree(saved.toFile()))).isEqualTo(canonical(MAPPER.readTree(sample.toFile())));
+        assertThat(lost(MAPPER.readTree(sample.toFile()), MAPPER.readTree(saved.toFile()), "")).isEmpty();
+    }
+
+    @Test
+    void aFieldAddedSinceIsNoLossButADroppedOneIs() throws IOException {
+        JsonNode sample = MAPPER.readTree("{\"subs\":[{\"pr\":13655,\"issue\":\"IGNITE-26512\"},{\"pr\":13702}]}");
+
+        assertThat(lost(sample, MAPPER.readTree("{\"subs\":[{\"pr\":13702,\"channel\":null},"
+            + "{\"pr\":13655,\"issue\":\"IGNITE-26512\",\"channel\":null}]}"), "")).isEmpty();
+        assertThat(lost(sample, MAPPER.readTree("{\"subs\":[{\"pr\":13702},{\"pr\":13655}]}"), ""))
+            .containsExactly("/subs/0");
     }
 
     @Test
@@ -94,23 +104,44 @@ class ReleaseSnapshotsTest {
             .containsExactly("standing-visas.json", "pr-commands.json", "visa-subs.json", "reruns.json");
     }
 
-    /** Key order and the order of list items come from hash maps, so neither counts. */
-    private static Object canonical(JsonNode node) {
-        if (node.isObject()) {
-            Map<String, Object> fields = new TreeMap<>();
-            node.properties().forEach(f -> fields.put(f.getKey(), canonical(f.getValue())));
+    /**
+     * Where {@code saved} misses something {@code sample} holds. List items come from hash maps, so each sample item
+     * may match any saved one not matched yet.
+     */
+    private static List<String> lost(JsonNode sample, JsonNode saved, String path) {
+        if (sample.isObject()) {
+            if (!saved.isObject())
+                return List.of(path);
 
-            return fields;
+            List<String> missing = new ArrayList<>();
+            for (Map.Entry<String, JsonNode> f : sample.properties()) {
+                String at = path + "/" + f.getKey();
+                JsonNode kept = saved.get(f.getKey());
+                missing.addAll(kept == null ? List.of(at) : lost(f.getValue(), kept, at));
+            }
+
+            return missing;
         }
 
-        if (node.isArray()) {
-            List<String> items = new ArrayList<>();
-            node.forEach(item -> items.add(String.valueOf(canonical(item))));
-            Collections.sort(items);
+        if (sample.isArray()) {
+            if (!saved.isArray())
+                return List.of(path);
 
-            return items;
+            List<JsonNode> unmatched = new ArrayList<>();
+            saved.forEach(unmatched::add);
+            List<String> missing = new ArrayList<>();
+            for (int i = 0; i < sample.size(); i++) {
+                JsonNode item = sample.get(i);
+                Optional<JsonNode> match = unmatched.stream().filter(s -> lost(item, s, "").isEmpty()).findFirst();
+                if (match.isPresent())
+                    unmatched.remove(match.get());
+                else
+                    missing.add(path + "/" + i);
+            }
+
+            return missing;
         }
 
-        return node.toString();
+        return sample.equals(saved) ? List.of() : List.of(path);
     }
 }

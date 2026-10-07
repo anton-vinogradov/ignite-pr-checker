@@ -1,6 +1,18 @@
 server:
   port: 8080
 
+logging:
+  file:
+    # The service's own log, beside the journal, which on a busy host keeps under two days. install.sh sets
+    # PRC_LOG_FILE in the unit; unset (a local run) logs to the console only.
+    name: ${PRC_LOG_FILE:}
+  logback:
+    rollingpolicy:
+      # A file a day and a month of them, so a complaint from weeks ago can still be looked up.
+      max-history: 30
+      # A logging loop must not fill the disk.
+      total-size-cap: 500MB
+
 spring:
   servlet:
     multipart:

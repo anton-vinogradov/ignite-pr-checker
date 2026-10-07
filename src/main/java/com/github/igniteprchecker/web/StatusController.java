@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
- * read the counters; the log messages and who restarted or flushed last name people, so only signed-in viewers
- * get those.
+ * read the counters, the health and the levels of its problems; the log messages and who restarted or flushed last
+ * name people, and the problems' texts name files and errors on the server, so only signed-in viewers get those.
  */
 @RestController
 @RequestMapping("/api")
@@ -119,8 +119,10 @@ public class StatusController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", version);
         out.put("uptimeSeconds", metrics.uptimeSeconds());
+        out.put("startedAt", ManagementFactory.getRuntimeMXBean().getStartTime());
         out.put("health", report.health());
-        out.put("healthProblems", report.problems());
+        out.put("logHealth", report.logHealth());
+        out.put("healthProblems", viewer.isPresent() ? report.problems() : report.levelsOnly());
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
@@ -138,7 +140,7 @@ public class StatusController {
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         out.put("watcher", watcher);
         out.put("app", app);
-        out.put("persistence", store.status());
+        out.put("persistence", viewer.isPresent() ? store.status() : store.summary());
         out.put("signedIn", viewer.isPresent());
         out.put("log", viewer.isPresent() ? logSnap : logSnap.countsOnly());
         viewer.ifPresent(v -> out.put("admin", adminView(v.username())));

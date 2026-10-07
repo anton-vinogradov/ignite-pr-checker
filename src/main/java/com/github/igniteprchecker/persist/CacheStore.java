@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -27,6 +28,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.info.BuildProperties;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -34,10 +38,10 @@ import org.springframework.stereotype.Component;
  * Persists the in-memory caches to disk so a restart/redeploy starts warm. Loads once on startup; then
  * {@linkplain SnapshotCache#durable() durable} state is written within a second of a change, the rest on a
  * fixed interval, and everything on graceful shutdown. A file that cannot be read is kept aside as
- * {@code <file>.bad-<time>} and reported, never deleted; a durable file read at startup is copied to
- * {@code <file>.prev}, the state as the previous run left it. Once a day the snapshot files are zipped into
- * {@code backups/}, the last seven kept. If the configured directory isn't writable (e.g. a local run without
- * the server layout), persistence disables itself and the app runs in-memory only — never fatal.
+ * {@code <file>.bad-<time>} and reported, never deleted; the first start of each build copies every durable file it
+ * read to {@code <file>.before-<build>}, the state as it was before that build ran. Once a day the snapshot files are
+ * zipped into {@code backups/}, the last seven kept. If the configured directory isn't writable (e.g. a local run
+ * without the server layout), persistence disables itself and the app runs in-memory only — never fatal.
  */
 @Component
 public class CacheStore {
@@ -51,12 +55,21 @@ public class CacheStore {
 
     private static final Pattern BACKUP_NAME = Pattern.compile("cache-\\d{4}-\\d{2}-\\d{2}\\.zip");
 
-    private static final DateTimeFormatter BAD_STAMP =
+    private static final DateTimeFormatter STAMP =
         DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
+
+    private static final String BEFORE = ".before-";
+
+    /** Enough for a bad release, the rollback from it and a few more deploys. */
+    private static final int BEFORE_KEPT = 5;
 
     private final List<SnapshotCache> caches;
     private final PersistProperties props;
     private final Path dir;
+
+    /** Which build runs: its version and when it was built, as a file name part. */
+    private final String build;
+
     private final List<Unreadable> unreadable = new CopyOnWriteArrayList<>();
 
     /** File name -> why its last save failed; a file leaves when a save works again. */
@@ -67,10 +80,24 @@ public class CacheStore {
     private volatile String lastBackup;
     private ScheduledExecutorService flusher;
 
-    public CacheStore(List<SnapshotCache> caches, PersistProperties props) {
+    @Autowired
+    public CacheStore(List<SnapshotCache> caches, PersistProperties props, ObjectProvider<BuildProperties> buildProps) {
+        this(caches, props, build(buildProps.getIfAvailable()));
+    }
+
+    CacheStore(List<SnapshotCache> caches, PersistProperties props, String build) {
         this.caches = caches;
         this.props = props;
         this.dir = Path.of(props.dir());
+        this.build = build;
+    }
+
+    /** Dev builds share a version until the next tag, so only the build time tells two of them apart. */
+    private static String build(BuildProperties bp) {
+        String version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
+        String built = bp != null && bp.getTime() != null ? "-built-" + STAMP.format(bp.getTime()) : "";
+
+        return (version + built).replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     @PostConstruct
@@ -129,6 +156,11 @@ public class CacheStore {
         return new Status(props.enabled(), active, off, List.copyOf(unreadable), new TreeMap<>(failing), lastBackup);
     }
 
+    /** The same without the reasons and files, which name paths and errors on the server: what anyone may see. */
+    public Summary summary() {
+        return new Summary(props.enabled(), active, unreadable.size() + failing.size(), lastBackup);
+    }
+
     private void startFlusher() {
         flusher = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "snapshot-flush");
@@ -175,13 +207,13 @@ public class CacheStore {
             }
 
             if (c.durable())
-                keepAsPrevious(f);
+                keepAsBeforeThisBuild(f);
         }
     }
 
     /** A snapshot that fails to load must not block startup, nor be overwritten by the empty state that follows. */
     private void setAside(SnapshotCache c, Path f, Exception cause) {
-        Path kept = f.resolveSibling(c.fileName() + ".bad-" + BAD_STAMP.format(Instant.now()));
+        Path kept = f.resolveSibling(c.fileName() + ".bad-" + STAMP.format(Instant.now()));
         try {
             Files.move(f, kept);
         }
@@ -201,15 +233,43 @@ public class CacheStore {
         unreadable.add(new Unreadable(c.fileName(), kept.getFileName().toString()));
     }
 
-    private static void keepAsPrevious(Path f) {
-        if (!Files.exists(f))
+    /**
+     * Only the first start of a build copies, so neither the rollback from a bad release nor a crash loop
+     * overwrites the state from before that release with what it wrote.
+     */
+    private void keepAsBeforeThisBuild(Path f) {
+        Path copy = f.resolveSibling(f.getFileName() + BEFORE + build);
+        if (!Files.exists(f) || Files.exists(copy))
             return;
 
         try {
-            Files.copy(f, f.resolveSibling(f.getFileName() + ".prev"), StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(f, copy);
+            pruneBeforeCopies(f);
         }
         catch (IOException e) {
-            log.warn("could not keep the previous {}: {}", f, e.toString());
+            log.warn("could not keep {} as it was before this build: {}", f, e.toString());
+        }
+    }
+
+    private static void pruneBeforeCopies(Path f) throws IOException {
+        String prefix = f.getFileName() + BEFORE;
+        List<Path> newestFirst;
+        try (Stream<Path> files = Files.list(f.getParent())) {
+            newestFirst = files.filter(p -> p.getFileName().toString().startsWith(prefix))
+                .sorted(Comparator.comparing(CacheStore::modified).reversed())
+                .toList();
+        }
+
+        for (Path old : newestFirst.stream().skip(BEFORE_KEPT).toList())
+            Files.deleteIfExists(old);
+    }
+
+    private static FileTime modified(Path p) {
+        try {
+            return Files.getLastModifiedTime(p);
+        }
+        catch (IOException e) {
+            return FileTime.fromMillis(0);
         }
     }
 
@@ -294,6 +354,10 @@ public class CacheStore {
      */
     public record Status(boolean enabled, boolean active, String off, List<Unreadable> unreadable,
         Map<String, String> failingSaves, String lastBackup) {
+    }
+
+    /** {@code problems} counts the unreadable files and the failing saves. */
+    public record Summary(boolean enabled, boolean active, int problems, String lastBackup) {
     }
 
     /** A durable snapshot that could not be read at startup, and the name it was kept under. */

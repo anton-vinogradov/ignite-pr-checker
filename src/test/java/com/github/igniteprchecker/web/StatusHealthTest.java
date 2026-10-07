@@ -17,10 +17,12 @@ import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
+import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -44,11 +46,13 @@ class StatusHealthTest {
 
     private final CacheStore store = mock(CacheStore.class);
 
+    private final AuthInterceptor auth = mock(AuthInterceptor.class);
+
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         warmer, mock(GithubClient.class), logs, new ServiceHealth(warmer, standing, commands, store),
-        mock(RerunTracker.class), mock(VisaSubscriptions.class), standing, commands, mock(AuthInterceptor.class),
-        mock(AdminActions.class), store, mock(ObjectProvider.class));
+        mock(RerunTracker.class), mock(VisaSubscriptions.class), standing, commands, auth, mock(AdminActions.class),
+        store, mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {
@@ -110,10 +114,13 @@ class StatusHealthTest {
     void aSweepThatStoppedTurnsHealthRedThoughTheLogIsClean() {
         when(standing.lastSweepAt()).thenReturn(System.currentTimeMillis() - Duration.ofMinutes(40).toMillis());
         when(commands.lastPollAt()).thenReturn(System.currentTimeMillis());
+        MockHttpServletRequest signedIn = new MockHttpServletRequest();
+        when(auth.signedIn(signedIn)).thenReturn(Optional.of(new SessionCodec.Session("alice", "tok", null, null)));
 
-        Map<String, Object> out = status.status(new MockHttpServletRequest());
+        Map<String, Object> out = status.status(signedIn);
 
         assertThat(out.get("health")).isEqualTo("error");
+        assertThat(out.get("logHealth")).isEqualTo("ok");
         assertThat((List<Object>) out.get("healthProblems"))
             .containsExactly(new ServiceHealth.Problem("error", "standing-visa sweep last started 40 min ago"));
     }

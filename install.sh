@@ -35,6 +35,8 @@ id prc >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/no
 install -d -o prc  -g prc  -m 755 "$APP_DIR"
 # Heap dumps hold whatever the JVM had in memory, decrypted tokens included: readable by the service only.
 install -d -o prc  -g prc  -m 700 "$APP_DIR/dumps"
+# The service's own log names users and PRs.
+install -d -o prc  -g prc  -m 750 "$APP_DIR/logs"
 install -d -o root -g prc  -m 750 "$ETC_DIR"
 
 # 3. config (created once; never overwritten on update). Users log in with their own TeamCity
@@ -125,6 +127,8 @@ Wants=network-online.target
 Type=simple
 User=prc
 Group=prc
+# A month of the service's own log, daily files; journald on a shared host keeps far less.
+Environment=PRC_LOG_FILE=${APP_DIR}/logs/ignite-pr-checker.log
 EnvironmentFile=${ETC_DIR}/env
 ExecStart=${APP_DIR}/run.sh
 Restart=on-failure

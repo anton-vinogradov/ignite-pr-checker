@@ -315,7 +315,9 @@
             if (!p.active) return card('Snapshots', 'off', esc(p.off), p.enabled ? 'warn' : '');
             const bad = (p.unreadable || []).map(u => `${esc(u.file)} unreadable, kept as ${esc(u.keptAs)}`)
                 .concat(Object.entries(p.failingSaves || {}).map(([f, why]) => `saving ${esc(f)} fails: ${esc(why)}`));
-            if (bad.length) return card('Snapshots', bad.length + (bad.length === 1 ? ' problem' : ' problems'), bad.join(' · '), 'bad');
+            const count = bad.length || p.problems || 0;
+            if (count) return card('Snapshots', count + (count === 1 ? ' problem' : ' problems'),
+                bad.length ? bad.join(' · ') : `log in on the main page to see ${count === 1 ? 'it' : 'them'}`, 'bad');
             const day = p.lastBackup && p.lastBackup.replace(/^cache-|\.zip$/g, '');
             return card('Snapshots', 'active', day ? 'last backup ' + esc(day) : 'no backup yet', 'ok');
         }
@@ -325,16 +327,31 @@
             return card('Last cycle', secs(a.lastCycleMs), `${a.lastWarmed} recomputed · ${a.lastCached} cached`);
         }
 
+        // Anonymous viewers get the problems' levels only: the texts name files and errors on the server.
+        function healthProblems(d) {
+            const problems = d.healthProblems || [];
+            if (problems.every(p => p.text)) return problems;
+            const n = problems.length;
+            return [{ level: problems.some(p => p.level === 'error') ? 'error' : 'warn',
+                text: `${n} problem${n === 1 ? '' : 's'} — log in on the main page to see ${n === 1 ? 'it' : 'them'}` }];
+        }
+
+        // The dot shows the worst of the problems and the log, so the tooltip names both.
+        function healthTitle(d, problems) {
+            const reasons = problems.map(p => p.text);
+            if (d.logHealth === 'error') reasons.push('error logged ' + agoShort(d.log.lastErrorAt));
+            else if (d.logHealth === 'warn') reasons.push('warning logged ' + agoShort(d.log.lastWarningAt));
+            return reasons.length ? reasons.join('; ') : 'healthy';
+        }
+
         function render(d) {
             const tc = d.teamcity, gh = d.github, j = d.jvm;
             const t = tc.lastHour, g = gh.lastHour;
             const tcRate = t.total ? (100 * t.ok / t.total) : 100;
             const az = (d.http && d.http.byCategory && d.http.byCategory['/api/analyze']) || null;
-            const problems = d.healthProblems || [];
+            const problems = healthProblems(d);
             $('healthDot').className = 'hdot ' + (d.health || 'ok');
-            $('healthDot').title = problems.length ? problems.map(p => p.text).join('; ')
-                : d.health === 'error' ? 'error logged ' + agoShort(d.log.lastErrorAt)
-                : d.health === 'warn' ? 'warning logged ' + agoShort(d.log.lastWarningAt) : 'healthy';
+            $('healthDot').title = healthTitle(d, problems);
             $('problems').innerHTML = problems.map(p => `<div class="problem ${esc(p.level)}">${esc(p.text)}</div>`).join('');
             $('systemCards').innerHTML = [
                 card('Version', d.version),
@@ -443,7 +460,7 @@
             renderCats($('ghCatsPat'), ghPat);
             renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
-            renderLog($('logList'), d.log || { recent: [] }, d.signedIn, Date.now() - 1000 * d.uptimeSeconds);
+            renderLog($('logList'), d);
             renderAdmin(d.admin);
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
@@ -462,9 +479,11 @@
                 + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
-        function renderLog(el, log, signedIn, startedAt) {
+        // The server's start time, not the browser's clock, sets this run's problems apart from earlier ones.
+        function renderLog(el, d) {
+            const log = d.log || { recent: [] }, startedAt = d.startedAt;
             const recent = log.recent || [];
-            if (!signedIn && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
+            if (!d.signedIn && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
                 el.innerHTML = '<div class="muted">log in on the main page to see the messages</div>';
                 return;
             }

@@ -120,6 +120,7 @@ class LogTrackerTest {
         assertThat(snap.warnings()).isEqualTo(1);
         assertThat(snap.recent()).hasSize(2);
     }
+
     @Test
     void theProblemsOfTheLastRunOutliveARestart(@TempDir Path dir) throws Exception {
         log(Level.WARN, "StandingVisas", "standing auto-visa sweep: PR 13655 skipped", Duration.ofDays(3));
