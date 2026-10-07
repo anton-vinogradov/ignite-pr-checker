@@ -13,6 +13,7 @@ import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.tc.RerunTracker;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +35,7 @@ class StatusHealthTest {
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         mock(Warmer.class), mock(GithubClient.class), logs, mock(RerunTracker.class), mock(VisaSubscriptions.class),
         mock(StandingVisas.class), mock(PrCommands.class), mock(AuthInterceptor.class), mock(AdminActions.class),
-        mock(ObjectProvider.class));
+        mock(CacheStore.class), mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {

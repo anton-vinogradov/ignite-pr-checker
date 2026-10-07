@@ -5,6 +5,7 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.management.ManagementFactory;
@@ -37,6 +38,7 @@ public class StatusController {
     private final com.github.igniteprchecker.github.PrCommands commands;
     private final AuthInterceptor auth;
     private final AdminActions admin;
+    private final CacheStore store;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
@@ -44,7 +46,7 @@ public class StatusController {
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
-        AuthInterceptor auth, AdminActions admin,
+        AuthInterceptor auth, AdminActions admin, CacheStore store,
         ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
@@ -57,6 +59,7 @@ public class StatusController {
         this.commands = commands;
         this.auth = auth;
         this.admin = admin;
+        this.store = store;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
@@ -123,6 +126,7 @@ public class StatusController {
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         out.put("watcher", watcher);
         out.put("app", app);
+        out.put("persistence", store.status());
         out.put("signedIn", viewer.isPresent());
         out.put("log", viewer.isPresent() ? logSnap : logSnap.countsOnly());
         viewer.ifPresent(v -> out.put("admin", adminView(v.username())));

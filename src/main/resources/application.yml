@@ -78,8 +78,11 @@ persist:
   enabled: ${PRC_PERSIST_ENABLED:true}
   # Directory for the snapshot files. Must be writable and survive restarts; if it isn't (e.g. a
   # local dev run), persistence disables itself and the app runs in-memory only. Override with PRC_CACHE_DIR.
+  # Daily zips of the snapshot files go to its backups/ subdirectory, the last 7 kept.
   dir: ${PRC_CACHE_DIR:/opt/ignite-pr-checker/cache}
-  # How often to re-snapshot to disk, minutes (a snapshot is also written on graceful shutdown).
+  # How often to re-snapshot the caches to disk, minutes (everything is also written on graceful
+  # shutdown). State the service acts on (options, stored tokens, handled commands) is written within
+  # a second of a change.
   interval-minutes: 5
 
 warm:

@@ -177,6 +177,11 @@ public class AdminActions implements SnapshotCache {
     }
 
     @Override
+    public boolean durable() {
+        return true;
+    }
+
+    @Override
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file, lastUses());
     }

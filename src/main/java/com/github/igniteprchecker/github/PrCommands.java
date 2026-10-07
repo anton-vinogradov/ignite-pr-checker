@@ -537,6 +537,11 @@ public class PrCommands implements SnapshotCache {
     }
 
     @Override
+    public boolean durable() {
+        return true;
+    }
+
+    @Override
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(),
             new HashMap<>(watching), new HashMap<>(onboarded)));

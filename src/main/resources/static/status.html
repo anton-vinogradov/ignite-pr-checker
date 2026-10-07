@@ -302,6 +302,18 @@
             return card('Startup warm-up', '—', 'pending');
         }
 
+        // Snapshots of the state on disk: off is amber only when it was meant to be on; a durable file
+        // that could not be read at startup, or a save that keeps failing, is red until dealt with.
+        function persistenceCard(p) {
+            if (!p) return '';
+            if (!p.active) return card('Snapshots', 'off', esc(p.off), p.enabled ? 'warn' : '');
+            const bad = (p.unreadable || []).map(u => `${esc(u.file)} unreadable, kept as ${esc(u.keptAs)}`)
+                .concat(Object.entries(p.failingSaves || {}).map(([f, why]) => `saving ${esc(f)} fails: ${esc(why)}`));
+            if (bad.length) return card('Snapshots', 'active', bad.join(' · '), 'bad');
+            const day = p.lastBackup && p.lastBackup.replace(/^cache-|\.zip$/g, '');
+            return card('Snapshots', 'active', day ? 'last backup ' + esc(day) : 'no backup yet', 'ok');
+        }
+
         function lastCycleCard(a) {
             if (!a.lastWarmCycleAt) return card('Last cycle', '—', 'none yet');
             return card('Last cycle', secs(a.lastCycleMs), `${a.lastWarmed} recomputed · ${a.lastCached} cached`);
@@ -327,6 +339,7 @@
                 card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB`,
                     j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : ''),
                 card('Threads', j.threads, `· ${j.cpus} cpu`),
+                persistenceCard(d.persistence),
             ].join('');
 
             $('appCards').innerHTML = [

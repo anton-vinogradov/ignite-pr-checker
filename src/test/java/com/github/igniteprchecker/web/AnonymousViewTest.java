@@ -19,6 +19,7 @@ import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import jakarta.servlet.http.Cookie;
@@ -49,7 +50,8 @@ class AnonymousViewTest {
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         warmer, mock(GithubClient.class), logs, mock(RerunTracker.class), mock(VisaSubscriptions.class),
-        mock(StandingVisas.class), mock(PrCommands.class), auth, admin, mock(ObjectProvider.class));
+        mock(StandingVisas.class), mock(PrCommands.class), auth, admin, mock(CacheStore.class),
+        mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {
