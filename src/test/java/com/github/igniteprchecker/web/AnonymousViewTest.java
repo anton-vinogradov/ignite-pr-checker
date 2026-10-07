@@ -43,7 +43,7 @@ class AnonymousViewTest {
 
     private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, new UserDirectory(mapper));
 
-    private final LogTracker logs = new LogTracker();
+    private final LogTracker logs = new LogTracker(mapper);
 
     private final AdminActions admin = new AdminActions(new AdminProperties(List.of("avinogradov")), mapper);
 

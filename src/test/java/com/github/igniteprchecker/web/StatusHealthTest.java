@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.LoggingEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
@@ -29,7 +30,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 class StatusHealthTest {
     private static final String TC = "com.github.igniteprchecker.tc.TcClient";
 
-    private final LogTracker logs = new LogTracker();
+    private final LogTracker logs = new LogTracker(new ObjectMapper());
 
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),

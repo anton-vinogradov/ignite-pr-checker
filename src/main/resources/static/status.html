@@ -83,7 +83,8 @@
         .hdot.warn { background: #e0a000; }
         .hdot.error { background: var(--bad); }
         .loglist { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-family: ui-monospace, monospace; }
-        .logrow { display: grid; grid-template-columns: 62px 46px 130px 1fr; gap: 0.5rem; align-items: baseline; }
+        .logrow { display: grid; grid-template-columns: 92px 46px 130px 1fr; gap: 0.5rem; align-items: baseline; }
+        .logsep { color: var(--muted); font-size: 0.75rem; margin: 0.3rem 0; }
         .logrow.client { opacity: 0.55; }
         .logtime { color: var(--muted); }
         .loglevel { font-weight: 600; }
@@ -432,7 +433,7 @@
             renderCats($('ghCatsPat'), ghPat);
             renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
-            renderLog($('logList'), d.log || { recent: [] }, d.signedIn);
+            renderLog($('logList'), d.log || { recent: [] }, d.signedIn, Date.now() - 1000 * d.uptimeSeconds);
             renderAdmin(d.admin);
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
@@ -443,16 +444,27 @@
             return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
-        function renderLog(el, log, signedIn) {
+        // Problems outlive restarts, so older ones carry their day.
+        function logTime(t) {
+            const d = new Date(t);
+            if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString();
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' '
+                + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function renderLog(el, log, signedIn, startedAt) {
             const recent = log.recent || [];
-            if (!signedIn && (log.errors || log.warnings || log.clientMistakes)) {
+            if (!signedIn && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
                 el.innerHTML = '<div class="muted">log in on the main page to see the messages</div>';
                 return;
             }
             if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }
-            el.innerHTML = recent.map(e => `<div class="logrow${e.client ? ' client' : ''}"${e.client
+            const restart = recent.findIndex(e => e.t < startedAt);
+            el.innerHTML = recent.map((e, i) => (i === restart
+                ? `<div class="logsep">— service started ${esc(logTime(startedAt))} —</div>` : '')
+                + `<div class="logrow${e.client ? ' client' : ''}"${e.client
                 ? ' title="a bad request turned away — does not affect health"' : ''}>
-                <span class="logtime">${new Date(e.t).toLocaleTimeString()}</span>
+                <span class="logtime">${esc(logTime(e.t))}</span>
                 <span class="loglevel lvl-${e.level.toLowerCase()}">${e.level}</span>
                 <span class="loglogger" title="${esc(e.logger)}">${esc(e.logger)}</span>
                 <span class="logmsg">${esc(e.message)}</span>
