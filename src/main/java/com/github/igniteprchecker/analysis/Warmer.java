@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -34,6 +35,10 @@ public class Warmer {
     private final WarmProperties props;
     private final TokenPool tokens;
     private final ExecutorService warmPool;
+    private final ExecutorService recompute;
+
+    /** Runs the warm cycles; one thread, so cycles never overlap. */
+    private final ExecutorService worker;
 
     private volatile int lastWarmed;
     private volatile int lastCached;
@@ -47,20 +52,27 @@ public class Warmer {
     private volatile int cycleTotal;      // PRs the current cycle will visit
     private volatile int cycleDone;       // PRs visited so far in the current cycle
 
-    /** One thread so warm cycles never overlap; daemon so it doesn't block shutdown. */
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "warmer");
-        t.setDaemon(true);
-        return t;
-    });
-
+    @Autowired
     public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props,
-        @Qualifier("refreshExecutor") ExecutorService warmPool) {
+        @Qualifier("warmExecutor") ExecutorService warmPool,
+        @Qualifier("recomputeExecutor") ExecutorService recompute,
+        @Qualifier("warmerThread") ExecutorService worker) {
         this.analyzer = analyzer;
         this.github = github;
         this.props = props;
         this.warmPool = warmPool;
+        this.recompute = recompute;
+        this.worker = worker;
         this.tokens = new TokenPool(Duration.ofMinutes(props.tokenTtlMinutes()).toMillis());
+    }
+
+    /** A warmer that recomputes on {@code warmPool} too, and runs its cycles on a daemon thread of its own. */
+    public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props, ExecutorService warmPool) {
+        this(analyzer, github, props, warmPool, warmPool, Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "warmer");
+            t.setDaemon(true);
+            return t;
+        }));
     }
 
     /** An authenticated request offers its token; the first token into an empty pool kicks off warming. */
@@ -86,7 +98,8 @@ public class Warmer {
     /**
      * Eagerly pre-analyses one PR the moment its run finishes (the rerun tracker calls this), so
      * the first viewer finds the result cached — or at least joins a compute already in flight —
-     * instead of paying the whole cold recompute. No-op without a pooled token.
+     * instead of paying the whole cold recompute. Runs on the recompute thread, not behind a warm
+     * cycle. No-op without a pooled token.
      */
     public void warmPr(int pr) {
         if (!props.enabled())
@@ -96,9 +109,9 @@ public class Warmer {
         if (token == null)
             return;
 
-        warmPool.execute(() -> {
+        recompute.execute(() -> {
             try {
-                if (analyzer.warm(token, pr))
+                if (analyzer.warmNow(token, pr))
                     log.info("eager-warmed PR {} right after its run finished", pr);
             }
             catch (RuntimeException e) {
@@ -110,7 +123,8 @@ public class Warmer {
     /**
      * Forces a recompute of one PR's verdict (the rerun tracker calls this when a re-run suite
      * finishes): the chain build is unchanged, so the cache-aware warm() would skip it, but the
-     * new branch run must flow into the verdict — a passed re-run clears its blockers.
+     * new branch run must flow into the verdict — a passed re-run clears its blockers. Runs on the
+     * recompute thread: queued behind a warm cycle, it waited up to a minute.
      */
     public void refreshPr(int pr) {
         if (!props.enabled())
@@ -120,7 +134,7 @@ public class Warmer {
         if (token == null)
             return;
 
-        warmPool.execute(() -> {
+        recompute.execute(() -> {
             try {
                 analyzer.refresh(token, pr);
                 log.info("re-analysed PR {} after its re-run suite finished", pr);
@@ -173,7 +187,7 @@ public class Warmer {
         AtomicInteger skipped = new AtomicInteger();
         AtomicInteger done = new AtomicInteger();
 
-        // The per-PR warms fan out on the refresh pool (cold recomputes dominate a cycle, and serially
+        // The per-PR warms fan out on the warm pool (cold recomputes dominate a cycle, and serially
         // they made the startup warm-up minutes long); each warm's own per-test fan-out stays on the
         // background pool, so the two levels can't deadlock each other.
         List<Callable<Void>> tasks = new ArrayList<>(count);

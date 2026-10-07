@@ -102,7 +102,7 @@ public class BlockerAnalyzer {
     private final AnalysisProperties cfg;
     private final ExecutorService pool;
     private final ExecutorService bgPool;
-    private final ExecutorService refreshPool;
+    private final ExecutorService recomputePool;
     private final AnalysisCache cache;
     private final RunDeltaStore deltas;
 
@@ -133,14 +133,14 @@ public class BlockerAnalyzer {
     public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg,
         @Qualifier("analysisExecutor") ExecutorService pool,
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
-        @Qualifier("refreshExecutor") ExecutorService refreshPool,
+        @Qualifier("recomputeExecutor") ExecutorService recomputePool,
         AnalysisCache cache, RunDeltaStore deltas) {
         this.tc = tc;
         this.chains = chains;
         this.cfg = cfg;
         this.pool = pool;
         this.bgPool = bgPool;
-        this.refreshPool = refreshPool;
+        this.recomputePool = recomputePool;
         this.cache = cache;
         this.deltas = deltas;
     }
@@ -199,9 +199,12 @@ public class BlockerAnalyzer {
         return chains.triggeredBy(prNumber);
     }
 
-    /** Recomputes and caches the analysis for a PR's latest build. Used by the warmer (background pool). */
+    /**
+     * Recomputes and caches the analysis for a PR's latest build, on request: a re-run suite of it finished. Fans
+     * out on the foreground pool, so it never waits behind a warm cycle's calls.
+     */
     public void refresh(String token, int prNumber) {
-        chains.findBuildId(token, prNumber).ifPresent(bid -> computeAndStore(token, prNumber, bid, bgPool));
+        chains.findBuildId(token, prNumber).ifPresent(bid -> computeAndStore(token, prNumber, bid, pool));
     }
 
     /**
@@ -216,6 +219,18 @@ public class BlockerAnalyzer {
      * looked up only once something did.
      */
     public boolean warm(String token, int prNumber) {
+        return warm(token, prNumber, bgPool);
+    }
+
+    /**
+     * Warms a PR on request, the moment its RunAll finished, as {@link #warm} does in a cycle. Fans out on the
+     * foreground pool, so it never waits behind a warm cycle's calls.
+     */
+    public boolean warmNow(String token, int prNumber) {
+        return warm(token, prNumber, pool);
+    }
+
+    private boolean warm(String token, int prNumber, ExecutorService taskPool) {
         Long held = analysedBuild.get(prNumber);
         Optional<AnalysisResult> verdict = held == null ? Optional.empty() : cache.peekResult(held);
         if (verdict.isPresent() && keptWarm(token, prNumber, verdict.get()))
@@ -231,7 +246,7 @@ public class BlockerAnalyzer {
                 return false;
         }
 
-        computeAndStore(token, prNumber, buildId.get(), bgPool);
+        computeAndStore(token, prNumber, buildId.get(), taskPool);
         return true;
     }
 
@@ -379,14 +394,15 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * Recomputes in the background; with {@code ifMoved}, only when something finished on the branch since
-     * the result was computed (one cheap call), else the view is marked looked at for a while.
+     * Recomputes in the background, on the recompute thread; with {@code ifMoved}, only when something finished
+     * on the branch since the result was computed (one cheap call), else the view is marked looked at for a
+     * while. Fans out on the foreground pool: queued behind a warm cycle, the page waited up to a minute.
      */
     private void refreshAsync(String token, int prNumber, long buildId, boolean ifMoved) {
         if (!refreshing.add(buildId))
             return;
 
-        refreshPool.execute(() -> {
+        recomputePool.execute(() -> {
             try {
                 Optional<AnalysisResult> cached = cache.peekResult(buildId);
                 if (ifMoved && cached.isPresent() && !branchMovedSince(token, prNumber, cached.get(), false)) {
@@ -395,7 +411,7 @@ public class BlockerAnalyzer {
                     return;
                 }
 
-                computeAndStore(token, prNumber, buildId, bgPool);
+                computeAndStore(token, prNumber, buildId, pool);
             }
             catch (RuntimeException ignore) {
                 // best-effort background refresh; the stale cached value stays until it succeeds
