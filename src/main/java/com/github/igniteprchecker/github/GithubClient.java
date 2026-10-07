@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -306,7 +307,7 @@ public class GithubClient implements SnapshotCache {
     /** This tool's own repo, for the "Star" button (fetched server-side so browser blockers don't hide it). */
     private static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
 
-    private final RestClient http = RestClient.create();
+    private final RestClient http;
 
     private final GithubProperties props;
     private final long ttlMs;
@@ -331,6 +332,9 @@ public class GithubClient implements SnapshotCache {
     private final Metrics metrics;
 
     public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
+        this.http = RestClient.builder()
+            .requestFactory(OutboundHttp.withPatch(props.readTimeout()))
+            .build();
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;

@@ -29,6 +29,8 @@ spring:
 teamcity:
   # Base URL of the TeamCity instance (must end with a slash). Override with TC_BASE_URL.
   base-url: ${TC_BASE_URL:https://ci2.ignite.apache.org/}
+  # Give up on a TeamCity call that sends nothing for this long (the slowest seen on prod took 3.3 s).
+  read-timeout: 60s
 
 github:
   # Repo whose open PRs populate the left-hand list.
@@ -37,6 +39,12 @@ github:
   token: ${GITHUB_TOKEN:}
   # How long to cache the PR list. Longer = fewer GitHub calls (unauthenticated limit is 60/hour).
   cache-seconds: 300
+  # Give up on a GitHub call that sends nothing for this long.
+  read-timeout: 60s
+
+jira:
+  # Give up on a JIRA call that sends nothing for this long.
+  read-timeout: 60s
 
 analysis:
   # Branch to compute the "base" test history against.

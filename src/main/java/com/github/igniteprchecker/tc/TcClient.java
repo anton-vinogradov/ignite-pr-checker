@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.tc;
 
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -15,7 +16,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -48,10 +48,8 @@ public class TcClient {
         this.analysis = analysis;
         this.metrics = metrics;
         this.baseUrl = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
-        // Must use SimpleClientHttpRequestFactory (HttpURLConnection): the default JDK factory sends
-        // "Content-Length: 0" on GET, which the TeamCity WAF rejects with 403 "Access Blocked".
         this.http = RestClient.builder()
-            .requestFactory(new SimpleClientHttpRequestFactory())
+            .requestFactory(OutboundHttp.plain(tc.readTimeout()))
             .defaultHeader("Accept", "application/json")
             .build();
     }
