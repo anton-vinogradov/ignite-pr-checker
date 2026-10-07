@@ -1,8 +1,9 @@
 package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
-import com.github.igniteprchecker.analysis.model.ShrunkSuite;
+import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -182,7 +183,8 @@ public class ChainCollector {
 
         // Reuse transparency: a re-triggered chain on unchanged revisions reuses earlier suite builds
         // (TeamCity substitutes suitable results). A dep queued before the chain itself is such a
-        // reused build; showing ran-vs-reused up front beats making users suspect staleness.
+        // reused build; showing ran-vs-reused up front beats making users suspect staleness. A suite
+        // ran only once it finished with a result: PR 13583 read "147 suites ran" over "137 never ran".
         int ran = 0;
         int reused = 0;
         long chainQueued = TcDates.epochSeconds(build.queuedDate());
@@ -193,25 +195,40 @@ public class ChainCollector {
                     continue; // unknown: count in neither bucket
                 if (depQueued < chainQueued - 60)
                     reused++;
-                else
+                else if (finishedWithResult(dep))
                     ran++;
             }
         }
 
         // A chain that aborted mid-way leaves suites neither passed nor failed (canceled/UNKNOWN):
         // they never ran, so the verdict is partial — surface that instead of implying they were clean.
-        int canceled = (int) depBuilds(build).stream()
+        List<CancelledSuite> cancelled = depBuilds(build).stream()
             .filter(d -> d.status() != null && !"SUCCESS".equals(d.status()) && !"FAILURE".equals(d.status()))
-            .count();
+            .map(ChainCollector::cancelledSuite)
+            .toList();
         // The chain itself failed with suites left unrun, OR the whole chain was cancelled (UNKNOWN)
         // — in both cases the suites that did run still counted, but the verdict is partial.
-        boolean interrupted = ("FAILURE".equals(build.status()) || "UNKNOWN".equals(build.status())) && canceled > 0;
+        boolean interrupted = ("FAILURE".equals(build.status()) || "UNKNOWN".equals(build.status()))
+            && !cancelled.isEmpty();
 
         return new Chain(build.id(), build.branchName(), failed, broken,
             shrunkSuites(depBuilds(build), masterCounts, brokenRuns),
-            ran, reused, interrupted, canceled, live, liveBuildId,
+            ran, reused, interrupted, cancelled.size(), live, liveBuildId,
             TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
-            TcDates.epochSeconds(build.finishDate()), unstable);
+            TcDates.epochSeconds(build.finishDate()), unstable, cancelled);
+    }
+
+    private static boolean finishedWithResult(TcModel.Build dep) {
+        return "finished".equalsIgnoreCase(dep.state()) && ("SUCCESS".equals(dep.status()) || "FAILURE".equals(dep.status()));
+    }
+
+    private static CancelledSuite cancelledSuite(TcModel.Build dep) {
+        TcModel.CanceledInfo info = dep.canceledInfo();
+        String by = info == null || info.user() == null ? null : info.user().username();
+
+        return new CancelledSuite(dep.buildTypeId(), dep.id(),
+            dep.buildType() != null && dep.buildType().name() != null ? dep.buildType().name() : dep.buildTypeId(),
+            info == null ? null : info.text(), by);
     }
 
     /**
@@ -411,18 +428,20 @@ public class ChainCollector {
     /**
      * A chain's collected verdict inputs plus its composition: how many suites actually ran vs were reused.
      * {@code unstableSuites} crashed after running all their tests: their failed tests are among the
-     * candidates, and the analysis decides whether each suite counts as broken.
+     * candidates, and the analysis decides whether each suite counts as broken. {@code cancelledSuites}
+     * are the chain's suites that never ran, as the chain left them.
      */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
         List<ShrunkSuite> shrunkSuites,
         int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId,
-        long queuedAt, long startedAt, long finishedAt, List<BrokenSuite> unstableSuites) {
-        /** A chain with no unstable suites, in the shape callers used before they were tracked. */
+        long queuedAt, long startedAt, long finishedAt, List<BrokenSuite> unstableSuites,
+        List<CancelledSuite> cancelledSuites) {
+        /** A chain with no unstable or listed cancelled suites, in the shape callers used before they were tracked. */
         public Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
             List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
             boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt) {
             this(buildId, branchName, failedTests, brokenSuites, shrunkSuites, suitesRan, suitesReused, interrupted,
-                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, List.of());
+                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, List.of(), List.of());
         }
     }
 }

@@ -512,8 +512,9 @@
 
                 <div id="results" class="hidden">
                     <div id="interruptedBanner" class="card interrupted hidden">
-                        <h2>⚠ RunAll interrupted</h2>
+                        <h2>⚠ Suites that never ran</h2>
                         <p class="muted" id="interruptedText"></p>
+                        <ul id="cancelledSuites" class="tests"></ul>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
                         <h2>Broken suites <span id="brokenCount"></span> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
@@ -1008,6 +1009,33 @@
             wireSuiteAi(el);
         }
 
+        // Suites the chain never ran. Those TeamCity cancelled by itself get rows with re-run buttons (the
+        // auto re-run takes them too); those a person cancelled were meant not to run, so they fold into
+        // one line per person.
+        function renderCancelled(el, suites) {
+            const rows = suites.filter(s => !s.cancelledBy).map(s => {
+                const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
+                const head = esc(s.suiteName || s.suite)
+                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+                const btns = s.suite
+                    ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                        + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
+                    : '';
+                return `<li><div class="suite-head"><span class="suite-name">${head}`
+                    + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
+                    + `<div class="reason">cancelled by TeamCity${s.reason ? ': ' + esc(s.reason) : ''}</div></li>`;
+            });
+            const byPerson = new Map();
+            for (const s of suites.filter(s => s.cancelledBy))
+                byPerson.set(s.cancelledBy, [...(byPerson.get(s.cancelledBy) || []), s.suiteName || s.suite]);
+            for (const [who, names] of byPerson)
+                rows.push(`<li><details><summary>${names.length} suite${names.length === 1 ? '' : 's'} cancelled by ${esc(who)}</summary>`
+                    + `<div class="reason">${names.map(esc).join(', ')}</div></details></li>`);
+            el.innerHTML = rows.join('');
+            for (const b of el.querySelectorAll('.suite-rerun'))
+                b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+        }
+
         // Suites that ran far fewer tests than master — each with its counts and a re-run button.
         function renderShrunk(el, suites) {
             el.innerHTML = suites.map(s => {
@@ -1282,12 +1310,12 @@
                 const buildLink = tcBase
                     ? ` <a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open the interrupted RunAll build in TeamCity">TC</a>`
                     : '';
-                $('interruptedText').innerHTML = `This PR's latest RunAll <b>aborted before finishing</b>${buildLink} — `
-                    + `${broken.length} suite${broken.length === 1 ? '' : 's'} failed and `
-                    + `${res.canceledSuites} never ran (cancelled by the interruption). `
-                    + `The verdict below is <b>partial</b> — the cancelled suites weren't tested. `
-                    + `Re-run RunAll once the failing suites are fixed.`;
+                const one = res.canceledSuites === 1;
+                $('interruptedText').innerHTML = `${res.canceledSuites} suite${one ? '' : 's'} of this RunAll${buildLink} `
+                    + `${one ? 'was' : 'were'} cancelled and never ran. The verdict below is <b>partial</b>: it says nothing about them. `
+                    + `A finished re-run of a suite takes it off this list.`;
             }
+            renderCancelled($('cancelledSuites'), interrupted ? res.cancelledSuites || [] : []);
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);

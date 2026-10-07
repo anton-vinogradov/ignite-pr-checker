@@ -2,15 +2,18 @@ package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -385,11 +388,13 @@ public class BlockerAnalyzer {
         List<ShrunkSuite> shortReruns = new ArrayList<>();
         List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken, shortReruns);
         List<ShrunkSuite> shrunk = newestPerSuite(withFullRunsDropped(token, prNumber, chain.shrunkSuites()), shortReruns);
+        List<CancelledSuite> cancelled = notRunSince(token, prNumber, chain);
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
             System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
-            chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId(),
-            chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt, unstable);
+            chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(), cancelled.size(),
+            chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt,
+            unstable, cancelled);
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);
@@ -456,6 +461,33 @@ public class BlockerAnalyzer {
         }
 
         return out;
+    }
+
+    /**
+     * The chain's cancelled suites that have not run since. Any later finished run of the suite on the
+     * branch, a re-run or a newer chain's, closes one: that run's own result counts instead. Without this a
+     * re-run never lifted "N suite(s) never ran", and PR 13592 kept it for the four suites TeamCity had
+     * cancelled. One request for all of them, and none when nothing was cancelled. Kept on any doubt.
+     */
+    private List<CancelledSuite> notRunSince(String token, int prNumber, ChainCollector.Chain chain) {
+        if (chain.cancelledSuites().isEmpty())
+            return chain.cancelledSuites();
+
+        try {
+            Map<String, Long> newestRuns = new HashMap<>();
+            for (TcModel.Build b : tc.finishedBuildsSince(token, prNumber,
+                chain.queuedAt() > 0 ? TcDates.format(chain.queuedAt()) : null)) {
+                if (b.buildTypeId() != null)
+                    newestRuns.merge(b.buildTypeId(), b.id(), Math::max);
+            }
+
+            return chain.cancelledSuites().stream()
+                .filter(c -> newestRuns.getOrDefault(c.suite(), 0L) < c.suiteBuildId())
+                .toList();
+        }
+        catch (RuntimeException e) {
+            return chain.cancelledSuites();
+        }
     }
 
     /** The shrunk suites of both lists, one per suite: its newest run, the one a re-run would have replaced. */
