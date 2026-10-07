@@ -113,6 +113,42 @@ class GithubLoginTest {
         assertThat(link("nsamelchev", "anton-vinogradov").getStatusCode().value()).isEqualTo(409);
     }
 
+    /**
+     * The claimant's PR commands cannot work once the login is gone, and every other click of theirs
+     * was then refused for want of a login to use commands with.
+     */
+    @Test
+    void losingATypedLoginSwitchesCommandsOffAndLeavesTheOtherSwitchesFree() {
+        link("nsamelchev", "anton-vinogradov");
+        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
+        standing.change("avinogradov", "tc-2", null, "gh-pat",
+            new StandingVisas.OptionChange(null, null, true, null, null));
+
+        assertThat(standing.commandsOn("nsamelchev")).isFalse();
+        assertThat(standing.change("nsamelchev", "tc-1", null, null,
+            new StandingVisas.OptionChange(null, false, null, null, null))).isEmpty();
+        assertThat(standing.rerunOn("nsamelchev")).isFalse();
+    }
+
+    /**
+     * Two people's GitHub tokens prove the same account: the one who saved theirs last holds the
+     * login, and the poll's backfill must not hand it back to the other one as well.
+     */
+    @Test
+    void theBackfillDoesNotGiveOutALoginSomeoneElseHolds() {
+        when(github.ghUser("gh-pat-1")).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghUser("gh-pat-2")).thenReturn(Optional.of("anton-vinogradov"));
+        standing.change("nsamelchev", "tc-1", null, "gh-pat-1",
+            new StandingVisas.OptionChange(null, null, true, null, null));
+        standing.change("avinogradov", "tc-2", null, "gh-pat-2",
+            new StandingVisas.OptionChange(null, null, true, null, null));
+
+        standing.ensureGhLogins();
+
+        assertThat(standing.ghLoginOf("nsamelchev")).isNull();
+        assertThat(standing.ghLoginOf("avinogradov")).isEqualTo("anton-vinogradov");
+    }
+
     @Test
     void aTypedLoginCannotReplaceTheOneATokenProves() {
         when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));

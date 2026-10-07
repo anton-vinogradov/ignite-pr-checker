@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -365,14 +366,19 @@ public class GithubClient implements SnapshotCache {
 
     private final Metrics metrics;
 
+    @Autowired
     public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
-        this.http = RestClient.builder()
+        this(props, mapper, metrics, RestClient.builder()
             .requestFactory(OutboundHttp.withPatch(props.readTimeout()))
-            .build();
+            .build());
+    }
+
+    GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;
         this.metrics = metrics;
+        this.http = http;
     }
 
     /** Runs a GitHub call, recording its category, outcome and latency for the status page. */

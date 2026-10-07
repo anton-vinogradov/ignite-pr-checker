@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -129,6 +130,44 @@ class TcTokenRefusalTest {
 
         assertThat(standing.actor(LIVE)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("new-browser-tc"));
         assertThat(standing.tcTokenRejected(LIVE)).isFalse();
+    }
+
+    /**
+     * The user logged in again with a fresh token, while a tab of the old login stayed open elsewhere:
+     * a click in its ⚙ or its Link button must not put the old token back in charge.
+     */
+    @Test
+    void aSettingsClickFromAnOldTabKeepsTheLiveStoredToken() {
+        standing.tcTokenAccepted(LIVE, "fresh-tc");
+
+        standing.change(LIVE, "old-browser-tc", null, null,
+            new StandingVisas.OptionChange(false, null, null, null, null));
+
+        assertThat(standing.actor(LIVE)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("fresh-tc"));
+
+        standing.linkGhLogin(LIVE, "old-browser-tc", "anton-vinogradov");
+
+        assertThat(standing.actor(LIVE)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("fresh-tc"));
+
+        standing.markTcRejected(LIVE);
+        standing.change(LIVE, "new-browser-tc", null, null,
+            new StandingVisas.OptionChange(false, null, null, null, null));
+
+        assertThat(standing.actor(LIVE)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("new-browser-tc"));
+        assertThat(standing.tcTokenRejected(LIVE)).isFalse();
+    }
+
+    /** ci2's firewall answers 403 to requests it dislikes, whatever the token. */
+    @Test
+    void aForbiddenAnswerIsNotARefusalOfTheToken() {
+        HttpClientErrorException forbidden = HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden",
+            HttpHeaders.EMPTY, new byte[0], null);
+        doThrow(forbidden).when(tc).runningRunAllChains("dead-tc");
+        doThrow(forbidden).when(tc).findRunAllBuildForPr("dead-tc", PR);
+
+        standing.sweep();
+
+        assertThat(standing.tcTokenRejected(DEAD)).isFalse();
     }
 
     @Test

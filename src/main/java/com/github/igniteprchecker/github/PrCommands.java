@@ -69,7 +69,10 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Integer, Long> onboardedPrs = new ConcurrentHashMap<>();
     /** "login#pr" of commands from people without PR commands, so a repeat on the same PR gets no 😕. */
     private final ConcurrentMap<String, Long> strangerCommands = new ConcurrentHashMap<>();
-    /** Per user, the TeamCity refusal they were already told about in a PR — one reply per refusal. */
+    /**
+     * Per user, the TeamCity refusal they were already told about in a PR — one reply per refusal;
+     * survives restarts, as the refusal itself does.
+     */
     private final ConcurrentMap<String, Long> toldTcRefused = new ConcurrentHashMap<>();
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
@@ -595,7 +598,7 @@ public class PrCommands implements SnapshotCache {
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(),
             new HashMap<>(watching), new HashMap<>(onboarded), new HashMap<>(onboardedPrs),
-            new HashMap<>(strangerCommands)));
+            new HashMap<>(strangerCommands), new HashMap<>(toldTcRefused)));
     }
 
     @Override
@@ -616,11 +619,13 @@ public class PrCommands implements SnapshotCache {
             onboardedPrs.putAll(p.onboardedPrs());
         if (p.strangerCommands() != null)
             strangerCommands.putAll(p.strangerCommands());
+        if (p.toldTcRefused() != null)
+            toldTcRefused.putAll(p.toldTcRefused());
     }
 
     private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal,
         Map<Integer, CommandRun> watching, Map<String, Long> onboarded, Map<Integer, Long> onboardedPrs,
-        Map<String, Long> strangerCommands) {
+        Map<String, Long> strangerCommands, Map<String, Long> toldTcRefused) {
     }
 
     /** An accepted command still being narrated: where its comment is, which chain it watches, and —

@@ -19,10 +19,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
@@ -181,7 +184,7 @@ public class StandingVisas implements SnapshotCache {
         else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style()))
             ghCred = Credential.NONE;
 
-        if (after.commands() && login == null && (prev == null || prev.ghLogin() == null))
+        if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || prev.ghLogin() == null))
             return Optional.of(new Refusal("login", "link your GitHub login to use PR commands"));
 
         Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
@@ -200,7 +203,7 @@ public class StandingVisas implements SnapshotCache {
                 return null;
 
             Enrollment next = base
-                .withTc(decrypt(base.tc()).filter(tcToken::equals).isPresent() ? base.tc() : sessionTc)
+                .withTc(tcKept(base.tc(), tcToken))
                 .withOptions(options)
                 .withEnabledAt(cur == null || options.switchedOnSince(base.options()) ? now : base.enabledAt());
             next = jiraNext == null ? next : next.withJira(jiraNext);
@@ -357,19 +360,33 @@ public class StandingVisas implements SnapshotCache {
             log.info("TeamCity token of {} renewed at login: their options resume", username);
     }
 
-    /**
-     * The token a logged-in request carries replaces a stored one TeamCity refused. A working stored
-     * token is left alone: this one has not been checked, and an old browser session must not swap a
-     * live token for its own dead one.
-     */
+    /** The token a logged-in request carries replaces a stored one TeamCity refused; see {@link #tcKept}. */
     public void tcTokenOffered(String username, String token) {
         Enrollment e = enrolled.get(username);
-        if (e == null || !e.tc().rejected() || decrypt(e.tc()).filter(token::equals).isPresent())
+        if (e == null || tcKept(e.tc(), token) == e.tc())
             return;
 
-        Credential offered = new Credential(codec.encryptString(token), 0);
-        if (changed(username, cur -> cur.tc().rejected() ? cur.withTc(offered) : cur))
-            log.info("refused TeamCity token of {} replaced by the one of their session: options resume", username);
+        boolean replaced = changed(username, cur -> {
+            Credential kept = tcKept(cur.tc(), token);
+
+            return kept == cur.tc() ? cur : cur.withTc(kept);
+        });
+        if (replaced)
+            log.info("refused or unreadable TeamCity token of {} replaced by the one of their session: options resume",
+                username);
+    }
+
+    /**
+     * The TeamCity credential to keep when a request brings its session's token: the stored one while
+     * it works, because the session's token is unchecked and a tab of an older login must not swap a
+     * live token for its own dead one; the session's one when TeamCity refused the stored token or it
+     * can no longer be read. A login, which TeamCity checks, replaces it outright.
+     */
+    private Credential tcKept(Credential stored, String sessionToken) {
+        Optional<String> token = decrypt(stored);
+
+        return token.isPresent() && (!stored.rejected() || token.get().equals(sessionToken)) ? stored
+            : new Credential(codec.encryptString(sessionToken), 0);
     }
 
     /** A TeamCity call under the user's own stored token; a refusal is recorded against them. */
@@ -478,7 +495,7 @@ public class StandingVisas implements SnapshotCache {
                 return cur;
             }
 
-            return base.withTc(decrypt(base.tc()).filter(tcToken::equals).isPresent() ? base.tc() : sessionTc)
+            return base.withTc(tcKept(base.tc(), tcToken))
                 .withGhLogin(fromToken ? base.ghLogin() : login)
                 .withOptions(base.options().withCommands());
         });
@@ -496,16 +513,25 @@ public class StandingVisas implements SnapshotCache {
     /**
      * A login proven by a GitHub token belongs to its owner alone: a claim someone typed in by hand
      * (a typo, or someone else's login) would route the owner's commands to the claimant's account.
+     * The claimant's PR commands go off with the login: the poll finds a commander by login, so left
+     * on they would promise what cannot happen. Like any last option switched off, it takes the
+     * enrollment with it when nothing else is on.
      */
     private void releaseLogin(String login, String owner) {
         enrolled.forEach((u, e) -> {
             if (u.equals(owner) || !login.equalsIgnoreCase(e.ghLogin()))
                 return;
 
-            enrolled.computeIfPresent(u,
-                (k, cur) -> login.equalsIgnoreCase(cur.ghLogin()) ? cur.withGhLogin(null) : cur);
-            log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account", login, u, owner,
-                owner);
+            enrolled.computeIfPresent(u, (k, cur) -> {
+                if (!login.equalsIgnoreCase(cur.ghLogin()))
+                    return cur;
+
+                Options left = cur.options().with(Option.COMMANDS, false);
+
+                return left.any() ? cur.withGhLogin(null).withOptions(left) : null;
+            });
+            log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account; PR commands of {} "
+                + "switched off", login, u, owner, owner, u);
         });
     }
 
@@ -1131,29 +1157,66 @@ public class StandingVisas implements SnapshotCache {
             return new Credential(null, at);
         }
 
-        /** The token gone, the note that it was refused kept. */
-        Credential dropped() {
-            return new Credential(null, rejectedAt);
-        }
-
         boolean rejected() {
             return rejectedAt > 0;
         }
     }
 
-    /** The standing switches, independent of each other. */
-    private record Options(boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix,
-        boolean commands) {
-        static final Options NONE = new Options(false, false, false, false, false);
+    /** A standing switch. */
+    private enum Option {
+        VISA, RERUN, GH_COMMENT, STYLE_FIX, COMMANDS
+    }
+
+    /** The standing switches that are on, independent of each other. */
+    private record Options(Set<Option> on) {
+        static final Options NONE = new Options(EnumSet.noneOf(Option.class));
+
+        Options {
+            on = Collections.unmodifiableSet(on.isEmpty() ? EnumSet.noneOf(Option.class) : EnumSet.copyOf(on));
+        }
+
+        /** The switch turned on or off; unchanged when {@code value} is null. */
+        Options with(Option o, Boolean value) {
+            if (value == null || value == on.contains(o))
+                return this;
+
+            EnumSet<Option> next = EnumSet.noneOf(Option.class);
+            next.addAll(on);
+            if (value)
+                next.add(o);
+            else
+                next.remove(o);
+
+            return new Options(next);
+        }
 
         Options apply(OptionChange c) {
-            return new Options(c.visa() != null ? c.visa() : autoVisa, c.rerun() != null ? c.rerun() : autoRerun,
-                c.gh() != null ? c.gh() : ghComment, c.style() != null ? c.style() : styleFix,
-                c.commands() != null ? c.commands() : commands);
+            return with(Option.VISA, c.visa()).with(Option.RERUN, c.rerun()).with(Option.GH_COMMENT, c.gh())
+                .with(Option.STYLE_FIX, c.style()).with(Option.COMMANDS, c.commands());
+        }
+
+        boolean autoVisa() {
+            return on.contains(Option.VISA);
+        }
+
+        boolean autoRerun() {
+            return on.contains(Option.RERUN);
+        }
+
+        boolean ghComment() {
+            return on.contains(Option.GH_COMMENT);
+        }
+
+        boolean styleFix() {
+            return on.contains(Option.STYLE_FIX);
+        }
+
+        boolean commands() {
+            return on.contains(Option.COMMANDS);
         }
 
         boolean any() {
-            return autoVisa || autoRerun || ghComment || styleFix || commands;
+            return !on.isEmpty();
         }
 
         /**
@@ -1161,34 +1224,33 @@ public class StandingVisas implements SnapshotCache {
          * commands act on the commands only, so switching them on moves no cutoff.
          */
         boolean switchedOnSince(Options before) {
-            return autoVisa && !before.autoVisa || autoRerun && !before.autoRerun || ghComment && !before.ghComment
-                || styleFix && !before.styleFix;
+            return on.stream().anyMatch(o -> o != Option.COMMANDS && !before.on().contains(o));
         }
 
         /** Whether an option acts on the user's finished runs, so the sweep has something to do for them. */
         boolean settlesRuns() {
-            return autoVisa || autoRerun || ghComment;
+            return autoVisa() || autoRerun() || ghComment();
         }
 
         boolean commandsOnly() {
-            return commands && !autoVisa && !autoRerun && !ghComment && !styleFix;
+            return on.equals(EnumSet.of(Option.COMMANDS));
         }
 
         /** Both options that act from the user's GitHub account need the GitHub token. */
         boolean needsGh() {
-            return ghComment || styleFix;
+            return ghComment() || styleFix();
         }
 
         Options withoutGh() {
-            return new Options(autoVisa, autoRerun, false, false, commands);
+            return with(Option.GH_COMMENT, false).with(Option.STYLE_FIX, false);
         }
 
         Options withoutVisa() {
-            return new Options(false, autoRerun, ghComment, styleFix, commands);
+            return with(Option.VISA, false);
         }
 
         Options withCommands() {
-            return new Options(autoVisa, autoRerun, ghComment, styleFix, true);
+            return with(Option.COMMANDS, true);
         }
     }
 
@@ -1415,8 +1477,10 @@ public class StandingVisas implements SnapshotCache {
             return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
                 new Credential(ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz, enabledAt,
-                new Options(autoVisa == null || autoVisa, autoRerun, ghComment != null && ghComment,
-                    styleFix != null && styleFix, commands == null ? ghLogin != null : commands), h);
+                Options.NONE.with(Option.VISA, autoVisa == null || autoVisa).with(Option.RERUN, autoRerun)
+                    .with(Option.GH_COMMENT, ghComment != null && ghComment)
+                    .with(Option.STYLE_FIX, styleFix != null && styleFix)
+                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands), h);
         }
     }
 }

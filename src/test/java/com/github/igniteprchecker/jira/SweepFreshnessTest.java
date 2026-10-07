@@ -157,6 +157,23 @@ class SweepFreshnessTest {
     }
 
     /**
+     * Only runs that finished after the options were switched on are acted on. Between the chain's
+     * finish and the sweep its owner switched PR commands off, and every settings change used to move
+     * that cutoff: the run was skipped as if it had finished before auto re-run was on.
+     */
+    @Test
+    void aClickOnAnotherOptionAfterTheRunDoesNotHideItFromTheSweep() {
+        cache.putResult(RUN_ALL, verdict((now - 60) * 1000, 9389300L, chainFinished,
+            List.of(DPC1, QUERIES5, QUERIES6), now - 120));
+        standing.linkGhLogin(USER, TOK, "anton-vinogradov");
+        standing.change(USER, TOK, null, null, new StandingVisas.OptionChange(null, null, null, null, false));
+
+        standing.sweep();
+
+        assertThat(rerunSuites()).containsExactlyInAnyOrder(DPC1.id(), QUERIES5.id(), QUERIES6.id());
+    }
+
+    /**
      * Read from the finished chain, but the early re-run of Disk Page Compressions 1 passed after it:
      * acting on that verdict would spend an attempt on a suite that has already settled.
      */

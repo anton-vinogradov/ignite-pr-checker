@@ -26,9 +26,11 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
@@ -51,9 +53,7 @@ class CommandTokenRefusedTest {
         mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
         mock(Warmer.class), mock(PendingCommits.class));
 
-    private final PrCommands commands = new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class),
-        mock(StyleFixService.class), mock(SuiteBaseline.class), "https://checker.example",
-        new TeamcityProperties("https://ci2.example/"));
+    private final PrCommands commands = commands();
 
     @BeforeEach
     void setUp() {
@@ -75,6 +75,27 @@ class CommandTokenRefusedTest {
         verify(github, times(1)).addPrCommentAsApp(eq(PR), contains("TeamCity no longer accepts the token"));
         verify(github, times(2)).reactToCommentAsApp(anyLong(), eq("confused"));
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
+    }
+
+    /** The checker was redeployed between two /run-all of the same author. */
+    @Test
+    void aRestartDoesNotTellTheSameRefusalAgain(@TempDir Path dir) throws Exception {
+        when(github.recentIssueComments(anyString())).thenReturn(List.of(runAll(1L)), List.of(runAll(2L)));
+        commands.poll();
+        Path file = dir.resolve("pr-commands.json");
+        commands.saveTo(file);
+        PrCommands restarted = commands();
+        restarted.loadFrom(file);
+
+        restarted.poll();
+
+        verify(github, times(1)).addPrCommentAsApp(eq(PR), contains("TeamCity no longer accepts the token"));
+        verify(github, times(2)).reactToCommentAsApp(anyLong(), eq("confused"));
+    }
+
+    private PrCommands commands() {
+        return new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
+            mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"));
     }
 
     private static GithubClient.IssueComment runAll(long id) {

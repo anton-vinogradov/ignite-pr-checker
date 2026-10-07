@@ -30,6 +30,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,9 +82,13 @@ class OnboardingTest {
         verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
     }
 
+    /** The checker knows their login from the GitHub token, yet they never switched commands on. */
     @Test
     void someoneWithOtherOptionsButCommandsOffIsToldHowToSwitchThemOn() {
-        standing.change("nsamelchev", "tc-2", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
+        when(github.ghUser("gh-pat")).thenReturn(Optional.of("NSAmelchev"));
+        standing.change("nsamelchev", "tc-2", null, "gh-pat",
+            new StandingVisas.OptionChange(null, null, true, null, null));
+        assertThat(standing.actorByGhLogin("NSAmelchev")).isPresent();
 
         command(13701, "NSAmelchev");
 
