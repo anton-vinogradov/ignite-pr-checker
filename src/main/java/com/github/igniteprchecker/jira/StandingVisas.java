@@ -2,10 +2,13 @@ package com.github.igniteprchecker.jira;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
+import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -20,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -47,7 +51,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class StandingVisas implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(StandingVisas.class);
-    private static final Pattern ISSUE = Pattern.compile("IGNITE-\\d+");
+    /** An IGNITE ticket key, in any case. Without the hyphen "from Ignite 3" would name ticket IGNITE-3. */
+    private static final Pattern ISSUE = Pattern.compile("(?i)\\bIGNITE-\\d{4,}\\b");
     private static final Pattern PR_BRANCH = Pattern.compile("pull/(\\d+)/head");
 
     private final ObjectMapper mapper;
@@ -61,8 +66,11 @@ public class StandingVisas implements SnapshotCache {
     private final Warmer warmer;
     private final PendingCommits pending;
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
-    /** Auto-rerun attempts per PR for the build being settled; persisted with the enrollments. */
-    private final ConcurrentMap<Integer, Retry> retries = new ConcurrentHashMap<>();
+    /**
+     * Auto re-run waves per RunAll chain: each chain keeps its own, so re-runs of a chain still going never
+     * take over the count of the one being settled. Persisted with the enrollments.
+     */
+    private final ConcurrentMap<Long, Retry> waves = new ConcurrentHashMap<>();
     /** Suites already re-run mid-chain, per chain build — so a restart can't re-queue them again. */
     private final ConcurrentMap<Long, java.util.Set<String>> earlyReruns = new ConcurrentHashMap<>();
 
@@ -73,6 +81,45 @@ public class StandingVisas implements SnapshotCache {
             t.setDaemon(true);
             return t;
         });
+
+    /** One PR is settled at a time, whoever asks — the sweep or an event — so a wave is never queued twice. */
+    private final Object settleLock = new Object();
+
+    /** Settles the PRs whose chains and re-runs the tracker reports finished, off its polling thread. */
+    private final java.util.concurrent.ExecutorService settler =
+        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "settle");
+            t.setDaemon(true);
+            return t;
+        });
+
+    /** PRs with a settle queued on {@link #settler} that has not started yet. */
+    private final Set<Integer> settleQueued = ConcurrentHashMap.newKeySet();
+
+    /** When someone waiting for a PR's run last asked for its settle. */
+    private final ConcurrentMap<Integer, Long> settleAsked = new ConcurrentHashMap<>();
+
+    /**
+     * The finished RunAll of each PR whose auto re-runs are still to be decided on. The settle that takes it up
+     * marks it, those that cannot decide yet (TeamCity errors, a lookup that named an older run) keep the mark,
+     * and it goes once the run is settled or a newer run takes its place.
+     */
+    private final ConcurrentMap<Integer, Long> deciding = new ConcurrentHashMap<>();
+
+    /** The newest RunAll of each PR a settle saw: the latest finished one, or a newer one still going. */
+    private final ConcurrentMap<Integer, Long> newestSeen = new ConcurrentHashMap<>();
+
+    /** The run of each PR held back while a newer one goes — logged once. */
+    private final ConcurrentMap<Integer, Long> heldForNewer = new ConcurrentHashMap<>();
+
+    /** PRs found closed, and whether they were merged: their runs are no longer settled. */
+    private final ConcurrentMap<Integer, Boolean> closedPrs = new ConcurrentHashMap<>();
+
+    /** Runs settled without a visa because their PR's title names no IGNITE ticket. */
+    private final Set<Long> ticketless = ConcurrentHashMap.newKeySet();
+
+    /** How often the sweep goes through the open PRs. */
+    private static final long SWEEP_MS = 600_000;
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
@@ -209,7 +256,7 @@ public class StandingVisas implements SnapshotCache {
 
             Enrollment next = base
                 .withTc(tcKept(base.tc(), tcToken))
-                .withOptions(options)
+                .switchedTo(options, now)
                 .withEnabledAt(cur == null || options.switchedOnSince(base.options()) ? now : base.enabledAt());
             next = jiraNext == null ? next : next.withJira(jiraNext);
             next = ghNext == null ? next : next.withGh(ghNext);
@@ -564,13 +611,95 @@ public class StandingVisas implements SnapshotCache {
 
     /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
     public Optional<WaveStatus> waveStatus(int pr, long buildId) {
-        Retry r = retries.get(pr);
-        if (r == null || r.buildId() != buildId)
+        Retry r = waves.get(buildId);
+        if (r == null || r.pr() != pr)
             return Optional.empty();
 
-        int wave = r.history() != null && !r.history().isEmpty() ? r.history().size() : r.attempts();
+        return Optional.of(new WaveStatus(r.wave(), r.what(), activeEtaEpoch(pr)));
+    }
 
-        return Optional.of(new WaveStatus(wave, r.what(), activeEtaEpoch(pr)));
+    /**
+     * Where the verdict of the PR's run {@code buildId} stands, for the page: "running" while a RunAll of the
+     * PR is under way, "settling" while auto re-runs settle that run or the decision on them is being made,
+     * "final" when nothing will change it any more.
+     */
+    public Phase phase(int pr, long buildId) {
+        if (rerunTracker.newestChainUnderWay(pr) > 0)
+            return new Phase(Phase.RUNNING, 0, MAX_RERUNS, null, null);
+
+        Retry r = waves.get(buildId);
+        if (r != null && r.pr() == pr)
+            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, r.what(), activeEtaEpoch(pr));
+        if (Long.valueOf(buildId).equals(deciding.get(pr)))
+            return new Phase(Phase.SETTLING, 0, MAX_RERUNS, null, null);
+
+        return new Phase(Phase.FINAL, 0, MAX_RERUNS, null, null);
+    }
+
+    /**
+     * See {@link #phase}: {@code wave} of up to {@code of} is the one going, 0 while the decision is made;
+     * {@code what} it re-runs and {@code etaEpochSec} when it should settle, null when not known.
+     */
+    public record Phase(String phase, int wave, int of, String what, Long etaEpochSec) {
+        static final String RUNNING = "running";
+
+        static final String SETTLING = "settling";
+
+        static final String FINAL = "final";
+    }
+
+    /**
+     * Why a finished run is not going to be settled after all: a newer RunAll of the PR replaced it
+     * ({@code replacedBy}), or the PR was closed ({@code replacedBy} 0, {@code merged} or not). Empty while it
+     * may still be.
+     */
+    public Optional<RunEnd> runEnd(int pr, long buildId) {
+        Boolean merged = closedPrs.get(pr);
+        if (merged != null)
+            return Optional.of(new RunEnd(0, merged));
+
+        long newer = Math.max(newestSeen.getOrDefault(pr, 0L), rerunTracker.newestChainUnderWay(pr));
+
+        return newer > buildId ? Optional.of(new RunEnd(newer, false)) : Optional.empty();
+    }
+
+    /** See {@link #runEnd}. */
+    public record RunEnd(long replacedBy, boolean merged) {
+    }
+
+    /** Whether the run was settled without a visa because its PR's title names no IGNITE ticket. */
+    public boolean settledWithoutTicket(long buildId) {
+        return ticketless.contains(buildId);
+    }
+
+    /**
+     * Cancels the re-runs of the user's earlier runs of the PR, mid-run and settling alike, and forgets their
+     * waves: a new /run-all of theirs replaces those runs. How many builds were cancelled. Only a refused
+     * token stops the new command; re-runs that could not be cancelled are left to finish.
+     */
+    public int cancelWaves(String username, String tcToken, int pr) {
+        List<Retry> theirs = waves.values().stream().filter(r -> r.pr() == pr && username.equals(r.by())).toList();
+        Set<Long> ids = new java.util.HashSet<>();
+        theirs.forEach(r -> ids.addAll(r.queued() == null ? List.of() : r.queued()));
+        theirs.forEach(r -> waves.remove(r.buildId(), r));
+        if (ids.isEmpty())
+            return 0;
+
+        try {
+            int cancelled = asUser(username, () -> tc.cancelOwnBuilds(tcToken, pr, username, b -> ids.contains(b.id())));
+            log.info("waves of {} on PR {} dropped for their new /run-all: {} re-run(s) cancelled", username, pr,
+                cancelled);
+
+            return cancelled;
+        }
+        catch (RuntimeException e) {
+            if (tcRefused(e))
+                throw e;
+
+            log.warn("re-runs of the earlier runs of {} on PR {} not cancelled: {}", username, pr, e.toString());
+
+            return 0;
+        }
     }
 
     /** The user's PR comment that carries this build's verdict, if one was posted. */
@@ -585,7 +714,8 @@ public class StandingVisas implements SnapshotCache {
     /**
      * What the user's standing auto-visa does about this build's verdict in {@code issue}: it is in
      * (the living visa of the build, interim or final), the sweep is still to post it, or neither. A PR
-     * the sweep no longer lists keeps its posted visa: the visa went to the ticket of the PR's title.
+     * the sweep no longer lists keeps its posted visa: the visa went to the ticket of the PR's title. A run
+     * a newer RunAll of the PR replaces, or holds back while it goes, gets no standing visa (see {@link #runEnd}).
      */
     public VisaCover visaCover(String username, int pr, long buildId, String issue) {
         Enrollment e = username == null ? null : enrolled.get(username);
@@ -598,8 +728,9 @@ public class StandingVisas implements SnapshotCache {
             return VisaCover.POSTED;
 
         boolean settled = Long.valueOf(buildId).equals(e.handled().posted().get(pr));
+        boolean comes = !settled && runEnd(pr, buildId).isEmpty();
 
-        return !settled && visaTicket(username, pr).isPresent() ? VisaCover.PENDING : VisaCover.NONE;
+        return comes && visaTicket(username, pr).isPresent() ? VisaCover.PENDING : VisaCover.NONE;
     }
 
     /** See {@link #visaCover}. */
@@ -631,8 +762,14 @@ public class StandingVisas implements SnapshotCache {
 
     /** The IGNITE ticket in the title of an open PR the sweep goes through. */
     private Optional<String> titleTicket(int pr) {
-        return github.openPrs().stream().filter(p -> p.number() == pr && p.title() != null).findFirst()
-            .map(p -> ISSUE.matcher(p.title())).filter(Matcher::find).map(Matcher::group);
+        return github.openPrs().stream().filter(p -> p.number() == pr).findFirst().flatMap(p -> ticketIn(p.title()));
+    }
+
+    /** The IGNITE ticket a PR title names, spelled as JIRA spells it; empty when it names none. */
+    static Optional<String> ticketIn(String title) {
+        Matcher m = title == null ? null : ISSUE.matcher(title);
+
+        return m != null && m.find() ? Optional.of(m.group().toUpperCase(java.util.Locale.ROOT)) : Optional.empty();
     }
 
     /** Whether the build's verdict has been posted for the user — i.e. the run's story is over. */
@@ -813,10 +950,13 @@ public class StandingVisas implements SnapshotCache {
         // All re-runs of a running chain are its first wave, so the settled pass continues from here
         // instead of starting over — two waves per chain stays two. The chain is still running, so no
         // settled wave can precede it.
-        Retry r = retries.get(ev.pr());
         String wave = earlyWave(done.size());
-        retries.put(ev.pr(), new Retry(ev.chainBuildId(), 1, wave, List.of(wave),
-            r != null && r.buildId() == ev.chainBuildId() ? r.note() : null));
+        waves.compute(ev.chainBuildId(), (id, r) -> {
+            List<Long> queued = new ArrayList<>(r != null && r.queued() != null ? r.queued() : List.of());
+            queued.add(b.id());
+
+            return new Retry(ev.pr(), id, 1, wave, List.of(wave), r != null ? r.note() : null, who, queued);
+        });
         log.info("early re-run of {} for PR {} queued at top (chain {} still running, build {})",
             ev.suiteName(), ev.pr(), ev.chainBuildId(), b.id());
     }
@@ -867,10 +1007,11 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Sweep: for every open PR whose latest finished RunAll was triggered by an enrolled user and
-     * hasn't been visa'd yet, compute the verdict and post it to the PR's IGNITE ticket.
+     * Sweep: settles each open PR the list holds (see {@link #settle}), then the PRs out of the list that
+     * still have a living comment or a wave open. Events settle a run as soon as its chain or a re-run
+     * finishes; the sweep keeps the ones that wait going and catches what an event missed.
      */
-    @Scheduled(fixedDelay = 600_000, initialDelay = 180_000)
+    @Scheduled(fixedDelay = SWEEP_MS, initialDelay = 180_000)
     void sweep() {
         long t0 = System.currentTimeMillis();
         lastSweepAt = t0;
@@ -888,34 +1029,157 @@ public class StandingVisas implements SnapshotCache {
 
         watchRunningChains();
 
+        List<PrSummary> listed = github.openPrs();
         int posted = 0;
-        for (PrSummary pr : github.openPrs()) {
-            Matcher m = pr.title() == null ? null : ISSUE.matcher(pr.title());
-            if (m == null || !m.find())
-                continue; // nowhere to post
+        for (PrSummary pr : listed)
+            posted += settle(pr);
+        settleUnlisted(listed);
 
-            String who = null;
+        lastSweepMs = System.currentTimeMillis() - t0;
+        if (posted > 0)
+            log.info("standing auto-visa sweep: {} visa(s) posted", posted);
+    }
+
+    /** A finished chain is settled at once: its first wave of re-runs goes in, or its verdict comes out. */
+    @EventListener
+    void onChainFinished(RerunTracker.ChainFinished ev) {
+        settleSoon(ev.pr());
+    }
+
+    /** A finished re-run is settled at once: once its wave is over, the next one goes in or the verdict comes out. */
+    @EventListener
+    void onRerunFinished(RerunTracker.RerunFinished ev) {
+        settleSoon(ev.pr());
+    }
+
+    /**
+     * Settles the PR on the settle thread: a finished chain gets its first wave or its verdict, and a
+     * finished wave the next step, within seconds instead of at the next sweep. Several asks while one is
+     * queued make one settle.
+     */
+    public void settleSoon(int pr) {
+        if (enrolled.isEmpty() || !settleQueued.add(pr))
+            return;
+
+        settler.execute(() -> {
+            settleQueued.remove(pr);
             try {
-                Optional<TcModel.Build> build = lookup(token -> tc.findRunAllBuildForPr(token, pr.number()));
-                if (build.isEmpty() || build.get().triggered() == null || build.get().triggered().user() == null)
-                    continue;
+                settleNow(pr);
+            }
+            catch (RuntimeException e) {
+                log.warn("settling PR {} failed: {}", pr, e.toString());
+            }
+        });
+    }
 
-                who = build.get().triggered().user().username();
-                Enrollment e = enrolled.get(who);
-                if (e == null || e.tc().rejected())
-                    continue; // a refused token pauses its owner's options until a working one comes
+    /**
+     * Asks for a settle of the PR on behalf of someone who waits for it (a /run-all story), at most once a
+     * sweep period: the sweep goes only through the 50 most recently updated PRs.
+     */
+    public void settleRequested(int pr) {
+        long now = System.currentTimeMillis();
+        Long last = settleAsked.get(pr);
+        if (last != null && now - last < SWEEP_MS)
+            return;
+
+        settleAsked.put(pr, now);
+        settleSoon(pr);
+    }
+
+    /** Settles the PR whether the sweep lists it or not; a closed PR has its open living comments ended. */
+    void settleNow(int pr) {
+        if (!anyLiveTcToken())
+            return;
+
+        Optional<PrSummary> listed = github.openPrs().stream().filter(p -> p.number() == pr).findFirst();
+        if (listed.isPresent()) {
+            settle(listed.get());
+
+            return;
+        }
+
+        Optional<GithubClient.PullState> state = github.pullState(pr);
+        if (state.isPresent() && state.get().open())
+            settle(new PrSummary(pr, state.get().title(), null, null, null, null));
+        else
+            closePr(pr, state.map(GithubClient.PullState::title).orElse(null),
+                state.map(GithubClient.PullState::merged).orElse(false));
+    }
+
+    /**
+     * The PRs out of the sweep's list that still have a living comment or a wave open. The list holds the 50
+     * most recently updated open PRs only, and a run whose PR dropped out of it stayed "in progress" for good.
+     */
+    private void settleUnlisted(List<PrSummary> listed) {
+        Set<Integer> prs = new java.util.TreeSet<>();
+        enrolled.values().forEach(e -> {
+            e.handled().ghThreads().forEach((pr, t) -> {
+                if (open(e, pr, t.buildId(), t.done()))
+                    prs.add(pr);
+            });
+            e.handled().jiraThreads().forEach((pr, t) -> {
+                if (open(e, pr, t.buildId(), t.done()))
+                    prs.add(pr);
+            });
+        });
+        waves.values().forEach(r -> prs.add(r.pr()));
+        listed.forEach(p -> prs.remove(p.number()));
+
+        for (int pr : prs) {
+            try {
+                settleNow(pr);
+            }
+            catch (RuntimeException e) {
+                log.warn("PR {} out of the sweep's list not settled this time: {}", pr, e.toString());
+            }
+        }
+    }
+
+    /**
+     * Settles the PR's latest finished RunAll for the user who triggered it: while waves remain, re-runs the
+     * suites its verdict blames; then posts that verdict, once, to the PR's ticket and the PR. A run that a
+     * newer one of the PR is replacing gets neither. The living comments of the runs before it get their
+     * last line. One PR at a time, whoever asks, so a wave is never queued twice. 1 when a visa was posted.
+     */
+    int settle(PrSummary pr) {
+        synchronized (settleLock) {
+            String who = null;
+            boolean undecided = false;
+            try {
+                closedPrs.remove(pr.number());
+                Optional<TcModel.Build> build = lookup(token -> tc.findRunAllBuildForPr(token, pr.number()));
+                if (build.isEmpty())
+                    return 0;
 
                 long buildId = build.get().id();
-                Long last = e.handled().posted().get(pr.number());
-                if (last != null && last == buildId)
-                    continue; // this run is already handled (visa'd, or settled without one)
+                newestSeen.merge(pr.number(), buildId, Math::max);
+                endReplaced(pr, buildId);
 
-                // Only runs that FINISHED after the options were switched on get acted upon: the
+                who = TcClient.starter(build.get());
+                Enrollment e = who == null ? null : enrolled.get(who);
+                if (e == null) {
+                    waves.remove(buildId); // nobody settles this run any more
+                    return 0;
+                }
+                if (e.tc().rejected())
+                    return 0; // a refused token pauses its owner's options until a working one comes
+
+                Long last = e.handled().posted().get(pr.number());
+                if (last != null && last == buildId) {
+                    // v1.20.11 marked runs handled without dropping their waves, which then read as settling for good.
+                    settled(e, pr.number(), buildId);
+                    return 0; // this run is already handled (visa'd, or settled without one)
+                }
+
+                // Only runs that FINISHED after an option was switched on get acted upon by it: the
                 // first sweep must not spam week-old tickets with back-filled visas or re-runs.
                 long finishedMs = TcDates.epochSeconds(build.get().finishDate()) * 1000L;
-                if (finishedMs > 0 && finishedMs < e.enabledAt() || !e.options().settlesRuns()) {
-                    e.handled().posted().put(pr.number(), buildId);
-                    continue; // nothing to post or re-run: a verdict computed now would go nowhere
+                Options acting = e.actingOn(finishedMs);
+                if (!acting.settlesRuns()) {
+                    endThreads(who, e, pr, b -> b == buildId,
+                        e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed());
+                    settled(e, pr.number(), buildId);
+                    return 0; // nothing to post or re-run: a verdict computed now would go nowhere
                 }
 
                 Optional<String> tcToken = decrypt(e.tc());
@@ -925,174 +1189,457 @@ public class StandingVisas implements SnapshotCache {
                     || (e.options().ghComment() && ghToken.isEmpty())) {
                     enrolled.remove(who);
                     log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
-                    continue;
+                    return 0;
                 }
 
-                Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken.get(), pr.number());
-                if (res.isEmpty() || res.get().buildId() != buildId)
-                    continue; // raced with a newer run; the next sweep settles it
-                if (analyzer.stillRetrying(res.get()))
-                    continue; // TeamCity errors left part of it unchecked: the next sweep tries it again first
-
-                // Auto-rerun before the visa: while re-runs of this PR are still live, wait; if the
-                // verdict has blockers and attempts remain, re-run their suites (at the top of the
-                // queue, under the user's own token) instead of posting a red visa right away.
-                if (e.options().autoRerun()) {
+                if (acting.autoRerun()) {
+                    deciding.put(pr.number(), buildId);
+                    undecided = true;
                     if (rerunTracker.hasActive(pr.number())) {
-                        // Re-runs still going: keep the living comment's ⏳ line honest about when
-                        // they are expected to settle (queue-aware, from the tracker). Anchored on the
-                        // persisted comment thread, not on the retry bookkeeping — the line must keep
-                        // refreshing even right after a restart.
-                        GhThread t = e.handled().ghThreads().get(pr.number());
-                        Retry r0 = retries.get(pr.number());
-                        if (e.options().ghComment() && t != null && t.buildId() == buildId) {
-                            String what = r0 != null && r0.buildId() == buildId ? r0.what() : "re-run suite(s)";
-                            int attempt = r0 != null && r0.buildId() == buildId ? r0.attempts() : 1;
-                            List<String> history = r0 != null && r0.buildId() == buildId ? r0.history() : null;
-                            upsertGhComment(who, e, ghToken.get(), pr.number(), buildId,
-                                visas.composeMarkdown(pr.number(), res.get())
-                                    + pendingLine(what, attempt, history, activeEtaEpoch(pr.number()), e.tz(), "**"));
-                        }
-
-                        continue; // the visa waits until the re-runs settle
-                    }
-
-                    Retry r = retries.get(pr.number());
-                    int attempts = r != null && r.buildId() == buildId ? r.attempts() : 0;
-                    List<String> blockerSuites = res.get().blockers().stream()
-                        .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
-                        .distinct().toList();
-                    // A watch item is exactly what a re-run settles: too few runs of this revision to
-                    // tell a real break from a flake. Re-running is what turns it into a verdict —
-                    // without it a PR whose only finding is a watch item waits for a human forever.
-                    List<String> watchSuites = res.get().watch().stream()
-                        .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
-                        .distinct().filter(s -> !blockerSuites.contains(s)).toList();
-                    // Broken suites (timeout/crash/compilation) deserve the same retry a human would
-                    // give them — and a passing re-run now clears them from the verdict too.
-                    List<String> brokenSuites = res.get().brokenSuites().stream().map(s -> s.suite())
-                        .filter(x -> x != null && !x.isBlank()).distinct()
-                        .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s)).toList();
-                    // A suite TeamCity cancelled by itself never ran, and a re-run is what gets it a result.
-                    // One a person cancelled was meant not to run.
-                    List<String> cancelledSuites = res.get().cancelledSuites().stream()
-                        .filter(CancelledSuite::byTeamCity).map(CancelledSuite::suite)
-                        .filter(x -> x != null && !x.isBlank()).distinct()
-                        .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s) && !brokenSuites.contains(s))
-                        .toList();
-                    List<String> suites = java.util.stream.Stream.of(blockerSuites, watchSuites, brokenSuites,
-                        cancelledSuites).flatMap(List::stream).toList();
-                    String what = suitesLabel(blockerSuites.size(), watchSuites.size(), brokenSuites.size(),
-                        cancelledSuites.size());
-                    if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
-                        // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
-                        retries.put(pr.number(), new Retry(buildId, MAX_RERUNS, what, List.of(),
-                            "(i) Auto re-run skipped: " + suites.size() + " suites is too many — "
-                                + "this looks systemic; fix the cause and re-trigger RunAll."));
-                    }
-                    else if (!suites.isEmpty() && attempts < MAX_RERUNS) {
-                        // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
-                        // re-run doesn't shove everyone else's builds back.
-                        boolean top = suites.size() <= TOP_QUEUE_LIMIT;
-                        List<String> history = new ArrayList<>(
-                            r != null && r.buildId() == buildId && r.history() != null ? r.history() : List.of());
-                        history.add(what);
-                        String tcComment = "Auto re-run #" + history.size() + " of up to " + MAX_RERUNS
-                            + " by Ignite PR Checker, settling RunAll " + buildId;
-                        List<Long> queued = new ArrayList<>();
-                        for (String suite : suites) {
-                            TcModel.Build b =
-                                tc.triggerBuildReplacingQueued(tcToken.get(), suite, pr.number(), top, tcComment);
-                            rerunTracker.record(pr.number(), b);
-                            queued.add(b.id());
-                        }
-                        String note = top ? (r != null ? r.note() : null)
-                            : "(i) " + suites.size() + " suites were re-queued at the TAIL of the queue "
-                                + "(too many to jump it without disturbing others) — this may need a real fix "
-                                + "and a fresh RunAll rather than re-runs.";
-                        retries.put(pr.number(), new Retry(buildId, attempts + 1, what, history, note));
-                        log.info("auto-rerun {}/{} for PR {}: {} re-queued at {}",
-                            attempts + 1, MAX_RERUNS, pr.number(), what, top ? "top" : "tail");
-
-                        // The PR comment appears as soon as the run finished and then keeps updating
-                        // in place while the re-runs settle; the JIRA visa gets the same treatment,
-                        // but is only touched on stage changes (watchers get mail on every edit).
-                        Long eta = queuedEtaEpoch(tcToken.get(), queued);
-                        if (e.options().ghComment())
-                            upsertGhComment(who, e, ghToken.get(), pr.number(), buildId,
-                                visas.composeMarkdown(pr.number(), res.get())
-                                    + pendingLine(what, attempts + 1, history, eta, e.tz(), "**"));
-                        if (e.options().autoVisa()) {
-                            try {
-                                upsertVisa(who, e, jiraToken.get(), m.group(), pr.number(), buildId,
-                                    visas.compose(pr.number(), res.get())
-                                        + pendingLine(what, attempts + 1, history, eta, e.tz(), "*"));
-                            }
-                            catch (RuntimeException vex) {
-                                log.warn("interim visa for PR {} failed: {}", pr.number(), vex.toString());
-                            }
-                        }
-
-                        continue; // the final visa waits until the re-runs settle
+                        refreshInterim(who, e, ghToken, pr.number(), buildId, tcToken.get());
+                        return 0; // the verdict waits until the re-runs settle
                     }
                 }
 
-                Retry done = retries.get(pr.number());
-                String note = done != null && done.buildId() == buildId ? done.note() : null;
-                String settled = done != null && done.buildId() == buildId ? settledLine(done.history()) : null;
+                Optional<AnalysisResult> res = verdictOf(tcToken.get(), pr.number(), buildId);
+                if (res.isEmpty() || res.get().buildId() != buildId)
+                    return 0; // raced with a newer run; the next sweep settles it
+                if (analyzer.stillRetrying(res.get()))
+                    return 0; // TeamCity errors left part of it unchecked: the next sweep tries it again first
 
-                Integer ahead = pending.countSince(tcToken.get(), pr.number(), buildId);
+                long newer = newerRunGoing(pr.number(), buildId, res.get(), tcToken.get());
+                if (newer > 0) {
+                    undecided = false; // the newer run takes its place
+                    newestSeen.merge(pr.number(), newer, Math::max);
+                    if (!Long.valueOf(buildId).equals(heldForNewer.put(pr.number(), buildId)))
+                        log.info("PR {}: RunAll {} is not settled while the newer RunAll {} goes", pr.number(),
+                            buildId, newer);
+                    return 0;
+                }
 
-                if (e.options().autoVisa()) {
-                    String body = visas.compose(pr.number(), res.get(), ahead);
-                    if (settled != null)
-                        body = body + "\n\n" + settled;
-                    if (note != null)
-                        body = body + "\n\n" + note;
-                    String url = upsertVisa(who, e, jiraToken.get(), m.group(), pr.number(), buildId, body);
-                    posted++;
-                    postedTotal.incrementAndGet();
-                    log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who,
-                        url != null ? url : "updated in place");
-                }
-                if (e.options().ghComment()) {
-                    String md = visas.composeMarkdown(pr.number(), res.get(), ahead);
-                    if (settled != null)
-                        md = md + "\n\n_" + settled + "_";
-                    if (note != null)
-                        md = md + "\n\n_" + note + "_";
-                    if (!res.get().blockers().isEmpty())
-                        md = md + NEXT_STEP;
-                    upsertGhComment(who, e, ghToken.get(), pr.number(), buildId, md);
-                }
-                e.handled().posted().put(pr.number(), buildId);
-                retries.remove(pr.number());
-                earlyReruns.remove(buildId); // this chain is settled; its mid-run memo is spent
+                if (acting.autoRerun() && queueWave(who, pr.number(), buildId, res.get(), tcToken.get()))
+                    return 0; // the verdict waits until the wave settles
+
+                undecided = false;
+                return postSettled(who, e, acting, pr, buildId, res.get(), tcToken.get(), jiraToken.orElse(null),
+                    ghToken.orElse(null));
             }
             catch (RuntimeException ex) {
                 // Lookups never get here with a refusal; what does came from the triggerer's own token.
                 if (who != null && tcRefused(ex))
                     markTcRejected(who);
                 log.warn("standing auto-visa sweep: PR {} skipped: {}", pr.number(), ex.toString());
+                undecided = true; // nothing was decided: the page goes on saying what it said
+
+                return 0;
+            }
+            finally {
+                // A run still to be decided on stays so between settles: the page must not call its verdict final.
+                if (!undecided)
+                    deciding.remove(pr.number());
             }
         }
-
-        lastSweepMs = System.currentTimeMillis() - t0;
-        if (posted > 0)
-            log.info("standing auto-visa sweep: {} visa(s) posted", posted);
     }
 
     /**
-     * The whole run's story lives in ONE PR comment: created when the run first finishes, edited in
-     * place as re-runs settle. A failure never breaks the sweep (the JIRA visa may already be out),
-     * and a failed edit falls back to a fresh comment rather than losing the verdict.
+     * The verdict of the PR's run {@code buildId} to act on. The analysis finds the PR's run through a lookup
+     * cached for half a minute: right after the chain finished, when its event settles it, that lookup may
+     * still name the run before it, and then the run is looked up afresh.
      */
-    private void upsertGhComment(String who, Enrollment e, String ghToken, int pr, long buildId, String md) {
+    private Optional<AnalysisResult> verdictOf(String tcToken, int pr, long buildId) {
+        Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken, pr);
+        if (res.isEmpty() || res.get().buildId() >= buildId)
+            return res;
+
+        res = analyzer.forceRefresh(tcToken, pr);
+        // A compute under way since before the finish is shared, and it saw the chain unfinished.
+        if (res.isPresent() && res.get().buildId() == buildId && res.get().finishedAt() == 0)
+            res = analyzer.analyzeAfterNow(tcToken, pr);
+
+        return res;
+    }
+
+    /**
+     * A RunAll of the PR newer than {@code buildId} that is still going; 0 when there is none. A verdict
+     * posted meanwhile would be out of date at once. The tracker knows the chains it watches; one only the
+     * analysis saw going is asked about, as the verdict may have been computed before it was cancelled.
+     */
+    private long newerRunGoing(int pr, long buildId, AnalysisResult res, String tcToken) {
+        long tracked = rerunTracker.newestChainUnderWay(pr);
+        if (tracked > buildId)
+            return tracked;
+        if (!res.live() || res.liveBuildId() <= buildId)
+            return 0;
+
+        try {
+            TcModel.Build b = tc.getBuildState(tcToken, res.liveBuildId());
+
+            return b != null && !"finished".equalsIgnoreCase(b.state()) ? res.liveBuildId() : 0;
+        }
+        catch (org.springframework.web.client.RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404)
+                return 0; // TeamCity no longer has it
+
+            throw e;
+        }
+    }
+
+    /**
+     * Queues the next wave of re-runs of the suites the verdict blames, while waves remain; true when one
+     * went in, so the verdict waits for it. Nothing is posted meanwhile: the PR comment and the visa come
+     * once, settled, and the PR page and the /run-all story tell the waves as they go.
+     */
+    private boolean queueWave(String who, int pr, long buildId, AnalysisResult res, String tcToken) {
+        Retry r = waves.get(buildId);
+        int attempts = r != null ? r.attempts() : 0;
+        List<String> blockerSuites = res.blockers().stream()
+            .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
+            .distinct().toList();
+        // A watch item is exactly what a re-run settles: too few runs of this revision to
+        // tell a real break from a flake. Re-running is what turns it into a verdict —
+        // without it a PR whose only finding is a watch item waits for a human forever.
+        List<String> watchSuites = res.watch().stream()
+            .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
+            .distinct().filter(s -> !blockerSuites.contains(s)).toList();
+        // Broken suites (timeout/crash/compilation) deserve the same retry a human would
+        // give them — and a passing re-run now clears them from the verdict too.
+        List<String> brokenSuites = res.brokenSuites().stream().map(s -> s.suite())
+            .filter(x -> x != null && !x.isBlank()).distinct()
+            .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s)).toList();
+        // A suite TeamCity cancelled by itself never ran, and a re-run is what gets it a result.
+        // One a person cancelled was meant not to run.
+        List<String> cancelledSuites = res.cancelledSuites().stream()
+            .filter(CancelledSuite::byTeamCity).map(CancelledSuite::suite)
+            .filter(x -> x != null && !x.isBlank()).distinct()
+            .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s) && !brokenSuites.contains(s))
+            .toList();
+        List<String> suites = java.util.stream.Stream.of(blockerSuites, watchSuites, brokenSuites,
+            cancelledSuites).flatMap(List::stream).toList();
+        String what = suitesLabel(blockerSuites.size(), watchSuites.size(), brokenSuites.size(),
+            cancelledSuites.size());
+        if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
+            // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
+            waves.put(buildId, new Retry(pr, buildId, MAX_RERUNS, what, List.of(),
+                "(i) Auto re-run skipped: " + suites.size() + " suites is too many — "
+                    + "this looks systemic; fix the cause and re-trigger RunAll.", who, List.of()));
+
+            return false;
+        }
+        if (suites.isEmpty() || attempts >= MAX_RERUNS)
+            return false;
+
+        // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
+        // re-run doesn't shove everyone else's builds back.
+        boolean top = suites.size() <= TOP_QUEUE_LIMIT;
+        List<String> history = new ArrayList<>(r != null && r.history() != null ? r.history() : List.of());
+        history.add(what);
+        String tcComment = "Auto re-run #" + history.size() + " of up to " + MAX_RERUNS
+            + " by Ignite PR Checker, settling RunAll " + buildId;
+        List<Long> queued = new ArrayList<>(r != null && r.queued() != null ? r.queued() : List.of());
+        int before = queued.size();
+        RuntimeException failed = null;
+        for (String suite : suites) {
+            try {
+                TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken, suite, pr, top, tcComment);
+                rerunTracker.record(pr, b);
+                queued.add(b.id());
+            }
+            catch (RuntimeException ex) {
+                if (tcRefused(ex))
+                    throw ex;
+
+                log.warn("auto re-run of {} for PR {} not queued: {}", suite, pr, ex.toString());
+                failed = ex;
+            }
+        }
+        // A wave counts once anything of it is queued: settled again, it would go in a second time.
+        if (queued.size() == before)
+            throw failed;
+
+        String note = top ? (r != null ? r.note() : null)
+            : "(i) " + suites.size() + " suites were re-queued at the TAIL of the queue "
+                + "(too many to jump it without disturbing others) — this may need a real fix "
+                + "and a fresh RunAll rather than re-runs.";
+        waves.put(buildId, new Retry(pr, buildId, attempts + 1, what, history, note, who, queued));
+        log.info("auto-rerun {}/{} for PR {}: {} re-queued at {}", attempts + 1, MAX_RERUNS, pr, what,
+            top ? "top" : "tail");
+
+        return true;
+    }
+
+    /**
+     * Posts the settled verdict — the visa to the PR's ticket and the PR comment, as the {@code acting} options
+     * say — and marks the run handled. 1 when a visa went out.
+     */
+    private int postSettled(String who, Enrollment e, Options acting, PrSummary pr, long buildId, AnalysisResult res,
+        String tcToken, String jiraToken, String ghToken) {
+        Retry done = waves.get(buildId);
+        String note = done != null ? done.note() : null;
+        String settled = done != null ? settledLine(done.history()) : null;
+        PendingCommits.Ahead ahead = pending.since(tcToken, pr.number(), buildId);
+        Integer commitsAhead = ahead == null ? null : Math.max(ahead.commits(), 1);
+
+        int posted = 0;
+        if (acting.autoVisa()) {
+            String body = visas.compose(pr.number(), res, commitsAhead);
+            if (ahead != null)
+                body = body + "\n\n_" + revisions(ahead, "{{", "}}") + "_";
+            if (settled != null)
+                body = body + "\n\n" + settled;
+            if (note != null)
+                body = body + "\n\n" + note;
+            posted = postVisa(who, e, pr, buildId, res, tcToken, jiraToken, body);
+        }
+        if (acting.ghComment()) {
+            String md = visas.composeMarkdown(pr.number(), res, commitsAhead);
+            if (ahead != null)
+                md = md + "\n\n_" + revisions(ahead, "`", "`") + "_";
+            if (settled != null)
+                md = md + "\n\n_" + settled + "_";
+            if (note != null)
+                md = md + "\n\n_" + note + "_";
+            if (!res.blockers().isEmpty())
+                md = md + NEXT_STEP;
+            upsertGhComment(who, e, ghToken, pr.number(), buildId, md, true);
+        }
+        settled(e, pr.number(), buildId);
+
+        return posted;
+    }
+
+    /**
+     * Posts the visa to the ticket the PR title names. None when it names none, and no second one when the
+     * last visa there said the same of the same revision: the ticket filled up with copies.
+     */
+    private int postVisa(String who, Enrollment e, PrSummary pr, long buildId, AnalysisResult res, String tcToken,
+        String jiraToken, String body) {
+        Optional<String> issue = ticketIn(pr.title());
+        if (issue.isEmpty()) {
+            ticketless.add(buildId);
+            log.info("no visa for PR {} (build {}, by {}): its title names no IGNITE ticket", pr.number(), buildId, who);
+
+            return 0;
+        }
+
+        String sha = revision(tcToken, buildId);
+        String verdict = verdictKey(res);
+        JiraThread last = e.handled().jiraThreads().get(pr.number());
+        if (last != null && issue.get().equals(last.issue()) && sha != null && sha.equals(last.sha())
+            && verdict.equals(last.verdict())) {
+            e.handled().jiraThreads().put(pr.number(),
+                new JiraThread(buildId, last.commentId(), last.issue(), sha, verdict, true));
+            log.info("no new visa for PR {} (build {}, by {}): the last one in {} says the same of revision {}",
+                pr.number(), buildId, who, issue.get(), sha);
+
+            return 0;
+        }
+
+        String url = upsertVisa(who, e, jiraToken, issue.get(), pr.number(), buildId, body, sha, verdict);
+        postedTotal.incrementAndGet();
+        log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who,
+            url != null ? url : "updated in place");
+
+        return 1;
+    }
+
+    /** The run is handled: the sweep leaves it, and its waves and mid-run memo are spent. */
+    private void settled(Enrollment e, int pr, long buildId) {
+        e.handled().posted().put(pr, buildId);
+        waves.remove(buildId);
+        earlyReruns.remove(buildId);
+        heldForNewer.remove(pr, buildId);
+        deciding.remove(pr, buildId);
+    }
+
+    /** The revision the build ran on; null when TeamCity does not say. */
+    private String revision(String tcToken, long buildId) {
+        try {
+            return tc.buildRevision(tcToken, buildId).orElse(null);
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** What a verdict says, for telling two visas of one revision apart: what is blamed, and the caveats. */
+    static String verdictKey(AnalysisResult r) {
+        java.util.function.Function<List<TestVerdict>, String> tests = list -> list.stream()
+            .map(v -> v.suite() + ":" + v.name()).sorted().collect(java.util.stream.Collectors.joining(","));
+
+        return String.join("|", tests.apply(r.blockers()), tests.apply(r.watch()), tests.apply(r.unverified()),
+            r.brokenSuites().stream().map(BrokenSuite::suite).sorted().collect(java.util.stream.Collectors.joining(",")),
+            String.join(";", Caveats.of(r, null)));
+    }
+
+    /** "Tested revision abc1234; the PR head is now def5678." with the revisions wrapped in the markup's code marks. */
+    private static String revisions(PendingCommits.Ahead ahead, String open, String close) {
+        return "Tested revision " + open + ahead.builtShort() + close + "; the PR head is now " + open
+            + ahead.headShort() + close + ".";
+    }
+
+    /**
+     * A living comment from before this release says "re-run in progress"; while its re-runs go, its settle
+     * estimate stays honest. Runs from now on get no such comment: theirs comes out once, settled.
+     */
+    private void refreshInterim(String who, Enrollment e, Optional<String> ghToken, int pr, long buildId,
+        String tcToken) {
+        GhThread t = e.handled().ghThreads().get(pr);
+        if (!e.options().ghComment() || ghToken.isEmpty() || t == null || t.buildId() != buildId || t.done())
+            return;
+
+        Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken, pr);
+        if (res.isEmpty() || res.get().buildId() != buildId)
+            return;
+
+        Retry r = waves.get(buildId);
+        upsertGhComment(who, e, ghToken.get(), pr, buildId, visas.composeMarkdown(pr, res.get())
+            + pendingLine(r != null ? r.what() : "re-run suite(s)", r != null ? r.attempts() : 1,
+                r != null ? r.history() : null, activeEtaEpoch(pr), e.tz(), "**"), false);
+    }
+
+    /**
+     * Ends the living comments of the PR's runs before {@code latest}: comments from before this release
+     * that a newer run left "in progress" for good. Their waves go too.
+     */
+    private void endReplaced(PrSummary pr, long latest) {
+        VisaService.Ending ending = visas.replaced(pr.number(), latest);
+        enrolled.forEach((user, e) -> endThreads(user, e, pr, b -> b < latest, ending));
+        waves.values().removeIf(r -> r.pr() == pr.number() && r.buildId() < latest && !rerunTracker.tracks(r.buildId()));
+    }
+
+    /** A closed PR's runs are not settled any more: its open living comments get their last line, its waves go. */
+    private void closePr(int pr, String title, boolean merged) {
+        synchronized (settleLock) {
+            closedPrs.put(pr, merged);
+            deciding.remove(pr);
+            PrSummary summary = new PrSummary(pr, title, null, null, null, null);
+            VisaService.Ending ending = visas.prClosed(merged);
+            enrolled.forEach((user, e) -> endThreads(user, e, summary, b -> true, ending));
+            if (waves.values().removeIf(r -> r.pr() == pr))
+                log.info("PR {} was {}: its auto re-run waves are dropped", pr, merged ? "merged" : "closed");
+        }
+    }
+
+    /** Ends the user's open living comments of the PR whose build {@code ofBuild} accepts. */
+    private void endThreads(String user, Enrollment e, PrSummary pr, java.util.function.LongPredicate ofBuild,
+        VisaService.Ending ending) {
+        GhThread g = e.handled().ghThreads().get(pr.number());
+        if (g != null && ofBuild.test(g.buildId()) && open(e, pr.number(), g.buildId(), g.done()))
+            endGh(user, e, pr.number(), g, ending.markdown());
+
+        JiraThread j = e.handled().jiraThreads().get(pr.number());
+        if (j != null && ofBuild.test(j.buildId()) && open(e, pr.number(), j.buildId(), j.done()))
+            endJira(user, e, pr, j, ending.wiki());
+    }
+
+    /**
+     * Whether a living comment may still say "re-run in progress": it is not marked ended, and its run was not
+     * settled. Comments from before this release carry no mark; the settled ones were finished then.
+     */
+    private static boolean open(Enrollment e, int pr, long buildId, boolean done) {
+        return !done && !Long.valueOf(buildId).equals(e.handled().posted().get(pr));
+    }
+
+    /**
+     * Puts the last line in place of a PR comment's "re-run in progress" one. A comment without it was
+     * finished already and is only marked ended; one GitHub no longer has, or that no token of its owner can
+     * edit any more, is forgotten. A failure leaves it for the next settle.
+     */
+    private void endGh(String user, Enrollment e, int pr, GhThread t, String line) {
+        Optional<String> token = decrypt(e.gh());
+        Optional<String> body;
+        try {
+            body = token.isEmpty() ? Optional.empty() : github.commentBody(t.commentId());
+        }
+        catch (RuntimeException ex) {
+            // The comment is read under the app's token: a refusal there says nothing of the owner's PAT.
+            log.warn("reading living comment {} of PR {} failed, tried again later: {}", t.commentId(), pr,
+                ex.toString());
+
+            return;
+        }
+        if (body.isEmpty()) {
+            e.handled().ghThreads().remove(pr, t);
+            log.info("living comment {} of PR {} forgotten: {}", t.commentId(), pr,
+                token.isEmpty() ? "no GitHub token of " + user + " to edit it with" : "GitHub has no such comment");
+
+            return;
+        }
+        try {
+            if (pendingAt(body.get()) >= 0)
+                github.updatePrComment(token.get(), t.commentId(), withLastLine(body.get(), line));
+            e.handled().ghThreads().replace(pr, t, t.ended());
+            log.info("living comment {} of PR {} (build {}) ended", t.commentId(), pr, t.buildId());
+        }
+        catch (RuntimeException ex) {
+            if (refused(ex)) {
+                dropGhToken(user);
+                e.handled().ghThreads().remove(pr, t);
+
+                return;
+            }
+
+            log.warn("ending living comment {} of PR {} failed, tried again later: {}", t.commentId(), pr,
+                ex.toString());
+        }
+    }
+
+    /** The same for a visa in the ticket; see {@link #endGh}. */
+    private void endJira(String user, Enrollment e, PrSummary pr, JiraThread t, String line) {
+        Optional<String> token = decrypt(e.jira());
+        String issue = t.issue() != null ? t.issue() : ticketIn(pr.title()).orElse(null);
+        try {
+            Optional<String> body = token.isEmpty() || issue == null || t.commentId() == null ? Optional.empty()
+                : jira.commentBody(token.get(), issue, t.commentId());
+            if (body.isEmpty()) {
+                e.handled().jiraThreads().remove(pr.number(), t);
+                log.info("living visa {} of PR {} forgotten: {}", t.commentId(), pr.number(),
+                    token.isEmpty() ? "no JIRA token of " + user + " to edit it with"
+                        : issue == null ? "no ticket known" : "JIRA has no such comment");
+
+                return;
+            }
+            if (pendingAt(body.get()) >= 0)
+                jira.updateComment(token.get(), issue, t.commentId(), withLastLine(body.get(), line));
+            e.handled().jiraThreads().replace(pr.number(), t, t.ended());
+            log.info("living visa {} of PR {} (build {}) ended", t.commentId(), pr.number(), t.buildId());
+        }
+        catch (RuntimeException ex) {
+            if (refused(ex)) {
+                dropJiraToken(user);
+                e.handled().jiraThreads().remove(pr.number(), t);
+
+                return;
+            }
+
+            log.warn("ending living visa {} of PR {} failed, tried again later: {}", t.commentId(), pr.number(),
+                ex.toString());
+        }
+    }
+
+    /** Where a living comment's "re-run in progress" line starts; -1 when it has none. */
+    private static int pendingAt(String body) {
+        return body.indexOf(PENDING_MARK);
+    }
+
+    /** The comment with its "re-run in progress" line, and all after it, replaced by {@code line}. */
+    private static String withLastLine(String body, String line) {
+        return body.substring(0, pendingAt(body)).stripTrailing() + "\n\n" + line;
+    }
+
+    /**
+     * The whole run's story lives in ONE PR comment, edited in place when it is posted again for the same
+     * build. A failure never breaks the sweep (the JIRA visa may already be out), and a failed edit falls back
+     * to a fresh comment rather than losing the verdict. {@code done}: the comment carries the settled verdict.
+     */
+    private void upsertGhComment(String who, Enrollment e, String ghToken, int pr, long buildId, String md,
+        boolean done) {
         try {
             GhThread t = e.handled().ghThreads().get(pr);
             if (t != null && t.buildId() == buildId) {
                 try {
                     github.updatePrComment(ghToken, t.commentId(), md);
+                    e.handled().ghThreads().put(pr, new GhThread(buildId, t.commentId(), done));
                     log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
 
                     return;
@@ -1103,7 +1650,7 @@ public class StandingVisas implements SnapshotCache {
                 }
             }
             GithubClient.PostedComment posted = github.addPrComment(ghToken, pr, md);
-            e.handled().ghThreads().put(pr, new GhThread(buildId, posted.id()));
+            e.handled().ghThreads().put(pr, new GhThread(buildId, posted.id(), done));
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
         }
         catch (RuntimeException ghEx) {
@@ -1150,7 +1697,7 @@ public class StandingVisas implements SnapshotCache {
         dropSpentEarlyReruns();
         Map<Long, List<String>> early = new HashMap<>();
         earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
-        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries), early));
+        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, newestPerPr(), early, new HashMap<>(waves)));
     }
 
     /**
@@ -1160,7 +1707,7 @@ public class StandingVisas implements SnapshotCache {
      */
     private void dropSpentEarlyReruns() {
         java.util.Set<Long> settling = new java.util.HashSet<>();
-        retries.values().forEach(r -> settling.add(r.buildId()));
+        settling.addAll(waves.keySet());
         earlyReruns.entrySet().removeIf(en -> en.getValue().isEmpty()
             || !settling.contains(en.getKey()) && !rerunTracker.tracks(en.getKey()));
     }
@@ -1174,8 +1721,10 @@ public class StandingVisas implements SnapshotCache {
         try {
             Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
             enrollments = s.enrollments() == null ? new Persisted[0] : s.enrollments().toArray(new Persisted[0]);
+            if (s.waves() != null)
+                s.waves().forEach((build, r) -> waves.put(build, r.mergingEarlyWaves()));
             if (s.retries() != null)
-                s.retries().forEach((pr, r) -> retries.put(pr, r.mergingEarlyWaves()));
+                s.retries().forEach((pr, r) -> waves.putIfAbsent(r.buildId(), r.ofPr(pr).mergingEarlyWaves()));
             if (s.earlyReruns() != null)
                 s.earlyReruns().forEach((build, suites) -> earlyReruns
                     .computeIfAbsent(build, id -> ConcurrentHashMap.newKeySet()).addAll(suites));
@@ -1192,40 +1741,70 @@ public class StandingVisas implements SnapshotCache {
     /**
      * One user's standing options. Every change goes through {@link ConcurrentMap#compute} with one of
      * the {@code with*} copies, so a settings click, a refused token and the poll's backfill can never
-     * undo each other.
+     * undo each other. {@code enabledAt} is when an option that acts on runs was last switched on, and
+     * {@code onSince} when each one was; snapshots of v1.20.11 and before have {@code enabledAt} only.
      */
     private record Enrollment(Credential tc, Credential jira, Credential gh, String ghLogin, String tz,
-        long enabledAt, Options options, Handled handled) {
+        long enabledAt, Options options, Handled handled, Map<Option, Long> onSince) {
         static Enrollment fresh(Credential tc) {
-            return new Enrollment(tc, Credential.NONE, Credential.NONE, null, null, 0, Options.NONE, Handled.empty());
+            return new Enrollment(tc, Credential.NONE, Credential.NONE, null, null, 0, Options.NONE, Handled.empty(),
+                Map.of());
         }
 
         Enrollment withTc(Credential c) {
-            return new Enrollment(c, jira, gh, ghLogin, tz, enabledAt, options, handled);
+            return new Enrollment(c, jira, gh, ghLogin, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withJira(Credential c) {
-            return new Enrollment(tc, c, gh, ghLogin, tz, enabledAt, options, handled);
+            return new Enrollment(tc, c, gh, ghLogin, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withGh(Credential c) {
-            return new Enrollment(tc, jira, c, ghLogin, tz, enabledAt, options, handled);
+            return new Enrollment(tc, jira, c, ghLogin, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withGhLogin(String login) {
-            return new Enrollment(tc, jira, gh, login, tz, enabledAt, options, handled);
+            return new Enrollment(tc, jira, gh, login, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withTz(String zone) {
-            return new Enrollment(tc, jira, gh, ghLogin, zone, enabledAt, options, handled);
+            return new Enrollment(tc, jira, gh, ghLogin, zone, enabledAt, options, handled, onSince);
         }
 
         Enrollment withOptions(Options o) {
-            return new Enrollment(tc, jira, gh, ghLogin, tz, enabledAt, o, handled);
+            return new Enrollment(tc, jira, gh, ghLogin, tz, enabledAt, o, handled, onSince);
         }
 
         Enrollment withEnabledAt(long at) {
-            return new Enrollment(tc, jira, gh, ghLogin, tz, at, options, handled);
+            return new Enrollment(tc, jira, gh, ghLogin, tz, at, options, handled, onSince);
+        }
+
+        /** With the options {@code next}: one switched on {@code now} acts on the runs that finish from now on. */
+        Enrollment switchedTo(Options next, long now) {
+            Map<Option, Long> since = new EnumMap<>(Option.class);
+            next.on().forEach(o -> since.put(o, options.on().contains(o) ? since(o) : now));
+
+            return new Enrollment(tc, jira, gh, ghLogin, tz, enabledAt, next, handled,
+                Collections.unmodifiableMap(since));
+        }
+
+        /** When the option was switched on. */
+        long since(Option o) {
+            return Math.min(onSince.getOrDefault(o, enabledAt), enabledAt);
+        }
+
+        /**
+         * The options that act on a run that finished at {@code finishedMs}: those on now that were on by then.
+         * Switching one on mid-settle neither cuts the run off from the others nor posts a visa it never promised.
+         */
+        Options actingOn(long finishedMs) {
+            if (finishedMs <= 0)
+                return options;
+
+            Set<Option> acting = EnumSet.noneOf(Option.class);
+            options.on().stream().filter(o -> since(o) <= finishedMs).forEach(acting::add);
+
+            return new Options(acting);
         }
     }
 
@@ -1342,21 +1921,47 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** The one living visa comment of a run in the JIRA ticket: which build it narrates and where to edit it. */
-    private record JiraThread(long buildId, String commentId) {
+    /**
+     * The one living visa comment of a run in the JIRA ticket: which build it narrates, where to edit it, the
+     * ticket, the revision and what the verdict says ({@link #verdictKey}), and whether it carries its last
+     * word ({@code done}). Visas of v1.20.11 and before carry the first two only.
+     */
+    private record JiraThread(long buildId, String commentId, String issue, String sha, String verdict, boolean done) {
+        JiraThread ended() {
+            return new JiraThread(buildId, commentId, issue, sha, verdict, true);
+        }
     }
 
-    /** The one living PR comment of a run: which build it narrates and where to edit it. */
-    private record GhThread(long buildId, long commentId) {
+    /** The one living PR comment of a run: which build it narrates, where to edit it, whether it is final. */
+    private record GhThread(long buildId, long commentId, boolean done) {
+        GhThread ended() {
+            return new GhThread(buildId, commentId, true);
+        }
     }
+
+    /** Where a living comment's "re-run in progress" line starts, in either markup. */
+    private static final String PENDING_MARK = "⏳ _Auto re-run ";
 
     /** An enrolled user resolved from a GitHub login, tokens decrypted and ready to act with. */
     public record GhActor(String username, String tcToken, String ghToken, String tz) {
     }
 
-    /** One PR's auto-rerun bookkeeping: the build being settled, attempts spent, what was re-queued,
-     * and a note for the visa. */
-    private record Retry(long buildId, int attempts, String what, List<String> history, String note) {
+    /**
+     * One chain's auto re-run bookkeeping: its PR and build, the waves spent, what the last one re-queued, every
+     * wave so far, a note for the verdict, who triggered the chain, and the re-run builds queued for it.
+     * Snapshots of v1.20.11 and before have neither the PR nor the last two.
+     */
+    private record Retry(int pr, long buildId, int attempts, String what, List<String> history, String note,
+        String by, List<Long> queued) {
+        /** The number of the wave going: each wave so far counts, a skipped re-run counts as its attempts. */
+        int wave() {
+            return history != null && !history.isEmpty() ? history.size() : attempts;
+        }
+
+        Retry ofPr(int number) {
+            return new Retry(number, buildId, attempts, what, history, note, by, queued);
+        }
+
         /**
          * Snapshots of v1.20.11 and before kept each mid-run re-run as a wave of its own ("early: Cache 1"),
          * so three of them read as wave #3 of the promised two; they are one wave. A single one already
@@ -1371,7 +1976,8 @@ public class StandingVisas implements SnapshotCache {
             merged.add(earlyWave((int) early));
             history.stream().filter(h -> !h.startsWith("early: ")).forEach(merged::add);
 
-            return new Retry(buildId, attempts, merged.size() == 1 ? merged.get(0) : what, merged, note);
+            return new Retry(pr, buildId, attempts, merged.size() == 1 ? merged.get(0) : what, merged, note, by,
+                queued);
         }
     }
 
@@ -1384,10 +1990,21 @@ public class StandingVisas implements SnapshotCache {
     private static final String NEXT_STEP = "\n\n➡️ **Next:** fix the blockers, push, and run RunAll again — a "
         + "`/run-all` comment here does it when PR commands are on in the checker's ⚙.";
 
-    /** The snapshot on disk: enrollments plus the auto-rerun attempt bookkeeping (so a restart can't
-     * grant extra attempts or freeze the ⏳ line's context). */
+    /**
+     * The snapshot on disk: enrollments plus the auto re-run bookkeeping (so a restart can't grant extra
+     * attempts or lose a wave). {@code waves} holds every chain's; {@code retries}, one per PR, its newest
+     * chain's, is what v1.20.11 and before read.
+     */
     private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries,
-        Map<Long, List<String>> earlyReruns) {
+        Map<Long, List<String>> earlyReruns, Map<Long, Retry> waves) {
+    }
+
+    /** Each PR's newest chain's waves, keyed by the PR as v1.20.11 keyed them. */
+    private Map<Integer, Retry> newestPerPr() {
+        Map<Integer, Retry> out = new HashMap<>();
+        waves.values().forEach(r -> out.merge(r.pr(), r, (a, b) -> a.buildId() >= b.buildId() ? a : b));
+
+        return out;
     }
 
     /** The ⏳ status line of the living comment while re-runs settle, numbered, with the waves so far.
@@ -1402,16 +2019,18 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The living visa in the ticket: created on the run's finish, edited in place as the stage
-     * changes. A failed edit falls back to a fresh comment; the fresh-post URL is returned (null
-     * when an edit sufficed).
+     * The run's visa in the ticket, posted once it is settled; one of the same build already there (a visa
+     * from before this release, posted while re-runs went) is edited in place. A failed edit falls back to
+     * a fresh comment; the fresh-post URL is returned (null when an edit sufficed). {@code sha} and
+     * {@code verdict} are kept with it, to tell whether the next visa would say anything new.
      */
     private String upsertVisa(String who, Enrollment e, String jiraToken, String issueKey, int pr, long buildId,
-        String body) {
+        String body, String sha, String verdict) {
         JiraThread t = e.handled().jiraThreads().get(pr);
         if (t != null && t.buildId() == buildId && t.commentId() != null) {
             try {
                 jira.updateComment(jiraToken, issueKey, t.commentId(), body);
+                e.handled().jiraThreads().put(pr, new JiraThread(buildId, t.commentId(), issueKey, sha, verdict, true));
                 log.info("standing visa updated in place for PR {} (build {})", pr, buildId);
 
                 return null;
@@ -1440,7 +2059,7 @@ public class StandingVisas implements SnapshotCache {
 
             return null;
         }
-        e.handled().jiraThreads().put(pr, new JiraThread(buildId, posted.id()));
+        e.handled().jiraThreads().put(pr, new JiraThread(buildId, posted.id(), issueKey, sha, verdict, true));
 
         return posted.url();
     }
@@ -1490,38 +2109,6 @@ public class StandingVisas implements SnapshotCache {
         return parts.isEmpty() ? "0 suite(s)" : String.join(" + ", parts) + " suite(s)";
     }
 
-    /** Max estimated finish across the just-queued builds (epoch seconds), or null when TC has none yet. */
-    private Long queuedEtaEpoch(String tcToken, List<Long> buildIds) {
-        // TeamCity computes a fresh queued build's estimates asynchronously — right after the trigger
-        // they are often still empty. One short retry catches most of them, so the very first version
-        // of the ⏳ line already tells when the re-runs should settle.
-        for (int attempt = 0; ; attempt++) {
-            long max = -1;
-            for (Long id : buildIds) {
-                try {
-                    TcModel.Build b = tc.getBuildState(tcToken, id);
-                    max = Math.max(max, b == null ? -1 : TcDates.epochSeconds(b.finishEstimate()));
-                }
-                catch (RuntimeException ignored) {
-                    // no estimate for this one — the others still bound the ETA
-                }
-            }
-            if (max > 0)
-                return max;
-            if (attempt >= 1)
-                return null;
-
-            try {
-                Thread.sleep(7_000);
-            }
-            catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-
-                return null;
-            }
-        }
-    }
-
     /** Queue-aware settle estimate for the PR's live re-runs, from the tracker; null when unknown. */
     private Long activeEtaEpoch(int pr) {
         long now = System.currentTimeMillis() / 1000;
@@ -1550,20 +2137,25 @@ public class StandingVisas implements SnapshotCache {
             .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm zzz", java.util.Locale.ENGLISH));
     }
 
-    /** One enrollment as it is written to disk; the field names are the file format. */
+    /**
+     * One enrollment as it is written to disk; the field names are the file format. {@code onSince} is keyed by
+     * the option's name, so a snapshot that names an option this version does not know still loads.
+     */
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
-        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands) {
+        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
+            Map<String, Long> since = new HashMap<>();
+            e.onSince().forEach((option, at) -> since.put(option.name(), at));
 
             return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
-                e.tc().rejectedAt(), o.commands());
+                e.tc().rejectedAt(), o.commands(), since);
         }
 
         /**
@@ -1578,6 +2170,12 @@ public class StandingVisas implements SnapshotCache {
                 h.ghThreads().putAll(ghThreads);
             if (jiraThreads != null)
                 h.jiraThreads().putAll(jiraThreads);
+            Map<Option, Long> since = new EnumMap<>(Option.class);
+            for (Option o : Option.values()) {
+                Long at = onSince == null ? null : onSince.get(o.name());
+                if (at != null)
+                    since.put(o, at);
+            }
 
             return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
@@ -1585,7 +2183,8 @@ public class StandingVisas implements SnapshotCache {
                 Options.NONE.with(Option.VISA, autoVisa == null || autoVisa).with(Option.RERUN, autoRerun)
                     .with(Option.GH_COMMENT, ghComment != null && ghComment)
                     .with(Option.STYLE_FIX, styleFix != null && styleFix)
-                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands), h);
+                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands), h,
+                Collections.unmodifiableMap(since));
         }
     }
 }

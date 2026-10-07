@@ -181,6 +181,44 @@ class StandingHandoverTest {
         verify(analyzer, never()).forceRefresh(anyString(), anyInt());
     }
 
+    /**
+     * The author's standing visa does not post a run while a newer RunAll of the PR goes, here one bob started from
+     * the TeamCity UI, and once that one finishes it has taken the run's place. The one-shot visa handed over to the
+     * standing one waited for it all the same, checked again every 5 minutes for good.
+     */
+    @Test
+    void aRunANewerOneHoldsBackLeavesTheVisaToTheOneShot() {
+        long newer = CHAIN + 454;
+        when(analyzer.analyzeForAction("author-tc", PR)).thenReturn(Optional.of(new AnalysisResult(PR, CHAIN,
+            "pull/13335/head", System.currentTimeMillis(), List.of(), List.of(), List.of(), List.of(), List.of(), 140,
+            1, false, 0, true, newer, 0, 0, 1, 0)));
+        when(tc.getBuildState("author-tc", newer)).thenReturn(new TcModel.Build(newer, null, "running",
+            "pull/13335/head", null, null, null, null, null, null, null, null, null, null, null, null, null, null));
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
+
+        standing.sweep();
+        subs.settleLeftToStanding();
+
+        verify(jira).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
+        verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
+        assertThat(subs.armedCount()).isZero();
+    }
+
+    /** The newer RunAll finished before the sweep came to the run, and no event told of it. */
+    @Test
+    void aRunANewerOneReplacedLeavesTheVisaToTheOneShot() {
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
+        when(tc.findRunAllBuildForPr(anyString(), eq(PR))).thenReturn(Optional.of(new TcModel.Build(CHAIN + 454,
+            "SUCCESS", "finished", "pull/13335/head", null, null, null, null, null, null, null, null,
+            new TcModel.Triggered("user", new TcModel.User("bob")), null, null, null, null, null)));
+
+        standing.sweep();
+        subs.settleLeftToStanding();
+
+        verify(jira).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
+        assertThat(subs.armedCount()).isZero();
+    }
+
     private VisaSubscriptions subscriptions() {
         return new VisaSubscriptions(mapper, codec, jira, visas, analyzer, warmer, mock(PendingCommits.class), tc,
             standing);

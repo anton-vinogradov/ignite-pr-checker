@@ -96,6 +96,22 @@ public class JiraClient {
             .body(Comment.class));
     }
 
+    /** The text of an issue comment; empty when the issue has no such comment. */
+    public Optional<String> commentBody(String token, String issueKey, String commentId) {
+        try {
+            Comment c = recorded("visaRead", () -> http.get()
+                .uri(baseUrl + "/rest/api/2/issue/" + issueKey + "/comment/" + commentId)
+                .header("Authorization", "Bearer " + token)
+                .retrieve()
+                .body(Comment.class));
+
+            return Optional.ofNullable(c == null ? null : c.body());
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return Optional.empty();
+        }
+    }
+
     public record PostedComment(String id, String url) {
     }
 
@@ -119,6 +135,6 @@ public class JiraClient {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Comment(String id) {
+    private record Comment(String id, String body) {
     }
 }

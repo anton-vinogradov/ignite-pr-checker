@@ -119,6 +119,50 @@ public class VisaService {
         return b.toString();
     }
 
+    /**
+     * The last line of a living comment whose run a newer RunAll replaced before its re-runs settled: the
+     * verdict above stays as that run's last, and the newest one is on the page.
+     */
+    public Ending replaced(int pr, long newer) {
+        String page = publicUrl + "/?pr=" + pr;
+        String says = "Re-runs stopped: RunAll " + newer + " replaced this run before they settled. The verdict above"
+            + " is this run's last; the newest is on ";
+
+        return new Ending("🛑 _" + says + "[the checker's page](" + page + ")._", "_" + says + "[the checker's page|"
+            + page + "]._");
+    }
+
+    /** The last line of a living comment whose PR was merged or closed before the run's re-runs settled. */
+    public Ending prClosed(boolean merged) {
+        String says = "The PR was " + (merged ? "merged" : "closed") + " before the re-runs settled: the verdict above"
+            + " is the last known.";
+
+        return new Ending("🏁 _" + says + "_", "_" + says + "_");
+    }
+
+    /** The last line of a living comment whose re-runs nobody follows any more: its owner switched them off. */
+    public Ending notFollowed() {
+        String says = "Re-runs no longer followed: the options that settle this run were switched off. The verdict"
+            + " above is the last known.";
+
+        return new Ending("⏹ _" + says + "_", "_" + says + "_");
+    }
+
+    /**
+     * The same when the owner's options are on but none of them was on when the run finished: switched off and on
+     * since, or switched on after a release that kept no time per option.
+     */
+    public Ending notFollowedAfterChange() {
+        String says = "Re-runs no longer followed: the options that settle this run were changed after it finished. The"
+            + " verdict above is the last known.";
+
+        return new Ending("⏹ _" + says + "_", "_" + says + "_");
+    }
+
+    /** One closing line in both markups: GitHub's markdown and JIRA's wiki markup. */
+    public record Ending(String markdown, String wiki) {
+    }
+
     /** The tests a broken suite never got to, stated under its cause rather than as a finding of its own. */
     private static String shortfall(BrokenSuite s) {
         return s.tests() > 0 && s.baseline() > s.tests()

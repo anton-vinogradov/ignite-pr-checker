@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -94,8 +95,11 @@ public class PrCommands implements SnapshotCache {
     private volatile long sinceMs = System.currentTimeMillis();
     /** Handled comment ids -> when; survives restarts so a redeploy can't double-trigger. */
     private final ConcurrentMap<Long, Long> handled = new ConcurrentHashMap<>();
-    /** Accepted commands whose chains are still running — their comments carry a live ETA line. */
-    private final ConcurrentMap<Integer, CommandRun> watching = new ConcurrentHashMap<>();
+    /**
+     * Accepted commands whose runs are still being told, by command comment: two people's /run-all on one PR,
+     * or a run and the one that replaced it, each get their story to the end.
+     */
+    private final ConcurrentMap<Long, CommandRun> watching = new ConcurrentHashMap<>();
     /** Logins that already got the one-time onboarding reply — never advertise to the same person twice. */
     private final ConcurrentMap<String, Long> onboarded = new ConcurrentHashMap<>();
     /** PRs that already carry an onboarding reply: one per PR, whoever asks next. */
@@ -228,21 +232,8 @@ public class PrCommands implements SnapshotCache {
             // first (their OWN chains only) — on unchanged revisions the new chain reuses the
             // finished suites, so nothing useful is lost, and the queue isn't paid twice.
             String user = actor.get().username();
-            int superseded = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, user));
-            CommandRun old = watching.get(pr);
-            if (superseded > 0 && old != null && old.username().equals(actor.get().username())) {
-                try {
-                    String closing = old.baseBody() + "\n🛑 _Superseded by "
-                        + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._";
-                    if (old.app())
-                        github.updatePrCommentAsApp(old.narrationId(), closing);
-                    else if (pat)
-                        github.updatePrComment(actor.get().ghToken(), old.commentId(), closing);
-                }
-                catch (RuntimeException ignored) {
-                    // closing the old narration is a courtesy, never a blocker
-                }
-            }
+            int chains = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, user));
+            int reruns = standing.cancelWaves(user, actor.get().tcToken(), pr);
 
             // Style first, trigger second: the fix commit must be the revision the chain builds
             // (the autofix pushes under the user's PAT, so it needs one).
@@ -251,6 +242,8 @@ public class PrCommands implements SnapshotCache {
 
             build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top()));
             tracker.record(pr, build);
+            endStoriesOf(user, pr, actor.get(), "\n🛑 _Superseded by "
+                + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._");
             handledTotal.incrementAndGet();
             react(actor.get(), c.id(), "rocket");
 
@@ -261,15 +254,16 @@ public class PrCommands implements SnapshotCache {
                 + "🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
                 + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/?pr=" + pr
                 + ")."
-                + (superseded > 0 ? " Your previous run was cancelled — this one supersedes it." : "")
+                + superseded(chains, reruns)
                 + " When the run finishes, this comment links the verdict.";
 
             if (pat && !standing.ghTokenMissing(actor.get().username())) {
                 // Their own PAT: the ack lives inside their command comment. A comment edited in the
-                // browser comes back with CRLF line breaks, the hint's separator included.
+                // browser comes back with CRLF line breaks, the hint's separator included. An edit that
+                // failed for another reason than the token is made again by the next look at the run.
                 String base = c.body().replace("\r\n", "\n").replace(SEPARATOR + NEAR_MISS_HINT, "") + SEPARATOR + ack;
-                if (edit(actor.get(), c.id(), base))
-                    watching.put(pr, new CommandRun(c.id(), base, buildId, actor.get().username(), 0, false));
+                if (edit(actor.get(), c.id(), base) || !standing.ghTokenRejected(user))
+                    watching.put(c.id(), new CommandRun(c.id(), base, buildId, user, 0, false, pr));
                 else
                     appNarrate(pr, c, actor.get(), ack + PAT_REJECTED_NOTE, buildId);
             }
@@ -294,6 +288,16 @@ public class PrCommands implements SnapshotCache {
                 explain(actor.get(), c, pr, "🚀 _Nothing was queued: " + failure(e) + "._");
             }
         }
+    }
+
+    /** What the ack says of the commander's chains and re-runs the new run cancelled; empty when there were none. */
+    private static String superseded(int chains, int reruns) {
+        if (chains > 0)
+            return reruns > 0
+                ? " Your previous run and your earlier re-runs were cancelled — this one supersedes them."
+                : " Your previous run was cancelled — this one supersedes it.";
+
+        return reruns > 0 ? " The re-runs of your previous run were cancelled — this one supersedes it." : "";
     }
 
     /** Why a call failed, in a few words a commander can act on. */
@@ -413,8 +417,10 @@ public class PrCommands implements SnapshotCache {
      */
     private void top(GithubClient.IssueComment c, StandingVisas.GhActor actor, int pr) {
         try {
-            CommandRun run = watching.get(pr);
-            if (run == null || !run.username().equals(actor.username())) {
+            CommandRun run = watching.values().stream()
+                .filter(r -> r.pr() == pr && r.username().equals(actor.username()))
+                .max(java.util.Comparator.comparingLong(CommandRun::buildId)).orElse(null);
+            if (run == null) {
                 react(actor, c.id(), "confused");
                 explain(actor, c, pr, "⬆️ _Nothing moved: `/top` moves the RunAll that your own `/run-all` started"
                     + " on this PR, and none is in progress._");
@@ -551,6 +557,10 @@ public class PrCommands implements SnapshotCache {
         "\n\n⚠️ _GitHub rejected your personal access token, so this is narrated from the checker's own "
             + "account. Save a fresh PAT in the checker's settings to get your own back._";
 
+    /** The same when the token went for another reason: the option that needs it was switched off. */
+    private static final String TOKEN_GONE_NOTE =
+        "\n\n_The checker no longer holds your GitHub token, so this is narrated from its own account._";
+
     /**
      * Edits the narration only when it actually changed — no no-op revisions. The narration lives INSIDE
      * the command comment itself (the author's own comment, edited with their own PAT), or in the
@@ -558,12 +568,12 @@ public class PrCommands implements SnapshotCache {
      * the comment shows {@code body}; a failed edit is not remembered, so the next look tries it again.
      */
     private boolean narrate(int pr, StandingVisas.GhActor actor, CommandRun run, String body) {
-        if (body.equals(lastNarration.get(pr)))
+        if (body.equals(lastNarration.get(run.commentId())))
             return true;
 
         boolean shownNow = show(pr, actor, run, body);
         if (shownNow)
-            lastNarration.put(pr, body);
+            lastNarration.put(run.commentId(), body);
 
         return shownNow;
     }
@@ -576,9 +586,9 @@ public class PrCommands implements SnapshotCache {
 
         try {
             if (run.app())
-                github.updatePrCommentAsApp(run.narrationId(), body);
-            else
-                github.updatePrComment(actor.ghToken(), run.commentId(), body);
+                return github.updatePrCommentAsApp(run.narrationId(), body);
+
+            github.updatePrComment(actor.ghToken(), run.commentId(), body);
 
             return true;
         }
@@ -602,12 +612,13 @@ public class PrCommands implements SnapshotCache {
         String status = statusOf(body);
         String login = standing.ghLoginOf(run.username());
         String mention = login == null || login.isBlank() ? "" : "@" + login + " ";
-        GithubClient.PostedComment n = github.addPrCommentAsAppWithId(pr, mention + status + PAT_REJECTED_NOTE);
+        String why = standing.ghTokenRejected(run.username()) ? PAT_REJECTED_NOTE : TOKEN_GONE_NOTE;
+        GithubClient.PostedComment n = github.addPrCommentAsAppWithId(pr, mention + status + why);
         if (n == null)
             return false;
 
-        watching.put(pr, new CommandRun(run.commentId(), mention + status, run.buildId(), run.username(),
-            n.id(), true));
+        watching.put(run.commentId(), new CommandRun(run.commentId(), mention + status, run.buildId(),
+            run.username(), n.id(), true, pr));
         log.info("PR {}: narration taken over by the checker's account — {}'s GitHub token is gone",
             pr, run.username());
 
@@ -628,7 +639,7 @@ public class PrCommands implements SnapshotCache {
             throw new IllegalStateException("the checker must never post a comment that reads as a command");
         GithubClient.PostedComment n = github.addPrCommentAsAppWithId(pr, body);
         if (n != null)
-            watching.put(pr, new CommandRun(c.id(), body, buildId, actor.username(), n.id(), true));
+            watching.put(c.id(), new CommandRun(c.id(), body, buildId, actor.username(), n.id(), true, pr));
     }
 
     /** Edits the commander's own comment under their PAT; false when the token turned out to be dead. */
@@ -646,12 +657,12 @@ public class PrCommands implements SnapshotCache {
         }
     }
 
-    /** Last narration line rendered per PR — identical re-edits are skipped so the minute-level
+    /** Last narration rendered per command comment — identical re-edits are skipped so the minute-level
      * cadence doesn't flood the comment's edit history with no-op revisions. */
-    private final ConcurrentMap<Integer, String> lastNarration = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, String> lastNarration = new ConcurrentHashMap<>();
 
     /** The stage and estimate each narration last showed — what decides whether a new one is worth an edit. */
-    private final ConcurrentMap<Integer, Shown> shown = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, Shown> shown = new ConcurrentHashMap<>();
 
     /** An estimate has to move this much before the comment is edited for it. */
     private static final long ETA_SHIFT_SEC = 10 * 60;
@@ -662,82 +673,150 @@ public class PrCommands implements SnapshotCache {
      */
     @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     void updateEtas() {
-        watching.forEach((pr, run) -> {
-            Optional<StandingVisas.GhActor> actor = standing.actor(run.username());
-            if (actor.isEmpty()) {
-                stopNarrating(pr); // the option was switched off — stop touching the comment
+        watching.values().forEach(this::look);
+    }
+
+    /** One look at a narrated run; every story ends with a last line, whatever ends it. */
+    private void look(CommandRun run) {
+        int pr = run.pr();
+        Optional<StandingVisas.GhActor> actor = standing.actor(run.username());
+        if (actor.isEmpty()) {
+            // Their options went, and their token with them: only the checker's own comment can still be told.
+            if (run.app())
+                endAppStory(run, "\n🛑 _No longer followed: the options of the user who started it were switched off._");
+            stopNarrating(run);
+
+            return;
+        }
+        if (standing.tcTokenRejected(run.username()))
+            return; // narration resumes with a working token
+
+        try {
+            var b = standing.asUser(run.username(), () -> tc.getBuildState(actor.get().tcToken(), run.buildId()));
+            if (b == null)
+                return;
+
+            if ("finished".equalsIgnoreCase(b.state())) {
+                if ("UNKNOWN".equalsIgnoreCase(b.status())) {
+                    narrate(pr, actor.get(), run, run.baseBody() + "\n🛑 _Run cancelled._");
+                    stopNarrating(run);
+
+                    return;
+                }
+
+                // The command comment narrates the whole story: after the chain finishes it keeps
+                // reporting the blocker/broken auto re-run waves and only closes once the verdict
+                // has actually landed — or right away when nothing settles the user's runs.
+                if (standing.buildHandled(run.username(), pr, run.buildId())
+                    || !standing.settlesRuns(run.username())) {
+                    narrate(pr, actor.get(), run, run.baseBody() + "\n🏁 _Run finished — "
+                        + verdictLink(run, pr, "see the verdict") + "."
+                        + (standing.visaOn(run.username()) && standing.settledWithoutTicket(run.buildId())
+                            ? " No JIRA visa: the PR title names no IGNITE ticket." : "") + "_");
+                    stopNarrating(run);
+
+                    return;
+                }
+
+                Optional<StandingVisas.WaveStatus> w = standing.waveStatus(pr, run.buildId());
+                if (w.isEmpty()) {
+                    Optional<StandingVisas.RunEnd> end = standing.runEnd(pr, run.buildId());
+                    if (end.isPresent()) {
+                        narrate(pr, actor.get(), run, run.baseBody() + endLine(end.get(), pr));
+                        stopNarrating(run);
+
+                        return;
+                    }
+                    standing.settleRequested(pr);
+                }
+
+                String stage = w.map(s -> "wave " + s.wave() + ": " + s.what()).orElse("analysing")
+                    + (standing.verdictCommentId(run.username(), pr, run.buildId()).isPresent() ? ", linked" : "");
+                long settleAt = w.map(StandingVisas.WaveStatus::etaEpochSec).orElse(-1L);
+                if (!worthEditing(run, stage, settleAt))
+                    return;
+
+                String line = w.isEmpty()
+                    ? "\n🏁 _Run finished — analysing; the verdict follows " + (standing.ghOn(run.username())
+                        ? "in its own comment._" : "on " + verdictLink(run, pr, "the checker's page") + "._")
+                    : "\n🏁 _Run finished._ ♻️ _Auto re-run **#" + w.get().wave() + "** — " + w.get().what()
+                        + (settleAt < 0 ? "" : ", **≈ settled by " + wallClock(settleAt, actor.get().tz()) + "**")
+                        + " — " + verdictLink(run, pr, "details") + "._";
+                if (narrate(pr, actor.get(), run, run.baseBody() + line))
+                    shown.put(run.commentId(), new Shown(run.buildId(), stage, settleAt));
+
+                return; // keep narrating until the verdict lands
+            }
+
+            long left = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId(),
+                baseline.durations(actor.get().tcToken()));
+            long finishAt = left < 0 ? -1 : System.currentTimeMillis() / 1000 + left;
+            boolean queued = "queued".equalsIgnoreCase(b.state());
+            String stage = queued ? "queued" : "running";
+            if (worthEditing(run, stage, finishAt)
+                && narrate(pr, actor.get(), run, run.baseBody() + "\n⏱ _" + (queued ? "Queued" : "Running")
+                    + (finishAt < 0 ? " — no finish estimate yet._"
+                        : " — expected to finish **≈ " + wallClock(finishAt, actor.get().tz()) + "**._")
+                    + (queued ? " _Reply `/top` to jump the queue._" : "")))
+                shown.put(run.commentId(), new Shown(run.buildId(), stage, finishAt));
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 404) {
+                log.warn("ETA update for PR {} failed: {}", pr, e.toString());
 
                 return;
             }
-            if (standing.tcTokenRejected(run.username()))
-                return; // narration resumes with a working token
+
+            narrate(pr, actor.get(), run, run.baseBody() + "\n🛑 _TeamCity no longer has build " + run.buildId()
+                + ", so this story ends here._");
+            stopNarrating(run);
+        }
+        catch (RuntimeException e) {
+            log.warn("ETA update for PR {} failed: {}", pr, e.toString());
+        }
+    }
+
+    /** The last line of a finished run that will not be settled: a newer RunAll replaced it, or the PR closed. */
+    private String endLine(StandingVisas.RunEnd end, int pr) {
+        String page = "[the checker's page](" + publicUrl + "/?pr=" + pr + ")";
+        if (end.replacedBy() > 0)
+            return "\n🏁 _Run finished — RunAll [" + end.replacedBy() + "](" + tcBaseUrl + "/build/" + end.replacedBy()
+                + ") replaced it before it settled; the newest verdict is on " + page + "._";
+
+        return "\n🏁 _Run finished — the PR was " + (end.merged() ? "merged" : "closed")
+            + " before the re-runs settled; the last known verdict is on " + page + "._";
+    }
+
+    /** Ends the checker's own narration comment with {@code line}; a failure leaves it as it was. */
+    private void endAppStory(CommandRun run, String line) {
+        try {
+            github.updatePrCommentAsApp(run.narrationId(), run.baseBody() + line);
+        }
+        catch (RuntimeException e) {
+            log.warn("ending the narration of PR {} failed: {}", run.pr(), e.toString());
+        }
+    }
+
+    /**
+     * Ends the stories of the user's runs of the PR with {@code line}: their new /run-all, queued now, replaces
+     * those runs, whose chains and waves it cancelled.
+     */
+    private void endStoriesOf(String user, int pr, StandingVisas.GhActor actor, String line) {
+        for (CommandRun old : watching.values()) {
+            if (old.pr() != pr || !old.username().equals(user))
+                continue;
 
             try {
-                var b = standing.asUser(run.username(), () -> tc.getBuildState(actor.get().tcToken(), run.buildId()));
-                if (b == null)
-                    return;
-
-                if ("finished".equalsIgnoreCase(b.state())) {
-                    if ("UNKNOWN".equalsIgnoreCase(b.status())) {
-                        narrate(pr, actor.get(), run, run.baseBody() + "\n🛑 _Run cancelled._");
-                        stopNarrating(pr);
-
-                        return;
-                    }
-
-                    // The command comment narrates the whole story: after the chain finishes it keeps
-                    // reporting the blocker/broken auto re-run waves and only closes once the verdict
-                    // has actually landed — or right away when nothing settles the user's runs.
-                    if (standing.buildHandled(run.username(), pr, run.buildId())
-                        || !standing.settlesRuns(run.username())) {
-                        narrate(pr, actor.get(), run, run.baseBody()
-                            + "\n🏁 _Run finished — " + verdictLink(run, pr, "see the verdict") + "._");
-                        stopNarrating(pr);
-
-                        return;
-                    }
-
-                    Optional<StandingVisas.WaveStatus> w = standing.waveStatus(pr, run.buildId());
-                    String stage = w.map(s -> "wave " + s.wave() + ": " + s.what()).orElse("analysing")
-                        + (standing.verdictCommentId(run.username(), pr, run.buildId()).isPresent() ? ", linked" : "");
-                    long settleAt = w.map(StandingVisas.WaveStatus::etaEpochSec).orElse(-1L);
-                    if (!worthEditing(pr, run, stage, settleAt))
-                        return;
-
-                    String line = w.isEmpty()
-                        ? "\n🏁 _Run finished — analysing; the verdict follows " + (standing.ghOn(run.username())
-                            ? "in its own comment._" : "on " + verdictLink(run, pr, "the checker's page") + "._")
-                        : "\n🏁 _Run finished._ ♻️ _Auto re-run **#" + w.get().wave() + "** — " + w.get().what()
-                            + (settleAt < 0 ? "" : ", **≈ settled by " + wallClock(settleAt, actor.get().tz()) + "**")
-                            + " — " + verdictLink(run, pr, "details") + "._";
-                    if (narrate(pr, actor.get(), run, run.baseBody() + line))
-                        shown.put(pr, new Shown(run.buildId(), stage, settleAt));
-
-                    return; // keep narrating until the verdict lands
-                }
-
-                long left = tc.chainRemainingSeconds(actor.get().tcToken(), run.buildId(),
-                    baseline.durations(actor.get().tcToken()));
-                long finishAt = left < 0 ? -1 : System.currentTimeMillis() / 1000 + left;
-                boolean queued = "queued".equalsIgnoreCase(b.state());
-                String stage = queued ? "queued" : "running";
-                if (worthEditing(pr, run, stage, finishAt)
-                    && narrate(pr, actor.get(), run, run.baseBody() + "\n⏱ _" + (queued ? "Queued" : "Running")
-                        + (finishAt < 0 ? " — no finish estimate yet._"
-                            : " — expected to finish **≈ " + wallClock(finishAt, actor.get().tz()) + "**._")
-                        + (queued ? " _Reply `/top` to jump the queue._" : "")))
-                    shown.put(pr, new Shown(run.buildId(), stage, finishAt));
+                if (old.app())
+                    github.updatePrCommentAsApp(old.narrationId(), old.baseBody() + line);
+                else if (actor.ghToken() != null)
+                    github.updatePrComment(actor.ghToken(), old.commentId(), old.baseBody() + line);
             }
-            catch (RestClientResponseException e) {
-                if (e.getStatusCode().value() == 404)
-                    stopNarrating(pr); // the build is gone — nothing left to narrate
-                else
-                    log.warn("ETA update for PR {} failed: {}", pr, e.toString());
+            catch (RuntimeException ignored) {
+                // closing the old narration is a courtesy, never a blocker
             }
-            catch (RuntimeException e) {
-                log.warn("ETA update for PR {} failed: {}", pr, e.toString());
-            }
-        });
+            stopNarrating(old);
+        }
     }
 
     /**
@@ -751,10 +830,10 @@ public class PrCommands implements SnapshotCache {
             : publicUrl + "/?pr=" + pr) + ")";
     }
 
-    private void stopNarrating(int pr) {
-        watching.remove(pr);
-        lastNarration.remove(pr);
-        shown.remove(pr);
+    private void stopNarrating(CommandRun run) {
+        watching.remove(run.commentId());
+        lastNarration.remove(run.commentId());
+        shown.remove(run.commentId());
     }
 
     /**
@@ -763,8 +842,8 @@ public class PrCommands implements SnapshotCache {
      * re-estimating every minute buried the author's own edits under a hundred of the checker's.
      * {@code estimateEpochSec} is -1 when there is none; an unknown estimate never replaces a known one.
      */
-    private boolean worthEditing(int pr, CommandRun run, String stage, long estimateEpochSec) {
-        Shown last = shown.get(pr);
+    private boolean worthEditing(CommandRun run, String stage, long estimateEpochSec) {
+        Shown last = shown.get(run.commentId());
         boolean sameStage = last != null && last.buildId() == run.buildId() && last.stage().equals(stage);
         boolean sameEstimate = estimateEpochSec < 0
             || last != null && last.estimateEpochSec() >= 0
@@ -812,9 +891,12 @@ public class PrCommands implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
+        Map<Integer, CommandRun> newestPerPr = new HashMap<>();
+        watching.values().forEach(r -> newestPerPr.merge(r.pr(), r, (a, b) -> a.buildId() >= b.buildId() ? a : b));
         Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(),
-            new HashMap<>(watching), new HashMap<>(onboarded), new HashMap<>(onboardedPrs),
-            new HashMap<>(strangerCommands), new HashMap<>(toldTcRefused), new HashMap<>(hinted)));
+            newestPerPr, new HashMap<>(onboarded), new HashMap<>(onboardedPrs),
+            new HashMap<>(strangerCommands), new HashMap<>(toldTcRefused), new HashMap<>(hinted),
+            List.copyOf(watching.values())));
     }
 
     @Override
@@ -827,8 +909,10 @@ public class PrCommands implements SnapshotCache {
         if (p.handled() != null)
             handled.putAll(p.handled());
         handledTotal.set(p.handledTotal());
+        if (p.narrations() != null)
+            p.narrations().forEach(r -> watching.put(r.commentId(), r));
         if (p.watching() != null)
-            watching.putAll(p.watching());
+            p.watching().forEach((pr, r) -> watching.putIfAbsent(r.commentId(), r.ofPr(pr)));
         if (p.onboarded() != null)
             onboarded.putAll(p.onboarded());
         if (p.onboardedPrs() != null)
@@ -841,15 +925,24 @@ public class PrCommands implements SnapshotCache {
             hinted.putAll(p.hinted());
     }
 
+    /**
+     * pr-commands.json. {@code narrations} holds every run being told; {@code watching}, one per PR, its newest,
+     * is what v1.20.11 and before read and wrote.
+     */
     private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal,
         Map<Integer, CommandRun> watching, Map<String, Long> onboarded, Map<Integer, Long> onboardedPrs,
-        Map<String, Long> strangerCommands, Map<String, Long> toldTcRefused, Map<Long, Long> hinted) {
+        Map<String, Long> strangerCommands, Map<String, Long> toldTcRefused, Map<Long, Long> hinted,
+        List<CommandRun> narrations) {
     }
 
     /** An accepted command still being narrated: where its comment is, which chain it watches, and —
-     * for PAT-less commanders — the checker's own narration comment that gets edited instead. */
+     * for PAT-less commanders — the checker's own narration comment that gets edited instead. The PR came
+     * from the key of v1.20.11's snapshot, which has it in no field. */
     private record CommandRun(long commentId, String baseBody, long buildId, String username,
-        long narrationId, boolean app) {
+        long narrationId, boolean app, int pr) {
+        CommandRun ofPr(int number) {
+            return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, number);
+        }
     }
 
     /** What a narration last showed: for which chain, at which stage, with which estimate (-1: none). */

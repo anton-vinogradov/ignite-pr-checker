@@ -316,6 +316,20 @@
             return card('Startup warm-up', '—', 'pending');
         }
 
+        // Whose GitHub account the checker writes as (GITHUB_TOKEN): the operator has to know, and it must not be
+        // one that can push to the repo.
+        function appAccountCard(a) {
+            if (!a || a.state === 'unknown')
+                return card('App account', '—', 'GitHub has not said whose GITHUB_TOKEN this is yet');
+            if (a.state === 'none')
+                return card('App account', 'none', 'no GITHUB_TOKEN: read-only, commands of users without a token get no reply', 'warn');
+            if (a.state === 'refused')
+                return card('App account', 'refused', 'GitHub refuses GITHUB_TOKEN', 'bad');
+            return a.canPush
+                ? card('App account', '@' + esc(a.login), '⚠ can push to the repo — use an account without write access', 'warn')
+                : card('App account', '@' + esc(a.login), 'writes replies, reactions and narration for users without a token', 'ok');
+        }
+
         // Snapshots of the state on disk: off is amber only when it was meant to be on; a durable file
         // that could not be read at startup, or a save that keeps failing, is red until dealt with.
         function persistenceCard(p) {
@@ -447,6 +461,7 @@
                     g.total ? (g.fail === 0 ? 'ok' : g.fail <= 5 ? 'warn' : 'bad') : ''),
                 card('App token (1h)', appCalls.toLocaleString(), `${appFails} failed · server-side calls`,
                     appCalls ? (appFails === 0 ? 'ok' : 'warn') : ''),
+                appAccountCard(d.app.githubAccount),
                 card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
                 card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
                     d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : '',

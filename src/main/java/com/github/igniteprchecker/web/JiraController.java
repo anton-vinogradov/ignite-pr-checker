@@ -217,6 +217,15 @@ public class JiraController {
         return out;
     }
 
+    /**
+     * Whether the verdict of the PR's run {@code build} is final, or auto re-runs are still settling it: the
+     * page shows the waves, which only the PR comment and the visa told before.
+     */
+    @GetMapping("/settling")
+    public StandingVisas.Phase settling(@RequestParam int pr, @RequestParam long build) {
+        return standing.phase(pr, build);
+    }
+
     /** Posts the verdict as a comment ("visa") to the ticket. 412 when the session has no JIRA token. */
     @PostMapping("/jira-visa")
     public ResponseEntity<?> visa(@RequestParam int pr, @RequestParam String issue,

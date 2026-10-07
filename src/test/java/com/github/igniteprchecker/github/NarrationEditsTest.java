@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -69,6 +68,7 @@ class NarrationEditsTest {
         when(tc.triggerRunAll("commands-tc", PR, false)).thenReturn(build("queued", null));
         when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
             .thenReturn(new GithubClient.PostedComment(NARRATION, "https://github.com/apache/ignite/pull/13800#c77"));
+        when(github.updatePrCommentAsApp(eq(NARRATION), anyString())).thenReturn(true);
         commands.poll();
     }
 
@@ -106,8 +106,8 @@ class NarrationEditsTest {
     void anEditThatFailedIsMadeAgainNextMinute() {
         when(tc.getBuildState("commands-tc", CHAIN)).thenReturn(build("queued", null), build("running", null));
         when(tc.chainRemainingSeconds(eq("commands-tc"), eq(CHAIN), any())).thenReturn(4 * 3600L);
-        doNothing().doThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY)).doNothing()
-            .when(github).updatePrCommentAsApp(eq(NARRATION), anyString());
+        when(github.updatePrCommentAsApp(eq(NARRATION), anyString())).thenReturn(true)
+            .thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY)).thenReturn(true);
 
         for (int minute = 0; minute < 5; minute++)
             commands.updateEtas();
