@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
@@ -118,7 +119,7 @@ class FreshnessTest {
     void pageLearnsTheServersRefreshWindow() {
         ConfigController config = new ConfigController(new TeamcityProperties("https://ci2.example/"),
             new GithubProperties(null, null, null), mock(GithubClient.class),
-            new AnalysisProperties(null, "RunAll", null, null, null, 300, null));
+            new AnalysisProperties(null, "RunAll", null, null, null, 300, null), mock(SuiteBaseline.class));
 
         assertThat(config.config()).containsEntry("refreshAfterSeconds", 300);
     }

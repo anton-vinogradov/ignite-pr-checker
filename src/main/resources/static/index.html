@@ -153,6 +153,7 @@
         .rev-ok { color: #2e7d32; }
         .rev-stale { color: #b26a00; font-weight: 600; }
         .rev-queued { color: var(--muted); }
+        .run-by { font-size: 0.72rem; margin-left: 0.3rem; color: var(--muted); white-space: nowrap; }
         html[data-theme="dark"] .rev-stale, html[data-theme="jetbrains"] .rev-stale { color: #e0a54a; }
         html[data-theme="dark"] .rev-ok, html[data-theme="jetbrains"] .rev-ok { color: #66bb6a; }
         html[data-theme="dark"] .pending-note, html[data-theme="jetbrains"] .pending-note { color: #e0a54a; }
@@ -514,8 +515,8 @@
                         TeamCity of Apache Ignite.</li>
                     <li>Create an access token there: Profile → Access Tokens (“Create a token” above opens it).</li>
                     <li>The token acts with your account's rights. Reading verdicts needs only view access; Rerun
-                        needs the right to run builds, “Rerun top” also to reorder the build queue, and “Cancel all” to
-                        stop builds and remove them from the queue.</li>
+                        needs the right to run builds, “Rerun top” also to reorder the build queue, and “Cancel my runs”
+                        to stop builds and remove them from the queue.</li>
                 </ol>
             </details>
         </section>
@@ -541,9 +542,9 @@
                     <div class="head-row title-row">
                         <div id="prTitle" class="pr-title muted">Pick a PR on the left, or type its number in the filter.</div>
                         <div id="actions" class="actions hidden">
-                            <span class="muted">RunAll:</span>
-                            <button class="act" data-act="trigger" data-top="false">Rerun</button>
-                            <button class="act" data-act="trigger" data-top="true">Rerun top</button>
+                            <span id="runAllLabel" class="muted">RunAll:</span>
+                            <button class="act" data-act="trigger" data-top="false" title="Queue the whole RunAll chain for this PR">Rerun</button>
+                            <button class="act" data-act="trigger" data-top="true" title="Queue the whole RunAll chain for this PR, at the top of the queue">Rerun top</button>
                         </div>
                     </div>
                     <div class="head-row status-row">
@@ -560,7 +561,7 @@
                     </div>
                     <div id="runsRow" class="head-row hidden">
                         <span id="runs" class="runs muted"></span>
-                        <button id="cancelAll" class="cancel">Cancel all</button>
+                        <button id="cancelMine" class="cancel hidden" type="button" title="Cancel the runs you started; other people's runs keep going">Cancel my runs</button>
                     </div>
                 </div>
 
@@ -668,6 +669,7 @@
         let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
         let canAdmin = false; // may update the service: the operator, or anyone when no operator is named
         let allPrs = []; // last-loaded open-PR list, for the list filter
+        let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
 
         async function api(path, opts = {}) {
             return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -794,6 +796,10 @@
                 const cfg = await r.json();
                 if (cfg.githubRepo) githubRepo = cfg.githubRepo;
                 if (cfg.refreshAfterSeconds >= 0) refreshAfterMs = cfg.refreshAfterSeconds * 1000;
+                if (cfg.runAllSuites > 0) {
+                    runAllSuites = cfg.runAllSuites;
+                    $('runAllLabel').textContent = `RunAll (~${runAllSuites} suites):`;
+                }
                 const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
                 tcBase = base;
                 $('tokenLink').href = base + 'profile.html?item=accessTokens';
@@ -884,6 +890,8 @@
             clearFreshness();
             $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
             runsWere = 0;
+            runsNow = [];
+            noRunNote = '';
             lastLiveFetch = Date.now(); // the analysis below is this PR's first look
             lastResult = null;
             detailsCache.clear();
@@ -897,9 +905,16 @@
         function suitesOfTests(list) { return [...new Set((list || []).map(t => t.suite).filter(Boolean))]; }
         function suitesOfBroken(list) { return [...new Set((list || []).map(b => b.suite).filter(Boolean))]; }
 
+        // From this many suites on, a section re-run asks first: one click on "Rerun top" can put 60 suites
+        // ahead of everybody else's builds.
+        const ASK_FROM_SUITES = 5;
+
         async function rerunSuites(suites, top, btn) {
             if (!selectedPr || !suites.length) return;
             const pr = selectedPr;
+            if (suites.length >= ASK_FROM_SUITES && !confirm(`Re-run ${suites.length} suites of PR #${pr} `
+                + (top ? 'at the top of the ci2 queue, ahead of everyone else\'s builds?' : 'at the end of the ci2 queue?')))
+                return;
             btn.disabled = true;
             $('status').textContent = 'Queuing ' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + '…';
             try {
@@ -917,14 +932,19 @@
             }
         }
 
-        // Wires a section's Rerun / Rerun top buttons to re-run that section's distinct suites; hides
-        // the control when the section has no suites.
+        // Wires a section's Rerun / Rerun top buttons to re-run that section's distinct suites, saying how
+        // many; hides the control when the section has no suites.
         function wireSectActs(containerId, suites) {
             const c = $(containerId);
             if (!c) return;
             c.classList.toggle('hidden', !suites.length);
-            for (const b of c.querySelectorAll('button'))
-                b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, b.dataset.top === 'true', b); };
+            const n = suites.length;
+            for (const b of c.querySelectorAll('button')) {
+                const top = b.dataset.top === 'true';
+                b.textContent = `${top ? 'Rerun top' : 'Rerun'} (${n})`;
+                b.title = `Re-run the ${n} suite${n === 1 ? '' : 's'} of this section${top ? ', at the top of the queue' : ''}`;
+                b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, top, b); };
+            }
         }
 
         // One poll loop for the open PR: often while its runs go, rarely when nothing runs, never from a
@@ -936,6 +956,8 @@
         let runsWere = 0;
         let lastLiveFetch = 0;
         let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
+        let runsNow = []; // the PR's runs as /api/runs lists them, with who started each
+        let noRunNote = ''; // the status line's "no run to analyse" text while it is shown, so new runs can update it
 
         // Tag each suite header whose build type is currently queued/running with a chip linking to that build.
         // A suite can have several live builds at once — the chain's own run, a re-run queued on top
@@ -970,10 +992,11 @@
             catch (e) {
                 r = null; // network blip: the next poll asks again
             }
-            if (number !== selectedPr) return;
-            if (r && r.status === 401) return loggedOut(r);
-            if (!r || !r.ok) { schedulePoll(); return; }
+            if (number !== selectedPr) return false;
+            if (r && r.status === 401) { await loggedOut(r); return false; }
+            if (!r || !r.ok) { schedulePoll(); return false; }
             const runs = await r.json();
+            runsNow = runs;
             // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
             // so suite chips light up individually while the chain grinds through them.
             const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
@@ -997,10 +1020,14 @@
                     : b.state === 'queued'
                         ? `<span class="rev-queued" title="The revision is resolved when the build starts — it will pick up the head of that moment">rev @start</span>`
                         : '';
+            const byTag = b => b.mine ? ''
+                : `<span class="run-by" title="Started by ${esc(b.by || 'someone else')} — Cancel my runs leaves it alone">by ${esc(b.by || 'someone else')}</span>`;
             $('runs').innerHTML = runs.length
-                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${b.webUrl}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec > 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
+                ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec > 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
                 : '';
             $('runsRow').classList.toggle('hidden', runs.length === 0);
+            $('cancelMine').classList.toggle('hidden', !runs.some(b => b.mine));
+            if (noRunNote && $('status').textContent === noRunNote) showNoRun();
 
             // When the runs we were watching have all finished, refresh the analysis to pick up their results.
             if (runsWere > 0 && runs.length === 0 && number === selectedPr)
@@ -1013,6 +1040,20 @@
                 analyze(number, true);
             }
             schedulePoll();
+            return true;
+        }
+
+        // A PR with nothing to analyse yet: say whether a RunAll is already on its way rather than offer
+        // to start one next to it.
+        function showNoRun() {
+            const chain = runsNow.find(b => b.runAll);
+            noRunNote = !chain
+                ? 'No RunAll run for this PR yet — start one with the RunAll Rerun button above. (TeamCity may have cleaned up an old one.)'
+                : chain.state === 'running'
+                    ? 'RunAll is running for this PR — its first results show up here shortly.'
+                    : 'RunAll is queued for this PR' + (chain.startSec >= 0 ? ', starts ' + fmtLeft(chain.startSec) : '')
+                        + ' — the verdict shows up here once it starts.';
+            $('status').textContent = noRunNote;
         }
 
         function prFromUrl() {
@@ -1035,6 +1076,8 @@
         function goHome(push) {
             selectedPr = null;
             lastResult = null;
+            runsNow = [];
+            noRunNote = '';
             stopRunsPoll();
             if (push) history.pushState({}, '', location.pathname);
             for (const li of $('prList').children) li.classList.remove('sel');
@@ -1117,8 +1160,7 @@
                 // (Spring's bare "Not Found", 502/503, network failure) is almost always a deploy
                 // restart — keep calm and retry instead of flashing a scary error.
                 if (/no RunAll build/i.test(error || '')) {
-                    $('status').innerHTML = 'No finished RunAll run for this PR yet — trigger one with <b>RunAll</b> above. '
-                        + '(A cancelled or still-running build doesn\'t count; an old one may have been cleaned up by TeamCity.)';
+                    showNoRun();
                     return;
                 }
                 const why = genericError(error) ? null : error;
@@ -1551,6 +1593,7 @@
             const prev = lastResult && lastResult.prNumber === res.prNumber ? lastResult : null;
             const kept = prev ? openState() : null;
             lastResult = res;
+            noRunNote = '';
             if (!quiet || !prev) $('status').textContent = ''; // a first verdict replaces "no run yet"
             renderFreshness(res);
             lookAgainIfStale(res);
@@ -1746,7 +1789,7 @@
             if (!r || !r.ok) {
                 const { error } = r ? await r.json().catch(() => ({ error: 'refresh failed' })) : {};
                 if (/no RunAll build/i.test(error || '')) {
-                    $('status').textContent = friendly(error, 'refresh failed');
+                    showNoRun();
                     return;
                 }
                 // With a verdict on screen, keep it and look again quietly; with none, retry visibly.
@@ -1759,33 +1802,71 @@
             loadRuns(pr);
         }
 
+        // A question about the PR's runs must name the runs as they are now, not as the last poll saw them.
+        async function freshRuns(pr) {
+            if (await loadRuns(pr)) return true;
+            if (pr === selectedPr && $('loginView').classList.contains('hidden'))
+                $('status').textContent = 'Could not check the runs of this PR — try again in a moment.';
+            return false;
+        }
+
+        // RunAll queues the whole chain, so it always asks first; a RunAll of the viewer's own that is still
+        // going is replaced rather than doubled.
         async function doTrigger(act, top, btn) {
             if (!selectedPr) return;
             const pr = selectedPr;
+            const atTop = String(top) === 'true';
             btn.disabled = true;
-            $('status').textContent = 'Queuing RunAll…';
             try {
-                const r = await api('/api/' + act + '?pr=' + pr + '&top=' + top, { method: 'POST' });
+                if (!await freshRuns(pr)) return;
+                const mine = runsNow.filter(b => b.runAll && b.mine);
+                if (!confirm(runAllQuestion(pr, atTop, mine))) return;
+                $('status').textContent = mine.length ? 'Replacing your RunAll…' : 'Queuing RunAll…';
+                const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : ''),
+                    { method: 'POST' });
                 if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
-                if (!r.ok) { $('status').textContent = friendly(res.error, 'trigger failed'); return; }
+                if (!r.ok) {
+                    $('status').textContent = friendly(res.error, 'trigger failed');
+                    if (res.replaced) loadRuns(pr);
+                    return;
+                }
                 const links = (res.triggered || [])
-                    .map(b => `#${b.buildId}<a class="ext" href="${b.webUrl}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
-                $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links;
+                    .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
+                $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links
+                    + (res.replaced ? ' — cancelled your previous RunAll' : '');
                 loadRuns(pr);
             } finally {
                 btn.disabled = false;
             }
         }
 
-        async function cancelAll() {
+        function runAllQuestion(pr, top, mine) {
+            const going = b => b.state + chipEta(b);
+            const theirs = runsNow.filter(b => b.runAll && !b.mine);
+            return `Queue RunAll for PR #${pr}${top ? ' at the top of the ci2 queue, ahead of everyone else\'s builds' : ''}?`
+                + ` That is the whole chain${runAllSuites ? ', ~' + runAllSuites + ' suites' : ''}`
+                + ' (suites already run on this code may be reused).'
+                + (mine.length === 1 ? `\n\nYour RunAll for this PR is still ${going(mine[0])}. OK cancels it and queues the new one.`
+                    : mine.length > 1 ? `\n\nYour ${mine.length} RunAll chains for this PR are still going. OK cancels them and queues the new one.`
+                    : '')
+                + theirs.map(b => `\n\n${b.by || 'Someone else'}'s RunAll for this PR is ${going(b)}; it stays, and yours runs alongside it.`).join('');
+        }
+
+        // Only the viewer's own runs, and only those the question listed: ci2 lets anyone stop anyone's
+        // chain, so the server cancels nothing else either.
+        async function cancelMine() {
             if (!selectedPr) return;
             const pr = selectedPr;
-            const btn = $('cancelAll');
+            const btn = $('cancelMine');
             btn.disabled = true;
-            $('status').textContent = 'Cancelling runs…';
             try {
-                const r = await api('/api/cancel-all?pr=' + pr, { method: 'POST' });
+                if (!await freshRuns(pr)) return;
+                const mine = runsNow.filter(b => b.mine);
+                if (!mine.length) { $('status').textContent = 'None of your runs of this PR is still going.'; return; }
+                if (!confirm(cancelQuestion(pr, mine))) return;
+                $('status').textContent = 'Cancelling your runs…';
+                const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
                 if (r.status === 401) return loggedOut(r);
                 const res = await r.json().catch(() => ({}));
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'cancel failed'); return; }
@@ -1794,6 +1875,13 @@
             } finally {
                 btn.disabled = false;
             }
+        }
+
+        function cancelQuestion(pr, mine) {
+            const theirs = runsNow.length - mine.length;
+            return `Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?\n`
+                + mine.map(b => `\n• ${b.name || 'build'}: ${b.state}${chipEta(b)}`).join('')
+                + (theirs ? `\n\nRuns started by other people (${theirs}) keep going.` : '');
         }
 
         // Re-run a single suite (buildType) for the current PR.
@@ -2484,7 +2572,7 @@
         $('jiraCancel').onclick = () => toggleJiraPanel(false);
 
 
-        $('cancelAll').onclick = cancelAll;
+        $('cancelMine').onclick = cancelMine;
         $('refreshBtn').onclick = refresh;
         window.addEventListener('popstate', () => {
             if ($('analyzeView').classList.contains('hidden')) {

@@ -41,11 +41,33 @@ public class TriggerController {
         this.runAllBuildType = cfg.runAllBuildType();
     }
 
-    /** Queue the whole RunAll chain. {@code top} puts it at the head of the queue. */
+    /**
+     * Queue the whole RunAll chain. {@code top} puts it at the head of the queue; {@code replace} first
+     * cancels the user's own RunAll chains of the PR, and a refusal to cancel queues nothing, so the
+     * user never ends up with two chains. Queuing after the cancel can still fail, and then the answer
+     * says the previous chain is gone.
+     */
     @PostMapping("/trigger")
     public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerRunAll(token, pr, top))))));
+        @RequestParam(defaultValue = "false") boolean replace,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        int replaced = replace
+            ? tc.cancelOwnBuilds(token, pr, username, b -> runAllBuildType.equals(b.buildTypeId()))
+            : 0;
+
+        TcModel.Build queued;
+        try {
+            queued = tc.triggerRunAll(token, pr, top);
+        }
+        catch (RuntimeException e) {
+            if (replaced == 0)
+                throw e;
+
+            throw new ReplacementNotQueuedException(replaced, e);
+        }
+
+        return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, queued))), "replaced", replaced));
     }
 
     /** Re-run only the suites that contain the current blockers. */
@@ -76,14 +98,15 @@ public class TriggerController {
     @PostMapping("/rerun-suites")
     public ResponseEntity<?> rerunSuites(@RequestParam int pr, @RequestParam String suites,
         @RequestParam(defaultValue = "false") boolean top,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         List<String> ids = java.util.Arrays.stream(suites.split(","))
             .map(String::trim).filter(s -> !s.isBlank()).distinct().toList();
         if (ids.isEmpty())
             return ResponseEntity.badRequest().body(Map.of("error", "no suites to re-run"));
 
         List<Map<String, Object>> triggered = ids.stream()
-            .map(suite -> brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))
+            .map(suite -> brief(track(pr, tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top))))
             .toList();
 
         return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -93,11 +116,13 @@ public class TriggerController {
     @PostMapping("/rerun-suite")
     public ResponseEntity<?> rerunSuite(@RequestParam int pr, @RequestParam String suite,
         @RequestParam(defaultValue = "false") boolean top,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         if (suite.isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
-        return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, tc.triggerBuildReplacingQueued(token, suite, pr, top))))));
+        return ResponseEntity.ok(Map.of("triggered",
+            List.of(brief(track(pr, tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top))))));
     }
 
     /** Tool-triggered builds that are still queued/running (public; feeds the live suite chips). */
@@ -113,10 +138,14 @@ public class TriggerController {
     private final java.util.concurrent.ConcurrentMap<Integer, Object[]> headShas =
         new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** Builds the user launched (RunAll and re-run suites) currently queued or running for the PR. */
+    /**
+     * Builds people launched (RunAll and re-run suites) currently queued or running for the PR, each with
+     * who started it ({@code by}), whether that is the viewer ({@code mine}), and whether it is a RunAll.
+     */
     @GetMapping("/runs")
     public List<Map<String, Object>> runs(@RequestParam int pr,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         // Whether each RUNNING build is on the PR's current head: a run started before the latest
         // push tests older code, and that must be visible. Queued builds have no revision yet —
         // TeamCity resolves it at start, so they will pick up the head of that moment.
@@ -140,6 +169,10 @@ public class TriggerController {
         // picks up builds triggered outside the tool (straight from the TeamCity UI).
         return tc.currentUserBuilds(token, pr).stream().map(b -> {
             Map<String, Object> m = brief(track(pr, b));
+            String by = TcClient.starter(b);
+            m.put("by", by == null ? "" : by);
+            m.put("mine", username.equals(by));
+            m.put("runAll", runAllBuildType.equals(b.buildTypeId()));
             // A running RunAll's own estimate lies in both directions: it ignores agent-queue wait
             // (underestimates a freshly queued chain) and inherits skewed duration history from
             // interrupted runs (a 9h estimate with 44 minutes of work left). The per-dependency
@@ -162,11 +195,17 @@ public class TriggerController {
         }).toList();
     }
 
-    /** Cancel every user-launched build (RunAll or re-run suite) currently queued or running for the PR. */
+    /**
+     * Cancel the user's own builds (RunAll or re-run suite) queued or running for the PR: only those in
+     * {@code ids} when given, the list the user confirmed, so a run queued meanwhile is not stopped
+     * unseen. Other people's builds are never cancelled.
+     */
     @PostMapping("/cancel-all")
-    public ResponseEntity<?> cancelAll(@RequestParam int pr,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return ResponseEntity.ok(Map.of("cancelled", tc.cancelUserBuilds(token, pr)));
+    public ResponseEntity<?> cancelAll(@RequestParam int pr, @RequestParam(required = false) List<Long> ids,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        return ResponseEntity.ok(Map.of("cancelled",
+            tc.cancelOwnBuilds(token, pr, username, b -> ids == null || ids.contains(b.id()))));
     }
 
     /** Registers a queued/running build with the rerun tracker, passing the build through. */

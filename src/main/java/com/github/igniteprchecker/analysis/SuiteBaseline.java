@@ -33,6 +33,7 @@ public class SuiteBaseline implements SnapshotCache {
 
     private volatile Map<String, Integer> counts = Map.of();
     private volatile Map<String, Long> durations = Map.of();
+    private volatile int chainSuites;
     private volatile long fetchedAt;
     private volatile boolean fetching;
 
@@ -74,6 +75,7 @@ public class SuiteBaseline implements SnapshotCache {
                 mergedDurations.putAll(fresh.durations());
                 counts = mergedCounts;
                 durations = mergedDurations;
+                chainSuites = fresh.suites();
                 fetchedAt = System.currentTimeMillis();
                 log.info("suite baseline refreshed: {} suites, {} durations from master",
                     mergedCounts.size(), mergedDurations.size());
@@ -87,8 +89,12 @@ public class SuiteBaseline implements SnapshotCache {
         }
     }
 
-    public int size() {
-        return counts.size();
+    /**
+     * How many suites master's latest RunAll chain had, 0 until known. Not the size of {@link #counts}: that
+     * keeps every suite any master chain ever had, a suite since dropped from RunAll included.
+     */
+    public int chainSuites() {
+        return chainSuites;
     }
 
     public long fetchedAt() {
@@ -102,7 +108,8 @@ public class SuiteBaseline implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
-        Snapshots.writeAtomic(mapper, file, new Persisted(fetchedAt, new HashMap<>(counts), new HashMap<>(durations)));
+        Snapshots.writeAtomic(mapper, file,
+            new Persisted(fetchedAt, new HashMap<>(counts), new HashMap<>(durations), chainSuites));
     }
 
     @Override
@@ -114,12 +121,14 @@ public class SuiteBaseline implements SnapshotCache {
         if (p.counts() != null && !p.counts().isEmpty()) {
             counts = new HashMap<>(p.counts());
             durations = p.durations() == null ? Map.of() : new HashMap<>(p.durations());
-            // A pre-durations snapshot must count as stale, or the ETA floor would stay empty for
-            // hours after the upgrade.
-            fetchedAt = durations.isEmpty() ? 0 : p.fetchedAt();
+            chainSuites = p.chainSuites();
+            // A snapshot from before durations or the chain size must count as stale, or the ETA floor
+            // and the page's suite count would stay empty for hours after the upgrade.
+            fetchedAt = durations.isEmpty() || chainSuites == 0 ? 0 : p.fetchedAt();
         }
     }
 
-    private record Persisted(long fetchedAt, Map<String, Integer> counts, Map<String, Long> durations) {
+    private record Persisted(long fetchedAt, Map<String, Integer> counts, Map<String, Long> durations,
+        int chainSuites) {
     }
 }

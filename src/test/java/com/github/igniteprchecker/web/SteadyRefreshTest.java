@@ -120,7 +120,7 @@ class SteadyRefreshTest {
                 shown: !page.el('results').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("before").asText()).startsWith("No finished RunAll run");
+        assertThat(out.get("before").asText()).startsWith("No RunAll run for this PR yet");
         assertThat(out.get("after").asText()).isEmpty();
         assertThat(out.get("shown").asBoolean()).isTrue();
     }
