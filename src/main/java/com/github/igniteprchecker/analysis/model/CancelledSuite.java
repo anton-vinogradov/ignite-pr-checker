@@ -7,8 +7,14 @@ package com.github.igniteprchecker.analysis.model;
  * true only when TeamCity says it cancelled the suite by itself, with no user: only such a suite is worth an
  * automatic re-run, as a person meant theirs not to run, and a suite with no word on who cancelled it may be
  * either. {@code baseline} is how many tests the suite runs on master, 0 when unknown: a run that closes the
- * entry with far fewer tests leaves a shrunk suite.
+ * entry with far fewer tests leaves a shrunk suite. {@code failedUpstream} is the run it needed that failed,
+ * null when none did: that failure is why it never ran.
  */
 public record CancelledSuite(String suite, long suiteBuildId, String suiteName, String reason, String cancelledBy,
-    boolean byTeamCity, int baseline) {
+    boolean byTeamCity, int baseline, Upstream failedUpstream) {
+    /** A cancelled suite whose upstream is not known, in the shape callers used before it was. */
+    public CancelledSuite(String suite, long suiteBuildId, String suiteName, String reason, String cancelledBy,
+        boolean byTeamCity, int baseline) {
+        this(suite, suiteBuildId, suiteName, reason, cancelledBy, byTeamCity, baseline, null);
+    }
 }

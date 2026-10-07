@@ -352,8 +352,13 @@ public class TcClient {
      * What a suite run is judged by. A chain's dependency and a re-run outside any chain are fetched
      * with the same fields, so the same suite rules see the same facts about both.
      */
+    /**
+     * What a suite run is read with. The runs it depends on show whether it failed or never ran only because one
+     * of them failed: every suite of a RunAll depends on its Build.
+     */
     private static final String SUITE_FIELDS = "id,buildTypeId,status,state,queuedDate,buildType(name),"
-        + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details)),canceledInfo(text,user(username))";
+        + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details)),canceledInfo(text,user(username)),"
+        + "snapshot-dependencies(build(id,buildTypeId,status,buildType(name)))";
 
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {

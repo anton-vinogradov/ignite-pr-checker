@@ -2,11 +2,14 @@ package com.github.igniteprchecker.jira;
 
 import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -23,6 +26,9 @@ public class VisaService {
 
     /** How the last line of a comment whose re-runs a newer run cut short starts, after its emoji. */
     private static final String REPLACED = "Re-runs stopped: RunAll ";
+
+    /** How many suites a line of a broken group names before "and N more". */
+    private static final int NAMES_SHOWN = 5;
 
     private final TeamcityProperties tc;
     private final String publicUrl;
@@ -76,16 +82,21 @@ public class VisaService {
             return b.toString();
         }
 
-        if (!caveats.isEmpty()) {
+        Broken broken = Broken.of(r, caveats);
+        broken.roots().forEach(g -> b.append("🛑 **").append(g.title()).append("**\n")
+            .append(rootLines(g)).append('\n'));
+        if (broken.allSaid(r))
+            return b.toString().stripTrailing();
+
+        if (!broken.caveats().isEmpty()) {
             b.append("⚠️ **This run doesn't cover the PR fully:**\n");
-            caveats.forEach(c -> b.append("- ").append(c).append('\n'));
+            broken.caveats().forEach(c -> b.append("- ").append(c).append('\n'));
             b.append("\nEverything below is what it did manage to say.\n\n");
         }
 
-        if (!r.brokenSuites().isEmpty()) {
-            b.append("⚠️ **").append(r.brokenSuites().size()).append(" broken suite(s)** (no reliable run):\n");
-            r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
-                .append(String.join(" · ", s.problems())).append(shortfall(s)).append('\n'));
+        if (!broken.others().isEmpty()) {
+            b.append("⚠️ **Broken suites** (no reliable run):\n");
+            broken.others().forEach(g -> b.append("- ").append(groupLine(g)).append('\n'));
             b.append('\n');
         }
 
@@ -210,6 +221,64 @@ public class VisaService {
             ? " — ran " + s.tests() + " of master's " + s.baseline() + " tests" : "";
     }
 
+    /**
+     * Under a failed run the others need: what it failed with while it stays broken, and the suites it kept from
+     * running, in one line.
+     */
+    private static String rootLines(BrokenGroup g) {
+        List<String> victims = Stream.concat(
+            g.suites().stream().map(s -> BrokenGroup.nameOf(s.suiteName(), s.suite())),
+            g.cancelled().stream().map(c -> BrokenGroup.nameOf(c.suiteName(), c.suite()))).toList();
+
+        return (g.root() == null ? "" : "- " + suiteLine(g.root()) + "\n")
+            + (victims.isEmpty() ? "" : "- Did not run: " + names(victims) + "\n");
+    }
+
+    /** One line for a group of broken suites: its cause and the suites it holds. */
+    private static String groupLine(BrokenGroup g) {
+        List<String> suites = g.suites().stream().map(s -> BrokenGroup.nameOf(s.suiteName(), s.suite())).toList();
+
+        return switch (g.kind()) {
+            case UPSTREAM, ARTIFACTS -> g.title() + ": " + names(suites);
+            case PROBLEM -> suites.size() == 1 ? suiteLine(g.suites().get(0))
+                : g.title() + " (" + suites.size() + " suites): " + names(suites);
+        };
+    }
+
+    /** "Cache 1: execution timeout — ran 33 of master's 67 tests". */
+    private static String suiteLine(BrokenSuite s) {
+        return BrokenGroup.nameOf(s.suiteName(), s.suite()) + ": " + String.join(" · ", s.problems()) + shortfall(s);
+    }
+
+    /** "Cache 1, Cache 2, Cache 3, Cache 4, Cache 5 and 55 more". */
+    private static String names(List<String> names) {
+        String shown = String.join(", ", names.subList(0, Math.min(NAMES_SHOWN, names.size())));
+
+        return names.size() > NAMES_SHOWN ? shown + " and " + (names.size() - NAMES_SHOWN) + " more" : shown;
+    }
+
+    /**
+     * A verdict's broken groups as the PR comment and the visa tell them: the failed runs the others need first, on
+     * their own, then the {@code caveats} they do not already say, and the other groups.
+     */
+    private record Broken(List<BrokenGroup> roots, List<BrokenGroup> others, List<String> caveats) {
+        static Broken of(AnalysisResult r, List<String> caveats) {
+            List<BrokenGroup> groups = BrokenGroup.of(r);
+            List<BrokenGroup> roots = groups.stream().filter(g -> g.upstream() != null).toList();
+            List<String> rest = new ArrayList<>(caveats);
+            roots.forEach(g -> rest.remove(g.caveat()));
+
+            return new Broken(roots, groups.stream().filter(g -> g.upstream() == null).toList(), rest);
+        }
+
+        /** Whether the failed runs are all there is to say: nothing else ran, so nothing else can be told. */
+        boolean allSaid(AnalysisResult r) {
+            return !roots.isEmpty() && others.isEmpty() && caveats.isEmpty()
+                && Stream.of(r.blockers(), r.watch(), r.filtered(), r.unverified(), r.shrunkSuites())
+                    .allMatch(List::isEmpty);
+        }
+    }
+
     public String compose(int pr, AnalysisResult r) {
         return compose(pr, r, null);
     }
@@ -241,16 +310,21 @@ public class VisaService {
             return b.toString();
         }
 
-        if (!caveats.isEmpty()) {
+        Broken broken = Broken.of(r, caveats);
+        broken.roots().forEach(g -> b.append("(x) *").append(g.title()).append("*\n")
+            .append(rootLines(g)).append('\n'));
+        if (broken.allSaid(r))
+            return b.toString().stripTrailing();
+
+        if (!broken.caveats().isEmpty()) {
             b.append("(!) *This run doesn't cover the PR fully:*\n");
-            caveats.forEach(c -> b.append("- ").append(c).append('\n'));
+            broken.caveats().forEach(c -> b.append("- ").append(c).append('\n'));
             b.append("\nEverything below is what it did manage to say.\n\n");
         }
 
-        if (!r.brokenSuites().isEmpty()) {
-            b.append("(!) *").append(r.brokenSuites().size()).append(" broken suite(s)* (failed without a reliable run):\n");
-            r.brokenSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
-                .append(String.join(" · ", s.problems())).append(shortfall(s)).append('\n'));
+        if (!broken.others().isEmpty()) {
+            b.append("(!) *Broken suites* (failed without a reliable run):\n");
+            broken.others().forEach(g -> b.append("- ").append(groupLine(g)).append('\n'));
             b.append('\n');
         }
 

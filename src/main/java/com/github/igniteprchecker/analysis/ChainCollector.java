@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
+import com.github.igniteprchecker.analysis.model.Upstream;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -12,6 +13,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -193,7 +195,8 @@ public class ChainCollector {
         // Reuse transparency: a re-triggered chain on unchanged revisions reuses earlier suite builds
         // (TeamCity substitutes suitable results). A dep queued before the chain itself is such a
         // reused build; showing ran-vs-reused up front beats making users suspect staleness. A suite
-        // ran only once it finished with a result: PR 13583 read "147 suites ran" over "137 never ran".
+        // ran only once it finished with a result of its own: PR 13583 read "147 suites ran" over "137 never
+        // ran", and a suite failed only by the Build it needed ran nothing either.
         int ran = 0;
         int reused = 0;
         long chainQueued = TcDates.epochSeconds(build.queuedDate());
@@ -204,7 +207,7 @@ public class ChainCollector {
                     continue; // unknown: count in neither bucket
                 if (depQueued < chainQueued - 60)
                     reused++;
-                else if (finishedWithResult(dep))
+                else if (finishedWithResult(dep) && !keptFromRunning(dep))
                     ran++;
             }
         }
@@ -246,6 +249,24 @@ public class ChainCollector {
         return "finished".equalsIgnoreCase(dep.state()) && ("SUCCESS".equals(dep.status()) || "FAILURE".equals(dep.status()));
     }
 
+    /** Whether a suite run ran no test because a run it needed failed. */
+    private static boolean keptFromRunning(TcModel.Build run) {
+        return failedUpstream(run) != null && (run.testOccurrences() == null || run.testOccurrences().count() == 0);
+    }
+
+    /**
+     * The run a suite run needed that failed, as TeamCity listed its snapshot dependencies; null when they all
+     * passed or TeamCity did not list them (a chain kept from before they were asked for).
+     */
+    private static Upstream failedUpstream(TcModel.Build run) {
+        return depBuilds(run).stream()
+            .filter(d -> "FAILURE".equals(d.status()) && d.buildTypeId() != null)
+            .findFirst()
+            .map(d -> new Upstream(d.buildTypeId(), d.id(),
+                d.buildType() != null && d.buildType().name() != null ? d.buildType().name() : d.buildTypeId()))
+            .orElse(null);
+    }
+
     private static CancelledSuite cancelledSuite(TcModel.Build dep, Map<String, Integer> masterCounts) {
         TcModel.CanceledInfo info = dep.canceledInfo();
         String by = info == null || info.user() == null ? null : info.user().username();
@@ -253,7 +274,7 @@ public class ChainCollector {
         return new CancelledSuite(dep.buildTypeId(), dep.id(),
             dep.buildType() != null && dep.buildType().name() != null ? dep.buildType().name() : dep.buildTypeId(),
             info == null ? null : info.text(), by, info != null && by == null,
-            masterCounts.getOrDefault(dep.buildTypeId(), 0));
+            masterCounts.getOrDefault(dep.buildTypeId(), 0), failedUpstream(dep));
     }
 
     /**
@@ -405,12 +426,14 @@ public class ChainCollector {
     private static BrokenSuite brokenSuite(TcModel.Build dep, String suiteName, List<TcModel.ProblemOccurrence> problems,
         Map<String, Integer> masterCounts) {
         List<String> descriptions = problems.stream().map(ChainCollector::describeProblem).distinct().toList();
+        List<String> types = problems.stream().map(TcModel.ProblemOccurrence::type).filter(Objects::nonNull)
+            .distinct().toList();
         int tests = dep.testOccurrences() == null ? 0 : dep.testOccurrences().count();
         Integer master = masterCounts.get(dep.buildTypeId());
 
         return new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName,
             descriptions.isEmpty() ? List.of("failed without running tests") : descriptions,
-            tests, master == null ? 0 : master);
+            tests, master == null ? 0 : master, types, failedUpstream(dep));
     }
 
     /** Human wording for a TeamCity problem type, falling back to its details/raw type. */
