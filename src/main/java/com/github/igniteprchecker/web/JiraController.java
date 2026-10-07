@@ -10,6 +10,7 @@ import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
@@ -186,20 +187,34 @@ public class JiraController {
         return ResponseEntity.ok(Map.of("armed", true, "issue", issue));
     }
 
-    /** Cancels a pending auto-visa (removes the stored token with it). */
+    /** Cancels the user's own pending auto-visa (removes their stored token with it); others' stay. */
     @PostMapping("/auto-visa-cancel")
-    public ResponseEntity<?> cancelAutoVisa(@RequestParam int pr) {
-        visaSubs.cancel(pr);
+    public ResponseEntity<?> cancelAutoVisa(@RequestParam int pr,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        visaSubs.cancel(pr, username);
 
         return ResponseEntity.ok(Map.of("armed", false));
     }
 
-    /** Whether an auto-visa is armed for the PR (and for which issue). */
+    /**
+     * The PR's auto-visa as the user sees it: {@code armed}/{@code issue} for their own subscription,
+     * {@code others} who armed one too, and {@code standingBy}, the user whose standing auto-visa posts
+     * the verdict of the PR's run under way (then a one-shot one adds nothing).
+     */
     @GetMapping("/auto-visa")
-    public Map<String, Object> autoVisaStatus(@RequestParam int pr) {
-        return visaSubs.armedIssue(pr)
-            .<Map<String, Object>>map(issue -> Map.of("armed", true, "issue", issue))
-            .orElse(Map.of("armed", false));
+    public Map<String, Object> autoVisaStatus(@RequestParam int pr,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        VisaSubscriptions.Armed armed = visaSubs.armed(pr, username);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("armed", armed.issue() != null);
+        if (armed.issue() != null)
+            out.put("issue", armed.issue());
+        out.put("others", armed.others());
+        String owner = standing.visaOwnerOfRunUnderWay(pr);
+        if (owner != null)
+            out.put("standingBy", owner);
+
+        return out;
     }
 
     /** Posts the verdict as a comment ("visa") to the ticket. 412 when the session has no JIRA token. */

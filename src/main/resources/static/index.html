@@ -1899,16 +1899,31 @@
             }
         }
         // One-shot auto visa: post the verdict to the ticket when this PR's run finishes — no babysitting.
-        let autoVisaArmed = false;
+        // Each user arms and cancels their own; a standing auto-visa that posts this run's verdict makes it moot.
+        let autoVisa = { armed: false, others: [], standingBy: null };
 
         function paintAutoVisa() {
             const b = $('autoVisaBtn');
-            b.textContent = autoVisaArmed ? 'Auto visa ✓' : 'Auto visa';
+            const owner = autoVisa.standingBy;
+            if (owner && !autoVisa.armed) {
+                const mine = owner.toLowerCase() === (myUsername || '').trim().toLowerCase();
+                b.disabled = true;
+                b.textContent = mine ? 'Auto visa: on in ⚙' : `Auto visa: on in ${owner}'s ⚙`;
+                b.title = mine
+                    ? 'Your standing auto-visa (⚙) posts the verdict of this run — nothing to arm here.'
+                    : `The standing auto-visa of ${owner}, who started this run, posts its verdict — nothing to arm here.`;
+                return;
+            }
+            const others = autoVisa.others.join(', ');
+            b.disabled = !lastIssueKey;
+            b.textContent = (autoVisa.armed ? 'Auto visa ✓' : 'Auto visa') + (others ? ` · armed: ${others}` : '');
             b.title = !lastIssueKey
                 ? 'The PR title has no IGNITE-XXXXX ticket to post to'
-                : autoVisaArmed
-                    ? `Armed: the verdict will be posted to ${lastIssueKey} when the current run finishes — click to cancel (removes the stored token)`
-                    : `Post the verdict to ${lastIssueKey} automatically when the run finishes. Your JIRA token is stored encrypted until the visa is posted, then removed.`;
+                : autoVisa.armed
+                    ? `Armed by you: the verdict will be posted to ${lastIssueKey} when the current run finishes — click to cancel yours (removes your stored token)`
+                    : others
+                        ? `Armed by ${others}: the verdict goes to ${lastIssueKey} when the run finishes, once.`
+                        : `Post the verdict to ${lastIssueKey} automatically when the run finishes. Your JIRA token is stored encrypted until the visa is posted, then removed.`;
         }
 
         async function loadAutoVisa(pr) {
@@ -1917,7 +1932,7 @@
                 if (!r.ok) return;
                 const d = await r.json();
                 if (pr !== selectedPr) return;
-                autoVisaArmed = !!d.armed;
+                autoVisa = { armed: !!d.armed, others: d.others || [], standingBy: d.standingBy || null };
                 paintAutoVisa();
             } catch (e) { /* status is a bonus */ }
         }
@@ -1928,20 +1943,19 @@
             const btn = $('autoVisaBtn');
             btn.disabled = true;
             try {
-                const path = autoVisaArmed ? '/api/auto-visa-cancel?pr=' + selectedPr
+                const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + selectedPr
                     : `/api/auto-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`;
                 const r = await api(path, { method: 'POST' });
                 if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) { hasJira = false; pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
                 if (!r.ok) { $('status').textContent = friendly(res.error, 'auto-visa failed'); return; }
-                autoVisaArmed = !!res.armed;
-                paintAutoVisa();
-                $('status').textContent = autoVisaArmed
+                autoVisa.armed = !!res.armed;
+                $('status').textContent = autoVisa.armed
                     ? `Auto visa armed — the verdict will land in ${lastIssueKey} when the run finishes.`
-                    : 'Auto visa cancelled.';
+                    : 'Your auto visa is cancelled.';
             } finally {
-                btn.disabled = false;
+                paintAutoVisa();
             }
         }
 

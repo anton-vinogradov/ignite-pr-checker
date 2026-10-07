@@ -22,6 +22,7 @@ import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class CommandsOnlyTest {
     @Test
     void theRunStoryEndsWhenTheChainFinishes() {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
-            "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", "2026-10-07T10:00:00Z",
+            "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
             new GithubClient.GhUser("Newcomer"))));
         when(tc.triggerRunAll("commands-tc", PR, false)).thenReturn(build("queued", null));
         when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
@@ -67,7 +68,7 @@ class CommandsOnlyTest {
 
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("Run finished — the verdict: https://checker.example"));
+        verify(github).updatePrCommentAsApp(eq(77L), contains("Run finished — [see the verdict](https://checker.example/?pr=13800)"));
     }
 
     private static TcModel.Build build(String state, String status) {

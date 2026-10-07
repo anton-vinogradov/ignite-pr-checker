@@ -19,6 +19,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -26,6 +28,8 @@ import org.springframework.web.client.RestClient;
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
 @Component
 public class GithubClient implements SnapshotCache {
+    private static final Logger log = LoggerFactory.getLogger(GithubClient.class);
+
     /** Validates a user's PAT: their GitHub login when the token works. */
     public java.util.Optional<String> ghUser(String pat) {
         try {
@@ -50,7 +54,7 @@ public class GithubClient implements SnapshotCache {
             return java.util.Optional.empty();
 
         try {
-            java.util.Map<?, ?> u = recorded("user", () -> appGet("https://api.github.com/users/" + login)
+            java.util.Map<?, ?> u = recorded("user", () -> appGet(props.apiUrl() + "/users/" + login)
                 .body(java.util.Map.class));
 
             return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
@@ -290,26 +294,48 @@ public class GithubClient implements SnapshotCache {
     public record PostedComment(long id, String htmlUrl) {
     }
 
+    /** Where a comment of a PR is seen on GitHub. */
+    public String commentUrl(int prNumber, long commentId) {
+        return "https://github.com/" + props.repo() + "/pull/" + prNumber + "#issuecomment-" + commentId;
+    }
+
     /**
      * Issue/PR comments of the whole repo updated since the given instant (ISO-8601), oldest first —
-     * ONE call covers every open PR, which is what makes a minute-level command poll affordable.
+     * ONE call covers every open PR, which is what makes a minute-level command poll affordable. A
+     * full page means there is more: the next pages are read too, up to {@link #COMMENT_PAGES}.
      */
     public java.util.List<IssueComment> recentIssueComments(String sinceIso) {
-        URI uri = URI.create(props.apiUrl() + "/repos/" + props.repo()
-            + "/issues/comments?since=" + sinceIso + "&sort=updated&direction=asc&per_page=100");
+        java.util.List<IssueComment> out = new java.util.ArrayList<>();
+        for (int page = 1; page <= COMMENT_PAGES; page++) {
+            URI uri = URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments?since="
+                + sinceIso + "&sort=updated&direction=asc&per_page=" + COMMENT_PAGE_SIZE + "&page=" + page);
 
-        RestClient.RequestHeadersSpec<?> req = http.get()
-            .uri(uri)
-            .header("Accept", "application/vnd.github+json");
+            RestClient.RequestHeadersSpec<?> req = http.get()
+                .uri(uri)
+                .header("Accept", "application/vnd.github+json");
 
-        if (props.token() != null && !props.token().isBlank())
-            req = req.header("Authorization", "Bearer " + props.token());
+            if (props.token() != null && !props.token().isBlank())
+                req = req.header("Authorization", "Bearer " + props.token());
 
-        RestClient.RequestHeadersSpec<?> r = req;
-        IssueComment[] comments = recorded("comments", () -> r.retrieve().body(IssueComment[].class));
+            RestClient.RequestHeadersSpec<?> r = req;
+            IssueComment[] comments = recorded("comments", () -> r.retrieve().body(IssueComment[].class));
+            if (comments == null)
+                break;
 
-        return comments == null ? java.util.List.of() : java.util.List.of(comments);
+            out.addAll(java.util.List.of(comments));
+            if (comments.length < COMMENT_PAGE_SIZE)
+                break;
+            if (page == COMMENT_PAGES)
+                log.warn("more than {} comments updated since {}: the rest are not read", out.size(), sinceIso);
+        }
+
+        return out;
     }
+
+    private static final int COMMENT_PAGE_SIZE = 100;
+
+    /** A minute of a busy repo is a few comments; ten full pages only follow a long outage. */
+    private static final int COMMENT_PAGES = 10;
 
     /** Reacts to an issue/PR comment under the USER'S OWN PAT (content: rocket, confused, ...). */
     public void reactToComment(String pat, long commentId, String content) {
