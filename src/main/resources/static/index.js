@@ -2037,6 +2037,14 @@ let lastIssueKey = '';
 
 let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
 
+// Where the JIRA PAT ends up depends on what it is pasted for: a visa posted now needs the session alone. The
+// settings panel, where it is pasted for the standing auto-visa, says its own.
+function jiraKeptNote(action) {
+    return action === 'auto'
+        ? 'It goes into your session cookie, encrypted, and the server stores it encrypted until this visa is posted.'
+        : 'It stays in your session cookie only, encrypted.';
+}
+
 async function postVisa() {
     if (!selectedPr || !lastIssueKey) return;
     if (!hasJira) { pendingJiraAction = 'visa'; await toggleJiraPanel(true); return; }
@@ -2061,6 +2069,7 @@ async function toggleJiraPanel(showIt) {
     if (!showIt) { p.classList.add('hidden'); return; }
     const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {}).catch(() => ({}));
     if (cfg.patUrl) $('jiraPatLink').href = cfg.patUrl;
+    $('jiraKept').textContent = jiraKeptNote(pendingJiraAction);
     p.classList.remove('hidden');
     $('jiraTokenInput').focus();
 }

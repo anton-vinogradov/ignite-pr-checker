@@ -451,7 +451,8 @@
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —
             <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
-            then paste it here (kept encrypted in your session cookie):
+            then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
+            while an option that needs it is on.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsGhToken" type="password" placeholder="GitHub personal access token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsGhSave" class="act" type="button">Save</button>
@@ -464,7 +465,8 @@
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
             <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-            then paste it here (kept encrypted in your session cookie):
+            then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
+            while auto-visa is on.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsJiraToken" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsJiraSave" class="act" type="button">Save</button>
@@ -507,10 +509,14 @@
                 <a id="tokenLink" class="login-create" href="#" target="_self" rel="noopener">Create a token</a>
             </div>
             <div id="loginErr" class="err"></div>
-            <div class="login-note muted">
-                Log in with your own TeamCity (ci2) access token.<br>
-                Everything runs under your account — there is no shared server token.<br>
-                It is kept encrypted in your session cookie, never on the server.<br>
+            <div id="loginTokenNote" class="login-note muted">
+                Log in with your own TeamCity (ci2) access token. There is no shared server token: the runs you
+                start or cancel here go under your account.<br>
+                The token is kept encrypted in your session cookie. For about an hour after your last request the
+                server also holds it in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
+                everyone.<br>
+                Turn on an option in ⚙ and the server stores the token encrypted until you turn the options off.
+                With any option other than PR commands on, it also keeps doing those reads.<br>
                 Your login lasts until you log out.
             </div>
             <details class="login-help">
@@ -616,7 +622,7 @@
                         <div id="jiraPanel" class="jira-panel hidden">
                             Posting a visa needs your JIRA Personal Access Token —
                             <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-                            then paste it here (kept encrypted in your session cookie, never stored server-side):
+                            then paste it here. <span id="jiraKept">It stays in your session cookie only, encrypted.</span>
                             <span class="row" style="margin-top: 0.4rem">
                                 <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
                                 <button id="jiraSave" class="act" type="button">Save</button>
