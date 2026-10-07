@@ -27,13 +27,13 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise. A test is a
  * blocker only if it (1) fails in the PR, (2) never fails in the last {@code analysis.historyDepth}
- * master runs of the suite it failed in that ran on the PR run's JDK (any such master failure means it
- * is pre-existing or flaky on master, not this PR's fault), and (3) still fails in the last
- * fully-finished run of that suite on the PR branch (a passing re-run clears it). Both look at that one
- * suite only: the same test id runs in several suites of a chain (the C++ tests run on Windows, Linux
- * and Clang), and another platform's pass is not a re-run, nor are its master failures this one's.
- * Results are cached per build; a request serves the cached result and, if it is getting stale,
- * triggers a background refresh.
+ * master runs of the suite it failed in that ran on the PR run's JDK (such a master failure means it is
+ * pre-existing or flaky on master, not this PR's fault, unless it is rare and old while the test keeps
+ * failing on the PR's code), and (3) still fails in the last fully-finished run of that suite on the PR
+ * branch (a passing re-run clears it). Both look at that one suite only: the same test id runs in
+ * several suites of a chain (the C++ tests run on Windows, Linux and Clang), and another platform's
+ * pass is not a re-run, nor are its master failures this one's. Results are cached per build; a
+ * request serves the cached result and, if it is getting stale, triggers a background refresh.
  */
 @Component
 public class BlockerAnalyzer {
@@ -46,6 +46,9 @@ public class BlockerAnalyzer {
 
     /** Fewer master runs than this on the PR's JDK are called out as thin evidence. */
     private static final int FEW_MASTER_RUNS = 10;
+
+    /** How many of the newest master runs must have passed for an older master failure to be outweighed. */
+    private static final int RECENT_MASTER_GREEN = 10;
 
     private final TcClient tc;
     private final ChainCollector chains;
@@ -441,15 +444,7 @@ public class BlockerAnalyzer {
         HistoryStats h = master.onJdkOf(env);
         String onJdk = env.jdk() != null && master.knowsJdk() ? " on " + env.jdkLabel() : "";
 
-        // A failure in the PR is a blocker unless the test also fails in master history: any failure
-        // there means it isn't specific to this PR (pre-existing or flaky on master). It still gets
-        // its branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers.
-        if (h.fails() > 0) {
-            return verdict(t, lastRun, false, false,
-                "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master" + onJdk, branchRuns, 0);
-        }
-
-        // ...and only if the failure still stands in the last finished run: if that run passed, it
+        // A failure only stands if it still stands in the last finished run: if that run passed, it
         // clears the failure. The revision is not compared here — a pass on the same code makes the
         // failure a flake, a pass on newer code means the branch fixed it; either way it no longer stands.
         if (lastRun != null && "SUCCESS".equals(lastRun.status())) {
@@ -457,10 +452,16 @@ public class BlockerAnalyzer {
                 branchRuns, 0);
         }
 
-        String reason = h.runs() == 0
-            ? "no master history" + onJdk + " (can't prove pre-existing)"
-            : "not seen failing in " + (!onJdk.isEmpty() && h.runs() < FEW_MASTER_RUNS ? "only " : "") + h.runs()
-                + " master run(s)" + onJdk;
+        // A failure in the PR is a blocker unless the test also fails in master history: a failure there
+        // means it isn't specific to this PR (pre-existing or flaky on master). It still gets its
+        // branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers. The
+        // exception is a rare, old master failure against a test that keeps failing on the PR's code
+        // (checked below, once the same-code runs are known): one master failure in 100 used to hide
+        // a parametrization of a test that failed all four runs in PR 13654, while six siblings with
+        // the same strip were blockers.
+        String preExisting = "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master" + onJdk;
+        if (h.fails() > 0 && !mayOutweigh(h, branchRuns))
+            return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
 
         // Merge of the last N branch runs: a real block fails consistently, a test that passed within
         // the window is a within-branch flake. That merge is only sound over runs of the SAME code —
@@ -474,6 +475,18 @@ public class BlockerAnalyzer {
         int streak = trailingFailStreak(code);
         int allStreak = trailingFailStreak(branchRuns);
         int allLen = branchRuns.length();
+
+        if (h.fails() > 0 && !outweighs(h.fails(), h.runs(), streak))
+            return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
+
+        String reason;
+        if (h.fails() > 0)
+            reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last " + h.greenStreak();
+        else if (h.runs() == 0)
+            reason = "no master history" + onJdk + " (can't prove pre-existing)";
+        else
+            reason = "not seen failing in " + (!onJdk.isEmpty() && h.runs() < FEW_MASTER_RUNS ? "only " : "") + h.runs()
+                + " master run(s)" + onJdk;
 
         // Consistent failures over the whole strip block as they always did: widening the window can
         // only ever add evidence. Without this, a test failing on both the old and the new revision
@@ -501,6 +514,25 @@ public class BlockerAnalyzer {
 
         return verdict(t, lastRun, false, false, "flaky on branch: failed only the latest of " + len + " runs"
             + onRevision(head) + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
+    }
+
+    /**
+     * Whether a master failure is rare and old enough, and the branch failing often enough, for
+     * {@link #outweighs} to have a chance once the same-code runs are known. Cheap: it reads no
+     * revisions, so a plain pre-existing failure costs no more than it did.
+     */
+    private static boolean mayOutweigh(HistoryStats master, String branchRuns) {
+        return master.greenStreak() >= RECENT_MASTER_GREEN && outweighs(master.fails(), master.runs(),
+            trailingFailStreak(branchRuns));
+    }
+
+    /**
+     * Whether failing {@code streak} times in a row on the PR's code is more than the {@code fails} in
+     * {@code runs} that happen without the PR can explain: at 1% two failures in a row are a 1 in 10,000
+     * chance, at 2% three are 1 in 125,000. A single failure never outweighs anything.
+     */
+    private static boolean outweighs(int fails, int runs, int streak) {
+        return (fails * 100 <= runs && streak >= 2) || (fails * 50 <= runs && streak >= 3);
     }
 
     /** Joins the non-empty qualifiers of a reason into one trailing {@code " (a; b)"} group. */
