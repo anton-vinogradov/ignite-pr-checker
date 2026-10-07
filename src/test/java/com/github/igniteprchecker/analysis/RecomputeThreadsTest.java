@@ -118,26 +118,31 @@ class RecomputeThreadsTest {
         await().atMost(Duration.ofSeconds(5)).until(this::recomputed);
     }
 
-    /** The warm threads are beans, named in one place, and stop with the application. */
+    /**
+     * The analysis is wired the way the application wires it: every pool it names is a bean of AnalysisConfig,
+     * and every pool stops with the application.
+     */
     @Test
-    void theWarmerAndRecomputeThreadsStopWithTheApplication() {
-        ExecutorService warmer;
-        ExecutorService recomputeThread;
+    void theAnalysisPoolsAreBeansThatStopWithTheApplication() {
+        List<ExecutorService> pools;
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
             context.registerBean(AnalysisProperties.class, () -> cfg);
             context.registerBean(WarmProperties.class, () -> new WarmProperties(false, 50, 10, 60));
             context.registerBean(GithubClient.class, () -> mock(GithubClient.class));
-            context.registerBean(BlockerAnalyzer.class, () -> analyzer);
-            context.register(AnalysisConfig.class, Warmer.class);
+            context.registerBean(TcClient.class, () -> tc);
+            context.registerBean(SuiteBaseline.class, () -> mock(SuiteBaseline.class));
+            context.register(AnalysisConfig.class, AnalysisCache.class, RunDeltaStore.class, ChainCollector.class,
+                BlockerAnalyzer.class, Warmer.class);
             context.refresh();
 
             assertThat(context.getBean(Warmer.class)).isNotNull();
-            warmer = context.getBean("warmerThread", ExecutorService.class);
-            recomputeThread = context.getBean("recomputeExecutor", ExecutorService.class);
+            pools = List.copyOf(context.getBeansOfType(ExecutorService.class).values());
+            assertThat(context.getBeansOfType(ExecutorService.class)).containsKeys("analysisExecutor",
+                "backgroundExecutor", "warmExecutor", "recomputeExecutor", "warmerThread", "causesExecutor");
         }
 
-        assertThat(warmer.isShutdown()).isTrue();
-        assertThat(recomputeThread.isShutdown()).isTrue();
+        assertThat(pools).allMatch(ExecutorService::isShutdown);
     }
 
     private Warmer warmer() {
