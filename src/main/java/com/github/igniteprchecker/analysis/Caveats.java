@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * Why an empty blocker list may still not mean "this PR is fine": the run behind it never covered
  * everything (aborted, suites without a reliable result, suites that ran far fewer tests than
- * master, a newer run still going), or it no longer describes the PR's code (commits pushed since).
+ * master, failed tests TeamCity errors kept from being checked, a newer run still going), or it no
+ * longer describes the PR's code (commits pushed since).
  * Every surface states these next to the verdict instead of showing a bare green tick.
  */
 public final class Caveats {
@@ -29,6 +30,9 @@ public final class Caveats {
 
         if (!r.shrunkSuites().isEmpty())
             out.add(r.shrunkSuites().size() + " suite(s) ran far fewer tests than the same suites on master");
+
+        if (!r.unverified().isEmpty())
+            out.add(r.unverified().size() + " failed test(s) could not be checked (TeamCity errors)");
 
         if (r.live())
             out.add("a newer run is still going — its unfinished suites can still fail");

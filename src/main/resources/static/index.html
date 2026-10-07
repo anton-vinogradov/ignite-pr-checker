@@ -569,6 +569,12 @@
                             blockers, pass and they drop out.</p>
                         <ul id="watch" class="tests"></ul>
                     </div>
+                    <div id="unverifiedCard" class="card watch hidden">
+                        <h2>Could not be checked <span id="unverifiedCount"></span></h2>
+                        <p class="muted">These tests failed, but TeamCity errors kept them from being compared with master and the
+                            branch. They are not counted as blockers, and the checker tries them again on its own.</p>
+                        <ul id="unverified" class="tests"></ul>
+                    </div>
                     <div class="card">
                         <details>
                             <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></summary>
@@ -1330,11 +1336,15 @@
             $('watchCard').classList.toggle('hidden', watch.length === 0);
             $('watchCount').textContent = watch.length ? countLabel(watch) : '';
             renderList($('watch'), watch, false, true);
+            const unverified = res.unverified || [];
+            $('unverifiedCard').classList.toggle('hidden', unverified.length === 0);
+            $('unverifiedCount').textContent = unverified.length ? countLabel(unverified) : '';
+            renderList($('unverified'), unverified, true, true);
             renderList($('blockers'), res.blockers, false, true);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden',
-                res.blockers.length > 0 || broken.length > 0 || watch.length > 0 || shrunk.length > 0);
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0
+                || shrunk.length > 0 || unverified.length > 0);
             $('results').classList.remove('hidden');
             wireSectActs('brokenActs', suitesOfBroken(broken));
             wireSectActs('shrunkActs', suitesOfBroken(shrunk));
@@ -1370,6 +1380,9 @@
             const shrunk = (res.shrunkSuites || []).length;
             if (shrunk)
                 out.push(`${shrunk} suite${shrunk === 1 ? '' : 's'} ran far fewer tests than on master`);
+            const unverified = (res.unverified || []).length;
+            if (unverified)
+                out.push(`${unverified} failed test${unverified === 1 ? '' : 's'} could not be checked (TeamCity errors)`);
             if (res.live)
                 out.push('a newer run is still going — its unfinished suites can still fail');
             if (ahead > 0)

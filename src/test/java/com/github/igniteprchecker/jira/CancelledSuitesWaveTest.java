@@ -74,7 +74,8 @@ class CancelledSuitesWaveTest {
             0, true, 3, false, 0, 0, 0, now - 600, now - 900, List.of(), List.of(
                 new CancelledSuite("IgniteTests24Java8_Cache1", 9392010L, "Cache 1", "Build revision not found", null),
                 new CancelledSuite("IgniteTests24Java8_Cache2", 9392011L, "Cache 2", "Build revision not found", null),
-                new CancelledSuite("IgniteTests24Java8_Queries1", 9392012L, "Queries 1", "Not needed", USER)))));
+                new CancelledSuite("IgniteTests24Java8_Queries1", 9392012L, "Queries 1", "Not needed", USER)),
+            List.of(), 0)));
         when(tc.triggerBuildReplacingQueued(eq(TOK), anyString(), eq(PR), anyBoolean(), anyString()))
             .thenAnswer(inv -> new TcModel.Build(9392600L, null, "queued", null, inv.getArgument(1), null, null, null,
                 null, null, null, null, null, null, null, null, null, null));

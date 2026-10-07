@@ -580,6 +580,8 @@ public class StandingVisas implements SnapshotCache {
                 Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken.get(), pr.number());
                 if (res.isEmpty() || res.get().buildId() != buildId)
                     continue; // raced with a newer run; the next sweep settles it
+                if (analyzer.stillRetrying(res.get()))
+                    continue; // TeamCity errors left part of it unchecked: the next sweep tries it again first
 
                 // Auto-rerun before the visa: while re-runs of this PR are still live, wait; if the
                 // verdict has blockers and attempts remain, re-run their suites (at the top of the

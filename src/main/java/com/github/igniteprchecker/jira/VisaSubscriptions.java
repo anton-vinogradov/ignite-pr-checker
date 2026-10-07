@@ -14,10 +14,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -41,6 +43,9 @@ public class VisaSubscriptions implements SnapshotCache {
     private final ConcurrentMap<Integer, Sub> subs = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicInteger posted = new java.util.concurrent.atomic.AtomicInteger();
     private volatile long lastPostedAt;
+
+    /** How long a verdict held back for TeamCity errors waits before the next try: one sweep period. */
+    long retryDelayMs = 600_000;
 
     /** Posting waits for the (potentially heavy) analysis; one background thread is plenty. */
     private final ExecutorService poster = Executors.newSingleThreadExecutor(r -> {
@@ -107,6 +112,11 @@ public class VisaSubscriptions implements SnapshotCache {
                 log.info("auto-visa for PR {} postponed: no analysable run", pr);
                 return;
             }
+            if (analyzer.stillRetrying(res.get())) {
+                log.info("auto-visa for PR {} postponed: TeamCity errors left part of the verdict unchecked", pr);
+                retryLater(pr, sub);
+                return;
+            }
 
             String url = jira.addComment(token.get(), sub.issue(), visas.compose(pr, res.get(), pending.countSince(tcToken, pr, res.get().buildId())));
             subs.remove(pr); // one-shot: the token leaves the disk with it
@@ -117,6 +127,14 @@ public class VisaSubscriptions implements SnapshotCache {
         catch (RuntimeException e) {
             log.warn("auto-visa for PR {} failed (kept armed): {}", pr, e.toString());
         }
+    }
+
+    /** Posts again after a while, unless the subscription was cancelled or armed anew meanwhile. */
+    private void retryLater(int pr, Sub sub) {
+        CompletableFuture.delayedExecutor(retryDelayMs, TimeUnit.MILLISECONDS, poster).execute(() -> {
+            if (sub.equals(subs.get(pr)))
+                post(pr, sub);
+        });
     }
 
     public int armedCount() {
