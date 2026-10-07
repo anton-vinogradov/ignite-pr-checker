@@ -6,7 +6,8 @@ import java.util.List;
 /**
  * Classification of one failed test.
  *
- * @param blocker    true if the failure is attributed to the PR (fails consistently, never on master).
+ * @param blocker    true if the failure is attributed to the PR: it fails in its latest runs on the branch, and
+ *                   neither master nor other PRs explain it; one failure is enough on its first run, see {@code doubts}.
  * @param watch      true if the test recently started failing on the branch but passed earlier (a fresh
  *                   break to watch, not yet a hard blocker); never true together with {@code blocker}.
  * @param reason     human-readable explanation of the verdict.
