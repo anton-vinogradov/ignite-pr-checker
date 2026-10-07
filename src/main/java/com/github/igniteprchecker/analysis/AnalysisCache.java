@@ -19,13 +19,14 @@ import org.springframework.stereotype.Component;
 
 /**
  * Caches the expensive parts of an analysis, shared across users and PRs (the data is not
- * user-specific): a compact base-branch history per test and suite, and the whole result per build
- * id. Entries expire after {@code analysis.cacheTtlMinutes}; results are also refreshed by the warmer,
- * and snapshotted to disk (with their expiry) so a restart doesn't start cold.
+ * user-specific): a compact history per test and suite on the base branch and on PR branches, and the
+ * whole result per build id. Entries expire after {@code analysis.cacheTtlMinutes}; results are also
+ * refreshed by the warmer, and snapshotted to disk (with their expiry) so a restart doesn't start cold.
  */
 @Component
 public class AnalysisCache implements SnapshotCache {
     private final TtlCache<HistoryKey, RunHistory> history;
+    private final TtlCache<HistoryKey, RunHistory> prBranchHistory;
     private final TtlCache<Long, AnalysisResult> results;
     private final TtlCache<Long, String> revisions;
     private final ObjectMapper mapper;
@@ -33,6 +34,7 @@ public class AnalysisCache implements SnapshotCache {
     public AnalysisCache(AnalysisProperties cfg, ObjectMapper mapper) {
         long ttlMs = Duration.ofMinutes(cfg.cacheTtlMinutes()).toMillis();
         this.history = new TtlCache<>(ttlMs);
+        this.prBranchHistory = new TtlCache<>(ttlMs);
         this.results = new TtlCache<>(ttlMs);
         this.revisions = new TtlCache<>(ttlMs);
         this.mapper = mapper;
@@ -40,6 +42,14 @@ public class AnalysisCache implements SnapshotCache {
 
     RunHistory history(long testId, String buildTypeId, Supplier<RunHistory> loader) {
         return history.get(new HistoryKey(testId, buildTypeId), loader);
+    }
+
+    /**
+     * A test's latest runs in a suite on PR branches, all PRs together, so one fetch serves every PR the
+     * test fails in. Kept like master history: it is a window of the latest runs as of its fetch.
+     */
+    RunHistory prBranchHistory(long testId, String buildTypeId, Supplier<RunHistory> loader) {
+        return prBranchHistory.get(new HistoryKey(testId, buildTypeId), loader);
     }
 
     /**
@@ -94,6 +104,7 @@ public class AnalysisCache implements SnapshotCache {
     @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
     void evictExpired() {
         history.evictExpired();
+        prBranchHistory.evictExpired();
         results.evictExpired();
         revisions.evictExpired();
     }
@@ -102,7 +113,7 @@ public class AnalysisCache implements SnapshotCache {
     public Cleared clear() {
         revisions.clear(); // an input to the results, not a result — nothing to report separately
 
-        return new Cleared(results.clear(), history.clear());
+        return new Cleared(results.clear(), history.clear() + prBranchHistory.clear());
     }
 
     /** How many entries a {@link #clear()} removed. */
@@ -117,7 +128,7 @@ public class AnalysisCache implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file,
-            new Persisted(history.export(), results.export(), TestVerdict.RULES));
+            new Persisted(history.export(), prBranchHistory.export(), results.export(), TestVerdict.RULES));
     }
 
     @Override
@@ -132,6 +143,8 @@ public class AnalysisCache implements SnapshotCache {
         // history is simply re-fetched.
         if (p.masterHistory() != null)
             history.importUnexpired(p.masterHistory());
+        if (p.prBranchHistory() != null)
+            prBranchHistory.importUnexpired(p.prBranchHistory());
         // Results carry verdicts, and a cached result for an unchanged build is never recomputed (the
         // warmer keeps touching it), so verdicts from superseded rules would otherwise outlive the
         // deploy that fixed them.
@@ -154,6 +167,7 @@ public class AnalysisCache implements SnapshotCache {
     @JsonIgnoreProperties({"history", "suiteHistory"})
     private record Persisted(
         List<TtlCache.Snapshot<HistoryKey, RunHistory>> masterHistory,
+        List<TtlCache.Snapshot<HistoryKey, RunHistory>> prBranchHistory,
         List<TtlCache.Snapshot<Long, AnalysisResult>> results,
         Integer rules
     ) {

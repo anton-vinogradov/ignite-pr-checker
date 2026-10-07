@@ -27,13 +27,15 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * Classifies each failed test of a PR chain as a blocker (broke by this PR) or noise. A test is a
  * blocker only if it (1) fails in the PR, (2) never fails in the last {@code analysis.historyDepth}
- * master runs of the suite it failed in that ran on the PR run's JDK (such a master failure means it is
- * pre-existing or flaky on master, not this PR's fault, unless it is rare and old while the test keeps
- * failing on the PR's code), and (3) still fails in the last fully-finished run of that suite on the PR
- * branch (a passing re-run clears it). Both look at that one suite only: the same test id runs in
- * several suites of a chain (the C++ tests run on Windows, Linux and Clang), and another platform's
- * pass is not a re-run, nor are its master failures this one's. Results are cached per build; a
- * request serves the cached result and, if it is getting stale, triggers a background refresh.
+ * master runs of the suite it failed in that ran on the PR run's JDK, and (3) still fails in the last
+ * fully-finished run of that suite on the PR branch (a passing re-run clears it). A master failure means
+ * the test is pre-existing or flaky on master, not this PR's fault, unless the test keeps failing on the
+ * PR's code and that failure is rare and old, or master only fails it at another test scale factor while
+ * other PRs pass it. A test failing on the branches of several other PRs run like this one is flaky,
+ * not this PR's blocker. All of it looks at that one suite only: the same test id runs in several suites
+ * of a chain (the C++ tests run on Windows, Linux and Clang), and another platform's pass is not a
+ * re-run, nor are its master failures this one's. Results are cached per build; a request serves the
+ * cached result and, if it is getting stale, triggers a background refresh.
  */
 @Component
 public class BlockerAnalyzer {
@@ -49,6 +51,12 @@ public class BlockerAnalyzer {
 
     /** How many of the newest master runs must have passed for an older master failure to be outweighed. */
     private static final int RECENT_MASTER_GREEN = 10;
+
+    /** In how many other PRs a test must have failed to count as flaky under PR conditions. */
+    private static final int FLAKY_IN_PRS = 3;
+
+    /** How many runs on other PRs' branches it takes to set master's failures aside. */
+    private static final int MIN_OTHER_PR_RUNS = 10;
 
     private final TcClient tc;
     private final ChainCollector chains;
@@ -454,13 +462,13 @@ public class BlockerAnalyzer {
 
         // A failure in the PR is a blocker unless the test also fails in master history: a failure there
         // means it isn't specific to this PR (pre-existing or flaky on master). It still gets its
-        // branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers. The
-        // exception is a rare, old master failure against a test that keeps failing on the PR's code
-        // (checked below, once the same-code runs are known): one master failure in 100 used to hide
-        // a parametrization of a test that failed all four runs in PR 13654, while six siblings with
-        // the same strip were blockers.
+        // branch-runs strip and latest-run anchor, so flaky tests are visualised like blockers. Two
+        // exceptions, checked once the same-code runs are known, need the test to keep failing on the
+        // PR's code. A rare, old master failure: one in 100 used to hide a parametrization that failed
+        // all four runs in PR 13654, while six siblings with the same strip were blockers. And a master
+        // failure only at another test scale factor that other PRs, run like this one, do not share.
         String preExisting = "pre-existing: fails " + h.fails() + "/" + h.runs() + " on master" + onJdk;
-        if (h.fails() > 0 && !mayOutweigh(h, branchRuns))
+        if (h.fails() > 0 && !mayOutweigh(h, branchRuns) && !mayBeScaleOnly(master, env, h, branchRuns))
             return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
 
         // Merge of the last N branch runs: a real block fails consistently, a test that passed within
@@ -470,23 +478,55 @@ public class BlockerAnalyzer {
         // on the revision the latest run was made on; anything older is reported, never counted.
         String head = revisionOf(token, lastRun);
         String code = sameCodeStrip(token, runs, head);
+        int streak = trailingFailStreak(code);
+
+        String reason;
+        if (h.fails() == 0) {
+            reason = h.runs() == 0
+                ? "no master history" + onJdk + " (can't prove pre-existing)"
+                : "not seen failing in " + (!onJdk.isEmpty() && h.runs() < FEW_MASTER_RUNS ? "only " : "") + h.runs()
+                    + " master run(s)" + onJdk;
+        }
+        else if (h.greenStreak() >= RECENT_MASTER_GREEN && outweighs(h.fails(), h.runs(), streak))
+            reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last " + h.greenStreak();
+        else {
+            reason = scaleOnlyOnMaster(token, prNumber, t, master, env, h, streak);
+            if (reason == null)
+                return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
+        }
+
+        TestVerdict v = onBranch(t, lastRun, reason, branchRuns, code, head);
+        if (!v.blocker() && !v.watch())
+            return v;
+
+        // Other PRs run like this one are the second signal: a test that fails in several of them is
+        // flaky under PR conditions, whatever master says. The nightly master RunAll runs at test scale
+        // factor 1.0 and PR chains at 0.1, so a test green in all 101 master runs failed 14 of 131 runs
+        // in 13 other PRs, and was a blocker in each.
+        HistoryStats others = otherPrs(token, prNumber, t, env);
+        if (others == null || others.failingPrs() < FLAKY_IN_PRS)
+            return v;
+
+        String onOthers = "fails " + others.fails() + "/" + others.runs() + " in " + others.failingPrs() + " other PRs";
+        if (!outweighs(others.fails(), others.runs(), streak)) {
+            return verdict(t, lastRun, false, false, "flaky on other PR branches: " + onOthers + "; " + reason,
+                branchRuns, code.length());
+        }
+
+        return onBranch(t, lastRun, reason + "; " + onOthers, branchRuns, code, head);
+    }
+
+    /**
+     * The verdict by the test's runs on this branch, once master has let it through: {@code reason} says
+     * why, and the evidence from the branch runs is appended to it.
+     */
+    private TestVerdict onBranch(FailedTest t, TcModel.TestOccurrence lastRun, String reason, String branchRuns,
+        String code, String head) {
         int len = code.length();
         int older = branchRuns.length() - len;
         int streak = trailingFailStreak(code);
         int allStreak = trailingFailStreak(branchRuns);
         int allLen = branchRuns.length();
-
-        if (h.fails() > 0 && !outweighs(h.fails(), h.runs(), streak))
-            return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
-
-        String reason;
-        if (h.fails() > 0)
-            reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last " + h.greenStreak();
-        else if (h.runs() == 0)
-            reason = "no master history" + onJdk + " (can't prove pre-existing)";
-        else
-            reason = "not seen failing in " + (!onJdk.isEmpty() && h.runs() < FEW_MASTER_RUNS ? "only " : "") + h.runs()
-                + " master run(s)" + onJdk;
 
         // Consistent failures over the whole strip block as they always did: widening the window can
         // only ever add evidence. Without this, a test failing on both the old and the new revision
@@ -514,6 +554,61 @@ public class BlockerAnalyzer {
 
         return verdict(t, lastRun, false, false, "flaky on branch: failed only the latest of " + len + " runs"
             + onRevision(head) + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
+    }
+
+    /**
+     * Whether master's failures could be down to the test scale factor alone, for
+     * {@link #scaleOnlyOnMaster} to look at other PRs. Cheap: it reads no revisions and asks TeamCity
+     * nothing, so a plain pre-existing failure costs no more than it did.
+     */
+    private static boolean mayBeScaleOnly(RunHistory master, RunEnv env, HistoryStats h, String branchRuns) {
+        return masterScaleOfFailures(master, env, h) != null && trailingFailStreak(branchRuns) >= 2;
+    }
+
+    /**
+     * The scale factor master fails the test at, when it fails at least half the time and only ever at
+     * a scale factor this PR did not run at; otherwise null.
+     */
+    private static String masterScaleOfFailures(RunHistory master, RunEnv env, HistoryStats h) {
+        return h.fails() * 2 >= h.runs() ? master.failingOnlyAtScaleOtherThan(env) : null;
+    }
+
+    /**
+     * The reason to set master's failures aside, or null to keep them. Only when master fails the test
+     * at least half the time, only ever at another scale factor than this PR ran at, and other PRs run
+     * at this PR's scale factor mostly pass it — while this PR keeps failing it on its own code. On
+     * master testRestoreSnapshotProgress fails all 101 runs at 1.0; on other PRs' branches, at 0.1, it
+     * passes 94 of 95, so a break of it in a PR could never be caught. Half the time, not any failure:
+     * a test master broke last week also passes on older PR branches, and that must stay pre-existing.
+     */
+    private String scaleOnlyOnMaster(String token, int prNumber, FailedTest t, RunHistory master, RunEnv env,
+        HistoryStats h, int streak) {
+        String masterScale = masterScaleOfFailures(master, env, h);
+        if (masterScale == null)
+            return null;
+
+        HistoryStats others = otherPrs(token, prNumber, t, env);
+        if (others == null || others.runs() < MIN_OTHER_PR_RUNS || others.failingPrs() >= FLAKY_IN_PRS
+            || !outweighs(others.fails(), others.runs(), streak))
+            return null;
+
+        return "fails " + h.fails() + "/" + h.runs() + " on master at " + TcModel.TEST_SCALE_FACTOR + "=" + masterScale
+            + ", but " + others.fails() + "/" + others.runs() + " on other PR branches at " + env.scale();
+    }
+
+    /**
+     * How the test does in its suite on other PRs' branches under this PR's run conditions, or null when
+     * TeamCity can't say. It only ever overrides master's verdict, so a TeamCity error leaves master's
+     * verdict standing rather than turning the test into an unverified blocker.
+     */
+    private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env) {
+        try {
+            return cache.prBranchHistory(t.testId(), t.suite(),
+                () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite()))).otherPrsAs(env, prNumber);
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**

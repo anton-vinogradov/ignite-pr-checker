@@ -41,6 +41,9 @@ public class TcClient {
      */
     private static final long LONGEST_BUILD_SECONDS = 86_400;
 
+    /** How many of a test's latest runs on other branches its comparison with other PRs reads. */
+    private static final int OTHER_BRANCH_RUNS = 200;
+
     /** Where {@link #occurrencesWithConditions} puts the run conditions into a fields spec. */
     private static final String CONDITIONS_SLOT = "{conditions}";
 
@@ -335,6 +338,30 @@ public class TcClient {
                 && "finished".equals(o.build().state())
                 && !"UNKNOWN".equals(o.build().status()))
             .sorted(Comparator.comparingLong(o -> o.build().id())) // oldest → newest
+            .toList();
+    }
+
+    /**
+     * The test's latest runs in one suite on every branch but the default one, newest first (up to 200),
+     * with the conditions each build ran under: how the test does on other PRs' branches, which run the
+     * way this PR's do. Master runs differ: the nightly RunAll runs at test scale factor 1.0, PR chains at
+     * 0.1. The caller keeps the PR branches and leaves out the PR under review, so one answer serves every
+     * PR. Finished, non-cancelled runs only, muted failures left out, as in {@link #prBranchRuns}.
+     */
+    public List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId) {
+        TcModel.TestOccurrences occ = occurrencesWithConditions("otherBranchRuns", token,
+            "test:(id:" + testId + "),branch:(default:false),buildType:(id:" + buildTypeId + "),muted:false,count:"
+                + OTHER_BRANCH_RUNS,
+            "testOccurrence(status,build(id,state,status,branchName," + CONDITIONS_SLOT + "))");
+
+        if (occ == null || occ.testOccurrence() == null)
+            return List.of();
+
+        return occ.testOccurrence().stream()
+            .filter(o -> o.build() != null
+                && "finished".equals(o.build().state())
+                && !"UNKNOWN".equals(o.build().status()))
+            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
             .toList();
     }
 

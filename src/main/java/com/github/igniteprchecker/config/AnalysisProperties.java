@@ -4,7 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Blocker-classification settings. A failed test is a blocker if it does not fail at all in the last
- * {@code historyDepth} master runs (any master failure makes it pre-existing/flaky, not a blocker).
+ * {@code historyDepth} master runs on the same JDK (a master failure makes it pre-existing/flaky, not a
+ * blocker, with the exceptions {@code BlockerAnalyzer} describes).
  */
 @ConfigurationProperties(prefix = "analysis")
 public record AnalysisProperties(

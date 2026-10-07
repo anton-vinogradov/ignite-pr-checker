@@ -32,7 +32,7 @@ class AnalysisCachePersistenceTest {
     private void ageSnapshot(Path file, Duration downtime) throws IOException {
         JsonNode root = mapper.readTree(file.toFile());
 
-        for (String cache : List.of("masterHistory", "results")) {
+        for (String cache : List.of("masterHistory", "prBranchHistory", "results")) {
             for (JsonNode e : root.get(cache))
                 ((ObjectNode)e).put("expiresAt", e.get("expiresAt").asLong() - downtime.toMillis());
         }
@@ -65,6 +65,28 @@ class AnalysisCachePersistenceTest {
         });
         assertThat(restored).isEqualTo(MASTER_JDK21_BREAK);
         assertThat(reloaded.historyOf(7L, "SuiteY")).as("another suite's history of the same test").isEmpty();
+    }
+
+    /** The runs on PR branches are kept like master's: a window of the latest runs, restored until it expires. */
+    @Test
+    void prBranchHistoryIsRestoredUntilItExpires(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        RunHistory onPrs = new RunHistory("FPP", "aaa", List.of(new RunEnv("17", "0.1")), List.of(13653, 13554, 13644));
+        AnalysisCache first = new AnalysisCache(props(), mapper);
+        first.prBranchHistory(7L, "SuiteX", () -> onPrs);
+        first.saveTo(file);
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+        ageSnapshot(file, Duration.ofHours(3));
+        AnalysisCache afterDowntime = new AnalysisCache(props(), mapper);
+        afterDowntime.loadFrom(file);
+
+        assertThat(reloaded.prBranchHistory(7L, "SuiteX", () -> {
+            throw new AssertionError("PR-branch history should have been restored from the snapshot");
+        })).isEqualTo(onPrs);
+        RunHistory refetched = new RunHistory("P", "a", List.of(new RunEnv("17", "0.1")), List.of(13653));
+        assertThat(afterDowntime.prBranchHistory(7L, "SuiteX", () -> refetched)).isEqualTo(refetched);
     }
 
     /**

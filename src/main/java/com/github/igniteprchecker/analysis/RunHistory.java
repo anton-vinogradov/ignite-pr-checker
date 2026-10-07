@@ -84,6 +84,30 @@ record RunHistory(String results, String envOf, List<RunEnv> envs, List<Integer>
         return stats(i -> envAt(i).sameJdk(env));
     }
 
+    /** Runs on other PRs' branches than {@code pr}'s, made under the same conditions as {@code env}. */
+    HistoryStats otherPrsAs(RunEnv env, int pr) {
+        return stats(i -> prs.get(i) != pr && envAt(i).sameAs(env));
+    }
+
+    /**
+     * The scale factor the failing runs on {@code env}'s JDK ran at, when every one of them ran at a
+     * known scale factor other than {@code env}'s; otherwise null.
+     */
+    String failingOnlyAtScaleOtherThan(RunEnv env) {
+        String scale = null;
+        for (int i = 0; i < results.length(); i++) {
+            RunEnv run = envAt(i);
+            if (results.charAt(i) != 'F' || !run.sameJdk(env))
+                continue;
+            if (!run.otherScaleThan(env))
+                return null;
+            if (scale == null)
+                scale = run.scale();
+        }
+
+        return scale;
+    }
+
     /** Whether TeamCity named the JDK of any run, so that a selection by JDK actually selected something. */
     boolean knowsJdk() {
         return envs.stream().anyMatch(e -> e.jdk() != null);
