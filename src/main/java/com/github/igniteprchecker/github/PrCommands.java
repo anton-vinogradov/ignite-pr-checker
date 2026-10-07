@@ -44,6 +44,12 @@ public class PrCommands implements SnapshotCache {
     /** Never look further back than this — a long downtime must not replay stale commands. */
     private static final long MAX_LOOKBACK_MS = 15 * 60_000L;
 
+    /** At most this many onboarding replies in any 24 hours, across all PRs. */
+    private static final int ONBOARDING_PER_DAY = 5;
+
+    /** How long a PR counts as already onboarded, and a stranger's command as already answered. */
+    private static final long ONBOARDING_MEMORY_MS = 30 * 24 * 3600_000L;
+
     private final ObjectMapper mapper;
     private final GithubClient github;
     private final StandingVisas standing;
@@ -59,6 +65,15 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Integer, CommandRun> watching = new ConcurrentHashMap<>();
     /** Logins that already got the one-time onboarding reply — never advertise to the same person twice. */
     private final ConcurrentMap<String, Long> onboarded = new ConcurrentHashMap<>();
+    /** PRs that already carry an onboarding reply: one per PR, whoever asks next. */
+    private final ConcurrentMap<Integer, Long> onboardedPrs = new ConcurrentHashMap<>();
+    /** "login#pr" of commands from people without PR commands, so a repeat on the same PR gets no 😕. */
+    private final ConcurrentMap<String, Long> strangerCommands = new ConcurrentHashMap<>();
+    /**
+     * Per user, the TeamCity refusal they were already told about in a PR — one reply per refusal;
+     * survives restarts, as the refusal itself does.
+     */
+    private final ConcurrentMap<String, Long> toldTcRefused = new ConcurrentHashMap<>();
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
     private final String publicUrl;
@@ -102,6 +117,8 @@ public class PrCommands implements SnapshotCache {
         }
 
         handled.values().removeIf(t -> t < now - 24 * 3600_000L);
+        onboardedPrs.values().removeIf(t -> t < now - ONBOARDING_MEMORY_MS);
+        strangerCommands.values().removeIf(t -> t < now - ONBOARDING_MEMORY_MS);
     }
 
     private void handle(GithubClient.IssueComment c) {
@@ -117,8 +134,13 @@ public class PrCommands implements SnapshotCache {
 
         int pr = Integer.parseInt(m.group(1));
         Optional<StandingVisas.GhActor> actor = standing.actorByGhLogin(c.user().login());
-        if (actor.isEmpty()) {
+        if (actor.isEmpty() || !standing.commandsOn(actor.get().username())) {
             onboard(pr, c.id(), c.user().login(), cmd.name());
+
+            return;
+        }
+        if (standing.tcTokenRejected(actor.get().username())) {
+            tcTokenRefused(pr, c, actor.get());
 
             return;
         }
@@ -132,7 +154,8 @@ public class PrCommands implements SnapshotCache {
             // A new commanded run supersedes the commander's previous chain on this PR: cancel it
             // first (their OWN chains only) — on unchanged revisions the new chain reuses the
             // finished suites, so nothing useful is lost, and the queue isn't paid twice.
-            int superseded = tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, actor.get().username());
+            String user = actor.get().username();
+            int superseded = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, user));
             CommandRun old = watching.get(pr);
             if (superseded > 0 && old != null && old.username().equals(actor.get().username())) {
                 try {
@@ -152,7 +175,7 @@ public class PrCommands implements SnapshotCache {
             String styleNote = pat && standing.styleFixOn(actor.get().username())
                 ? styleFix.fixForCommand(pr, actor.get(), c.user().login()) : null;
 
-            var build = tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top());
+            var build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top()));
             tracker.record(pr, build);
             handledTotal.incrementAndGet();
             react(actor.get(), c.id(), "rocket");
@@ -184,8 +207,32 @@ public class PrCommands implements SnapshotCache {
         }
         catch (Throwable e) {
             // Throwable: an Error escaping here once took the whole command poll down with it.
-            react(actor.get(), c.id(), "confused");
+            if (standing.tcTokenRejected(actor.get().username()))
+                tcTokenRefused(pr, c, actor.get());
+            else
+                react(actor.get(), c.id(), "confused");
             log.warn("/run-all by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
+        }
+    }
+
+    /**
+     * TeamCity no longer accepts the token the checker keeps for this commander, so nothing can run.
+     * A bare 😕 left them guessing; the reason goes into the thread in words, once per refusal.
+     */
+    private void tcTokenRefused(int pr, GithubClient.IssueComment c, StandingVisas.GhActor actor) {
+        react(actor, c.id(), "confused");
+        long at = standing.tcRejectedAt(actor.username());
+        Long told = toldTcRefused.put(actor.username(), at);
+        if (told != null && told == at)
+            return;
+
+        try {
+            github.addPrCommentAsApp(pr, "@" + c.user().login() + " nothing was queued: TeamCity no longer accepts"
+                + " the token the checker stores for you (expired or revoked). Log in at " + publicUrl
+                + " with a fresh TeamCity token: it replaces the stored one, and your commands and options resume.");
+        }
+        catch (RuntimeException e) {
+            log.warn("telling {} about their refused TeamCity token failed: {}", c.user().login(), e.toString());
         }
     }
 
@@ -216,7 +263,7 @@ public class PrCommands implements SnapshotCache {
                 return;
             }
 
-            var b = tc.getBuildState(actor.tcToken(), run.buildId());
+            var b = standing.asUser(actor.username(), () -> tc.getBuildState(actor.tcToken(), run.buildId()));
             if (b == null || !"queued".equalsIgnoreCase(b.state())) {
                 react(actor, c.id(), "confused");
                 log.info("/top by {} for PR {}: build {} is not queued", c.user().login(), pr, run.buildId());
@@ -224,7 +271,11 @@ public class PrCommands implements SnapshotCache {
                 return;
             }
 
-            tc.moveToQueueTop(actor.tcToken(), run.buildId());
+            standing.asUser(actor.username(), () -> {
+                tc.moveToQueueTop(actor.tcToken(), run.buildId());
+
+                return null;
+            });
             handledTotal.incrementAndGet();
             react(actor, c.id(), "rocket");
             if (actor.ghToken() != null)
@@ -234,55 +285,54 @@ public class PrCommands implements SnapshotCache {
                 c.user().login(), actor.username(), run.buildId(), pr);
         }
         catch (RuntimeException e) {
-            react(actor, c.id(), "confused");
+            if (standing.tcTokenRejected(actor.username()))
+                tcTokenRefused(pr, c, actor);
+            else
+                react(actor, c.id(), "confused");
             log.warn("/top by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
         }
     }
 
     /**
-     * A command from a not-yet-enrolled user is a sales lead, not noise: reply ONCE per login (from
-     * the app's account) with exactly where to go and what to switch on.
+     * A command from someone without PR commands gets a short reply saying how to switch them on. It
+     * goes into public threads, so it is rationed: once per person, once per PR, a few a day; and a
+     * repeat on the same PR gets no second 😕.
      */
     private void onboard(int pr, long commentId, String login, String cmd) {
-        try {
-            github.reactToCommentAsApp(commentId, "confused"); // never silent, even on repeats
+        long now = System.currentTimeMillis();
+        if (strangerCommands.putIfAbsent(login.toLowerCase(java.util.Locale.ROOT) + "#" + pr, now) == null) {
+            try {
+                github.reactToCommentAsApp(commentId, "confused");
+            }
+            catch (RuntimeException e) {
+                log.warn("confused reaction for {} failed: {}", login, e.toString());
+            }
         }
-        catch (RuntimeException e) {
-            log.warn("confused reaction for {} failed: {}", login, e.toString());
-        }
-        if (onboarded.putIfAbsent(login, System.currentTimeMillis()) != null) {
-            log.info("{} by {} ignored: not enrolled (already onboarded)", cmd, login);
+
+        boolean dailyCapReached = onboarded.values().stream().filter(t -> t > now - 24 * 3600_000L).count()
+            >= ONBOARDING_PER_DAY;
+        if (onboarded.containsKey(login) || onboardedPrs.containsKey(pr) || dailyCapReached) {
+            log.info("{} by {} on PR {} ignored: PR commands are not on for them (no reply: {})", cmd, login, pr,
+                onboarded.containsKey(login) ? "already told" : onboardedPrs.containsKey(pr) ? "PR already has one"
+                    : "daily limit");
 
             return;
         }
 
         try {
             String tcTokens = tcBaseUrl + "/profile.html?item=accessTokens";
-            String ghPat = "https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite+PR+Checker";
-            String jiraPat = "https://issues.apache.org/jira/secure/ViewProfile.jspa"
-                + "?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens";
             boolean sent = github.addPrCommentAsApp(pr,
-                "@" + login + " that looks like an [Ignite PR Checker](" + publicUrl + ") command — but the"
-                + " checker doesn't know your accounts yet, so **nothing was triggered**. Everything it does runs"
-                + " under your own accounts (there is no bot); setting that up takes about two minutes:\n\n"
-                + "1. **Log in** at " + publicUrl + " with a TeamCity ([ci2](" + tcBaseUrl + ")) access token —"
-                + " create one at [ci2 → Profile → Access Tokens](" + tcTokens + ").\n"
-                + "2. In settings (⚙) switch on at least one option — **Auto re-run blocker suites** needs"
-                + " nothing extra — and save your **GitHub login** in the PR-commands field. That's enough:"
-                + " commands work, the checker acks and narrates from its own account.\n"
-                + "3. **The full experience** — switch on **Comment my runs' verdicts on the GitHub PR** with a"
-                + " GitHub personal access token ([create one here](" + ghPat + "), classic, `public_repo`"
-                + " scope): acks and the live run status then come from your own account, plus checkstyle"
-                + " autofix becomes available. **Auto-visa all my runs** posts the verdict to the IGNITE ticket"
-                + " (needs a [JIRA PAT](" + jiraPat + ")).\n\n"
-                + "Then comment here:\n\n"
-                + "- `/run-all` — queue the whole RunAll chain under your TeamCity account (`/run-all top` — at"
-                + " the top of the build queue);\n"
-                + "- `/top` — move the run your command started to the top of the queue while it still waits.\n\n"
-                + "Your command comment gets a 🚀 and narrates the run — live ETA, finish, auto re-run waves —"
-                + " and the verdict lands as one comment that updates in place until everything settles."
-                + " Tokens are stored encrypted, and only while the options are on.");
-            log.info("{} by {}: not enrolled, onboarding reply {}", cmd, login, sent ? "posted" : "skipped (no app token)");
+                "@" + login + " nothing was queued: [Ignite PR Checker](" + publicUrl + ") runs commands under your"
+                + " own TeamCity account, and PR commands are not switched on for your GitHub login. To switch them"
+                + " on, log in at " + publicUrl + " with a [TeamCity access token](" + tcTokens + "), open ⚙, tick"
+                + " **PR commands** and enter your GitHub login. Then `/run-all` here queues RunAll (`/run-all top`"
+                + " at the top of the queue), and `/top` moves it up while it waits.");
+            if (sent) {
+                onboarded.put(login, now);
+                onboardedPrs.put(pr, now);
+            }
+            log.info("{} by {}: PR commands not on, onboarding reply {}", cmd, login,
+                sent ? "posted" : "skipped (no app token)");
         }
         catch (RuntimeException e) {
             log.warn("onboarding reply to {} on PR {} failed: {}", login, pr, e.toString());
@@ -435,9 +485,11 @@ public class PrCommands implements SnapshotCache {
 
                 return;
             }
+            if (standing.tcTokenRejected(run.username()))
+                return; // narration resumes with a working token
 
             try {
-                var b = tc.getBuildState(actor.get().tcToken(), run.buildId());
+                var b = standing.asUser(run.username(), () -> tc.getBuildState(actor.get().tcToken(), run.buildId()));
                 if (b == null)
                     return;
 
@@ -452,8 +504,9 @@ public class PrCommands implements SnapshotCache {
 
                     // The command comment narrates the whole story: after the chain finishes it keeps
                     // reporting the blocker/broken auto re-run waves and only closes once the verdict
-                    // has actually landed.
-                    if (standing.buildHandled(run.username(), pr, run.buildId())) {
+                    // has actually landed — or right away when nothing settles the user's runs.
+                    if (standing.buildHandled(run.username(), pr, run.buildId())
+                        || !standing.settlesRuns(run.username())) {
                         narrate(pr, actor.get(), run, run.baseBody()
                             + "\n🏁 _Run finished — " + (standing.ghOn(run.username())
                                 ? "the verdict comment has the full story._"
@@ -544,7 +597,8 @@ public class PrCommands implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(),
-            new HashMap<>(watching), new HashMap<>(onboarded)));
+            new HashMap<>(watching), new HashMap<>(onboarded), new HashMap<>(onboardedPrs),
+            new HashMap<>(strangerCommands), new HashMap<>(toldTcRefused)));
     }
 
     @Override
@@ -561,10 +615,17 @@ public class PrCommands implements SnapshotCache {
             watching.putAll(p.watching());
         if (p.onboarded() != null)
             onboarded.putAll(p.onboarded());
+        if (p.onboardedPrs() != null)
+            onboardedPrs.putAll(p.onboardedPrs());
+        if (p.strangerCommands() != null)
+            strangerCommands.putAll(p.strangerCommands());
+        if (p.toldTcRefused() != null)
+            toldTcRefused.putAll(p.toldTcRefused());
     }
 
     private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal,
-        Map<Integer, CommandRun> watching, Map<String, Long> onboarded) {
+        Map<Integer, CommandRun> watching, Map<String, Long> onboarded, Map<Integer, Long> onboardedPrs,
+        Map<String, Long> strangerCommands, Map<String, Long> toldTcRefused) {
     }
 
     /** An accepted command still being narrated: where its comment is, which chain it watches, and —

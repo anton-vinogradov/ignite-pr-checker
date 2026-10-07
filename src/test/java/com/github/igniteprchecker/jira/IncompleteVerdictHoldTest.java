@@ -140,7 +140,7 @@ class IncompleteVerdictHoldTest {
     private StandingVisas sweepFinds(AnalysisResult verdict, Path dir) throws Exception {
         StandingVisas standing = new StandingVisas(mapper, codec, tc, github, analyzer, mock(JiraClient.class),
             mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
-        standing.enable(USER, TOK, null, null, false, true, false, false);
+        standing.change(USER, TOK, null, null, new StandingVisas.OptionChange(false, true, false, false, null));
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
         ObjectNode snap = (ObjectNode) mapper.readTree(file.toFile());

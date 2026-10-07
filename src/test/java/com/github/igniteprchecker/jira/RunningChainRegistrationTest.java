@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +49,8 @@ class RunningChainRegistrationTest {
 
     private final GithubClient github = mock(GithubClient.class);
     private final RerunTracker tracker = mock(RerunTracker.class);
+
+    private final JiraClient jira = mock(JiraClient.class);
     private final List<String> locators = new CopyOnWriteArrayList<>();
 
     private HttpServer teamcity;
@@ -71,8 +75,9 @@ class RunningChainRegistrationTest {
         TcClient tc = new TcClient(new TeamcityProperties("http://127.0.0.1:" + teamcity.getAddress().getPort() + "/"),
             new AnalysisProperties(null, RUN_ALL, null, null, null, null, null), new Metrics(mapper));
         standing = new StandingVisas(mapper, new SessionCodec(new SessionProperties(false, "test-secret"), mapper),
-            tc, github, mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), tracker,
-            mock(Warmer.class), mock(PendingCommits.class));
+            tc, github, mock(BlockerAnalyzer.class), jira, mock(VisaService.class), tracker, mock(Warmer.class),
+            mock(PendingCommits.class));
+        when(jira.myself("jira-pat")).thenReturn(Optional.of("visa-user"));
     }
 
     @AfterEach
@@ -82,7 +87,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void aChainStartedFromTeamcityIsWatchedForEarlyReruns() {
-        standing.enable(RERUNNER, "tc-token", null, null, false, true, false, false);
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
         runningChains = chains(chain(9389046, "pull/13335/head", RERUNNER));
 
         standing.sweep();
@@ -93,8 +99,10 @@ class RunningChainRegistrationTest {
 
     @Test
     void onlyChainsOfUsersWithAutoRerunOnArePickedUp() {
-        standing.enable(RERUNNER, "tc-token", null, null, false, true, false, false);
-        standing.enable("visaOnly", "tc-token-2", null, null, false, false, false, false);
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
+        standing.change("visaOnly", "tc-token-2", "jira-pat", null,
+            new StandingVisas.OptionChange(true, false, false, false, null));
         runningChains = chains(
             chain(9389046, "pull/13335/head", RERUNNER),
             chain(9391271, "pull/13655/head", "visaOnly"),
@@ -113,7 +121,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void oneCallPerSweepListsRunningChainsOnEveryBranch() {
-        standing.enable(RERUNNER, "tc-token", null, null, false, true, false, false);
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
 
         standing.sweep();
 
@@ -126,7 +135,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void withoutAutoRerunTheSweepAsksTeamcityNothingNew() {
-        standing.enable(RERUNNER, "tc-token", null, null, false, false, false, false);
+        standing.change(RERUNNER, "tc-token", "jira-pat", null,
+            new StandingVisas.OptionChange(true, false, false, false, null));
 
         standing.sweep();
 
@@ -136,7 +146,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void aTeamcityErrorDoesNotStopTheVisaSweep() {
-        standing.enable(RERUNNER, "tc-token", null, null, false, true, false, false);
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
         status = 500;
 
         standing.sweep();

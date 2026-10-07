@@ -19,11 +19,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Matcher;
@@ -104,7 +106,15 @@ public class StandingVisas implements SnapshotCache {
      */
     private void donateWarmTokens() {
         for (Enrollment e : enrolled.values())
-            codec.decryptString(e.tcToken()).ifPresent(warmer::offerToken);
+            backgroundToken(e).ifPresent(warmer::offerToken);
+    }
+
+    /**
+     * The TeamCity token background work may borrow: not a refused one, and not one stored for PR
+     * commands alone — that option promises to act on the user's own commands and nothing else.
+     */
+    private Optional<String> backgroundToken(Enrollment e) {
+        return e.tc().rejected() || e.options().commandsOnly() ? Optional.empty() : decrypt(e.tc());
     }
 
     /**
@@ -119,64 +129,163 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Enrols the user with two independent switches: auto-visa (needs the JIRA token) and
-     * auto-rerun (TC token only). Tokens stay encrypted at rest until {@link #disable}.
+     * Applies a settings change, touching only the options it names: a click on one switch must not
+     * turn the others off. An option that needs a token takes the one the session carries when it is
+     * new (checked with the service first), else the stored one, so a fresh login without the PATs in
+     * its cookie still works; a stored token goes only when the last option that needs it is switched
+     * off explicitly. Empty when the change was made, else what is missing.
      */
-    public boolean enable(String username, String tcToken, String jiraToken, String ghToken,
-        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
-        // A settings change must not forget which builds were already handled (or their comments),
-        // nor a GitHub login the user linked by hand (a PAT-derived one is authoritative though).
+    public Optional<Refusal> change(String username, String tcToken, String sessionJira, String sessionGh,
+        OptionChange change) {
         Enrollment prev = enrolled.get(username);
-        // A token GitHub can't put a name to is dead — an expired PAT still riding in the session
-        // cookie, say. Storing it buys nothing and costs the login: with no login, the command poll
-        // stops recognising the author of "/run-all" and replies to them as a stranger.
-        String resolved = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
-        boolean tokenRejected = ghToken != null && resolved == null;
-        if (tokenRejected) {
-            log.warn("GitHub token offered for {} was not accepted by GitHub — kept out of the enrollment", username);
-            ghToken = null;
+        Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
+        if (!after.any()) {
+            disable(username);
+
+            return Optional.empty();
         }
 
-        String ghLogin = resolved != null ? resolved : prev != null ? prev.ghLogin() : null;
-        String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
-        enrolled.put(username, new Enrollment(
-            codec.encryptString(tcToken), jiraToken == null ? null : codec.encryptString(jiraToken),
-            ghToken == null ? null : codec.encryptString(ghToken), ghLogin, tz,
-            System.currentTimeMillis(),
-            prev != null ? prev.posted() : new ConcurrentHashMap<>(),
-            prev != null ? prev.ghThreads() : new ConcurrentHashMap<>(),
-            prev != null ? prev.jiraThreads() : new ConcurrentHashMap<>(),
-            autoVisa, autoRerun, ghComment, styleFix,
-            resolved != null || prev == null ? 0 : prev.ghRejectedAt(),
-            jiraToken != null || prev == null ? 0 : prev.jiraRejectedAt()));
-        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}, styleFix={} (gh login {}, tz {})",
-            username, autoVisa, autoRerun, ghComment, styleFix, ghLogin, tz);
+        Credential jiraCred = null;
+        String tz = null;
+        if (after.autoVisa()) {
+            String stored = prev == null ? null : decrypt(prev.jira()).orElse(null);
+            boolean fresh = sessionJira != null && !sessionJira.equals(stored);
+            if (fresh && jira.myself(sessionJira).isPresent()) {
+                jiraCred = new Credential(codec.encryptString(sessionJira), 0);
+                tz = jira.myTimezone(sessionJira).orElse(null);
+            }
+            else if (stored == null)
+                return Optional.of(new Refusal("jira", fresh ? "JIRA rejected the token — paste a new one"
+                    : "auto-visa needs your JIRA token"));
+        }
+        else if (Boolean.FALSE.equals(change.visa()))
+            jiraCred = Credential.NONE;
+
+        Credential ghCred = null;
+        String login = null;
+        if (after.needsGh()) {
+            String stored = prev == null ? null : decrypt(prev.gh()).orElse(null);
+            boolean fresh = sessionGh != null && !sessionGh.equals(stored);
+            // A token GitHub can't put a name to is dead — an expired PAT still riding in the session
+            // cookie, say. Storing it buys nothing and costs the login: with no login, the command poll
+            // stops recognising the author of "/run-all" and replies to them as a stranger.
+            login = fresh ? github.ghUser(sessionGh).orElse(null) : null;
+            if (login != null)
+                ghCred = new Credential(codec.encryptString(sessionGh), 0);
+            else if (stored == null) {
+                if (fresh)
+                    log.warn("GitHub token offered for {} was not accepted by GitHub — kept out of the enrollment",
+                        username);
+
+                return Optional.of(new Refusal("github", fresh ? "GitHub rejected the token — paste a new one"
+                    : "this option needs your GitHub token"));
+            }
+        }
+        else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style()))
+            ghCred = Credential.NONE;
+
+        if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || prev.ghLogin() == null))
+            return Optional.of(new Refusal("login", "link your GitHub login to use PR commands"));
+
+        Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
+        Credential jiraNext = jiraCred;
+        Credential ghNext = ghCred;
+        String tzNext = tz;
+        String loginNext = login;
+        long now = System.currentTimeMillis();
+
+        // A settings change must not forget which builds were already handled (or their comments),
+        // nor a GitHub login the user linked by hand (a PAT-derived one is authoritative though).
+        Enrollment e = enrolled.compute(username, (u, cur) -> {
+            Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc);
+            Options options = base.options().apply(change);
+            if (!options.any())
+                return null;
+
+            Enrollment next = base
+                .withTc(tcKept(base.tc(), tcToken))
+                .withOptions(options)
+                .withEnabledAt(cur == null || options.switchedOnSince(base.options()) ? now : base.enabledAt());
+            next = jiraNext == null ? next : next.withJira(jiraNext);
+            next = ghNext == null ? next : next.withGh(ghNext);
+            next = tzNext == null ? next : next.withTz(tzNext);
+
+            return loginNext == null ? next : next.withGhLogin(loginNext);
+        });
+        if (loginNext != null && e != null)
+            releaseLogin(loginNext, username);
+        log.info("standing options for {}: {} (gh login {}, tz {})", username, e == null ? "off" : e.options(),
+            e == null ? null : e.ghLogin(), e == null ? null : e.tz());
         donateWarmTokens();
 
-        return !tokenRejected;
+        return Optional.empty();
+    }
+
+    /** The options and the state of their tokens, as the settings panel shows them. */
+    public Settings settings(String username) {
+        Enrollment e = enrolled.get(username);
+        if (e == null)
+            return new Settings(false, false, false, false, false, null, false, false, false, false, false);
+
+        Options o = e.options();
+
+        return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
+            e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
+            e.tc().rejected());
+    }
+
+    /** A settings change: each option is switched on, off, or left as it is (null). */
+    public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands) {
+    }
+
+    /**
+     * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, or the GitHub
+     * "login") and what is wrong.
+     */
+    public record Refusal(String need, String error) {
+    }
+
+    /**
+     * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
+     * so the options run whether or not this browser's session carries it.
+     */
+    public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
+        boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
+        boolean tcTokenRejected) {
     }
 
     /**
      * The user behind a GitHub login, with decrypted tokens — the PR command poll resolves the
-     * comment's author through this. Only users with the GitHub option on are addressable.
+     * comment's author through this; whether they may command is {@link #commandsOn}.
      */
     public Optional<GhActor> actorByGhLogin(String login) {
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            Enrollment e = en.getValue();
-            if (login.equals(e.ghLogin())) {
-                Optional<String> tcToken = codec.decryptString(e.tcToken());
-                if (tcToken.isEmpty())
-                    continue;
+            String held = en.getValue().ghLogin();
+            if (!login.equalsIgnoreCase(held))
+                continue;
 
-                // The PAT is optional for commands: without one the checker acks and narrates
-                // from its own (the operator's) account instead of the user's.
-                String ghToken = e.ghToken() == null ? null : codec.decryptString(e.ghToken()).orElse(null);
+            // GitHub logins ignore case and the poll gets GitHub's own spelling: a login typed in
+            // another case still matches, and is stored the way GitHub spells it from now on.
+            if (!login.equals(held))
+                enrolled.computeIfPresent(en.getKey(), (u, e) -> held.equals(e.ghLogin()) ? e.withGhLogin(login) : e);
 
-                return Optional.of(new GhActor(en.getKey(), tcToken.get(), ghToken, e.tz()));
-            }
+            // The PAT is optional for commands: without one the checker acks and narrates
+            // from its own (the operator's) account instead of the user's.
+            Optional<GhActor> actor = actorOf(en.getKey(), en.getValue());
+            if (actor.isPresent())
+                return actor;
         }
 
         return Optional.empty();
+    }
+
+    private Optional<GhActor> actorOf(String username, Enrollment e) {
+        return decrypt(e.tc()).map(tcToken -> new GhActor(username, tcToken, decrypt(e.gh()).orElse(null), e.tz()));
+    }
+
+    /** The stored token in clear; empty when there is none or the session secret has changed since. */
+    private Optional<String> decrypt(Credential c) {
+        return c.token() == null ? Optional.empty() : codec.decryptString(c.token());
     }
 
     /**
@@ -187,17 +296,16 @@ public class StandingVisas implements SnapshotCache {
      * fresh token is pasted.
      */
     public void dropGhToken(String username) {
-        Enrollment e = username == null ? null : enrolled.get(username);
-        if (e == null || e.ghToken() == null)
+        if (username == null)
             return;
 
         // The two options that need this token go off with it. Leaving them checked would promise
         // work the checker can no longer do — the point of the switch is that it means something.
-        enrolled.put(username, new Enrollment(e.tcToken(), e.jiraToken(), null, e.ghLogin(), e.tz(),
-            e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
-            e.autoVisa(), e.autoRerun(), false, false, System.currentTimeMillis(), e.jiraRejectedAt()));
-        log.warn("GitHub token of {} was rejected by GitHub: dropped, its options switched off — "
-            + "acks come from the app account until a fresh PAT is saved", username);
+        boolean dropped = changed(username, e -> e.gh().token() == null ? e
+            : e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh()));
+        if (dropped)
+            log.warn("GitHub token of {} was rejected by GitHub: dropped, its options switched off — "
+                + "acks come from the app account until a fresh PAT is saved", username);
     }
 
     /**
@@ -205,60 +313,226 @@ public class StandingVisas implements SnapshotCache {
      * the panel asks for a new one instead of silently skipping every ticket from now on.
      */
     public void dropJiraToken(String username) {
-        Enrollment e = username == null ? null : enrolled.get(username);
-        if (e == null || e.jiraToken() == null)
+        if (username == null)
             return;
 
-        enrolled.put(username, new Enrollment(e.tcToken(), null, e.ghToken(), e.ghLogin(), e.tz(),
-            e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
-            false, e.autoRerun(), e.ghComment(), e.styleFix(), e.ghRejectedAt(), System.currentTimeMillis()));
-        log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
-            username);
+        boolean dropped = changed(username, e -> e.jira().token() == null ? e
+            : e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa()));
+        if (dropped)
+            log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
+                username);
+    }
+
+    /**
+     * Records that TeamCity refused the user's stored token. The options stay as they were but pause:
+     * nothing runs under a dead token, the settings panel and the PR commands say why, and the first
+     * request that brings a working token resumes them.
+     */
+    public void markTcRejected(String username) {
+        long now = System.currentTimeMillis();
+        boolean marked = changed(username, e -> e.tc().rejected() ? e : e.withTc(new Credential(e.tc().token(), now)));
+        if (marked)
+            log.warn("TeamCity rejected the stored token of {}: their options pause until a working token comes",
+                username);
+    }
+
+    /** When TeamCity refused the user's stored token; 0 when it has not. */
+    public long tcRejectedAt(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e == null ? 0 : e.tc().rejectedAt();
+    }
+
+    public boolean tcTokenRejected(String username) {
+        return tcRejectedAt(username) > 0;
+    }
+
+    /**
+     * A token TeamCity has just accepted at login becomes the stored one: logging in again is how a
+     * user replaces an expired token, and it used to leave the dead one in charge of their options.
+     */
+    public void tcTokenAccepted(String username, String token) {
+        boolean wasRejected = tcTokenRejected(username);
+        Credential accepted = new Credential(codec.encryptString(token), 0);
+        changed(username, e -> !e.tc().rejected() && decrypt(e.tc()).filter(token::equals).isPresent() ? e
+            : e.withTc(accepted));
+        if (wasRejected)
+            log.info("TeamCity token of {} renewed at login: their options resume", username);
+    }
+
+    /** The token a logged-in request carries replaces a stored one TeamCity refused; see {@link #tcKept}. */
+    public void tcTokenOffered(String username, String token) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || tcKept(e.tc(), token) == e.tc())
+            return;
+
+        boolean replaced = changed(username, cur -> {
+            Credential kept = tcKept(cur.tc(), token);
+
+            return kept == cur.tc() ? cur : cur.withTc(kept);
+        });
+        if (replaced)
+            log.info("refused or unreadable TeamCity token of {} replaced by the one of their session: options resume",
+                username);
+    }
+
+    /**
+     * The TeamCity credential to keep when a request brings its session's token: the stored one while
+     * it works, because the session's token is unchecked and a tab of an older login must not swap a
+     * live token for its own dead one; the session's one when TeamCity refused the stored token or it
+     * can no longer be read. A login, which TeamCity checks, replaces it outright.
+     */
+    private Credential tcKept(Credential stored, String sessionToken) {
+        Optional<String> token = decrypt(stored);
+
+        return token.isPresent() && (!stored.rejected() || token.get().equals(sessionToken)) ? stored
+            : new Credential(codec.encryptString(sessionToken), 0);
+    }
+
+    /** A TeamCity call under the user's own stored token; a refusal is recorded against them. */
+    public <T> T asUser(String username, java.util.function.Supplier<T> call) {
+        try {
+            return call.get();
+        }
+        catch (RuntimeException e) {
+            if (tcRefused(e))
+                markTcRejected(username);
+
+            throw e;
+        }
+    }
+
+    /**
+     * Whether TeamCity refused the token itself. Only a 401 says so: ci2's firewall answers 403 to
+     * requests it dislikes whatever the token.
+     */
+    public static boolean tcRefused(Throwable e) {
+        return e instanceof org.springframework.web.client.RestClientResponseException rest
+            && rest.getStatusCode().value() == 401;
+    }
+
+    /**
+     * Runs a read any enrolled user's TeamCity token may do — finding a PR's builds, who started a
+     * chain. Tokens are tried in turn and one TeamCity refuses is recorded, so a single dead token no
+     * longer stops everyone's visas, re-runs and comments.
+     */
+    private <T> T lookup(java.util.function.Function<String, T> read) {
+        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
+            Optional<String> token = backgroundToken(en.getValue());
+            if (token.isEmpty())
+                continue;
+
+            try {
+                return read.apply(token.get());
+            }
+            catch (RuntimeException e) {
+                if (!tcRefused(e))
+                    throw e;
+
+                markTcRejected(en.getKey());
+            }
+        }
+
+        throw new IllegalStateException("TeamCity accepts none of the stored tokens");
+    }
+
+    private boolean anyLiveTcToken() {
+        return enrolled.values().stream().anyMatch(e -> backgroundToken(e).isPresent());
+    }
+
+    /** Applies {@code change} to the user's enrollment atomically; true when it changed anything. */
+    private boolean changed(String username, java.util.function.UnaryOperator<Enrollment> change) {
+        boolean[] changed = new boolean[1];
+        enrolled.computeIfPresent(username, (u, e) -> {
+            Enrollment next = change.apply(e);
+            changed[0] = next != e;
+
+            return next;
+        });
+
+        return changed[0];
     }
 
     /** Whether a stored credential was refused and is waiting to be replaced. */
     public boolean ghTokenRejected(String username) {
         Enrollment e = enrolled.get(username);
 
-        return e != null && e.ghRejectedAt() > 0;
+        return e != null && e.gh().rejected();
     }
 
     public boolean jiraTokenRejected(String username) {
         Enrollment e = enrolled.get(username);
 
-        return e != null && e.jiraRejectedAt() > 0;
+        return e != null && e.jira().rejected();
     }
 
     /** Whether this user's GitHub-account features are waiting for a fresh PAT. */
     public boolean ghTokenMissing(String username) {
         Enrollment e = enrolled.get(username);
 
-        return e != null && e.ghToken() == null;
+        return e != null && e.gh().token() == null;
     }
 
     /**
-     * Links a GitHub login to the user's enrollment by hand — the no-PAT way into PR commands.
-     * Returns "ok", "taken" (someone else claimed it) or "none" (no enrollment to attach to).
+     * Links a GitHub login, as GitHub spells it, and switches PR commands on — the login is all they
+     * need besides the TeamCity token, so no other option has to be on. Returns "ok", "taken"
+     * (someone else holds it) or "token" (the user's login comes from their GitHub token, which proves
+     * it, so a typed one cannot replace it).
      */
-    public String setGhLogin(String username, String login) {
-        String clean = login.strip().replaceFirst("^@", "");
-        if (clean.isBlank())
-            return "none";
-        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            if (!en.getKey().equals(username) && clean.equalsIgnoreCase(en.getValue().ghLogin()))
-                return "taken";
-        }
+    public String linkGhLogin(String username, String tcToken, String login) {
+        if (heldByAnother(login, username))
+            return "taken";
 
-        Enrollment e = enrolled.get(username);
-        if (e == null)
-            return "none";
+        Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
+        long now = System.currentTimeMillis();
+        String[] result = {"ok"};
+        enrolled.compute(username, (u, cur) -> {
+            Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc).withEnabledAt(now);
+            boolean fromToken = base.gh().token() != null && base.ghLogin() != null;
+            if (fromToken && !login.equalsIgnoreCase(base.ghLogin())) {
+                result[0] = "token";
 
-        enrolled.put(username, new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), clean, e.tz(),
-            e.enabledAt(), e.posted(), e.ghThreads(), e.jiraThreads(),
-            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix(), e.ghRejectedAt(), e.jiraRejectedAt()));
-        log.info("gh login for {} linked by hand: {}", username, clean);
+                return cur;
+            }
 
-        return "ok";
+            return base.withTc(tcKept(base.tc(), tcToken))
+                .withGhLogin(fromToken ? base.ghLogin() : login)
+                .withOptions(base.options().withCommands());
+        });
+        if (result[0].equals("ok"))
+            log.info("PR commands on for {} as GitHub user {}", username, login);
+
+        return result[0];
+    }
+
+    private boolean heldByAnother(String login, String username) {
+        return enrolled.entrySet().stream()
+            .anyMatch(en -> !en.getKey().equals(username) && login.equalsIgnoreCase(en.getValue().ghLogin()));
+    }
+
+    /**
+     * A login proven by a GitHub token belongs to its owner alone: a claim someone typed in by hand
+     * (a typo, or someone else's login) would route the owner's commands to the claimant's account.
+     * The claimant's PR commands go off with the login: the poll finds a commander by login, so left
+     * on they would promise what cannot happen. Like any last option switched off, it takes the
+     * enrollment with it when nothing else is on.
+     */
+    private void releaseLogin(String login, String owner) {
+        enrolled.forEach((u, e) -> {
+            if (u.equals(owner) || !login.equalsIgnoreCase(e.ghLogin()))
+                return;
+
+            enrolled.computeIfPresent(u, (k, cur) -> {
+                if (!login.equalsIgnoreCase(cur.ghLogin()))
+                    return cur;
+
+                Options left = cur.options().with(Option.COMMANDS, false);
+
+                return left.any() ? cur.withGhLogin(null).withOptions(left) : null;
+            });
+            log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account; PR commands of {} "
+                + "switched off", login, u, owner, owner, u);
+        });
     }
 
     /** The user's linked GitHub login (PAT-derived or hand-linked), or null. */
@@ -268,9 +542,19 @@ public class StandingVisas implements SnapshotCache {
         return e == null ? null : e.ghLogin();
     }
 
-    /** Whether anyone can be addressed by a GitHub login — gates the PR command poll entirely. */
+    /** Whether anyone has PR commands on — gates the PR command poll entirely. */
     public boolean anyGhEnrolled() {
-        return enrolled.values().stream().anyMatch(e -> e.ghLogin() != null);
+        return enrolled.values().stream().anyMatch(e -> e.options().commands() && e.ghLogin() != null);
+    }
+
+    /** Whether the user's comments on pull requests are taken as commands. */
+    public boolean commandsOn(String username) {
+        return options(username).commands();
+    }
+
+    /** Whether something waits for the user's finished runs: a visa, re-runs or a PR comment. */
+    public boolean settlesRuns(String username) {
+        return options(username).settlesRuns();
     }
 
     /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
@@ -288,7 +572,7 @@ public class StandingVisas implements SnapshotCache {
     public boolean buildHandled(String username, int pr, long buildId) {
         Enrollment e = enrolled.get(username);
 
-        return e != null && Long.valueOf(buildId).equals(e.posted().get(pr));
+        return e != null && Long.valueOf(buildId).equals(e.handled().posted().get(pr));
     }
 
     /** One settling wave as seen from outside: its number, what it re-runs, and the settle estimate. */
@@ -298,16 +582,8 @@ public class StandingVisas implements SnapshotCache {
     /** Same as {@link #actorByGhLogin} but by the TC username — for follow-ups on an accepted command. */
     public Optional<GhActor> actor(String username) {
         Enrollment e = enrolled.get(username);
-        if (e == null)
-            return Optional.empty();
 
-        Optional<String> tcToken = codec.decryptString(e.tcToken());
-        if (tcToken.isEmpty())
-            return Optional.empty();
-
-        String ghToken = e.ghToken() == null ? null : codec.decryptString(e.ghToken()).orElse(null);
-
-        return Optional.of(new GhActor(username, tcToken.get(), ghToken, e.tz()));
+        return e == null ? Optional.empty() : actorOf(username, e);
     }
 
     /**
@@ -317,20 +593,24 @@ public class StandingVisas implements SnapshotCache {
      */
     private void switchOffOptionsWithoutTokens() {
         enrolled.replaceAll((u, e) -> {
-            boolean ghGone = (e.ghComment() || e.styleFix()) && e.ghToken() == null;
-            boolean jiraGone = e.autoVisa() && e.jiraToken() == null;
+            boolean ghGone = e.options().needsGh() && e.gh().token() == null;
+            boolean jiraGone = e.options().autoVisa() && e.jira().token() == null;
             if (!ghGone && !jiraGone)
                 return e;
 
             log.warn("options of {} switched off for want of a token: {}{}", u,
                 ghGone ? "GitHub comment/checkstyle autofix " : "", jiraGone ? "auto-visa" : "");
 
-            return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(), e.tz(), e.enabledAt(),
-                e.posted(), e.ghThreads(), e.jiraThreads(),
-                jiraGone ? false : e.autoVisa(), e.autoRerun(),
-                ghGone ? false : e.ghComment(), ghGone ? false : e.styleFix(),
-                ghGone && e.ghRejectedAt() == 0 ? System.currentTimeMillis() : e.ghRejectedAt(),
-                jiraGone && e.jiraRejectedAt() == 0 ? System.currentTimeMillis() : e.jiraRejectedAt());
+            long now = System.currentTimeMillis();
+            Enrollment next = e;
+            if (ghGone)
+                next = next.withGh(next.gh().rejected() ? next.gh() : Credential.refusedAt(now))
+                    .withOptions(next.options().withoutGh());
+            if (jiraGone)
+                next = next.withJira(next.jira().rejected() ? next.jira() : Credential.refusedAt(now))
+                    .withOptions(next.options().withoutVisa());
+
+            return next;
         });
     }
 
@@ -340,52 +620,47 @@ public class StandingVisas implements SnapshotCache {
      */
     public void ensureGhLogins() {
         switchOffOptionsWithoutTokens();
-        enrolled.replaceAll((u, e) -> {
-            String login = e.ghLogin();
-            if (e.ghComment() && login == null && e.ghToken() != null)
-                login = codec.decryptString(e.ghToken()).flatMap(github::ghUser).orElse(null);
+        enrolled.forEach((u, e) -> {
+            String login = e.options().ghComment() && e.ghLogin() == null && e.gh().token() != null
+                ? decrypt(e.gh()).flatMap(github::ghUser).filter(l -> !heldByAnother(l, u)).orElse(null) : null;
+            String tz = e.tz() == null && e.jira().token() != null
+                ? decrypt(e.jira()).flatMap(jira::myTimezone).orElse(null) : null;
+            if (login == null && tz == null)
+                return;
 
-            String tz = e.tz();
-            if (tz == null && e.jiraToken() != null)
-                tz = codec.decryptString(e.jiraToken()).flatMap(jira::myTimezone).orElse(null);
-
-            if (Objects.equals(login, e.ghLogin()) && Objects.equals(tz, e.tz()))
-                return e;
-
-            log.info("backfilled for {}: gh login {}, tz {}", u, login, tz);
-
-            return new Enrollment(e.tcToken(), e.jiraToken(), e.ghToken(), login, tz, e.enabledAt(),
-                e.posted(), e.ghThreads(), e.jiraThreads(), e.autoVisa(), e.autoRerun(), e.ghComment(),
-                e.styleFix(), e.ghRejectedAt(), e.jiraRejectedAt());
+            // The lookups ran outside the map, so only what is still missing gets filled in.
+            Enrollment next = enrolled.computeIfPresent(u, (k, cur) -> cur
+                .withGhLogin(cur.ghLogin() == null && login != null ? login : cur.ghLogin())
+                .withTz(cur.tz() == null && tz != null ? tz : cur.tz()));
+            log.info("backfilled for {}: gh login {}, tz {}", u, next == null ? null : next.ghLogin(),
+                next == null ? null : next.tz());
         });
     }
 
     /** Whether checkstyle autofix on own runs is on for the user. */
     public boolean styleFixOn(String username) {
-        Enrollment e = enrolled.get(username);
-
-        return e != null && e.styleFix();
+        return options(username).styleFix();
     }
 
     /** Whether GitHub PR comments are on for the user. */
     public boolean ghOn(String username) {
-        Enrollment e = enrolled.get(username);
-
-        return e != null && e.ghComment();
+        return options(username).ghComment();
     }
 
     /** Whether the standing auto-visa is on for the user. */
     public boolean visaOn(String username) {
-        Enrollment e = enrolled.get(username);
-
-        return e != null && e.autoVisa();
+        return options(username).autoVisa();
     }
 
     /** Whether auto-rerun of blocker suites is on for the user. */
     public boolean rerunOn(String username) {
+        return options(username).autoRerun();
+    }
+
+    private Options options(String username) {
         Enrollment e = enrolled.get(username);
 
-        return e != null && e.autoRerun();
+        return e == null ? Options.NONE : e.options();
     }
 
     /** Removes the enrollment and both stored tokens. */
@@ -426,40 +701,38 @@ public class StandingVisas implements SnapshotCache {
         if (enrolled.isEmpty())
             return;
 
-        java.util.Set<String> done = earlyReruns.computeIfAbsent(ev.chainBuildId(), id -> ConcurrentHashMap.newKeySet());
-        if (done.size() >= TOP_QUEUE_LIMIT || done.contains(ev.suite()))
+        java.util.Set<String> before = earlyReruns.getOrDefault(ev.chainBuildId(), java.util.Set.of());
+        if (before.size() >= TOP_QUEUE_LIMIT || before.contains(ev.suite()))
             return; // already settled this suite, or this chain is failing wholesale
 
         // Any enrolled token can read who started the chain; only that person's enrollment may act.
-        Map.Entry<String, Enrollment> any = enrolled.entrySet().iterator().next();
-        Optional<String> lookupToken = codec.decryptString(any.getValue().tcToken());
-        if (lookupToken.isEmpty())
+        String who = lookup(token -> tc.buildTriggeredBy(token, ev.chainBuildId())).orElse(null);
+        Enrollment e = who == null ? null : enrolled.get(who);
+        if (e == null || !e.options().autoRerun() || e.tc().rejected())
             return;
 
-        Optional<String> who = tc.buildTriggeredBy(lookupToken.get(), ev.chainBuildId());
-        Enrollment e = who.map(enrolled::get).orElse(null);
-        if (e == null || !e.autoRerun())
-            return;
-
-        Optional<String> tcToken = codec.decryptString(e.tcToken());
+        Optional<String> tcToken = decrypt(e.tc());
         if (tcToken.isEmpty())
             return;
 
         // The cached verdict of a running chain is usually older than the failure just announced, and
         // the announcement comes once: judged by a verdict that never saw the suite fail, it would look
         // innocent and the early re-run would be lost for good.
-        Optional<AnalysisResult> res = analyzer.analyze(tcToken.get(), ev.pr());
+        Optional<AnalysisResult> res = asUser(who, () -> analyzer.analyze(tcToken.get(), ev.pr()));
         if (res.isPresent() && !sawRun(res.get(), ev.suiteBuildId()))
-            res = analyzer.analyzeAfterNow(tcToken.get(), ev.pr());
+            res = asUser(who, () -> analyzer.analyzeAfterNow(tcToken.get(), ev.pr()));
         if (res.isEmpty() || !worthRerunning(res.get(), ev.suite()))
             return;
 
-        if (!done.add(ev.suite()))
+        // Created only now: a chain nobody re-runs for must not leave an empty memo behind.
+        java.util.Set<String> done =
+            earlyReruns.computeIfAbsent(ev.chainBuildId(), id -> ConcurrentHashMap.newKeySet());
+        if (done.size() >= TOP_QUEUE_LIMIT || !done.add(ev.suite()))
             return; // a concurrent event beat us to it
 
-        TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
+        TcModel.Build b = asUser(who, () -> tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
             "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
-                + " is still running, settling it now rather than after the chain");
+                + " is still running, settling it now rather than after the chain"));
         rerunTracker.record(ev.pr(), b);
         // Count it as the chain's first wave, so the settled pass continues from here instead of
         // starting over — two waves per chain stays two.
@@ -481,17 +754,17 @@ public class StandingVisas implements SnapshotCache {
      * chain; a suite that failed before the sweep saw its chain is still announced on the tracker's
      * first look, so the sweep's period can delay such an early re-run but never loses it.
      */
-    private void watchRunningChains(String lookupToken) {
+    private void watchRunningChains() {
         java.util.Set<String> rerunners = new java.util.HashSet<>();
         enrolled.forEach((user, e) -> {
-            if (e.autoRerun())
+            if (e.options().autoRerun() && !e.tc().rejected())
                 rerunners.add(user);
         });
         if (rerunners.isEmpty())
             return; // nobody to re-run for: not worth a TeamCity call
 
         try {
-            for (TcModel.Build chain : tc.runningRunAllChains(lookupToken)) {
+            for (TcModel.Build chain : lookup(tc::runningRunAllChains)) {
                 Matcher pr = chain.branchName() == null ? null : PR_BRANCH.matcher(chain.branchName());
                 String who = chain.triggered() == null || chain.triggered().user() == null
                     ? null : chain.triggered().user().username();
@@ -532,12 +805,10 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         // Any enrolled user's TC token can look up builds; per-PR analysis uses the triggerer's own.
-        Map.Entry<String, Enrollment> any = enrolled.entrySet().iterator().next();
-        Optional<String> lookupToken = codec.decryptString(any.getValue().tcToken());
-        if (lookupToken.isEmpty())
+        if (!anyLiveTcToken())
             return;
 
-        watchRunningChains(lookupToken.get());
+        watchRunningChains();
 
         int posted = 0;
         for (PrSummary pr : github.openPrs()) {
@@ -545,33 +816,35 @@ public class StandingVisas implements SnapshotCache {
             if (m == null || !m.find())
                 continue; // nowhere to post
 
+            String who = null;
             try {
-                Optional<TcModel.Build> build = tc.findRunAllBuildForPr(lookupToken.get(), pr.number());
+                Optional<TcModel.Build> build = lookup(token -> tc.findRunAllBuildForPr(token, pr.number()));
                 if (build.isEmpty() || build.get().triggered() == null || build.get().triggered().user() == null)
                     continue;
 
-                String who = build.get().triggered().user().username();
+                who = build.get().triggered().user().username();
                 Enrollment e = enrolled.get(who);
-                if (e == null)
-                    continue;
+                if (e == null || e.tc().rejected())
+                    continue; // a refused token pauses its owner's options until a working one comes
 
                 long buildId = build.get().id();
-                Long last = e.posted().get(pr.number());
+                Long last = e.handled().posted().get(pr.number());
                 if (last != null && last == buildId)
                     continue; // this run is already handled (visa'd, or settled without one)
 
                 // Only runs that FINISHED after the options were switched on get acted upon: the
                 // first sweep must not spam week-old tickets with back-filled visas or re-runs.
                 long finishedMs = TcDates.epochSeconds(build.get().finishDate()) * 1000L;
-                if (finishedMs > 0 && finishedMs < e.enabledAt()) {
-                    e.posted().put(pr.number(), buildId);
-                    continue;
+                if (finishedMs > 0 && finishedMs < e.enabledAt() || !e.options().settlesRuns()) {
+                    e.handled().posted().put(pr.number(), buildId);
+                    continue; // nothing to post or re-run: a verdict computed now would go nowhere
                 }
 
-                Optional<String> tcToken = codec.decryptString(e.tcToken());
-                Optional<String> jiraToken = e.jiraToken() == null ? Optional.empty() : codec.decryptString(e.jiraToken());
-                Optional<String> ghToken = e.ghToken() == null ? Optional.empty() : codec.decryptString(e.ghToken());
-                if (tcToken.isEmpty() || (e.autoVisa() && jiraToken.isEmpty()) || (e.ghComment() && ghToken.isEmpty())) {
+                Optional<String> tcToken = decrypt(e.tc());
+                Optional<String> jiraToken = decrypt(e.jira());
+                Optional<String> ghToken = decrypt(e.gh());
+                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty())
+                    || (e.options().ghComment() && ghToken.isEmpty())) {
                     enrolled.remove(who);
                     log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
                     continue;
@@ -586,19 +859,19 @@ public class StandingVisas implements SnapshotCache {
                 // Auto-rerun before the visa: while re-runs of this PR are still live, wait; if the
                 // verdict has blockers and attempts remain, re-run their suites (at the top of the
                 // queue, under the user's own token) instead of posting a red visa right away.
-                if (e.autoRerun()) {
+                if (e.options().autoRerun()) {
                     if (rerunTracker.hasActive(pr.number())) {
                         // Re-runs still going: keep the living comment's ⏳ line honest about when
                         // they are expected to settle (queue-aware, from the tracker). Anchored on the
                         // persisted comment thread, not on the retry bookkeeping — the line must keep
                         // refreshing even right after a restart.
-                        GhThread t = e.ghThreads().get(pr.number());
+                        GhThread t = e.handled().ghThreads().get(pr.number());
                         Retry r0 = retries.get(pr.number());
-                        if (e.ghComment() && t != null && t.buildId() == buildId) {
+                        if (e.options().ghComment() && t != null && t.buildId() == buildId) {
                             String what = r0 != null && r0.buildId() == buildId ? r0.what() : "re-run suite(s)";
                             int attempt = r0 != null && r0.buildId() == buildId ? r0.attempts() : 1;
                             List<String> history = r0 != null && r0.buildId() == buildId ? r0.history() : null;
-                            upsertGhComment(e, ghToken.get(), pr.number(), buildId,
+                            upsertGhComment(who, e, ghToken.get(), pr.number(), buildId,
                                 visas.composeMarkdown(pr.number(), res.get())
                                     + pendingLine(what, attempt, history, activeEtaEpoch(pr.number()), e.tz(), "**"));
                         }
@@ -667,13 +940,13 @@ public class StandingVisas implements SnapshotCache {
                         // in place while the re-runs settle; the JIRA visa gets the same treatment,
                         // but is only touched on stage changes (watchers get mail on every edit).
                         Long eta = queuedEtaEpoch(tcToken.get(), queued);
-                        if (e.ghComment())
-                            upsertGhComment(e, ghToken.get(), pr.number(), buildId,
+                        if (e.options().ghComment())
+                            upsertGhComment(who, e, ghToken.get(), pr.number(), buildId,
                                 visas.composeMarkdown(pr.number(), res.get())
                                     + pendingLine(what, attempts + 1, history, eta, e.tz(), "**"));
-                        if (e.autoVisa()) {
+                        if (e.options().autoVisa()) {
                             try {
-                                upsertVisa(e, jiraToken.get(), m.group(), pr.number(), buildId,
+                                upsertVisa(who, e, jiraToken.get(), m.group(), pr.number(), buildId,
                                     visas.compose(pr.number(), res.get())
                                         + pendingLine(what, attempts + 1, history, eta, e.tz(), "*"));
                             }
@@ -692,31 +965,34 @@ public class StandingVisas implements SnapshotCache {
 
                 Integer ahead = pending.countSince(tcToken.get(), pr.number(), buildId);
 
-                if (e.autoVisa()) {
+                if (e.options().autoVisa()) {
                     String body = visas.compose(pr.number(), res.get(), ahead);
                     if (settled != null)
                         body = body + "\n\n" + settled;
                     if (note != null)
                         body = body + "\n\n" + note;
-                    String url = upsertVisa(e, jiraToken.get(), m.group(), pr.number(), buildId, body);
+                    String url = upsertVisa(who, e, jiraToken.get(), m.group(), pr.number(), buildId, body);
                     posted++;
                     postedTotal.incrementAndGet();
                     log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr.number(), buildId, who,
                         url != null ? url : "updated in place");
                 }
-                if (e.ghComment()) {
+                if (e.options().ghComment()) {
                     String md = visas.composeMarkdown(pr.number(), res.get(), ahead);
                     if (settled != null)
                         md = md + "\n\n_" + settled + "_";
                     if (note != null)
                         md = md + "\n\n_" + note + "_";
-                    upsertGhComment(e, ghToken.get(), pr.number(), buildId, md);
+                    upsertGhComment(who, e, ghToken.get(), pr.number(), buildId, md);
                 }
-                e.posted().put(pr.number(), buildId);
+                e.handled().posted().put(pr.number(), buildId);
                 retries.remove(pr.number());
                 earlyReruns.remove(buildId); // this chain is settled; its mid-run memo is spent
             }
             catch (RuntimeException ex) {
+                // Lookups never get here with a refusal; what does came from the triggerer's own token.
+                if (who != null && tcRefused(ex))
+                    markTcRejected(who);
                 log.warn("standing auto-visa sweep: PR {} skipped: {}", pr.number(), ex.toString());
             }
         }
@@ -731,9 +1007,9 @@ public class StandingVisas implements SnapshotCache {
      * place as re-runs settle. A failure never breaks the sweep (the JIRA visa may already be out),
      * and a failed edit falls back to a fresh comment rather than losing the verdict.
      */
-    private void upsertGhComment(Enrollment e, String ghToken, int pr, long buildId, String md) {
+    private void upsertGhComment(String who, Enrollment e, String ghToken, int pr, long buildId, String md) {
         try {
-            GhThread t = e.ghThreads().get(pr);
+            GhThread t = e.handled().ghThreads().get(pr);
             if (t != null && t.buildId() == buildId) {
                 try {
                     github.updatePrComment(ghToken, t.commentId(), md);
@@ -747,12 +1023,12 @@ public class StandingVisas implements SnapshotCache {
                 }
             }
             GithubClient.PostedComment posted = github.addPrComment(ghToken, pr, md);
-            e.ghThreads().put(pr, new GhThread(buildId, posted.id()));
+            e.handled().ghThreads().put(pr, new GhThread(buildId, posted.id()));
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
         }
         catch (RuntimeException ghEx) {
             if (refused(ghEx)) {
-                dropGhToken(userOf(e));
+                dropGhToken(who);
 
                 return;
             }
@@ -790,13 +1066,23 @@ public class StandingVisas implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
-        enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),
-            e.tz(), e.enabledAt(), new HashMap<>(e.posted()), new HashMap<>(e.ghThreads()),
-            new HashMap<>(e.jiraThreads()),
-            e.autoVisa(), e.autoRerun(), e.ghComment(), e.styleFix(), e.ghRejectedAt(), e.jiraRejectedAt())));
+        enrolled.forEach((u, e) -> snap.add(Persisted.of(u, e)));
+        dropSpentEarlyReruns();
         Map<Long, List<String>> early = new HashMap<>();
         earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
         Snapshots.writeAtomic(mapper, file, new Snapshot(snap, new HashMap<>(retries), early));
+    }
+
+    /**
+     * The mid-run memo only stops a restart from re-running a suite of a chain that is still going.
+     * A chain the tracker no longer watches and no PR is settling has finished or was superseded, and
+     * the sweep never sees it again to clear it.
+     */
+    private void dropSpentEarlyReruns() {
+        java.util.Set<Long> settling = new java.util.HashSet<>();
+        retries.values().forEach(r -> settling.add(r.buildId()));
+        earlyReruns.entrySet().removeIf(en -> en.getValue().isEmpty()
+            || !settling.contains(en.getKey()) && !rerunTracker.tracks(en.getKey()));
     }
 
     @Override
@@ -819,31 +1105,161 @@ public class StandingVisas implements SnapshotCache {
             enrollments = mapper.readValue(file.toFile(), Persisted[].class);
         }
 
-        for (Persisted p : enrollments) {
-            ConcurrentMap<Integer, Long> posted = new ConcurrentHashMap<>();
-            if (p.posted() != null)
-                posted.putAll(p.posted());
-            ConcurrentMap<Integer, GhThread> ghThreads = new ConcurrentHashMap<>();
-            if (p.ghThreads() != null)
-                ghThreads.putAll(p.ghThreads());
-            ConcurrentMap<Integer, JiraThread> jiraThreads = new ConcurrentHashMap<>();
-            if (p.jiraThreads() != null)
-                jiraThreads.putAll(p.jiraThreads());
-            enrolled.put(p.username(), new Enrollment(p.tcToken(), p.jiraToken(), p.ghToken(), p.ghLogin(),
-                p.tz(), p.enabledAt(), posted, ghThreads, jiraThreads,
-                p.autoVisa() == null || p.autoVisa(), p.autoRerun(), p.ghComment() != null && p.ghComment(),
-                p.styleFix() != null && p.styleFix(),
-                p.ghRejectedAt() == null ? 0 : p.ghRejectedAt(),
-                p.jiraRejectedAt() == null ? 0 : p.jiraRejectedAt()));
+        for (Persisted p : enrollments)
+            enrolled.put(p.username(), p.enrollment());
+    }
+
+    /**
+     * One user's standing options. Every change goes through {@link ConcurrentMap#compute} with one of
+     * the {@code with*} copies, so a settings click, a refused token and the poll's backfill can never
+     * undo each other.
+     */
+    private record Enrollment(Credential tc, Credential jira, Credential gh, String ghLogin, String tz,
+        long enabledAt, Options options, Handled handled) {
+        static Enrollment fresh(Credential tc) {
+            return new Enrollment(tc, Credential.NONE, Credential.NONE, null, null, 0, Options.NONE, Handled.empty());
+        }
+
+        Enrollment withTc(Credential c) {
+            return new Enrollment(c, jira, gh, ghLogin, tz, enabledAt, options, handled);
+        }
+
+        Enrollment withJira(Credential c) {
+            return new Enrollment(tc, c, gh, ghLogin, tz, enabledAt, options, handled);
+        }
+
+        Enrollment withGh(Credential c) {
+            return new Enrollment(tc, jira, c, ghLogin, tz, enabledAt, options, handled);
+        }
+
+        Enrollment withGhLogin(String login) {
+            return new Enrollment(tc, jira, gh, login, tz, enabledAt, options, handled);
+        }
+
+        Enrollment withTz(String zone) {
+            return new Enrollment(tc, jira, gh, ghLogin, zone, enabledAt, options, handled);
+        }
+
+        Enrollment withOptions(Options o) {
+            return new Enrollment(tc, jira, gh, ghLogin, tz, enabledAt, o, handled);
+        }
+
+        Enrollment withEnabledAt(long at) {
+            return new Enrollment(tc, jira, gh, ghLogin, tz, at, options, handled);
         }
     }
 
-    private record Enrollment(String tcToken, String jiraToken, String ghToken, String ghLogin, String tz,
-        long enabledAt, ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
-        ConcurrentMap<Integer, JiraThread> jiraThreads,
-        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix,
-        /** When GitHub/JIRA last refused the stored token — cleared when a working one is saved. */
-        long ghRejectedAt, long jiraRejectedAt) {
+    /** A stored token (encrypted; null once dropped) and when its service last refused it (0: never). */
+    private record Credential(String token, long rejectedAt) {
+        static final Credential NONE = new Credential(null, 0);
+
+        static Credential refusedAt(long at) {
+            return new Credential(null, at);
+        }
+
+        boolean rejected() {
+            return rejectedAt > 0;
+        }
+    }
+
+    /** A standing switch. */
+    private enum Option {
+        VISA, RERUN, GH_COMMENT, STYLE_FIX, COMMANDS
+    }
+
+    /** The standing switches that are on, independent of each other. */
+    private record Options(Set<Option> on) {
+        static final Options NONE = new Options(EnumSet.noneOf(Option.class));
+
+        Options {
+            on = Collections.unmodifiableSet(on.isEmpty() ? EnumSet.noneOf(Option.class) : EnumSet.copyOf(on));
+        }
+
+        /** The switch turned on or off; unchanged when {@code value} is null. */
+        Options with(Option o, Boolean value) {
+            if (value == null || value == on.contains(o))
+                return this;
+
+            EnumSet<Option> next = EnumSet.noneOf(Option.class);
+            next.addAll(on);
+            if (value)
+                next.add(o);
+            else
+                next.remove(o);
+
+            return new Options(next);
+        }
+
+        Options apply(OptionChange c) {
+            return with(Option.VISA, c.visa()).with(Option.RERUN, c.rerun()).with(Option.GH_COMMENT, c.gh())
+                .with(Option.STYLE_FIX, c.style()).with(Option.COMMANDS, c.commands());
+        }
+
+        boolean autoVisa() {
+            return on.contains(Option.VISA);
+        }
+
+        boolean autoRerun() {
+            return on.contains(Option.RERUN);
+        }
+
+        boolean ghComment() {
+            return on.contains(Option.GH_COMMENT);
+        }
+
+        boolean styleFix() {
+            return on.contains(Option.STYLE_FIX);
+        }
+
+        boolean commands() {
+            return on.contains(Option.COMMANDS);
+        }
+
+        boolean any() {
+            return !on.isEmpty();
+        }
+
+        /**
+         * Whether an option that acts on finished runs was off in {@code before} and is on now. PR
+         * commands act on the commands only, so switching them on moves no cutoff.
+         */
+        boolean switchedOnSince(Options before) {
+            return on.stream().anyMatch(o -> o != Option.COMMANDS && !before.on().contains(o));
+        }
+
+        /** Whether an option acts on the user's finished runs, so the sweep has something to do for them. */
+        boolean settlesRuns() {
+            return autoVisa() || autoRerun() || ghComment();
+        }
+
+        boolean commandsOnly() {
+            return on.equals(EnumSet.of(Option.COMMANDS));
+        }
+
+        /** Both options that act from the user's GitHub account need the GitHub token. */
+        boolean needsGh() {
+            return ghComment() || styleFix();
+        }
+
+        Options withoutGh() {
+            return with(Option.GH_COMMENT, false).with(Option.STYLE_FIX, false);
+        }
+
+        Options withoutVisa() {
+            return with(Option.VISA, false);
+        }
+
+        Options withCommands() {
+            return with(Option.COMMANDS, true);
+        }
+    }
+
+    /** What was already done for the user's runs: the build handled per PR and its living comments. */
+    private record Handled(ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
+        ConcurrentMap<Integer, JiraThread> jiraThreads) {
+        static Handled empty() {
+            return new Handled(new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), new ConcurrentHashMap<>());
+        }
     }
 
     /** The one living visa comment of a run in the JIRA ticket: which build it narrates and where to edit it. */
@@ -885,8 +1301,9 @@ public class StandingVisas implements SnapshotCache {
      * changes. A failed edit falls back to a fresh comment; the fresh-post URL is returned (null
      * when an edit sufficed).
      */
-    private String upsertVisa(Enrollment e, String jiraToken, String issueKey, int pr, long buildId, String body) {
-        JiraThread t = e.jiraThreads().get(pr);
+    private String upsertVisa(String who, Enrollment e, String jiraToken, String issueKey, int pr, long buildId,
+        String body) {
+        JiraThread t = e.handled().jiraThreads().get(pr);
         if (t != null && t.buildId() == buildId && t.commentId() != null) {
             try {
                 jira.updateComment(jiraToken, issueKey, t.commentId(), body);
@@ -896,7 +1313,7 @@ public class StandingVisas implements SnapshotCache {
             }
             catch (RuntimeException editEx) {
                 if (refused(editEx)) {
-                    dropJiraToken(userOf(e));
+                    dropJiraToken(who);
 
                     return null;
                 }
@@ -914,11 +1331,11 @@ public class StandingVisas implements SnapshotCache {
             if (!refused(e2))
                 throw e2;
 
-            dropJiraToken(userOf(e));
+            dropJiraToken(who);
 
             return null;
         }
-        e.jiraThreads().put(pr, new JiraThread(buildId, posted.id()));
+        e.handled().jiraThreads().put(pr, new JiraThread(buildId, posted.id()));
 
         return posted.url();
     }
@@ -927,16 +1344,6 @@ public class StandingVisas implements SnapshotCache {
     private static boolean refused(RuntimeException e) {
         return e instanceof org.springframework.web.client.RestClientResponseException rest
             && (rest.getStatusCode().value() == 401 || rest.getStatusCode().value() == 403);
-    }
-
-    /** The user an enrollment belongs to (the map is per-user and tiny). */
-    private String userOf(Enrollment e) {
-        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            if (en.getValue() == e)
-                return en.getKey();
-        }
-
-        return null;
     }
 
     /** "Earlier re-runs: #1 — …" for every wave before the current one; empty when none. */
@@ -1038,10 +1445,42 @@ public class StandingVisas implements SnapshotCache {
             .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm zzz", java.util.Locale.ENGLISH));
     }
 
+    /** One enrollment as it is written to disk; the field names are the file format. */
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
-        Long ghRejectedAt, Long jiraRejectedAt) {
+        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands) {
+        static Persisted of(String username, Enrollment e) {
+            Options o = e.options();
+            Handled h = e.handled();
+
+            return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
+                e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
+                o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
+                e.tc().rejectedAt(), o.commands());
+        }
+
+        /**
+         * Missing fields are what the snapshots written before them meant: before the PR commands
+         * switch, a linked GitHub login was all commands needed.
+         */
+        Enrollment enrollment() {
+            Handled h = Handled.empty();
+            if (posted != null)
+                h.posted().putAll(posted);
+            if (ghThreads != null)
+                h.ghThreads().putAll(ghThreads);
+            if (jiraThreads != null)
+                h.jiraThreads().putAll(jiraThreads);
+
+            return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
+                new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
+                new Credential(ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz, enabledAt,
+                Options.NONE.with(Option.VISA, autoVisa == null || autoVisa).with(Option.RERUN, autoRerun)
+                    .with(Option.GH_COMMENT, ghComment != null && ghComment)
+                    .with(Option.STYLE_FIX, styleFix != null && styleFix)
+                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands), h);
+        }
     }
 }

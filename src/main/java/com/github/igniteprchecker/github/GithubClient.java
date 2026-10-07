@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -39,6 +40,29 @@ public class GithubClient implements SnapshotCache {
             return java.util.Optional.empty();
         }
     }
+
+    /**
+     * GitHub's own spelling of a login, or empty when GitHub has no such user (or the text cannot be
+     * a login at all). Throws when GitHub cannot be asked.
+     */
+    public java.util.Optional<String> canonicalLogin(String login) {
+        if (!LOGIN.matcher(login).matches())
+            return java.util.Optional.empty();
+
+        try {
+            java.util.Map<?, ?> u = recorded("user", () -> appGet("https://api.github.com/users/" + login)
+                .body(java.util.Map.class));
+
+            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    /** What GitHub allows in a login: letters, digits and single hyphens inside, up to 39 characters. */
+    private static final java.util.regex.Pattern LOGIN =
+        java.util.regex.Pattern.compile("[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}");
 
     /** Posts a comment to the PR under the USER'S OWN PAT; its id (for later edits) and html url. */
     public PostedComment addPrComment(String pat, int prNumber, String body) {
@@ -342,14 +366,19 @@ public class GithubClient implements SnapshotCache {
 
     private final Metrics metrics;
 
+    @Autowired
     public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
-        this.http = RestClient.builder()
+        this(props, mapper, metrics, RestClient.builder()
             .requestFactory(OutboundHttp.withPatch(props.readTimeout()))
-            .build();
+            .build());
+    }
+
+    GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;
         this.metrics = metrics;
+        this.http = http;
     }
 
     /** Runs a GitHub call, recording its category, outcome and latency for the status page. */

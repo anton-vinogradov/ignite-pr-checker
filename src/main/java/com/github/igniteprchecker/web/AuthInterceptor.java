@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,11 +29,13 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private final SessionCodec codec;
     private final Warmer warmer;
+    private final StandingVisas standing;
 
-    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users) {
+    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing) {
         this.users = users;
         this.codec = codec;
         this.warmer = warmer;
+        this.standing = standing;
     }
 
     @Override
@@ -61,6 +64,7 @@ public class AuthInterceptor implements HandlerInterceptor {
             req.setAttribute(GH_ATTR, session.get().ghToken());
         users.touch(session.get().username());
         warmer.offerToken(session.get().token());
+        standing.tcTokenOffered(session.get().username(), session.get().token());
 
         return true;
     }

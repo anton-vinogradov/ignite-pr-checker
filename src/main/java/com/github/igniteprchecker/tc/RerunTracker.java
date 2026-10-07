@@ -2,8 +2,8 @@ package com.github.igniteprchecker.tc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.Warmer;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -63,6 +63,11 @@ public class RerunTracker implements SnapshotCache {
     /** Whether any tracked build (chain or suite re-run) of this PR is still queued/running. */
     public boolean hasActive(int pr) {
         return tracked.values().stream().anyMatch(t -> t.pr == pr);
+    }
+
+    /** Whether this build is still watched: queued or running, as far as the last look could tell. */
+    public boolean tracks(long buildId) {
+        return tracked.containsKey(buildId);
     }
 
     /** Remember a queued/running build; the UI starts showing its chip immediately. Idempotent by build id. */

@@ -5,8 +5,8 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
-import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.jira.StandingVisas;
+import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import java.time.Duration;
@@ -86,69 +86,66 @@ public class JiraController {
             .body(Map.of("jiraUser", who.get()));
     }
 
-    /** Toggles the standing auto-visa: every finished RunAll the user triggered gets a visa posted. */
+    /**
+     * Changes the standing options named in the request and nothing else; a 412 names what the change
+     * needs ({@code need}: jira, github or login). Answers with the whole state, like the GET.
+     */
     @PostMapping("/auto-visa-all")
-    public ResponseEntity<?> standingVisa(@RequestParam(defaultValue = "false") boolean visa,
-        @RequestParam(defaultValue = "false") boolean rerun,
-        @RequestParam(defaultValue = "false") boolean gh,
-        @RequestParam(defaultValue = "false") boolean style,
+    public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
+        @RequestParam(required = false) Boolean rerun,
+        @RequestParam(required = false) Boolean gh,
+        @RequestParam(required = false) Boolean style,
+        @RequestParam(required = false) Boolean commands,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
         @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
-        if (!visa && !rerun && !gh && !style) {
-            standing.disable(username);
+        Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
+            new StandingVisas.OptionChange(visa, rerun, gh, style, commands));
+        if (refused.isPresent())
+            return ResponseEntity.status(412)
+                .body(Map.of("error", refused.get().error(), "need", refused.get().need()));
 
-            return ResponseEntity.ok(Map.of("visa", false, "rerun", false, "gh", false, "style", false));
-        }
-        if (visa) { // only the visa needs JIRA; rerun-only works with the TC token alone
-            if (jiraToken == null)
-                return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
-            if (jira.myself(jiraToken).isEmpty())
-                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
-        }
-        if ((gh || style) && ghToken == null) // the style-fix commit is pushed under the same PAT
-            return ResponseEntity.status(412).body(Map.of("error", "no GitHub token in the session", "need", "github"));
-
-        boolean ghTokenOk = standing.enable(username, tcToken, visa ? jiraToken : null, gh || style ? ghToken : null,
-            visa, rerun, gh, style);
-
-        // The saved PAT can die between sessions while the cookie still carries it: say so instead of
-        // silently enrolling with a token that identifies nobody.
-        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh, "style", style,
-            "ghTokenRejected", !ghTokenOk));
+        return ResponseEntity.ok(standing.settings(username));
     }
 
-    /** The logged-in user's standing options. */
+    /** The logged-in user's standing options, and whether the server holds the tokens they run on. */
     @GetMapping("/auto-visa-all")
-    public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        Map<String, Object> out = new java.util.HashMap<>(Map.of("visa", standing.visaOn(username),
-            "rerun", standing.rerunOn(username),
-            "gh", standing.ghOn(username), "style", standing.styleFixOn(username)));
-        out.put("login", standing.ghLoginOf(username));
-        // A PAT GitHub rejected is dropped on the spot, so the panel must say why the account-based
-        // half went quiet instead of leaving the options looking on.
-        out.put("ghTokenRejected", standing.ghTokenRejected(username));
-        out.put("jiraTokenRejected", standing.jiraTokenRejected(username));
-
-        return out;
+    public StandingVisas.Settings standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        return standing.settings(username);
     }
 
-    /** Links a GitHub login by hand — the no-PAT way into PR commands (needs an enrollment to attach to). */
+    /**
+     * Links a GitHub login and switches PR commands on. The login is stored the way GitHub spells it,
+     * and only if GitHub knows such a user. Answers with the whole settings state.
+     */
     @PostMapping("/github-login")
     public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        if (req.token() == null || req.token().isBlank())
+        String typed = req.token() == null ? "" : req.token().strip().replaceFirst("^@", "");
+        if (typed.isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty login"));
 
-        String result = standing.setGhLogin(username, req.token());
-        if (result.equals("taken"))
-            return ResponseEntity.status(409).body(Map.of("error", "this GitHub login is linked to another user"));
-        if (result.equals("none"))
-            return ResponseEntity.status(412).body(Map.of("error",
-                "switch on at least one standing option first — the checker needs your TeamCity token stored"));
+        Optional<String> login;
+        try {
+            login = github.canonicalLogin(typed);
+        }
+        catch (RuntimeException e) {
+            return ResponseEntity.status(502)
+                .body(Map.of("error", "GitHub could not be asked — try again in a minute"));
+        }
+        if (login.isEmpty())
+            return ResponseEntity.status(404).body(Map.of("error", "no such GitHub user: " + typed));
 
-        return ResponseEntity.ok(Map.of("login", standing.ghLoginOf(username)));
+        return switch (standing.linkGhLogin(username, tcToken, login.get())) {
+            case "taken" -> ResponseEntity.status(409).body(Map.of("error", "@" + login.get() + " is linked to another"
+                + " checker user. If the account is yours, switch on \"Comment my runs' verdicts\" with your GitHub"
+                + " token: the token proves the account and takes the login over."));
+            case "token" -> ResponseEntity.status(409).body(Map.of("error",
+                "your login comes from your GitHub token: @" + standing.ghLoginOf(username)));
+            default -> ResponseEntity.ok(standing.settings(username));
+        };
     }
 
     /** Validates a GitHub PAT and re-issues the session cookie with it on board. */

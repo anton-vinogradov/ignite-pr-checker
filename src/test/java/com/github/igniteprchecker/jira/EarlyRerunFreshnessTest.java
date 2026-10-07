@@ -56,7 +56,7 @@ class EarlyRerunFreshnessTest {
         new RerunTracker.SuiteFailedMidRun(PR, CHAIN, QUERIES5, QUERIES5_RUN, "Queries 5");
 
     EarlyRerunFreshnessTest() {
-        standing.enable(USER, "tc", null, null, false, true, false, false);
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
         when(tc.buildTriggeredBy(anyString(), eq(CHAIN))).thenReturn(Optional.of(USER));
         when(tc.triggerBuildReplacingQueued(anyString(), anyString(), eq(PR), anyBoolean(), anyString()))
             .thenReturn(new TcModel.Build(9389219L, null, "queued", "pull/13335/head", QUERIES5, null, null, null, null,
