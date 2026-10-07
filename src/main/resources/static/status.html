@@ -93,6 +93,10 @@
         .loglogger { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .logmsg { word-break: break-word; }
         .updated { font-size: 0.78rem; color: var(--muted); text-align: right; margin: 0.9rem 0 0.2rem; }
+        .problems { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.8rem; }
+        .problems:empty { display: none; }
+        .problem { border-left: 3px solid #e0a000; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+        .problem.error { border-left-color: var(--bad); }
 
         html[data-theme="dark"] {
             --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --ok: #66bb6a; --accent: #6ab0ff;
@@ -159,6 +163,7 @@
             <button id="tabUsers" class="mini-btn tab" type="button">Users</button>
         </div>
         <div id="err" class="muted"></div>
+        <div id="problems" class="problems"></div>
 
         <div id="usersView">
             <h2>Active now <span class="muted" style="font-weight:400;font-size:0.8rem">· authenticated activity in the last 15 minutes</span></h2>
@@ -325,9 +330,12 @@
             const t = tc.lastHour, g = gh.lastHour;
             const tcRate = t.total ? (100 * t.ok / t.total) : 100;
             const az = (d.http && d.http.byCategory && d.http.byCategory['/api/analyze']) || null;
+            const problems = d.healthProblems || [];
             $('healthDot').className = 'hdot ' + (d.health || 'ok');
-            $('healthDot').title = d.health === 'error' ? 'error logged ' + agoShort(d.log.lastErrorAt)
+            $('healthDot').title = problems.length ? problems.map(p => p.text).join('; ')
+                : d.health === 'error' ? 'error logged ' + agoShort(d.log.lastErrorAt)
                 : d.health === 'warn' ? 'warning logged ' + agoShort(d.log.lastWarningAt) : 'healthy';
+            $('problems').innerHTML = problems.map(p => `<div class="problem ${esc(p.level)}">${esc(p.text)}</div>`).join('');
             $('systemCards').innerHTML = [
                 card('Version', d.version),
                 card('Uptime', fmtDur(d.uptimeSeconds)),

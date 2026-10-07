@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
+import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -32,6 +33,7 @@ public class StatusController {
     private final Warmer warmer;
     private final GithubClient github;
     private final LogTracker logs;
+    private final ServiceHealth health;
     private final com.github.igniteprchecker.tc.RerunTracker tracker;
     private final com.github.igniteprchecker.jira.VisaSubscriptions visaSubs;
     private final com.github.igniteprchecker.jira.StandingVisas standing;
@@ -42,7 +44,7 @@ public class StatusController {
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
-        LogTracker logs, com.github.igniteprchecker.tc.RerunTracker tracker,
+        LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
@@ -53,6 +55,7 @@ public class StatusController {
         this.warmer = warmer;
         this.github = github;
         this.logs = logs;
+        this.health = health;
         this.tracker = tracker;
         this.visaSubs = visaSubs;
         this.standing = standing;
@@ -104,11 +107,13 @@ public class StatusController {
         app.put("cycleDone", warmer.cycleDone());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
+        ServiceHealth.Report report = health.report(logSnap, System.currentTimeMillis());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", version);
         out.put("uptimeSeconds", metrics.uptimeSeconds());
-        out.put("health", logSnap.health(System.currentTimeMillis()));
+        out.put("health", report.health());
+        out.put("healthProblems", report.problems());
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());

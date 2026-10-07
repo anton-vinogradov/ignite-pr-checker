@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.LoggingEvent;
@@ -11,12 +12,15 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
+import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.tc.RerunTracker;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -32,11 +36,19 @@ class StatusHealthTest {
 
     private final LogTracker logs = new LogTracker(new ObjectMapper());
 
+    private final Warmer warmer = mock(Warmer.class);
+
+    private final StandingVisas standing = mock(StandingVisas.class);
+
+    private final PrCommands commands = mock(PrCommands.class);
+
+    private final CacheStore store = mock(CacheStore.class);
+
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
-        mock(Warmer.class), mock(GithubClient.class), logs, mock(RerunTracker.class), mock(VisaSubscriptions.class),
-        mock(StandingVisas.class), mock(PrCommands.class), mock(AuthInterceptor.class), mock(AdminActions.class),
-        mock(CacheStore.class), mock(ObjectProvider.class));
+        warmer, mock(GithubClient.class), logs, new ServiceHealth(warmer, standing, commands, store),
+        mock(RerunTracker.class), mock(VisaSubscriptions.class), standing, commands, mock(AuthInterceptor.class),
+        mock(AdminActions.class), store, mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {
@@ -91,5 +103,18 @@ class StatusHealthTest {
             Duration.ZERO);
 
         assertThat(health()).isEqualTo("ok");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aSweepThatStoppedTurnsHealthRedThoughTheLogIsClean() {
+        when(standing.lastSweepAt()).thenReturn(System.currentTimeMillis() - Duration.ofMinutes(40).toMillis());
+        when(commands.lastPollAt()).thenReturn(System.currentTimeMillis());
+
+        Map<String, Object> out = status.status(new MockHttpServletRequest());
+
+        assertThat(out.get("health")).isEqualTo("error");
+        assertThat((List<Object>) out.get("healthProblems"))
+            .containsExactly(new ServiceHealth.Problem("error", "standing-visa sweep last started 40 min ago"));
     }
 }
