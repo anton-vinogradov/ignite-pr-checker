@@ -190,7 +190,7 @@ public class FlakyStats implements SnapshotCache {
         byTestInSuite.forEach((k, e) -> {
             synchronized (e) {
                 e.prSeen.values().removeIf(at -> now - at > RETAIN);
-                if (e.masterFails > 0 && !Boolean.TRUE.equals(e.muted))
+                if (e.onTheBoard())
                     out.add(new TopFlaky(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
                         e.masterFails, e.masterRuns, e.failStreak, e.broken(), e.prSeen.size(),
                         e.prSeen.keySet().stream().sorted().toList(), e.masterFailures));
@@ -306,6 +306,14 @@ public class FlakyStats implements SnapshotCache {
 
         boolean broken() {
             return masterRuns >= 2 && failStreak >= Math.min(masterRuns, BROKEN_STREAK);
+        }
+
+        /**
+         * Flaky (failed some master runs, passed others) or broken on master. A test whose only master run failed
+         * is neither: it topped the flaky group at "1/1 on master 100%" though nothing showed it passing.
+         */
+        boolean onTheBoard() {
+            return masterFails > 0 && !Boolean.TRUE.equals(muted) && (broken() || masterFails < masterRuns);
         }
     }
 

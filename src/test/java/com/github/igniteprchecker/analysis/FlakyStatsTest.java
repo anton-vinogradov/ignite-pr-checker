@@ -147,6 +147,20 @@ class FlakyStatsTest {
             .isEqualTo(List.of(9380302L, 9380300L));
     }
 
+    /** One failed master run proves neither flakiness nor breakage: such a test led the flaky group at 100%. */
+    @Test
+    void aTestWhoseOnlyMasterRunFailedIsOffTheBoard() {
+        masterHistory(CLANG, 1, 1);
+        masterHistory(LINUX, 34, 2);
+        filtered(13335, CLANG, LINUX);
+
+        FlakyStats flaky = flaky();
+        flaky.harvest();
+
+        assertThat(flaky.top(40)).extracting(FlakyStats.TopFlaky::suite).containsExactly(LINUX);
+        assertThat(flaky.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(1, 0));
+    }
+
     private FlakyStats flaky() {
         when(warmer.borrowToken()).thenReturn("tok");
 
