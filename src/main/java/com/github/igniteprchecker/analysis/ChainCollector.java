@@ -228,7 +228,7 @@ public class ChainCollector {
 
         return new CancelledSuite(dep.buildTypeId(), dep.id(),
             dep.buildType() != null && dep.buildType().name() != null ? dep.buildType().name() : dep.buildTypeId(),
-            info == null ? null : info.text(), by);
+            info == null ? null : info.text(), by, info != null && by == null);
     }
 
     /**

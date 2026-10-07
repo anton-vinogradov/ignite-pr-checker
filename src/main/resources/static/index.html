@@ -1016,8 +1016,8 @@
         }
 
         // Suites the chain never ran. Those TeamCity cancelled by itself get rows with re-run buttons (the
-        // auto re-run takes them too); those a person cancelled were meant not to run, so they fold into
-        // one line per person.
+        // auto re-run takes them too), and so do those TeamCity said nothing about; those a person
+        // cancelled were meant not to run, so they fold into one line per person.
         function renderCancelled(el, suites) {
             const rows = suites.filter(s => !s.cancelledBy).map(s => {
                 const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
@@ -1029,7 +1029,7 @@
                     : '';
                 return `<li><div class="suite-head"><span class="suite-name">${head}`
                     + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
-                    + `<div class="reason">cancelled by TeamCity${s.reason ? ': ' + esc(s.reason) : ''}</div></li>`;
+                    + `<div class="reason">cancelled${s.byTeamCity ? ' by TeamCity' : ''}${s.reason ? ': ' + esc(s.reason) : ''}</div></li>`;
             });
             const byPerson = new Map();
             for (const s of suites.filter(s => s.cancelledBy))

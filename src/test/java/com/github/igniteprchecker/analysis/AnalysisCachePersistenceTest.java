@@ -78,7 +78,7 @@ class AnalysisCachePersistenceTest {
             List.of(), List.of(), List.of(), List.of(), List.of(), 140, 0, true, 1, false, 0, 0, 0, 0, 0,
             List.of(new BrokenSuite("Snapshots6", 9392066L, "Snapshots 6", List.of("JVM crash / out of memory"), 233,
                 233)),
-            List.of(new CancelledSuite("Cache1", 9392010L, "Cache 1", "Build revision not found", null)),
+            List.of(new CancelledSuite("Cache1", 9392010L, "Cache 1", "Build revision not found", null, true)),
             List.of(new TestVerdict(8L, "TestB", "SuiteX", 200L, "Suite X", "302", false, false,
                 "could not verify (TeamCity error: 502 Bad Gateway)", "", 0)),
             System.currentTimeMillis() - 60_000);

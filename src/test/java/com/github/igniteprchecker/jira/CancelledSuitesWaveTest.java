@@ -35,7 +35,7 @@ import org.mockito.ArgumentCaptor;
 /**
  * PR 13592: TeamCity itself cancelled four suites of the RunAll with "Build revision not found", and the
  * auto re-run, which took only blocker, watch and broken suites, left them unrun. A suite a person
- * cancelled was meant not to run and stays out of the wave.
+ * cancelled was meant not to run and stays out of the wave, and so does one TeamCity said nothing about.
  */
 class CancelledSuitesWaveTest {
     private static final String USER = "avinogradov";
@@ -71,10 +71,13 @@ class CancelledSuitesWaveTest {
             new TcModel.Triggered("user", new TcModel.User(USER)), null, null, null, null, null)));
         when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(new AnalysisResult(PR, RUN_ALL,
             "pull/13592/head", System.currentTimeMillis(), List.of(), List.of(), List.of(), List.of(), List.of(), 140,
-            0, true, 3, false, 0, 0, 0, now - 600, now - 900, List.of(), List.of(
-                new CancelledSuite("IgniteTests24Java8_Cache1", 9392010L, "Cache 1", "Build revision not found", null),
-                new CancelledSuite("IgniteTests24Java8_Cache2", 9392011L, "Cache 2", "Build revision not found", null),
-                new CancelledSuite("IgniteTests24Java8_Queries1", 9392012L, "Queries 1", "Not needed", USER)),
+            0, true, 4, false, 0, 0, 0, now - 600, now - 900, List.of(), List.of(
+                new CancelledSuite("IgniteTests24Java8_Cache1", 9392010L, "Cache 1", "Build revision not found", null,
+                    true),
+                new CancelledSuite("IgniteTests24Java8_Cache2", 9392011L, "Cache 2", "Build revision not found", null,
+                    true),
+                new CancelledSuite("IgniteTests24Java8_Queries1", 9392012L, "Queries 1", "Not needed", USER, false),
+                new CancelledSuite("IgniteTests24Java8_Queries2", 9392013L, "Queries 2", null, null, false)),
             List.of(), 0)));
         when(tc.triggerBuildReplacingQueued(eq(TOK), anyString(), eq(PR), anyBoolean(), anyString()))
             .thenAnswer(inv -> new TcModel.Build(9392600L, null, "queued", null, inv.getArgument(1), null, null, null,

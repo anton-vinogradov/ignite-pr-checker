@@ -53,7 +53,10 @@ class CancelledSuitesTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    /** The chain as ci2 sends it: the fields asked for, a cancellation without a user, and one with. */
+    /**
+     * The chain as ci2 sends it: the fields asked for, a cancellation without a user, one with, and a suite
+     * without a result that TeamCity says nothing about.
+     */
     @Test
     void theChainTellsWhichSuitesWereCancelledAndByWhom() throws IOException {
         List<String> fields = new CopyOnWriteArrayList<>();
@@ -82,11 +85,12 @@ class CancelledSuitesTest {
             assertThat(fields).singleElement().asString().contains("canceledInfo(text,user(username))");
             assertThat(chain.cancelledSuites())
                 .extracting(CancelledSuite::suite, CancelledSuite::suiteName, CancelledSuite::reason,
-                    CancelledSuite::cancelledBy)
+                    CancelledSuite::cancelledBy, CancelledSuite::byTeamCity)
                 .containsExactly(
-                    tuple("IgniteTests24Java8_Cache1", "Cache 1", "Build revision not found", null),
-                    tuple("IgniteTests24Java8_Cache2", "Cache 2", "Stopped: wrong agent", "avinogradov"));
-            assertThat(chain.canceledSuites()).isEqualTo(2);
+                    tuple("IgniteTests24Java8_Cache1", "Cache 1", "Build revision not found", null, true),
+                    tuple("IgniteTests24Java8_Cache2", "Cache 2", "Stopped: wrong agent", "avinogradov", false),
+                    tuple("IgniteTests24Java8_Cache3", "Cache 3", null, null, false));
+            assertThat(chain.canceledSuites()).isEqualTo(3);
             assertThat(chain.interrupted()).isTrue();
         }
         finally {
@@ -166,7 +170,7 @@ class CancelledSuitesTest {
         List<CancelledSuite> cancelled = new ArrayList<>();
         for (int i = 0; i < CANCELLED.size(); i++)
             cancelled.add(new CancelledSuite(CANCELLED.get(i), 9392010L + i, CANCELLED.get(i), "Build revision not found",
-                null));
+                null, true));
         ChainCollector chains = mock(ChainCollector.class);
         when(chains.findBuildId(TOK, PR)).thenReturn(Optional.of(CHAIN));
         when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(new ChainCollector.Chain(CHAIN,
@@ -214,7 +218,7 @@ class CancelledSuitesTest {
     private static final String CHAIN_JSON = """
         {"id":9392000,"status":"FAILURE","state":"finished","branchName":"pull/13592/head",
          "queuedDate":"20261001T080000+0000","buildType":{"id":"IgniteTests24Java8_RunAll","name":"Run All"},
-         "snapshot-dependencies":{"count":4,"build":[
+         "snapshot-dependencies":{"count":5,"build":[
           {"id":9392001,"buildTypeId":"IgniteTests24Java8_Basic1","status":"SUCCESS","state":"finished",
            "queuedDate":"20261001T080001+0000","buildType":{"name":"Basic 1"},"testOccurrences":{"count":512}},
           {"id":9392010,"buildTypeId":"IgniteTests24Java8_Cache1","status":"UNKNOWN","state":"finished",
@@ -223,6 +227,8 @@ class CancelledSuitesTest {
           {"id":9392011,"buildTypeId":"IgniteTests24Java8_Cache2","status":"UNKNOWN","state":"finished",
            "queuedDate":"20261001T080001+0000","buildType":{"name":"Cache 2"},
            "canceledInfo":{"text":"Stopped: wrong agent","user":{"username":"avinogradov","id":7}}},
+          {"id":9392013,"buildTypeId":"IgniteTests24Java8_Cache3","status":"UNKNOWN","state":"finished",
+           "queuedDate":"20261001T080001+0000","buildType":{"name":"Cache 3"}},
           {"id":9392012,"buildTypeId":"IgniteTests24Java8_Queries1","status":"SUCCESS","state":"finished",
            "queuedDate":"20261001T080001+0000","buildType":{"name":"Queries 1"},"testOccurrences":{"count":300}}
          ]}}

@@ -625,7 +625,7 @@ public class StandingVisas implements SnapshotCache {
                     // A suite TeamCity cancelled by itself never ran, and a re-run is what gets it a result.
                     // One a person cancelled was meant not to run.
                     List<String> cancelledSuites = res.get().cancelledSuites().stream()
-                        .filter(c -> c.cancelledBy() == null).map(CancelledSuite::suite)
+                        .filter(CancelledSuite::byTeamCity).map(CancelledSuite::suite)
                         .filter(x -> x != null && !x.isBlank()).distinct()
                         .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s) && !brokenSuites.contains(s))
                         .toList();
