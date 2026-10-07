@@ -154,6 +154,29 @@ public class GithubClient implements SnapshotCache {
             (String)head.get("ref"), (String)head.get("sha"));
     }
 
+    /** Whether a PR was merged or closed, and when: one call. */
+    public PrOutcome prOutcome(int prNumber) {
+        java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+        if (pr == null)
+            throw new IllegalStateException("GitHub sent no PR " + prNumber);
+
+        Object mergedAt = pr.get("merged_at");
+        java.util.Map<?, ?> head = pr.get("head") instanceof java.util.Map<?, ?> h ? h : java.util.Map.of();
+
+        return new PrOutcome(mergedAt != null, "closed".equals(pr.get("state")),
+            mergedAt == null ? 0 : java.time.Instant.parse(mergedAt.toString()).getEpochSecond(),
+            (String)pr.get("merge_commit_sha"), (String)head.get("sha"), (String)pr.get("title"));
+    }
+
+    /**
+     * How a PR stands on GitHub: an open one is neither {@code merged} nor {@code closed}, a merged one is both.
+     * {@code mergedAt} is epoch seconds, 0 when not merged.
+     */
+    public record PrOutcome(boolean merged, boolean closed, long mergedAt, String mergeCommitSha, String headSha,
+        String title) {
+    }
+
     /** How many commits {@code head} is ahead of {@code base}, and the head's short sha — for staleness. */
     public Ahead compareAhead(String base, String head) {
         if (base == null || head == null || base.equals(head))

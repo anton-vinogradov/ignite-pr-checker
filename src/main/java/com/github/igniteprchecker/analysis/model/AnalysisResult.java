@@ -68,7 +68,12 @@ public record AnalysisResult(
      * as clean only while this is the PR's head: 7 of 13 green ticks on prod were for runs with commits pushed
      * since, up to 38 of them.
      */
-    String revision
+    String revision,
+    /**
+     * Epoch seconds the PR was merged at, on the verdict kept as it stood at the merge; 0 on any other. Such a
+     * verdict is served instead of a recompute: by then master's history holds the PR's own failures.
+     */
+    long mergedAt
 ) {
     public AnalysisResult {
         unstableSuites = unstableSuites == null ? List.of() : unstableSuites;
@@ -76,7 +81,7 @@ public record AnalysisResult(
         unverified = unverified == null ? List.of() : unverified;
     }
 
-    /** A result whose chain's revision is not known, in the shape callers used before it was kept. */
+    /** A result of an open PR whose chain's revision is not known, in the shape callers used before it was kept. */
     public AnalysisResult(int prNumber, long buildId, String branchName, long computedAt, List<TestVerdict> blockers,
         List<TestVerdict> watch, List<TestVerdict> filtered, List<BrokenSuite> brokenSuites,
         List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
@@ -85,7 +90,7 @@ public record AnalysisResult(
         long incompleteSince) {
         this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
             suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
-            branchWatermarkAt, unstableSuites, cancelledSuites, unverified, incompleteSince, null);
+            branchWatermarkAt, unstableSuites, cancelledSuites, unverified, incompleteSince, null, 0);
     }
 
     /**
@@ -98,6 +103,6 @@ public record AnalysisResult(
         boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt, long branchWatermarkAt) {
         this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
             suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
-            branchWatermarkAt, List.of(), List.of(), List.of(), 0, null);
+            branchWatermarkAt, List.of(), List.of(), List.of(), 0, null, 0);
     }
 }

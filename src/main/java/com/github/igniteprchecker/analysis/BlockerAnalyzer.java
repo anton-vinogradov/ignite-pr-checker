@@ -108,6 +108,7 @@ public class BlockerAnalyzer {
     private final ExecutorService recomputeFanOut;
     private final AnalysisCache cache;
     private final RunDeltaStore deltas;
+    private final MergedVerdicts merged;
 
     private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
 
@@ -137,7 +138,7 @@ public class BlockerAnalyzer {
         @Qualifier("backgroundExecutor") ExecutorService bgPool,
         @Qualifier("recomputeExecutor") ExecutorService recomputePool,
         @Qualifier("recomputeFanOutExecutor") ExecutorService recomputeFanOut,
-        AnalysisCache cache, RunDeltaStore deltas) {
+        AnalysisCache cache, RunDeltaStore deltas, MergedVerdicts merged) {
         this.tc = tc;
         this.chains = chains;
         this.cfg = cfg;
@@ -147,6 +148,14 @@ public class BlockerAnalyzer {
         this.recomputeFanOut = recomputeFanOut;
         this.cache = cache;
         this.deltas = deltas;
+        this.merged = merged;
+    }
+
+    /** An analyzer that keeps no merged PR's verdict: it analyses every PR live. */
+    public BlockerAnalyzer(TcClient tc, ChainCollector chains, AnalysisProperties cfg, ExecutorService pool,
+        ExecutorService bgPool, ExecutorService recomputePool, ExecutorService recomputeFanOut, AnalysisCache cache,
+        RunDeltaStore deltas) {
+        this(tc, chains, cfg, pool, bgPool, recomputePool, recomputeFanOut, cache, deltas, MergedVerdicts.none());
     }
 
     /** An analyzer whose recomputes on request fan out on {@code pool} too. */
@@ -155,8 +164,15 @@ public class BlockerAnalyzer {
         this(tc, chains, cfg, pool, bgPool, recomputePool, pool, cache, deltas);
     }
 
-    /** @return the analysis (cached if available), or empty if no RunAll build exists for the PR yet. */
+    /**
+     * @return the analysis (cached if available), or empty if no RunAll build exists for the PR yet. A merged PR's
+     * is the one it had at the merge.
+     */
     public Optional<AnalysisResult> analyze(String token, int prNumber) {
+        Optional<AnalysisResult> atMerge = merged.verdict(prNumber);
+        if (atMerge.isPresent())
+            return atMerge;
+
         long lookedUpAt = System.currentTimeMillis();
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
         if (buildId.isEmpty())
@@ -353,9 +369,13 @@ public class BlockerAnalyzer {
 
     /**
      * Recomputes now (ignoring any cached result) and returns the fresh analysis, or empty if no
-     * RunAll build exists yet. Backs the manual "refresh" button.
+     * RunAll build exists yet. Backs the manual "refresh" button. A merged PR keeps the one it had at the merge.
      */
     public Optional<AnalysisResult> forceRefresh(String token, int prNumber) {
+        Optional<AnalysisResult> atMerge = merged.verdict(prNumber);
+        if (atMerge.isPresent())
+            return atMerge;
+
         usersWaiting.incrementAndGet();
         try {
             return chains.findBuildIdFresh(token, prNumber)
@@ -551,7 +571,7 @@ public class BlockerAnalyzer {
             chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(), cancelled.size(),
             chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt,
             unstable, cancelled, unverified, incompleteSince,
-            chain.revision() != null ? chain.revision() : chainRevision(token, buildId));
+            chain.revision() != null ? chain.revision() : chainRevision(token, buildId), 0);
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);

@@ -133,6 +133,7 @@
         .tag-flaky { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; margin-left: 0.35rem; border-radius: 4px; background: #fff3e0; color: #b26a00; vertical-align: middle; }
         .tag-doubt { font-size: 0.7rem; padding: 0 0.4em; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; white-space: nowrap; }
         .one-run { margin-top: 0.8rem; }
+        .merged-note { margin: 0 0 0.8rem; font-size: 0.86rem; }
         .one-run > h3 { font-size: 0.95rem; margin: 0 0 0.2rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
         .one-run > h3 .sect-act { margin-left: auto; }
         .tabs { display: inline-flex; margin-left: 0.3rem; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; vertical-align: middle; }
@@ -575,6 +576,7 @@
                 </div>
 
                 <div id="results" class="hidden">
+                    <p id="mergedNote" class="merged-note hidden"></p>
                     <div id="interruptedBanner" class="card interrupted hidden">
                         <h2>⚠ Suites that never ran</h2>
                         <p class="muted" id="interruptedText"></p>
@@ -1588,6 +1590,16 @@
             $('refreshBtn').classList.remove('hidden');
         }
 
+        // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so there is nothing to refresh.
+        function renderMerged(res) {
+            const merged = !!res.mergedAt;
+            $('mergedNote').classList.toggle('hidden', !merged);
+            if (!merged) return;
+            $('mergedNote').textContent = `Merged ${fmtDay(res.mergedAt * 1000)}. This is the verdict as it stood at `
+                + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs.';
+            $('refreshBtn').classList.add('hidden');
+        }
+
         function clearFreshness() {
             $('freshText').textContent = '';
             $('refreshBtn').classList.add('hidden');
@@ -1631,6 +1643,7 @@
             noRunNote = '';
             if (!quiet || !prev) $('status').textContent = ''; // a first verdict replaces "no run yet"
             renderFreshness(res);
+            renderMerged(res);
             lookAgainIfStale(res);
             const broken = res.brokenSuites || [];
             const watch = res.watch || [];
