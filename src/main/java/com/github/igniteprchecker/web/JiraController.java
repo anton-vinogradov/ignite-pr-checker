@@ -130,6 +130,7 @@ public class JiraController {
         // half went quiet instead of leaving the options looking on.
         out.put("ghTokenRejected", standing.ghTokenRejected(username));
         out.put("jiraTokenRejected", standing.jiraTokenRejected(username));
+        out.put("tcTokenRejected", standing.tcTokenRejected(username));
 
         return out;
     }

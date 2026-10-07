@@ -353,6 +353,8 @@
     </header>
 
     <div id="settingsPanel" class="card settings-panel hidden">
+        <p id="tcTokenGone" class="caveat hidden" style="margin-top: 0">⚠ TeamCity no longer accepts the token your
+            options run on, so they are paused. Log out and log in with a fresh TeamCity token — they resume on their own.</p>
         <label class="settings-row">
             <input id="standingVisaToggle" type="checkbox">
             <span><b>Auto-visa all my runs</b> — when any RunAll I triggered finishes, post the verdict to the
@@ -1965,6 +1967,7 @@
             $('ghTokenGone').classList.toggle('hidden', !st.ghTokenRejected);
             if (st.ghTokenRejected) $('settingsGh').classList.remove('hidden');
             $('jiraTokenGone').classList.toggle('hidden', !st.jiraTokenRejected);
+            $('tcTokenGone').classList.toggle('hidden', !st.tcTokenRejected);
             if (st.jiraTokenRejected) $('settingsJira').classList.remove('hidden');
         }
 

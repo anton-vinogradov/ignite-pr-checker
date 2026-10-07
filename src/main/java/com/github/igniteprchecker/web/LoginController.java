@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,9 +39,10 @@ public class LoginController {
     private final Warmer warmer;
     private final LoginThrottle throttle;
     private final AdminActions admin;
+    private final StandingVisas standing;
 
     public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users,
-        LoginThrottle throttle, AdminActions admin) {
+        LoginThrottle throttle, AdminActions admin, StandingVisas standing) {
         this.users = users;
         this.tc = tc;
         this.codec = codec;
@@ -48,6 +50,7 @@ public class LoginController {
         this.warmer = warmer;
         this.throttle = throttle;
         this.admin = admin;
+        this.standing = standing;
     }
 
     public record LoginRequest(String token) {
@@ -101,6 +104,7 @@ public class LoginController {
         users.touchLogin(username.get());
         String cookie = codec.encode(username.get(), token);
         warmer.offerVerifiedToken(token); // TeamCity just accepted it
+        standing.tcTokenAccepted(username.get(), token);
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())

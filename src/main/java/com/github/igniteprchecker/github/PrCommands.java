@@ -59,6 +59,8 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Integer, CommandRun> watching = new ConcurrentHashMap<>();
     /** Logins that already got the one-time onboarding reply — never advertise to the same person twice. */
     private final ConcurrentMap<String, Long> onboarded = new ConcurrentHashMap<>();
+    /** Per user, the TeamCity refusal they were already told about in a PR — one reply per refusal. */
+    private final ConcurrentMap<String, Long> toldTcRefused = new ConcurrentHashMap<>();
     private final AtomicInteger handledTotal = new AtomicInteger();
     private volatile long lastPollAt;
     private final String publicUrl;
@@ -122,6 +124,11 @@ public class PrCommands implements SnapshotCache {
 
             return;
         }
+        if (standing.tcTokenRejected(actor.get().username())) {
+            tcTokenRefused(pr, c, actor.get());
+
+            return;
+        }
         if (cmd.name().equals("/top")) {
             top(c, actor.get(), pr);
 
@@ -132,7 +139,8 @@ public class PrCommands implements SnapshotCache {
             // A new commanded run supersedes the commander's previous chain on this PR: cancel it
             // first (their OWN chains only) — on unchanged revisions the new chain reuses the
             // finished suites, so nothing useful is lost, and the queue isn't paid twice.
-            int superseded = tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, actor.get().username());
+            String user = actor.get().username();
+            int superseded = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), pr, user));
             CommandRun old = watching.get(pr);
             if (superseded > 0 && old != null && old.username().equals(actor.get().username())) {
                 try {
@@ -152,7 +160,7 @@ public class PrCommands implements SnapshotCache {
             String styleNote = pat && standing.styleFixOn(actor.get().username())
                 ? styleFix.fixForCommand(pr, actor.get(), c.user().login()) : null;
 
-            var build = tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top());
+            var build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top()));
             tracker.record(pr, build);
             handledTotal.incrementAndGet();
             react(actor.get(), c.id(), "rocket");
@@ -184,8 +192,32 @@ public class PrCommands implements SnapshotCache {
         }
         catch (Throwable e) {
             // Throwable: an Error escaping here once took the whole command poll down with it.
-            react(actor.get(), c.id(), "confused");
+            if (standing.tcTokenRejected(actor.get().username()))
+                tcTokenRefused(pr, c, actor.get());
+            else
+                react(actor.get(), c.id(), "confused");
             log.warn("/run-all by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
+        }
+    }
+
+    /**
+     * TeamCity no longer accepts the token the checker keeps for this commander, so nothing can run.
+     * A bare 😕 left them guessing; the reason goes into the thread in words, once per refusal.
+     */
+    private void tcTokenRefused(int pr, GithubClient.IssueComment c, StandingVisas.GhActor actor) {
+        react(actor, c.id(), "confused");
+        long at = standing.tcRejectedAt(actor.username());
+        Long told = toldTcRefused.put(actor.username(), at);
+        if (told != null && told == at)
+            return;
+
+        try {
+            github.addPrCommentAsApp(pr, "@" + c.user().login() + " nothing was queued: TeamCity no longer accepts"
+                + " the token the checker stores for you (expired or revoked). Log in at " + publicUrl
+                + " with a fresh TeamCity token: it replaces the stored one, and your commands and options resume.");
+        }
+        catch (RuntimeException e) {
+            log.warn("telling {} about their refused TeamCity token failed: {}", c.user().login(), e.toString());
         }
     }
 
@@ -216,7 +248,7 @@ public class PrCommands implements SnapshotCache {
                 return;
             }
 
-            var b = tc.getBuildState(actor.tcToken(), run.buildId());
+            var b = standing.asUser(actor.username(), () -> tc.getBuildState(actor.tcToken(), run.buildId()));
             if (b == null || !"queued".equalsIgnoreCase(b.state())) {
                 react(actor, c.id(), "confused");
                 log.info("/top by {} for PR {}: build {} is not queued", c.user().login(), pr, run.buildId());
@@ -224,7 +256,11 @@ public class PrCommands implements SnapshotCache {
                 return;
             }
 
-            tc.moveToQueueTop(actor.tcToken(), run.buildId());
+            standing.asUser(actor.username(), () -> {
+                tc.moveToQueueTop(actor.tcToken(), run.buildId());
+
+                return null;
+            });
             handledTotal.incrementAndGet();
             react(actor, c.id(), "rocket");
             if (actor.ghToken() != null)
@@ -234,7 +270,10 @@ public class PrCommands implements SnapshotCache {
                 c.user().login(), actor.username(), run.buildId(), pr);
         }
         catch (RuntimeException e) {
-            react(actor, c.id(), "confused");
+            if (standing.tcTokenRejected(actor.username()))
+                tcTokenRefused(pr, c, actor);
+            else
+                react(actor, c.id(), "confused");
             log.warn("/top by {} for PR {} failed: {}", c.user().login(), pr, e.toString());
         }
     }
@@ -435,9 +474,11 @@ public class PrCommands implements SnapshotCache {
 
                 return;
             }
+            if (standing.tcTokenRejected(run.username()))
+                return; // narration resumes with a working token
 
             try {
-                var b = tc.getBuildState(actor.get().tcToken(), run.buildId());
+                var b = standing.asUser(run.username(), () -> tc.getBuildState(actor.get().tcToken(), run.buildId()));
                 if (b == null)
                     return;
 

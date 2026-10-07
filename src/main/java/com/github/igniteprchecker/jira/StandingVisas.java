@@ -102,8 +102,10 @@ public class StandingVisas implements SnapshotCache {
      * the page, so the next visitor pays the full cold analysis.
      */
     private void donateWarmTokens() {
-        for (Enrollment e : enrolled.values())
-            decrypt(e.tc()).ifPresent(warmer::offerToken);
+        for (Enrollment e : enrolled.values()) {
+            if (!e.tc().rejected())
+                decrypt(e.tc()).ifPresent(warmer::offerToken);
+        }
     }
 
     /**
@@ -219,6 +221,109 @@ public class StandingVisas implements SnapshotCache {
         if (dropped)
             log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
                 username);
+    }
+
+    /**
+     * Records that TeamCity refused the user's stored token. The options stay as they were but pause:
+     * nothing runs under a dead token, the settings panel and the PR commands say why, and the first
+     * request that brings a working token resumes them.
+     */
+    public void markTcRejected(String username) {
+        long now = System.currentTimeMillis();
+        boolean marked = changed(username, e -> e.tc().rejected() ? e : e.withTc(new Credential(e.tc().token(), now)));
+        if (marked)
+            log.warn("TeamCity rejected the stored token of {}: their options pause until a working token comes",
+                username);
+    }
+
+    /** When TeamCity refused the user's stored token; 0 when it has not. */
+    public long tcRejectedAt(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e == null ? 0 : e.tc().rejectedAt();
+    }
+
+    public boolean tcTokenRejected(String username) {
+        return tcRejectedAt(username) > 0;
+    }
+
+    /**
+     * A token TeamCity has just accepted at login becomes the stored one: logging in again is how a
+     * user replaces an expired token, and it used to leave the dead one in charge of their options.
+     */
+    public void tcTokenAccepted(String username, String token) {
+        boolean wasRejected = tcTokenRejected(username);
+        Credential accepted = new Credential(codec.encryptString(token), 0);
+        changed(username, e -> !e.tc().rejected() && decrypt(e.tc()).filter(token::equals).isPresent() ? e
+            : e.withTc(accepted));
+        if (wasRejected)
+            log.info("TeamCity token of {} renewed at login: their options resume", username);
+    }
+
+    /**
+     * The token a logged-in request carries replaces a stored one TeamCity refused. A working stored
+     * token is left alone: this one has not been checked, and an old browser session must not swap a
+     * live token for its own dead one.
+     */
+    public void tcTokenOffered(String username, String token) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || !e.tc().rejected() || decrypt(e.tc()).filter(token::equals).isPresent())
+            return;
+
+        Credential offered = new Credential(codec.encryptString(token), 0);
+        if (changed(username, cur -> cur.tc().rejected() ? cur.withTc(offered) : cur))
+            log.info("refused TeamCity token of {} replaced by the one of their session: options resume", username);
+    }
+
+    /** A TeamCity call under the user's own stored token; a refusal is recorded against them. */
+    public <T> T asUser(String username, java.util.function.Supplier<T> call) {
+        try {
+            return call.get();
+        }
+        catch (RuntimeException e) {
+            if (tcRefused(e))
+                markTcRejected(username);
+
+            throw e;
+        }
+    }
+
+    /**
+     * Whether TeamCity refused the token itself. Only a 401 says so: ci2's firewall answers 403 to
+     * requests it dislikes whatever the token.
+     */
+    public static boolean tcRefused(Throwable e) {
+        return e instanceof org.springframework.web.client.RestClientResponseException rest
+            && rest.getStatusCode().value() == 401;
+    }
+
+    /**
+     * Runs a read any enrolled user's TeamCity token may do — finding a PR's builds, who started a
+     * chain. Tokens are tried in turn and one TeamCity refuses is recorded, so a single dead token no
+     * longer stops everyone's visas, re-runs and comments.
+     */
+    private <T> T lookup(java.util.function.Function<String, T> read) {
+        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
+            Optional<String> token = en.getValue().tc().rejected() ? Optional.empty() : decrypt(en.getValue().tc());
+            if (token.isEmpty())
+                continue;
+
+            try {
+                return read.apply(token.get());
+            }
+            catch (RuntimeException e) {
+                if (!tcRefused(e))
+                    throw e;
+
+                markTcRejected(en.getKey());
+            }
+        }
+
+        throw new IllegalStateException("TeamCity accepts none of the stored tokens");
+    }
+
+    private boolean anyLiveTcToken() {
+        return enrolled.values().stream().anyMatch(e -> !e.tc().rejected() && decrypt(e.tc()).isPresent());
     }
 
     /** Applies {@code change} to the user's enrollment atomically; true when it changed anything. */
@@ -436,14 +541,9 @@ public class StandingVisas implements SnapshotCache {
             return; // already settled this suite, or this chain is failing wholesale
 
         // Any enrolled token can read who started the chain; only that person's enrollment may act.
-        Map.Entry<String, Enrollment> any = enrolled.entrySet().iterator().next();
-        Optional<String> lookupToken = decrypt(any.getValue().tc());
-        if (lookupToken.isEmpty())
-            return;
-
-        Optional<String> who = tc.buildTriggeredBy(lookupToken.get(), ev.chainBuildId());
-        Enrollment e = who.map(enrolled::get).orElse(null);
-        if (e == null || !e.options().autoRerun())
+        String who = lookup(token -> tc.buildTriggeredBy(token, ev.chainBuildId())).orElse(null);
+        Enrollment e = who == null ? null : enrolled.get(who);
+        if (e == null || !e.options().autoRerun() || e.tc().rejected())
             return;
 
         Optional<String> tcToken = decrypt(e.tc());
@@ -453,9 +553,9 @@ public class StandingVisas implements SnapshotCache {
         // The cached verdict of a running chain is usually older than the failure just announced, and
         // the announcement comes once: judged by a verdict that never saw the suite fail, it would look
         // innocent and the early re-run would be lost for good.
-        Optional<AnalysisResult> res = analyzer.analyze(tcToken.get(), ev.pr());
+        Optional<AnalysisResult> res = asUser(who, () -> analyzer.analyze(tcToken.get(), ev.pr()));
         if (res.isPresent() && !sawRun(res.get(), ev.suiteBuildId()))
-            res = analyzer.analyzeAfterNow(tcToken.get(), ev.pr());
+            res = asUser(who, () -> analyzer.analyzeAfterNow(tcToken.get(), ev.pr()));
         if (res.isEmpty() || !worthRerunning(res.get(), ev.suite()))
             return;
 
@@ -465,9 +565,9 @@ public class StandingVisas implements SnapshotCache {
         if (done.size() >= TOP_QUEUE_LIMIT || !done.add(ev.suite()))
             return; // a concurrent event beat us to it
 
-        TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
+        TcModel.Build b = asUser(who, () -> tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
             "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
-                + " is still running, settling it now rather than after the chain");
+                + " is still running, settling it now rather than after the chain"));
         rerunTracker.record(ev.pr(), b);
         // Count it as the chain's first wave, so the settled pass continues from here instead of
         // starting over — two waves per chain stays two.
@@ -489,17 +589,17 @@ public class StandingVisas implements SnapshotCache {
      * chain; a suite that failed before the sweep saw its chain is still announced on the tracker's
      * first look, so the sweep's period can delay such an early re-run but never loses it.
      */
-    private void watchRunningChains(String lookupToken) {
+    private void watchRunningChains() {
         java.util.Set<String> rerunners = new java.util.HashSet<>();
         enrolled.forEach((user, e) -> {
-            if (e.options().autoRerun())
+            if (e.options().autoRerun() && !e.tc().rejected())
                 rerunners.add(user);
         });
         if (rerunners.isEmpty())
             return; // nobody to re-run for: not worth a TeamCity call
 
         try {
-            for (TcModel.Build chain : tc.runningRunAllChains(lookupToken)) {
+            for (TcModel.Build chain : lookup(tc::runningRunAllChains)) {
                 Matcher pr = chain.branchName() == null ? null : PR_BRANCH.matcher(chain.branchName());
                 String who = chain.triggered() == null || chain.triggered().user() == null
                     ? null : chain.triggered().user().username();
@@ -540,12 +640,10 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         // Any enrolled user's TC token can look up builds; per-PR analysis uses the triggerer's own.
-        Map.Entry<String, Enrollment> any = enrolled.entrySet().iterator().next();
-        Optional<String> lookupToken = decrypt(any.getValue().tc());
-        if (lookupToken.isEmpty())
+        if (!anyLiveTcToken())
             return;
 
-        watchRunningChains(lookupToken.get());
+        watchRunningChains();
 
         int posted = 0;
         for (PrSummary pr : github.openPrs()) {
@@ -553,15 +651,16 @@ public class StandingVisas implements SnapshotCache {
             if (m == null || !m.find())
                 continue; // nowhere to post
 
+            String who = null;
             try {
-                Optional<TcModel.Build> build = tc.findRunAllBuildForPr(lookupToken.get(), pr.number());
+                Optional<TcModel.Build> build = lookup(token -> tc.findRunAllBuildForPr(token, pr.number()));
                 if (build.isEmpty() || build.get().triggered() == null || build.get().triggered().user() == null)
                     continue;
 
-                String who = build.get().triggered().user().username();
+                who = build.get().triggered().user().username();
                 Enrollment e = enrolled.get(who);
-                if (e == null)
-                    continue;
+                if (e == null || e.tc().rejected())
+                    continue; // a refused token pauses its owner's options until a working one comes
 
                 long buildId = build.get().id();
                 Long last = e.handled().posted().get(pr.number());
@@ -726,6 +825,9 @@ public class StandingVisas implements SnapshotCache {
                 earlyReruns.remove(buildId); // this chain is settled; its mid-run memo is spent
             }
             catch (RuntimeException ex) {
+                // Lookups never get here with a refusal; what does came from the triggerer's own token.
+                if (who != null && tcRefused(ex))
+                    markTcRejected(who);
                 log.warn("standing auto-visa sweep: PR {} skipped: {}", pr.number(), ex.toString());
             }
         }
@@ -1114,14 +1216,15 @@ public class StandingVisas implements SnapshotCache {
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
-        Long ghRejectedAt, Long jiraRejectedAt) {
+        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
 
             return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
-                o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt());
+                o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
+                e.tc().rejectedAt());
         }
 
         /** Missing fields are what the snapshots written before them meant. */
@@ -1134,7 +1237,7 @@ public class StandingVisas implements SnapshotCache {
             if (jiraThreads != null)
                 h.jiraThreads().putAll(jiraThreads);
 
-            return new Enrollment(new Credential(tcToken, 0),
+            return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
                 new Credential(ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz, enabledAt,
                 new Options(autoVisa == null || autoVisa, autoRerun, ghComment != null && ghComment,
