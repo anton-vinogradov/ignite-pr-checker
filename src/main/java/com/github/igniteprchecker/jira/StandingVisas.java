@@ -33,10 +33,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -76,23 +80,13 @@ public class StandingVisas implements SnapshotCache {
     private final ConcurrentMap<Long, java.util.Set<String>> earlyReruns = new ConcurrentHashMap<>();
 
     /** Early re-runs do TeamCity work; one thread keeps them off the tracker's polling thread. */
-    private final java.util.concurrent.ExecutorService earlyPool =
-        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "early-rerun");
-            t.setDaemon(true);
-            return t;
-        });
+    private final ExecutorService earlyPool;
 
     /** One PR is settled at a time, whoever asks — the sweep or an event — so a wave is never queued twice. */
     private final Object settleLock = new Object();
 
     /** Settles the PRs whose chains and re-runs the tracker reports finished, off its polling thread. */
-    private final java.util.concurrent.ExecutorService settler =
-        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "settle");
-            t.setDaemon(true);
-            return t;
-        });
+    private final ExecutorService settler;
 
     /** PRs with a settle queued on {@link #settler} that has not started yet. */
     private final Set<Integer> settleQueued = ConcurrentHashMap.newKeySet();
@@ -123,6 +117,27 @@ public class StandingVisas implements SnapshotCache {
     /** How often the sweep goes through the open PRs. */
     private static final long SWEEP_MS = 600_000;
 
+    /**
+     * How long before the last sweep a chain that finished may still be news to it: the clocks of TeamCity and the
+     * checker differ, and a chain may show as finished a little after its finish date.
+     */
+    private static final long SWEEP_OVERLAP_MS = 300_000;
+
+    /** Every this many sweeps (once an hour) every listed PR is looked up, whatever TeamCity says finished. */
+    private static final int FULL_SWEEP_EVERY = 6;
+
+    /** When the last sweep started that knew of every RunAll finished before it; 0 until one has. */
+    private volatile long sweptUpTo;
+
+    /** Sweeps since the last one that looked every listed PR up. */
+    private int sweepsSinceFull;
+
+    /**
+     * The PRs whose last settle left nothing to do until a RunAll of theirs finishes, with the run it found, 0 for
+     * none: the sweep skips them while no chain of theirs finished since.
+     */
+    private final ConcurrentMap<Integer, Long> resting = new ConcurrentHashMap<>();
+
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
     /** Up to this many blocker suites jump the queue; more go to the tail so others aren't pushed back. */
@@ -137,8 +152,11 @@ public class StandingVisas implements SnapshotCache {
     @Value("${automation.enabled:true}")
     private boolean automation = true;
 
+    @Autowired
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
-        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer, PendingCommits pending) {
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
+        PendingCommits pending, @Qualifier("earlyRerunExecutor") ExecutorService earlyPool,
+        @Qualifier("settleExecutor") ExecutorService settler) {
         this.mapper = mapper;
         this.codec = codec;
         this.tc = tc;
@@ -149,6 +167,25 @@ public class StandingVisas implements SnapshotCache {
         this.rerunTracker = rerunTracker;
         this.warmer = warmer;
         this.pending = pending;
+        this.earlyPool = earlyPool;
+        this.settler = settler;
+    }
+
+    /** Standing options whose early re-runs and settles run on daemon threads of their own. */
+    public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
+        PendingCommits pending) {
+        this(mapper, codec, tc, github, analyzer, jira, visas, rerunTracker, warmer, pending, daemon("early-rerun"),
+            daemon("settle"));
+    }
+
+    private static ExecutorService daemon(String name) {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+
+            return t;
+        });
     }
 
     /**
@@ -1023,7 +1060,8 @@ public class StandingVisas implements SnapshotCache {
     /**
      * Sweep: settles each open PR the list holds (see {@link #settle}), then the PRs out of the list that
      * still have a living comment or a wave open. Events settle a run as soon as its chain or a re-run
-     * finishes; the sweep keeps the ones that wait going and catches what an event missed.
+     * finishes; the sweep keeps the ones that wait going and catches what an event missed. A PR at rest is
+     * not looked up again while TeamCity says no RunAll of it finished since the last sweep.
      */
     @Scheduled(fixedDelay = SWEEP_MS, initialDelay = 180_000)
     void sweep() {
@@ -1044,14 +1082,68 @@ public class StandingVisas implements SnapshotCache {
         watchRunningChains();
 
         List<PrSummary> listed = github.openPrs();
+        resting.keySet().retainAll(listed.stream().map(PrSummary::number).toList());
+        Set<Integer> finished = chainsFinishedSinceLastSweep(t0);
         int posted = 0;
-        for (PrSummary pr : listed)
-            posted += settle(pr);
+        for (PrSummary pr : listed) {
+            if (finished == null || finished.contains(pr.number()) || !resting(pr.number()))
+                posted += settle(pr);
+        }
         settleUnlisted(listed);
 
         lastSweepMs = System.currentTimeMillis() - t0;
         if (posted > 0)
             log.info("standing auto-visa sweep: {} visa(s) posted", posted);
+    }
+
+    /**
+     * The PRs with a RunAll chain finished since the last sweep, by one TeamCity call across all branches; null when
+     * every listed PR is to be looked up: on the first sweep, on every {@link #FULL_SWEEP_EVERY}th one, and whenever
+     * TeamCity cannot say. Looking each PR up cost 50 calls a sweep, nearly all of them to learn that nothing changed.
+     */
+    private Set<Integer> chainsFinishedSinceLastSweep(long now) {
+        long since = sweptUpTo;
+        sweptUpTo = now;
+        if (since == 0 || ++sweepsSinceFull >= FULL_SWEEP_EVERY) {
+            sweepsSinceFull = 0;
+
+            return null;
+        }
+
+        try {
+            return lookup(token -> tc.prsWithChainsFinishedAfter(token, (since - SWEEP_OVERLAP_MS) / 1000))
+                .orElse(null);
+        }
+        catch (RuntimeException e) {
+            log.warn("RunAll chains finished since the last sweep not listed, every PR is looked up: {}", e.toString());
+
+            return null;
+        }
+    }
+
+    /**
+     * Whether the PR's last settle left nothing to do until a RunAll of it finishes: the run it found is handled, and
+     * no wave, decision or living comment of the PR waits for a settle.
+     */
+    private boolean resting(int pr) {
+        Long run = resting.get(pr);
+        if (run == null || deciding.containsKey(pr) || waves.values().stream().anyMatch(r -> r.pr() == pr))
+            return false;
+
+        return enrolled.values().stream().noneMatch(e -> waitsForSettle(e, pr, run));
+    }
+
+    /**
+     * Whether a living comment of the user's on the PR waits for a settle: one still saying "re-run in progress", or a
+     * verdict comment of a run before {@code latest} not yet marked superseded.
+     */
+    private static boolean waitsForSettle(Enrollment e, int pr, long latest) {
+        GhThread g = e.handled().ghThreads().get(pr);
+        JiraThread j = e.handled().jiraThreads().get(pr);
+        boolean ghWaits = g != null && (!g.unmarked().isEmpty() || open(e, pr, g.buildId(), g.done())
+            || g.buildId() < latest && !g.superseded());
+
+        return ghWaits || j != null && open(e, pr, j.buildId(), j.done());
     }
 
     /**
@@ -1171,12 +1263,16 @@ public class StandingVisas implements SnapshotCache {
         synchronized (settleLock) {
             String who = null;
             boolean undecided = false;
+            boolean rests = false;
             long settling = Long.MAX_VALUE;
+            resting.remove(pr.number());
             try {
                 closedPrs.remove(pr.number());
                 Optional<TcModel.Build> build = lookup(token -> tc.findRunAllBuildForPr(token, pr.number()));
-                if (build.isEmpty())
+                if (build.isEmpty()) {
+                    rests = true;
                     return 0;
+                }
 
                 long buildId = build.get().id();
                 settling = buildId;
@@ -1188,6 +1284,7 @@ public class StandingVisas implements SnapshotCache {
                 Enrollment e = who == null ? null : enrolled.get(who);
                 if (e == null) {
                     waves.remove(buildId); // nobody settles this run any more
+                    rests = true;
                     return 0;
                 }
                 if (e.tc().rejected())
@@ -1197,6 +1294,7 @@ public class StandingVisas implements SnapshotCache {
                 if (last != null && last == buildId) {
                     // v1.20.11 marked runs handled without dropping their waves, which then read as settling for good.
                     settled(e, pr.number(), buildId);
+                    rests = true;
                     return 0; // this run is already handled (visa'd, or settled without one)
                 }
 
@@ -1208,6 +1306,7 @@ public class StandingVisas implements SnapshotCache {
                     endThreads(who, e, pr, b -> b == buildId,
                         e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed(), 0);
                     settled(e, pr.number(), buildId);
+                    rests = true;
                     return 0; // nothing to post or re-run: a verdict computed now would go nowhere
                 }
 
@@ -1218,6 +1317,7 @@ public class StandingVisas implements SnapshotCache {
                     || (e.options().ghComment() && ghToken.isEmpty())) {
                     enrolled.remove(who);
                     log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
+                    rests = true;
                     return 0;
                 }
 
@@ -1250,6 +1350,7 @@ public class StandingVisas implements SnapshotCache {
                     return 0; // the verdict waits until the wave settles
 
                 undecided = false;
+                rests = true;
                 return postSettled(who, e, acting, pr, buildId, res.get(), tcToken.get(), jiraToken.orElse(null),
                     ghToken.orElse(null));
             }
@@ -1259,6 +1360,7 @@ public class StandingVisas implements SnapshotCache {
                     markTcRejected(who);
                 log.warn("standing auto-visa sweep: PR {} skipped: {}", pr.number(), ex.toString());
                 undecided = true; // nothing was decided: the page goes on saying what it said
+                rests = false;
 
                 return 0;
             }
@@ -1266,6 +1368,8 @@ public class StandingVisas implements SnapshotCache {
                 // A run still to be decided on stays so between settles: the page must not call its verdict final.
                 if (!undecided)
                     decided(pr.number(), settling);
+                if (rests)
+                    resting.put(pr.number(), settling == Long.MAX_VALUE ? 0 : settling);
             }
         }
     }
@@ -1414,7 +1518,7 @@ public class StandingVisas implements SnapshotCache {
                 md = md + "\n\n_" + settled + "_";
             if (note != null)
                 md = md + "\n\n_" + note + "_";
-            if (!res.blockers().isEmpty())
+            if (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS)
                 md = md + NEXT_STEP;
             upsertGhComment(who, e, ghToken, pr.number(), buildId, md, true);
         }

@@ -1,6 +1,8 @@
 package com.github.igniteprchecker.web;
 
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
@@ -76,6 +78,7 @@ public class AnalyzeController {
         Map<String, Object> out = new java.util.HashMap<>();
         out.put("pending", true);
         out.put("ahead", ahead.commits());
+        out.put("caveat", Caveats.pushedSince(Math.max(ahead.commits(), 1)));
         out.put("builtSha", ahead.builtShort());
         out.put("headSha", ahead.headShort());
         out.put("builtRevision", ahead.builtRevision());
@@ -85,8 +88,19 @@ public class AnalyzeController {
     }
 
     private static ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {
-        return result.<ResponseEntity<?>>map(ResponseEntity::ok)
+        return result.<ResponseEntity<?>>map(r -> ResponseEntity.ok(Served.of(r)))
             .orElseGet(() -> ResponseEntity.status(404)
                 .body(Map.of("error", "no RunAll build found for PR " + pr)));
+    }
+
+    /**
+     * The analysis as the page gets it: with how its verdict stands and the caveats behind that, as the server words
+     * them, so the page's head says what the PR list, the visa and the PR comment say. Commits pushed since the run
+     * come with /api/pending.
+     */
+    public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats) {
+        static Served of(AnalysisResult r) {
+            return new Served(r, Caveats.standing(r, null), Caveats.of(r, null));
+        }
     }
 }

@@ -24,14 +24,17 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   <li>{@code backgroundExecutor} also fans out the computes the standing sweep, early re-runs and the auto
  *   visa act on; the auto visa's first try after a chain finished recomputes as ↻ does.</li>
  *   <li>{@code causesExecutor} clusters the "Top causes".</li>
+ *   <li>{@code earlyRerunExecutor}, one thread, re-runs a suite that failed while its chain still runs, and
+ *   {@code settleExecutor}, one thread, settles a PR whose chain or re-run just finished: both off the rerun
+ *   tracker's timer, which announces them. {@code visaPosterExecutor}, one thread, posts the one-shot auto
+ *   visas.</li>
  *   <li>Spring's scheduler (three threads, {@code spring.task.scheduling.pool.size}) runs the timers, and some
  *   of them call TeamCity, GitHub and JIRA on it: the rerun tracker, the standing sweep, the PR command poll
  *   and the narration of accepted commands, the flaky-test harvest (up to 10 TeamCity calls a cycle). The
  *   cache snapshots are written to disk on it too.</li>
  * </ul>
- * Every pool here is shut down with the application. A few single threads live with the class they serve: the
- * snapshot flusher (CacheStore), early re-runs (StandingVisas), the auto-visa poster (VisaSubscriptions) and the
- * fetch of the project's own GitHub stats (GithubClient).
+ * Every pool here is shut down with the application. Two single threads live with the class they serve and stop
+ * with it: the snapshot flusher (CacheStore) and the fetch of the project's own GitHub stats (GithubClient).
  */
 @Configuration
 @EnableScheduling
@@ -85,6 +88,27 @@ public class AnalysisConfig {
     @Bean(destroyMethod = "shutdown")
     ExecutorService warmerThread() {
         return Executors.newSingleThreadExecutor(named("warmer-"));
+    }
+
+    /** Re-runs a suite that failed while its chain still runs; one thread, off the rerun tracker's timer. */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService earlyRerunExecutor() {
+        return Executors.newSingleThreadExecutor(named("early-rerun-"));
+    }
+
+    /**
+     * Settles a PR whose chain or re-run just finished, so its next wave or its verdict goes out within seconds;
+     * one thread, off the rerun tracker's timer.
+     */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService settleExecutor() {
+        return Executors.newSingleThreadExecutor(named("settle-"));
+    }
+
+    /** Posts the one-shot auto visas, which wait for the analysis of a finished chain; one thread. */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService visaPosterExecutor() {
+        return Executors.newSingleThreadExecutor(named("auto-visa-"));
     }
 
     /** Small pool for the on-demand cause clustering, so a click on "Top causes" isn't queued behind

@@ -46,11 +46,11 @@ class ReadableTestListTest {
         TestVerdict t = new TestVerdict(-5272433775095107011L, "IgniteClientTestSuite: org.apache.ignite.client"
             + ".ClientReconnectTest.testReconnect", "IgniteTests24Java8_Client", 9500002L, "Client", "build:(id:9500002),id:7",
             true, false, "no master history (can't prove pre-existing); failed the last 1 of 1 runs on this branch", "PPF",
-            1);
+            1, List.of(TestVerdict.Doubt.ONE_RUN, TestVerdict.Doubt.NO_MASTER_HISTORY));
 
         String md = visas.composeMarkdown(PR, result(List.of(t)), null);
 
-        assertThat(md).contains("- Client · `ClientReconnectTest.testReconnect` — one run of this code; no master history"
+        assertThat(md).contains("- Client · `ClientReconnectTest.testReconnect` — 1 run; new test / no master history"
             + " · [TC](https://ci2.example/buildConfiguration/IgniteTests24Java8_Client/9500002?buildTab=tests"
             + "&expandedTest=build%3A%28id%3A9500002%29%2Cid%3A7#testNameId13174310298614444605)");
     }

@@ -70,7 +70,7 @@ public final class Caveats {
             out.add("a newer run is still going — its unfinished suites can still fail");
 
         if (commitsAhead != null && commitsAhead > 0)
-            out.add(commitsAhead + " commit(s) pushed since this run — it tested older code");
+            out.add(pushedSince(commitsAhead));
 
         return out;
     }
@@ -94,12 +94,47 @@ public final class Caveats {
         return cause.length() > CAUSE_CHARS ? cause.substring(0, CAUSE_CHARS - 1) + "…" : cause;
     }
 
+    /** The caveat of a run the PR's head has since moved past by {@code commits} commits. */
+    public static String pushedSince(int commits) {
+        return commits + " commit(s) pushed since this run — it tested older code";
+    }
+
     /** Whether the run covers enough for an empty blocker list to mean something. */
     public static boolean proven(AnalysisResult r) {
         return of(r, null).isEmpty();
     }
 
-    /** How a PR's verdict stands at a glance, as its badge in the PR list shows it. */
+    /**
+     * How the verdict stands, by the one rule the PR list's tick, the page's head, the visa and the PR comment follow.
+     * {@code commitsAhead} is how far the PR's head has moved past the run; null when unknown, and the run is then
+     * taken for the PR's code.
+     */
+    public static Standing standing(AnalysisResult r, Integer commitsAhead) {
+        return standing(r.blockers().size(), r.watch().size(), proven(r),
+            commitsAhead != null && commitsAhead > 0 ? Code.OLD : Code.CURRENT);
+    }
+
+    private static Standing standing(int blockers, int watch, boolean covered, Code code) {
+        if (blockers > 0)
+            return Standing.BLOCKERS;
+        if (watch > 0)
+            return Standing.WATCH;
+        if (!covered)
+            return Standing.UNPROVEN;
+
+        return switch (code) {
+            case CURRENT -> Standing.CLEAN;
+            case OLD -> Standing.OLD_CODE;
+            case UNKNOWN -> Standing.UNKNOWN_CODE;
+        };
+    }
+
+    /** Whether the run tested the code the PR has now, as far as the caller knows. */
+    private enum Code {
+        CURRENT, OLD, UNKNOWN
+    }
+
+    /** How a verdict stands at a glance: the PR list's badge, the page's head, the visa and the PR comment say it. */
     public enum Standing {
         /** It has blockers. */
         BLOCKERS,
@@ -135,16 +170,10 @@ public final class Caveats {
          * on prod).
          */
         public Standing against(String head) {
-            if (blockers > 0)
-                return Standing.BLOCKERS;
-            if (watch > 0)
-                return Standing.WATCH;
-            if (!covered)
-                return Standing.UNPROVEN;
-            if (revision == null || head == null)
-                return Standing.UNKNOWN_CODE;
+            Code code = revision == null || head == null ? Code.UNKNOWN
+                : revision.equalsIgnoreCase(head) ? Code.CURRENT : Code.OLD;
 
-            return revision.equalsIgnoreCase(head) ? Standing.CLEAN : Standing.OLD_CODE;
+            return standing(blockers, watch, covered, code);
         }
     }
 }

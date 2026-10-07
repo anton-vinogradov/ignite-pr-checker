@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
  * Composes the verdict ("visa") in JIRA wiki markup — tcbot style: green when clean, red with the
  * list. "No blockers" is only ever green when the run behind it actually covered the PR; an
  * interrupted run, suites without a reliable result, or commits pushed since are stated instead.
+ * Which it is, is {@link Caveats#standing}: the PR list's tick and the page's head go by it too.
  */
 @Component
 public class VisaService {
@@ -74,9 +75,8 @@ public class VisaService {
         List<TestVerdict> blockers = r.blockers();
         List<TestVerdict> watch = r.watch();
         List<String> caveats = Caveats.of(r, commitsAhead);
-        // Green only when nothing at all needs attention — the same bar the web page uses. Tests that
-        // just started failing on this code, or a run that couldn't cover the PR, make "No blockers" a lie.
-        if (blockers.isEmpty() && watch.isEmpty() && caveats.isEmpty()) {
+        Caveats.Standing standing = Caveats.standing(r, commitsAhead);
+        if (standing == Caveats.Standing.CLEAN) {
             b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
@@ -126,20 +126,21 @@ public class VisaService {
             b.append(tests.markdown(r.unverified(), false)).append('\n');
         }
 
-        if (blockers.isEmpty() && !watch.isEmpty())
+        if (standing == Caveats.Standing.WATCH)
             b.append("⚠️ **No proven blocker yet** — this is not an all-clear: see the tests above. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
-        else if (blockers.isEmpty())
+        else if (standing != Caveats.Standing.BLOCKERS)
             b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
                 .append("Re-run once the above is sorted out.");
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
-            b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):**\n")
+            b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s)")
+                .append(onOneRun(blockers)).append(":**\n")
                 .append(tests.markdown(blockers, true));
         }
 
-        return b.toString();
+        return withLegend(b, tests.markdownLegend(tagged(r)));
     }
 
     /**
@@ -321,9 +322,8 @@ public class VisaService {
         List<TestVerdict> blockers = r.blockers();
         List<TestVerdict> watch = r.watch();
         List<String> caveats = Caveats.of(r, commitsAhead);
-        // Green only when nothing at all needs attention — the same bar the web page uses. Tests that
-        // just started failing on this code, or a run that couldn't cover the PR, make "No blockers" a lie.
-        if (blockers.isEmpty() && watch.isEmpty() && caveats.isEmpty()) {
+        Caveats.Standing standing = Caveats.standing(r, commitsAhead);
+        if (standing == Caveats.Standing.CLEAN) {
             b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
             return b.toString();
@@ -371,19 +371,40 @@ public class VisaService {
             b.append(tests.wiki(r.unverified(), false)).append('\n');
         }
 
-        if (blockers.isEmpty() && !watch.isEmpty())
+        if (standing == Caveats.Standing.WATCH)
             b.append("(!) *No proven blocker yet* — this is not an all-clear: see the tests above. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
-        else if (blockers.isEmpty())
+        else if (standing != Caveats.Standing.BLOCKERS)
             b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ")
                 .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
                 .append("Re-run once the above is sorted out.");
         else {
             long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
-            b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s):*\n")
+            b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s)")
+                .append(onOneRun(blockers)).append(":*\n")
                 .append(tests.wiki(blockers, true));
         }
 
-        return b.toString();
+        return withLegend(b, tests.wikiLegend(tagged(r)));
+    }
+
+    /** ", 3 of them on 1 run" when blockers rest on one failure: such a blocker is not proven yet. */
+    private static String onOneRun(List<TestVerdict> blockers) {
+        long k = TestGroups.oneRun(blockers);
+
+        return k == 0 ? "" : k == blockers.size() ? ", all on 1 run" : ", " + k + " of them on 1 run";
+    }
+
+    /** The tests whose lines say what they rest on: the blockers and the tests to watch. */
+    private static List<TestVerdict> tagged(AnalysisResult r) {
+        return Stream.concat(r.blockers().stream(), r.watch().stream()).toList();
+    }
+
+    /** The verdict, then what the tags in its lists mean, if they carry any. */
+    private static String withLegend(StringBuilder b, String legend) {
+        if (legend.isEmpty())
+            return b.toString();
+
+        return b.toString().stripTrailing() + "\n\n" + legend;
     }
 }
