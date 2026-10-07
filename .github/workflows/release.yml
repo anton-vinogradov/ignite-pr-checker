@@ -1,8 +1,9 @@
 name: release
 
 # Cut a release by pushing a tag:  git tag v0.1.0 && git push origin v0.1.0
-# CI builds the fat jar and publishes it as a GitHub Release asset named
-# "ignite-pr-checker.jar", which install.sh always pulls from /releases/latest/download/.
+# CI builds and tests the fat jar and publishes it as a GitHub Release asset named "ignite-pr-checker.jar"; install.sh
+# and update.sh install it after checking its sha256 against the digest GitHub records for the asset.
+# A release that changes the verdict rules (TestVerdict.RULES) is a minor version; small PRs go out together.
 
 on:
   push:
@@ -17,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The previous tag and the PRs merged since, for the release notes.
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -24,17 +28,26 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Build jar
+      - name: Build and test jar
         run: |
           chmod +x ./gradlew
-          # Embed the release version (tag without a leading 'v') so the running app knows it.
-          ./gradlew bootJar -Pappversion="${GITHUB_REF_NAME#v}"
+          # Embed the release version (tag without a leading 'v') so the running app knows it. "build" runs the
+          # tests, the application-context test included: a jar that cannot start is never published.
+          ./gradlew build -Pappversion="${GITHUB_REF_NAME#v}"
+
+      - name: Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # What changes for users, from the PR descriptions, and whether the verdict rules changed.
+        run: bash .github/release-notes.sh "${{ github.ref_name }}" > release-notes.md
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # GitHub's list of the PRs (grouped by .github/release.yml) goes after release-notes.md.
           gh release create "${{ github.ref_name }}" \
             build/libs/ignite-pr-checker.jar \
             --title "${{ github.ref_name }}" \
+            --notes-file release-notes.md \
             --generate-notes

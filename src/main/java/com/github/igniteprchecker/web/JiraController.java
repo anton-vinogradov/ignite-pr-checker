@@ -48,7 +48,7 @@ public class JiraController {
 
     public JiraController(JiraClient jira, BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
         VisaSubscriptions visaSubs, StandingVisas standing, GithubClient github, PendingCommits pending,
-        @Value("${session.cookie-secure:true}") boolean cookieSecure) {
+        @Value("${session.cookie-secure}") boolean cookieSecure) {
         this.jira = jira;
         this.analyzer = analyzer;
         this.codec = codec;

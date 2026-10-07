@@ -1,6 +1,11 @@
 server:
   port: 8080
 
+app:
+  # The https address users open. Links this instance posts (PR comments, JIRA visas, onboarding replies) point here.
+  # Set with APP_PUBLIC_URL; install.sh writes it empty, which the status page reports until it is set.
+  public-url: ${APP_PUBLIC_URL:https://ignite-pr-checker.is-a.dev}
+
 logging:
   file:
     # The service's own log, beside the journal, which on a busy host keeps under two days. install.sh sets
@@ -55,6 +60,8 @@ github:
   read-timeout: 60s
 
 jira:
+  # The JIRA that visas go to. Override with JIRA_BASE_URL.
+  base-url: ${JIRA_BASE_URL:https://issues.apache.org/jira}
   # Give up on a JIRA call that sends nothing for this long.
   read-timeout: 60s
 
@@ -110,14 +117,19 @@ warm:
   # has gone. Keep it >= a typical active session so live users' tokens aren't evicted mid-use.
   token-ttl-minutes: 60
 
+automation:
+  # Act on PRs in the background under users' stored tokens: the standing-option sweep (visas, re-runs) and /run-all
+  # commands in PR comments. Off in the dev profile, so a local run never acts next to the production instance.
+  # Override with AUTOMATION_ENABLED.
+  enabled: ${AUTOMATION_ENABLED:true}
+
 update:
-  # In-app self-update: check the project's GitHub releases and, on request, download the new jar
-  # over app.jar and restart (systemd relaunches on exit). Disable with UPDATE_ENABLED=false.
+  # In-app self-update: check the project's GitHub releases and, on request, restart into the new release, which
+  # install.sh's update.sh installs as root before the start. Disable with UPDATE_ENABLED=false.
   enabled: ${UPDATE_ENABLED:true}
-  # Path of the running jar to replace (the service user must own it). Override with UPDATE_JAR_PATH.
+  # Path of the running jar; the update request and the reason of a failed update are kept beside it. Override with
+  # UPDATE_JAR_PATH.
   jar-path: ${UPDATE_JAR_PATH:/opt/ignite-pr-checker/app.jar}
-  # Repo whose latest release the update is pulled from.
-  repo: anton-vinogradov/ignite-pr-checker
 
 admin:
   # TeamCity usernames, comma-separated, of the operators: only they may restart, update and flush the

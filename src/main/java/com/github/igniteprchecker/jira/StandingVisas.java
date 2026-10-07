@@ -32,6 +32,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -82,6 +83,10 @@ public class StandingVisas implements SnapshotCache {
     private final java.util.concurrent.atomic.AtomicInteger postedTotal = new java.util.concurrent.atomic.AtomicInteger();
     private volatile long lastSweepAt;
     private volatile long lastSweepMs;
+
+    /** Off in the dev profile, so a local run never acts on PRs next to the production instance. */
+    @Value("${automation.enabled:true}")
+    private boolean automation = true;
 
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer, PendingCommits pending) {
@@ -760,7 +765,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     void earlyRerun(RerunTracker.SuiteFailedMidRun ev) {
-        if (enrolled.isEmpty())
+        if (!automation || enrolled.isEmpty())
             return;
 
         java.util.Set<String> before = earlyReruns.getOrDefault(ev.chainBuildId(), java.util.Set.of());
@@ -870,6 +875,9 @@ public class StandingVisas implements SnapshotCache {
         long t0 = System.currentTimeMillis();
         lastSweepAt = t0;
         lastSweepMs = 0;
+        if (!automation)
+            return;
+
         donateWarmTokens(); // keeps the background pool alive between visitors
         if (enrolled.isEmpty())
             return;

@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.health;
 
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.CacheStore;
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Component;
  * stops logs nothing, so the clocks the jobs keep are held against how often they run. Without a pooled token
  * while users have standing options, every background TeamCity read has stopped; a warm cycle in which nearly every
  * PR failed means TeamCity calls fail across the board, which the warmer logs at debug only. Durable state that
- * failed to load, or keeps failing to save, counts until it is dealt with.
+ * failed to load, or keeps failing to save, counts until it is dealt with, and so does a setting that is not as meant.
  */
 @Component
 public class ServiceHealth {
@@ -34,13 +35,16 @@ public class ServiceHealth {
     private final StandingVisas standing;
     private final PrCommands commands;
     private final CacheStore store;
+    private final EffectiveConfig config;
     private final long startedAt = System.currentTimeMillis();
 
-    public ServiceHealth(Warmer warmer, StandingVisas standing, PrCommands commands, CacheStore store) {
+    public ServiceHealth(Warmer warmer, StandingVisas standing, PrCommands commands, CacheStore store,
+        EffectiveConfig config) {
         this.warmer = warmer;
         this.standing = standing;
         this.commands = commands;
         this.store = store;
+        this.config = config;
     }
 
     public Report report(LogTracker.Snapshot log, long now) {
@@ -48,10 +52,11 @@ public class ServiceHealth {
             warmer.cycleStartedAt(), warmer.lastWarmed() + warmer.lastCached() + warmer.lastFailed(),
             warmer.lastFailed(), warmer.pooledTokens(), standing.enrolledCount());
 
-        return assess(log, clocks, store.status(), now);
+        return assess(log, clocks, store.status(), config.problems(), now);
     }
 
-    static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence, long now) {
+    static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence,
+        List<String> configProblems, long now) {
         List<Problem> problems = new ArrayList<>();
 
         long sweepAgo = now - (clocks.lastSweepAt() > 0 ? clocks.lastSweepAt() : clocks.startedAt());
@@ -84,6 +89,8 @@ public class ServiceHealth {
 
         if (persistence != null)
             problems.addAll(persistenceProblems(persistence));
+
+        configProblems.forEach(p -> problems.add(Problem.warn(p)));
 
         String logHealth = log.health(now);
         String health = logHealth;

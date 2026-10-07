@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
+import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
@@ -50,12 +51,14 @@ class AnonymousViewTest {
 
     private final CacheStore store = mock(CacheStore.class);
 
+    private final EffectiveConfig config = mock(EffectiveConfig.class);
+
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         warmer, mock(GithubClient.class), logs,
-        new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store),
+        new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store, config),
         mock(RerunTracker.class), mock(VisaSubscriptions.class), mock(StandingVisas.class), mock(PrCommands.class),
-        auth, admin, store, mock(ObjectProvider.class));
+        auth, admin, store, config, mock(ObjectProvider.class));
 
     @BeforeEach
     void start() {
@@ -110,6 +113,17 @@ class AnonymousViewTest {
         assertThat(anonymous.get("persistence"))
             .isEqualTo(new CacheStore.Summary(true, true, 1, "cache-2026-10-07.zip"));
         assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains(why);
+    }
+
+    /** The settings name the operators and paths on the server. */
+    @Test
+    void statusShowsTheSettingsToSignedInViewersOnly() throws Exception {
+        when(config.settings()).thenReturn(Map.of("PRC_CACHE_DIR", "/opt/ignite-pr-checker/cache",
+            "PRC_ADMINS", "avinogradov"));
+
+        assertThat(status.status(new MockHttpServletRequest())).doesNotContainKey("config");
+        assertThat(status.status(signedIn())).containsEntry("config", Map.of("PRC_CACHE_DIR",
+            "/opt/ignite-pr-checker/cache", "PRC_ADMINS", "avinogradov"));
     }
 
     @Test

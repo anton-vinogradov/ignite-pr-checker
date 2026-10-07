@@ -23,9 +23,9 @@ public record AnalysisProperties(
         if (historyDepth == null || historyDepth < 1)
             historyDepth = 100;
         if (concurrency == null || concurrency < 1)
-            concurrency = 12;
+            concurrency = 8;
         if (cacheTtlMinutes == null || cacheTtlMinutes < 0)
-            cacheTtlMinutes = 15;
+            cacheTtlMinutes = 120;
         if (refreshAfterSeconds == null || refreshAfterSeconds < 0)
             refreshAfterSeconds = 120;
         if (blockerFailStreak == null || blockerFailStreak < 1)

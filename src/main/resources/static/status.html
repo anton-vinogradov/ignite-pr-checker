@@ -229,6 +229,9 @@
         <div class="cards" id="logCards"></div>
         <div class="section"><div id="logList" class="loglist"></div></div>
 
+        <h2>Configuration <span class="muted" style="font-weight:400;font-size:0.8rem">· in effect since the start; set in /etc/ignite-pr-checker/env</span></h2>
+        <div class="section"><div id="configList" class="cats"></div></div>
+
         <div class="updated" id="updated"></div>
     </div>
 
@@ -327,6 +330,20 @@
             return card('Snapshots', 'active', day ? 'last backup ' + esc(day) : 'no backup yet', 'ok');
         }
 
+        // The version alone does not tell a local build's code: the commit does, unless the tree had changes.
+        function versionCard(d) {
+            if (!d.commit) return card('Version', esc(d.version));
+            return card('Version', esc(d.version), 'commit ' + esc(d.commit.slice(0, 7))
+                + (d.dirty ? ' + uncommitted changes' : ''), d.dirty ? 'warn' : '');
+        }
+
+        // The settings name paths on the server and the operators, so only signed-in viewers get them.
+        function configRows(d) {
+            if (!d.config) return '<div class="muted">log in on the main page to see the settings</div>';
+            return Object.entries(d.config).map(([k, v]) =>
+                `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(v)}</span></div>`).join('');
+        }
+
         function lastCycleCard(a) {
             if (!a.lastWarmCycleAt) return card('Last cycle', '—', 'none yet');
             return card('Last cycle', secs(a.lastCycleMs), `${a.lastWarmed} recomputed · ${a.lastCached} cached`);
@@ -359,7 +376,7 @@
             $('healthDot').title = healthTitle(d, problems);
             $('problems').innerHTML = problems.map(p => `<div class="problem ${esc(p.level)}">${esc(p.text)}</div>`).join('');
             $('systemCards').innerHTML = [
-                card('Version', d.version),
+                versionCard(d),
                 card('Uptime', fmtDur(d.uptimeSeconds)),
                 card('CPU', j.systemCpuPct == null || j.systemCpuPct < 0 ? '—' : j.systemCpuPct + '%',
                     j.processCpuPct >= 0 ? `${j.processCpuPct}% this app` : 'host',
@@ -466,6 +483,7 @@
             renderCats($('jiraCats'), ji.byCategory || {});
             renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
             renderLog($('logList'), d);
+            $('configList').innerHTML = configRows(d);
             renderAdmin(d.admin);
 
             drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
