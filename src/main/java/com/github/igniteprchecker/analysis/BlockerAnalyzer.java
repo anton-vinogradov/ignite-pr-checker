@@ -426,6 +426,8 @@ public class BlockerAnalyzer {
         // Taken before anything is read: a build that finishes while this runs may be missing from the
         // verdict, so it must count as unseen and cost one more recompute rather than be claimed.
         long watermarkAt = System.currentTimeMillis() / 1000 - WATERMARK_MARGIN_SECONDS;
+        BuildFacts.Branch branch = cache.facts().branch(prNumber, watermarkAt,
+            since -> tc.suitesFinishedAfter(token, prNumber, since));
         ChainCollector.Chain chain = chains.collectForBuild(token, prNumber, buildId, taskPool);
 
         Progress prog = new Progress(prNumber, chain.failedTests().size(), new AtomicInteger());
@@ -435,7 +437,7 @@ public class BlockerAnalyzer {
         List<Callable<Classified>> tasks = chain.failedTests().stream()
             .<Callable<Classified>>map(t -> () -> {
                 try {
-                    return classify(token, prNumber, t, failedLookups);
+                    return classify(token, prNumber, t, branch, failedLookups);
                 }
                 finally {
                     prog.done().incrementAndGet();
@@ -460,10 +462,10 @@ public class BlockerAnalyzer {
             (blamed.contains(s.suite()) ? chainBroken : unstable).add(s);
 
         List<ShrunkSuite> shortReruns = new ArrayList<>();
-        List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken, shortReruns, failedLookups);
+        List<BrokenSuite> broken = withoutHealed(token, prNumber, branch, chainBroken, shortReruns, failedLookups);
         List<CancelledSuite> cancelled = notRunSince(token, prNumber, chain, broken, shortReruns, failedLookups);
         List<ShrunkSuite> shrunk = newestPerSuite(
-            withFullRunsDropped(token, prNumber, chain.shrunkSuites(), failedLookups), shortReruns);
+            withFullRunsDropped(token, prNumber, branch, chain.shrunkSuites(), failedLookups), shortReruns);
 
         long now = System.currentTimeMillis();
         long incompleteSince = failedLookups.count() == 0 ? 0 : cache.peekResult(buildId)
@@ -494,15 +496,15 @@ public class BlockerAnalyzer {
      * disappeared" long after the re-runs put them back, which reads as a coverage hole that no
      * longer exists.
      */
-    private List<ShrunkSuite> withFullRunsDropped(String token, int prNumber, List<ShrunkSuite> shrunk,
-        FailedLookups failedLookups) {
+    private List<ShrunkSuite> withFullRunsDropped(String token, int prNumber, BuildFacts.Branch branch,
+        List<ShrunkSuite> shrunk, FailedLookups failedLookups) {
         if (shrunk.isEmpty())
             return shrunk;
 
         List<ShrunkSuite> out = new ArrayList<>();
         for (ShrunkSuite s : shrunk) {
             try {
-                Optional<TcModel.Build> last = tc.latestSuiteRun(token, prNumber, s.suite());
+                Optional<TcModel.Build> last = latestRun(token, prNumber, branch, s.suite());
                 if (last.isPresent() && last.get().id() > s.suiteBuildId() && last.get().testOccurrences() != null
                     && ChainCollector.isFullRun(last.get().testOccurrences().count(), s.baseline()))
                     continue;
@@ -524,15 +526,15 @@ public class BlockerAnalyzer {
      * master's settles nothing: it goes to {@code shortReruns}, so the hole in coverage stays in sight.
      * Kept on any doubt. A newer full run that failed tests is settled already: see ChainCollector.
      */
-    private List<BrokenSuite> withoutHealed(String token, int prNumber, List<BrokenSuite> broken,
-        List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
+    private List<BrokenSuite> withoutHealed(String token, int prNumber, BuildFacts.Branch branch,
+        List<BrokenSuite> broken, List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
         if (broken.isEmpty())
             return broken;
 
         List<BrokenSuite> out = new ArrayList<>();
         for (BrokenSuite s : broken) {
             try {
-                Optional<TcModel.Build> last = tc.latestSuiteRun(token, prNumber, s.suite());
+                Optional<TcModel.Build> last = latestRun(token, prNumber, branch, s.suite());
                 if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status())) {
                     int tests = last.get().testOccurrences() == null ? 0 : last.get().testOccurrences().count();
                     if (!ChainCollector.isFullRun(tests, s.baseline()))
@@ -549,6 +551,11 @@ public class BlockerAnalyzer {
         }
 
         return out;
+    }
+
+    /** The suite's newest finished run on the branch, fetched only if one may have finished since it was last. */
+    private Optional<TcModel.Build> latestRun(String token, int prNumber, BuildFacts.Branch branch, String suite) {
+        return Optional.ofNullable(branch.latestRun(suite, () -> tc.latestSuiteRun(token, prNumber, suite)));
     }
 
     /**
@@ -608,9 +615,10 @@ public class BlockerAnalyzer {
         return bySuite.values().stream().sorted(Comparator.comparingInt(ShrunkSuite::dropPct).reversed()).toList();
     }
 
-    private Classified classify(String token, int prNumber, FailedTest t, FailedLookups failedLookups) {
+    private Classified classify(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
+        FailedLookups failedLookups) {
         try {
-            return new Classified(classifyVerified(token, prNumber, t, failedLookups), true);
+            return new Classified(classifyVerified(token, prNumber, t, branch, failedLookups), true);
         }
         catch (RuntimeException e) {
             // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
@@ -623,12 +631,15 @@ public class BlockerAnalyzer {
         }
     }
 
-    private TestVerdict classifyVerified(String token, int prNumber, FailedTest t, FailedLookups failedLookups) {
+    private TestVerdict classifyVerified(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
+        FailedLookups failedLookups) {
         RunHistory master = cache.history(t.testId(), t.suite(),
             () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
-        // The finished runs of this test in its suite on the PR branch (one request; also drives the history strip).
-        List<TcModel.TestOccurrence> runs = withResult(tc.prBranchRuns(token, prNumber, t.testId(), t.suite()));
+        // The finished runs of this test in its suite on the PR branch (one request, unless no run of the suite has
+        // finished since the last compute fetched them; also drives the history strip).
+        List<TcModel.TestOccurrence> runs = withResult(branch.testRuns(t.testId(), t.suite(),
+            () -> tc.prBranchRuns(token, prNumber, t.testId(), t.suite())));
         String branchRuns = strip(runs);
         TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
 

@@ -22,6 +22,8 @@ import org.springframework.stereotype.Component;
  * user-specific): a compact history per test and suite on the base branch and on PR branches, and the
  * whole result per build id. Entries expire after {@code analysis.cacheTtlMinutes}; results are also
  * refreshed by the warmer, and snapshotted to disk (with their expiry) so a restart doesn't start cold.
+ * What TeamCity said about finished builds and PR branches is kept too, under its own rules (see
+ * {@link BuildFacts}).
  */
 @Component
 public class AnalysisCache implements SnapshotCache {
@@ -29,6 +31,7 @@ public class AnalysisCache implements SnapshotCache {
     private final TtlCache<HistoryKey, RunHistory> prBranchHistory;
     private final TtlCache<Long, AnalysisResult> results;
     private final TtlCache<Long, String> revisions;
+    private final BuildFacts facts = new BuildFacts();
     private final ObjectMapper mapper;
 
     public AnalysisCache(AnalysisProperties cfg, ObjectMapper mapper) {
@@ -60,6 +63,11 @@ public class AnalysisCache implements SnapshotCache {
      */
     String revision(long buildId, Supplier<String> loader) {
         return revisions.get(buildId, loader);
+    }
+
+    /** What TeamCity said about finished builds and PR branches, for a recompute to fetch only what is new. */
+    BuildFacts facts() {
+        return facts;
     }
 
     /** The cached result for a build, if fresh; never recomputes. */
@@ -107,11 +115,16 @@ public class AnalysisCache implements SnapshotCache {
         prBranchHistory.evictExpired();
         results.evictExpired();
         revisions.evictExpired();
+        facts.evictExpired();
     }
 
-    /** Drops all cached results and per-test history; the next analysis recomputes from scratch. */
+    /**
+     * Drops all cached results, per-test history and what TeamCity said about builds; the next analysis
+     * recomputes from scratch.
+     */
     public Cleared clear() {
         revisions.clear(); // an input to the results, not a result — nothing to report separately
+        facts.clear();
 
         return new Cleared(results.clear(), history.clear() + prBranchHistory.clear());
     }
@@ -128,7 +141,8 @@ public class AnalysisCache implements SnapshotCache {
     @Override
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file,
-            new Persisted(history.export(), prBranchHistory.export(), results.export(), TestVerdict.RULES));
+            new Persisted(history.export(), prBranchHistory.export(), results.export(), TestVerdict.RULES,
+                facts.export()));
     }
 
     @Override
@@ -150,6 +164,9 @@ public class AnalysisCache implements SnapshotCache {
         // deploy that fixed them.
         if (p.rules() != null && p.rules() == TestVerdict.RULES)
             results.importAll(p.results());
+        // What TeamCity said does not depend on the rules either; like history, it keeps its expiry.
+        if (p.facts() != null)
+            facts.importUnexpired(p.facts());
     }
 
     /**
@@ -169,7 +186,8 @@ public class AnalysisCache implements SnapshotCache {
         List<TtlCache.Snapshot<HistoryKey, RunHistory>> masterHistory,
         List<TtlCache.Snapshot<HistoryKey, RunHistory>> prBranchHistory,
         List<TtlCache.Snapshot<Long, AnalysisResult>> results,
-        Integer rules
+        Integer rules,
+        BuildFacts.Saved facts
     ) {
     }
 }
