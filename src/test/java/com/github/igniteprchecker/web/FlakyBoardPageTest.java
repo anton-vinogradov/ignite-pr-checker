@@ -90,6 +90,19 @@ class FlakyBoardPageTest {
             .doesNotContain("open pull request");
     }
 
+    /**
+     * The board kept its own copy of the run chip and left out what the PR page shows from the same data: how long the
+     * re-run has gone and that the estimate is what is left. The time follows the state, as on the PR page: right
+     * after the PR number, "#13655 12m" read as part of the number.
+     */
+    @Test
+    void aReRunChipSaysHowLongTheRunHasGoneAndWhatIsLeft() throws Exception {
+        assertThat(boardWithReRun("state: 'running', pct: 40, leftSec: 1080, startSec: -1, elapsedSec: 2700, "
+            + "waitedSec: 60")).contains("#13655 · running 45m · ~18m left");
+        assertThat(boardWithReRun("state: 'queued', pct: -1, leftSec: -1, startSec: 300, elapsedSec: -1, "
+            + "waitedSec: 720")).contains("#13655 · queued 12m · starts ~5m");
+    }
+
     @Test
     void aTestThatBrokeRecentlyIsNotToldARerunMayPass() throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD + """
@@ -108,5 +121,16 @@ class FlakyBoardPageTest {
         assertThat(out.get("shown").asText())
             .startsWith("♻ environment/timing — but it failed the last 12 master runs, so a re-run alone is unlikely "
                 + "to pass");
+    }
+
+    /** The board's text while PR 13655 re-runs the suite all its rows are in; {@code run} gives state and timings. */
+    private static String boardWithReRun(String run) throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD.replace("page.route('/api/reruns', { body: [] });",
+            "page.route('/api/reruns', { body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13655, "
+                + "webUrl: 'https://ci2.example/build/9400', " + run + " }] });") + """
+            report({ board: page.el('flaky').textContent });
+            """);
+
+        return out.get("board").asText();
     }
 }

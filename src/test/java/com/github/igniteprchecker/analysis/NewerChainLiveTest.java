@@ -79,7 +79,7 @@ class NewerChainLiveTest {
         assertThat(chain.live()).isTrue();
         assertThat(chain.liveBuildId()).isEqualTo(CHAIN);
         Matcher tags = Pattern.compile("class=\"live-tag\"[^>]*title=\"([^\"]*)\"")
-            .matcher(Files.readString(Path.of("src/main/resources/static/index.html")));
+            .matcher(Files.readString(Path.of("src/main/resources/static/index.js")));
         int seen = 0;
         while (tags.find()) {
             assertThat(tags.group(1)).doesNotContain("newer");
