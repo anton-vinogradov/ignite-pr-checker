@@ -54,7 +54,10 @@ public class TcClient {
             .build();
     }
 
-    /** The TeamCity username the token belongs to, or empty if the token is not accepted. */
+    /**
+     * The TeamCity username the token belongs to, or empty if TeamCity rejects the token (401). Any other
+     * error answer is thrown: it says nothing about the token (the ci2 WAF answers 403 to valid requests too).
+     */
     public Optional<String> currentUsername(String token) {
         try {
             TcModel.User user = get("whoami", token, url("app/rest/users/current", query("fields", "username")),
@@ -63,7 +66,10 @@ public class TcClient {
             return user == null ? Optional.empty() : Optional.ofNullable(user.username());
         }
         catch (RestClientResponseException e) {
-            return Optional.empty();
+            if (e.getStatusCode().value() == 401)
+                return Optional.empty();
+
+            throw e;
         }
     }
 

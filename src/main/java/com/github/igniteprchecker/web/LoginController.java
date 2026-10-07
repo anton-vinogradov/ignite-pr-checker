@@ -4,9 +4,10 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Per-user login: the user supplies their own TeamCity token, which is validated against TeamCity and
@@ -34,13 +36,16 @@ public class LoginController {
     private final SessionCodec codec;
     private final SessionProperties props;
     private final Warmer warmer;
+    private final LoginThrottle throttle;
 
-    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users) {
+    public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users,
+        LoginThrottle throttle) {
         this.users = users;
         this.tc = tc;
         this.codec = codec;
         this.props = props;
         this.warmer = warmer;
+        this.throttle = throttle;
     }
 
     public record LoginRequest(String token) {
@@ -56,21 +61,60 @@ public class LoginController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody(required = false) LoginRequest req) {
+    public ResponseEntity<?> login(@RequestBody(required = false) LoginRequest req, HttpServletRequest http) {
         if (req == null || req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "token required"));
 
-        Optional<String> username = tc.currentUsername(req.token().trim());
-        if (username.isEmpty())
-            return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
+        String token = req.token().trim();
+        Duration wait = throttle.admitAttempt(LoginThrottle.clientOf(http));
+        if (wait != null)
+            return tooMany(wait, "Too many login attempts from your address — try again in " + minutes(wait) + ".");
+
+        if (throttle.recentlyRejected(token))
+            return rejected();
+
+        wait = throttle.admitCheck();
+        if (wait != null)
+            return tooMany(wait, "Too many logins right now — try again in " + minutes(wait) + ".");
+
+        Optional<String> username;
+        try {
+            username = tc.currentUsername(token);
+        }
+        catch (RestClientResponseException e) {
+            return ResponseEntity.status(502).body(Map.of("error",
+                "TeamCity could not check the token (HTTP " + e.getStatusCode().value() + ") — try again in a moment"));
+        }
+
+        if (username.isEmpty()) {
+            throttle.rejected(token);
+
+            return rejected();
+        }
 
         users.touchLogin(username.get());
-        String cookie = codec.encode(username.get(), req.token().trim());
-        warmer.offerVerifiedToken(req.token().trim()); // TeamCity just accepted it
+        String cookie = codec.encode(username.get(), token);
+        warmer.offerVerifiedToken(token); // TeamCity just accepted it
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
             .body(new UserResponse(username.get(), false, false));
+    }
+
+    private static ResponseEntity<?> rejected() {
+        return ResponseEntity.status(401).body(Map.of("error", "TeamCity rejected this token"));
+    }
+
+    private static ResponseEntity<?> tooMany(Duration wait, String message) {
+        return ResponseEntity.status(429)
+            .header(HttpHeaders.RETRY_AFTER, String.valueOf(Math.max(1, wait.toSeconds())))
+            .body(Map.of("error", message));
+    }
+
+    private static String minutes(Duration wait) {
+        long min = Math.max(1, (wait.toSeconds() + 59) / 60);
+
+        return min == 1 ? "a minute" : min + " minutes";
     }
 
     @PostMapping("/logout")
