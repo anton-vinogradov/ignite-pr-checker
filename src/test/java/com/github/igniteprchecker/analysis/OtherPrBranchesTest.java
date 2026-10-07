@@ -56,9 +56,11 @@ class OtherPrBranchesTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
+    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        new AnalysisCache(cfg, new ObjectMapper()), new RunDeltaStore(new ObjectMapper()));
+        cache, new RunDeltaStore(new ObjectMapper()));
 
     @Test
     void aTestFailingInThreeOtherPrsIsFlakyUnderPrConditions() {
@@ -106,6 +108,23 @@ class OtherPrBranchesTest {
             + "failed all 3 runs on this branch");
     }
 
+    /**
+     * At the 14 in 112 seen on other PRs, five failures in a row on the PR's code happen by chance about once
+     * in 33,000 tries, four once in 4,000. Before other PRs were asked, five were a blocker.
+     */
+    @Test
+    void fiveFailuresInARowOutweighFlakinessOnOtherPrs() {
+        failing(PR, "FFFF", master(101, 0, "1.0"));
+        when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(98, FAILED_ON_START_STAGE));
+        assertThat(analyzer.analyze(TOK, PR).orElseThrow().blockers()).isEmpty();
+
+        failing(PR, "FFFFF", master(101, 0, "1.0"));
+        TestVerdict v = only(analyzer.forceRefresh(TOK, PR).orElseThrow().blockers());
+
+        assertThat(v.reason()).isEqualTo("not seen failing in 101 master run(s) on JDK 17; fails 14/112 in 13 other "
+            + "PRs; failed all 5 runs on this branch");
+    }
+
     @Test
     void aFailureMasterHasOnlyAtAnotherScaleBlocksWhenOtherPrsPassIt() {
         failing(PR, "FFF", master(101, 101, "1.0"));
@@ -117,11 +136,67 @@ class OtherPrBranchesTest {
             + "branches at 0.1; failed all 3 runs on this branch");
     }
 
-    /** At 1 in 95 on other PRs, two failures in a row are not enough to set master aside. */
+    /**
+     * At 1 in 95 on other PRs, one or two failures in a row could be chance, so the test is watched: the
+     * auto re-run gives it the third run. Left pre-existing, its suite was never re-run for it.
+     */
     @Test
-    void twoFailuresDoNotSetMasterAsideAgainstOneIn95() {
-        failing(PR, "FF", master(101, 101, "1.0"));
+    void tooFewFailuresToOutweighOtherPrsAreWatched() {
+        for (String branchRuns : new String[] {"F", "FF"}) {
+            failing(PR, branchRuns, master(101, 101, "1.0"));
+            when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(94, 13644));
+
+            AnalysisResult r = analyzer.forceRefresh(TOK, PR).orElseThrow();
+
+            assertThat(r.blockers()).isEmpty();
+            assertThat(only(r.watch()).reason()).isEqualTo("fails 101/101 on master at TEST_SCALE_FACTOR=1.0, but 1/95 "
+                + "on other PR branches at 0.1; failed " + (branchRuns.length() == 1 ? "the only run" : "all 2 runs")
+                + " on this branch — watch (too few failures on this code yet to outweigh other PRs)");
+        }
+    }
+
+    /** One failure is never enough to block, not even against other PRs that never failed the test. */
+    @Test
+    void aSingleFailureIsWatchedEvenWhenOtherPrsNeverFailedIt() {
+        failing(PR, "F", master(101, 101, "1.0"));
+        when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(95));
+
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().watch()).reason()).isEqualTo("fails 101/101 on master "
+            + "at TEST_SCALE_FACTOR=1.0, but 0/95 on other PR branches at 0.1; failed the only run on this branch — "
+            + "watch (too few failures on this code yet to outweigh other PRs)");
+    }
+
+    /** Master fails it under the PR's own scale factor too: that is a plain pre-existing failure. */
+    @Test
+    void aMasterFailureAtThePrsScaleStaysPreExistingAndAsksNothing() {
+        failing(PR, "FFF", master(101, 101, "0.1"));
         when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(94, 13644));
+
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().filtered()).reason())
+            .isEqualTo("pre-existing: fails 101/101 on master on JDK 17");
+        verify(tc, never()).otherBranchRuns(anyString(), anyLong(), anyString());
+    }
+
+    /** Ten runs on other PRs are the least that sets master aside; nine clean ones are not enough. */
+    @Test
+    void itTakesTenRunsOnOtherPrsToSetMasterAside() {
+        failing(PR, "FFF", master(101, 101, "1.0"));
+        when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(9));
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().filtered()).reason())
+            .isEqualTo("pre-existing: fails 101/101 on master on JDK 17");
+
+        cache.clear();
+        when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(10));
+        assertThat(only(analyzer.forceRefresh(TOK, PR).orElseThrow().blockers()).reason())
+            .isEqualTo("fails 101/101 on master at TEST_SCALE_FACTOR=1.0, but 0/10 on other PR branches at 0.1; "
+                + "failed all 3 runs on this branch");
+    }
+
+    /** Failing in three other PRs, the test is flaky under PR conditions as well: master's verdict stands. */
+    @Test
+    void aTestFlakyOnOtherPrsKeepsItsScaleOnlyMasterFailure() {
+        failing(PR, "FFF", master(101, 101, "1.0"));
+        when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(197, 13653, 13554, 13644));
 
         assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().filtered()).reason())
             .isEqualTo("pre-existing: fails 101/101 on master on JDK 17");
@@ -129,7 +204,7 @@ class OtherPrBranchesTest {
 
     /**
      * A test master broke recently also passes on PR branches made before the break. Only a master
-     * failure in at least half the runs is set aside.
+     * failure in at least half the runs is set aside, and only such a failure costs a request about other PRs.
      */
     @Test
     void aMasterFailureInFewerThanHalfTheRunsStaysPreExisting() {
@@ -138,15 +213,6 @@ class OtherPrBranchesTest {
 
         assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().filtered()).reason())
             .isEqualTo("pre-existing: fails 30/101 on master on JDK 17");
-    }
-
-    /** One failure asks TeamCity nothing about other PRs: no answer from them could change the verdict. */
-    @Test
-    void aSingleFailureOfAPreExistingTestDoesNotAskAboutOtherPrs() {
-        failing(PR, "F", master(101, 101, "1.0"));
-
-        analyzer.analyze(TOK, PR);
-
         verify(tc, never()).otherBranchRuns(anyString(), anyLong(), anyString());
     }
 
@@ -178,6 +244,7 @@ class OtherPrBranchesTest {
         FailedTest t = new FailedTest(TEST, "IgniteSnapshotTestSuite: IgniteClusterSnapshotSelfTest.test", SNAPSHOTS,
             9392300L, "Snapshots", "build:(id:9392300),id:1");
         when(chains.findBuildId(TOK, pr)).thenReturn(Optional.of(chain));
+        when(chains.findBuildIdFresh(TOK, pr)).thenReturn(Optional.of(chain));
         when(chains.collectForBuild(eq(TOK), eq(pr), eq(chain), any())).thenReturn(new ChainCollector.Chain(chain,
             "pull/" + pr + "/head", List.of(t), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0));
         when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS)).thenReturn(master);

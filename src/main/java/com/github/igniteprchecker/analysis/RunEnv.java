@@ -16,8 +16,10 @@ import java.util.regex.Pattern;
 record RunEnv(String jdk, String scale) {
     static final RunEnv UNKNOWN = new RunEnv(null, null);
 
-    /** {@code /opt/java/jdk-open-21}, {@code /usr/lib/jvm/java-8-openjdk-amd64}, {@code /usr/lib/jvm/jdk1.8.0_202}. */
-    private static final Pattern JDK_VERSION = Pattern.compile("(?i)(?:jdk|java)\\D{0,12}?(1\\.8|\\d+)");
+    /** A path element naming a JDK: {@code jdk-open-21}, {@code temurin-21-jdk-amd64}, {@code jdk1.8.0_202}. */
+    private static final Pattern JDK_DIR = Pattern.compile("(?i)[^/\\\\]*(?:jdk|java)[^/\\\\]*");
+
+    private static final Pattern VERSION = Pattern.compile("1\\.8|\\d+");
 
     /** The conditions of the build a run was made in. */
     static RunEnv of(TcModel.BuildRef build) {
@@ -38,12 +40,19 @@ record RunEnv(String jdk, String scale) {
         return new RunEnv(jdk, scale);
     }
 
+    /**
+     * The first number in the path element that names a JDK. Not the first number after "jdk": in
+     * {@code temurin-21-jdk-amd64} that is the architecture, and JDK 17 and 21 would both read as 64.
+     */
     static String jdkOf(String javaHome) {
-        Matcher m = JDK_VERSION.matcher(javaHome);
-        if (!m.find())
-            return javaHome;
+        Matcher dir = JDK_DIR.matcher(javaHome);
+        while (dir.find()) {
+            Matcher v = VERSION.matcher(dir.group());
+            if (v.find())
+                return "1.8".equals(v.group()) ? "8" : v.group();
+        }
 
-        return "1.8".equals(m.group(1)) ? "8" : m.group(1);
+        return javaHome;
     }
 
     boolean sameJdk(RunEnv other) {

@@ -8,16 +8,22 @@ import static org.mockito.Mockito.when;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
  * apache/ignite#13654: the verdict is for RunAll 9391879, and the newer RunAll 9392337 was cancelled.
  * The checker kept calling the verdict live, pointing at the cancelled chain: the PR never got its tick,
- * the visa said "a newer run is still going", and every view recomputed. A cancelled chain's finished
- * suites still count; only a chain that is actually running makes the verdict live.
+ * the visa said "a newer run is still going", and the page stopped saying how many commits were pushed
+ * since. A cancelled chain's finished suites still count; only a chain that is actually running makes
+ * the verdict live.
  */
 class NewerChainLiveTest {
     private static final String TOK = "t";
@@ -56,6 +62,30 @@ class NewerChainLiveTest {
 
         assertThat(chain.live()).isTrue();
         assertThat(chain.liveBuildId()).isEqualTo(NEWER);
+    }
+
+    /**
+     * The running RunAll the page's live tag links to can be the analysed one itself, the PR's first chain
+     * hours before it ends, so the tag must not call it a newer run.
+     */
+    @Test
+    void theRunningRunAllMayBeTheAnalysedOne() throws IOException {
+        when(baseline.counts(anyString())).thenReturn(Map.of());
+        when(tc.getBuildWithDeps(TOK, CHAIN)).thenReturn(chainBuild(CHAIN, "running", "SUCCESS", List.of()));
+        when(tc.recentChains(TOK, PR, 3)).thenReturn(List.of(chainBuild(CHAIN, "running", "SUCCESS", null)));
+
+        ChainCollector.Chain chain = collect();
+
+        assertThat(chain.live()).isTrue();
+        assertThat(chain.liveBuildId()).isEqualTo(CHAIN);
+        Matcher tags = Pattern.compile("class=\"live-tag\"[^>]*title=\"([^\"]*)\"")
+            .matcher(Files.readString(Path.of("src/main/resources/static/index.html")));
+        int seen = 0;
+        while (tags.find()) {
+            assertThat(tags.group(1)).doesNotContain("newer");
+            seen++;
+        }
+        assertThat(seen).as("live tags on the page").isEqualTo(2);
     }
 
     private void newerChain(String state, String status) {

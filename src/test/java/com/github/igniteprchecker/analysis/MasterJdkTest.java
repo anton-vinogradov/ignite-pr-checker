@@ -47,9 +47,11 @@ class MasterJdkTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
+    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        new AnalysisCache(cfg, new ObjectMapper()), new RunDeltaStore(new ObjectMapper()));
+        cache, new RunDeltaStore(new ObjectMapper()));
 
     @Test
     void aJdk17FailureIsJudgedByMastersJdk17Runs() {
@@ -86,6 +88,20 @@ class MasterJdkTest {
             .isEqualTo("not seen failing in only 2 master run(s) on JDK 11; failed the only run on this branch");
     }
 
+    /** Ten master runs are the least that goes without the "only". */
+    @Test
+    void tenMasterRunsAreNoLongerThin() {
+        failingOn("/opt/java/jdk-open-11");
+        when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS)).thenReturn(onJdk11(9));
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).reason())
+            .isEqualTo("not seen failing in only 9 master run(s) on JDK 11; failed the only run on this branch");
+
+        cache.clear();
+        when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS)).thenReturn(onJdk11(10));
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).reason())
+            .isEqualTo("not seen failing in 10 master run(s) on JDK 11; failed the only run on this branch");
+    }
+
     /** No master run on the PR's JDK at all is no master history, whatever ran on other JDKs. */
     @Test
     void noMasterRunOnThePrsJdkIsNoMasterHistory() {
@@ -107,6 +123,14 @@ class MasterJdkTest {
         assertThat(RunEnv.jdkOf("/opt/temurin")).isEqualTo("/opt/temurin");
     }
 
+    /** Adoptium's Debian packages name the architecture after "jdk": that is no JDK version. */
+    @Test
+    void theArchitectureAfterJdkIsNotTheVersion() {
+        assertThat(RunEnv.jdkOf("/usr/lib/jvm/temurin-21-jdk-amd64")).isEqualTo("21");
+        assertThat(RunEnv.jdkOf("/usr/lib/jvm/temurin-17-jdk-arm64")).isEqualTo("17");
+        assertThat(RunEnv.jdkOf("/usr/lib64/jvm/java-17-openjdk")).as("SUSE").isEqualTo("17");
+    }
+
     /** Wires PR 13654's chain failing the test once, in a Snapshots run on the given JDK. */
     private void failingOn(String javaHome) {
         FailedTest t = new FailedTest(TEST, "IgniteSnapshotTestSuite: IgniteClusterSnapshotSelfTest."
@@ -121,6 +145,16 @@ class MasterJdkTest {
             SNAPSHOTS, null, head, conditions(javaHome, "0.1"));
         when(tc.prBranchRuns(TOK, PR, TEST, SNAPSHOTS))
             .thenReturn(List.of(new TcModel.TestOccurrence("1", null, "FAILURE", null, build, null)));
+    }
+
+    /** {@code runs} passing master runs on JDK 11, and one failing on JDK 21. */
+    private static List<TcModel.TestOccurrence> onJdk11(int runs) {
+        List<TcModel.TestOccurrence> out = new ArrayList<>();
+        for (int i = 0; i < runs; i++)
+            out.add(master('P', "/opt/java/jdk-open-11", 9390120L - i));
+        out.add(master('F', "/opt/java/jdk-open-21", 9389909L));
+
+        return out;
     }
 
     private static List<TcModel.TestOccurrence> ci2MasterHistory() {

@@ -9,8 +9,4 @@ package com.github.igniteprchecker.analysis;
  * @param failingPrs  for runs on PR branches, how many different PRs failed the test; 0 for master.
  */
 record HistoryStats(int runs, int fails, int greenStreak, int failingPrs) {
-    /** The share of runs that failed; 0 when there were none. */
-    double failRate() {
-        return runs == 0 ? 0 : (double) fails / runs;
-    }
 }

@@ -43,9 +43,11 @@ class RareMasterFailureTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
+    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        new AnalysisCache(cfg, new ObjectMapper()), new RunDeltaStore(new ObjectMapper()));
+        cache, new RunDeltaStore(new ObjectMapper()));
 
     @Test
     void fourFailuresOnThePrsCodeOutweighOneMasterFailureLongAgo() {
@@ -80,6 +82,30 @@ class RareMasterFailureTest {
         assertThat(only(r.filtered()).reason()).isEqualTo("pre-existing: fails 1/100 on master");
     }
 
+    /** Ten passes since master's failure make it old enough; nine do not. */
+    @Test
+    void theNewestTenMasterRunsMustHavePassed() {
+        failing(master(100, 10), "FFFF");
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().filtered()).reason())
+            .isEqualTo("pre-existing: fails 1/100 on master");
+
+        cache.clear();
+        failing(master(100, 11), "FFFF");
+        assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).reason())
+            .isEqualTo("rare on master: fails 1/100, passed the last 10; failed all 4 runs on this branch");
+    }
+
+    /** At 3% master fails the test too often to call it rare, however many times the PR failed it. */
+    @Test
+    void threePercentOnMasterIsNotRare() {
+        failing(master(100, 22, 40, 60), "FFFFF");
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.blockers()).isEmpty();
+        assertThat(only(r.filtered()).reason()).isEqualTo("pre-existing: fails 3/100 on master");
+    }
+
     /** At 2% on master, two failures in a row happen by chance once in 2,500 tries; three are needed. */
     @Test
     void twoPercentOnMasterTakesThreeFailuresInARow() {
@@ -101,7 +127,9 @@ class RareMasterFailureTest {
         AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
 
         assertThat(r.blockers()).isEmpty();
-        assertThat(only(r.watch()).reason()).startsWith("started failing in the last 2 of 4 runs on revision " + HEAD);
+        assertThat(only(r.watch()).reason()).as("master's failure stays in sight").isEqualTo("rare on master: fails "
+            + "1/100, passed the last 21; started failing in the last 2 of 4 runs on revision " + HEAD + " — watch (an "
+            + "earlier run on the same code passed)");
     }
 
     /** A pass in the last finished run clears the failure before master is even asked about. */
