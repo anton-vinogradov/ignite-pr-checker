@@ -7,7 +7,7 @@
 # /etc/ignite-pr-checker/env on the host. Override the SSH target with PRC_SSH_HOST.
 #
 # Roll back by hand:
-#   ssh <host> 'cd /opt/ignite-pr-checker && cp -p app.jar.prev app.jar && systemctl restart ignite-pr-checker'
+#   ssh <host> 'cd /opt/ignite-pr-checker && cp app.jar.prev app.jar && systemctl restart ignite-pr-checker'
 #
 set -euo pipefail
 
@@ -47,7 +47,8 @@ ssh "$SSH_HOST" bash -s -- "$VERSION" <<'REMOTE'
 set -euo pipefail
 version="$1"
 cd /opt/ignite-pr-checker
-[ -f app.jar ] && cp -p app.jar app.jar.prev
+# install, not cp: an app.jar.prev the service account owned from an older install becomes root's.
+[ -f app.jar ] && install -o root -g root -m 644 app.jar app.jar.prev
 install -o root -g root -m 644 app.jar.new app.jar
 rm -f app.jar.new update-failed
 systemctl restart ignite-pr-checker
@@ -67,7 +68,7 @@ for _ in $(seq 1 30); do
     fi
 done
 echo "ERROR: $version did not answer within 60 s (answering: ${running:-nothing})." >&2
-echo "Roll back: cd /opt/ignite-pr-checker && cp -p app.jar.prev app.jar && systemctl restart ignite-pr-checker" >&2
+echo "Roll back: cd /opt/ignite-pr-checker && cp app.jar.prev app.jar && systemctl restart ignite-pr-checker" >&2
 systemctl --no-pager --lines=20 status ignite-pr-checker >&2 || true
 exit 1
 REMOTE

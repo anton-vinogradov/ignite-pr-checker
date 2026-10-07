@@ -148,7 +148,7 @@ class DeployScriptTest {
 
         assertThat(r.exit()).isNotZero();
         assertThat(r.out()).contains("1.21.0-1-gabc1234 did not answer within 60 s (answering: 1.20.10-dev)",
-            "cp -p app.jar.prev app.jar && systemctl restart ignite-pr-checker");
+            "cp app.jar.prev app.jar && systemctl restart ignite-pr-checker");
         assertThat(server.resolve("app.jar.prev")).hasContent("old jar");
         assertThat(List.of(Files.readString(server.resolve("systemctl")).split("\n")))
             .startsWith("restart ignite-pr-checker");

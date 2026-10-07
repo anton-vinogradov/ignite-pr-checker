@@ -5,6 +5,8 @@ import com.github.igniteprchecker.github.GithubClient;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
 import java.util.function.IntConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,15 +16,23 @@ import org.springframework.boot.info.BuildProperties;
 import org.springframework.stereotype.Service;
 
 /**
- * In-app half of the self-update: it knows the running version, checks the project's latest GitHub
- * release, and — on request — drops an {@code .update-requested} marker next to the jar and exits.
- * The startup wrapper ({@code run.sh}) is what actually downloads the new jar and launches it, so the
- * fragile part (replacing the jar) happens in a simple shell step at boot, not inside the running JVM.
+ * In-app half of the self-update: it knows the running version, checks the project's latest GitHub release, and, on
+ * request, writes the release it means into {@code update/requested} beside the jar and exits. Before the next start
+ * {@code update.sh}, run by systemd as root, installs exactly that release if its sha256 matches the one GitHub
+ * records, keeping the old jar as {@code app.jar.prev}, so the service account can ask for an update but cannot
+ * replace the code it runs. A failure keeps the running jar and leaves its reason in {@code update-failed}. An install
+ * older than {@code update/} has {@code run.sh} fetch the jar, on the marker {@code .update-requested}.
  */
 @Service
 public class UpdateService {
     private static final Logger log = LoggerFactory.getLogger(UpdateService.class);
-    private static final String MARKER = ".update-requested";
+    private static final String LEGACY_MARKER = ".update-requested";
+
+    private static final String REQUESTS = "update";
+
+    private static final String REQUEST = "requested";
+
+    private static final String FAILED = "update-failed";
 
     /**
      * EX_TEMPFAIL: the unit counts it as a success and restarts on it anyway, so a restart asked for from the
@@ -33,6 +43,10 @@ public class UpdateService {
     private final UpdateProperties props;
     private final GithubClient github;
     private final String currentVersion;
+
+    /** The commit the running jar was built from; null when the build did not know it. */
+    private final String commit;
+
     private final IntConsumer exit;
 
     @Autowired
@@ -46,6 +60,7 @@ public class UpdateService {
         this.github = github;
         BuildProperties bp = buildProps.getIfAvailable();
         this.currentVersion = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
+        this.commit = bp != null ? bp.get("commit") : null;
         this.exit = exit;
     }
 
@@ -55,7 +70,29 @@ public class UpdateService {
             && latest != null && !latest.isBlank()
             && isNewer(latest, baseVersion());
 
-        return new Status(currentVersion, latest, available);
+        return new Status(currentVersion, commit, latest, available, lastFailure());
+    }
+
+    /**
+     * Why the last requested update did not happen, as update.sh wrote it: the release, when (UTC) and the reason;
+     * null when there is none or the release it names is the one running now.
+     */
+    private Failure lastFailure() {
+        Path file = jarDir().resolve(FAILED);
+        try {
+            List<String> parts = List.of(Files.readString(file).strip().split("\t", 3));
+            if (parts.size() < 3 || parts.get(0).equals(baseVersion()))
+                return null;
+
+            return new Failure(parts.get(0), Instant.parse(parts.get(1)).toEpochMilli(), parts.get(2));
+        }
+        catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private Path jarDir() {
+        return Path.of(props.jarPath()).toAbsolutePath().getParent();
     }
 
     /** True if version {@code a} is strictly newer than {@code b} (dot-separated numeric compare). Avoids
@@ -82,9 +119,11 @@ public class UpdateService {
         if (!status.updateAvailable())
             throw new IllegalStateException("no update available (current " + currentVersion + ", latest " + status.latest() + ")");
 
-        Files.writeString(Path.of(props.jarPath()).resolveSibling(MARKER), status.latest());
+        Path requests = jarDir().resolve(REQUESTS);
+        Files.writeString(Files.isDirectory(requests) ? requests.resolve(REQUEST) : jarDir().resolve(LEGACY_MARKER),
+            status.latest());
 
-        log.info("update to {} requested; restarting so run.sh can fetch it", status.latest());
+        log.info("update to {} requested; restarting so it is installed before the next start", status.latest());
         scheduleRestart();
     }
 
@@ -112,6 +151,15 @@ public class UpdateService {
         t.start();
     }
 
-    public record Status(String current, String latest, boolean updateAvailable) {
+    /**
+     * {@code current} runs, built from {@code commit} (null if unknown); {@code latest} is the newest release;
+     * {@code updateFailed} says why the last update to another release did not happen, or is null.
+     */
+    public record Status(String current, String commit, String latest, boolean updateAvailable,
+        Failure updateFailed) {
+    }
+
+    /** An update to {@code version} that did not happen at {@code at} (epoch ms), and why. */
+    public record Failure(String version, long at, String reason) {
     }
 }

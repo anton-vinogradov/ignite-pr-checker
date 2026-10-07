@@ -2177,6 +2177,8 @@
             return null;
         }
 
+        let updateTarget = null; // the release the Update button offers
+
         // Show the "Update" button when the server reports a newer release is available.
         async function checkUpdate() {
             try {
@@ -2184,7 +2186,10 @@
                 if (!r.ok) return;
                 const v = await r.json();
                 if (v.updateAvailable && canAdmin) {
-                    $('updateBtn').textContent = 'Update to v' + v.latest;
+                    updateTarget = v.latest;
+                    const failed = v.updateFailed && v.updateFailed.version === v.latest;
+                    $('updateBtn').textContent = (failed ? 'Retry update to v' : 'Update to v') + v.latest;
+                    $('updateBtn').title = failed ? updateFailedText(v, v.latest) : 'A new version is available';
                     $('updateBtn').classList.remove('hidden');
                 } else {
                     $('updateBtn').classList.add('hidden');
@@ -2203,21 +2208,32 @@
                 btn.textContent = error || 'update failed';
                 return;
             }
-            waitForRestart();
+            waitForRestart(updateTarget);
         }
 
-        // The server is restarting into the new jar; poll until it answers again, then reload.
-        function waitForRestart() {
+        // The server restarts and installs the release before it starts. Back on that release: reload. Back on the old
+        // one after being down: the update failed, and the server says why. Still up on the old one: not restarted yet.
+        function waitForRestart(target) {
             $('updateBtn').textContent = 'Restarting…';
-            let tries = 0;
+            let tries = 0, wentDown = false;
             const iv = setInterval(async () => {
                 tries++;
+                let v = null;
                 try {
                     const r = await fetch('/api/version', { cache: 'no-store' });
-                    if (r.ok) { clearInterval(iv); location.reload(); }
+                    if (r.ok) v = await r.json();
                 } catch { /* still down */ }
+                if (!v) wentDown = true;
+                else if (v.current === target) { clearInterval(iv); location.reload(); return; }
+                else if (wentDown) { clearInterval(iv); $('updateBtn').textContent = updateFailedText(v, target); return; }
                 if (tries > 60) { clearInterval(iv); $('updateBtn').textContent = 'Update is taking long — reload the page'; }
             }, 2000);
+        }
+
+        function updateFailedText(v, target) {
+            const f = v.updateFailed;
+            return f && f.version === target ? `Update to v${target} failed: ${f.reason}`
+                : `Still v${v.current} after the restart: the update to v${target} did not happen`;
         }
 
         $('loginBtn').onclick = login;
