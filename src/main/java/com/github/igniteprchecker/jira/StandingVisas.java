@@ -120,44 +120,121 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Enrols the user with two independent switches: auto-visa (needs the JIRA token) and
-     * auto-rerun (TC token only). Tokens stay encrypted at rest until {@link #disable}.
+     * Applies a settings change, touching only the options it names: a click on one switch must not
+     * turn the others off. An option that needs a token takes the one the session carries when it is
+     * new (checked with the service first), else the stored one, so a fresh login without the PATs in
+     * its cookie still works; a stored token goes only when the last option that needs it is switched
+     * off explicitly. Empty when the change was made, else what is missing.
      */
-    public boolean enable(String username, String tcToken, String jiraToken, String ghToken,
-        boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
-        // A token GitHub can't put a name to is dead — an expired PAT still riding in the session
-        // cookie, say. Storing it buys nothing and costs the login: with no login, the command poll
-        // stops recognising the author of "/run-all" and replies to them as a stranger.
-        String resolved = ghToken == null ? null : github.ghUser(ghToken).orElse(null);
-        boolean tokenRejected = ghToken != null && resolved == null;
-        if (tokenRejected)
-            log.warn("GitHub token offered for {} was not accepted by GitHub — kept out of the enrollment", username);
+    public Optional<Refusal> change(String username, String tcToken, String sessionJira, String sessionGh,
+        OptionChange change) {
+        Enrollment prev = enrolled.get(username);
+        Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
+        if (!after.any()) {
+            disable(username);
 
-        String tz = jiraToken == null ? null : jira.myTimezone(jiraToken).orElse(null);
-        Credential tc = new Credential(codec.encryptString(tcToken), 0);
-        Credential jiraCred = jiraToken == null ? null : new Credential(codec.encryptString(jiraToken), 0);
-        Credential ghCred = resolved == null ? null : new Credential(codec.encryptString(ghToken), 0);
-        Options options = new Options(autoVisa, autoRerun, ghComment, styleFix);
+            return Optional.empty();
+        }
+
+        Credential jiraCred = null;
+        String tz = null;
+        if (after.autoVisa()) {
+            String stored = prev == null ? null : decrypt(prev.jira()).orElse(null);
+            boolean fresh = sessionJira != null && !sessionJira.equals(stored);
+            if (fresh && jira.myself(sessionJira).isPresent()) {
+                jiraCred = new Credential(codec.encryptString(sessionJira), 0);
+                tz = jira.myTimezone(sessionJira).orElse(null);
+            }
+            else if (stored == null)
+                return Optional.of(new Refusal("jira", fresh ? "JIRA rejected the token — paste a new one"
+                    : "auto-visa needs your JIRA token"));
+        }
+        else if (Boolean.FALSE.equals(change.visa()))
+            jiraCred = Credential.NONE;
+
+        Credential ghCred = null;
+        String login = null;
+        if (after.needsGh()) {
+            String stored = prev == null ? null : decrypt(prev.gh()).orElse(null);
+            boolean fresh = sessionGh != null && !sessionGh.equals(stored);
+            // A token GitHub can't put a name to is dead — an expired PAT still riding in the session
+            // cookie, say. Storing it buys nothing and costs the login: with no login, the command poll
+            // stops recognising the author of "/run-all" and replies to them as a stranger.
+            login = fresh ? github.ghUser(sessionGh).orElse(null) : null;
+            if (login != null)
+                ghCred = new Credential(codec.encryptString(sessionGh), 0);
+            else if (stored == null) {
+                if (fresh)
+                    log.warn("GitHub token offered for {} was not accepted by GitHub — kept out of the enrollment",
+                        username);
+
+                return Optional.of(new Refusal("github", fresh ? "GitHub rejected the token — paste a new one"
+                    : "this option needs your GitHub token"));
+            }
+        }
+        else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style()))
+            ghCred = Credential.NONE;
+
+        Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
+        Credential jiraNext = jiraCred;
+        Credential ghNext = ghCred;
+        String tzNext = tz;
+        String loginNext = login;
         long now = System.currentTimeMillis();
 
         // A settings change must not forget which builds were already handled (or their comments),
         // nor a GitHub login the user linked by hand (a PAT-derived one is authoritative though).
-        Enrollment e = enrolled.compute(username, (u, prev) -> {
-            Enrollment base = prev != null ? prev : Enrollment.fresh(tc);
+        Enrollment e = enrolled.compute(username, (u, cur) -> {
+            Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc);
+            Options options = base.options().apply(change);
+            if (!options.any())
+                return null;
 
-            return base.withTc(tc)
-                .withJira(jiraCred != null ? jiraCred : base.jira().dropped())
-                .withGh(ghCred != null ? ghCred : base.gh().dropped())
-                .withGhLogin(resolved != null ? resolved : base.ghLogin())
-                .withTz(tz)
+            Enrollment next = base
+                .withTc(decrypt(base.tc()).filter(tcToken::equals).isPresent() ? base.tc() : sessionTc)
                 .withOptions(options)
-                .withEnabledAt(now);
+                .withEnabledAt(cur == null || options.switchedOnSince(base.options()) ? now : base.enabledAt());
+            next = jiraNext == null ? next : next.withJira(jiraNext);
+            next = ghNext == null ? next : next.withGh(ghNext);
+            next = tzNext == null ? next : next.withTz(tzNext);
+
+            return loginNext == null ? next : next.withGhLogin(loginNext);
         });
-        log.info("standing options for {}: autoVisa={}, autoRerun={}, ghComment={}, styleFix={} (gh login {}, tz {})",
-            username, autoVisa, autoRerun, ghComment, styleFix, e.ghLogin(), tz);
+        log.info("standing options for {}: {} (gh login {}, tz {})", username, e == null ? "off" : e.options(),
+            e == null ? null : e.ghLogin(), e == null ? null : e.tz());
         donateWarmTokens();
 
-        return !tokenRejected;
+        return Optional.empty();
+    }
+
+    /** The options and the state of their tokens, as the settings panel shows them. */
+    public Settings settings(String username) {
+        Enrollment e = enrolled.get(username);
+        if (e == null)
+            return new Settings(false, false, false, false, null, false, false, false, false, false);
+
+        Options o = e.options();
+
+        return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.ghLogin(),
+            e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
+            e.tc().rejected());
+    }
+
+    /** A settings change: each option is switched on, off, or left as it is (null). */
+    public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style) {
+    }
+
+    /** Why a settings change was not made: the token it {@code need}s ("jira" or "github") and what is wrong. */
+    public record Refusal(String need, String error) {
+    }
+
+    /**
+     * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
+     * so the options run whether or not this browser's session carries it.
+     */
+    public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, String login,
+        boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
+        boolean tcTokenRejected) {
     }
 
     /**
@@ -1005,6 +1082,21 @@ public class StandingVisas implements SnapshotCache {
     /** The standing switches, independent of each other. */
     private record Options(boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
         static final Options NONE = new Options(false, false, false, false);
+
+        Options apply(OptionChange c) {
+            return new Options(c.visa() != null ? c.visa() : autoVisa, c.rerun() != null ? c.rerun() : autoRerun,
+                c.gh() != null ? c.gh() : ghComment, c.style() != null ? c.style() : styleFix);
+        }
+
+        boolean any() {
+            return autoVisa || autoRerun || ghComment || styleFix;
+        }
+
+        /** Whether an option that was off in {@code before} is on now. */
+        boolean switchedOnSince(Options before) {
+            return autoVisa && !before.autoVisa || autoRerun && !before.autoRerun || ghComment && !before.ghComment
+                || styleFix && !before.styleFix;
+        }
 
         /** Both options that act from the user's GitHub account need the GitHub token. */
         boolean needsGh() {

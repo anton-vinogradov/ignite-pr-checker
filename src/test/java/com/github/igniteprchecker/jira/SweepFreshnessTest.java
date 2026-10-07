@@ -264,7 +264,7 @@ class SweepFreshnessTest {
 
     /** Restores the user from a snapshot taken a day before the run, as a restart would. */
     private void enrolledLongBeforeTheRun(Path dir) throws Exception {
-        standing.enable(USER, TOK, null, null, false, true, false, false);
+        standing.change(USER, TOK, null, null, new StandingVisas.OptionChange(false, true, false, false));
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
         ObjectNode snap = (ObjectNode) mapper.readTree(file.toFile());

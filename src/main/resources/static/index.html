@@ -361,7 +361,8 @@
                 PR's IGNITE ticket automatically (checked every ~10 minutes, each run posted once; if auto re-run
                 is also on, the visa waits until the re-runs settle).<br>
                 <span class="muted">Requires your JIRA Personal Access Token; your TeamCity and JIRA tokens are
-                stored encrypted at rest while this is on.</span></span>
+                stored encrypted at rest while this is on.</span>
+                <span id="visaSaved" class="muted hidden"><br>Runs on your saved JIRA token.</span></span>
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="autoRerunToggle" type="checkbox">
@@ -379,7 +380,8 @@
                 (and settles, if auto re-run is on), post the verdict as a comment on the pull request,
                 from my own GitHub account. Also lets me drive runs right from the PR, in comments.<br>
                 <span class="muted">Requires a GitHub personal access token with the <code>public_repo</code>
-                scope; it is stored encrypted at rest while this is on.</span></span>
+                scope; it is stored encrypted at rest while this is on.</span>
+                <span id="ghSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <details class="settings-cmds">
             <summary>PR commands: <code>/run-all</code> · <code>/run-all top</code> · <code>/top</code></summary>
@@ -409,7 +411,8 @@
                 order…) and push the fix commit from my account before the run starts. <i>Yes, I trust the
                 robots with my whitespace.</i> 🤖<br>
                 <span class="muted">Uses the same GitHub token as the option above; javadoc/naming/wrapping
-                still need a human — you'll be told what remains.</span></span>
+                still need a human — you'll be told what remains.</span>
+                <span id="styleSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —
@@ -1883,7 +1886,6 @@
                 msg.textContent = '';
                 toggleJiraPanel(false);
                 if (pendingJiraAction === 'auto') armAutoVisa();
-                else if (pendingJiraAction === 'standing') { $('standingVisaToggle').checked = true; $('standingVisaToggle').onchange(); }
                 else postVisa();
                 pendingJiraAction = null;
             } catch (e) {
@@ -1940,26 +1942,50 @@
         $('visaBtn').onclick = postVisa;
         $('autoVisaBtn').onclick = armAutoVisa;
 
-        // Standing auto-visa (settings): the server watches every run the user triggers.
-        $('settingsBtn').onclick = async () => {
+        // Settings ⚙: the panel shows what the server has and changes only the switch that was clicked.
+        const OPTION_TOGGLES = { visa: 'standingVisaToggle', rerun: 'autoRerunToggle', gh: 'ghCommentToggle',
+            style: 'styleFixToggle' };
+        const OPTION_NEEDS = { visa: 'jira', gh: 'github', style: 'github' };
+        let standingSettings = null; // the server's last answer
+        let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
+
+        $('settingsBtn').onclick = () => {
             const p = $('settingsPanel');
-            const opening = p.classList.contains('hidden');
             p.classList.toggle('hidden');
-            if (opening) {
-                try {
-                    const r = await api('/api/auto-visa-all');
-                    if (r.ok) {
-                        const st = await r.json();
-                        $('standingVisaToggle').checked = !!st.visa;
-                        $('autoRerunToggle').checked = !!st.rerun;
-                        $('ghCommentToggle').checked = !!st.gh;
-                        $('styleFixToggle').checked = !!st.style;
-                        if (st.login) $('ghLoginInput').value = st.login;
-                        showTokenNotes(st);
-                    }
-                } catch (e) { /* leave unchecked */ }
-            }
+            if (!p.classList.contains('hidden')) loadSettings();
         };
+
+        function lockSettings(message) {
+            for (const id of Object.values(OPTION_TOGGLES)) $(id).disabled = true;
+            $('settingsMsg').textContent = message;
+        }
+
+        async function loadSettings() {
+            lockSettings('Loading your settings…');
+            try {
+                const r = await api('/api/auto-visa-all');
+                if (r.status === 401) { show('login'); return; }
+                if (!r.ok) { lockSettings('Could not load your settings — close ⚙ and open it again.'); return; }
+                renderSettings(await r.json());
+                $('settingsMsg').textContent = '';
+            } catch (e) {
+                lockSettings('Could not reach the service — close ⚙ and open it again.');
+            }
+        }
+
+        function renderSettings(st) {
+            standingSettings = st;
+            for (const [name, id] of Object.entries(OPTION_TOGGLES)) {
+                $(id).checked = !!st[name];
+                $(id).disabled = false;
+            }
+            // The options run on the tokens the server holds; this browser's session may not carry them.
+            $('visaSaved').classList.toggle('hidden', !(st.visa && st.jiraStored && !hasJira));
+            $('ghSaved').classList.toggle('hidden', !(st.gh && st.ghStored && !hasGithub));
+            $('styleSaved').classList.toggle('hidden', !(st.style && st.ghStored && !hasGithub));
+            if (st.login) $('ghLoginInput').value = st.login;
+            showTokenNotes(st);
+        }
 
         // A token the service refused takes its options down with it, so the panel must show the
         // switches off AND say which credential to replace — otherwise the settings look broken.
@@ -1969,6 +1995,75 @@
             $('jiraTokenGone').classList.toggle('hidden', !st.jiraTokenRejected);
             $('tcTokenGone').classList.toggle('hidden', !st.tcTokenRejected);
             if (st.jiraTokenRejected) $('settingsJira').classList.remove('hidden');
+        }
+
+        function tokenAvailable(need) {
+            const st = standingSettings || {};
+            return need === 'jira' ? hasJira || !!st.jiraStored : need === 'github' ? hasGithub || !!st.ghStored : true;
+        }
+
+        async function askForToken(need, option) {
+            pendingOption = option;
+            if (need === 'jira') {
+                $('settingsJira').classList.remove('hidden');
+                try {
+                    const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {});
+                    if (cfg.patUrl) $('settingsPatLink').href = cfg.patUrl;
+                } catch (e) { /* the hardcoded default link still works */ }
+                $('settingsJiraToken').focus();
+            } else {
+                $('settingsGh').classList.remove('hidden');
+                $('settingsGhToken').focus();
+            }
+        }
+
+        async function setOption(name, on) {
+            const toggle = $(OPTION_TOGGLES[name]), msg = $('settingsMsg');
+            msg.textContent = '';
+            const need = OPTION_NEEDS[name];
+            if (on && need && !tokenAvailable(need)) {
+                toggle.checked = false;
+                return askForToken(need, name);
+            }
+            toggle.disabled = true;
+            try {
+                const r = await api('/api/auto-visa-all?' + name + '=' + on, { method: 'POST' });
+                if (r.status === 401) { show('login'); return; }
+                const res = await r.json().catch(() => ({}));
+                if (r.status === 412) {
+                    toggle.checked = !on;
+                    if (res.need === 'github') hasGithub = false; else hasJira = false;
+                    msg.textContent = res.error || '';
+                    return askForToken(res.need === 'github' ? 'github' : 'jira', name);
+                }
+                if (!r.ok) {
+                    toggle.checked = !on;
+                    msg.textContent = friendly(res.error, 'could not change the setting');
+                    return;
+                }
+                renderSettings(res);
+                const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
+                    res.style && 'checkstyle autofix'].filter(Boolean);
+                msg.textContent = active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.';
+            } catch (e) {
+                toggle.checked = !on;
+                msg.textContent = 'could not reach the service — try again';
+            } finally {
+                toggle.disabled = false;
+            }
+        }
+        for (const [name, id] of Object.entries(OPTION_TOGGLES)) $(id).onchange = () => setOption(name, $(id).checked);
+
+        // Once the token a switch asked for is saved, that very switch goes on — and only it.
+        function continuePendingOption(savedNote) {
+            const option = pendingOption;
+            pendingOption = null;
+            if (option) {
+                $(OPTION_TOGGLES[option]).checked = true;
+                setOption(option, true);
+            } else {
+                $('settingsMsg').textContent = savedNote;
+            }
         }
 
         $('settingsJiraSave').onclick = async () => {
@@ -1988,65 +2083,11 @@
                 input.value = '';
                 m.textContent = '';
                 $('settingsJira').classList.add('hidden');
-                $('standingVisaToggle').checked = true;
-                postStandingState();
+                continuePendingOption('JIRA token saved — switch auto-visa on to use it.');
             } catch (e) {
                 m.textContent = 'could not reach the service — try again';
             }
         };
-
-        // Two independent standing options; every change posts the combined state.
-        async function postStandingState() {
-            const visaT = $('standingVisaToggle'), rerunT = $('autoRerunToggle'), ghT = $('ghCommentToggle');
-            const styleT = $('styleFixToggle');
-            const msg = $('settingsMsg');
-            msg.textContent = '';
-            if (visaT.checked && !hasJira) {
-                visaT.checked = false;
-                $('settingsJira').classList.remove('hidden');
-                try {
-                    const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {});
-                    if (cfg.patUrl) $('settingsPatLink').href = cfg.patUrl;
-                } catch (e) { /* the hardcoded default link still works */ }
-                $('settingsJiraToken').focus();
-                return;
-            }
-            if ((ghT.checked || styleT.checked) && !hasGithub) {
-                ghT.checked = false;
-                styleT.checked = false;
-                $('settingsGh').classList.remove('hidden');
-                $('settingsGhToken').focus();
-                return;
-            }
-            try {
-                const r = await api('/api/auto-visa-all?visa=' + visaT.checked + '&rerun=' + rerunT.checked
-                    + '&gh=' + ghT.checked + '&style=' + styleT.checked, { method: 'POST' });
-                if (r.status === 401) { show('login'); return; }
-                const res = await r.json().catch(() => ({}));
-                if (r.status === 412) {
-                    if (res.need === 'github') { ghT.checked = false; styleT.checked = false; hasGithub = false; }
-                    else { visaT.checked = false; hasJira = false; }
-                    return postStandingState();
-                }
-                if (!r.ok) { msg.textContent = friendly(res.error, 'could not change the setting'); return; }
-                visaT.checked = !!res.visa;
-                rerunT.checked = !!res.rerun;
-                ghT.checked = !!res.gh;
-                styleT.checked = !!res.style;
-                // The PAT in the session can have died since it was saved; the server refuses to
-                // enrol with it, so the account-based half stays off until a fresh one is pasted.
-                showTokenNotes(res);
-                const on = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
-                    res.style && 'checkstyle autofix'].filter(Boolean);
-                msg.textContent = on.length ? 'On: ' + on.join(' · ') + '.' : 'All off — stored tokens removed.';
-            } catch (e) {
-                msg.textContent = 'could not reach the service — try again';
-            }
-        }
-        $('standingVisaToggle').onchange = postStandingState;
-        $('autoRerunToggle').onchange = postStandingState;
-        $('ghCommentToggle').onchange = postStandingState;
-        $('styleFixToggle').onchange = postStandingState;
 
         $('ghLoginSave').onclick = async () => {
             const input = $('ghLoginInput'), m = $('ghLoginMsg');
@@ -2083,8 +2124,7 @@
                 input.value = '';
                 m.textContent = '';
                 $('settingsGh').classList.add('hidden');
-                $('ghCommentToggle').checked = true;
-                postStandingState();
+                continuePendingOption('GitHub token saved — switch the option on to use it.');
             } catch (e) {
                 m.textContent = 'could not reach the service — try again';
             }

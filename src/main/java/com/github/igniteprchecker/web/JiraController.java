@@ -86,53 +86,31 @@ public class JiraController {
             .body(Map.of("jiraUser", who.get()));
     }
 
-    /** Toggles the standing auto-visa: every finished RunAll the user triggered gets a visa posted. */
+    /**
+     * Changes the standing options named in the request and nothing else; a 412 names the token the
+     * change needs ({@code need}: jira or github). Answers with the whole state, like the GET.
+     */
     @PostMapping("/auto-visa-all")
-    public ResponseEntity<?> standingVisa(@RequestParam(defaultValue = "false") boolean visa,
-        @RequestParam(defaultValue = "false") boolean rerun,
-        @RequestParam(defaultValue = "false") boolean gh,
-        @RequestParam(defaultValue = "false") boolean style,
+    public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
+        @RequestParam(required = false) Boolean rerun,
+        @RequestParam(required = false) Boolean gh,
+        @RequestParam(required = false) Boolean style,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
         @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
-        if (!visa && !rerun && !gh && !style) {
-            standing.disable(username);
+        Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
+            new StandingVisas.OptionChange(visa, rerun, gh, style));
+        if (refused.isPresent())
+            return ResponseEntity.status(412).body(Map.of("error", refused.get().error(), "need", refused.get().need()));
 
-            return ResponseEntity.ok(Map.of("visa", false, "rerun", false, "gh", false, "style", false));
-        }
-        if (visa) { // only the visa needs JIRA; rerun-only works with the TC token alone
-            if (jiraToken == null)
-                return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
-            if (jira.myself(jiraToken).isEmpty())
-                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
-        }
-        if ((gh || style) && ghToken == null) // the style-fix commit is pushed under the same PAT
-            return ResponseEntity.status(412).body(Map.of("error", "no GitHub token in the session", "need", "github"));
-
-        boolean ghTokenOk = standing.enable(username, tcToken, visa ? jiraToken : null, gh || style ? ghToken : null,
-            visa, rerun, gh, style);
-
-        // The saved PAT can die between sessions while the cookie still carries it: say so instead of
-        // silently enrolling with a token that identifies nobody.
-        return ResponseEntity.ok(Map.of("visa", visa, "rerun", rerun, "gh", gh, "style", style,
-            "ghTokenRejected", !ghTokenOk));
+        return ResponseEntity.ok(standing.settings(username));
     }
 
-    /** The logged-in user's standing options. */
+    /** The logged-in user's standing options, and whether the server holds the tokens they run on. */
     @GetMapping("/auto-visa-all")
-    public Map<String, Object> standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        Map<String, Object> out = new java.util.HashMap<>(Map.of("visa", standing.visaOn(username),
-            "rerun", standing.rerunOn(username),
-            "gh", standing.ghOn(username), "style", standing.styleFixOn(username)));
-        out.put("login", standing.ghLoginOf(username));
-        // A PAT GitHub rejected is dropped on the spot, so the panel must say why the account-based
-        // half went quiet instead of leaving the options looking on.
-        out.put("ghTokenRejected", standing.ghTokenRejected(username));
-        out.put("jiraTokenRejected", standing.jiraTokenRejected(username));
-        out.put("tcTokenRejected", standing.tcTokenRejected(username));
-
-        return out;
+    public StandingVisas.Settings standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        return standing.settings(username);
     }
 
     /** Links a GitHub login by hand — the no-PAT way into PR commands (needs an enrollment to attach to). */

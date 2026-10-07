@@ -57,7 +57,8 @@ class CommandTokenRefusedTest {
 
     @BeforeEach
     void setUp() {
-        standing.enable("nsamelchev", "expired-tc", null, null, false, true, false, false);
+        standing.change("nsamelchev", "expired-tc", null, null,
+            new StandingVisas.OptionChange(false, true, false, false));
         standing.setGhLogin("nsamelchev", "NSAmelchev");
         when(tc.cancelOwnRunAllChains(eq("expired-tc"), eq(PR), anyString())).thenThrow(
             HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY, new byte[0],

@@ -116,6 +116,7 @@ class StandingSnapshotTest {
         standing.loadFrom(fixture(dir));
         CountDownLatch asked = new CountDownLatch(1);
         CountDownLatch linked = new CountDownLatch(1);
+        when(jira.myself("jira-pat")).thenReturn(Optional.of("oldtimer"));
         when(jira.myTimezone("jira-pat")).thenAnswer(inv -> {
             asked.countDown();
             linked.await(10, TimeUnit.SECONDS);
@@ -123,8 +124,8 @@ class StandingSnapshotTest {
             return Optional.of("Europe/Moscow");
         });
 
-        Thread save = new Thread(() -> standing.enable("oldtimer", "tc-oldtimer", "jira-pat", null,
-            true, true, false, false));
+        Thread save = new Thread(() -> standing.change("oldtimer", "tc-oldtimer", "jira-pat", null,
+            new StandingVisas.OptionChange(true, true, false, false)));
         save.start();
         assertThat(asked.await(10, TimeUnit.SECONDS)).isTrue();
         standing.setGhLogin("oldtimer", "old-timer");
