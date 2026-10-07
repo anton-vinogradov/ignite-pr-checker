@@ -4,6 +4,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Must be the version Ignite's own build runs, so the style autofix counts what Ignite's check counts; it moves
+      # by hand, with Ignite.
+      - dependency-name: com.puppycrawl.tools:checkstyle
+      # A new Spring Boot major is a migration, not a weekly bump.
+      - dependency-name: "org.springframework.boot*"
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: github-actions
     directory: /
     schedule:

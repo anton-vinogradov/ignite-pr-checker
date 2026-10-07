@@ -51,4 +51,17 @@ class UpdateServiceTest {
         assertThat(exits.poll(10, TimeUnit.SECONDS)).isEqualTo(UpdateService.RESTART_EXIT_CODE);
         assertThat(dir.resolve(".update-requested")).hasContent("1.20.12");
     }
+
+    /** Whoever presses Update reads first what the release changes for users. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theOfferedReleaseComesWithItsNotes() {
+        GithubClient github = mock(GithubClient.class);
+        when(github.latestReleaseTag()).thenReturn("1.21.1");
+        UpdateService update = new UpdateService(new UpdateProperties(true, "/opt/ignite-pr-checker/app.jar"), github,
+            mock(ObjectProvider.class), code -> { });
+
+        assertThat(update.status().notesUrl())
+            .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases/tag/v1.21.1");
+    }
 }

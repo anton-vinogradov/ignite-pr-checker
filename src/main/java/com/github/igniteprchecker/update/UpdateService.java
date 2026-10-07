@@ -70,7 +70,10 @@ public class UpdateService {
             && latest != null && !latest.isBlank()
             && isNewer(latest, baseVersion());
 
-        return new Status(currentVersion, commit, latest, available, lastFailure());
+        String notes = latest == null || latest.isBlank() ? null
+            : "https://github.com/" + GithubClient.SELF_REPO + "/releases/tag/v" + latest;
+
+        return new Status(currentVersion, commit, latest, available, notes, lastFailure());
     }
 
     /**
@@ -152,10 +155,11 @@ public class UpdateService {
     }
 
     /**
-     * {@code current} runs, built from {@code commit} (null if unknown); {@code latest} is the newest release;
-     * {@code updateFailed} says why the last update to another release did not happen, or is null.
+     * {@code current} runs, built from {@code commit} (null if unknown); {@code latest} is the newest release and
+     * {@code notesUrl} its release notes, what changes for users; {@code updateFailed} says why the last update to
+     * another release did not happen, or is null.
      */
-    public record Status(String current, String commit, String latest, boolean updateAvailable,
+    public record Status(String current, String commit, String latest, boolean updateAvailable, String notesUrl,
         Failure updateFailed) {
     }
 

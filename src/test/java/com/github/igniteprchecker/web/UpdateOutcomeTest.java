@@ -70,4 +70,20 @@ class UpdateOutcomeTest {
         assertThat(out.get("text").asText()).isEqualTo("Retry update to v1.21.1");
         assertThat(out.get("title").asText()).isEqualTo("Update to v1.21.1 failed: GitHub did not describe release v1.21.1");
     }
+
+    /** The Update button said which version, not what it changes; the release notes were three clicks away. */
+    @Test
+    void theReleaseNotesAreNextToTheButton() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/me', { body: { username: 'alice', jira: false, github: false, admin: true } });
+            page.route('/api/version', { body: { current: '1.21.0', latest: '1.21.1', updateAvailable: true,
+                notesUrl: 'https://github.com/anton-vinogradov/ignite-pr-checker/releases/tag/v1.21.1' } });
+            await page.load('');
+            report({ href: page.el('updateNotes').href, shown: !page.el('updateNotes').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("href").asText())
+            .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases/tag/v1.21.1");
+        assertThat(out.get("shown").asBoolean()).isTrue();
+    }
 }

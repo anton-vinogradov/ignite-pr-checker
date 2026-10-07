@@ -1,0 +1,12 @@
+# Groups GitHub's generated list of PRs, which the release workflow appends to the notes.
+changelog:
+  categories:
+    - title: Changes
+      labels:
+        - "*"
+      exclude:
+        labels:
+          - dependencies
+    - title: Dependency updates
+      labels:
+        - dependencies

@@ -357,8 +357,11 @@ public class GithubClient implements SnapshotCache {
     public record GhUser(String login) {
     }
 
-    /** This tool's own repo, for the "Star" button (fetched server-side so browser blockers don't hide it). */
-    private static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
+    /**
+     * This tool's own repo: its stars for the "Star" button (fetched server-side so browser blockers don't hide it)
+     * and its releases.
+     */
+    public static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
 
     private final RestClient http;
 
