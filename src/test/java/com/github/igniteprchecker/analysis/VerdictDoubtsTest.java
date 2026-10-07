@@ -2,14 +2,11 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.analysis.model.TestVerdict.Doubt;
@@ -110,18 +107,6 @@ class VerdictDoubtsTest {
         when(tc.otherBranchRuns(TOK, TEST, SUITE)).thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY));
 
         assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).doubts()).containsExactly(Doubt.UNCHECKED);
-    }
-
-    @Test
-    void aTestTeamCityErrorsKeptFromBeingCheckedIsUnverified() {
-        failing(masterRuns(85), "F");
-        when(tc.prBranchRuns(anyString(), eq(PR), anyLong(), anyString()))
-            .thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY));
-
-        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
-
-        assertThat(r.blockers()).isEmpty();
-        assertThat(only(r.unverified()).doubts()).containsExactly(Doubt.UNCHECKED);
     }
 
     @Test

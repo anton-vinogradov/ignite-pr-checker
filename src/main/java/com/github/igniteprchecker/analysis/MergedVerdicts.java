@@ -36,8 +36,9 @@ import org.springframework.stereotype.Component;
  * through. Once kept, a PR's verdict is served instead of being recomputed.
  *
  * <p>A PR is looked at when it leaves the open-PR list while the analysis cache holds a verdict for it: one GitHub
- * call says whether it was merged. A PR closed without a merge is left alone, and one still open past the list is
- * asked again some hours later. Without a usable directory the verdicts are kept in memory only.
+ * call says whether it was merged. Only a verdict computed before the merge, or within the hour after it, is kept.
+ * A PR closed without a merge is left alone, and one still open past the list is asked again some hours later.
+ * Without a usable directory the verdicts are kept in memory only.
  */
 @Component
 public class MergedVerdicts {
@@ -45,6 +46,12 @@ public class MergedVerdicts {
 
     /** The most PRs one sweep asks GitHub about. */
     private static final int ASKS_PER_SWEEP = 20;
+
+    /**
+     * How long after a merge a verdict may have been computed to be kept as the one at the merge. A verdict of a PR
+     * merged long before, computed when someone opened it, already holds its own failures as master's.
+     */
+    private static final long KEPT_AFTER_MERGE_MS = 3_600_000L;
 
     /** How long a PR found open, though not in the list, is left before it is asked about again. */
     private static final long RECHECK_OPEN_MS = 6 * 3_600_000L;
@@ -164,7 +171,7 @@ public class MergedVerdicts {
                 break;
             }
 
-            if (outcome.merged())
+            if (outcome.merged() && r.computedAt() <= outcome.mergedAt() * 1000 + KEPT_AFTER_MERGE_MS)
                 keep(r, outcome);
             else
                 notBefore.put(pr, outcome.closed() ? Long.MAX_VALUE : now + RECHECK_OPEN_MS);

@@ -733,8 +733,8 @@ public class BlockerAnalyzer {
             // in sight, but apart from the verdicts: as a blocker, one 502 got a visa and a re-run wave.
             failedLookups.add(t.name(), e);
 
-            return new Classified(withDoubts(verdict(t, null, false, false,
-                "could not verify (TeamCity error: " + rootMessage(e) + ")", "", 0), List.of(Doubt.UNCHECKED)), false);
+            return new Classified(verdict(t, null, false, false,
+                "could not verify (TeamCity error: " + rootMessage(e) + ")", "", 0), false);
         }
     }
 

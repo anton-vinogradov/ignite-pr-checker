@@ -84,6 +84,22 @@ class MergedVerdictsTest {
         verifyNoInteractions(tc, chains);
     }
 
+    /** A PR merged long ago and opened now was just recomputed against a master that holds its own failures. */
+    @Test
+    void aVerdictComputedLongAfterTheMergeIsNotKept(@TempDir Path dir) {
+        cache.putResult(9391879L, verdict(9391879L, (MERGED_AT + 86_400) * 1000));
+        openAre(13600);
+        when(github.prOutcome(PR)).thenReturn(merged());
+        MergedVerdicts merged = merged(dir);
+
+        merged.sweep();
+        merged.sweep();
+
+        assertThat(merged.verdict(PR)).isEmpty();
+        assertThat(dir.resolve(PR + ".json")).doesNotExist();
+        verify(github, times(1)).prOutcome(PR);
+    }
+
     @Test
     void aPrClosedWithoutAMergeIsLeftAlone(@TempDir Path dir) {
         cache.putResult(9391879L, verdict(9391879L, 1_000));

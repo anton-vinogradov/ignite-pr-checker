@@ -62,7 +62,7 @@ public record TestVerdict(
         /** Master has no runs of the test on the PR's JDK to compare with: a new test, or one master does not run. */
         NO_MASTER_HISTORY,
 
-        /** A TeamCity error kept part of the check from being made. */
+        /** A TeamCity error kept part of the check from being made: whether other PRs fail the test too. */
         UNCHECKED
     }
 }
