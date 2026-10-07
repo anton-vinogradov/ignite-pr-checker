@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -53,9 +54,9 @@ class TcTokenRenewalTest {
     void aLoginWithAFreshTokenResumesTheOptions() {
         when(tc.currentUsername("fresh-tc")).thenReturn(Optional.of(USER));
         LoginController login = new LoginController(tc, codec, session, mock(Warmer.class), mock(UserDirectory.class),
-            standing);
+            new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper), standing);
 
-        assertThat(login.login(new LoginController.LoginRequest("fresh-tc")).getStatusCode().value()).isEqualTo(200);
+        assertThat(login.login(new LoginController.LoginRequest("fresh-tc"), new MockHttpServletRequest()).getStatusCode().value()).isEqualTo(200);
 
         assertThat(standing.tcTokenRejected(USER)).isFalse();
         assertThat(standing.actor(USER)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("fresh-tc"));

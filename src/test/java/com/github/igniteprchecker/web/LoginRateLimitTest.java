@@ -10,6 +10,7 @@ import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
@@ -57,7 +58,8 @@ class LoginRateLimitTest {
         SessionProperties session = new SessionProperties(true, "test-secret");
 
         login = new LoginController(tc, new SessionCodec(session, mapper), session, mock(Warmer.class),
-            new UserDirectory(mapper), new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper));
+            new UserDirectory(mapper), new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper),
+            mock(StandingVisas.class));
     }
 
     @AfterEach

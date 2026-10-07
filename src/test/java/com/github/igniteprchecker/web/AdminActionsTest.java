@@ -14,6 +14,7 @@ import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.update.UpdateService;
@@ -81,7 +82,7 @@ class AdminActionsTest {
     @Test
     void namedOperatorsAloneSeeTheUsers() {
         LoginController login = new LoginController(null, null, null, null, new UserDirectory(mapper), null,
-            admin("avinogradov"));
+            admin("avinogradov"), mock(StandingVisas.class));
 
         assertThat(status(login.users("stranger"))).isEqualTo(403);
         assertThat(status(login.users("avinogradov"))).isEqualTo(200);
@@ -96,7 +97,7 @@ class AdminActionsTest {
         when(tc.currentUsername("stranger-token")).thenReturn(Optional.of("stranger"));
         when(tc.currentUsername("operator-token")).thenReturn(Optional.of("AVinogradov"));
         LoginController login = new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper),
-            new LoginThrottle(), admin("avinogradov"));
+            new LoginThrottle(), admin("avinogradov"), mock(StandingVisas.class));
 
         assertThat(toldAdmin(login.login(token("stranger-token"), new MockHttpServletRequest()))).isFalse();
         assertThat(toldAdmin(login.login(token("operator-token"), new MockHttpServletRequest()))).isTrue();

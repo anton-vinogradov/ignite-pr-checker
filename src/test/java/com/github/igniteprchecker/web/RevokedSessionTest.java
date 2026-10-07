@@ -17,6 +17,7 @@ import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
+import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.Cookie;
 import java.time.Duration;
@@ -55,7 +56,7 @@ class RevokedSessionTest {
         GithubClient github = mock(GithubClient.class);
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13655, "IGNITE-1 x", "u", null, null, null)));
         warmer = new Warmer(analyzer, github, new WarmProperties(true, 50, 10, 60), pool);
-        auth = new AuthInterceptor(codec, warmer, new UserDirectory(mapper));
+        auth = new AuthInterceptor(codec, warmer, new UserDirectory(mapper), mock(StandingVisas.class));
     }
 
     @AfterEach
@@ -108,7 +109,7 @@ class RevokedSessionTest {
     @Test
     void theRevokedSessionIsToldWhyOnItsFirstCall() throws Exception {
         LoginController login = new LoginController(null, codec, null, warmer, new UserDirectory(mapper), null,
-            new AdminActions(new AdminProperties(null), mapper));
+            new AdminActions(new AdminProperties(null), mapper), mock(StandingVisas.class));
         teamCityAnswers(HttpStatus.UNAUTHORIZED);
         warmCycleRuns();
 
