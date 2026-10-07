@@ -2,14 +2,19 @@ package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,7 +26,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -36,10 +47,13 @@ import org.springframework.web.client.RestClientResponseException;
  * not this PR's blocker. All of it looks at that one suite only: the same test id runs in several suites
  * of a chain (the C++ tests run on Windows, Linux and Clang), and another platform's pass is not a
  * re-run, nor are its master failures this one's. Results are cached per build; a request serves the
- * cached result and, if it is getting stale, triggers a background refresh.
+ * cached result and, if something finished on the branch since, triggers a background refresh. A result
+ * that TeamCity errors left incomplete is retried on its own, and is not acted on while it is retried.
  */
 @Component
 public class BlockerAnalyzer {
+    private static final Logger log = LoggerFactory.getLogger(BlockerAnalyzer.class);
+
     /**
      * How far before an analysis starts its branch watermark is set. TeamCity stamps finish dates with
      * its own clock, which may run a little ahead of ours: a watermark set too early costs one more
@@ -68,6 +82,21 @@ public class BlockerAnalyzer {
     /** How many runs on other PRs' branches it takes to set master's failures aside. */
     private static final int MIN_OTHER_PR_RUNS = 10;
 
+    /** How often a viewed verdict may ask TeamCity whether its branch moved, at most. */
+    private static final long LOOK_EVERY_MS = 120_000;
+
+    /** The shortest and the longest wait before an incomplete result is computed again. */
+    private static final long MIN_RETRY_WAIT_MS = 120_000;
+
+    private static final long MAX_RETRY_WAIT_MS = 1_800_000;
+
+    /**
+     * How long an incomplete result is held back from the visa, the PR comment and the re-run waves:
+     * two passes of the 10-minute sweep, each with a fresh try. Past that it is acted on as it is, its
+     * unchecked tests listed apart and not counted as blockers.
+     */
+    private static final long HOLD_INCOMPLETE_MS = 1_200_000;
+
     private final TcClient tc;
     private final ChainCollector chains;
     private final AnalysisProperties cfg;
@@ -78,6 +107,9 @@ public class BlockerAnalyzer {
     private final RunDeltaStore deltas;
 
     private final Set<Long> refreshing = ConcurrentHashMap.newKeySet();
+
+    /** Builds whose branch was found unmoved lately, so another view does not ask again so soon. */
+    private final TtlCache<Long, Boolean> lookedAt = new TtlCache<>(LOOK_EVERY_MS);
 
     /** In-flight computes per build id, so concurrent requests for the same build share one run
      * instead of piling duplicate full recomputes onto the pool (a page reload during a cold
@@ -121,8 +153,12 @@ public class BlockerAnalyzer {
         if (cached.isPresent()) {
             cache.touchResult(bid); // an immutable per-build result must never expire while in use
             rememberVerdict(prNumber, cached.get());
-            if (isStale(cached.get()))
-                refreshAsync(token, prNumber, bid);
+            // A view recomputes only what can have changed. A timer used to recompute any verdict older
+            // than two minutes: 23 views of long-finished PRs cost ci2 up to 695 calls a minute.
+            if (retryDue(cached.get()))
+                refreshAsync(token, prNumber, bid, false);
+            else if (isStale(cached.get()) && lookedAt.peek(bid).isEmpty())
+                refreshAsync(token, prNumber, bid, true);
 
             return cached;
         }
@@ -168,7 +204,8 @@ public class BlockerAnalyzer {
      * Warms a PR for the cache-warmer: looks up the latest build (cheap) and recomputes it only when
      * the answer can have changed — a different chain build, or new finished builds on the branch
      * since the cached result was computed (a green re-run of a blocker suite clears it without the
-     * chain build changing). Returns true if it recomputed. This is what keeps the warmer from
+     * chain build changing) — or when TeamCity errors left it incomplete and another try is due.
+     * Returns true if it recomputed. This is what keeps the warmer from
      * re-hammering TeamCity with the heavy history/latest-run lookups every cycle.
      */
     public boolean warm(String token, int prNumber) {
@@ -177,7 +214,7 @@ public class BlockerAnalyzer {
             return false;
 
         Optional<AnalysisResult> cached = cache.peekResult(buildId.get());
-        if (cached.isPresent() && !branchMovedSince(token, prNumber, cached.get(), false)) {
+        if (cached.isPresent() && !retryDue(cached.get()) && !branchMovedSince(token, prNumber, cached.get(), false)) {
             // The warm cycle (10 min) is shorter than the TTL (15 min), but a skip used to leave the
             // old expiry in place — every other cycle the entry died mid-window and a viewer hit a
             // cold compute. Touching on skip keeps the warmed set permanently hot.
@@ -216,9 +253,10 @@ public class BlockerAnalyzer {
      * verdict cached while the chain was still running, so the suite that failed last was left out of
      * the first wave and got one attempt instead of two. The cached result is used only if the chain
      * had finished when it was read ({@code finishedAt} comes from TeamCity itself, so no clocks are
-     * compared) and nothing finished on the branch since; otherwise the verdict comes from a compute
-     * that starts after this call. One already under way is waited out, not shared: it may have read
-     * a suite before its re-run finished, and suites of one wave finish close together.
+     * compared), nothing finished on the branch since, and it is not an incomplete result due for another
+     * try; otherwise the verdict comes from a compute that starts after this call. One already under way
+     * is waited out, not shared: it may have read a suite before its re-run finished, and suites of one
+     * wave finish close together.
      */
     public Optional<AnalysisResult> analyzeForAction(String token, int prNumber) {
         Optional<Long> buildId = chains.findBuildId(token, prNumber);
@@ -227,7 +265,7 @@ public class BlockerAnalyzer {
 
         long bid = buildId.get();
         Optional<AnalysisResult> cached = cache.peekResult(bid);
-        if (cached.isPresent() && cached.get().finishedAt() > 0
+        if (cached.isPresent() && cached.get().finishedAt() > 0 && !retryDue(cached.get())
             && !branchMovedSince(token, prNumber, cached.get(), true)) {
             cache.touchResult(bid);
             rememberVerdict(prNumber, cached.get());
@@ -286,12 +324,52 @@ public class BlockerAnalyzer {
         return System.currentTimeMillis() - r.computedAt() > windowMs;
     }
 
-    private void refreshAsync(String token, int prNumber, long buildId) {
+    /**
+     * Whether an incomplete result is due for another try. The wait grows with how long it has been
+     * incomplete, from 2 minutes to 30: a blip is gone within minutes, and an outage costs one
+     * recompute per PR every half an hour.
+     */
+    private static boolean retryDue(AnalysisResult r) {
+        if (r.incompleteSince() <= 0)
+            return false;
+
+        long wait = Math.min(MAX_RETRY_WAIT_MS, Math.max(MIN_RETRY_WAIT_MS, r.computedAt() - r.incompleteSince()));
+
+        return System.currentTimeMillis() - r.computedAt() >= wait;
+    }
+
+    /**
+     * Whether a result is too fresh in its incompleteness to act on: TeamCity failed some of its lookups
+     * less than 20 minutes ago, and it is being retried. The visa, the PR comment and the re-run waves
+     * wait for it; one failed request on ci2 used to post a blocker and re-run its suite.
+     */
+    public boolean stillRetrying(AnalysisResult r) {
+        return r.incompleteSince() > 0 && System.currentTimeMillis() - r.incompleteSince() < HOLD_INCOMPLETE_MS;
+    }
+
+    /** Sweeps out expired "branch unmoved" marks (see TtlCache.evictExpired). */
+    @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
+    void evictExpired() {
+        lookedAt.evictExpired();
+    }
+
+    /**
+     * Recomputes in the background; with {@code ifMoved}, only when something finished on the branch since
+     * the result was computed (one cheap call), else the view is marked looked at for a while.
+     */
+    private void refreshAsync(String token, int prNumber, long buildId, boolean ifMoved) {
         if (!refreshing.add(buildId))
             return;
 
         refreshPool.execute(() -> {
             try {
+                Optional<AnalysisResult> cached = cache.peekResult(buildId);
+                if (ifMoved && cached.isPresent() && !branchMovedSince(token, prNumber, cached.get(), false)) {
+                    lookedAt.put(buildId, true);
+
+                    return;
+                }
+
                 computeAndStore(token, prNumber, buildId, bgPool);
             }
             catch (RuntimeException ignore) {
@@ -353,10 +431,11 @@ public class BlockerAnalyzer {
         Progress prog = new Progress(prNumber, chain.failedTests().size(), new AtomicInteger());
         progress.put(buildId, prog);
 
-        List<Callable<TestVerdict>> tasks = chain.failedTests().stream()
-            .<Callable<TestVerdict>>map(t -> () -> {
+        FailedLookups failedLookups = new FailedLookups();
+        List<Callable<Classified>> tasks = chain.failedTests().stream()
+            .<Callable<Classified>>map(t -> () -> {
                 try {
-                    return classify(token, prNumber, t);
+                    return classify(token, prNumber, t, failedLookups);
                 }
                 finally {
                     prog.done().incrementAndGet();
@@ -364,21 +443,47 @@ public class BlockerAnalyzer {
             })
             .toList();
 
-        List<TestVerdict> verdicts = Parallel.run(taskPool, tasks);
+        List<Classified> classified = Parallel.run(taskPool, tasks);
+        List<TestVerdict> verdicts = classified.stream().filter(Classified::verified).map(Classified::verdict).toList();
+        List<TestVerdict> unverified = classified.stream().filter(c -> !c.verified()).map(Classified::verdict).toList();
         List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
         List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
         List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
-        List<BrokenSuite> broken = withoutHealed(token, prNumber, chain.brokenSuites());
-        List<ShrunkSuite> shrunk = withFullRunsDropped(token, prNumber, chain.shrunkSuites());
+
+        // A suite that crashed after running nearly all its tests is broken only if the PR may be behind the crash:
+        // when every test it failed is pre-existing or flaky, the crash is a note next to a reliable result.
+        Set<String> blamed = Stream.of(blockers, watch, unverified).flatMap(List::stream).map(TestVerdict::suite)
+            .collect(Collectors.toSet());
+        List<BrokenSuite> chainBroken = new ArrayList<>(chain.brokenSuites());
+        List<BrokenSuite> unstable = new ArrayList<>();
+        for (BrokenSuite s : chain.unstableSuites())
+            (blamed.contains(s.suite()) ? chainBroken : unstable).add(s);
+
+        List<ShrunkSuite> shortReruns = new ArrayList<>();
+        List<BrokenSuite> broken = withoutHealed(token, prNumber, chainBroken, shortReruns, failedLookups);
+        List<CancelledSuite> cancelled = notRunSince(token, prNumber, chain, broken, shortReruns, failedLookups);
+        List<ShrunkSuite> shrunk = newestPerSuite(
+            withFullRunsDropped(token, prNumber, chain.shrunkSuites(), failedLookups), shortReruns);
+
+        long now = System.currentTimeMillis();
+        long incompleteSince = failedLookups.count() == 0 ? 0 : cache.peekResult(buildId)
+            .map(AnalysisResult::incompleteSince).filter(since -> since > 0).orElse(now);
+        if (failedLookups.count() > 0) {
+            log.warn("PR {} (build {}): {} TeamCity lookup(s) failed, {} failed test(s) left unchecked, retrying; "
+                + "first: {}", prNumber, buildId, failedLookups.count(), unverified.size(), failedLookups.first());
+        }
 
         AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            System.currentTimeMillis(), blockers, watch, filtered, broken, shrunk,
-            chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(), chain.live(), chain.liveBuildId(),
-            chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt);
+            now, blockers, watch, filtered, broken, shrunk,
+            chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(), cancelled.size(),
+            chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt,
+            unstable, cancelled, unverified, incompleteSince);
 
         cache.putResult(buildId, result);
         rememberVerdict(prNumber, result);
-        deltas.onResult(prNumber, buildId, blockers, broken.size());
+        // A test left unchecked is not "fixed": the run-to-run comparison waits for a complete result.
+        if (incompleteSince == 0)
+            deltas.onResult(prNumber, buildId, blockers, broken.size());
 
         return result;
     }
@@ -389,7 +494,8 @@ public class BlockerAnalyzer {
      * disappeared" long after the re-runs put them back, which reads as a coverage hole that no
      * longer exists.
      */
-    private List<ShrunkSuite> withFullRunsDropped(String token, int prNumber, List<ShrunkSuite> shrunk) {
+    private List<ShrunkSuite> withFullRunsDropped(String token, int prNumber, List<ShrunkSuite> shrunk,
+        FailedLookups failedLookups) {
         if (shrunk.isEmpty())
             return shrunk;
 
@@ -403,6 +509,7 @@ public class BlockerAnalyzer {
             }
             catch (RuntimeException e) {
                 // TC hiccup — keep the entry rather than silently claiming the coverage is back
+                failedLookups.add("latest run of " + s.suite(), e);
             }
             out.add(s);
         }
@@ -411,11 +518,14 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * A broken suite stops being broken once a NEWER finished run of it on the branch passed — the
-     * same last-finished-run anchoring tests get, without which re-running a broken suite (manually
-     * or automatically) could never clear it from the verdict. Kept on any doubt.
+     * A broken suite stops being broken once a NEWER finished run of it on the branch passed with all its
+     * tests — the same last-finished-run anchoring tests get, without which re-running a broken suite
+     * (manually or automatically) could never clear it from the verdict. A pass with far fewer tests than
+     * master's settles nothing: it goes to {@code shortReruns}, so the hole in coverage stays in sight.
+     * Kept on any doubt. A newer full run that failed tests is settled already: see ChainCollector.
      */
-    private List<BrokenSuite> withoutHealed(String token, int prNumber, List<BrokenSuite> broken) {
+    private List<BrokenSuite> withoutHealed(String token, int prNumber, List<BrokenSuite> broken,
+        List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
         if (broken.isEmpty())
             return broken;
 
@@ -423,11 +533,17 @@ public class BlockerAnalyzer {
         for (BrokenSuite s : broken) {
             try {
                 Optional<TcModel.Build> last = tc.latestSuiteRun(token, prNumber, s.suite());
-                if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status()))
+                if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status())) {
+                    int tests = last.get().testOccurrences() == null ? 0 : last.get().testOccurrences().count();
+                    if (!ChainCollector.isFullRun(tests, s.baseline()))
+                        shortReruns.add(ChainCollector.shrunk(s.suite(), s.suiteName(), last.get().id(), tests, s.baseline()));
+
                     continue;
+                }
             }
             catch (RuntimeException e) {
                 // TC hiccup — better a possibly stale broken-suite entry than a silently healed one
+                failedLookups.add("latest run of " + s.suite(), e);
             }
             out.add(s);
         }
@@ -435,19 +551,79 @@ public class BlockerAnalyzer {
         return out;
     }
 
-    private TestVerdict classify(String token, int prNumber, FailedTest t) {
+    /**
+     * The chain's cancelled suites that have not run since. Any later finished run of the suite on the
+     * branch, a re-run or a newer chain's, closes one: that run's own result counts instead. Without this a
+     * re-run never lifted "N suite(s) never ran", and PR 13592 kept it for the four suites TeamCity had
+     * cancelled. A closing run that ran far fewer tests than master and did not break goes to
+     * {@code shortReruns}, as a short re-run of a broken suite does: a green run of 30 of Cache 1's 300 tests
+     * must not read as covering it. One request for all of them, and none when nothing was cancelled. Kept
+     * on any doubt.
+     */
+    private List<CancelledSuite> notRunSince(String token, int prNumber, ChainCollector.Chain chain,
+        List<BrokenSuite> broken, List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
+        if (chain.cancelledSuites().isEmpty())
+            return chain.cancelledSuites();
+
         try {
-            return classifyVerified(token, prNumber, t);
+            Map<String, TcModel.Build> newestRuns = new HashMap<>();
+            for (TcModel.Build b : tc.finishedBuildsSince(token, prNumber,
+                chain.queuedAt() > 0 ? TcDates.format(chain.queuedAt()) : null)) {
+                if (b.buildTypeId() != null)
+                    newestRuns.merge(b.buildTypeId(), b, (x, y) -> x.id() >= y.id() ? x : y);
+            }
+
+            List<CancelledSuite> open = new ArrayList<>();
+            for (CancelledSuite c : chain.cancelledSuites()) {
+                TcModel.Build run = newestRuns.get(c.suite());
+                if (run == null || run.id() < c.suiteBuildId()) {
+                    open.add(c);
+                    continue;
+                }
+
+                int tests = run.testOccurrences() == null ? 0 : run.testOccurrences().count();
+                boolean brokeSince = broken.stream().anyMatch(b -> b.suite().equals(c.suite()));
+                if (!brokeSince && !ChainCollector.isFullRun(tests, c.baseline()))
+                    shortReruns.add(ChainCollector.shrunk(c.suite(), c.suiteName(), run.id(), tests, c.baseline()));
+            }
+
+            return open;
         }
         catch (RuntimeException e) {
-            // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
-            // propagate it and every other verdict would be lost). Keep the test visible as an unverified
-            // blocker — it did fail in the PR — and flag that we couldn't check it.
-            return verdict(t, null, true, false, "could not verify (TeamCity error: " + rootMessage(e) + ")", "", 0);
+            failedLookups.add("runs since the chain", e);
+
+            return chain.cancelledSuites();
         }
     }
 
-    private TestVerdict classifyVerified(String token, int prNumber, FailedTest t) {
+    /** The shrunk suites of both lists, one per suite: its newest run, the one a re-run would have replaced. */
+    private static List<ShrunkSuite> newestPerSuite(List<ShrunkSuite> shrunk, List<ShrunkSuite> more) {
+        if (more.isEmpty())
+            return shrunk;
+
+        Map<String, ShrunkSuite> bySuite = new LinkedHashMap<>();
+        Stream.concat(shrunk.stream(), more.stream())
+            .forEach(s -> bySuite.merge(s.suite(), s, (a, b) -> a.suiteBuildId() >= b.suiteBuildId() ? a : b));
+
+        return bySuite.values().stream().sorted(Comparator.comparingInt(ShrunkSuite::dropPct).reversed()).toList();
+    }
+
+    private Classified classify(String token, int prNumber, FailedTest t, FailedLookups failedLookups) {
+        try {
+            return new Classified(classifyVerified(token, prNumber, t, failedLookups), true);
+        }
+        catch (RuntimeException e) {
+            // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
+            // propagate it and every other verdict would be lost). The test did fail in the PR, so it stays
+            // in sight, but apart from the verdicts: as a blocker, one 502 got a visa and a re-run wave.
+            failedLookups.add(t.name(), e);
+
+            return new Classified(verdict(t, null, false, false,
+                "could not verify (TeamCity error: " + rootMessage(e) + ")", "", 0), false);
+        }
+    }
+
+    private TestVerdict classifyVerified(String token, int prNumber, FailedTest t, FailedLookups failedLookups) {
         RunHistory master = cache.history(t.testId(), t.suite(),
             () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
@@ -502,7 +678,7 @@ public class BlockerAnalyzer {
             reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last "
                 + h.greenStreak();
         else {
-            scaleOnlyBar = scaleOnlyOnMaster(token, prNumber, t, master, env, h);
+            scaleOnlyBar = scaleOnlyOnMaster(token, prNumber, t, master, env, h, failedLookups);
             if (scaleOnlyBar == null)
                 return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
 
@@ -528,7 +704,7 @@ public class BlockerAnalyzer {
         // flaky under PR conditions, whatever master says. The nightly master RunAll runs at test scale
         // factor 1.0 and PR chains at 0.1, so a test green in all 101 master runs failed 14 of 131 runs
         // in 13 other PRs, and was a blocker in each.
-        HistoryStats others = otherPrs(token, prNumber, t, env);
+        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups);
         if (others == null || others.failingPrs() < FLAKY_IN_PRS)
             return v;
 
@@ -613,11 +789,11 @@ public class BlockerAnalyzer {
      * must stay pre-existing.
      */
     private HistoryStats scaleOnlyOnMaster(String token, int prNumber, FailedTest t, RunHistory master, RunEnv env,
-        HistoryStats h) {
+        HistoryStats h, FailedLookups failedLookups) {
         if (masterScaleOfFailures(master, env, h) == null)
             return null;
 
-        HistoryStats others = otherPrs(token, prNumber, t, env);
+        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups);
         if (others == null || others.runs() < MIN_OTHER_PR_RUNS || others.failingPrs() >= FLAKY_IN_PRS)
             return null;
 
@@ -627,9 +803,10 @@ public class BlockerAnalyzer {
     /**
      * How the test does in its suite on other PRs' branches under this PR's run conditions, or null when
      * TeamCity can't say. It only ever overrides master's verdict, so a TeamCity error leaves master's
-     * verdict standing rather than turning the test into an unverified blocker.
+     * verdict standing rather than turning the test into an unverified one; the result is incomplete
+     * all the same, and is retried.
      */
-    private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env) {
+    private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env, FailedLookups failedLookups) {
         try {
             RunHistory onPrs = cache.prBranchHistory(t.testId(), t.suite(),
                 () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite())));
@@ -637,6 +814,8 @@ public class BlockerAnalyzer {
             return onPrs.otherPrsAs(env, prNumber);
         }
         catch (RuntimeException e) {
+            failedLookups.add("other PRs' runs of " + t.name(), e);
+
             return null;
         }
     }
@@ -735,9 +914,10 @@ public class BlockerAnalyzer {
      * The VCS revision a run was made on: from the occurrence itself when TeamCity inlined it, else one
      * request for the build (cached and shared — a build's revision never changes). Null when TeamCity
      * has none, which is the only case where two runs may not be compared as same-or-different code.
-     * A TeamCity error is deliberately not caught: {@link #classify} turns it into an unverified
-     * blocker, the fail-safe side, whereas swallowing it would silently restore the revision-blind
-     * window and the green visa this whole path exists to prevent.
+     * A TeamCity error is deliberately not caught: {@link #classify} then leaves the test unchecked, and
+     * a verdict with unchecked tests never reads green and is held back while it is retried (see
+     * {@link Caveats} and {@link #stillRetrying}). Swallowed here, the error would silently restore the
+     * revision-blind window and the green visa this whole path exists to prevent.
      */
     private String revisionOf(String token, TcModel.TestOccurrence run) {
         if (run == null || run.build() == null)
@@ -795,6 +975,30 @@ public class BlockerAnalyzer {
 
     /** An in-flight compute: which PR, how many failed tests total, how many are classified so far. */
     public record Progress(int pr, int total, AtomicInteger done) {
+    }
+
+    /** A failed test's verdict, or, when TeamCity failed to answer for it, what is known: it failed. */
+    private record Classified(TestVerdict verdict, boolean verified) {
+    }
+
+    /** The TeamCity lookups one compute could not make: how many, and the first, for the log. */
+    private static final class FailedLookups {
+        private final AtomicInteger count = new AtomicInteger();
+
+        private final AtomicReference<String> first = new AtomicReference<>();
+
+        void add(String what, RuntimeException e) {
+            count.incrementAndGet();
+            first.compareAndSet(null, what + ": " + rootMessage(e));
+        }
+
+        int count() {
+            return count.get();
+        }
+
+        String first() {
+            return first.get();
+        }
     }
 
     /** Compact pass/fail history of the branch runs, oldest → newest: 'P' for a pass, 'F' for a failure. */

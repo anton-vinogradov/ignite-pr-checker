@@ -5,6 +5,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -503,9 +504,9 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** Whether the analysis has looked at this suite build: something in it is anchored there. */
+    /** Whether the analysis has looked at this suite build: something in it is anchored there, checked or not. */
     private static boolean sawRun(AnalysisResult r, long suiteBuildId) {
-        return java.util.stream.Stream.of(r.blockers(), r.watch(), r.filtered())
+        return java.util.stream.Stream.of(r.blockers(), r.watch(), r.filtered(), r.unverified())
             .flatMap(List::stream).anyMatch(v -> v.suiteBuildId() == suiteBuildId)
             || r.brokenSuites().stream().anyMatch(b -> b.suiteBuildId() == suiteBuildId);
     }
@@ -579,6 +580,8 @@ public class StandingVisas implements SnapshotCache {
                 Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken.get(), pr.number());
                 if (res.isEmpty() || res.get().buildId() != buildId)
                     continue; // raced with a newer run; the next sweep settles it
+                if (analyzer.stillRetrying(res.get()))
+                    continue; // TeamCity errors left part of it unchecked: the next sweep tries it again first
 
                 // Auto-rerun before the visa: while re-runs of this PR are still live, wait; if the
                 // verdict has blockers and attempts remain, re-run their suites (at the top of the
@@ -619,9 +622,17 @@ public class StandingVisas implements SnapshotCache {
                     List<String> brokenSuites = res.get().brokenSuites().stream().map(s -> s.suite())
                         .filter(x -> x != null && !x.isBlank()).distinct()
                         .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s)).toList();
-                    List<String> suites = java.util.stream.Stream.of(blockerSuites, watchSuites, brokenSuites)
-                        .flatMap(List::stream).toList();
-                    String what = suitesLabel(blockerSuites.size(), watchSuites.size(), brokenSuites.size());
+                    // A suite TeamCity cancelled by itself never ran, and a re-run is what gets it a result.
+                    // One a person cancelled was meant not to run.
+                    List<String> cancelledSuites = res.get().cancelledSuites().stream()
+                        .filter(CancelledSuite::byTeamCity).map(CancelledSuite::suite)
+                        .filter(x -> x != null && !x.isBlank()).distinct()
+                        .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s) && !brokenSuites.contains(s))
+                        .toList();
+                    List<String> suites = java.util.stream.Stream.of(blockerSuites, watchSuites, brokenSuites,
+                        cancelledSuites).flatMap(List::stream).toList();
+                    String what = suitesLabel(blockerSuites.size(), watchSuites.size(), brokenSuites.size(),
+                        cancelledSuites.size());
                     if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
                         // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
                         retries.put(pr.number(), new Retry(buildId, MAX_RERUNS, what, List.of(),
@@ -952,8 +963,8 @@ public class StandingVisas implements SnapshotCache {
         return b.append(".").toString();
     }
 
-    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 1 watch + 3 broken suite(s)"}. */
-    private static String suitesLabel(int blockers, int watch, int broken) {
+    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 1 watch + 3 broken + 4 cancelled suite(s)"}. */
+    private static String suitesLabel(int blockers, int watch, int broken, int cancelled) {
         List<String> parts = new ArrayList<>();
         if (blockers > 0)
             parts.add(blockers + " blocker");
@@ -961,6 +972,8 @@ public class StandingVisas implements SnapshotCache {
             parts.add(watch + " watch");
         if (broken > 0)
             parts.add(broken + " broken");
+        if (cancelled > 0)
+            parts.add(cancelled + " cancelled");
 
         return parts.isEmpty() ? "0 suite(s)" : String.join(" + ", parts) + " suite(s)";
     }

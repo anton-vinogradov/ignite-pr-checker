@@ -512,8 +512,9 @@
 
                 <div id="results" class="hidden">
                     <div id="interruptedBanner" class="card interrupted hidden">
-                        <h2>⚠ RunAll interrupted</h2>
+                        <h2>⚠ Suites that never ran</h2>
                         <p class="muted" id="interruptedText"></p>
+                        <ul id="cancelledSuites" class="tests"></ul>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
                         <h2>Broken suites <span id="brokenCount"></span> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
@@ -528,6 +529,13 @@
                             ran can't fail — a suite can look green while silently skipping coverage (a broken suite class, an excluded
                             package, a run that ended early). Intentional if this PR removes tests; otherwise re-run and check.</p>
                         <ul id="shrunkSuites" class="tests"></ul>
+                    </div>
+                    <div id="unstableCard" class="card hidden">
+                        <h2>Crashed near the end of the run <span id="unstableCount"></span></h2>
+                        <p class="muted">These suites hit a timeout, out-of-memory error or JVM crash, but only after running over 90% of
+                            master's tests. Every test they failed is pre-existing or flaky (see Filtered out), so the results of the
+                            tests they ran stand.</p>
+                        <ul id="unstableSuites" class="tests"></ul>
                     </div>
                     <div class="card blockers">
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
@@ -561,6 +569,12 @@
                             flake — the passes above them ran on other code. A re-run settles it: keep failing and they become
                             blockers, pass and they drop out.</p>
                         <ul id="watch" class="tests"></ul>
+                    </div>
+                    <div id="unverifiedCard" class="card watch hidden">
+                        <h2>Could not be checked <span id="unverifiedCount"></span></h2>
+                        <p class="muted">These tests failed, but TeamCity errors kept them from being compared with master and the
+                            branch. They are not counted as blockers, and the checker tries them again on its own.</p>
+                        <ul id="unverified" class="tests"></ul>
                     </div>
                     <div class="card">
                         <details>
@@ -1002,6 +1016,33 @@
             wireSuiteAi(el);
         }
 
+        // Suites the chain never ran. Those TeamCity cancelled by itself get rows with re-run buttons (the
+        // auto re-run takes them too), and so do those TeamCity said nothing about; those a person
+        // cancelled were meant not to run, so they fold into one line per person.
+        function renderCancelled(el, suites) {
+            const rows = suites.filter(s => !s.cancelledBy).map(s => {
+                const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
+                const head = esc(s.suiteName || s.suite)
+                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+                const btns = s.suite
+                    ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                        + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
+                    : '';
+                return `<li><div class="suite-head"><span class="suite-name">${head}`
+                    + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
+                    + `<div class="reason">cancelled${s.byTeamCity ? ' by TeamCity' : ''}${s.reason ? ': ' + esc(s.reason) : ''}</div></li>`;
+            });
+            const byPerson = new Map();
+            for (const s of suites.filter(s => s.cancelledBy))
+                byPerson.set(s.cancelledBy, [...(byPerson.get(s.cancelledBy) || []), s.suiteName || s.suite]);
+            for (const [who, names] of byPerson)
+                rows.push(`<li><details><summary>${names.length} suite${names.length === 1 ? '' : 's'} cancelled by ${esc(who)}</summary>`
+                    + `<div class="reason">${names.map(esc).join(', ')}</div></details></li>`);
+            el.innerHTML = rows.join('');
+            for (const b of el.querySelectorAll('.suite-rerun'))
+                b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+        }
+
         // Suites that ran far fewer tests than master — each with its counts and a re-run button.
         function renderShrunk(el, suites) {
             el.innerHTML = suites.map(s => {
@@ -1276,12 +1317,12 @@
                 const buildLink = tcBase
                     ? ` <a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open the interrupted RunAll build in TeamCity">TC</a>`
                     : '';
-                $('interruptedText').innerHTML = `This PR's latest RunAll <b>aborted before finishing</b>${buildLink} — `
-                    + `${broken.length} suite${broken.length === 1 ? '' : 's'} failed and `
-                    + `${res.canceledSuites} never ran (cancelled by the interruption). `
-                    + `The verdict below is <b>partial</b> — the cancelled suites weren't tested. `
-                    + `Re-run RunAll once the failing suites are fixed.`;
+                const one = res.canceledSuites === 1;
+                $('interruptedText').innerHTML = `${res.canceledSuites} suite${one ? '' : 's'} of this RunAll${buildLink} `
+                    + `${one ? 'was' : 'were'} cancelled and never ran. The verdict below is <b>partial</b>: it says nothing about them. `
+                    + `A finished re-run of a suite takes it off this list.`;
             }
+            renderCancelled($('cancelledSuites'), interrupted ? res.cancelledSuites || [] : []);
             $('brokenCard').classList.toggle('hidden', broken.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
             renderBroken($('brokenSuites'), broken);
@@ -1289,14 +1330,22 @@
             $('shrunkCard').classList.toggle('hidden', shrunk.length === 0);
             $('shrunkCount').textContent = shrunk.length ? `(${shrunk.length})` : '';
             renderShrunk($('shrunkSuites'), shrunk);
+            const unstable = res.unstableSuites || [];
+            $('unstableCard').classList.toggle('hidden', unstable.length === 0);
+            $('unstableCount').textContent = unstable.length ? `(${unstable.length})` : '';
+            renderBroken($('unstableSuites'), unstable);
             $('watchCard').classList.toggle('hidden', watch.length === 0);
             $('watchCount').textContent = watch.length ? countLabel(watch) : '';
             renderList($('watch'), watch, false, true);
+            const unverified = res.unverified || [];
+            $('unverifiedCard').classList.toggle('hidden', unverified.length === 0);
+            $('unverifiedCount').textContent = unverified.length ? countLabel(unverified) : '';
+            renderList($('unverified'), unverified, true, true);
             renderList($('blockers'), res.blockers, false, true);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden',
-                res.blockers.length > 0 || broken.length > 0 || watch.length > 0 || shrunk.length > 0);
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0
+                || shrunk.length > 0 || unverified.length > 0);
             $('results').classList.remove('hidden');
             wireSectActs('brokenActs', suitesOfBroken(broken));
             wireSectActs('shrunkActs', suitesOfBroken(shrunk));
@@ -1332,6 +1381,9 @@
             const shrunk = (res.shrunkSuites || []).length;
             if (shrunk)
                 out.push(`${shrunk} suite${shrunk === 1 ? '' : 's'} ran far fewer tests than on master`);
+            const unverified = (res.unverified || []).length;
+            if (unverified)
+                out.push(`${unverified} failed test${unverified === 1 ? '' : 's'} could not be checked (TeamCity errors)`);
             if (res.live)
                 out.push('a newer run is still going — its unfinished suites can still fail');
             if (ahead > 0)

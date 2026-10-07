@@ -39,6 +39,46 @@ public record AnalysisResult(
      * makes the verdict wrong without changing the chain build id, so the warmer asks TeamCity whether
      * anything finished after this rather than trusting "same chain, same answer". 0 when unknown.
      */
-    long branchWatermarkAt
+    long branchWatermarkAt,
+    /**
+     * Suites that hit a timeout, an out-of-memory error or a JVM crash, yet ran over 90% of master's tests, and
+     * failed only tests that are pre-existing or flaky: their results stand, so the problem is a note,
+     * not a broken suite.
+     */
+    List<BrokenSuite> unstableSuites,
+    /**
+     * The chain's suites that were cancelled and have not run on the branch since; {@code canceledSuites}
+     * counts them, and {@code interrupted} holds while there are any.
+     */
+    List<CancelledSuite> cancelledSuites,
+    /**
+     * Failed tests TeamCity errors kept from being checked: not blockers, not filtered, only known to
+     * have failed. Each carries the error as its reason.
+     */
+    List<TestVerdict> unverified,
+    /**
+     * Epoch ms since when the computes of this build keep missing TeamCity lookups (unchecked tests, or
+     * a suite whose newer runs could not be read); 0 when this one missed none. Such a result is retried
+     * on its own, and held back from actions for a while.
+     */
+    long incompleteSince
 ) {
+    public AnalysisResult {
+        unstableSuites = unstableSuites == null ? List.of() : unstableSuites;
+        cancelledSuites = cancelledSuites == null ? List.of() : cancelledSuites;
+        unverified = unverified == null ? List.of() : unverified;
+    }
+
+    /**
+     * A complete result with no unstable, listed cancelled or unchecked parts, in the shape callers used
+     * before those were tracked.
+     */
+    public AnalysisResult(int prNumber, long buildId, String branchName, long computedAt, List<TestVerdict> blockers,
+        List<TestVerdict> watch, List<TestVerdict> filtered, List<BrokenSuite> brokenSuites,
+        List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
+        boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt, long branchWatermarkAt) {
+        this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
+            suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
+            branchWatermarkAt, List.of(), List.of(), List.of(), 0);
+    }
 }

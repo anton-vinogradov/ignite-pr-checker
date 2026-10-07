@@ -41,8 +41,26 @@ public final class TcModel {
         @JsonProperty("running-info") RunningInfo runningInfo,
         ProblemOccurrences problemOccurrences,
         Revisions revisions,
-        TestOccurrences testOccurrences
+        TestOccurrences testOccurrences,
+        CanceledInfo canceledInfo
     ) {
+        /** A build without its cancellation, in the shape callers used before it was read. */
+        public Build(long id, String status, String state, String branchName, String buildTypeId, String webUrl,
+            String queuedDate, String startDate, String finishDate, String startEstimate, String finishEstimate,
+            BuildType buildType, Triggered triggered, SnapshotDeps snapshotDependencies, RunningInfo runningInfo,
+            ProblemOccurrences problemOccurrences, Revisions revisions, TestOccurrences testOccurrences) {
+            this(id, status, state, branchName, buildTypeId, webUrl, queuedDate, startDate, finishDate, startEstimate,
+                finishEstimate, buildType, triggered, snapshotDependencies, runningInfo, problemOccurrences, revisions,
+                testOccurrences, null);
+        }
+    }
+
+    /**
+     * Why and by whom a build was cancelled. {@code user} is absent when TeamCity cancelled it by itself,
+     * e.g. with "Build revision not found".
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CanceledInfo(String text, User user) {
     }
 
     /** The VCS revision(s) a build was run on. */

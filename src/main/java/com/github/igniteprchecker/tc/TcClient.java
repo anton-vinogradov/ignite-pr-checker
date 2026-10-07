@@ -196,6 +196,23 @@ public class TcClient {
     }
 
     /**
+     * The PR branch's finished, not cancelled builds of any kind that started since the given TeamCity time,
+     * or the newest ones when it is null, with their test counts: what may have run a suite a chain left
+     * unrun since, and whether it ran in full. One call for all its suites; a chain and its re-runs fit well
+     * within the count.
+     */
+    public List<TcModel.Build> finishedBuildsSince(String token, int prNumber, String since) {
+        String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:false"
+            + (since == null ? "" : ",sinceDate:" + since) + ",count:1000";
+
+        TcModel.BuildList list = get("branchRuns", token, url("app/rest/builds", query(
+            "locator", locator, "fields", "build(id,buildTypeId,status,testOccurrences(count))")),
+            TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
      * Every RunAll chain running right now, across all branches, in one call — with who started it
      * and what {@link RerunTracker#record} needs to watch it. {@code branch:(default:any)} is spelled
      * out so the answer never depends on TeamCity's default-branch filter.
@@ -216,7 +233,7 @@ public class TcClient {
      * with the same fields, so the same suite rules see the same facts about both.
      */
     private static final String SUITE_FIELDS = "id,buildTypeId,status,state,queuedDate,buildType(name),"
-        + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details))";
+        + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details)),canceledInfo(text,user(username))";
 
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {

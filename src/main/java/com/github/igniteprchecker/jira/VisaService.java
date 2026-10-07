@@ -89,6 +89,17 @@ public class VisaService {
             b.append('\n');
         }
 
+        if (!r.unverified().isEmpty()) {
+            b.append("❔ **").append(r.unverified().size()).append(" failed test(s) could not be checked** — ")
+                .append("TeamCity errors kept them from being compared with master and the branch; not counted as ")
+                .append("blockers.\n");
+            r.unverified().stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": `").append(t.name()).append("`\n"));
+            if (r.unverified().size() > 10)
+                b.append("… and ").append(r.unverified().size() - 10).append(" more\n");
+            b.append('\n');
+        }
+
         if (blockers.isEmpty() && !watch.isEmpty())
             b.append("⚠️ **No proven blocker yet** — this is not an all-clear: see the tests above. ")
                 .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
@@ -169,6 +180,17 @@ public class VisaService {
                 b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
             if (watch.size() > 10)
                 b.append("… and ").append(watch.size() - 10).append(" more\n");
+            b.append('\n');
+        }
+
+        if (!r.unverified().isEmpty()) {
+            b.append("(?) *").append(r.unverified().size()).append(" failed test(s) could not be checked* — ")
+                .append("TeamCity errors kept them from being compared with master and the branch; not counted as ")
+                .append("blockers.\n");
+            r.unverified().stream().limit(10).forEach(t ->
+                b.append("- ").append(t.suiteName()).append(": {{").append(t.name()).append("}}\n"));
+            if (r.unverified().size() > 10)
+                b.append("… and ").append(r.unverified().size() - 10).append(" more\n");
             b.append('\n');
         }
 
