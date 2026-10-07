@@ -2,6 +2,10 @@ server:
   port: 8080
 
 spring:
+  servlet:
+    multipart:
+      # No endpoint takes uploads; parsing multipart bodies would only add attack surface.
+      enabled: false
   task:
     scheduling:
       pool:
