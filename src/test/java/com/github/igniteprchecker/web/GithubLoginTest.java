@@ -18,7 +18,6 @@ import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,8 +46,9 @@ class GithubLoginTest {
 
     @BeforeEach
     void enrolled() {
-        standing.change("nsamelchev", "tc-1", null, null, new StandingVisas.OptionChange(null, true, null, null));
-        standing.change("avinogradov", "tc-2", null, null, new StandingVisas.OptionChange(null, true, null, null));
+        standing.change("nsamelchev", "tc-1", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
+        standing.change("avinogradov", "tc-2", null, null,
+            new StandingVisas.OptionChange(null, true, null, null, null));
         when(github.canonicalLogin("nsamelchev")).thenReturn(Optional.of("NSAmelchev"));
         when(github.canonicalLogin("anton-vinogradov")).thenReturn(Optional.of("anton-vinogradov"));
         when(github.canonicalLogin("nsamelchevv")).thenReturn(Optional.empty());
@@ -59,9 +59,27 @@ class GithubLoginTest {
         ResponseEntity<?> res = link("nsamelchev", " @nsamelchev ");
 
         assertThat(res.getStatusCode().value()).isEqualTo(200);
-        assertThat(res.getBody()).isEqualTo(Map.of("login", "NSAmelchev"));
+        assertThat(res.getBody()).isInstanceOfSatisfying(StandingVisas.Settings.class, st -> {
+            assertThat(st.login()).isEqualTo("NSAmelchev");
+            assertThat(st.commands()).as("linking is how PR commands are switched on").isTrue();
+        });
         assertThat(standing.actorByGhLogin("NSAmelchev")).hasValueSatisfying(
             a -> assertThat(a.username()).isEqualTo("nsamelchev"));
+    }
+
+    /** Linking used to answer 412 until some other option was switched on. */
+    @Test
+    void linkingALoginIsAllPrCommandsNeed() {
+        when(github.canonicalLogin("newcomer")).thenReturn(Optional.of("Newcomer"));
+
+        ResponseEntity<?> res = controller.saveGithubLogin(new JiraController.TokenRequest("newcomer"), "tc-3",
+            "newcomer");
+
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(standing.settings("newcomer")).isEqualTo(new StandingVisas.Settings(false, false, false, false,
+            true, "Newcomer", false, false, false, false, false));
+        assertThat(standing.actorByGhLogin("Newcomer"))
+            .hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("tc-3"));
     }
 
     @Test
@@ -75,7 +93,7 @@ class GithubLoginTest {
     /** Linked before logins were checked: stored as typed, in another case than GitHub's. */
     @Test
     void aLoginLinkedInAnotherCaseStillMatchesAndIsPutRight() {
-        standing.setGhLogin("nsamelchev", "nsamelchev");
+        standing.linkGhLogin("nsamelchev", "tc-1", "nsamelchev");
 
         assertThat(standing.actorByGhLogin("NSAmelchev")).isPresent();
         assertThat(standing.ghLoginOf("nsamelchev")).isEqualTo("NSAmelchev");
@@ -86,7 +104,8 @@ class GithubLoginTest {
         link("nsamelchev", "anton-vinogradov");
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
 
-        standing.change("avinogradov", "tc-2", null, "gh-pat", new StandingVisas.OptionChange(null, null, true, null));
+        standing.change("avinogradov", "tc-2", null, "gh-pat",
+            new StandingVisas.OptionChange(null, null, true, null, null));
 
         assertThat(standing.actorByGhLogin("anton-vinogradov")).hasValueSatisfying(
             a -> assertThat(a.username()).isEqualTo("avinogradov"));
@@ -97,7 +116,8 @@ class GithubLoginTest {
     @Test
     void aTypedLoginCannotReplaceTheOneATokenProves() {
         when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
-        standing.change("avinogradov", "tc-2", null, "gh-pat", new StandingVisas.OptionChange(null, null, true, null));
+        standing.change("avinogradov", "tc-2", null, "gh-pat",
+            new StandingVisas.OptionChange(null, null, true, null, null));
 
         ResponseEntity<?> res = link("avinogradov", "nsamelchev");
 
@@ -106,6 +126,6 @@ class GithubLoginTest {
     }
 
     private ResponseEntity<?> link(String username, String typed) {
-        return controller.saveGithubLogin(new JiraController.TokenRequest(typed), username);
+        return controller.saveGithubLogin(new JiraController.TokenRequest(typed), "tc", username);
     }
 }

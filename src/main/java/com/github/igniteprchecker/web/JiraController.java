@@ -87,22 +87,24 @@ public class JiraController {
     }
 
     /**
-     * Changes the standing options named in the request and nothing else; a 412 names the token the
-     * change needs ({@code need}: jira or github). Answers with the whole state, like the GET.
+     * Changes the standing options named in the request and nothing else; a 412 names what the change
+     * needs ({@code need}: jira, github or login). Answers with the whole state, like the GET.
      */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
         @RequestParam(required = false) Boolean rerun,
         @RequestParam(required = false) Boolean gh,
         @RequestParam(required = false) Boolean style,
+        @RequestParam(required = false) Boolean commands,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
         @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
         Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
-            new StandingVisas.OptionChange(visa, rerun, gh, style));
+            new StandingVisas.OptionChange(visa, rerun, gh, style, commands));
         if (refused.isPresent())
-            return ResponseEntity.status(412).body(Map.of("error", refused.get().error(), "need", refused.get().need()));
+            return ResponseEntity.status(412)
+                .body(Map.of("error", refused.get().error(), "need", refused.get().need()));
 
         return ResponseEntity.ok(standing.settings(username));
     }
@@ -114,11 +116,12 @@ public class JiraController {
     }
 
     /**
-     * Links a GitHub login by hand — the no-PAT way into PR commands (needs an enrollment to attach
-     * to). The login is stored the way GitHub spells it, and only if GitHub knows such a user.
+     * Links a GitHub login and switches PR commands on. The login is stored the way GitHub spells it,
+     * and only if GitHub knows such a user. Answers with the whole settings state.
      */
     @PostMapping("/github-login")
     public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         String typed = req.token() == null ? "" : req.token().strip().replaceFirst("^@", "");
         if (typed.isBlank())
@@ -129,20 +132,19 @@ public class JiraController {
             login = github.canonicalLogin(typed);
         }
         catch (RuntimeException e) {
-            return ResponseEntity.status(502).body(Map.of("error", "GitHub could not be asked — try again in a minute"));
+            return ResponseEntity.status(502)
+                .body(Map.of("error", "GitHub could not be asked — try again in a minute"));
         }
         if (login.isEmpty())
             return ResponseEntity.status(404).body(Map.of("error", "no such GitHub user: " + typed));
 
-        return switch (standing.setGhLogin(username, login.get())) {
+        return switch (standing.linkGhLogin(username, tcToken, login.get())) {
             case "taken" -> ResponseEntity.status(409).body(Map.of("error", "@" + login.get() + " is linked to another"
                 + " checker user. If the account is yours, switch on \"Comment my runs' verdicts\" with your GitHub"
                 + " token: the token proves the account and takes the login over."));
             case "token" -> ResponseEntity.status(409).body(Map.of("error",
                 "your login comes from your GitHub token: @" + standing.ghLoginOf(username)));
-            case "none" -> ResponseEntity.status(412).body(Map.of("error",
-                "switch on at least one standing option first — the checker needs your TeamCity token stored"));
-            default -> ResponseEntity.ok(Map.of("login", standing.ghLoginOf(username)));
+            default -> ResponseEntity.ok(standing.settings(username));
         };
     }
 

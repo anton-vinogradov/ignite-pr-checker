@@ -46,11 +46,8 @@
         .settings-panel { max-width: 820px; margin: 0.6rem 1rem 0 auto; padding: 0.9rem 1.1rem; font-size: 0.85rem; }
         .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; }
         .settings-row input { margin: 0.2rem 0 0 0; width: 16px; height: 16px; flex: none; }
-        #settingsMsg:not(:empty), #settingsGh, #settingsJira { margin-left: calc(16px + 0.6rem); }
+        #settingsMsg:not(:empty), #settingsGh, #settingsJira, #settingsLogin { margin-left: calc(16px + 0.6rem); }
         #settingsMsg:not(:empty) { margin-top: 0.5rem; }
-        .settings-cmds { margin: 0.25rem 0 0 calc(16px + 0.6rem); color: var(--muted); font-size: 0.85rem; }
-        .settings-cmds summary { cursor: pointer; }
-        .settings-cmds ul { margin: 0.3rem 0; padding-left: 1.2rem; }
 
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
         #logout:hover { border-color: #c0c0c0; }
@@ -378,32 +375,28 @@
             <input id="ghCommentToggle" type="checkbox">
             <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes
                 (and settles, if auto re-run is on), post the verdict as a comment on the pull request,
-                from my own GitHub account. Also lets me drive runs right from the PR, in comments.<br>
+                from my own GitHub account.<br>
                 <span class="muted">Requires a GitHub personal access token with the <code>public_repo</code>
                 scope; it is stored encrypted at rest while this is on.</span>
                 <span id="ghSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
-        <details class="settings-cmds">
-            <summary>PR commands: <code>/run-all</code> · <code>/run-all top</code> · <code>/top</code></summary>
-            <ul>
-                <li><code>/run-all</code> (or <code>/runall</code>) — queue the whole RunAll chain, under my own
-                    TeamCity token;</li>
-                <li><code>/run-all top</code> — the same, entering the build queue at the top;</li>
-                <li><code>/top</code> — move the run my command started to the top of the queue (while it is
-                    still queued). Nobody else's builds are ever touched.</li>
-            </ul>
-            <span class="row" style="margin: 0.3rem 0 0.4rem">
-                Commands need my GitHub login. With the option above ON it's taken from the token; without a
-                token, link it here:&nbsp;
+        <label class="settings-row" style="margin-top: 0.5rem">
+            <input id="commandsToggle" type="checkbox">
+            <span><b>PR commands</b> — comment on any pull request: <code>/run-all</code> (or <code>/runall</code>)
+                queues the whole RunAll chain under my TeamCity account, <code>/run-all top</code> queues it at the
+                top, <code>/top</code> moves the run my command started to the top while it still waits. Picked up
+                within a minute; 🚀 = accepted, 😕 = refused, and the command comment then narrates the run.<br>
+                <span class="muted">Needs my GitHub login; stores only that and my TeamCity token (encrypted). With
+                the GitHub comment option on, acks and the live status come from my own GitHub account.</span></span>
+        </label>
+        <div id="settingsLogin" class="hidden" style="margin-top: 0.4rem">
+            <span class="row">
+                GitHub login:&nbsp;
                 <input id="ghLoginInput" type="text" placeholder="GitHub login" style="max-width: 160px" />
                 <button id="ghLoginSave" class="act" type="button">Link</button>
                 <span id="ghLoginMsg" class="muted"></span>
             </span>
-            Ack: 🚀 reaction = accepted, 😕 = refused or nothing to act on. The TC link and a live
-            "~1h 23m remaining — ≈ 21:05 MSK" line (in my JIRA-profile timezone) are edited into the command
-            comment itself; the verdict is one living comment that updates through the auto re-runs — two
-            messages per run, total. Commands are picked up within a minute, on any pull request.
-        </details>
+        </div>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="styleFixToggle" type="checkbox">
             <span><b>Auto-fix checkstyle on my runs</b> — when I command a run on my own PR and the changed
@@ -440,6 +433,12 @@
                 auto-visa was switched off. Paste a fresh one above and switch it back on.</p>
         </div>
         <div id="settingsMsg" class="muted"></div>
+    </div>
+
+    <div id="cmdHint" class="card settings-panel hidden">
+        Start RunAll from a pull request: switch on <b>PR commands</b> in ⚙ and comment <code>/run-all</code>.
+        <button id="cmdHintOpen" class="act" type="button">Open ⚙</button>
+        <button id="cmdHintClose" class="act" type="button" aria-label="Dismiss">✕</button>
     </div>
 
     <div class="content">
@@ -918,6 +917,7 @@
                     canAdmin = !!admin;
                     checkUpdate();
                     await enterApp(username);
+                    offerCommands();
                 } else {
                     const { error } = await r.json().catch(() => ({ error: 'login failed' }));
                     $('loginErr').textContent = error || 'login failed';
@@ -1944,8 +1944,8 @@
 
         // Settings ⚙: the panel shows what the server has and changes only the switch that was clicked.
         const OPTION_TOGGLES = { visa: 'standingVisaToggle', rerun: 'autoRerunToggle', gh: 'ghCommentToggle',
-            style: 'styleFixToggle' };
-        const OPTION_NEEDS = { visa: 'jira', gh: 'github', style: 'github' };
+            style: 'styleFixToggle', commands: 'commandsToggle' };
+        const OPTION_NEEDS = { visa: 'jira', gh: 'github', style: 'github', commands: 'login' };
         let standingSettings = null; // the server's last answer
         let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
 
@@ -1983,7 +1983,13 @@
             $('visaSaved').classList.toggle('hidden', !(st.visa && st.jiraStored && !hasJira));
             $('ghSaved').classList.toggle('hidden', !(st.gh && st.ghStored && !hasGithub));
             $('styleSaved').classList.toggle('hidden', !(st.style && st.ghStored && !hasGithub));
-            if (st.login) $('ghLoginInput').value = st.login;
+            // A login that comes from the GitHub token is proven by it; a typed one could not replace it.
+            const proven = !!(st.login && st.ghStored);
+            $('ghLoginInput').value = st.login || '';
+            $('ghLoginInput').readOnly = proven;
+            $('ghLoginSave').classList.toggle('hidden', proven);
+            $('ghLoginMsg').textContent = proven ? 'from your GitHub token' : '';
+            $('settingsLogin').classList.toggle('hidden', !st.commands && pendingOption !== 'commands');
             showTokenNotes(st);
         }
 
@@ -1999,12 +2005,17 @@
 
         function tokenAvailable(need) {
             const st = standingSettings || {};
+            if (need === 'login') return !!st.login;
             return need === 'jira' ? hasJira || !!st.jiraStored : need === 'github' ? hasGithub || !!st.ghStored : true;
         }
 
         async function askForToken(need, option) {
             pendingOption = option;
-            if (need === 'jira') {
+            if (need === 'login') {
+                $('settingsLogin').classList.remove('hidden');
+                $('ghLoginMsg').textContent = 'enter your GitHub login and press Link';
+                $('ghLoginInput').focus();
+            } else if (need === 'jira') {
                 $('settingsJira').classList.remove('hidden');
                 try {
                     const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {});
@@ -2032,9 +2043,10 @@
                 const res = await r.json().catch(() => ({}));
                 if (r.status === 412) {
                     toggle.checked = !on;
-                    if (res.need === 'github') hasGithub = false; else hasJira = false;
+                    if (res.need === 'github') hasGithub = false;
+                    else if (res.need === 'jira') hasJira = false;
                     msg.textContent = res.error || '';
-                    return askForToken(res.need === 'github' ? 'github' : 'jira', name);
+                    return askForToken(res.need, name);
                 }
                 if (!r.ok) {
                     toggle.checked = !on;
@@ -2043,7 +2055,7 @@
                 }
                 renderSettings(res);
                 const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
-                    res.style && 'checkstyle autofix'].filter(Boolean);
+                    res.style && 'checkstyle autofix', res.commands && 'PR commands'].filter(Boolean);
                 msg.textContent = active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.';
             } catch (e) {
                 toggle.checked = !on;
@@ -2089,24 +2101,42 @@
             }
         };
 
+        // Linking the login is what switches PR commands on.
         $('ghLoginSave').onclick = async () => {
             const input = $('ghLoginInput'), m = $('ghLoginMsg');
             const login = input.value.trim();
             if (!login) { m.textContent = 'enter the login first'; return; }
-            m.textContent = 'saving…';
+            m.textContent = 'checking with GitHub…';
             try {
                 const r = await api('/api/github-login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ token: login })
                 });
+                if (r.status === 401) { show('login'); return; }
                 const res = await r.json().catch(() => ({}));
-                if (r.ok) input.value = res.login;
-                m.textContent = r.ok ? 'linked as @' + res.login : (res.error || 'could not link');
+                if (!r.ok) { m.textContent = res.error || 'could not link'; return; }
+                pendingOption = null;
+                renderSettings(res);
+                m.textContent = '';
+                $('settingsMsg').textContent = 'Linked as @' + res.login + ' — PR commands are on.';
             } catch (e) {
                 m.textContent = 'could not reach the service — try again';
             }
         };
+
+        // Right after a login, point at PR commands once if they are off: few people open ⚙ on their own.
+        async function offerCommands() {
+            try {
+                const r = await api('/api/auto-visa-all');
+                if (r.ok && !(await r.json()).commands) $('cmdHint').classList.remove('hidden');
+            } catch (e) { /* only a hint */ }
+        }
+        $('cmdHintOpen').onclick = () => {
+            $('cmdHint').classList.add('hidden');
+            if ($('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
+        };
+        $('cmdHintClose').onclick = () => $('cmdHint').classList.add('hidden');
 
         $('settingsGhSave').onclick = async () => {
             const input = $('settingsGhToken'), m = $('settingsGhMsg');

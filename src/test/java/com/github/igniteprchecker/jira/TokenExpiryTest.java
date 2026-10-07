@@ -40,7 +40,7 @@ class TokenExpiryTest {
         when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
         when(jira.myself(anyString())).thenReturn(Optional.of(USER));
         when(jira.myTimezone(anyString())).thenReturn(Optional.of("Europe/Moscow"));
-        standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, true));
+        standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, true, null));
     }
 
     @Test
@@ -73,7 +73,7 @@ class TokenExpiryTest {
         enrolWithEverything();
         standing.dropGhToken(USER);
 
-        standing.change(USER, "tc", null, "fresh-gh-pat", new StandingVisas.OptionChange(null, null, true, null));
+        standing.change(USER, "tc", null, "fresh-gh-pat", new StandingVisas.OptionChange(null, null, true, null, null));
 
         assertThat(standing.ghTokenRejected(USER)).isFalse();
         assertThat(standing.ghOn(USER)).isTrue();
@@ -100,12 +100,13 @@ class TokenExpiryTest {
 
     @Test
     void aTokenGithubCannotNameIsNotStoredAndCostsNoLogin() {
-        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(null, true, null, null));
-        standing.setGhLogin(USER, "anton-vinogradov");
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
+        standing.linkGhLogin(USER, "tc", "anton-vinogradov");
         when(github.ghUser(anyString())).thenReturn(Optional.empty()); // expired PAT from the session
 
         Optional<StandingVisas.Refusal> refused =
-            standing.change(USER, "tc", null, "dead-gh-pat", new StandingVisas.OptionChange(null, null, true, null));
+            standing.change(USER, "tc", null, "dead-gh-pat",
+                new StandingVisas.OptionChange(null, null, true, null, null));
 
         assertThat(refused).hasValueSatisfying(r -> assertThat(r.need()).isEqualTo("github"));
         assertThat(standing.ghOn(USER)).isFalse();

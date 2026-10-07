@@ -71,6 +71,8 @@ class StandingSnapshotTest {
         assertThat(standing.ghTokenRejected("nsamelchev")).isTrue();
         assertThat(standing.ghLoginOf("nsamelchev")).isEqualTo("NSAmelchev");
         assertThat(standing.visaOn("oldtimer")).as("written before the visa became optional").isTrue();
+        assertThat(standing.commandsOn("nsamelchev")).as("a linked login was all commands needed").isTrue();
+        assertThat(standing.commandsOn("oldtimer")).isFalse();
 
         Path saved = dir.resolve("saved.json");
         standing.saveTo(saved);
@@ -125,10 +127,10 @@ class StandingSnapshotTest {
         });
 
         Thread save = new Thread(() -> standing.change("oldtimer", "tc-oldtimer", "jira-pat", null,
-            new StandingVisas.OptionChange(true, true, false, false)));
+            new StandingVisas.OptionChange(true, true, false, false, null)));
         save.start();
         assertThat(asked.await(10, TimeUnit.SECONDS)).isTrue();
-        standing.setGhLogin("oldtimer", "old-timer");
+        standing.linkGhLogin("oldtimer", "tc-oldtimer", "old-timer");
         linked.countDown();
         save.join(10_000);
 

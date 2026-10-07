@@ -63,8 +63,8 @@ class StandingSettingsTest {
     void aClickChangesOnlyItsOwnSwitchAndKeepsTheSavedTokens() {
         ResponseEntity<?> res = post(null, false, null, null, null, null);
 
-        assertThat(res.getBody()).isEqualTo(new StandingVisas.Settings(true, false, true, true, "anton-vinogradov",
-            true, true, false, false, false));
+        assertThat(res.getBody()).isEqualTo(new StandingVisas.Settings(true, false, true, true, false,
+            "anton-vinogradov", true, true, false, false, false));
     }
 
     @Test
@@ -98,8 +98,26 @@ class StandingSettingsTest {
 
         assertThat(res.getStatusCode().value()).isEqualTo(412);
         assertThat(((Map<?, ?>)res.getBody()).get("need")).isEqualTo("jira");
-        assertThat(standing.settings(USER)).isEqualTo(new StandingVisas.Settings(false, true, true, true,
+        assertThat(standing.settings(USER)).isEqualTo(new StandingVisas.Settings(false, true, true, true, false,
             "anton-vinogradov", false, true, false, false, false));
+    }
+
+    @Test
+    void prCommandsTakeTheLoginTheGithubTokenProves() {
+        ResponseEntity<?> res = post(null, null, null, null, null, null, true);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(standing.commandsOn(USER)).isTrue();
+    }
+
+    @Test
+    void prCommandsWithoutAnyLoginAskForOne() {
+        ResponseEntity<?> res = controller.standingVisa(null, null, null, null, true, "tc-new", "newcomer", null,
+            null);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(412);
+        assertThat(((Map<?, ?>)res.getBody()).get("need")).isEqualTo("login");
+        assertThat(standing.settings("newcomer").commands()).isFalse();
     }
 
     @Test
@@ -108,12 +126,17 @@ class StandingSettingsTest {
 
         assertThat(st.jiraStored()).isTrue();
         assertThat(st.ghStored()).isTrue();
-        assertThat(mapper.convertValue(st, Map.class)).containsKeys("visa", "rerun", "gh", "style", "login",
+        assertThat(mapper.convertValue(st, Map.class)).containsKeys("visa", "rerun", "gh", "style", "commands", "login",
             "jiraStored", "ghStored", "ghTokenRejected", "jiraTokenRejected", "tcTokenRejected");
     }
 
     private ResponseEntity<?> post(Boolean visa, Boolean rerun, Boolean gh, Boolean style, String jiraToken,
         String ghToken) {
-        return controller.standingVisa(visa, rerun, gh, style, "tc", USER, jiraToken, ghToken);
+        return post(visa, rerun, gh, style, jiraToken, ghToken, null);
+    }
+
+    private ResponseEntity<?> post(Boolean visa, Boolean rerun, Boolean gh, Boolean style, String jiraToken,
+        String ghToken, Boolean commands) {
+        return controller.standingVisa(visa, rerun, gh, style, commands, "tc", USER, jiraToken, ghToken);
     }
 }

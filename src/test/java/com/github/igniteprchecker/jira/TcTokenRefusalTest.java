@@ -64,8 +64,8 @@ class TcTokenRefusalTest {
 
     @BeforeEach
     void setUp() {
-        standing.change(DEAD, "dead-tc", null, null, new StandingVisas.OptionChange(false, true, false, false));
-        standing.change(LIVE, "live-tc", null, null, new StandingVisas.OptionChange(false, true, false, false));
+        standing.change(DEAD, "dead-tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
+        standing.change(LIVE, "live-tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28867 Hot reload of SSL certificates",
             null, null, null, null)));
         when(tc.runningRunAllChains("dead-tc")).thenThrow(refused());

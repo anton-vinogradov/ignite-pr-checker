@@ -175,6 +175,9 @@ public class StandingVisas implements SnapshotCache {
         else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style()))
             ghCred = Credential.NONE;
 
+        if (after.commands() && login == null && (prev == null || prev.ghLogin() == null))
+            return Optional.of(new Refusal("login", "link your GitHub login to use PR commands"));
+
         Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
         Credential jiraNext = jiraCred;
         Credential ghNext = ghCred;
@@ -213,20 +216,23 @@ public class StandingVisas implements SnapshotCache {
     public Settings settings(String username) {
         Enrollment e = enrolled.get(username);
         if (e == null)
-            return new Settings(false, false, false, false, null, false, false, false, false, false);
+            return new Settings(false, false, false, false, false, null, false, false, false, false, false);
 
         Options o = e.options();
 
-        return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.ghLogin(),
+        return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
             e.tc().rejected());
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
-    public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style) {
+    public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands) {
     }
 
-    /** Why a settings change was not made: the token it {@code need}s ("jira" or "github") and what is wrong. */
+    /**
+     * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, or the GitHub
+     * "login") and what is wrong.
+     */
     public record Refusal(String need, String error) {
     }
 
@@ -234,7 +240,7 @@ public class StandingVisas implements SnapshotCache {
      * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
      * so the options run whether or not this browser's session carries it.
      */
-    public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, String login,
+    public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
         boolean tcTokenRejected) {
     }
@@ -445,24 +451,33 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Links a GitHub login, as GitHub spells it, to the user's enrollment by hand — the no-PAT way
-     * into PR commands. Returns "ok", "taken" (someone else holds it), "token" (the user's login comes
-     * from their GitHub token, which proves it, so a typed one cannot replace it) or "none" (no
-     * enrollment to attach to).
+     * Links a GitHub login, as GitHub spells it, and switches PR commands on — the login is all they
+     * need besides the TeamCity token, so no other option has to be on. Returns "ok", "taken"
+     * (someone else holds it) or "token" (the user's login comes from their GitHub token, which proves
+     * it, so a typed one cannot replace it).
      */
-    public String setGhLogin(String username, String login) {
+    public String linkGhLogin(String username, String tcToken, String login) {
         if (heldByAnother(login, username))
             return "taken";
 
-        String[] result = {"none"};
-        enrolled.computeIfPresent(username, (u, e) -> {
-            boolean fromToken = e.gh().token() != null && e.ghLogin() != null;
-            result[0] = fromToken && !login.equalsIgnoreCase(e.ghLogin()) ? "token" : "ok";
+        Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
+        long now = System.currentTimeMillis();
+        String[] result = {"ok"};
+        enrolled.compute(username, (u, cur) -> {
+            Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc).withEnabledAt(now);
+            boolean fromToken = base.gh().token() != null && base.ghLogin() != null;
+            if (fromToken && !login.equalsIgnoreCase(base.ghLogin())) {
+                result[0] = "token";
 
-            return result[0].equals("ok") && !fromToken ? e.withGhLogin(login) : e;
+                return cur;
+            }
+
+            return base.withTc(decrypt(base.tc()).filter(tcToken::equals).isPresent() ? base.tc() : sessionTc)
+                .withGhLogin(fromToken ? base.ghLogin() : login)
+                .withOptions(base.options().withCommands());
         });
         if (result[0].equals("ok"))
-            log.info("gh login for {} linked by hand: {}", username, login);
+            log.info("PR commands on for {} as GitHub user {}", username, login);
 
         return result[0];
     }
@@ -481,7 +496,8 @@ public class StandingVisas implements SnapshotCache {
             if (u.equals(owner) || !login.equalsIgnoreCase(e.ghLogin()))
                 return;
 
-            enrolled.computeIfPresent(u, (k, cur) -> login.equalsIgnoreCase(cur.ghLogin()) ? cur.withGhLogin(null) : cur);
+            enrolled.computeIfPresent(u,
+                (k, cur) -> login.equalsIgnoreCase(cur.ghLogin()) ? cur.withGhLogin(null) : cur);
             log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account", login, u, owner,
                 owner);
         });
@@ -494,9 +510,14 @@ public class StandingVisas implements SnapshotCache {
         return e == null ? null : e.ghLogin();
     }
 
-    /** Whether anyone can be addressed by a GitHub login — gates the PR command poll entirely. */
+    /** Whether anyone has PR commands on — gates the PR command poll entirely. */
     public boolean anyGhEnrolled() {
-        return enrolled.values().stream().anyMatch(e -> e.ghLogin() != null);
+        return enrolled.values().stream().anyMatch(e -> e.options().commands() && e.ghLogin() != null);
+    }
+
+    /** Whether the user's comments on pull requests are taken as commands. */
+    public boolean commandsOn(String username) {
+        return options(username).commands();
     }
 
     /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
@@ -1110,19 +1131,24 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /** The standing switches, independent of each other. */
-    private record Options(boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix) {
-        static final Options NONE = new Options(false, false, false, false);
+    private record Options(boolean autoVisa, boolean autoRerun, boolean ghComment, boolean styleFix,
+        boolean commands) {
+        static final Options NONE = new Options(false, false, false, false, false);
 
         Options apply(OptionChange c) {
             return new Options(c.visa() != null ? c.visa() : autoVisa, c.rerun() != null ? c.rerun() : autoRerun,
-                c.gh() != null ? c.gh() : ghComment, c.style() != null ? c.style() : styleFix);
+                c.gh() != null ? c.gh() : ghComment, c.style() != null ? c.style() : styleFix,
+                c.commands() != null ? c.commands() : commands);
         }
 
         boolean any() {
-            return autoVisa || autoRerun || ghComment || styleFix;
+            return autoVisa || autoRerun || ghComment || styleFix || commands;
         }
 
-        /** Whether an option that was off in {@code before} is on now. */
+        /**
+         * Whether an option that acts on finished runs was off in {@code before} and is on now. PR
+         * commands act on the commands only, so switching them on moves no cutoff.
+         */
         boolean switchedOnSince(Options before) {
             return autoVisa && !before.autoVisa || autoRerun && !before.autoRerun || ghComment && !before.ghComment
                 || styleFix && !before.styleFix;
@@ -1134,11 +1160,15 @@ public class StandingVisas implements SnapshotCache {
         }
 
         Options withoutGh() {
-            return new Options(autoVisa, autoRerun, false, false);
+            return new Options(autoVisa, autoRerun, false, false, commands);
         }
 
         Options withoutVisa() {
-            return new Options(false, autoRerun, ghComment, styleFix);
+            return new Options(false, autoRerun, ghComment, styleFix, commands);
+        }
+
+        Options withCommands() {
+            return new Options(autoVisa, autoRerun, ghComment, styleFix, true);
         }
     }
 
@@ -1338,7 +1368,7 @@ public class StandingVisas implements SnapshotCache {
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
-        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt) {
+        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -1346,10 +1376,13 @@ public class StandingVisas implements SnapshotCache {
             return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
-                e.tc().rejectedAt());
+                e.tc().rejectedAt(), o.commands());
         }
 
-        /** Missing fields are what the snapshots written before them meant. */
+        /**
+         * Missing fields are what the snapshots written before them meant: before the PR commands
+         * switch, a linked GitHub login was all commands needed.
+         */
         Enrollment enrollment() {
             Handled h = Handled.empty();
             if (posted != null)
@@ -1363,7 +1396,7 @@ public class StandingVisas implements SnapshotCache {
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
                 new Credential(ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz, enabledAt,
                 new Options(autoVisa == null || autoVisa, autoRerun, ghComment != null && ghComment,
-                    styleFix != null && styleFix), h);
+                    styleFix != null && styleFix, commands == null ? ghLogin != null : commands), h);
         }
     }
 }

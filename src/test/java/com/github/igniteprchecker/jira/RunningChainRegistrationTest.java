@@ -82,7 +82,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void aChainStartedFromTeamcityIsWatchedForEarlyReruns() {
-        standing.change(RERUNNER, "tc-token", null, null, new StandingVisas.OptionChange(false, true, false, false));
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
         runningChains = chains(chain(9389046, "pull/13335/head", RERUNNER));
 
         standing.sweep();
@@ -93,9 +94,10 @@ class RunningChainRegistrationTest {
 
     @Test
     void onlyChainsOfUsersWithAutoRerunOnArePickedUp() {
-        standing.change(RERUNNER, "tc-token", null, null, new StandingVisas.OptionChange(false, true, false, false));
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
         standing.change("visaOnly", "tc-token-2", null, null,
-            new StandingVisas.OptionChange(false, false, false, false));
+            new StandingVisas.OptionChange(false, false, false, false, null));
         runningChains = chains(
             chain(9389046, "pull/13335/head", RERUNNER),
             chain(9391271, "pull/13655/head", "visaOnly"),
@@ -114,7 +116,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void oneCallPerSweepListsRunningChainsOnEveryBranch() {
-        standing.change(RERUNNER, "tc-token", null, null, new StandingVisas.OptionChange(false, true, false, false));
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
 
         standing.sweep();
 
@@ -127,7 +130,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void withoutAutoRerunTheSweepAsksTeamcityNothingNew() {
-        standing.change(RERUNNER, "tc-token", null, null, new StandingVisas.OptionChange(false, false, false, false));
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, false, false, false, null));
 
         standing.sweep();
 
@@ -137,7 +141,8 @@ class RunningChainRegistrationTest {
 
     @Test
     void aTeamcityErrorDoesNotStopTheVisaSweep() {
-        standing.change(RERUNNER, "tc-token", null, null, new StandingVisas.OptionChange(false, true, false, false));
+        standing.change(RERUNNER, "tc-token", null, null,
+            new StandingVisas.OptionChange(false, true, false, false, null));
         status = 500;
 
         standing.sweep();
