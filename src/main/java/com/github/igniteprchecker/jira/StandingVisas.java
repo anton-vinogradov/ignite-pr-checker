@@ -772,6 +772,11 @@ public class StandingVisas implements SnapshotCache {
     }
 
     @Override
+    public boolean durable() {
+        return true;
+    }
+
+    @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
         enrolled.forEach((u, e) -> snap.add(new Persisted(u, e.tcToken(), e.jiraToken(), e.ghToken(), e.ghLogin(),

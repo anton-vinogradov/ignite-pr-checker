@@ -15,6 +15,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -319,15 +322,23 @@ public class GithubClient implements SnapshotCache {
 
     private volatile int starCount = -1;
 
-    private volatile long starTs;
-
     private volatile String releaseTag;
 
     private volatile long releaseTs;
 
     private volatile Map<String, Object> rateCache;
 
-    private volatile long rateTs;
+    /** When the last fetch of the stars and the rate limit ended, failed or not. */
+    private volatile long ownStatsTs;
+
+    private final AtomicBoolean ownStatsFetching = new AtomicBoolean();
+
+    /** The status page polls every few seconds and must not wait for GitHub, which may take a minute to give up. */
+    private final ExecutorService ownStatsFetch = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "github-own-stats");
+        t.setDaemon(true);
+        return t;
+    });
 
     private final Metrics metrics;
 
@@ -404,13 +415,42 @@ public class GithubClient implements SnapshotCache {
         return c == null ? 0 : c.size();
     }
 
-    /** Star count of this tool's own repo (cached ~1 min so it reflects new stars quickly); -1 if unavailable yet. */
+    /**
+     * Star count of this tool's own repo; -1 until the first fetch. Answers at once with the last known value and,
+     * when it is a minute old, fetches a fresh one in the background together with {@link #rateLimit()}.
+     */
     public int starCount() {
-        long now = System.currentTimeMillis();
-        int cached = starCount;
-        if (cached >= 0 && now - starTs < 60_000)
-            return cached;
+        refreshOwnStats();
 
+        return starCount;
+    }
+
+    /** GitHub API core rate limit for our IP/token: {@code {remaining, limit, reset}}, the same way as the stars;
+     *  empty until the first fetch. */
+    public Map<String, Object> rateLimit() {
+        refreshOwnStats();
+        Map<String, Object> cached = rateCache;
+
+        return cached != null ? cached : Map.of();
+    }
+
+    private void refreshOwnStats() {
+        if (System.currentTimeMillis() - ownStatsTs < 60_000 || !ownStatsFetching.compareAndSet(false, true))
+            return;
+
+        ownStatsFetch.execute(() -> {
+            try {
+                fetchStars();
+                fetchRateLimit();
+            }
+            finally {
+                ownStatsTs = System.currentTimeMillis();
+                ownStatsFetching.set(false);
+            }
+        });
+    }
+
+    private void fetchStars() {
         try {
             RestClient.RequestHeadersSpec<?> req = http.get()
                 .uri(URI.create(props.apiUrl() + "/repos/" + SELF_REPO))
@@ -421,17 +461,12 @@ public class GithubClient implements SnapshotCache {
 
             RestClient.RequestHeadersSpec<?> r = req;
             Repo repo = recorded("star", () -> r.retrieve().body(Repo.class));
-            if (repo != null) {
+            if (repo != null)
                 starCount = repo.stargazersCount();
-                starTs = now;
-                return starCount;
-            }
         }
         catch (Exception e) {
             // keep the last known value (or -1) on any error
         }
-
-        return cached;
     }
 
     /** Latest release tag of this tool's own repo, without a leading 'v' (cached); null if unavailable. */
@@ -464,14 +499,8 @@ public class GithubClient implements SnapshotCache {
         return cached;
     }
 
-    /** GitHub API core rate limit for our IP/token: {@code {remaining, limit, reset}} (cached ~1 min);
-     *  empty if unavailable. Uses {@code /rate_limit}, which itself doesn't count against the limit. */
-    public Map<String, Object> rateLimit() {
-        long now = System.currentTimeMillis();
-        Map<String, Object> cached = rateCache;
-        if (cached != null && now - rateTs < 60_000)
-            return cached;
-
+    /** Uses {@code /rate_limit}, which itself doesn't count against the limit. */
+    private void fetchRateLimit() {
         try {
             RestClient.RequestHeadersSpec<?> req = http.get()
                 .uri(URI.create(props.apiUrl() + "/rate_limit"))
@@ -483,17 +512,12 @@ public class GithubClient implements SnapshotCache {
             Map<?, ?> body = req.retrieve().body(Map.class);
             Object resources = body == null ? null : body.get("resources");
             Object core = resources instanceof Map<?, ?> m ? m.get("core") : null;
-            if (core instanceof Map<?, ?> c) {
+            if (core instanceof Map<?, ?> c)
                 rateCache = Map.of("remaining", c.get("remaining"), "limit", c.get("limit"), "reset", c.get("reset"));
-                rateTs = now;
-                return rateCache;
-            }
         }
         catch (Exception e) {
             // keep the last known value (or empty) on any error
         }
-
-        return cached != null ? cached : Map.of();
     }
 
     @Override

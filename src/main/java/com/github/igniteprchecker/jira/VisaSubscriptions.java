@@ -137,6 +137,11 @@ public class VisaSubscriptions implements SnapshotCache {
     }
 
     @Override
+    public boolean durable() {
+        return true;
+    }
+
+    @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
         subs.forEach((pr, s) -> snap.add(new Persisted(pr, s.issue(), s.token(), s.username(), s.armedAt())));

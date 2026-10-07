@@ -4,7 +4,10 @@ import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
+import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.metrics.ProcessMemory;
+import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.management.ManagementFactory;
@@ -20,8 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
- * read the counters; the log messages and who restarted or flushed last name people, so only signed-in viewers
- * get those.
+ * read the counters, the health and the levels of its problems; the log messages and who restarted or flushed last
+ * name people, and the problems' texts name files and errors on the server, so only signed-in viewers get those.
  */
 @RestController
 @RequestMapping("/api")
@@ -31,32 +34,36 @@ public class StatusController {
     private final Warmer warmer;
     private final GithubClient github;
     private final LogTracker logs;
+    private final ServiceHealth health;
     private final com.github.igniteprchecker.tc.RerunTracker tracker;
     private final com.github.igniteprchecker.jira.VisaSubscriptions visaSubs;
     private final com.github.igniteprchecker.jira.StandingVisas standing;
     private final com.github.igniteprchecker.github.PrCommands commands;
     private final AuthInterceptor auth;
     private final AdminActions admin;
+    private final CacheStore store;
     private final String version;
 
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
-        LogTracker logs, com.github.igniteprchecker.tc.RerunTracker tracker,
+        LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
-        AuthInterceptor auth, AdminActions admin,
+        AuthInterceptor auth, AdminActions admin, CacheStore store,
         ObjectProvider<BuildProperties> buildProps) {
         this.metrics = metrics;
         this.cache = cache;
         this.warmer = warmer;
         this.github = github;
         this.logs = logs;
+        this.health = health;
         this.tracker = tracker;
         this.visaSubs = visaSubs;
         this.standing = standing;
         this.commands = commands;
         this.auth = auth;
         this.admin = admin;
+        this.store = store;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
     }
@@ -68,9 +75,15 @@ public class StatusController {
         MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         long heapMax = heap.getMax() > 0 ? heap.getMax() : heap.getCommitted();
 
+        ProcessMemory.Usage memory = ProcessMemory.read();
+
         Map<String, Object> jvm = new LinkedHashMap<>();
         jvm.put("heapUsedMb", heap.getUsed() / (1024 * 1024));
         jvm.put("heapMaxMb", heapMax / (1024 * 1024));
+        jvm.put("heapPeakMb", memory.heapPeakMb());
+        jvm.put("rssMb", memory.rssMb());
+        jvm.put("rssPeakMb", memory.rssPeakMb());
+        jvm.put("hostMemMb", memory.hostMb());
         jvm.put("threads", ManagementFactory.getThreadMXBean().getThreadCount());
         jvm.put("cpus", Runtime.getRuntime().availableProcessors());
 
@@ -101,11 +114,15 @@ public class StatusController {
         app.put("cycleDone", warmer.cycleDone());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
+        ServiceHealth.Report report = health.report(logSnap, System.currentTimeMillis());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("version", version);
         out.put("uptimeSeconds", metrics.uptimeSeconds());
-        out.put("health", logSnap.health(System.currentTimeMillis()));
+        out.put("startedAt", ManagementFactory.getRuntimeMXBean().getStartTime());
+        out.put("health", report.health());
+        out.put("logHealth", report.logHealth());
+        out.put("healthProblems", viewer.isPresent() ? report.problems() : report.levelsOnly());
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());
@@ -123,6 +140,7 @@ public class StatusController {
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         out.put("watcher", watcher);
         out.put("app", app);
+        out.put("persistence", viewer.isPresent() ? store.status() : store.summary());
         out.put("signedIn", viewer.isPresent());
         out.put("log", viewer.isPresent() ? logSnap : logSnap.countsOnly());
         viewer.ifPresent(v -> out.put("admin", adminView(v.username())));

@@ -5,9 +5,11 @@ import com.github.igniteprchecker.github.GithubClient;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.IntConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.stereotype.Service;
 
@@ -22,15 +24,29 @@ public class UpdateService {
     private static final Logger log = LoggerFactory.getLogger(UpdateService.class);
     private static final String MARKER = ".update-requested";
 
+    /**
+     * EX_TEMPFAIL: the unit counts it as a success and restarts on it anyway, so a restart asked for from the
+     * status page is not logged as a failure. An older unit restarts on it as on any failure.
+     */
+    public static final int RESTART_EXIT_CODE = 75;
+
     private final UpdateProperties props;
     private final GithubClient github;
     private final String currentVersion;
+    private final IntConsumer exit;
 
+    @Autowired
     public UpdateService(UpdateProperties props, GithubClient github, ObjectProvider<BuildProperties> buildProps) {
+        this(props, github, buildProps, System::exit);
+    }
+
+    UpdateService(UpdateProperties props, GithubClient github, ObjectProvider<BuildProperties> buildProps,
+        IntConsumer exit) {
         this.props = props;
         this.github = github;
         BuildProperties bp = buildProps.getIfAvailable();
         this.currentVersion = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
+        this.exit = exit;
     }
 
     public Status status() {
@@ -72,7 +88,7 @@ public class UpdateService {
         scheduleRestart();
     }
 
-    /** Plain restart without an update: exits non-zero so systemd relaunches the current jar. */
+    /** Plain restart without an update: exits so that systemd relaunches the current jar. */
     public void restart() {
         log.info("service restart requested from the status page");
         scheduleRestart();
@@ -82,7 +98,7 @@ public class UpdateService {
         return currentVersion.replace("-SNAPSHOT", "");
     }
 
-    private static void scheduleRestart() {
+    private void scheduleRestart() {
         Thread t = new Thread(() -> {
             try {
                 Thread.sleep(1000); // let the HTTP response flush to the client first
@@ -90,8 +106,7 @@ public class UpdateService {
             catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-            // Non-zero exit -> systemd (Restart=on-failure) reruns run.sh, which fetches + launches the new jar.
-            System.exit(1);
+            exit.accept(RESTART_EXIT_CODE);
         }, "self-update-restart");
         t.setDaemon(false);
         t.start();

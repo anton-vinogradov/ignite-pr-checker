@@ -3,8 +3,15 @@ package com.github.igniteprchecker.health;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.persist.SnapshotCache;
+import com.github.igniteprchecker.persist.Snapshots;
 import jakarta.annotation.PostConstruct;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -23,13 +30,18 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
 
 /**
- * Captures WARN/ERROR log events into an in-memory ring buffer (with running counts) so the status
- * page can surface recent problems without shell access to the server log. Attaches itself to the
- * Logback root logger on startup. In-memory only — resets on restart.
+ * Captures WARN/ERROR log events into a ring buffer (with running counts) so the status page can surface
+ * recent problems without shell access to the server log. Attaches itself to the Logback root logger on
+ * startup. The ring is snapshotted to disk and outlives a restart, which is when it is needed most; the
+ * counts are since start.
  */
 @Component
-public class LogTracker extends AppenderBase<ILoggingEvent> {
-    private static final int MAX_RECENT = 50;
+public class LogTracker extends AppenderBase<ILoggingEvent> implements SnapshotCache {
+    /** Room for a week of problems at 40 a day. */
+    static final int MAX_RECENT = 300;
+
+    /** Scanners send bursts of bad requests; they must not push the service's own problems out of the ring. */
+    static final int MAX_CLIENT_MISTAKES = 20;
 
     /** A warning colours health for the hour that the rest of the status page reports on. */
     private static final long WARN_WINDOW_MS = TimeUnit.HOURS.toMillis(1);
@@ -64,6 +76,11 @@ public class LogTracker extends AppenderBase<ILoggingEvent> {
     private final AtomicLong lastErrorAt = new AtomicLong();
     private final AtomicLong lastWarningAt = new AtomicLong();
     private final ConcurrentLinkedDeque<Entry> recent = new ConcurrentLinkedDeque<>();
+    private final ObjectMapper mapper;
+
+    public LogTracker(ObjectMapper mapper) {
+        this.mapper = mapper;
+    }
 
     @PostConstruct
     void attach() {
@@ -95,6 +112,19 @@ public class LogTracker extends AppenderBase<ILoggingEvent> {
         }
 
         recent.addFirst(new Entry(e.getTimeStamp(), level.toString(), shortName(e.getLoggerName()), msg, client));
+        trim();
+    }
+
+    private void trim() {
+        long clients = recent.stream().filter(Entry::client).count();
+        Iterator<Entry> oldestFirst = recent.descendingIterator();
+        while (clients > MAX_CLIENT_MISTAKES && oldestFirst.hasNext()) {
+            if (oldestFirst.next().client()) {
+                oldestFirst.remove();
+                clients--;
+            }
+        }
+
         while (recent.size() > MAX_RECENT)
             recent.pollLast();
     }
@@ -102,6 +132,41 @@ public class LogTracker extends AppenderBase<ILoggingEvent> {
     public Snapshot snapshot() {
         return new Snapshot(errors.get(), warnings.get(), clientMistakes.get(), lastErrorAt.get(), lastWarningAt.get(),
             new ArrayList<>(recent));
+    }
+
+    @Override
+    public String fileName() {
+        return "problems.json";
+    }
+
+    @Override
+    public boolean durable() {
+        return true;
+    }
+
+    @Override
+    public void saveTo(Path file) throws IOException {
+        Snapshots.writeAtomic(mapper, file, new ArrayList<>(recent));
+    }
+
+    /** The problems of earlier runs go behind those logged since start; only the counts start from zero. */
+    @Override
+    public void loadFrom(Path file) throws IOException {
+        if (!Files.exists(file))
+            return;
+
+        for (Entry e : mapper.readValue(file.toFile(), Entry[].class)) {
+            recent.addLast(e);
+            if (e.client())
+                continue;
+
+            if ("ERROR".equals(e.level()))
+                lastErrorAt.accumulateAndGet(e.t(), Math::max);
+            else
+                lastWarningAt.accumulateAndGet(e.t(), Math::max);
+        }
+
+        trim();
     }
 
     /** Whether Spring turned the request away as the caller's mistake: "Resolved [exception class: message]". */

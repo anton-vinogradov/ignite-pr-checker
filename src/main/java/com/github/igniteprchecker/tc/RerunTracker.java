@@ -261,6 +261,11 @@ public class RerunTracker implements SnapshotCache {
     }
 
     @Override
+    public boolean durable() {
+        return true;
+    }
+
+    @Override
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = tracked.values().stream()
             .map(t -> new Persisted(t.pr, t.buildTypeId, t.suiteName, t.buildId, t.webUrl, t.state))

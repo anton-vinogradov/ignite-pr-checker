@@ -13,4 +13,13 @@ public interface SnapshotCache {
 
     /** Repopulate from {@code file}; a missing file is a no-op (the cache just starts cold). */
     void loadFrom(Path file) throws IOException;
+
+    /**
+     * State the service acts on and cannot rebuild from TeamCity or GitHub: who opted in, which commands ran,
+     * which runs it watches. It reaches the disk within a second of a change instead of on the interval, so a
+     * crash cannot make the service post the same visa or run the same command twice.
+     */
+    default boolean durable() {
+        return false;
+    }
 }
