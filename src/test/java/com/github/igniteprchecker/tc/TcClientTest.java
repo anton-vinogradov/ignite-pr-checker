@@ -29,6 +29,8 @@ class TcClientTest {
 
     private final List<String> locators = new CopyOnWriteArrayList<>();
 
+    private final List<String> buildFields = new CopyOnWriteArrayList<>();
+
     private HttpServer server;
 
     @BeforeEach
@@ -37,6 +39,14 @@ class TcClientTest {
         server.createContext("/app/rest/testOccurrences", ex -> {
             locators.add(param(ex.getRequestURI().getRawQuery(), "locator"));
             byte[] body = "{\"count\":0,\"testOccurrence\":[]}".getBytes(UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(200, body.length);
+            ex.getResponseBody().write(body);
+            ex.close();
+        });
+        server.createContext("/app/rest/builds", ex -> {
+            buildFields.add(param(ex.getRequestURI().getRawQuery(), "fields"));
+            byte[] body = "{\"id\":9384769}".getBytes(UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
             ex.sendResponseHeaders(200, body.length);
             ex.getResponseBody().write(body);
@@ -83,6 +93,19 @@ class TcClientTest {
 
         assertThat(locators).singleElement().asString()
             .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")");
+    }
+
+    /**
+     * PR 13583's Build failed, and its victims read like suites broken on their own: each suite of a chain is read
+     * with the runs it needed and how they ended.
+     */
+    @Test
+    void theSuitesOfAChainAreReadWithTheRunsTheyNeeded() {
+        client().getBuildWithDeps("tok", 9384769L);
+
+        assertThat(buildFields).singleElement().asString()
+            .contains("snapshot-dependencies(build(id,buildTypeId,status,state,queuedDate,")
+            .contains(",snapshot-dependencies(build(id,buildTypeId,status,buildType(name)))))");
     }
 
     private TcClient client() {

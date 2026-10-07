@@ -6,6 +6,7 @@ import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
@@ -888,7 +889,9 @@ public class StandingVisas implements SnapshotCache {
      * re-run on, and only suites the analysis calls a blocker, a watch item or broken — a suite that
      * failed on pre-existing/flaky tests is left alone. Each suite is re-run once per chain, and a
      * chain that keeps producing them stops at {@link #TOP_QUEUE_LIMIT}: past that it is systemic and
-     * the settled pass will say so.
+     * the settled pass will say so. Nor does any go while the verdict asks to re-run more than
+     * {@link #MAX_SUITES_PER_RERUN} suites, the settled pass's own bar: of the 60 suites one ci2 glitch broke on
+     * PR 13655, the first ten would go to the top of the queue.
      */
     @EventListener
     void onSuiteFailedMidRun(RerunTracker.SuiteFailedMidRun ev) {
@@ -928,6 +931,13 @@ public class StandingVisas implements SnapshotCache {
             res = asUser(who, () -> analyzer.analyzeAfterNow(tcToken.get(), ev.pr()));
         if (res.isEmpty() || !worthRerunning(res.get(), ev.suite()))
             return;
+        int toRerun = WaveSuites.of(res.get()).all().size();
+        if (toRerun > MAX_SUITES_PER_RERUN) {
+            log.info("early re-run of {} for PR {} skipped: {} suites to re-run is too many, this looks systemic",
+                ev.suiteName(), ev.pr(), toRerun);
+
+            return;
+        }
 
         // Created only now: a chain nobody re-runs for must not leave an empty memo behind.
         java.util.Set<String> done =
@@ -1000,11 +1010,14 @@ public class StandingVisas implements SnapshotCache {
             || r.brokenSuites().stream().anyMatch(b -> b.suiteBuildId() == suiteBuildId);
     }
 
-    /** Whether the analysis blames this suite for something a re-run can settle. */
+    /**
+     * Whether the analysis blames this suite for something a re-run can settle. A suite that failed only because the
+     * Build it needed failed is not: re-run, each would pull a new Build of its own.
+     */
     static boolean worthRerunning(AnalysisResult r, String suite) {
-        return r.blockers().stream().anyMatch(v -> suite.equals(v.suite()))
-            || r.watch().stream().anyMatch(v -> suite.equals(v.suite()))
-            || r.brokenSuites().stream().anyMatch(s -> suite.equals(s.suite()));
+        WaveSuites w = WaveSuites.of(r);
+
+        return w.blockers().contains(suite) || w.watch().contains(suite) || w.broken().contains(suite);
     }
 
     /**
@@ -1316,31 +1329,9 @@ public class StandingVisas implements SnapshotCache {
     private boolean queueWave(String who, int pr, long buildId, AnalysisResult res, String tcToken) {
         Retry r = waves.get(buildId);
         int attempts = r != null ? r.attempts() : 0;
-        List<String> blockerSuites = res.blockers().stream()
-            .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
-            .distinct().toList();
-        // A watch item is exactly what a re-run settles: too few runs of this revision to
-        // tell a real break from a flake. Re-running is what turns it into a verdict —
-        // without it a PR whose only finding is a watch item waits for a human forever.
-        List<String> watchSuites = res.watch().stream()
-            .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
-            .distinct().filter(s -> !blockerSuites.contains(s)).toList();
-        // Broken suites (timeout/crash/compilation) deserve the same retry a human would
-        // give them — and a passing re-run now clears them from the verdict too.
-        List<String> brokenSuites = res.brokenSuites().stream().map(s -> s.suite())
-            .filter(x -> x != null && !x.isBlank()).distinct()
-            .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s)).toList();
-        // A suite TeamCity cancelled by itself never ran, and a re-run is what gets it a result.
-        // One a person cancelled was meant not to run.
-        List<String> cancelledSuites = res.cancelledSuites().stream()
-            .filter(CancelledSuite::byTeamCity).map(CancelledSuite::suite)
-            .filter(x -> x != null && !x.isBlank()).distinct()
-            .filter(s -> !blockerSuites.contains(s) && !watchSuites.contains(s) && !brokenSuites.contains(s))
-            .toList();
-        List<String> suites = java.util.stream.Stream.of(blockerSuites, watchSuites, brokenSuites,
-            cancelledSuites).flatMap(List::stream).toList();
-        String what = suitesLabel(blockerSuites.size(), watchSuites.size(), brokenSuites.size(),
-            cancelledSuites.size());
+        WaveSuites w = WaveSuites.of(res);
+        List<String> suites = w.all();
+        String what = suitesLabel(w.blockers().size(), w.watch().size(), w.broken().size(), w.cancelled().size());
         if (!suites.isEmpty() && suites.size() > MAX_SUITES_PER_RERUN && attempts == 0) {
             // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
             waves.put(buildId, new Retry(pr, buildId, MAX_RERUNS, what, List.of(),
@@ -1492,7 +1483,7 @@ public class StandingVisas implements SnapshotCache {
 
         return String.join("|", tests.apply(r.blockers()), tests.apply(r.watch()), tests.apply(r.unverified()),
             r.brokenSuites().stream().map(BrokenSuite::suite).sorted().collect(java.util.stream.Collectors.joining(",")),
-            String.join(";", Caveats.of(r, null)));
+            String.join(";", Caveats.keyOf(r)));
     }
 
     /** "Tested revision abc1234; the PR head is now def5678." with the revisions wrapped in the markup's code marks. */
@@ -2221,6 +2212,43 @@ public class StandingVisas implements SnapshotCache {
             b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
 
         return b.append(".").toString();
+    }
+
+    /** The suites a wave re-runs, by why, each suite once and in this order; see {@link #of}. */
+    record WaveSuites(List<String> blockers, List<String> watch, List<String> broken, List<String> cancelled) {
+        /**
+         * The suites a verdict asks to re-run: those of its blockers and watch items, what its broken groups re-run
+         * (a failed Build alone, nothing when it failed to compile, never the suites it kept from running, see
+         * {@link BrokenGroup}) and the suites TeamCity cancelled by itself for any other reason.
+         */
+        static WaveSuites of(AnalysisResult res) {
+            List<String> blockers = res.blockers().stream()
+                .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
+                .distinct().toList();
+            // A watch item is exactly what a re-run settles: too few runs of this revision to
+            // tell a real break from a flake. Re-running is what turns it into a verdict —
+            // without it a PR whose only finding is a watch item waits for a human forever.
+            List<String> watch = res.watch().stream()
+                .map(v -> v.suite()).filter(x -> x != null && !x.isBlank())
+                .distinct().filter(s -> !blockers.contains(s)).toList();
+            // Broken suites (timeout/crash) deserve the same retry a human would
+            // give them — and a passing re-run now clears them from the verdict too.
+            List<String> broken = BrokenGroup.rerunSuites(BrokenGroup.of(res)).stream()
+                .filter(s -> !blockers.contains(s) && !watch.contains(s)).toList();
+            // A suite TeamCity cancelled by itself never ran, and a re-run is what gets it a result.
+            // One a person cancelled was meant not to run.
+            List<String> cancelled = res.cancelledSuites().stream()
+                .filter(c -> c.byTeamCity() && c.failedUpstream() == null).map(CancelledSuite::suite)
+                .filter(x -> x != null && !x.isBlank()).distinct()
+                .filter(s -> !blockers.contains(s) && !watch.contains(s) && !broken.contains(s))
+                .toList();
+
+            return new WaveSuites(blockers, watch, broken, cancelled);
+        }
+
+        List<String> all() {
+            return java.util.stream.Stream.of(blockers, watch, broken, cancelled).flatMap(List::stream).toList();
+        }
     }
 
     /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 1 watch + 3 broken + 4 cancelled suite(s)"}. */

@@ -12,7 +12,51 @@ import java.util.List;
  * same suite (0 when unknown). A hung or crashed suite usually runs a fraction of them, and that
  * shortfall belongs under its cause — on its own it would read as "tests disappeared" and hide the
  * timeout that actually caused it.
+ *
+ * <p>{@code problemTypes} are TeamCity's types of its problems, as {@code problems} describe them.
+ * {@code failedUpstream} is the run it needed that failed, null when every run it needed passed: such a suite
+ * usually never got to run, and only that run tells why.
  */
 public record BrokenSuite(String suite, long suiteBuildId, String suiteName, List<String> problems,
-    int tests, int baseline) {
+    int tests, int baseline, List<String> problemTypes, Upstream failedUpstream) {
+    /** TeamCity's problem type of a suite it could not hand the artifacts of a run it needs. */
+    private static final String ARTIFACTS = "ARTIFACT_DEPENDENCY_ERROR";
+
+    public BrokenSuite {
+        problemTypes = problemTypes == null ? List.of() : problemTypes;
+    }
+
+    /** A broken suite whose problem types and upstream are not known, in the shape callers used before they were. */
+    public BrokenSuite(String suite, long suiteBuildId, String suiteName, List<String> problems, int tests,
+        int baseline) {
+        this(suite, suiteBuildId, suiteName, problems, tests, baseline, List.of(), null);
+    }
+
+    /**
+     * Whether TeamCity could not hand it the artifacts of a run it needs. A verdict kept by an older release has
+     * no types: TeamCity's own message tells then.
+     */
+    public boolean artifactsUnavailable() {
+        return problemTypes.contains(ARTIFACTS)
+            || problems != null && problems.stream().anyMatch(p -> p.startsWith("Failed to resolve artifacts"));
+    }
+
+    /** Whether it failed to compile: no re-run of the same code gets past that. */
+    public boolean compileError() {
+        return problemTypes.contains("TC_COMPILATION_ERROR")
+            || problems != null && problems.contains("compilation error");
+    }
+
+    /** Whether it says it failed only because a run it needed failed, which run not known. */
+    public boolean failedDependency() {
+        return problems != null && problems.contains("failed dependency");
+    }
+
+    /**
+     * Whether it ran no test because a run it needed failed. TeamCity can run a suite past a failed dependency and
+     * add a problem; one that ran tests then ran, and broke its own way.
+     */
+    public boolean keptFromRunning() {
+        return tests == 0 && (failedUpstream != null || failedDependency());
+    }
 }

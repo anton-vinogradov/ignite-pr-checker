@@ -232,6 +232,9 @@
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
         ul.suite-tests > li { padding: 0.12rem 0 0.12rem 1rem; }
         details summary { cursor: pointer; color: var(--muted); }
+        .root-title { font-weight: 600; font-size: 0.92rem; color: var(--bad); margin-bottom: 0.2rem; }
+        .broken-group > details { margin-top: 0.15rem; }
+        .broken-group > details > ul.tests { margin: 0.2rem 0 0 1rem; }
 
         .theme-btn { font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; }
         .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
@@ -1447,22 +1450,7 @@
             const isVictim = s => (s.problems || []).every(p => p === 'failed dependency');
             const roots = suites.filter(s => !isVictim(s));
             const victims = suites.filter(isVictim);
-            const rows = roots.map(s => {
-                const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
-                const head = esc(s.suiteName || s.suite)
-                    + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-                const btns = s.suite
-                    ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-                        + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
-                    : '';
-                // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
-                // "tests disappeared" and hides the timeout that emptied the suite.
-                const short = s.tests && s.baseline && s.tests < s.baseline
-                    ? ` — ran ${s.tests} of master's ${s.baseline} tests` : '';
-                return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
-                    + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
-                    + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
-            }).join('');
+            const rows = roots.map(s => brokenRow(s)).join('');
             const victimLine = victims.length
                 ? `<li><div class="reason">+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed</div></li>`
                 : '';
@@ -1470,6 +1458,83 @@
             for (const b of el.querySelectorAll('.suite-rerun'))
                 b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
             wireSuiteAi(el);
+        }
+
+        // One broken suite: its name, TeamCity link, "ai" and live chips, Rerun buttons unless `rerun` is false, and what
+        // TeamCity reported.
+        function brokenRow(s, rerun = true) {
+            const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
+            const head = esc(s.suiteName || s.suite)
+                + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+            const btns = s.suite && rerun
+                ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
+                    + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
+                : '';
+            // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
+            // "tests disappeared" and hides the timeout that emptied the suite.
+            const short = s.tests && s.baseline && s.tests < s.baseline
+                ? ` — ran ${s.tests} of master's ${s.baseline} tests` : '';
+            return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
+                + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
+                + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
+        }
+
+        // The broken suites as the server groups them (BrokenGroup): a failed Build with the suites it kept from
+        // running in one line, the ci2 artifact glitch and every other shared problem as one row each, its suites
+        // under a fold, and a suite broken its own way as its own row. A redraw of the same build keeps the folds the
+        // reader opened.
+        function renderBrokenGroups(el, groups, buildId) {
+            const kept = el.dataset.build === String(buildId)
+                ? new Set([...el.querySelectorAll('details[open]')].map(d => d.dataset.key)) : new Set();
+            el.dataset.build = buildId;
+            el.innerHTML = groups.map((g, i) => brokenGroupHtml(g, i, kept)).join('');
+            for (const b of el.querySelectorAll('.suite-rerun'))
+                b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+            for (const b of el.querySelectorAll('.group-rerun'))
+                b.onclick = () => rerunSuites(groups[+b.dataset.g].rerun, b.dataset.top === 'true', b);
+            wireSuiteAi(el);
+        }
+
+        function brokenGroupHtml(g, i, kept) {
+            const suites = g.suites || [];
+            const neverRan = g.cancelled || [];
+            const key = g.kind + '|' + g.title;
+            const fold = (summary, body) => `<details data-key="${esc(key)}"${kept.has(key) ? ' open' : ''}>`
+                + `<summary>${esc(summary)}</summary>${body}</details>`;
+            const names = list => `<div class="reason">${list.map(s => esc(s.suiteName || s.suite)).join(', ')}</div>`;
+            if (g.kind === 'UPSTREAM') {
+                const victims = suites.concat(neverRan);
+                if (!g.upstream) return `<li class="broken-group">${fold(g.title, names(victims))}</li>`;
+                const n = victims.length;
+                const summary = `${n} suite${n === 1 ? '' : 's'}` + (g.root ? ` that need${n === 1 ? 's' : ''} it did not run` : '');
+                return `<li class="broken-group"><div class="root-title">${esc(g.title)}</div>`
+                    + (g.root ? `<ul class="tests">${brokenRow(g.root, (g.rerun || []).length > 0)}</ul>` : '')
+                    + (n ? fold(summary, names(victims)) : '')
+                    + '</li>';
+            }
+            const rerun = s => (g.rerun || []).includes(s.suite);
+            if (suites.length === 1) return brokenRow(suites[0], rerun(suites[0]));
+            const n = (g.rerun || []).length;
+            const btns = n
+                ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="Re-run the ${n} suites of this group">Rerun (${n})</button>`
+                    + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="Re-run the ${n} suites of this group, at the top of the queue">Rerun top (${n})</button></span>`
+                : '';
+            const why = g.kind === 'ARTIFACTS'
+                ? '<div class="reason">ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.</div>'
+                : '';
+            return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(g.title)}</span>${btns}</div>${why}`
+                + fold(`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s))).join('')}</ul>`) + '</li>';
+        }
+
+        // What the broken groups re-run between them, each suite once: never the suites a failed Build kept from running.
+        function rerunOfGroups(groups) {
+            return [...new Set(groups.flatMap(g => g.rerun || []))];
+        }
+
+        // The broken groups of a verdict; one served before the server grouped them shows each suite on its own.
+        function groupsOf(res) {
+            return res.brokenGroups || (res.brokenSuites || []).map(s => ({ kind: 'PROBLEM',
+                title: (s.problems || []).join(' · '), suites: [s], cancelled: [], rerun: s.suite ? [s.suite] : [] }));
         }
 
         // Suites the chain never ran. Those TeamCity cancelled by itself get rows with re-run buttons (the
@@ -1900,21 +1965,26 @@
             renderVerdictHead(res, aheadOf(res));
             $('blockerCount').textContent = hasBlockers ? countLabel(res.blockers) : '';
             $('filteredCount').textContent = countLabel(res.filtered);
-            const interrupted = !!res.interrupted;
+            // Suites a failed Build kept from running are told under the Build, among the broken suites.
+            const cancelledOwn = (res.cancelledSuites || []).filter(c => !c.failedUpstream);
+            const notRun = res.canceledSuites - ((res.cancelledSuites || []).length - cancelledOwn.length);
+            const interrupted = !!res.interrupted && notRun > 0;
             $('interruptedBanner').classList.toggle('hidden', !interrupted);
             if (interrupted) {
                 const buildLink = tcBase
-                    ? ` <a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open the interrupted RunAll build in TeamCity">TC</a>`
+                    ? ` <a class="ext" href="${esc(tcBase + 'build/' + res.buildId)}" target="_self" rel="noopener" title="Open the interrupted RunAll build in TeamCity">TC</a>`
                     : '';
-                const one = res.canceledSuites === 1;
-                $('interruptedText').innerHTML = `${res.canceledSuites} suite${one ? '' : 's'} of this RunAll${buildLink} `
+                const one = notRun === 1;
+                $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of this RunAll${buildLink} `
                     + `${one ? 'was' : 'were'} cancelled and never ran. The verdict below is <b>partial</b>: it says nothing about them. `
                     + `A finished re-run of a suite takes it off this list.`;
             }
-            renderCancelled($('cancelledSuites'), interrupted ? res.cancelledSuites || [] : [], res.buildId);
-            $('brokenCard').classList.toggle('hidden', broken.length === 0);
+            renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
+            // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
+            const groups = groupsOf(res);
+            $('brokenCard').classList.toggle('hidden', groups.length === 0);
             $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
-            renderBroken($('brokenSuites'), broken);
+            renderBrokenGroups($('brokenSuites'), groups, res.buildId);
             const shrunk = res.shrunkSuites || [];
             $('shrunkCard').classList.toggle('hidden', shrunk.length === 0);
             $('shrunkCount').textContent = shrunk.length ? `(${shrunk.length})` : '';
@@ -1933,10 +2003,10 @@
             renderBlockers(res.blockers);
             renderList($('filtered'), res.filtered, true, false);
             annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || broken.length > 0 || watch.length > 0
+            $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || groups.length > 0 || watch.length > 0
                 || shrunk.length > 0 || unverified.length > 0);
             $('results').classList.remove('hidden');
-            wireSectActs('brokenActs', suitesOfBroken(broken));
+            wireSectActs('brokenActs', rerunOfGroups(groups));
             wireSectActs('shrunkActs', suitesOfBroken(shrunk));
             wireSectActs('blockerActs', suitesOfTests(res.blockers));
             wireSectActs('watchActs', suitesOfTests(watch));
@@ -1985,11 +2055,7 @@
         // the analysed run, known only once /api/pending answers.
         function caveatsOf(res, ahead) {
             const out = [];
-            if (res.interrupted)
-                out.push(`the RunAll was interrupted — ${res.canceledSuites} suite${res.canceledSuites === 1 ? '' : 's'} never ran`);
-            const broken = (res.brokenSuites || []).length;
-            if (broken)
-                out.push(`${broken} suite${broken === 1 ? '' : 's'} with no reliable result (compilation error, timeout, crash)`);
+            out.push(...brokenCaveats(res));
             const shrunk = (res.shrunkSuites || []).length;
             if (shrunk)
                 out.push(`${shrunk} suite${shrunk === 1 ? '' : 's'} ran far fewer tests than on master`);
@@ -2000,6 +2066,31 @@
                 out.push('a newer run is still going — its unfinished suites can still fail');
             if (ahead > 0)
                 out.push(`${ahead} commit${ahead === 1 ? '' : 's'} pushed since this run — it tested older code`);
+            return out;
+        }
+
+        // What the broken groups say against a clean verdict, as the server says it (Caveats.java): a failed Build and the
+        // suites it kept from running, the suites cancelled for other reasons, and the causes of the other broken suites.
+        function brokenCaveats(res) {
+            const out = [];
+            const groups = groupsOf(res);
+            const upstreams = groups.filter(g => g.upstream);
+            for (const g of upstreams) out.push(g.title.split('; ')[0]);
+            const kept = upstreams.reduce((n, g) => n + (g.cancelled || []).length, 0);
+            const notRun = res.canceledSuites - kept;
+            if (res.interrupted && notRun > 0)
+                out.push(`the RunAll was interrupted — ${notRun} suite${notRun === 1 ? '' : 's'} never ran`);
+            const causes = groups.filter(g => !g.upstream);
+            const broken = causes.reduce((n, g) => n + (g.suites || []).length, 0);
+            if (broken) {
+                const cause = g => {
+                    const text = g.kind === 'ARTIFACTS' ? 'ci2 glitch: artifacts unavailable'
+                        : g.kind === 'UPSTREAM' ? 'a run they need failed' : g.title;
+                    return (g.suites.length > 1 ? g.suites.length + '× ' : '') + (text.length > 80 ? text.slice(0, 79) + '…' : text);
+                };
+                out.push(`${broken} suite${broken === 1 ? '' : 's'} with no reliable result (`
+                    + causes.slice(0, 3).map(cause).join('; ') + (causes.length > 3 ? '; …' : '') + ')');
+            }
             return out;
         }
 

@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.analysis.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
@@ -10,9 +11,10 @@ import java.util.List;
  *
  * <p>Snapshots from older releases carry {@code branchWatermark}, the id of the build TeamCity listed
  * first on the branch. Builds are listed by start, not finish, so that id proves nothing about what
- * the verdict saw: it is dropped on load, and such a result recomputes once.
+ * the verdict saw: it is dropped on load, and such a result recomputes once. {@code brokenGroups} is derived:
+ * written for the page, never read back.
  */
-@JsonIgnoreProperties("branchWatermark")
+@JsonIgnoreProperties(value = {"branchWatermark", "brokenGroups"}, allowGetters = true)
 public record AnalysisResult(
     int prNumber,
     long buildId,
@@ -79,6 +81,12 @@ public record AnalysisResult(
         unstableSuites = unstableSuites == null ? List.of() : unstableSuites;
         cancelledSuites = cancelledSuites == null ? List.of() : cancelledSuites;
         unverified = unverified == null ? List.of() : unverified;
+    }
+
+    /** The broken and never-run suites grouped by what broke them (see {@link BrokenGroup}). */
+    @JsonProperty("brokenGroups")
+    public List<BrokenGroup> brokenGroups() {
+        return BrokenGroup.of(this);
     }
 
     /** A result of an open PR whose chain's revision is not known, in the shape callers used before it was kept. */

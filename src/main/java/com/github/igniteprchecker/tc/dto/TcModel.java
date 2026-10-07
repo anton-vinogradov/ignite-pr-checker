@@ -112,6 +112,15 @@ public final class TcModel {
     public record TestRef(long id) {
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record MasterOccurrences(List<MasterOccurrence> testOccurrence) {
+    }
+
+    /** One master run of a test, with whether the test is muted now (not when it ran). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record MasterOccurrence(String id, String status, Boolean currentlyMuted, BuildRef build) {
+    }
+
     /**
      * The build a test occurrence came from. {@code revisions} is the VCS state that build ran on —
      * the only honest way to tell whether two runs of a test were made on the same code.
