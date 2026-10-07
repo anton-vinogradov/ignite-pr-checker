@@ -9,12 +9,14 @@ import static org.mockito.Mockito.when;
 import com.github.igniteprchecker.config.UpdateProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import java.nio.file.Path;
+import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.info.BuildProperties;
 
 class UpdateServiceTest {
     @Test
@@ -54,14 +56,41 @@ class UpdateServiceTest {
 
     /** Whoever presses Update reads first what the release changes for users. */
     @Test
-    @SuppressWarnings("unchecked")
     void theOfferedReleaseComesWithItsNotes() {
-        GithubClient github = mock(GithubClient.class);
-        when(github.latestReleaseTag()).thenReturn("1.21.1");
-        UpdateService update = new UpdateService(new UpdateProperties(true, "/opt/ignite-pr-checker/app.jar"), github,
-            mock(ObjectProvider.class), code -> { });
-
-        assertThat(update.status().notesUrl())
+        assertThat(notesOffered("1.21.0", "1.21.1"))
             .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases/tag/v1.21.1");
+        assertThat(notesOffered("1.21.0-3-g5f2c9e1-dirty", "1.21.1"))
+            .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases/tag/v1.21.1");
+    }
+
+    /**
+     * v1.20.1 changed the verdict rules and v1.20.2 did not: on v1.20.0 the link led to the notes of v1.20.2 alone,
+     * which say nothing of the rules.
+     */
+    @Test
+    void releasesThatMayLieBetweenAreNotLeftOut() {
+        assertThat(notesOffered("1.20.0", "1.20.2"))
+            .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases");
+        assertThat(notesOffered("1.20.9", "1.21.0"))
+            .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases");
+        assertThat(notesOffered(null, "1.21.1"))
+            .isEqualTo("https://github.com/anton-vinogradov/ignite-pr-checker/releases");
+    }
+
+    /** The notes link the running {@code version} (null: a build without build-info) gets for {@code latest}. */
+    @SuppressWarnings("unchecked")
+    private static String notesOffered(String version, String latest) {
+        GithubClient github = mock(GithubClient.class);
+        when(github.latestReleaseTag()).thenReturn(latest);
+        ObjectProvider<BuildProperties> build = mock(ObjectProvider.class);
+        if (version != null) {
+            Properties info = new Properties();
+            info.setProperty("version", version);
+            when(build.getIfAvailable()).thenReturn(new BuildProperties(info));
+        }
+        UpdateService update = new UpdateService(new UpdateProperties(true, "/opt/ignite-pr-checker/app.jar"), github,
+            build, code -> { });
+
+        return update.status().notesUrl();
     }
 }

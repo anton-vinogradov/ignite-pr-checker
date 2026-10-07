@@ -96,6 +96,30 @@ class StatusPageTest {
         assertThat(page.get("anonymous").asText()).contains("log in on the main page to see the settings");
     }
 
+    /** The page as a signed-in viewer sees it after its first poll: the commit beside the version, and the settings. */
+    @Test
+    void thePageShowsTheCommitAndTheSettings() throws Exception {
+        JsonNode page = PageScript.run("status.html", """
+            page.el('tcStack').getContext = () => new Proxy({}, { get: () => () => {} });
+            const lastHour = { total: 0, ok: 0, fail: 0, avgLatencyMs: 0, maxLatencyMs: 0 };
+            page.route('/api/status', { body: { version: '1.21.0-3-g5f2c9e1-dirty', commit: '5f2c9e1d8a', dirty: true,
+                signedIn: true, uptimeSeconds: 60, startedAt: page.now() - 60000, health: 'ok', logHealth: 'ok',
+                healthProblems: [], teamcity: { lastHour, sinceStart: 0 }, github: { lastHour, sinceStart: 0 },
+                jvm: { heapUsedMb: 120, heapMaxMb: 512, threads: 40, cpus: 2 }, app: { openPrs: 3, pooledTokens: 1 },
+                log: { errors: 0, warnings: 0, clientMistakes: 0, recent: [] },
+                config: { APP_PUBLIC_URL: 'https://prc.example.org', SESSION_SECRET: 'set' } } });
+            await page.load('');
+            report({ error: page.el('err').textContent, system: page.el('systemCards').textContent,
+                config: page.el('configList').textContent });
+            """);
+
+        assertThat(page.get("error").asText()).isEmpty();
+        assertThat(page.get("system").asText())
+            .contains("1.21.0-3-g5f2c9e1-dirty commit 5f2c9e1 + uncommitted changes");
+        assertThat(page.get("config").asText()).contains("APP_PUBLIC_URL", "https://prc.example.org",
+            "SESSION_SECRET");
+    }
+
     /** Runs {@code script} after the page's functions; whatever it passes to {@code out} comes back. */
     private static JsonNode run(String script) throws Exception {
         String html = Files.readString(Path.of("src/main/resources/static/status.html"));

@@ -28,7 +28,10 @@ class DeployScriptTest {
     @TempDir
     Path bin;
 
-    /** What the stub curl says the service answers. */
+    /** The version the stub curl says the service answers with before the restart; empty: nothing answers. */
+    private String before = "1.21.0";
+
+    /** The version the stub curl says the service answers with after the restart; empty: nothing answers. */
     private String answering = "1.21.0-1-gabc1234";
 
     private static void exec(Path dir, String... cmd) throws Exception {
@@ -70,12 +73,15 @@ class DeployScriptTest {
         stub("ssh", toServer + " | bash -s -- \"${@:5}\"");
         stub("scp", "cp \"$1\" \"" + server + "/${2##*/}\"");
         stub("install", "while [ \"$1\" != \"${1#-}\" ]; do shift 2; done; cp \"$1\" \"$2\"");
-        stub("systemctl", "echo \"$*\" >> \"" + server + "/systemctl\"");
+        stub("systemctl", "echo \"$*\" >> \"" + server + "/systemctl\"\n"
+            + "if [ \"$1\" = restart ]; then touch \"" + server + "/restarted\"; fi");
         stub("sleep", ":");
     }
 
     private Result deploy(String... args) throws Exception {
-        stub("curl", "printf '{\"version\":\"" + answering + "\",\"uptimeSeconds\":3}'");
+        Files.deleteIfExists(server.resolve("restarted"));
+        stub("curl", "v='" + before + "'; [ -f \"" + server + "/restarted\" ] && v='" + answering + "'\n"
+            + "[ -n \"$v\" ] || exit 7\nprintf '{\"version\":\"%s\",\"uptimeSeconds\":3}' \"$v\"");
         ProcessBuilder pb = new ProcessBuilder(concat("bash", repo.resolve("deploy.sh").toString(), args))
             .redirectErrorStream(true);
         Map<String, String> env = pb.environment();
@@ -142,16 +148,49 @@ class DeployScriptTest {
 
     @Test
     void aVersionThatDoesNotComeUpIsReportedWithTheWayBack() throws Exception {
-        answering = "1.20.10-dev";
+        answering = "";
 
         Result r = deploy();
 
         assertThat(r.exit()).isNotZero();
-        assertThat(r.out()).contains("1.21.0-1-gabc1234 did not answer within 60 s (answering: 1.20.10-dev)",
+        assertThat(r.out()).contains("1.21.0-1-gabc1234 did not answer within 60 s (answering: nothing)",
             "cp app.jar.prev app.jar && systemctl restart ignite-pr-checker");
         assertThat(server.resolve("app.jar.prev")).hasContent("old jar");
         assertThat(List.of(Files.readString(server.resolve("systemctl")).split("\n")))
             .startsWith("restart ignite-pr-checker");
+    }
+
+    /**
+     * A deploy whose jar did not come up, and a second one that did not either: the second made the first broken jar
+     * the one to roll back to, and the rollback it printed went back to it; the last jar that worked was gone.
+     */
+    @Test
+    void aJarThatNeverAnsweredIsNotTheOneToRollBackTo() throws Exception {
+        answering = "";
+        assertThat(deploy().exit()).isNotZero();
+
+        before = "";
+        Files.writeString(repo.resolve("gradlew"), Files.readString(repo.resolve("gradlew")).replace("new jar",
+            "fixed jar"));
+        Result second = deploy();
+
+        assertThat(second.exit()).isNotZero();
+        assertThat(server.resolve("app.jar")).hasContent("fixed jar");
+        assertThat(server.resolve("app.jar.prev")).hasContent("old jar");
+        assertThat(second.out()).contains("nothing answers now: app.jar.prev stays the jar to roll back to",
+            "cp app.jar.prev app.jar");
+    }
+
+    /** Deployed twice, the same build became the jar to roll back to. */
+    @Test
+    void theSameBuildDeployedAgainKeepsTheJarBeforeIt() throws Exception {
+        assertThat(deploy().exit()).isZero();
+        before = answering;
+
+        assertThat(deploy().exit()).isZero();
+
+        assertThat(server.resolve("app.jar")).hasContent("new jar");
+        assertThat(server.resolve("app.jar.prev")).hasContent("old jar");
     }
 
     private record Result(int exit, String out) {

@@ -21,6 +21,17 @@ public final class InstallScript {
         return script.substring(from, script.indexOf("\n" + end + "\n", from) + 1);
     }
 
+    /** The lines of install.sh from the one that starts with {@code from} up to the one that starts with {@code to}. */
+    public static String lines(String from, String to) throws IOException {
+        String script = Files.readString(Path.of("install.sh"));
+        int start = script.indexOf("\n" + from);
+        int end = script.indexOf("\n" + to, start + 1);
+        assertThat(start).as(from).isNotNegative();
+        assertThat(end).as(to).isNotNegative();
+
+        return script.substring(start + 1, end + 1);
+    }
+
     /** The settings file a fresh install writes, comments included. */
     public static String envTemplate() throws IOException {
         return heredoc("cat > \"$ETC_DIR/env\" <<'ENV'\n", "ENV");

@@ -70,10 +70,29 @@ public class UpdateService {
             && latest != null && !latest.isBlank()
             && isNewer(latest, baseVersion());
 
-        String notes = latest == null || latest.isBlank() ? null
-            : "https://github.com/" + GithubClient.SELF_REPO + "/releases/tag/v" + latest;
+        return new Status(currentVersion, commit, latest, available, notesUrl(latest, baseVersion()), lastFailure());
+    }
 
-        return new Status(currentVersion, commit, latest, available, notes, lastFailure());
+    /**
+     * The notes of {@code latest} when it is the patch release right after {@code running}; otherwise releases may lie
+     * between them, each with its own notes (a change of the verdict rules among them), so the list of all releases.
+     */
+    static String notesUrl(String latest, String running) {
+        if (latest == null || latest.isBlank())
+            return null;
+
+        String releases = "https://github.com/" + GithubClient.SELF_REPO + "/releases";
+
+        return isNextPatch(latest, running) ? releases + "/tag/v" + latest : releases;
+    }
+
+    private static boolean isNextPatch(String latest, String running) {
+        String[] pl = latest.split("\\."), pr = running.split("\\.");
+        if (pl.length != 3 || pr.length < 3)
+            return false;
+
+        return numeric(pl[0]) == numeric(pr[0]) && numeric(pl[1]) == numeric(pr[1])
+            && numeric(pl[2]) == numeric(pr[2]) + 1;
     }
 
     /**
@@ -116,7 +135,10 @@ public class UpdateService {
         return digits.isEmpty() ? 0 : Integer.parseInt(digits);
     }
 
-    /** Requests the update (marker for run.sh) and restarts; run.sh fetches the jar on the next boot. */
+    /**
+     * Asks for the latest release in {@code update/requested} (the legacy marker on an older install) and restarts;
+     * update.sh installs it before the next start.
+     */
     public synchronized void performUpdate() throws IOException {
         Status status = status();
         if (!status.updateAvailable())
@@ -156,8 +178,8 @@ public class UpdateService {
 
     /**
      * {@code current} runs, built from {@code commit} (null if unknown); {@code latest} is the newest release and
-     * {@code notesUrl} its release notes, what changes for users; {@code updateFailed} says why the last update to
-     * another release did not happen, or is null.
+     * {@code notesUrl} the notes that say what changes for users on the way to it; {@code updateFailed} says why the
+     * last update to another release did not happen, or is null.
      */
     public record Status(String current, String commit, String latest, boolean updateAvailable, String notesUrl,
         Failure updateFailed) {

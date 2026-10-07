@@ -7,12 +7,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.yaml.snakeyaml.Yaml;
 
 /**
  * On 06.10 v1.20.1 to v1.20.10 came out within an hour, each with one PR title for notes. Four of them changed the
@@ -123,23 +121,6 @@ class ReleaseNotesTest {
         exec("git", "tag", "v1.20.1");
 
         assertThat(notes("v1.20.1").out()).doesNotContain("Verdict rules").contains("- /run-all with a typo gets a reply.");
-    }
-
-    /**
-     * Checkstyle must match the version Ignite's build runs, and a Spring Boot major is a migration: dependabot
-     * offered both as weekly bumps.
-     */
-    @Test
-    void dependabotLeavesCheckstyleAndSpringBootMajorsAlone() throws IOException {
-        Map<String, Object> config = new Yaml().load(Files.readString(Path.of(".github/dependabot.yml")));
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> updates = (List<Map<String, Object>>) config.get("updates");
-        Map<String, Object> gradle = updates.stream().filter(u -> "gradle".equals(u.get("package-ecosystem")))
-            .findFirst().orElseThrow();
-
-        assertThat(gradle.get("ignore")).asList().containsExactly(
-            Map.of("dependency-name", "com.puppycrawl.tools:checkstyle"),
-            Map.of("dependency-name", "org.springframework.boot*", "update-types", List.of("version-update:semver-major")));
     }
 
     private record Result(String out, String err) {

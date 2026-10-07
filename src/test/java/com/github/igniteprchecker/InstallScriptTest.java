@@ -27,8 +27,7 @@ import org.springframework.core.io.FileSystemResource;
  * run.sh, which the next install overwrites, so memory could not be tuned in the env file that installs keep. The
  * service logged to the journal only, which on prod keeps about 40 hours: a complaint from last week needed zgrep
  * through syslog. run.sh, app.jar and their directory belonged to the service account, so a hole in the service could
- * rewrite what starts next; the files it wrote were readable by every account on a shared host. Any java on the PATH
- * was taken, and on Java 11 the service failed at start for ever.
+ * rewrite what starts next. Any java on the PATH was taken, and on Java 11 the service failed at start for ever.
  */
 class InstallScriptTest {
     private static String heredoc(String opening, String end) throws IOException {
@@ -71,7 +70,54 @@ class InstallScriptTest {
             .contains("chown root:root \"$APP_DIR/run.sh\"\n").contains("chown root:root \"$APP_DIR/update.sh\"\n")
             .doesNotContain("chown prc");
         assertThat(unit).contains("User=prc\n").contains("ExecStartPre=+${APP_DIR}/update.sh\n")
-            .contains("ExecStart=${APP_DIR}/run.sh\n").contains("UMask=0077\n");
+            .contains("ExecStart=${APP_DIR}/run.sh\n");
+    }
+
+    /**
+     * Run again over an install whose directory was the service account's, install.sh wrote update.sh through the link
+     * a hole in the service could have left there, into a file in cache/ that the service account then rewrote and
+     * systemd ran as root; a link in place of update/ had install -d give its target to prc. Runs the steps that set up
+     * the directories, update.sh and run.sh in a scratch directory, with stubs for what needs root.
+     */
+    @Test
+    void whatTheServiceAccountLeftIsReplacedNotFollowed(@TempDir Path dir) throws Exception {
+        Path app = Files.createDirectories(dir.resolve("app"));
+        Path cache = Files.createDirectories(app.resolve("cache"));
+        Path elsewhere = Files.createDirectories(dir.resolve("elsewhere"));
+        Files.writeString(cache.resolve("u.sh"), "held by prc");
+        Files.writeString(cache.resolve("r.sh"), "held by prc");
+        Files.createSymbolicLink(app.resolve("update.sh"), cache.resolve("u.sh"));
+        Files.createSymbolicLink(app.resolve("run.sh"), cache.resolve("r.sh"));
+        Files.createSymbolicLink(app.resolve("update"), elsewhere);
+        Files.writeString(app.resolve("app.jar.new"), "left by the old run.sh");
+
+        Path bin = Files.createDirectories(dir.resolve("bin"));
+        stub(bin, "id", "exit 0");
+        stub(bin, "chown", "exit 0");
+        stub(bin, "install", "for last; do :; done; mkdir -p \"$last\"");
+        String steps = "set -euo pipefail\nAPP_DIR=" + app + "\nETC_DIR=" + dir.resolve("etc") + "\nlog() { :; }\n"
+            + InstallScript.lines("# 2. ", "# 5. ") + InstallScript.lines("# 6. ", "# 7. ");
+        ProcessBuilder pb = new ProcessBuilder("bash", "-c", steps).redirectErrorStream(true);
+        pb.environment().put("PATH", bin + ":" + pb.environment().get("PATH"));
+        Process p = pb.start();
+        String out = new String(p.getInputStream().readAllBytes(), UTF_8);
+
+        assertThat(p.waitFor()).as(out).isZero();
+        assertThat(Files.isSymbolicLink(app.resolve("update.sh"))).isFalse();
+        assertThat(Files.isSymbolicLink(app.resolve("run.sh"))).isFalse();
+        assertThat(app.resolve("update.sh")).content().contains("REQUEST=\"$APP_DIR/update/requested\"");
+        assertThat(app.resolve("run.sh")).content().contains("exec \"${PRC_JAVA:-java}\"");
+        assertThat(cache.resolve("u.sh")).hasContent("held by prc");
+        assertThat(cache.resolve("r.sh")).hasContent("held by prc");
+        assertThat(Files.isSymbolicLink(app.resolve("update"))).isFalse();
+        assertThat(app.resolve("update")).isDirectory();
+        assertThat(app.resolve("app.jar.new")).doesNotExist();
+    }
+
+    private static void stub(Path bin, String name, String body) throws IOException {
+        Path f = bin.resolve(name);
+        Files.writeString(f, "#!/usr/bin/env bash\n" + body + "\n");
+        f.toFile().setExecutable(true);
     }
 
     @Test

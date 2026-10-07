@@ -12,6 +12,7 @@ import com.github.igniteprchecker.github.GithubClient;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
@@ -112,10 +113,16 @@ class UpdateScriptTest {
     }
 
     private int run(String... args) throws Exception {
-        String[] cmd = new String[args.length + 2];
+        return runWithUmask("022", args);
+    }
+
+    private int runWithUmask(String umask, String... args) throws Exception {
+        String[] cmd = new String[args.length + 4];
         cmd[0] = "bash";
-        cmd[1] = script.toString();
-        System.arraycopy(args, 0, cmd, 2, args.length);
+        cmd[1] = "-c";
+        cmd[2] = "umask " + umask + "; exec bash \"$0\" \"$@\"";
+        cmd[3] = script.toString();
+        System.arraycopy(args, 0, cmd, 4, args.length);
         ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
         pb.environment().put("PATH", stubs + ":" + pb.environment().get("PATH"));
         Process p = pb.start();
@@ -204,6 +211,89 @@ class UpdateScriptTest {
         assertThat(asked()).isEmpty();
         assertThat(app.resolve("app.jar")).hasContent(OLD);
         assertThat(app.resolve("update-failed")).doesNotExist();
+    }
+
+    /**
+     * The old install's directory was the service account's, and the app.jar.new it left, a link into cache/ or a file
+     * of its own, was downloaded into: app.jar became that link or that file and stayed the service account's to
+     * rewrite.
+     */
+    @Test
+    void theJarLandsInANewFileNotInOneTheServiceAccountLeft() throws Exception {
+        Path held = Files.createDirectories(app.resolve("cache")).resolve("held.jar");
+        Files.writeString(held, "held by prc");
+        Files.createSymbolicLink(app.resolve("app.jar.new"), held);
+        release("1.21.1", "jar of v1.21.1", sha256("jar of v1.21.1"));
+
+        assertThat(run("1.21.1")).isZero();
+
+        assertThat(Files.isSymbolicLink(app.resolve("app.jar"))).isFalse();
+        assertThat(app.resolve("app.jar")).hasContent("jar of v1.21.1");
+        assertThat(held).hasContent("held by prc");
+
+        Files.writeString(app.resolve("app.jar.new"), "left by the old run.sh");
+        Object leftover = Files.getAttribute(app.resolve("app.jar.new"), "unix:ino");
+        release("1.21.2", "jar of v1.21.2", sha256("jar of v1.21.2"));
+
+        assertThat(run("1.21.2")).isZero();
+
+        assertThat(app.resolve("app.jar")).hasContent("jar of v1.21.2");
+        assertThat(Files.getAttribute(app.resolve("app.jar"), "unix:ino")).isNotEqualTo(leftover);
+    }
+
+    /**
+     * Links the old install's service account could leave where update.sh, run as root, writes or reads: the failure
+     * was written through update-failed into the file it named, and the file app.jar named was copied into
+     * app.jar.prev, readable by every account.
+     */
+    @Test
+    void linksTheServiceAccountLeftAreNotFollowed() throws Exception {
+        Path passwd = Files.writeString(stubs.resolve("passwd"), "root:x:0:0:root:/root:/bin/bash\n");
+        Files.createSymbolicLink(app.resolve("update-failed"), passwd);
+
+        assertThat(run("1.21.1")).isNotZero();
+
+        assertThat(passwd).hasContent("root:x:0:0:root:/root:/bin/bash\n");
+        assertThat(Files.isSymbolicLink(app.resolve("update-failed"))).isFalse();
+        assertThat(failed()).endsWith("\tGitHub did not describe release v1.21.1\n");
+
+        Path shadow = Files.writeString(stubs.resolve("shadow"), "root:$6$secret");
+        Files.delete(app.resolve("app.jar"));
+        Files.createSymbolicLink(app.resolve("app.jar"), shadow);
+        release("1.21.1", "jar of v1.21.1", sha256("jar of v1.21.1"));
+
+        assertThat(run("1.21.1")).isZero();
+
+        assertThat(app.resolve("app.jar")).hasContent("jar of v1.21.1");
+        assertThat(app.resolve("app.jar.prev")).doesNotExist();
+        assertThat(shadow).hasContent("root:$6$secret");
+    }
+
+    /**
+     * install.sh runs update.sh with root's own umask: at 077 the jar it installed was root's alone, and the service,
+     * which runs as prc, could not read it and was restarted for ever.
+     */
+    @Test
+    void theServiceCanReadTheJarWhateverRootsUmask() throws Exception {
+        release("1.21.1", "jar of v1.21.1", sha256("jar of v1.21.1"));
+
+        assertThat(runWithUmask("077", "1.21.1")).isZero();
+
+        assertThat(Files.getPosixFilePermissions(app.resolve("app.jar"))).contains(PosixFilePermission.OTHERS_READ);
+        assertThat(Files.getPosixFilePermissions(app.resolve("app.jar.prev")))
+            .contains(PosixFilePermission.OTHERS_READ);
+    }
+
+    /** install.sh installs the latest release on each run: run again, it made that release the one to roll back to. */
+    @Test
+    void theSameReleaseInstalledAgainKeepsTheJarBeforeIt() throws Exception {
+        release("1.21.1", "jar of v1.21.1", sha256("jar of v1.21.1"));
+
+        assertThat(run("1.21.1")).isZero();
+        assertThat(run("1.21.1")).isZero();
+
+        assertThat(app.resolve("app.jar")).hasContent("jar of v1.21.1");
+        assertThat(app.resolve("app.jar.prev")).hasContent(OLD);
     }
 
     /** install.sh installs a release through update.sh and must stop when it cannot. */

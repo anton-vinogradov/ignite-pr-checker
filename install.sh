@@ -47,6 +47,14 @@ log "using $JAVA (Java $(java_major "$JAVA"))"
 # cannot change the code it runs: a hole in the service does not outlive a restart.
 id prc >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin prc
 install -d -o root -g root -m 755 "$APP_DIR"
+# Until now the directory may have been the service account's, and root must not follow or keep what it left: a link
+# where a directory goes would have install -d chown the link's target to prc, a link where a file goes would be
+# written through, and a file prc created stays writable through a descriptor it holds open. So the links go, and each
+# file root writes here is removed first.
+for dir in cache update dumps logs; do
+    if [ -L "$APP_DIR/$dir" ]; then rm -f "$APP_DIR/$dir"; fi
+done
+rm -f "$APP_DIR/app.jar.new" "$APP_DIR/update-failed" "$APP_DIR/.update-requested"
 install -d -o prc  -g prc  -m 700 "$APP_DIR/cache"
 # Where the service asks for an update; update.sh reads it as root.
 install -d -o prc  -g prc  -m 700 "$APP_DIR/update"
@@ -74,7 +82,8 @@ SERVER_ADDRESS=127.0.0.1
 SESSION_COOKIE_SECURE=true
 # Token of the GitHub account the checker acts as: it lists the PRs and reads their comments for /run-all commands,
 # and posts the replies, run narration and reactions. A classic token with the public_repo scope, of an account with
-# no rights in apache/*. Without it the checker posts nothing to GitHub and may read only 60 times an hour.
+# no rights in apache/*. Without it nothing is posted under the checker's own account and GitHub is read at most 60
+# times an hour; what users who linked their own GitHub token post through the checker still goes out under their names.
 #GITHUB_TOKEN=
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
 # and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
@@ -104,9 +113,11 @@ chmod 640 "$ETC_DIR/env"
 # it into update/requested) or the one given as the argument. The download must match the sha256 GitHub records for
 # the release's jar; the jar it replaces stays as app.jar.prev for a rollback. A failure keeps the current jar and
 # leaves its reason in update-failed, which the page shows. Run by systemd it never fails the start.
+rm -f "$APP_DIR/update.sh"
 cat > "$APP_DIR/update.sh" <<'UPDATE'
 #!/usr/bin/env bash
 set -uo pipefail
+# The service reads the jar as prc, and install.sh runs this with root's own umask, which may be 077.
 umask 022
 APP_DIR=/opt/ignite-pr-checker
 REPO=anton-vinogradov/ignite-pr-checker
@@ -130,7 +141,7 @@ fi
 version="${version#v}"
 
 fail() {
-    rm -f "$NEW"
+    rm -f "$NEW" "$FAILED"
     echo "update to v$version failed: $*" >&2
     printf '%s\t%s\t%s\n' "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" > "$FAILED"
     [ "$strict" = true ] && exit 1
@@ -149,13 +160,16 @@ expected="$(printf '%s' "$release" | tr -d '\n' \
     | grep -oE '[0-9a-f]{64}' | head -n 1)"
 [ -n "$expected" ] || fail "release v$version lists no sha256 for ignite-pr-checker.jar"
 
+# curl writes into an existing file, keeping its owner: the jar must land in a new one.
+rm -f "$NEW"
 curl -fsSL -m 120 -o "$NEW" "https://github.com/$REPO/releases/download/v$version/ignite-pr-checker.jar" \
     || fail "could not download the jar of v$version"
 actual="$(sha256sum "$NEW" | cut -d ' ' -f 1)"
 [ "$actual" = "$expected" ] || fail "the download's sha256 $actual is not the release's $expected"
 
-# install, not cp: an app.jar.prev the service account owned from an older install becomes root's.
-if [ -f "$JAR" ]; then
+# The jar it replaces is the one to roll back to, unless it is the same release installed again. install, not cp: an
+# app.jar.prev the service account owned from an older install becomes root's. A link is not a jar anyone installed.
+if [ -f "$JAR" ] && [ ! -L "$JAR" ] && ! cmp -s "$JAR" "$NEW"; then
     install -m 644 "$JAR" "$APP_DIR/app.jar.prev"
 fi
 mv -f "$NEW" "$JAR"
@@ -172,9 +186,9 @@ LATEST="$(curl -fsSL -m 30 -H 'Accept: application/vnd.github+json' \
 [ -n "$LATEST" ] || die "could not find the latest release of $REPO"
 log "installing v$LATEST ..."
 "$APP_DIR/update.sh" "$LATEST" || die "v$LATEST was not installed"
-rm -f "$APP_DIR/.update-requested"
 
 # 6. run.sh: starts the service as its user, after update.sh.
+rm -f "$APP_DIR/run.sh"
 cat > "$APP_DIR/run.sh" <<'RUN'
 #!/usr/bin/env bash
 set -uo pipefail
@@ -206,8 +220,6 @@ Wants=network-online.target
 Type=simple
 User=prc
 Group=prc
-# What the service writes is its own: snapshots hold stored tokens (encrypted), the log names users.
-UMask=0077
 Environment=PRC_JAVA=${JAVA}
 # A month of the service's own log, daily files; journald on a shared host keeps far less.
 Environment=PRC_LOG_FILE=${APP_DIR}/logs/ignite-pr-checker.log

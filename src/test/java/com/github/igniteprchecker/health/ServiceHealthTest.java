@@ -182,8 +182,11 @@ class ServiceHealthTest {
     /** A fresh install left APP_PUBLIC_URL empty: every link it posted led nowhere, and only the log said so, once. */
     @Test
     void aSettingThatIsNotAsMeantKeepsItAmber() {
-        ServiceHealth.Report report = ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING,
-            List.of("APP_PUBLIC_URL is empty"), NOW);
+        EffectiveConfig config = mock(EffectiveConfig.class);
+        when(config.problems()).thenReturn(List.of("APP_PUBLIC_URL is empty"));
+
+        ServiceHealth.Report report = new ServiceHealth(mock(Warmer.class), mock(StandingVisas.class),
+            mock(PrCommands.class), mock(CacheStore.class), config).report(CLEAN_LOG, System.currentTimeMillis());
 
         assertThat(report).isEqualTo(new ServiceHealth.Report("warn", "ok",
             List.of(new ServiceHealth.Problem("warn", "APP_PUBLIC_URL is empty"))));

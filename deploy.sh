@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Build the jar locally with the tests, ship it to the server and restart the service; the jar it replaces stays
-# as app.jar.prev. Checks that the new version answers within 60 s and prints how to roll back if not.
+# Build the jar locally with the tests, ship it to the server and restart the service; the jar it replaces stays as
+# app.jar.prev if it was answering. Checks that the new version answers within 60 s and prints how to roll back if not.
 # Refuses a tree with changes to what goes into the jar unless --force: the jar's version and commit must tell the
 # code it runs (a forced build is versioned "...-dirty"). No secrets here: server-side config lives only in
 # /etc/ignite-pr-checker/env on the host. Override the SSH target with PRC_SSH_HOST.
@@ -47,21 +47,30 @@ ssh "$SSH_HOST" bash -s -- "$VERSION" <<'REMOTE'
 set -euo pipefail
 version="$1"
 cd /opt/ignite-pr-checker
-# install, not cp: an app.jar.prev the service account owned from an older install becomes root's.
-[ -f app.jar ] && install -o root -g root -m 644 app.jar app.jar.prev
-install -o root -g root -m 644 app.jar.new app.jar
-rm -f app.jar.new update-failed
-systemctl restart ignite-pr-checker
-
 env=/etc/ignite-pr-checker/env
 addr="$(sed -n 's/^SERVER_ADDRESS=//p' "$env" | tail -n 1)"
 case "$addr" in ''|0.0.0.0|::) addr=127.0.0.1 ;; esac
 port="$(sed -n 's/^SERVER_PORT=//p' "$env" | tail -n 1)"
+answering() {
+    curl -fsS -m 5 "http://$addr:${port:-8080}/api/status" 2>/dev/null | sed -n 's/^{"version":"\([^"]*\)".*/\1/p'
+}
+
+# app.jar.prev is the jar to roll back to, so only a jar that answers replaces it: not one that never came up (the
+# deploy before this one failed), and not the same build again. install, not cp: an app.jar.prev the service account
+# owned from an older install becomes root's. A link is not a jar anyone installed.
+if [ -z "$(answering)" ]; then
+    echo ">> nothing answers now: app.jar.prev stays the jar to roll back to"
+elif [ -f app.jar ] && [ ! -L app.jar ] && ! cmp -s app.jar app.jar.new; then
+    install -o root -g root -m 644 app.jar app.jar.prev
+fi
+install -o root -g root -m 644 app.jar.new app.jar
+rm -f app.jar.new update-failed
+systemctl restart ignite-pr-checker
+
 running=""
 for _ in $(seq 1 30); do
     sleep 2
-    running="$(curl -fsS -m 5 "http://$addr:${port:-8080}/api/status" 2>/dev/null \
-        | sed -n 's/^{"version":"\([^"]*\)".*/\1/p')" || true
+    running="$(answering)" || true
     if [ "$running" = "$version" ]; then
         echo ">> $version is up"
         exit 0

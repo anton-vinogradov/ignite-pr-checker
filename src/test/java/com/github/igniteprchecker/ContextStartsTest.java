@@ -2,6 +2,8 @@ package com.github.igniteprchecker;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.github.igniteprchecker.github.PrCommands;
+import com.github.igniteprchecker.jira.StandingVisas;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,6 +16,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * No test started the application, so a bean Spring could not wire (two constructors marked for injection, a missing
@@ -41,6 +44,12 @@ class ContextStartsTest {
     @Autowired
     private BuildProperties build;
 
+    @Autowired
+    private StandingVisas standing;
+
+    @Autowired
+    private PrCommands commands;
+
     @Test
     void theServiceStartsAndAnswers() {
         Map<String, Object> status = http.exchange("/api/status", HttpMethod.GET, null,
@@ -57,5 +66,12 @@ class ContextStartsTest {
         assertThat(output.getAll()).contains("effective config: SERVER_ADDRESS=127.0.0.1; ")
             .contains("TC_BASE_URL=http://127.0.0.1:9/").contains("SESSION_SECRET=set")
             .doesNotContain("context-test");
+    }
+
+    /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */
+    @Test
+    void automationOffReachesTheJobs() {
+        assertThat(ReflectionTestUtils.getField(standing, "automation")).isEqualTo(false);
+        assertThat(ReflectionTestUtils.getField(commands, "automation")).isEqualTo(false);
     }
 }
