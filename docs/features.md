@@ -302,11 +302,12 @@ link your GitHub login; a GitHub token of your own is optional.
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
   A comment written more than an hour ago is not run, even if it is edited later.
-- 🚀 means accepted, 😕 refused. The details are edited into your command comment: the queued build, then
-  `⏱ Queued — expected to finish ≈ 21:05 MSK` in the time zone of your JIRA profile, UTC without one. The comment is
-  edited when the stage changes or the estimate moves by 10 minutes or more.
-- When the checker holds your GitHub token (for the PR comment or the autofix), the reactions and the story come
-  from your own GitHub account; otherwise from the app account.
+- 🚀 means accepted, 😕 refused. Then comes the story of the run: the queued build, then
+  `⏱ Queued — expected to finish ≈ 21:05 MSK` in the time zone of your JIRA profile, UTC without one. It is edited
+  when the stage changes or the estimate moves by 10 minutes or more.
+- When the checker holds your GitHub token (for the PR comment or the autofix), the reactions come from your account
+  and the story is written into your command comment. Otherwise both come from the app account, the story in a
+  comment of its own.
 - After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`)
   and ends with `🏁 Run finished — see the verdict`, a link to your verdict comment or to the checker's page. If the
   app account narrates for you, it also mentions you in a new comment when the verdict is ready.
