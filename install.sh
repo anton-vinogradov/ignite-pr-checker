@@ -93,8 +93,8 @@ SESSION_COOKIE_SECURE=true
 #TC_BASE_URL=https://ci2.ignite.apache.org/
 #TC_RUN_ALL_BUILD_TYPE=IgniteTests24Java8_RunAll
 #JIRA_BASE_URL=https://issues.apache.org/jira
-# How many recent master runs of a test to check: a PR failure is a blocker unless the test also
-# fails at least once in these (default 100).
+# How many recent master runs of a test to look at, per suite (default 100). A failure there makes a PR's
+# failure pre-existing, but not always: the README says when it does not.
 #MASTER_HISTORY_DEPTH=100
 # Extra JVM flags, after the defaults (-Xmx512m -XX:+ExitOnOutOfMemoryError, heap dump on OOM), so a
 # repeated flag wins, e.g. -Xmx768m. The status page shows the heap and the process's peak memory.

@@ -25,6 +25,13 @@ jobs:
             node --check "$f"
           done
 
+      # Names the section where a Russian doc's counts, numbers, quoted code or bold names differ from its English twin,
+      # or the setting the README leaves out.
+      - name: Check the docs
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test --tests 'com.github.igniteprchecker.Doc*Test' --tests com.github.igniteprchecker.ReadmeSettingsTest
+
       - name: Build and test
         run: |
           chmod +x ./gradlew

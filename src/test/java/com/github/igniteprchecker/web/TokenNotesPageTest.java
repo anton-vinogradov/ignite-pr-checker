@@ -38,7 +38,8 @@ class TokenNotesPageTest {
         assertThat(collapsed("docs/features.md"))
             .contains("any **standing option** other than PR commands alone keeps yours in the pool while it is on");
         assertThat(collapsed("docs/features.ru.md"))
-            .contains("любая **standing-опция**, кроме одних PR commands, держит ваш токен в пуле, пока она включена");
+            .contains("любая **постоянная опция**, кроме одних PR commands, держит твой токен в пуле, пока она "
+                + "включена");
     }
 
     /** The PATs pasted in ⚙ are for the options, which store them. */

@@ -290,7 +290,7 @@ class GlossaryTest {
     }
 
     /** The anchors GitHub gives the headings of a markdown file. */
-    private static Set<String> anchors(String markdown) {
+    static Set<String> anchors(String markdown) {
         return HEADING.matcher(markdown).results()
             .map(m -> m.group(1).strip().toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N} _-]", ""))
             .map(heading -> heading.replace(' ', '-'))

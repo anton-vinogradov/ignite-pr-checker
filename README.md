@@ -2,202 +2,305 @@
 
 **English** · [Русский](README.ru.md)
 
-A small, focused tool for an [Apache Ignite](https://github.com/apache/ignite)-style TeamCity setup.
-It answers one question well — **which tests did my pull request actually break?** — and lets you act
-on it:
+Ignite PR Checker answers one question for an [Apache Ignite](https://github.com/apache/ignite) contributor: which
+test failures in my pull request's run did my change cause? It reads the project's TeamCity, ci2, compares each failure
+with master and with other PRs, and filters out what they explain, with the reason for each. From the same page you
+start RunAll, re-run suites, and post the verdict to the JIRA ticket or the pull request.
 
-1. **Show the real blockers** for a PR: tests that failed in your run and look caused by *your change*,
-   with pre-existing and flaky-on-master failures filtered out as noise.
-2. **Trigger runs** from the same page: the whole RunAll chain, or a re-run of just the blocker suites
-   (or one suite), at the head of the queue if you're in a hurry.
+There is no database and no shared TeamCity account. Every user works under their own ci2 token, and the state is a
+few JSON files on disk.
 
-➡ **Live instance for Apache Ignite contributors: <https://ignite-pr-checker.is-a.dev>** — log in with your ci2 token.
+➡ **Live instance: <https://ignite-pr-checker.is-a.dev>**. Log in with your ci2 access token.
 
-➡ **[Feature tour with screenshots](docs/features.md)**
+➡ **[Feature tour](docs/features.md)**. It starts with the [verdict glossary](docs/features.md#verdict-glossary): what
+each label means and what to do about it.
 
-It's a deliberately lightweight, self-updating alternative to the legacy
-[ignite-teamcity-bot](https://github.com/apache/ignite-teamcity-bot): no database, no state to babysit —
-a thin layer over the TeamCity REST API plus the one piece of logic that matters. It can also post the
-verdict (a "visa") to the PR's JIRA ticket — manually, once when the run finishes, or automatically for
-every run you trigger. Every user works under their own TeamCity token.
+![The PR page: broken suites grouped by cause, then the blockers, each with the reason under it](docs/img/pr-page.jpg)
 
-You can drive it without leaving the pull request: comment **`/run-all`** (or `/run-all top`, or
-`/top` to promote your queued run) — the chain runs under your own accounts, your comment carries a
-live ETA, and the verdict lands in the PR when the run settles. See
-[Working from the PR](docs/features.md#working-from-the-pr-commands).
+## What it does
 
-## The core idea: what is a "blocker"?
+- **The verdict.** The PR page splits the failures of the PR's latest RunAll into blockers, tests to watch, broken
+  suites and filtered-out noise, with a reason under each test. See
+  [Reading the verdict](docs/features.md#reading-the-verdict).
+- **Runs.** Run RunAll or rerun suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
+  shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
+  [Iterating on a fix](docs/features.md#iterating-on-a-fix).
+- **Standing options.** In ⚙: auto re-run of failed suites, a JIRA visa or a PR comment for each of your runs, a
+  checkstyle autofix, PR commands. They work while the page is closed. See
+  [Standing options](docs/features.md#standing-options).
+- **PR commands.** With **PR commands** on, a `/run-all` comment on any pull request queues RunAll under your TeamCity
+  account, and a comment in the PR then tells how the run goes: your own when the checker holds your GitHub token,
+  else one of the app account. See [Working from the PR](docs/features.md#working-from-the-pr-commands).
+- **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
+  [The fix-master queue](docs/features.md#the-fix-master-queue-flakyhtml).
+- **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
+  <https://ignite-pr-checker.is-a.dev/status.html>.
 
-A test that failed in your PR's latest **RunAll** is a **blocker** (broken *by your change*) only if
-**all** of these hold:
+## How a failure becomes a blocker
 
-- **Clean on master** — it does **not** fail in the last `MASTER_HISTORY_DEPTH` (default **100**) runs of
-  that test **in the same suite** on the base branch (one test can run in several suites, e.g. the C++
-  tests on Windows, Linux and Clang). Any failure there means it's pre-existing or flaky, not your fault →
-  filtered out as noise (with the reason shown).
-- **Fails consistently on the branch** — it fails in all of the last `BLOCKER_FAIL_STREAK` (default **3**)
-  finished runs of its suite on the PR branch, with no pass in that window. A pass *on the same code*
-  means the failure isn't caused by the change:
-  - failed only the latest run but passed just before → filtered as *flaky on branch*;
-  - failing the last 2+ runs but passed earlier → a separate **"Recently started failing"** card — a
-    fresh break to watch, not yet a hard blocker.
+Each failed test is judged in each suite on its own. The same test can run in several suites (the C++ tests run on
+Windows, Linux and Clang), and a pass on one platform says nothing about another.
 
-  "The same code" is taken literally: every run is matched against the **VCS revision its build ran
-  on**, so only runs of the revision under review can clear a failure. A green run from before the
-  commits that broke the test proves nothing and is discounted (dimmed in the history strip). That
-  makes the first failure on a fresh revision a *watch* item — the suite is re-run automatically, and
-  a second failure on that same revision makes it a blocker.
+A failed test is a **blocker** when all of these hold:
 
-  The verdict, its links and its history strips are always anchored to the **newest finished run**.
-- If the test has **no master history at all**, it's kept as a blocker ("can't prove it's pre-existing").
+- **The branch keeps failing it.** It failed in each of its last 3 finished runs in that suite on the PR branch, or in
+  every run when there were fewer: on a PR's first RunAll one failure is enough. Failing every run of the PR's current
+  revision, two or more, counts too. Each run is matched to the revision it built, so a pass on older code does not
+  clear a failure.
+- **Master does not explain it.** It did not fail in the last 100 runs of that suite on master on the PR's JDK. A
+  master failure makes the test pre-existing, unless that failure is rare and old (at most 2% of the runs, none of the
+  newest 10) and the PR's failures in a row are too many to be chance, or master fails it only at a
+  `TEST_SCALE_FACTOR` the PR did not run at.
+- **Other PRs do not explain it.** It does not fail on the branches of 3 or more other PRs, unless the PR's failures in
+  a row outweigh their rate.
 
-Suites that didn't produce a reliable run — compilation failure, **execution timeout, out-of-memory,
-JVM crash**, or a chain interrupted/cancelled mid-way — are surfaced as **broken suites** instead of
-being mined for cascade failures, and an aborted chain gets an explicit *RunAll interrupted* banner.
-While a newer RunAll is still running (or ended cancelled), results of its finished suites are **folded
-into the verdict live** — no waiting for the whole ~4-hour chain.
+A test that master and other PRs do not explain, but that the branch fails too little to block, goes to **Recently
+started failing** when it failed the only run of newly pushed code after passing on the branch before, or its last two
+or more runs on the same code after passing on that code. A re-run decides. Everything else is filtered out with its
+reason. Suites with no reliable result (a compilation error, a timeout, a crash, a failed build step) are listed apart
+as broken suites. The [glossary](docs/features.md#verdict-glossary) has every reason and threshold.
 
-Each blocker also shows a **pass/fail history strip** of its finished runs on the branch (green = passed,
-red = failed, oldest → newest; a run where the test was ignored gets no bar) — like the bot's, but
-computed on the fly.
+## Accounts and tokens
 
-Everything else is listed separately as filtered-out noise, each with the reason. History is read live
-from the TeamCity REST API; there is no datastore to maintain.
+- **Users** log in with their own ci2 access token. It travels encrypted (AES-GCM) in an HttpOnly session cookie, and
+  the runs a user starts or cancels on the page go under their account. For about an hour after a user's last request
+  the server also holds the token in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
+  everyone. A login lasts until logout.
+- **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
+  token, the user's JIRA token for visas, and the user's GitHub token for PR comments and the checkstyle autofix.
+- **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it and writes as it: the
+  replies to commands of users who have not switched PR commands on, reactions, hints, the run story of users without
+  their own GitHub token, and the mention that tells such a user their verdict is ready. Use a separate account with no
+  rights in `apache/*` and a classic token with the `public_repo` scope: a leaked token then cannot push to Apache
+  Ignite. The status page shows whose token it is, and warns signed-in viewers if that account can push to the repo.
 
-## What's on the page
+There is no shared JIRA account: visas go out under the JIRA token of the user they are for.
 
-- A left pane lists the repo's **open PRs** (most-recently-updated first); click one to analyse it, or
-  put any number in the URL (`?pr=12345`) to open it directly — even if it isn't in the list.
-- Blockers are grouped **by suite** (the suite header links to its CI run); each test links straight to
-  its failure **in the last finished run**.
-- **Trigger** controls: **Run / Run at top** for the whole `RunAll`, a **Rerun / Rerun at top** pair on
-  every section (broken suites, blockers, recently-started, filtered) and on each individual suite, a live
-  list of your current runs with queue-aware ETAs, and **Cancel my runs**.
-- **JIRA visa**: post the verdict as a comment to the PR's `IGNITE-XXXXX` ticket — one click, armed
-  one-shot for when the current run finishes (**Auto visa**), or a standing option in settings (⚙) that
-  visas **every** run you trigger. Your JIRA PAT travels in the encrypted session cookie; for the
-  deferred variants it is stored encrypted only until the visa is posted / while the option is on.
-- A public **[status page](src/main/resources/static/status.html)** (`/status.html`) with service metrics:
-  TeamCity/GitHub calls **by category over the last hour**, a per-minute chart, success rate and latency,
-  JVM/cache internals, and a **health** indicator with recent WARN/ERROR from the log.
+## Quick start
 
-## Architecture
+**Use it.** Open <https://ignite-pr-checker.is-a.dev> and log in with a ci2 access token (TeamCity: Profile → Access
+Tokens). Pick a PR on the left, or type its number in the filter.
 
-Single Spring Boot app, no database:
-
-| Component | Responsibility |
-|---|---|
-| `TcClient` | Thin wrapper over the TeamCity REST API: find the latest finished RunAll, expand snapshot deps, failed tests, per-test master history, per-branch runs, trigger/cancel builds. Every call takes the caller's token. |
-| `ChainCollector` | Walks a composite RunAll build into its dependency suites and collects the failed tests, adding the suites re-run on their own since (plus broken suites that failed without running tests, and the run's ran/reused composition). |
-| `BlockerAnalyzer` | The classifier: master-clean + consistent failure over the last N branch runs → blocker / recently-started (watch) / noise; runs per-test lookups in parallel; caches results. |
-| `AnalysisCache` / `TtlCache` | In-memory caches (per-build result, per-test master history), shared across users and PRs. |
-| `Warmer` / `TokenPool` | Keeps the newest PRs pre-analysed in the background, spread across logged-in users' donated tokens; **cache-aware** (only recomputes PRs whose RunAll build changed). |
-| `RunDeltaStore` / `FlakyStats` / `RerunTracker` | Blocker delta & trend between runs; the persistent fix-master queue; live queued/running states of re-runs. |
-| `CacheStore` / `SnapshotCache` | Snapshots the caches to disk so a restart/redeploy starts warm instead of re-hammering TeamCity. |
-| `GithubClient` | Lists the repo's open PRs for the nav pane (cached to stay within the API rate limit). |
-| `Metrics` / `LogTracker` / `StatusController` | Powers the public status page (rolling last-hour call metrics + log health). |
-| `UpdateService` | In-app self-update: checks GitHub releases and, on request, swaps the jar and restarts. |
-| `JiraClient` / `VisaService` / `VisaSubscriptions` / `StandingVisas` | The JIRA "visa": composes the verdict in wiki markup and posts it to the ticket — manually, one-shot when a tracked run finishes, or via a periodic sweep for every enrolled user's runs (tokens encrypted at rest only while needed). |
-| `UserDirectory` | Who has used the tool (name, activity, logins) — backs the status page's **Users** tab. |
-| Web controllers | `/api/analyze`, `/api/refresh`, `/api/causes`, `/api/delta`, `/api/progress`, `/api/trigger`, `/api/rerun-suite(s)`, `/api/runs`, `/api/cancel-all`, `/api/jira-visa`, `/api/auto-visa(-all)`, `/api/users`, `/api/restart`, `/api/prs`, `/api/config`, `/api/status`, `/api/version`, `/api/update`, `/api/login`·`/logout`·`/me`, … |
-
-## Authentication
-
-There are **no credentials in config**. Every user logs in with their **own** TeamCity access token
-(TeamCity: *Profile → Access Tokens*). The token is validated and then encrypted (AES-GCM) into an
-**HttpOnly session cookie** — the server keeps no session store, so logins survive restarts/redeploys,
-and the login lasts until you log out. All TeamCity calls run under that user's own permissions. Serve
-the app over HTTPS (the token travels in the cookie) and set `SESSION_COOKIE_SECURE=true`.
-
-## Configuration
-
-Config holds only **non-secret, deployment-wide** settings; see
-[`application.yml`](src/main/resources/application.yml). Defaults target Apache Ignite's CI. Override per
-deployment via environment variables:
-
-```bash
-export TC_BASE_URL="https://your-teamcity-host/"        # default: https://ci2.ignite.apache.org/
-export TC_RUN_ALL_BUILD_TYPE="IgniteTests24Java8_RunAll"
-export MASTER_HISTORY_DEPTH=100                         # master runs checked per test for the blocker rule
-export BLOCKER_FAIL_STREAK=3                            # consecutive branch-run failures required for a blocker
-export APP_PUBLIC_URL="https://your.host"               # absolute links in posted JIRA visas
-export GITHUB_REPO="apache/ignite"                      # whose open PRs populate the nav pane
-export GITHUB_TOKEN=...                                 # optional: raise the GitHub API limit (60 -> 5000/h)
-export SESSION_SECRET=...                               # stable secret so logins survive restarts (install.sh generates one)
-export SESSION_COOKIE_SECURE=true                       # set once behind HTTPS (e.g. Caddy)
-```
-
-## Install / update on a server (one line)
-
-Debian/Ubuntu, as root. The same command installs and updates to the latest release (your
-`/etc/ignite-pr-checker/env` config is preserved):
+**Run your own instance** on Debian or Ubuntu, as root:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anton-vinogradov/ignite-pr-checker/main/install.sh | sudo bash
 ```
 
-It installs a JRE, a `prc` service user, a `systemd` unit (via a small `run.sh` wrapper that also performs
-self-updates), pulls the latest released jar, and starts the service. No secrets to configure — open the
-site and log in with your own TeamCity token. Put it behind HTTPS (e.g. Caddy) with `SESSION_COOKIE_SECURE=true`,
-and let the proxy compress responses — the analysis JSON is sizeable (a few hundred KB) and compresses ~10×, so
-this is the difference between an instant and a sluggish load on a small box. A minimal `Caddyfile`:
+Then point a DNS name at the host, serve the service through an HTTPS proxy, set `APP_PUBLIC_URL` in
+`/etc/ignite-pr-checker/env` and restart the service; the installer prints these steps. Bind the service to loopback
+(`SERVER_ADDRESS=127.0.0.1`, as the env template has it) and serve it through the proxy only: users paste tokens into
+its login form. A minimal `Caddyfile`, which also compresses the large JSON answers:
 
 ```
-your.host {
+prc.example.org {
 	encode zstd gzip
-	reverse_proxy localhost:8080
+	reverse_proxy 127.0.0.1:8080
 }
 ```
 
-Once running, a new release is picked up in the UI: an **Update to vX.Y.Z** button appears in the top bar;
-any logged-in user can click it and the service swaps the jar and restarts itself — no server access needed.
-
-## Running the installed service
-
-`install.sh` registers a `systemd` service named **`ignite-pr-checker`**, enables it (so it starts on
-boot), and runs it as the `prc` user on port **8080**. Manage it with the usual `systemctl`:
+**Develop** with JDK 17:
 
 ```bash
-sudo systemctl status  ignite-pr-checker    # is it running?
-sudo systemctl start   ignite-pr-checker    # start it
-sudo systemctl stop    ignite-pr-checker    # stop it
-sudo systemctl restart ignite-pr-checker    # restart (e.g. after editing config)
+./gradlew bootRun   # http://localhost:8080, the dev profile
+./gradlew test
 ```
 
-Follow the logs with:
+## Configuration
+
+Settings are environment variables in `/etc/ignite-pr-checker/env`; restart the service after a change. The defaults
+target Apache Ignite's ci2. Each start logs the settings in effect (`effective config: …`), and the status page lists
+them for signed-in viewers. A value out of range falls back to its default, and the status page warns about it.
+`install.sh` writes the env file from a template once and never touches it again: on an existing install, add new
+settings by hand.
+
+| Variable | Default | What for |
+|---|---|---|
+| `APP_PUBLIC_URL` | `https://ignite-pr-checker.is-a.dev`; empty in the env template | The https address users open. Links in PR comments, JIRA visas and replies point here. Set it on any other instance: while it is empty, the status page warns. |
+| `SERVER_ADDRESS` | all interfaces; `127.0.0.1` in the env template | Where the service listens. Keep `127.0.0.1` behind an HTTPS proxy. |
+| `SERVER_PORT` | `8080` | The port. |
+| `SESSION_SECRET` | a random key per start; `install.sh` writes a stable one | Encrypts the session cookies and the stored tokens. Read [The cache directory](#the-cache-directory) before you change it. |
+| `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
+| `GITHUB_TOKEN` | none | Token of the app account: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub is read at most 60 times an hour and nothing is posted under the checker's own account. |
+| `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
+| `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
+| `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
+| `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
+| `GITHUB_REPO` | `apache/ignite` | Whose PRs are listed and checked. |
+| `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Where visas go and IGNITE ticket links point. |
+| `MASTER_HISTORY_DEPTH` | `100` | Master runs of a test looked at, per suite. |
+| `BLOCKER_FAIL_STREAK` | `3` | Failed branch runs in a row for a blocker. |
+| `ANALYSIS_BASE_BRANCH` | `refs/heads/master` | The branch PR failures are compared with. |
+| `ANALYSIS_CONCURRENCY` | `8` | TeamCity calls one analysis makes in parallel. |
+| `ANALYSIS_CACHE_TTL_MINUTES` | `120` | How long a test's history and a verdict stay cached. |
+| `ANALYSIS_REFRESH_AFTER_SECONDS` | `120` | A viewed verdict older than this asks TeamCity whether anything finished on the branch, and is recomputed if so. |
+| `WARM_ENABLED` | `true` | Keep the newest open PRs analysed in the background. |
+| `WARM_COUNT` | `50` | How many PRs. |
+| `WARM_INTERVAL_MINUTES` | `10` | How often. |
+| `WARM_TOKEN_TTL_MINUTES` | `60` | How long a user's token stays in the pool after their last request. |
+| `AUTOMATION_ENABLED` | `true` | Let standing options and PR commands act in the background. |
+| `PRC_PERSIST_ENABLED` | `true` | Keep state and caches on disk. |
+| `PRC_CACHE_DIR` | `/opt/ignite-pr-checker/cache` | Where. |
+| `PERSIST_INTERVAL_MINUTES` | `5` | How often the caches are written; state is written within a second of a change. |
+| `UPDATE_ENABLED` | `true` | Offer the **Update** button. |
+| `UPDATE_JAR_PATH` | `/opt/ignite-pr-checker/app.jar` | The running jar; the update request and `update-failed` sit beside it. |
+| `PRC_LOG_FILE` | none, console only; the unit sets `/opt/ignite-pr-checker/logs/ignite-pr-checker.log` | The service's own log: a file a day, 30 days, at most 500 MB of old files. |
+| `GITHUB_CACHE_SECONDS` | `300` | How long the list of open PRs is cached. |
+| `TEAMCITY_READ_TIMEOUT`, `GITHUB_READ_TIMEOUT`, `JIRA_READ_TIMEOUT` | `60s` | How long a call may wait without data. |
+| `GITHUB_API_URL` | `https://api.github.com` | For tests only. |
+| `PRC_JAVA` | set in the unit by `install.sh` | The java `run.sh` starts. |
+
+## Operation
+
+### Install and update
+
+`install.sh`, the one-liner above, installs the latest release or updates an existing install to it. Re-run it to get
+new versions of the scripts and the systemd unit, not only of the jar. It:
+
+- uses the `java` on the PATH if it is 17 or newer, and installs OpenJDK 17 otherwise;
+- creates the `prc` service user. `/opt/ignite-pr-checker` with the jar and the scripts belongs to root, so the service
+  cannot change the code it runs; it writes only to `cache/`, `update/`, `dumps/` and `logs/` there;
+- writes `/etc/ignite-pr-checker/env` from the template, with a generated `SESSION_SECRET`, if the file is not there;
+- writes `update.sh`, `run.sh` and the unit `ignite-pr-checker`, installs the latest release through `update.sh`,
+  starts the service and waits up to 60 s for it to answer.
+
+**Update from the page.** When a newer release is out, the top bar shows **Update to vX.Y.Z** and a **what's new** link
+to its release notes, or to the list of releases when it is not the next patch release. The button restarts the
+service. Before the start, systemd runs `update.sh` as root, which:
+
+- downloads exactly the release the button offered;
+- installs it only if its sha256 equals the digest GitHub lists for the release's `ignite-pr-checker.jar`;
+- keeps the jar it replaces as `app.jar.prev`, unless it is the same jar;
+- on a failure keeps the current jar and writes the reason to `/opt/ignite-pr-checker/update-failed`. The button then
+  reads **Retry update to vX.Y.Z**, with the reason in its tooltip. The service starts either way.
+
+**Install a given version.** `install.sh` always takes the latest release; `update.sh` installs the one you name, an
+older one too:
 
 ```bash
+sudo /opt/ignite-pr-checker/update.sh 1.23.1 && sudo systemctl restart ignite-pr-checker
+```
+
+**Roll back** to the jar that ran before the last update, install or deploy:
+
+```bash
+cd /opt/ignite-pr-checker && sudo install -m 644 app.jar.prev app.jar && sudo systemctl restart ignite-pr-checker
+```
+
+Use `install`, not `cp`: `cp` writes into the jar the running service still reads, and the service then fails to save
+its state as it stops.
+
+The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
+release wrote, stop the service, copy that file over the state file, and start the old jar.
+
+### Service and logs
+
+```bash
+sudo systemctl status ignite-pr-checker
+sudo systemctl restart ignite-pr-checker   # after a change in /etc/ignite-pr-checker/env
 journalctl -u ignite-pr-checker -f
+sudo tail -f /opt/ignite-pr-checker/logs/ignite-pr-checker.log
 ```
 
-Configuration lives in **`/etc/ignite-pr-checker/env`** (restart the service after editing it). The
-app itself is at `/opt/ignite-pr-checker` (`app.jar` launched by `run.sh`). To update the binary,
-click **Update to vX.Y.Z** in the UI or re-run the install one-liner — both preserve your config.
+The service's own log keeps 30 days, a file a day. The status page keeps the recent warnings and errors across
+restarts and lists at the top what is wrong now: a background job that stopped, a state file it could not read, a
+setting out of range.
 
-## Releases
+### Memory
 
-Releases are built by CI. Cut one by pushing a tag:
+The JVM gets `-Xmx512m`. A JVM out of memory writes a heap dump to `/opt/ignite-pr-checker/dumps/` and exits, and
+systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decrypted tokens, so only the service can
+read that directory. For more heap, set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the
+heap with the peak of its old generation, and the process's resident memory with its peak.
+
+### The cache directory
+
+`/opt/ignite-pr-checker/cache` (`PRC_CACHE_DIR`) belongs to `prc`, mode 700:
+
+| File | What it holds |
+|---|---|
+| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted), GitHub logins, the comments and visas the options follow, the re-run waves. |
+| `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted). |
+| `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply. |
+| `reruns.json` | Queued and running builds the page and the options follow. |
+| `admin-actions.json` | The last restart, update and flush: who and when. |
+| `problems.json` | Recent warnings and errors for the status page. |
+| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json`, `users.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters, and who used the service and when (names only, no tokens). Without them the service starts slower and the list of users starts over. |
+| `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
+| `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
+| `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |
+| `<file>.before-<version>-built-<time>` | A file as it was before a new build first ran; the newest 5 kept per file. |
+
+State is written within a second of a change, the caches every 5 minutes, and everything at shutdown.
+
+The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Changing the secret logs
+everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. The standing options do not wait
+for their owner: when a run of a user with auto re-run, auto-visa or the PR comment on finishes, the checker drops all
+their options, the linked GitHub login included, if it cannot read their TeamCity token, or their JIRA token while
+auto-visa is on, or their GitHub token while the PR comment is on. A user stores a fresh TeamCity token by logging in
+again, and a fresh JIRA or GitHub token by switching auto-visa, the PR comment or the autofix off and on with the new
+token. Change the secret only if it leaked, and ask the users to do both before their next run finishes.
+
+### Who may restart, update and flush
+
+With `PRC_ADMINS` set, only those TeamCity users may press **Restart service**, **Update** and **Flush caches** and
+see the list on the **Users** tab; the buttons are hidden from everyone else. Without it, any logged-in user may, but
+restart and update at most once per 10 minutes between them, and flush at most once per hour. Every press is logged
+with the user's name, and the status page shows who restarted and who flushed last.
+
+### Releases
+
+CI builds a release from a tag:
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v1.24.0 && git push origin v1.24.0
 ```
 
-The [`release`](.github/workflows/release.yml) workflow builds the fat jar (embedding the tag as the app
-version) and publishes it as a GitHub Release asset named `ignite-pr-checker.jar`, which `install.sh` and
-the self-updater always fetch from `/releases/latest/download/`.
+The release workflow runs all the tests and publishes the jar as `ignite-pr-checker.jar`. Its notes are made of the
+**What changes for users** section of each PR merged since the previous tag, with a warning when `TestVerdict.RULES`
+changed: every verdict is then computed again after the update.
 
-## Build & run locally
+For the maintainer: fill **What changes for users** in each PR (the template has it), release a change of the verdict
+rules as a minor version, and put small PRs into one release.
 
-Requires JDK 17.
+### Shipping a local build
 
-```bash
-./gradlew bootRun
-# then open http://localhost:8080
-```
+`deploy.sh` builds and tests the jar on your machine, copies it over SSH (`PRC_SSH_HOST`, by default `ignite-prc`) and
+restarts the service. It refuses uncommitted changes to what goes into the jar (`--force` ships a build versioned
+`…-dirty`). It keeps the replaced jar as `app.jar.prev` only if that jar was answering, waits up to 60 s for the new
+version, and prints the rollback command if it does not come up.
 
-For fast iteration against your own test host during development, [`deploy.sh`](deploy.sh) builds the jar
-locally and ships it over SSH (`build → scp → restart`) without cutting a release.
+## Architecture
+
+One Spring Boot application; the packages under `com.github.igniteprchecker`:
+
+| Package | What it does |
+|---|---|
+| `tc` | The TeamCity REST client, always under the caller's token, and `RerunTracker`, which follows queued and running builds. |
+| `analysis` | The verdict: `ChainCollector` walks the RunAll chain, `BlockerAnalyzer` judges each failure, plus caveats, root causes, the flaky board, merged PRs' verdicts, and the warmer with its token pool. |
+| `jira` | Verdict texts (`VisaService`), the standing options that settle runs with re-runs, comments and visas (`StandingVisas`), and one-shot Auto visas. |
+| `github` | The GitHub client (PR list, comments, reactions, commits) and the PR command poll (`PrCommands`). |
+| `style` | The checkstyle autofix of the author's own PR. |
+| `web` | The HTTP API, login, operator actions, security headers. |
+| `persist` | Snapshots of state and caches on disk, and their backups. |
+| `health`, `metrics` | The status page: recent problems, health of the background jobs, call counters, memory. |
+| `update` | The in-app update, which asks `update.sh` for a release. |
+| `config`, `session` | Settings, and the encrypted session cookie. |
+
+The pages are static files, `index.html`, `flaky.html` and `status.html`, with their code in `static/*.js` and the
+shared helpers in `static/common.js`.
+
+## Development
+
+- `./gradlew bootRun` uses the `dev` profile: it listens on `127.0.0.1:8080`, keeps its state in `./build/prc-cache`,
+  and neither warms PRs, nor acts on PRs in the background, nor updates itself. Opening a PR still analyses it on ci2
+  under your token. To try the warmer: `WARM_ENABLED=true WARM_COUNT=3 ./gradlew bootRun`.
+- `./gradlew test` runs the tests, the page scripts under node included (skipped without node), and writes a coverage
+  report to `build/reports/jacoco/test/html`. CI runs `./gradlew build` and `node --check` on every page script.
+- The docs come in pairs, English and Russian. Change both: `DocParityTest` compares them section by section,
+  counting paragraphs, list items and table rows, and matching the numbers, the quoted code and the bold names the
+  Russian keeps in English. It does not read what the sentences say.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0, see [LICENSE](LICENSE).
