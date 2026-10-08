@@ -73,8 +73,9 @@ analysis:
   base-branch: refs/heads/master
   # buildType id of the composite chain that fans out into the individual suites. Override with TC_RUN_ALL_BUILD_TYPE.
   run-all-build-type: ${TC_RUN_ALL_BUILD_TYPE:IgniteTests24Java8_RunAll}
-  # How many recent master runs of a test to inspect. A test that fails in the PR is a blocker unless
-  # it also fails at least once in these last master runs. Override with MASTER_HISTORY_DEPTH.
+  # How many recent master runs of a test to look at, per suite and on the PR's JDK. A failure there makes a PR's
+  # failure pre-existing, except a rare and old one and one at another test scale factor (BlockerAnalyzer).
+  # Override with MASTER_HISTORY_DEPTH.
   history-depth: ${MASTER_HISTORY_DEPTH:100}
   # How many TeamCity calls (per-test history / per-suite lookups) to run in parallel during one analysis.
   # Kept modest for the single-core box: though the calls are I/O-bound, each response still costs CPU to

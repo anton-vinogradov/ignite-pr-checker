@@ -15,8 +15,10 @@ import org.junit.jupiter.api.Test;
 /**
  * README.ru.md had no word of the /run-all and /top commands the English README described, and the two feature tours
  * told different facts. Each pair now has the same sections in the same order, and each section the same number of
- * paragraphs, list items, table rows, code blocks and pictures, the same quoted code and the same numbers: a fact
- * written in one language only fails here, naming the section.
+ * paragraphs, list items, table rows, code blocks and pictures, the same quoted code and the same numbers; a bold name
+ * the Russian keeps in English, a button or a card, is in the English section too. A difference fails here, naming
+ * the section. What the sentences say is not compared: a fact written in one language only is caught when it brings
+ * a paragraph, an item, a number, a quote or such a name.
  */
 class DocParityTest {
     private static final Path README = Path.of("README.md");
@@ -40,6 +42,10 @@ class DocParityTest {
     private static final Pattern CODE = Pattern.compile("`([^`]+)`");
 
     private static final Pattern NUMBER = Pattern.compile("\\d+");
+
+    private static final Pattern BOLD = Pattern.compile("\\*\\*([^*]+)\\*\\*");
+
+    private static final Pattern CYRILLIC = Pattern.compile("\\p{IsCyrillic}");
 
     @Test
     void theReadmesSayTheSame() throws IOException {
@@ -95,6 +101,25 @@ class DocParityTest {
         assertThat(differences(README, read(README), README_RU, ru)).singleElement().asString().contains("PRC_ADMIN");
     }
 
+    /** The Russian tour kept the old button name after the English one was renamed, with the counts all equal. */
+    @Test
+    void aButtonNameLeftOldInOneLanguageIsCaught() throws IOException {
+        String ru = read(TOUR_RU).replaceFirst("\\*\\*Cancel my runs\\*\\*", "**Cancel all**");
+
+        assertThat(differences(TOUR, read(TOUR), TOUR_RU, ru)).singleElement().asString()
+            .contains("bold names only in Russian [Cancel all]");
+    }
+
+    @Test
+    void aBoldNameIsComparedOnlyWhereTheRussianKeepsItInEnglish() {
+        String en = "# T\n\n**Standing options**: switch on **PR\ncommands** in ⚙.\n";
+        String ru = "# Т\n\n**Постоянные опции**: включи **PR commands** в ⚙.\n";
+
+        assertThat(differences(Path.of("en.md"), en, Path.of("ru.md"), ru)).isEmpty();
+        assertThat(differences(Path.of("en.md"), en, Path.of("ru.md"), ru.replace("PR commands", "PR command")))
+            .singleElement().asString().contains("bold names only in Russian [PR command]");
+    }
+
     @Test
     void aHeadingInsideACodeBlockIsNotASection() {
         String en = "# T\n\nText.\n\n```bash\n# then open http://localhost:8080\n```\n";
@@ -136,6 +161,10 @@ class DocParityTest {
             differ(diff, "pictures", x.images(), y.images());
             differ(diff, "quoted code", x.quotes(), y.quotes());
             differ(diff, "numbers", x.numbers(), y.numbers());
+            List<String> keptInEnglish = y.bold().stream()
+                .filter(name -> !CYRILLIC.matcher(name).find() && !x.bold().contains(name)).toList();
+            if (!keptInEnglish.isEmpty())
+                diff.add("bold names only in Russian " + keptInEnglish);
             if (!diff.isEmpty())
                 out.add(where + String.join("; ", diff));
         }
@@ -229,9 +258,12 @@ class DocParityTest {
         return Files.readString(p, UTF_8);
     }
 
-    /** A section of a markdown file: its heading and what it holds, the quotes and numbers sorted. */
+    /**
+     * A section of a markdown file: its heading and what it holds, the quotes and numbers sorted, the bold names
+     * outside code blocks as they read, a name wrapped over two lines included.
+     */
     record Section(int level, String title, int paragraphs, int items, int rows, int codeBlocks, List<String> images,
-        List<String> quotes, List<String> numbers) {
+        List<String> quotes, List<String> numbers, List<String> bold) {
     }
 
     private static final class Builder {
@@ -253,6 +285,8 @@ class DocParityTest {
 
         private final List<String> numbers = new ArrayList<>();
 
+        private final StringBuilder text = new StringBuilder();
+
         Builder(int level, String title) {
             this.level = level;
             this.title = title;
@@ -262,6 +296,7 @@ class DocParityTest {
             IMAGE.matcher(line).results().forEach(m -> images.add(m.group(1)));
             CODE.matcher(line).results().forEach(m -> quotes.add(m.group(1)));
             numbers(line);
+            text.append(line).append('\n');
         }
 
         void numbers(String line) {
@@ -274,7 +309,9 @@ class DocParityTest {
 
         Section build() {
             return new Section(level, title, paragraphs, items, rows, codeBlocks, List.copyOf(images),
-                quotes.stream().sorted().toList(), numbers.stream().sorted().toList());
+                quotes.stream().sorted().toList(), numbers.stream().sorted().toList(),
+                BOLD.matcher(text).results().map(m -> m.group(1).replaceAll("\\s+", " ").strip()).distinct().sorted()
+                    .toList());
         }
     }
 }

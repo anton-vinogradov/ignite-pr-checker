@@ -29,8 +29,8 @@ each label means and what to do about it.
   checkstyle autofix, PR commands. They work while the page is closed. See
   [Standing options](docs/features.md#standing-options).
 - **PR commands.** With **PR commands** on, a `/run-all` comment on any pull request queues RunAll under your TeamCity
-  account, and the comment then tells how the run goes. See
-  [Working from the PR](docs/features.md#working-from-the-pr-commands).
+  account, and a comment in the PR then tells how the run goes: your own when the checker holds your GitHub token,
+  else one of the app account. See [Working from the PR](docs/features.md#working-from-the-pr-commands).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The fix-master queue](docs/features.md#the-fix-master-queue-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
@@ -54,10 +54,11 @@ A failed test is a **blocker** when all of these hold:
 - **Other PRs do not explain it.** It does not fail on the branches of 3 or more other PRs, unless the PR's failures in
   a row outweigh their rate.
 
-A first failure on new code, or a test that started failing after a pass on the same code, goes to **Recently started
-failing**: a re-run decides. Everything else is filtered out with its reason. Suites with no reliable result (a
-compilation error, a timeout, a crash, a failed build step) are listed apart as broken suites. The
-[glossary](docs/features.md#verdict-glossary) has every reason and threshold.
+A test that master and other PRs do not explain, but that the branch fails too little to block, goes to **Recently
+started failing** when it failed the only run of newly pushed code after passing on the branch before, or its last two
+or more runs on the same code after passing on that code. A re-run decides. Everything else is filtered out with its
+reason. Suites with no reliable result (a compilation error, a timeout, a crash, a failed build step) are listed apart
+as broken suites. The [glossary](docs/features.md#verdict-glossary) has every reason and threshold.
 
 ## Accounts and tokens
 
@@ -71,7 +72,7 @@ compilation error, a timeout, a crash, a failed build step) are listed apart as 
   replies to commands of users who have not switched PR commands on, reactions, hints, the run story of users without
   their own GitHub token, and the mention that tells such a user their verdict is ready. Use a separate account with no
   rights in `apache/*` and a classic token with the `public_repo` scope: a leaked token then cannot push to Apache
-  Ignite. The status page shows whose token it is and warns if that account can push to the repo.
+  Ignite. The status page shows whose token it is, and warns signed-in viewers if that account can push to the repo.
 
 There is no shared JIRA account: visas go out under the JIRA token of the user they are for.
 
@@ -183,8 +184,11 @@ sudo /opt/ignite-pr-checker/update.sh 1.23.1 && sudo systemctl restart ignite-pr
 **Roll back** to the jar that ran before the last update, install or deploy:
 
 ```bash
-cd /opt/ignite-pr-checker && sudo cp app.jar.prev app.jar && sudo systemctl restart ignite-pr-checker
+cd /opt/ignite-pr-checker && sudo install -m 644 app.jar.prev app.jar && sudo systemctl restart ignite-pr-checker
 ```
+
+Use `install`, not `cp`: `cp` writes into the jar the running service still reads, and the service then fails to save
+its state as it stops.
 
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
 release wrote, stop the service, copy that file over the state file, and start the old jar.
@@ -221,8 +225,7 @@ heap with the peak of its old generation, and the process's resident memory with
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
 | `problems.json` | Recent warnings and errors for the status page. |
-| `users.json` | Who used the service and when. Names only, no tokens. |
-| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
+| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json`, `users.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters, and who used the service and when (names only, no tokens). Without them the service starts slower and the list of users starts over. |
 | `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
 | `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |
@@ -231,10 +234,12 @@ heap with the peak of its old generation, and the process's resident memory with
 State is written within a second of a change, the caches every 5 minutes, and everything at shutdown.
 
 The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Changing the secret logs
-everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. Standing options stay on but do
-nothing until their owner logs in again, which stores a fresh TeamCity token; auto-visa, the PR comment and the
-autofix also need their owner to switch them off and on with a fresh JIRA or GitHub token. Change the secret only if
-it leaked.
+everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. The standing options do not wait
+for their owner: when a run of a user with auto re-run, auto-visa or the PR comment on finishes, the checker drops all
+their options, the linked GitHub login included, if it cannot read their TeamCity token, or their JIRA token while
+auto-visa is on, or their GitHub token while the PR comment is on. A user stores a fresh TeamCity token by logging in
+again, and a fresh JIRA or GitHub token by switching auto-visa, the PR comment or the autofix off and on with the new
+token. Change the secret only if it leaked, and ask the users to do both before their next run finishes.
 
 ### Who may restart, update and flush
 
@@ -292,8 +297,9 @@ shared helpers in `static/common.js`.
   under your token. To try the warmer: `WARM_ENABLED=true WARM_COUNT=3 ./gradlew bootRun`.
 - `./gradlew test` runs the tests, the page scripts under node included (skipped without node), and writes a coverage
   report to `build/reports/jacoco/test/html`. CI runs `./gradlew build` and `node --check` on every page script.
-- The docs come in pairs, English and Russian. Change both: `DocParityTest` checks they have the same sections and
-  facts.
+- The docs come in pairs, English and Russian. Change both: `DocParityTest` compares them section by section,
+  counting paragraphs, list items and table rows, and matching the numbers, the quoted code and the bold names the
+  Russian keeps in English. It does not read what the sentences say.
 
 ## License
 

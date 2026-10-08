@@ -7,7 +7,8 @@
 # /etc/ignite-pr-checker/env on the host. Override the SSH target with PRC_SSH_HOST.
 #
 # Roll back by hand:
-#   ssh <host> 'cd /opt/ignite-pr-checker && cp app.jar.prev app.jar && systemctl restart ignite-pr-checker'
+#   ssh <host> 'cd /opt/ignite-pr-checker && install -m 644 app.jar.prev app.jar && systemctl restart ignite-pr-checker'
+# install, not cp: cp writes into the jar the running service still reads, and its shutdown then fails to save state.
 #
 set -euo pipefail
 
@@ -77,7 +78,7 @@ for _ in $(seq 1 30); do
     fi
 done
 echo "ERROR: $version did not answer within 60 s (answering: ${running:-nothing})." >&2
-echo "Roll back: cd /opt/ignite-pr-checker && cp app.jar.prev app.jar && systemctl restart ignite-pr-checker" >&2
+echo "Roll back: cd /opt/ignite-pr-checker && install -m 644 app.jar.prev app.jar && systemctl restart ignite-pr-checker" >&2
 systemctl --no-pager --lines=20 status ignite-pr-checker >&2 || true
 exit 1
 REMOTE

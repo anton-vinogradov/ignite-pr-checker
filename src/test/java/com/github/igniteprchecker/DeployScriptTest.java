@@ -154,7 +154,7 @@ class DeployScriptTest {
 
         assertThat(r.exit()).isNotZero();
         assertThat(r.out()).contains("1.21.0-1-gabc1234 did not answer within 60 s (answering: nothing)",
-            "cp app.jar.prev app.jar && systemctl restart ignite-pr-checker");
+            "install -m 644 app.jar.prev app.jar && systemctl restart ignite-pr-checker");
         assertThat(server.resolve("app.jar.prev")).hasContent("old jar");
         assertThat(List.of(Files.readString(server.resolve("systemctl")).split("\n")))
             .startsWith("restart ignite-pr-checker");
@@ -178,7 +178,7 @@ class DeployScriptTest {
         assertThat(server.resolve("app.jar")).hasContent("fixed jar");
         assertThat(server.resolve("app.jar.prev")).hasContent("old jar");
         assertThat(second.out()).contains("nothing answers now: app.jar.prev stays the jar to roll back to",
-            "cp app.jar.prev app.jar");
+            "install -m 644 app.jar.prev app.jar");
     }
 
     /** Deployed twice, the same build became the jar to roll back to. */

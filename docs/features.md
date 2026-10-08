@@ -154,9 +154,9 @@ the visa.
 
 ## Finding your PR
 
-- The left pane lists the repo's open PRs, the most recently updated first. Each has a badge with its last known
-  verdict ([badges](#badges-in-the-pr-list)), and the legend under the filter repeats them. **My?** marks the PRs
-  whose latest RunAll you started.
+- The left pane lists the 50 most recently updated open PRs of the repo, the latest first. Each has a badge with its
+  last known verdict ([badges](#badges-in-the-pr-list)), and the legend under the filter repeats them. **My?** marks the
+  PRs whose latest RunAll you started.
 - The filter (**Filter, or a PR number**) narrows the list by number or title. A number that is not in the list is
   offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/` jumps to it
   from anywhere on the page.
@@ -246,12 +246,12 @@ The ⚙ panel holds options that act while the page is closed, on the RunAll cha
 left alone. Each stores the tokens it needs, encrypted, while it is on.
 
 - **Auto re-run failed suites on my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
-  suites. A suite that fails while the chain still runs is re-run at once, at the top of the queue, up to 10 per
-  chain. After the chain finishes, the suites still blamed are re-run: up to 2 waves per run, the mid-run re-runs
-  counting as the first; up to 10 suites go to the top of the queue, more to the tail. With more than 30 such suites
-  and no re-run yet, nothing is re-run: that looks systemic. Identical suites already in the queue are cancelled
-  first. A failed Build is re-run alone; suites that failed to compile, and the suites a failed Build kept from
-  running, are never re-run.
+  suites, and also the suites TeamCity cancelled by itself, not those a person cancelled. A suite that fails while the
+  chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
+  still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
+  top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
+  systemic. Identical suites already in the queue are cancelled first. A failed Build is re-run alone; suites that
+  failed to compile, and the suites a failed Build kept from running, are never re-run.
 - **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
   newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
@@ -285,7 +285,8 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   under the lists explains the tags. The PR comment shows 5 groups and folds the rest; the visa shows 10.
 - A verdict that can't call the PR clean lists the caveats. A verdict of code that was pushed over says which revision
   it tested and what the PR head is now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
-- Every verdict ends with a link to the [verdict glossary](#verdict-glossary).
+- Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
+  tested revision and the **Next:** line come after it.
 - Once a newer RunAll of the PR has finished, each older verdict comment in the PR gets a last line saying it is
   superseded and where the newer verdict is.
 
@@ -345,16 +346,15 @@ link your GitHub login; a GitHub token of your own is optional.
   also turns red or amber when a background job stops (the standing sweep, the PR command poll, the warm cycle), a
   state file could not be read, or a setting is out of range; such problems are listed at the top. Requests Spring
   turns away as the caller's mistake are listed greyed out and never colour it.
-- The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, with a warning if that account can push to
-  the repo.
-- Signed-in viewers also see the log messages, the settings in effect, and who restarted or flushed last. Those who
-  may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get **Restart service**,
-  **Flush caches** and the list on the **Users** tab.
+- The GitHub section shows the app account: whose `GITHUB_TOKEN` it is.
+- Signed-in viewers also see a warning if that account can push to the repo, the log messages, the settings in effect,
+  and who restarted or flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not
+  set) also get **Restart service**, **Flush caches** and the list on the **Users** tab.
 
 ## Everything else
 
-- **Update**: when a newer release is out, the top bar shows **Update to vX.Y.Z** and a **what's new** link to its
-  notes. After a deploy, open tabs show **UI updated — reload**.
+- **Update**: when a newer release is out, those who may operate the service see **Update to vX.Y.Z** in the top bar,
+  and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
   login form.
