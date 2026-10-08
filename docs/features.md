@@ -2,8 +2,8 @@
 
 **English** · [Русский](features.ru.md)
 
-What Ignite PR Checker can do, screen by screen. The pictures are schematic mockups of the real UI
-(dark theme; there are four themes — Light, Dark, JetBrains and Terminal — the selector in the top bar).
+What Ignite PR Checker can do, screen by screen. The screenshots are of the production instance in the Dark theme; the
+selector in the top bar has four themes: Light, Dark, JetBrains and Terminal.
 
 ## Verdict glossary
 
@@ -154,248 +154,212 @@ the visa.
 
 ## Finding your PR
 
-![Home search](img/home-search.svg)
-
-- The left pane lists the repo's **open PRs**, most-recently-updated first. Badges show each PR's
-  last-known verdict: a green **✓** (no blockers), a red **count** of blockers, or nothing (not analysed yet).
-- A blue **My?** chip flags PRs whose latest RunAll *you* triggered (matched by your TeamCity username).
-- With no PR selected, a **search box** filters the list live by number or title; `Enter` opens the first
-  match. A bare number opens **any** PR — even one not in the list (`?pr=12345` in the URL works too).
-- The pane is **resizable** (drag the divider, double-click to reset) and **collapsible** (`‹` / `›`).
+- The left pane lists the repo's open PRs, the most recently updated first. Each has a badge with its last known
+  verdict ([badges](#badges-in-the-pr-list)), and the legend under the filter repeats them. **My?** marks the PRs
+  whose latest RunAll you started.
+- The filter (**Filter, or a PR number**) narrows the list by number or title. A number that is not in the list is
+  offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/` jumps to it
+  from anywhere on the page.
+- Each PR in the list is a link (`?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
+  address, also one that is not in the list.
+- Drag the divider to resize the pane, double-click it to reset, and fold the pane with `‹` / `›`. On a screen
+  narrower than 768 px the list folds away when a PR opens.
 
 ## Reading the verdict
 
-![PR analysis](img/pr-analysis.svg)
+![The PR page of #13655: 62 broken suites in three rows, then blockers that rest on one run each](img/pr-page.jpg)
 
-The one question the tool answers: **which tests did this PR actually break?**
+The page answers one question: which tests did this PR break? The [cards](#cards-on-the-pr-page) go from what makes
+the run unreliable (suites that never ran, broken suites, fewer tests than master) to the blockers, the tests to watch,
+and the filtered-out noise.
 
-- **Blockers** — failed in the PR's latest RunAll, clean in the last ~100 master runs of the same
-  suite, **and failing consistently**: every one of the last N (default 3) finished branch runs of that
-  suite failed, with no pass on the same code. Grouped by suite; every name links straight to the
-  failure in TeamCity.
-  "The same code" is matched on the **VCS revision each run's build ran on**: a pass from before the
-  breaking commits is discounted (dimmed in the history strip), never read as "it passed on this code".
-  **Each suite is judged on its own.** One test can run in several suites of a chain (the C++ tests
-  run on Windows, Linux and Clang): a pass on another platform is not a re-run of the failure, and
-  another platform's master failures don't make it pre-existing. A test that failed in several
-  suites is listed in each of them with that suite's own verdict, so a Windows re-run that passed
-  doesn't hide a steady break on Linux.
-  A master run where the test was **ignored** doesn't count: the test did not run there. The reason
-  names real runs only (`not seen failing in 3 master run(s)`), and a test ignored in all of them
-  gets *no master history (can't prove pre-existing)*.
-- **Recently started failing** — an amber card for tests the run cannot yet call either way: the
-  current revision has too few runs to tell a real break from a flake (typically its first failure,
-  with only older-code passes behind it). The suite is re-run automatically; a second failure on that
-  same revision makes it a blocker, a pass drops it out.
-- **A cancelled — or still running — run counts.** When a PR has no clean finished RunAll, the
-  checker falls back to the latest cancelled one, and failing that to the chain that is **still
-  going**: its finished suites are real results, and on a PR's first RunAll they land hours before
-  the chain ends. Until then the page said "no run at all" while a dozen suites were already red.
-  Such a verdict is marked *● includes an unfinished run* and can never read green; a suite still
-  running is never called broken, and its partial test count is never read as a shrink. A clean
-  finished run always wins, so neither a fresh cancel nor a fresh start shadows a good verdict —
-  and nothing that acts on a verdict (the visa, auto re-run) uses anything but a finished chain.
-- The verdict is **live**: while a newer RunAll is running (or ended cancelled), failures from its
-  already-finished suites are folded in — the *● includes an unfinished run* tag links to that chain.
-  An aborted chain shows a red *RunAll interrupted* banner (N suites failed, M never ran).
-- **A suite re-run on its own counts too.** A suite re-run outside any RunAll — by the auto re-run
-  or by hand — can fail a test the chain passed, and on a newer revision that is a real break. Its
-  failures join the verdict and are classified like any other; only a run newer than the chain's
-  own run of that suite counts. A re-run that broke (timeout, crash, compilation error) is a broken
-  suite by the same rules as a chain's suite, and a suite that broke again on its re-run stays one
-  broken suite, shown with its newest run.
-- **Filtered out** — everything else, each with its reason (`pre-existing: fails 39/95 on master`,
-  `passed on re-run`, …). Collapsed by default, so noise stays out of the way.
-- **Muted failures are skipped, in every suite.** A failure TeamCity recorded as muted is never a
-  candidate, whether its suite went red for another reason or stayed green, and it is left out of the
-  test's branch strip (the test's passes stay in): TeamCity does not fail a build on a muted test, and
-  someone muted it on purpose. TeamCity's own *Tests failed: N* leaves muted failures out the same way.
-  A red suite whose only failures are muted went red for some other reason, such as a non-zero exit
-  code, so it is listed under broken suites with that reason.
-- **Fewer tests than master** — a suite that ran noticeably fewer tests than the same suite runs on
-  master gets its own card (`ran 57 tests · master runs 439 — −87%`). Tests that never ran can't
-  fail, so a suite can look green while silently skipping coverage. The baseline is master's own
-  latest chain, not TeamCity's built-in metric — that one compares against a pinned reference build
-  and false-alarms on PR branches long after a legitimate test-count change. This card is for the
-  **silent** case only: when the suite is broken as well, the count rides along under its cause
-  (`execution timeout — ran 33 of master's 67 tests`) instead of becoming a finding of its own —
-  a hung suite runs a fraction of its tests, and leading with the metric reads as "tests
-  disappeared" while hiding the timeout that caused it. And like a broken suite, a shrunk one
-  clears once a newer run of it got the count back.
-- **"No blockers" is earned, not automatic.** The green all-clear appears only when the run behind
-  it actually covered the PR. If the RunAll was interrupted, if suites have no reliable result, if
-  suites ran far fewer tests than master, if a newer run is still going, or if commits were pushed
-  since — the verdict reads *no blockers found, but this run can't prove the PR is clean* and lists
-  the reasons. Same wording everywhere: the page, the PR comment and the JIRA visa; in the PR list
-  such a PR gets a **?** badge instead of a tick.
-- **Broken suites** — a suite without a reliable run (compilation error, **execution timeout,
-  out-of-memory, JVM crash**, failed dependency) is surfaced in its own red card instead of silently
-  vanishing — even when it *does* have failed tests: those are hang cascade, and some tests never ran.
-- Every test carries a **pass/fail strip** of its finished runs in its suite on the branch (oldest →
-  newest). A run where the test was **ignored** gets no bar: nothing passed or failed in it, so it
-  neither clears a failure nor counts as one. A fail→pass transition earns a **flaky?** tag; a steady
-  `▮▮▮` means a solid break.
-- **ai** (next to *why?*) — copies a **paste-ready fix prompt for a coding assistant**: the PR link
-  and branch, the suite with its failed-run TC link, the full test name, the checker's verdict with
-  the branch run history, the triage tag, the complete failure output, and concrete repro/fix steps.
-  A root cause gets its own **ai** button covering the whole cluster (shared signature, every
-  affected suite/test, one exemplar output — "find the ONE cause, don't patch tests one by one");
-  the flaky board's **ai** builds a stabilisation prompt (fail-rate, noised PRs, typical instability
-  checklist, prove-with-20-runs instruction). Suite-level problems have their own **ai** too: a
-  broken suite never reaches a stacktrace, so its prompt carries what TeamCity said about the run,
-  which of its tests were seen failing, and how to tell a PR breakage from a master one; a shrunk
-  suite's prompt asks for the test-list diff against master and walks the usual causes (a class
-  dropped from the JUnit suite, a rename, an `@Ignore`, a setup failure, a run that ended early).
-- **why?** expands the failure message inline as a copyable code block, prefixed with a rough triage:
-  `♻ environment/timing — a re-run may pass` vs `⚖ assertion — likely a real logic failure`.
-- The blockers card has two views: **Suites** (default) and **Root causes** — the same blockers
-  regrouped by failure signature, each cause a collapsible with its suites and tests inside.
-  Hundreds of tests usually collapse into a handful of causes; a suite broken by two different
-  things simply appears under both, as does a test that fails one way on Linux and another on Windows.
-- `IGNITE-XXXXX` in the PR title links to the ASF JIRA issue.
+- **The head** names the PR, links it on GitHub and its IGNITE ticket in JIRA, and has the RunAll buttons. The line
+  under it starts with ↻, which recomputes the verdict now, then the analysed build with its TC link, when the run
+  finished (amber when it is over a week old), when the verdict was computed, and what the run is made of:
+  `suites: 147 fresh, 0 from earlier runs`.
+- **Banners** under the head say when commits were pushed since the run, when auto re-runs still settle it, and, for a
+  merged PR, that this is the verdict as it stood at the merge. A merged PR's verdict is kept and not recomputed:
+  master's history now holds the PR's own runs.
+- **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
+  cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
+  PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
+  into the verdict, marked `● includes an unfinished run`. Such a verdict never reads green, and visas and PR comments
+  wait for a finished chain.
+- **Re-runs count.** A suite re-run on its own, by hand or by auto re-run, joins the verdict when it is newer than the
+  chain's run of that suite. A pass on re-run clears a blocker; a broken suite whose full re-run did not break is
+  judged by that run.
+- **Each suite on its own.** One test can run in several suites (the C++ tests run on Windows, Linux and Clang). It is
+  listed in each suite it failed in, with that suite's own verdict, so a pass on Windows does not hide a steady break
+  on Linux.
+- **The same code, the same JDK.** Every run is matched to the revision it built: a pass on older code does not clear
+  a failure, and such runs are dimmed in the test's strip. Master runs are counted only on the JDK of the PR's run. A
+  run where the test was ignored is not a run, and a failure TeamCity muted is never listed.
+- **The strip** next to a test shows its finished runs in that suite on the branch, oldest to newest. A pass after a
+  failure on the same code earns the `flaky?` tag.
+- **Broken suites** are grouped by cause. A failed Build comes first, with the suites that need it and did not run.
+  Then ci2's artifact glitch, then the rest by TeamCity's problem text. A group has one **Rerun** for all its suites;
+  a suite that failed to compile gets none, since the same code fails the same way.
+- **Blockers** have two views: **Suites**, and **Root causes**, the same blockers grouped by failure signature. The
+  cause count in the header shows up once someone has opened Root causes for these blockers. Blockers whose failure
+  message TeamCity no longer keeps are listed there apart, with a hint to re-run their suites.
+- **This PR's tests** shows how the test classes the PR adds or changes ran: each class with its passed, failed and
+  ignored tests and its longest test, and the tests that failed, ran over 60 s, or, in a changed class, have no master
+  history.
+- **No blockers 🎉** shows only for the verdict the PR list ticks: a run of the PR's current head that covered
+  everything and blamed nothing on it. Otherwise the page says **No test blockers** and the red line under it lists
+  the caveats, in the same words as the PR comment and the visa.
+- **why?** opens the failure message and the stack trace, with a rough triage label: `⚖ assertion …`,
+  `♻ environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
+- **ai** copies a prompt for a coding assistant: the PR, the suite and its run, the test, the checker's verdict with
+  its reason, the triage label, the failure output, and how to reproduce it on the commit the run tested, with steps
+  for Java, .NET or C++ by suite. Everything quoted from the PR is marked as data, not instructions, and the prompt
+  asks to run the PR's code in an isolated environment. Root causes, broken suites and suites with fewer tests than
+  master have their own **ai** prompts.
+- **The tab** shows how the run stands in its title and icon: `⏱ ~1h 05m left`, `♻️ re-run 1/2`, then
+  `❌ 3 blockers`, `✅ no blockers` or `⚠ no test blockers`. **🔔 Notify me** sends one desktop notification when the
+  verdict is final; the tab has to stay open.
 
 ## Iterating on a fix
 
-- **vs previous run: +2 new · −3 fixed · 5 persisting** — the delta against the PR's previous RunAll
-  (test names in the tooltips), next to a **trend sparkline**: one bar per run, red while blockers
-  remain, green at zero. A blocker is a test in a suite: a test fixed on Linux counts as fixed there
-  even while Windows still fails it.
-- **Re-runs without leaving the page**: the whole `RunAll`, any **section** (broken suites, blockers,
-  recently-started, filtered) or one suite — each *plain* or *at the top of the queue*. Live
-  **queued / running** chips appear on the affected suites and in the `runs:` row, each carrying
-  **both halves of its timing** — what it has already cost (`running 4m`, `queued 16m` — measured)
-  and what is left (`~14m left`, `starts ~5m` — queue-aware, accounting for the agent queue and each
-  suite's actual progress); a running build's tooltip adds how long it waited before starting. The
-  analysed run states its own in the freshness line: `ran 1h 36m · queued 50m`. Chips also carry a
-  **revision tag**: `rev ✓ head` for a run on the PR's current head, `⚠ rev abc123` when commits
-  were pushed after it started (it tests older code), `rev @start` for queued builds — TeamCity
-  resolves their revision at start, so they pick up the head of that moment. **Cancel my runs**
-  cancels the runs you started; other people's runs keep going.
-- **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
-  one click now, **Auto visa** (one-shot, fires when the current run finishes and posts the verdict of
-  the finished run, not one cached mid-run), or the settings (⚙) option *Auto-visa all my runs* —
-  every RunAll you trigger gets its verdict posted automatically (only runs finished after you switch
-  it on). Like the PR comment, the visa is **one living
-  comment per run**: it appears when the run finishes and is edited in place as re-run waves start
-  and settle — but only on stage changes (ticket watchers get mail on every edit), never on the
-  10-minute ETA refreshes.
-- **Auto re-run blocker suites** (settings, independent of the visa) — a suite of your RunAll is
-  re-run **the moment it fails**, without waiting for the rest of the chain: hours of suites are
-  still ahead at that point, so the re-run rides alongside them and the answer is usually in before
-  the chain finishes. A chain started from the checker or with `/run-all` is watched from its start;
-  one started straight from TeamCity is picked up by the 10-minute sweep, and a suite that failed
-  before that is re-run then. Only suites the analysis blames are touched — a blocker, a
-  **recently-started-failing** test or a **broken suite** (timeout, crash, compilation) — so one
-  that failed on master's own flakes is left alone; each suite is re-run once per chain, and a chain
-  producing more than 10 of them is left to the settled pass as systemic. Whatever is still
-  outstanding when the chain finishes is re-run the same way, up to 2 attempts in total: ≤10 suites jump to the top of the queue, more go to the tail so
-  they don't push others back, and a systemic breakage (30+) is left alone. Identical suites already
-  waiting in the queue are cancelled first. The suites to re-run, the visa and the PR comment always
-  come from a verdict computed after the chain finished and after every re-run that has finished
-  since: a verdict cached mid-run is recomputed first, so the suite that failed last still gets both
-  attempts. A pass on re-run clears its blocker — and a broken suite
-  whose newer run passed stops being broken. With the visa also on, the visa waits until the re-runs
-  settle; the living PR comment's ⏳ line carries a queue-aware **"≈ settled by HH:MM"** estimate,
-  refreshed every sweep.
-- **Auto-fix checkstyle on my runs** (settings; uses the GitHub token) — when you command a run on
-  your **own** PR and the changed files violate checkstyle, the mechanically fixable part (imports,
-  whitespace, tabs, modifier order, empty lines…) is fixed and pushed as one clearly-labelled commit
-  from your account **before** the run starts — a trivial style failure can't waste a four-hour
-  RunAll. The repo's own `checkstyle.xml` is used; what can't be fixed mechanically (javadoc,
-  naming, wrapping) is reported in the command comment. Never touches anyone else's PR, never
-  force-pushes.
-- **An expired token switches its own options off.** When GitHub or JIRA refuses a stored token, the
-  checker drops it, turns off exactly the options that needed it, and the settings panel says which
-  credential to replace — a switch that promises work the checker can no longer do is worse than an
-  off switch. Your linked GitHub login is kept (it is an identifier, not a credential), so PR
-  commands keep working, narrated from the checker's own account until you paste a fresh PAT.
-- **GitHub PR comment** (settings, independent of the other two) — the same verdict, in GitHub
-  markdown, posted on the `apache/ignite` pull request from your own GitHub account (a personal
-  access token with the `public_repo` scope; stored encrypted at rest while the option is on).
-  The whole run lives in **one comment**: it appears when the run finishes, and if auto re-run
-  kicks in it **updates in place** (⏳ re-running → final verdict) instead of spawning new messages.
-- **Pending changes** — if new commits were pushed to the PR after the analysed RunAll, a banner
-  says so (**"⚠ N new commits pushed since this run (abc123 → def456) — the verdict is for the older
-  code"**) with a **Run RunAll** button, so a stale verdict is never mistaken for the current one.
-- The freshness line shows the run's **composition** — `suites: 6 fresh, 141 from earlier runs` —
-  because a re-triggered chain on unchanged revisions reuses earlier suite builds (TeamCity
-  substitutes suitable results).
-- When your runs finish — the chain or any re-run of its suites, in whatever order they end — the
-  analysis **refreshes itself**, no F5.
+- **vs previous run**: `vs previous run: +2 new · −3 fixed · 5 persisting`, the blockers compared with the PR's
+  previous RunAll (test names in the tooltips), next to a trend: one bar per run, red while blockers remain. A blocker
+  is a test in a suite, so a test fixed on Linux counts as fixed there while Windows still fails it.
+- **Run** and **Run at top** queue a new RunAll for the PR, at the end or at the top of the ci2 queue. They always ask
+  first and say how big the chain is. If your own RunAll of the PR is still going, OK cancels it and queues the new
+  one; someone else's RunAll stays.
+- **Rerun** and **Rerun at top** re-run one suite, every suite of a section, or a group of broken suites; a section's
+  buttons say how many suites. From 5 suites on they ask first. Your own identical re-run still in the queue is
+  replaced; someone else's stays.
+- **The runs row** lists the PR's queued and running builds: how long each has waited or run, an estimate
+  (`~14m left`, `starts ~5m`), a revision tag (`rev ✓ head`, `⚠ rev abc1234`, `rev @start`) and `by alice` for
+  someone else's run. The same chips appear on the suites they re-run.
+- **Cancel my runs** shows only while you have a run on the PR. It lists your runs, asks, and cancels only them.
+- **Commits pushed since the run**: a banner says
+  `⚠ 7 new commits pushed since this run (0013263 → b52666a) — the verdict is for the older code.`, with
+  **Run RunAll** next to it.
+- When your chain or a re-run finishes, the page shows the new verdict without a reload.
+
+## Standing options
+
+The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
+`/run-all` comment, or in TeamCity. An option does not reach back: runs that finished before it was switched on are
+left alone. Each stores the tokens it needs, encrypted, while it is on.
+
+- **Auto re-run failed suites on my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
+  suites. A suite that fails while the chain still runs is re-run at once, at the top of the queue, up to 10 per
+  chain. After the chain finishes, the suites still blamed are re-run: up to 2 waves per run, the mid-run re-runs
+  counting as the first; up to 10 suites go to the top of the queue, more to the tail. With more than 30 such suites
+  and no re-run yet, nothing is re-run: that looks systemic. Identical suites already in the queue are cancelled
+  first. A failed Build is re-run alone; suites that failed to compile, and the suites a failed Build kept from
+  running, are never re-run.
+- **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
+  re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
+  newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
+- **Comment my runs' verdicts on the GitHub PR** posts the same verdict as a comment from your own GitHub account,
+  once per run, after the re-runs settle. Needs a classic GitHub token with the `public_repo` scope.
+- **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
+  your GitHub login and your TeamCity token; on its own, it lends the token to no background work. Linking your
+  GitHub login switches it on.
+- **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
+  changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
+  your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
+  the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
+  same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
+  not checked. It never touches anyone else's PR and never force-pushes.
+- **A token that stops working.** When GitHub or JIRA refuses a stored token, the checker drops it and switches off
+  the options that need it; the panel says which token to replace. When TeamCity refuses yours, your options pause
+  until you log in with a fresh token; nobody else's stop.
+
+## Visas and PR comments
+
+- **JIRA visa**, over the blockers, posts the verdict to the IGNITE ticket now. **Auto visa** posts the verdict of the
+  run under way to the ticket when it finishes, once. Each user arms their own, and several users armed on one ticket
+  get one visa between them. When the run's starter has **Auto-visa all my runs** on, the button reads
+  **Auto visa: on in ⚙**.
+- The JIRA token for these buttons rides in your session cookie; Auto visa also has the server store it, encrypted,
+  until the visa is posted.
+- A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
+  suites ran and how many were reused. Broken suites come grouped by cause.
+- The lists of blockers, tests to watch and unchecked tests are grouped by suite and class, the biggest group first.
+  Each line has the test's tags (`1 run`, `new test / no master history`, `unverified`) and a TC link, and a line
+  under the lists explains the tags. The PR comment shows 5 groups and folds the rest; the visa shows 10.
+- A verdict that can't call the PR clean lists the caveats. A verdict of code that was pushed over says which revision
+  it tested and what the PR head is now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
+- Every verdict ends with a link to the [verdict glossary](#verdict-glossary).
+- Once a newer RunAll of the PR has finished, each older verdict comment in the PR gets a last line saying it is
+  superseded and where the newer verdict is.
 
 ## Working from the PR (commands)
 
-The whole cycle — trigger → progress → verdict — happens in the pull request, in comments. A
-GitHub PAT is **optional**: with the GitHub option on, acks and the live status come from your own
-account (and checkstyle autofix works); without one, just link your **GitHub login** in settings
-(any standing option keeps your TC token stored) and the checker acks and narrates from its own
-account instead.
+The whole cycle, from the start to the verdict, can happen in the pull request. Switch on **PR commands** in ⚙ and
+link your GitHub login; a GitHub token of your own is optional.
 
-| Command | Effect |
+| Command | What it does |
 |---|---|
-| `/run-all` (or `/runall`) | queues the whole RunAll chain under **your own** TeamCity token |
-| `/run-all top` | same, but the chain enters the build queue **at the top** (native `queueAtTop`) |
-| `/top` | promotes **the run your command started** to the top of the queue — only while it is still queued |
+| `/run-all` (also `/runall`) | Queues the whole RunAll chain under your own TeamCity account. |
+| `/run-all top` (also `--top`) | The same, at the top of the ci2 queue. |
+| `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits. |
 
-The semantics, fixed:
-
-- **Top belongs to the command.** Both forms act on the run *your* command started; other people's
-  builds on the same PR are never touched.
-- **Ack, not chatter**: 🚀 reaction = accepted, 😕 = refused or nothing to act on. The details — the
-  queued-build TC link, then a live **"~Xh Ym remaining — ≈ 21:05 MSK"** line (queue-aware, the
-  wall-clock stamp in your JIRA-profile timezone, refreshed every minute) — are edited **into
-  your command comment**, which narrates the whole story: run finished → **"♻️ Auto re-run #2 —
-  3 broken suite(s), ≈ settled by 22:21"** while the waves settle → closes when the verdict lands.
-  The verdict itself is **one** living comment that updates in place through the auto re-runs.
-  Two messages per run, total.
-- Commands are picked up **within a minute** (one repo-wide comments poll covers every PR) and work
-  on **any** pull request — commanding a PR means running it under your accounts.
-- **A new `/run-all` supersedes your previous one**: your own queued/running chain on the PR is
-  cancelled first (nobody else's), its narration closes with 🛑 *Superseded*, and the ack says so.
-  On unchanged revisions the new chain reuses the finished suites, so nothing useful is lost.
-- A command from someone **not enrolled yet** gets a one-time reply explaining where to log in and
-  which switch to flip — the command is its own onboarding path.
+- The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
+  A comment written more than an hour ago is not run, even if it is edited later.
+- 🚀 means accepted, 😕 refused. The details are edited into your command comment: the queued build, then
+  `⏱ Queued — expected to finish ≈ 21:05 MSK` in the time zone of your JIRA profile, UTC without one. The comment is
+  edited when the stage changes or the estimate moves by 10 minutes or more.
+- When the checker holds your GitHub token (for the PR comment or the autofix), the reactions and the story come
+  from your own GitHub account; otherwise from the app account.
+- After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`)
+  and ends with `🏁 Run finished — see the verdict`, a link to your verdict comment or to the checker's page. If the
+  app account narrates for you, it also mentions you in a new comment when the verdict is ready.
+- A command that is not the first word ("Please /run-all") gets 😕 and a hint saying how to write it. A refused
+  `/top` or a `/run-all` that failed says why, in words.
+- A new `/run-all` supersedes your previous one: your queued or running chain on the PR and its re-runs are cancelled
+  first, nobody else's. The old story ends with `🛑 Superseded by a newer /run-all`, and the ack says what was
+  cancelled.
+- A command from someone whose PR commands are off gets 😕 and a short reply from the app account on how to switch
+  them on: once per person, once per PR, at most 5 replies a day.
 
 ## The fix-master queue (`/flaky.html`)
 
-![Flaky tests](img/flaky-page.svg)
+![The flaky board: tests ranked by their master fail rate, each with its failed master runs](img/flaky-board.jpg)
 
-Tests the checker filters out because they **fail on master** — not any one PR's fault, but shared
-noise. Ranked by master fail-rate (worst first) with the count of open PRs each one is currently
-noising. A test that runs in several suites (the C++ tests run on Windows, Linux and Clang) gets a
-row per suite, labelled with the suite name: each row shows that suite's master fail-rate and links
-that suite's failed master runs, never another platform's. The tally is accumulated and persisted,
-so it survives restarts and idle periods; a test drops off ~14 days after it stops failing. Public —
-no login needed to read it.
+- Tests the checker filters out because they fail on master: not any one PR's fault, yet they fail in PRs that did
+  not break them. **Flaky on master** comes first: tests that fail some master runs and pass others. **Broken on
+  master** follows: tests that failed each of their newest 10 master runs, or every run when there were fewer.
+- Each group is ranked by master fail rate, then by how many PRs the test failed in during the last 14 days, and shows
+  40 rows at most.
+- A test that runs in several suites gets a row per suite, with that suite's fail rate and its failed master runs.
+- Tests muted on TeamCity are left out, and the intro says how many.
+- The tally survives restarts; a test drops off 14 days after it was last seen failing.
+- Anyone can read the board; **why?** needs a login. **ai** builds a prompt to stabilise a flaky test, or to find the
+  commit that broke a broken one. A suite being re-run shows its chip: the PR, the state and the estimate.
 
 ## The status page (`/status.html`)
 
-![Status page](img/status-page.svg)
+![The status page: version and commit, CPU, heap, process memory, snapshots, requests per endpoint](img/status-page.jpg)
 
-Public service health: CPU/load/heap with **traffic-light** thresholds, the app's own endpoint
-latency, TeamCity/GitHub call metrics by category with per-minute charts, and the **cache warmer**
-block — whether it is warming right now (with live progress), how long the startup warm-up took,
-and what the last cycle did. **Flush caches** (logged-in only) drops the analysis caches and
-triggers a background re-warm.
-
-The **health dot** next to the title follows recent problems only: yellow for an hour after the
-service's last warning, red for six hours after its last error, green otherwise. Requests Spring
-turns away as the caller's mistake (wrong HTTP method, missing or malformed parameter, unreadable
-body, wrong content type) are listed greyed out under *Logs & errors* and never colour it. The
-counts since start stay on the page as information.
+- Anyone can see the version and its commit, uptime, CPU and load, the heap with its old-generation peak, the
+  process's memory, the snapshots, the latency of each endpoint, the cache warmer, the build watcher, and the
+  TeamCity, GitHub and JIRA calls by category over the last hour.
+- The health dot next to the title turns red for 6 hours after an error and amber for an hour after a warning. It
+  also turns red or amber when a background job stops (the standing sweep, the PR command poll, the warm cycle), a
+  state file could not be read, or a setting is out of range; such problems are listed at the top. Requests Spring
+  turns away as the caller's mistake are listed greyed out and never colour it.
+- The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, with a warning if that account can push to
+  the repo.
+- Signed-in viewers also see the log messages, the settings in effect, and who restarted or flushed last. Those who
+  may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get **Restart service**,
+  **Flush caches** and the list on the **Users** tab.
 
 ## Everything else
 
-- **Self-update**: when a new release is out, an **Update to vX.Y.Z** button appears — one click swaps
-  the jar and restarts the service. After a deploy, open tabs show a **UI updated — reload** pill.
-- The status page also has a **Users** tab (who's active now / everyone seen — visible to logged-in
-  viewers only) and a **Restart service** button (danger-styled, confirm-guarded).
-- **Per-user auth**: everyone logs in with their own TeamCity token (encrypted into an HttpOnly
-  cookie; no server-side session store, no shared credentials).
-- **Four themes** — Light, Dark, JetBrains (dense, status stripes) and Terminal (monospace, bracket
-  buttons) — per-browser, with no flash on load.
-- The heavy lifting is cached and pre-warmed in the background, so opening a PR is instant. There
-  is no service account: warming runs on real users' TeamCity tokens — every logged-in request
-  donates one, and any **standing option** other than PR commands alone keeps yours in the pool
-  while it is on, which is what keeps the background work (warming, the instant re-analysis of a
-  finished run, live run states) going while nobody has the page open.
+- **Update**: when a newer release is out, the top bar shows **Update to vX.Y.Z** and a **what's new** link to its
+  notes. After a deploy, open tabs show **UI updated — reload**.
+- **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
+  no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
+  login form.
+- **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
+  choice is kept per browser, with no flash on load.
+- **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There
+  is no service account: warming runs on real users' TeamCity tokens. Every logged-in request donates one, and any
+  **standing option** other than PR commands alone keeps yours in the pool while it is on, which keeps the background
+  work (warming, the re-analysis of a finished run, live run states) going while nobody has the page open.
