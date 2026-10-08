@@ -254,7 +254,7 @@ public class GithubClient implements SnapshotCache {
     public record Ahead(int ahead, String headShort, boolean rewritten) {
     }
 
-    /** Paths of the files that differ between {@code base} and {@code head}, as GitHub's compare lists them. */
+    /** The files that differ between {@code base} and {@code head}, as GitHub's compare lists them. */
     public Changes changesBetween(String base, String head) {
         java.util.Map<?, ?> cmp = recorded("compare", () -> appGet(
             props.apiUrl() + "/repos/" + props.repo() + "/compare/" + base + "..." + head).body(java.util.Map.class));
@@ -262,13 +262,14 @@ public class GithubClient implements SnapshotCache {
             throw new IllegalStateException("GitHub sent no comparison of " + base + " and " + head);
 
         java.util.List<?> files = cmp.get("files") instanceof java.util.List<?> l ? l : java.util.List.of();
-        java.util.Set<String> paths = files.stream()
-            .map(f -> f instanceof java.util.Map<?, ?> m ? m.get("filename") : null)
-            .filter(String.class::isInstance).map(String.class::cast)
-            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        java.util.Map<String, String> statuses = new java.util.HashMap<>();
+        for (Object f : files) {
+            if (f instanceof java.util.Map<?, ?> m && m.get("filename") instanceof String path)
+                statuses.put(path, m.get("status") instanceof String status ? status : "");
+        }
         Object status = cmp.get("status");
 
-        return new Changes(paths, "diverged".equals(status) || "behind".equals(status),
+        return new Changes(java.util.Map.copyOf(statuses), "diverged".equals(status) || "behind".equals(status),
             files.size() < COMPARE_FILES_MAX);
     }
 
@@ -276,10 +277,13 @@ public class GithubClient implements SnapshotCache {
     private static final int COMPARE_FILES_MAX = 300;
 
     /**
-     * Files that differ between two commits. {@code complete}: that is all of them, GitHub cut the list short at 300.
-     * {@code rewritten}: head no longer contains base, and the list then holds the base branch's changes as well.
+     * Files that differ between two commits, each with GitHub's status of it: added, modified, renamed (to this
+     * path), and so on. {@code complete}: that is all of them; GitHub cuts the list at 300. {@code rewritten}: head
+     * no longer contains base, and the list then holds the base branch's changes as well.
      */
-    public record Changes(java.util.Set<String> files, boolean rewritten, boolean complete) {
+    public record Changes(java.util.Map<String, String> files, boolean rewritten, boolean complete) {
+        /** Two commits with the same files. */
+        public static final Changes NONE = new Changes(java.util.Map.of(), false, true);
     }
 
     /** Paths of the PR's changed (not removed) .java files, capped at 300. */

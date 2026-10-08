@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,9 @@ class AbandonedTestsCheckTest {
 
     private final GithubClient github = mock(GithubClient.class);
 
-    private final AbandonedTestsCheck check = new AbandonedTestsCheck(github);
+    private final AtomicLong now = new AtomicLong(1_000_000L);
+
+    private final AbandonedTestsCheck check = new AbandonedTestsCheck(github, now::get);
 
     @Test
     void aStepThatPassedSaysEveryClassIsInASuite() {
@@ -80,6 +83,31 @@ class AbandonedTestsCheckTest {
         verify(github, times(1)).job(JOB);
     }
 
+    /** It is not asked again for hours: the abandoned-tests step of a commit does not run twice on its own. */
+    @Test
+    void aFinishedCheckIsKeptForHours() {
+        finishedJob("success");
+
+        check.of(SHA);
+        now.addAndGet(3 * 3600_000L);
+        check.of(SHA);
+
+        verify(github, times(1)).checkRuns(SHA);
+    }
+
+    /** The page opened while Ignite's job was going learns how it ended a couple of minutes later. */
+    @Test
+    void aCheckStillGoingIsAskedAgainAfterTwoMinutes() {
+        job("in_progress", null, "in_progress");
+        assertThat(check.of(SHA).state()).isEqualTo(State.RUNNING);
+
+        finishedJob("success");
+        now.addAndGet(60_000L);
+        assertThat(check.of(SHA).state()).isEqualTo(State.RUNNING);
+        now.addAndGet(61_000L);
+        assertThat(check.of(SHA).state()).isEqualTo(State.PASSED);
+    }
+
     @Test
     void aStepNotFinishedYetIsStillRunning() {
         job("in_progress", null, "in_progress");
@@ -107,15 +135,20 @@ class AbandonedTestsCheckTest {
         assertThat(outcome.reason()).isEqualTo("an earlier step of its job failed");
     }
 
+    /**
+     * Ignite's workflow runs on pull_request, and GitHub does not run that on a PR in conflict with master: no job
+     * comes until the conflict is gone, so "yet" would promise one.
+     */
     @Test
-    void noJobOnTheCommitYetIsSaid() {
+    void noJobOnTheCommitIsSaidWithoutPromisingOne() {
         when(github.checkRuns(SHA)).thenReturn(List.of(new GithubClient.CheckRun(1, "Сheck .NET code", "completed",
             "success", null)));
 
         AbandonedTestsCheck.Outcome outcome = check.of(SHA);
 
         assertThat(outcome.state()).isEqualTo(State.UNKNOWN);
-        assertThat(outcome.reason()).isEqualTo("GitHub shows no Check java code job for it yet");
+        assertThat(outcome.reason()).isEqualTo("GitHub shows no Check java code job for it (Ignite's workflow does "
+            + "not run on a PR that conflicts with master)");
         assertThat(outcome.settled()).isFalse();
     }
 

@@ -107,17 +107,19 @@ class ActionsJobTest {
     }
 
     /**
-     * The service's own HTTP client follows redirects. Had it followed this one, it would have sent the checker's
-     * GitHub token to the host that keeps the logs.
+     * GitHub sends the log from another host, which must not get the checker's token. The checker follows that
+     * redirect itself, over the service's real HTTP client, so this does not rest on how the HTTP library treats a
+     * redirect to another host.
      */
     @Test
     void theServicesClientSendsTheTokenOnlyToGithub() throws IOException {
         HttpServer api = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         Map<String, String> authorization = new ConcurrentHashMap<>();
-        String base = "http://127.0.0.1:" + api.getAddress().getPort();
+        int port = api.getAddress().getPort();
+        String base = "http://127.0.0.1:" + port;
         api.createContext("/repos/apache/ignite/actions/jobs/7/logs", ex -> {
             authorization.put("api", String.valueOf(ex.getRequestHeaders().getFirst("Authorization")));
-            ex.getResponseHeaders().add("Location", base + "/blob/7.txt?sig=abc");
+            ex.getResponseHeaders().add("Location", "http://localhost:" + port + "/blob/7.txt?sig=abc");
             ex.sendResponseHeaders(302, -1);
             ex.close();
         });

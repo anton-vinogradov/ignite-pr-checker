@@ -1469,19 +1469,21 @@ function prTestClass(c, res, check) {
         + (rows ? `<ul class="suite-tests">${rows}</ul>` : '') + '</li>';
 }
 
-// Why a class did not run, as far as Ignite's check of the head and the files changed since the run tell it.
+const NO_RUNS_AT_RUN = {
+    ABSENT: 'no runs in this RunAll: added under this name by a commit pushed after it',
+    IN_NO_SUITE: 'no runs in this RunAll: it was in no test suite then; a commit pushed after it fixed that',
+    PASSED_CHECK: 'no runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class',
+};
+
+// Why a class did not run, as far as Ignite's checks and the files changed since the run tell it.
 function noRunsOf(c, res, check) {
     if (chainRunning(res)) return 'no runs yet: this RunAll is still going';
     if (c.notInSuite) return 'no runs in this RunAll';
     const state = check ? check.state : 'UNKNOWN';
     if (state === 'RUNNING') return 'no runs in this RunAll; whether a suite runs it is not known yet';
     if (state !== 'PASSED' && state !== 'FAILED') return 'no runs in this RunAll; whether a suite runs it is not known';
-    if (c.changedSinceRun === true)
-        return `no runs in this RunAll: ${c.added ? 'added' : 'changed'} by a commit pushed after it`;
-    if (c.changedSinceRun === false)
-        return 'no runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class';
-    return 'no runs in this RunAll: its suite did not run or broke, it is a base or @Ignore class, '
-        + 'or it changed after this run';
+    return NO_RUNS_AT_RUN[c.atRun] || 'no runs in this RunAll: its suite did not run or broke, it is a base or '
+        + '@Ignore class, or it came into a suite after this run';
 }
 
 // "0.4 s", "12 s", "4 m 58 s": how long a test ran.

@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.LongSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -17,8 +18,8 @@ import org.slf4j.LoggerFactory;
  * Ignite's own check that every test class is in a test suite, as GitHub Actions ran it on a commit: the step "Run
  * abandoned tests checks." of the job "Check java code on JDK 17". A class in no suite is never run by CI, and the
  * step fails naming it. PR 13335's SslRenewalTest and SslContextReloadTest had no runs in the RunAll the checker read,
- * and the page put that down to "an abstract base, or a class no suite runs"; SecurityTestSuite held them, and commits
- * after that run had brought them in. The checker asks Ignite's check rather than guessing.
+ * and the page put that down to "an abstract base, or a class no suite runs"; SecurityTestSuite held them, and they got
+ * these names in commits pushed after that run. The checker asks Ignite's check rather than guessing.
  *
  * <p>Two GitHub calls a commit, its checks and the job's steps, and the job's log when the step failed: the log names
  * the classes. A finished check of a commit does not change and is kept for 6 hours; one still going, or one GitHub
@@ -53,12 +54,14 @@ public final class AbandonedTestsCheck {
 
     private final GithubClient github;
 
-    private final TtlCache<String, Outcome> finished = new TtlCache<>(FINISHED_MS);
+    private final TtlCache<String, Outcome> finished;
 
-    private final TtlCache<String, Outcome> unsettled = new TtlCache<>(UNSETTLED_MS);
+    private final TtlCache<String, Outcome> unsettled;
 
-    public AbandonedTestsCheck(GithubClient github) {
+    AbandonedTestsCheck(GithubClient github, LongSupplier nowMs) {
         this.github = github;
+        this.finished = new TtlCache<>(FINISHED_MS, nowMs);
+        this.unsettled = new TtlCache<>(UNSETTLED_MS, nowMs);
     }
 
     /** What Ignite's check says of commit {@code sha}. */
@@ -91,8 +94,10 @@ public final class AbandonedTestsCheck {
         catch (RuntimeException e) {
             return Outcome.unknown(sha, null, "GitHub could not be asked", false);
         }
-        if (job.isEmpty())
-            return Outcome.unknown(sha, null, "GitHub shows no " + JOB + " job for it yet", false);
+        if (job.isEmpty()) {
+            return Outcome.unknown(sha, null, "GitHub shows no " + JOB + " job for it (Ignite's workflow does not run "
+                + "on a PR that conflicts with master)", false);
+        }
 
         String url = onGithub(job.get().htmlUrl());
         if ("queued".equals(job.get().status()))
@@ -199,6 +204,11 @@ public final class AbandonedTestsCheck {
         boolean settled) {
         static Outcome unknown(String sha, String url, String reason, boolean settled) {
             return new Outcome(State.UNKNOWN, sha, url, reason, List.of(), settled);
+        }
+
+        /** Whether the check tells of every class: it passed, or it failed naming the ones in no suite. */
+        boolean decided() {
+            return state == State.PASSED || state == State.FAILED;
         }
     }
 }

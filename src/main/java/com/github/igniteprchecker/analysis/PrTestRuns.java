@@ -9,9 +9,12 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -24,10 +27,11 @@ import org.springframework.stereotype.Component;
  * <p>Asked when a PR is viewed: one GitHub call for the PR's files, one TeamCity call for the runs of its test
  * classes in the chain (more only for hundreds of classes), and the master history of up to 20 tests of the changed
  * classes, shared with the analysis. A class the PR adds has no master history to look up. A PR with test classes
- * also gets Ignite's own check of its head for classes in no test suite ({@link AbandonedTestsCheck}), and, for a
- * class with no runs, which files changed since the run: one GitHub call for the head, one for the comparison. An
- * answer is kept for 15 minutes per PR and chain, the PR's files for as long; an answer about a chain still going,
- * or with Ignite's check still going or out of reach, for 2 minutes.
+ * also gets Ignite's own check of its head for classes in no test suite ({@link AbandonedTestsCheck}). For a class
+ * with no runs, what the run's revision had of it: GitHub's comparison of that revision with the head, and Ignite's
+ * check of it unless the class is new since. How the classes ran is kept for 15 minutes per PR and chain, for 2 while
+ * the chain goes, the PR's files and a comparison for 15 minutes, the head for one, and Ignite's checks for as long as
+ * AbandonedTestsCheck keeps them.
  */
 @Component
 public class PrTestRuns {
@@ -48,6 +52,12 @@ public class PrTestRuns {
     /** What a class name is made of, and so what may go into TeamCity's pattern unescaped. */
     private static final Pattern CLASS_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
+    /** GitHub's statuses of a file at a path the base did not have it at. */
+    private static final Set<String> NEW_AT_PATH = Set.of("added", "renamed", "copied");
+
+    /** GitHub's statuses of a file the base had at the same path. */
+    private static final Set<String> KEPT_AT_PATH = Set.of("modified", "changed", "unchanged");
+
     private final GithubClient github;
 
     private final TcClient tc;
@@ -56,19 +66,31 @@ public class PrTestRuns {
 
     private final AbandonedTestsCheck suites;
 
-    private final TtlCache<Integer, List<GithubClient.PrFile>> files = new TtlCache<>(KEEP_MS);
+    private final TtlCache<Integer, List<GithubClient.PrFile>> files;
 
-    private final TtlCache<Integer, String> heads = new TtlCache<>(KEEP_HEAD_MS);
+    private final TtlCache<Integer, String> heads;
 
-    private final TtlCache<Asked, PrTests> answers = new TtlCache<>(KEEP_MS);
+    private final TtlCache<Asked, Ran> answers;
 
-    private final TtlCache<Asked, PrTests> briefAnswers = new TtlCache<>(KEEP_RUNNING_MS);
+    private final TtlCache<Asked, Ran> runningAnswers;
 
+    private final TtlCache<Between, GithubClient.Changes> changes;
+
+    @Autowired
     public PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache) {
+        this(github, tc, cache, System::currentTimeMillis);
+    }
+
+    PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache, LongSupplier nowMs) {
         this.github = github;
         this.tc = tc;
         this.cache = cache;
-        this.suites = new AbandonedTestsCheck(github);
+        this.suites = new AbandonedTestsCheck(github, nowMs);
+        this.files = new TtlCache<>(KEEP_MS, nowMs);
+        this.heads = new TtlCache<>(KEEP_HEAD_MS, nowMs);
+        this.answers = new TtlCache<>(KEEP_MS, nowMs);
+        this.runningAnswers = new TtlCache<>(KEEP_RUNNING_MS, nowMs);
+        this.changes = new TtlCache<>(KEEP_MS, nowMs);
     }
 
     /**
@@ -76,16 +98,26 @@ public class PrTestRuns {
      * {@code running}: an answer about it is not the one about the chain once it finished.
      */
     public PrTests of(String token, int pr, long buildId, boolean running) {
-        Asked asked = new Asked(pr, buildId, running);
-        Optional<PrTests> was = answers.peek(asked).or(() -> briefAnswers.peek(asked));
-        if (was.isPresent())
-            return was.get();
+        TtlCache<Asked, Ran> kept = running ? runningAnswers : answers;
+        Asked asked = new Asked(pr, buildId);
+        Ran ran = kept.peek(asked).orElseGet(() -> {
+            Ran now = lookUp(token, pr, buildId, running);
+            if (now.keep())
+                kept.put(asked, now);
 
-        Answer answer = lookUp(token, pr, buildId, running);
-        if (answer.keep())
-            (running || !answer.settled() ? briefAnswers : answers).put(asked, answer.tests());
+            return now;
+        });
+        if (ran.classes().isEmpty())
+            return new PrTests(buildId, List.of(), ran.note());
 
-        return answer.tests();
+        String head = head(pr);
+        AbandonedTestsCheck.Outcome check = head == null
+            ? AbandonedTestsCheck.Outcome.unknown(null, null, "GitHub could not name the PR's head", false)
+            : suites.of(head);
+        Map<ClassFile, PrTests.AtRun> atRun = running || ran.byClass() == null ? Map.of()
+            : atRun(token, buildId, head, unexplained(ran, check));
+
+        return answer(buildId, ran, check, atRun);
     }
 
     /**
@@ -114,25 +146,21 @@ public class PrTestRuns {
         files.evictExpired();
         heads.evictExpired();
         answers.evictExpired();
-        briefAnswers.evictExpired();
+        runningAnswers.evictExpired();
+        changes.evictExpired();
         suites.evictExpired();
     }
 
-    private Answer lookUp(String token, int pr, long buildId, boolean running) {
+    private Ran lookUp(String token, int pr, long buildId, boolean running) {
         List<ClassFile> classes;
         try {
             classes = files.get(pr, () -> github.prTestFiles(pr)).stream().map(ClassFile::of).toList();
         }
         catch (RuntimeException e) {
-            return new Answer(new PrTests(buildId, List.of(), "GitHub could not list the PR's files"), false, true);
+            return new Ran(List.of(), null, "GitHub could not list the PR's files", false);
         }
         if (classes.isEmpty())
-            return new Answer(new PrTests(buildId, List.of(), null), true, true);
-
-        String head = head(pr);
-        AbandonedTestsCheck.Outcome check = head == null
-            ? AbandonedTestsCheck.Outcome.unknown(null, null, "GitHub could not name the PR's head", false)
-            : suites.of(head);
+            return new Ran(classes, Map.of(), null, true);
 
         List<String> names = classes.stream().map(ClassFile::simple).filter(n -> CLASS_NAME.matcher(n).matches())
             .distinct().toList();
@@ -141,13 +169,10 @@ public class PrTestRuns {
             runs = tc.testRunsOfClasses(token, buildId, names);
         }
         catch (RuntimeException e) {
-            return new Answer(answer(buildId, classes, Map.of(), "TeamCity could not be asked how they ran", check,
-                Map.of()), false, check.settled());
+            return new Ran(classes, null, "TeamCity could not be asked how they ran", false);
         }
-        if (runs.isEmpty()) {
-            return new Answer(answer(buildId, classes, Map.of(), "TeamCity does not answer how they ran", check,
-                Map.of()), true, check.settled());
-        }
+        if (runs.isEmpty())
+            return new Ran(classes, null, "TeamCity does not answer how they ran", true);
 
         Map<ClassFile, List<PrTests.Run>> byClass = new LinkedHashMap<>();
         for (TcModel.TestOccurrence o : runs.get()) {
@@ -168,17 +193,13 @@ public class PrTestRuns {
             notes.add("master history was looked up for " + MASTER_LOOKUPS + " of " + toLookUp
                 + " tests of changed classes");
 
-        String note = notes.isEmpty() ? null : String.join("; ", notes);
-        Map<ClassFile, Boolean> changed = running ? Map.of()
-            : changedSinceRun(token, buildId, head, unexplained(classes, byClass, check));
-
-        return new Answer(answer(buildId, classes, byClass, note, check, changed), true, check.settled());
+        return new Ran(classes, byClass, notes.isEmpty() ? null : String.join("; ", notes), true);
     }
 
     /** The PR's head commit; null when GitHub could not say. */
     private String head(int pr) {
         try {
-            return heads.get(pr, () -> github.prHead(pr).headSha());
+            return heads.get(pr, () -> Objects.requireNonNull(github.prOutcome(pr).headSha(), "head"));
         }
         catch (RuntimeException e) {
             return null;
@@ -189,59 +210,67 @@ public class PrTestRuns {
      * The classes with no runs whose absence Ignite's check leaves to explain: it passed, or failed naming others. Any
      * other state of the check explains nothing, and asks nothing more of GitHub.
      */
-    private static List<ClassFile> unexplained(List<ClassFile> classes, Map<ClassFile, List<PrTests.Run>> byClass,
-        AbandonedTestsCheck.Outcome check) {
-        if (check.state() != PrTests.SuiteCheck.State.PASSED && check.state() != PrTests.SuiteCheck.State.FAILED)
+    private static List<ClassFile> unexplained(Ran ran, AbandonedTestsCheck.Outcome check) {
+        if (!check.decided())
             return List.of();
 
-        return classes.stream().filter(c -> !byClass.containsKey(c) && !c.notInSuite(check)).toList();
+        return ran.classes().stream().filter(c -> !ran.byClass().containsKey(c) && !c.notInSuite(check)).toList();
     }
 
     /**
-     * Whether a commit after the run changed each class's file, by GitHub's comparison of the run's revision with the
-     * head; a class left out when that cannot be told: a rebase or a force-push mixed master's changes in, or the
-     * list was cut short before the file.
+     * What the run's revision had of each class: by GitHub's comparison of it with the head, a class new under its
+     * name since; by Ignite's check of it, asked only for the others, a class in no suite then, or one the check
+     * passed. A class is left out when that cannot be told: after a rebase or a force-push the comparison holds
+     * master's changes too, a list cut short may miss the file, and the check of that revision may tell nothing.
      */
-    private Map<ClassFile, Boolean> changedSinceRun(String token, long buildId, String head,
-        List<ClassFile> classes) {
+    private Map<ClassFile, PrTests.AtRun> atRun(String token, long buildId, String head, List<ClassFile> classes) {
         if (classes.isEmpty() || head == null)
             return Map.of();
 
         try {
-            String built = tc.buildRevision(token, buildId).orElse(null);
-            if (built == null)
+            String built = cache.revision(buildId, () -> tc.buildRevision(token, buildId).orElse(""));
+            if (built.isEmpty())
                 return Map.of();
 
-            GithubClient.Changes changes = built.equals(head)
-                ? new GithubClient.Changes(Set.of(), false, true) : github.changesBetween(built, head);
-            if (changes.rewritten())
-                return Map.of();
-
-            Map<ClassFile, Boolean> changed = new LinkedHashMap<>();
+            GithubClient.Changes since = built.equals(head) ? GithubClient.Changes.NONE
+                : changes.get(new Between(built, head), () -> github.changesBetween(built, head));
+            Map<ClassFile, PrTests.AtRun> at = new LinkedHashMap<>();
+            List<ClassFile> there = new ArrayList<>();
             for (ClassFile c : classes) {
-                if (changes.files().contains(c.path()))
-                    changed.put(c, true);
-                else if (changes.complete())
-                    changed.put(c, false);
+                if (c.newSince(since))
+                    at.put(c, PrTests.AtRun.ABSENT);
+                else
+                    there.add(c);
+            }
+            if (there.isEmpty())
+                return at;
+
+            AbandonedTestsCheck.Outcome then = suites.of(built);
+            for (ClassFile c : there) {
+                if (c.notInSuite(then))
+                    at.put(c, PrTests.AtRun.IN_NO_SUITE);
+                else if (then.decided() && c.keptSince(since))
+                    at.put(c, PrTests.AtRun.PASSED_CHECK);
             }
 
-            return changed;
+            return at;
         }
         catch (RuntimeException e) {
             return Map.of();
         }
     }
 
-    private static PrTests answer(long buildId, List<ClassFile> classes, Map<ClassFile, List<PrTests.Run>> byClass,
-        String note, AbandonedTestsCheck.Outcome check, Map<ClassFile, Boolean> changed) {
-        List<PrTests.TestClass> tested = classes.stream()
+    private static PrTests answer(long buildId, Ran ran, AbandonedTestsCheck.Outcome check,
+        Map<ClassFile, PrTests.AtRun> atRun) {
+        Map<ClassFile, List<PrTests.Run>> byClass = ran.byClass() == null ? Map.of() : ran.byClass();
+        List<PrTests.TestClass> tested = ran.classes().stream()
             .map(c -> new PrTests.TestClass(c.fqcn(), c.path(), c.added(), byClass.getOrDefault(c, List.of()).stream()
-                .sorted(Comparator.comparing(PrTests.Run::name)).toList(), c.notInSuite(check), changed.get(c)))
+                .sorted(Comparator.comparing(PrTests.Run::name)).toList(), c.notInSuite(check), atRun.get(c)))
             .toList();
         List<String> elsewhere = check.classes().stream()
-            .filter(name -> classes.stream().noneMatch(c -> c.fqcn().equals(name))).toList();
+            .filter(name -> ran.classes().stream().noneMatch(c -> c.fqcn().equals(name))).toList();
 
-        return new PrTests(buildId, tested, note,
+        return new PrTests(buildId, tested, ran.note(),
             new PrTests.SuiteCheck(check.state(), check.sha(), check.url(), check.reason(), elsewhere));
     }
 
@@ -292,15 +321,20 @@ public class PrTestRuns {
             o.duration() == null ? 0 : o.duration(), null);
     }
 
-    /** One PR's question about one of its chains, still going or finished. */
-    private record Asked(int pr, long buildId, boolean running) {
+    /** One PR's question about one of its chains. */
+    private record Asked(int pr, long buildId) {
     }
 
     /**
-     * An answer, and whether it may be kept: one that a GitHub or TeamCity error cut short is asked again. {@code
-     * settled}: Ignite's check in it is finished, so it may be kept for long.
+     * How the PR's test classes ran in a chain: {@code byClass} holds the runs, null when TeamCity did not say;
+     * {@code note} says what is missing. {@code keep}: no GitHub or TeamCity error cut it short, so it may be kept.
      */
-    private record Answer(PrTests tests, boolean keep, boolean settled) {
+    private record Ran(List<ClassFile> classes, Map<ClassFile, List<PrTests.Run>> byClass, String note,
+        boolean keep) {
+    }
+
+    /** The revision a chain ran on, and the PR's head. */
+    private record Between(String built, String head) {
     }
 
     /**
@@ -331,6 +365,24 @@ public class PrTestRuns {
         /** Whether Ignite's check finds this class in no test suite: a class nested in it is named apart. */
         boolean notInSuite(AbandonedTestsCheck.Outcome check) {
             return check.classes().contains(fqcn);
+        }
+
+        /** Whether the file came to its path after the base of {@code since}: added, or renamed or copied there. */
+        boolean newSince(GithubClient.Changes since) {
+            return !since.rewritten() && NEW_AT_PATH.contains(since.files().getOrDefault(path, ""));
+        }
+
+        /**
+         * Whether the base of {@code since} had the file at its path: GitHub lists it as changed there, or leaves it
+         * out of a list that is complete.
+         */
+        boolean keptSince(GithubClient.Changes since) {
+            if (since.rewritten())
+                return false;
+
+            String status = since.files().get(path);
+
+            return status == null ? since.complete() : KEPT_AT_PATH.contains(status);
         }
     }
 }

@@ -17,14 +17,24 @@ public record PrTests(long buildId, List<TestClass> classes, String note, SuiteC
     /**
      * One test class the PR adds ({@code added}) or changes, as its file names it, with its tests' runs in the
      * RunAll; none when no suite of the RunAll ran it. {@code notInSuite}: Ignite's check finds it in no test suite,
-     * so CI never runs it. {@code changedSinceRun}: a commit after the RunAll's revision changed its file; null when
-     * not asked or not known.
+     * so CI never runs it. {@code atRun}: what the RunAll's revision tells of a class with no runs; null when not
+     * asked or not known.
      */
     public record TestClass(String name, String path, boolean added, List<Run> runs, boolean notInSuite,
-        Boolean changedSinceRun) {
+        AtRun atRun) {
         public TestClass(String name, String path, boolean added, List<Run> runs) {
             this(name, path, added, runs, false, null);
         }
+    }
+
+    /**
+     * A class with no runs as the RunAll's revision had it, by GitHub's comparison of that revision with the head and
+     * by Ignite's check of it: not there under this name yet ({@code ABSENT}), in no test suite ({@code IN_NO_SUITE}),
+     * or passed by the check, so in a suite that did not run it, or a base or {@code @Ignore} class
+     * ({@code PASSED_CHECK}).
+     */
+    public enum AtRun {
+        ABSENT, IN_NO_SUITE, PASSED_CHECK
     }
 
     /**
