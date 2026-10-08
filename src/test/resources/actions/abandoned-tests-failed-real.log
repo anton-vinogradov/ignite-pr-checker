@@ -1,0 +1,66 @@
+2026-10-01T10:48:48.5084288Z [INFO]   from pom.xml
+2026-10-01T10:48:48.5084464Z [INFO] --------------------------------[ pom ]---------------------------------
+2026-10-01T10:48:48.5095053Z [INFO] 
+2026-10-01T10:48:48.5095297Z [INFO] --- enforcer:3.6.2:enforce (default) @ apache-ignite ---
+2026-10-01T10:48:48.5105981Z [INFO] Rule 1: org.apache.maven.enforcer.rules.dependency.BannedDependencies passed
+2026-10-01T10:48:48.5106894Z [INFO] 
+2026-10-01T10:48:48.5107337Z [INFO] --- build-helper:3.6.1:parse-version (parse-version) @ apache-ignite ---
+2026-10-01T10:48:48.5108684Z [INFO] 
+2026-10-01T10:48:48.5109016Z [INFO] --- build-helper:3.6.1:timestamp-property (thin-timestamp-property) @ apache-ignite ---
+2026-10-01T10:48:48.5110649Z [INFO] 
+2026-10-01T10:48:48.5110963Z [INFO] --- flatten:1.7.3:flatten (flatten) @ apache-ignite ---
+2026-10-01T10:48:48.5112770Z [INFO] Generating flattened POM of project org.apache.ignite:apache-ignite:pom:2.19.0-SNAPSHOT...
+2026-10-01T10:48:48.5135868Z [WARNING] Ignoring multiple XML header comment!
+2026-10-01T10:48:48.5141850Z [INFO] Project POM file not updated to point to the flattened POM due to 'pom' packaging
+2026-10-01T10:48:48.5142296Z [INFO] 
+2026-10-01T10:48:48.5142568Z [INFO] --- bundle:5.1.9:manifest (bundle-manifest) @ apache-ignite ---
+2026-10-01T10:48:48.5146528Z [WARNING] Ignoring project type pom - supportedProjectTypes = [jar, war]
+2026-10-01T10:48:48.5146918Z [INFO] 
+2026-10-01T10:48:48.5147158Z [INFO] --- antrun:3.2.0:run (default) @ apache-ignite ---
+2026-10-01T10:48:48.5752670Z [INFO] Executing tasks
+2026-10-01T10:48:48.5862611Z [INFO] Executed tasks
+2026-10-01T10:48:48.5863095Z [INFO] 
+2026-10-01T10:48:48.5863645Z [INFO] --- exec:3.6.3:java (default) @ apache-ignite ---
+2026-10-01T10:48:48.5886394Z [WARNING] 
+2026-10-01T10:48:48.5889479Z java.lang.AssertionError: All test classes must be include in any test suite or mark with the @Ignore annotation.
+2026-10-01T10:48:48.5890127Z List of non-suited classes (1 items):
+2026-10-01T10:48:48.5890747Z 	org.apache.ignite.internal.processors.query.calcite.exec.exp.IgniteFunctionParameterTest
+2026-10-01T10:48:48.5891238Z 
+2026-10-01T10:48:48.5891661Z List of orphaned tests persisted in: /home/runner/work/ignite/ignite/modules/tools/target/orphaned_tests.txt
+2026-10-01T10:48:48.5892146Z 
+2026-10-01T10:48:48.5893037Z [INFO] ------------------------------------------------------------------------
+2026-10-01T10:48:48.5893572Z [INFO] Reactor Summary for apache-ignite 2.19.0-SNAPSHOT:
+2026-10-01T10:48:48.5894005Z [INFO] 
+2026-10-01T10:48:48.5894412Z [INFO] ignite-checkstyle .................................. SUCCESS [  0.900 s]
+2026-10-01T10:48:48.5918914Z [INFO] ignite-parent ...................................... SUCCESS [  0.177 s]
+2026-10-01T10:48:48.5949169Z [INFO] ignite-tools ....................................... SUCCESS [  0.454 s]
+2026-10-01T10:48:48.5973929Z [INFO] ignite-parent-internal ............................. SUCCESS [  0.008 s]
+2026-10-01T10:48:48.5975152Z [INFO] ignite-bom ......................................... SUCCESS [  0.011 s]
+2026-10-01T10:48:48.5975736Z [INFO] ignite-commons ..................................... SUCCESS [  0.237 s]
+2026-10-01T10:48:48.5976315Z [INFO] ignite-binary-api .................................. SUCCESS [  0.106 s]
+2026-10-01T10:48:48.5976863Z [INFO] ignite-grid-unsafe ................................. SUCCESS [  0.064 s]
+2026-10-01T10:48:48.5977416Z [INFO] ignite-binary-impl ................................. SUCCESS [  0.090 s]
+2026-10-01T10:48:48.5977971Z [INFO] ignite-thin-client-api ............................. SUCCESS [  0.065 s]
+2026-10-01T10:48:48.5978636Z [INFO] ignite-nio ......................................... SUCCESS [  0.067 s]
+2026-10-01T10:48:48.5979264Z [INFO] ignite-thin-client-impl ............................ SUCCESS [  0.101 s]
+2026-10-01T10:48:48.5979806Z [INFO] ignite-codegen ..................................... SUCCESS [  0.058 s]
+2026-10-01T10:48:48.5980337Z [INFO] ignite-core ........................................ SUCCESS [ 10.234 s]
+2026-10-01T10:48:48.5980867Z [INFO] ignite-indexing .................................... SUCCESS [  3.589 s]
+2026-10-01T10:48:48.5981395Z [INFO] ignite-compress .................................... SUCCESS [  1.544 s]
+2026-10-01T10:48:48.5981938Z [INFO] ignite-dev-utils ................................... SUCCESS [  0.493 s]
+2026-10-01T10:48:48.5982490Z [INFO] ignite-direct-io ................................... SUCCESS [  1.413 s]
+2026-10-01T10:48:48.5983199Z [INFO] ignite-extdata-p2p ................................. SUCCESS [  0.261 s]
+2026-10-01T10:48:48.5984210Z [INFO] ignite-extdata-uri-dep ............................. SUCCESS [  0.129 s]
+2026-10-01T10:48:48.5984846Z [INFO] ignite-extdata-uri ................................. SUCCESS [  4.403 s]
+2026-10-01T10:48:48.5985406Z [INFO] ignite-extdata-platform ............................ SUCCESS [  0.222 s]
+2026-10-01T10:48:48.5985965Z [INFO] ignite-urideploy ................................... SUCCESS [  0.552 s]
+2026-10-01T10:48:48.5986505Z [INFO] ignite-log4j2 ...................................... SUCCESS [  0.354 s]
+2026-10-01T10:48:48.5987029Z [INFO] ignite-spring ...................................... SUCCESS [  0.496 s]
+2026-10-01T10:48:48.5987548Z [INFO] ignite-json ........................................ SUCCESS [  0.476 s]
+2026-10-01T10:48:48.5988070Z [INFO] ignite-rest-http ................................... SUCCESS [  0.419 s]
+2026-10-01T10:48:48.5988765Z [INFO] ignite-clients ..................................... SUCCESS [  0.821 s]
+2026-10-01T10:48:48.5989289Z [INFO] ignite-zookeeper ................................... SUCCESS [  1.653 s]
+2026-10-01T10:48:48.5989836Z [INFO] ignite-control-utility ............................. SUCCESS [  1.100 s]
+2026-10-01T10:48:48.5990396Z [INFO] ignite-extdata-pluggable ........................... SUCCESS [  0.407 s]
+2026-10-01T10:48:48.5990933Z [INFO] ignite-web ......................................... SUCCESS [  0.440 s]
+2026-10-01T10:48:48.5991449Z [INFO] ignite-jta ......................................... SUCCESS [  0.532 s]

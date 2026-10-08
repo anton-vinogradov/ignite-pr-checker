@@ -27,6 +27,19 @@ class AbandonedTestsLogTest {
         }
     }
 
+    /**
+     * An excerpt of a real log: job 110332358026 of apache/ignite, 1 Oct 2026, where IgniteFunctionParameterTest was
+     * in no suite. The class shows twice, in the assertion and in Maven's error after it.
+     */
+    @Test
+    void aRealJobLogNamesItsClassOnce() throws IOException {
+        try (Stream<String> lines = Files.lines(Path.of("src/test/resources/actions/abandoned-tests-failed-real.log"),
+            StandardCharsets.UTF_8)) {
+            assertThat(AbandonedTestsCheck.nonSuited(lines)).hasValueSatisfying(classes -> assertThat(classes)
+                .containsExactly("org.apache.ignite.internal.processors.query.calcite.exec.exp.IgniteFunctionParameterTest"));
+        }
+    }
+
     /** A stack trace's "\tat …" lines elsewhere in the log are no class names. */
     @Test
     void aLogWithoutTheListNamesNoClass() throws IOException {
