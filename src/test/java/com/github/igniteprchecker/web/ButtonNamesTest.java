@@ -40,6 +40,15 @@ class ButtonNamesTest {
         }
     }
 
+    /** A 403 from ci2 answers Run, Rerun and Cancel my runs alike; it told whoever pressed Run "if Rerun or Cancel". */
+    @Test
+    void ci2RefusingSaysTheButtonsByTheirNames() throws IOException {
+        String page = Files.readString(STATIC.resolve("index.html"), UTF_8);
+
+        assertThat(ApiExceptionHandler.FORBIDDEN).contains("if Run, Rerun or Cancel my runs keeps failing");
+        assertThat(page).contains(">Run</button>", ">Rerun</button>", ">Cancel my runs</button>");
+    }
+
     @Test
     void theStaleVerdictOffersANewRunAll() throws IOException {
         String page = Files.readString(STATIC.resolve("index.html"), UTF_8);

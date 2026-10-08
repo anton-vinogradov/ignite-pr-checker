@@ -10,6 +10,7 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.VisaService;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -48,6 +49,12 @@ class GlossaryTest {
     private static final Pattern HEADING = Pattern.compile("(?m)^#{1,6} (.+)$");
 
     private static final Pattern LOCAL_LINK = Pattern.compile("]\\(#([^)]+)\\)");
+
+    private static final Pattern CODE = Pattern.compile("`([^`]+)`");
+
+    private static final Pattern BOLD = Pattern.compile("\\*\\*([^*]+)\\*\\*");
+
+    private static final Pattern NUMBER = Pattern.compile("\\d+");
 
     private static final Pattern HELP_LINK =
         Pattern.compile("<a class=\"help\" href=\"([^\"]+)\"[^>]*title=\"([^\"]+)\"");
@@ -154,8 +161,8 @@ class GlossaryTest {
         assertThat(table.get("A rare master failure"))
             .contains("at most " + constant(BlockerAnalyzer.class, "RARE_ON_MASTER_PERCENT") + "% of master runs")
             .contains("the newest " + constant(BlockerAnalyzer.class, "RECENT_MASTER_GREEN"));
-        assertThat(table.get("Too many failures for chance"))
-            .contains(String.format(Locale.ROOT, "1 in %,d", constant(BlockerAnalyzer.class, "OUTWEIGHS_ONE_IN")));
+        assertThat(table.get("Too many failures for chance")).contains(
+            String.format(Locale.ROOT, "at most 1 in %,d", constant(BlockerAnalyzer.class, "OUTWEIGHS_ONE_IN")));
         assertThat(table.get("Flaky in other PRs"))
             .contains("failing in " + constant(BlockerAnalyzer.class, "FLAKY_IN_PRS") + " or more other PRs");
         assertThat(table.get("Master's failures set aside as down to the scale factor"))
@@ -169,19 +176,95 @@ class GlossaryTest {
         assertThat(table.get("A rerun that asks first")).startsWith(pageConstant("ASK_FROM_SUITES") + " suites");
     }
 
-    /** Both tours carry the same tables: the same rows, and the same quoted labels in their first column. */
+    /**
+     * Master failing 1 run in 100 and the PR failing 2 in a row is a chance of exactly 1 in 10,000, and the code makes
+     * it a blocker; the glossary said "less than 1 in 10,000". Each example streak is the shortest that outweighs.
+     */
+    @Test
+    void theChanceExamplesAreTheShortestStreaksThatOutweigh() throws Exception {
+        String row = rowOf(glossary(TOUR), "Too many failures for chance");
+        Matcher example = Pattern.compile("(\\d+)(?: in a row)? against (?:a )?([\\d.]+)%").matcher(row);
+        Method outweighs = BlockerAnalyzer.class.getDeclaredMethod("outweighs", int.class, int.class, int.class);
+        outweighs.setAccessible(true);
+
+        int examples = 0;
+        while (example.find()) {
+            examples++;
+            int streak = Integer.parseInt(example.group(1));
+            int failsIn1000 = (int)(Double.parseDouble(example.group(2)) * 10);
+            assertThat(outweighs.invoke(null, failsIn1000, 1000, streak)).as(example.group()).isEqualTo(true);
+            assertThat(outweighs.invoke(null, failsIn1000, 1000, streak - 1)).as(example.group()).isEqualTo(false);
+        }
+        assertThat(examples).isEqualTo(3);
+        assertThat(outweighs.invoke(null, 1, 100, 2)).as("exactly 1 in 10,000").isEqualTo(true);
+        assertThat(row).contains("at most 1 in 10,000");
+        assertThat(rowOf(glossary(TOUR_RU), "Слишком много падений для случайности")).contains("не больше 1 к 10 000");
+    }
+
+    /**
+     * "No test blockers" also heads a run with nothing blamed, no caveat and a test under Recently started failing:
+     * there is no red line then, and the row sent the reader looking for one.
+     */
+    @Test
+    void noTestBlockersSaysWhatToDoWithoutARedLine() throws IOException {
+        for (Path tour : List.of(TOUR, TOUR_RU))
+            assertThat(rowOf(glossary(tour), "**No test blockers**")).as(tour.toString())
+                .contains("**Recently started failing**");
+    }
+
+    /**
+     * Auto-visa all my runs posts nothing for a PR whose title names no ticket, waits while a newer RunAll of the PR
+     * goes, and skips a visa that repeats the last one of the same revision; the row said every RunAll gets its visa.
+     */
+    @Test
+    void theAutoVisaRowSaysWhenNoVisaGoesOut() throws IOException {
+        String[] exceptions = {"no key, no visa", "No visa while a newer RunAll of the PR is going",
+            "none that repeats the last one"};
+
+        assertThat(read(PAGE)).as("the option's own label").contains(exceptions);
+        assertThat(rowOf(glossary(TOUR), "**Auto-visa all my runs** (⚙)")).contains(exceptions);
+        assertThat(rowOf(glossary(TOUR_RU), "**Auto-visa all my runs** (⚙)"))
+            .contains("нет ключа — нет визы", "Пока идёт более новый RunAll этого PR, визы нет",
+                "не повторяет прошлую визу той же ревизии");
+    }
+
+    /** The tours quote the runs' composition as the page draws it: the tour still had the old "6 ran · 141 reused". */
+    @Test
+    void theToursQuoteTheRunsCompositionAsThePageDrawsIt() throws IOException {
+        String drawn = "suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs";
+        assertThat(read(PAGE_SCRIPT)).contains(drawn);
+        Pattern label = Pattern.compile(Pattern.quote("suites: ") + "\\d+" + Pattern.quote(" fresh, ") + "\\d+"
+            + Pattern.quote(" from earlier runs"));
+
+        for (Path tour : List.of(TOUR, TOUR_RU)) {
+            List<String> quotes = all(CODE, read(tour)).stream()
+                .filter(code -> code.contains("reused") || code.contains("earlier runs")).toList();
+            assertThat(quotes).as(tour + ": the glossary and the tour").hasSizeGreaterThanOrEqualTo(2)
+                .allMatch(code -> label.matcher(code).matches());
+        }
+    }
+
+    /**
+     * Both tours carry the same tables: the same rows, the same quoted labels in their first column, and in every row
+     * the same numbers and the same bold labels. A threshold or a button renamed in the English table alone fails.
+     */
     @Test
     void theRussianGlossaryHasTheSameTables() throws IOException {
-        List<List<String>> en = firstColumns(glossary(TOUR));
-        List<List<String>> ru = firstColumns(glossary(TOUR_RU));
+        List<List<String>> en = tables(glossary(TOUR));
+        List<List<String>> ru = tables(glossary(TOUR_RU));
 
         assertThat(en).as("the glossary's tables").hasSizeGreaterThanOrEqualTo(8);
         assertThat(ru).hasSameSizeAs(en);
         for (int i = 0; i < en.size(); i++) {
             assertThat(ru.get(i)).as("table " + (i + 1)).hasSameSizeAs(en.get(i));
-            for (int row = 0; row < en.get(i).size(); row++)
-                assertThat(codeIn(ru.get(i).get(row))).as("table " + (i + 1) + ", row " + (row + 1))
-                    .isEqualTo(codeIn(en.get(i).get(row)));
+            for (int row = 0; row < en.get(i).size(); row++) {
+                String enRow = en.get(i).get(row);
+                String ruRow = ru.get(i).get(row);
+                String where = "table " + (i + 1) + ", row " + firstCell(enRow);
+                assertThat(all(CODE, firstCell(ruRow))).as(where).isEqualTo(all(CODE, firstCell(enRow)));
+                assertThat(all(NUMBER, ruRow)).as("numbers, " + where).isEqualTo(all(NUMBER, enRow));
+                assertThat(all(BOLD, ruRow)).as("bold labels, " + where).isEqualTo(all(BOLD, enRow));
+            }
         }
     }
 
@@ -241,10 +324,23 @@ class GlossaryTest {
         return rows;
     }
 
-    /** The first column of every table of the glossary, table by table. */
-    private static List<List<String>> firstColumns(String glossary) {
+    /** The rows of every table of the glossary, table by table, each with its cells joined by " | ". */
+    private static List<List<String>> tables(String glossary) {
         return List.of(glossary.split("\n### ")).stream().skip(1)
-            .map(s -> rows(s).stream().map(r -> r.get(0)).toList()).toList();
+            .map(s -> rows(s).stream().map(r -> String.join(" | ", r)).toList()).toList();
+    }
+
+    /** The glossary's row whose first cell is this, its cells joined by " | ". */
+    private static String rowOf(String glossary, String firstCell) {
+        List<String> rows = tables(glossary).stream().flatMap(List::stream)
+            .filter(row -> firstCell(row).equals(firstCell)).toList();
+        assertThat(rows).as(firstCell).hasSize(1);
+
+        return rows.get(0);
+    }
+
+    private static String firstCell(String row) {
+        return row.substring(0, row.indexOf(" | "));
     }
 
     /** A section's table rows, header and separator left out, as cells. */
@@ -253,8 +349,9 @@ class GlossaryTest {
             .map(l -> List.of(l.substring(2, l.length() - 2).split(" \\| "))).toList();
     }
 
-    private static List<String> codeIn(String cell) {
-        return Pattern.compile("`([^`]+)`").matcher(cell).results().map(m -> m.group(1)).toList();
+    /** What each match of the pattern captures: its last group, or the whole match when it has none. */
+    private static List<String> all(Pattern p, String text) {
+        return p.matcher(text).results().map(m -> m.group(m.groupCount())).toList();
     }
 
     private static long constant(Class<?> type, String name) throws ReflectiveOperationException {

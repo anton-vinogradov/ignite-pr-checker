@@ -32,6 +32,15 @@ class TokenNotesPageTest {
         assertThat(new WarmProperties(null, null, null, null).tokenTtlMinutes()).as("about an hour").isEqualTo(60);
     }
 
+    /** The tours said any standing option keeps the token in the pool, but PR commands alone lends it to nothing. */
+    @Test
+    void theToursSayPrCommandsAloneLendsTheTokenToNothing() throws IOException {
+        assertThat(collapsed("docs/features.md"))
+            .contains("any **standing option** other than PR commands alone keeps yours in the pool while it is on");
+        assertThat(collapsed("docs/features.ru.md"))
+            .contains("любая **standing-опция**, кроме одних PR commands, держит ваш токен в пуле, пока она включена");
+    }
+
     /** The PATs pasted in ⚙ are for the options, which store them. */
     @Test
     void theSettingsPanelsSayTheOptionsStoreTheirTokens() throws IOException {
@@ -59,6 +68,10 @@ class TokenNotesPageTest {
         assertThat(out.get("auto").asText()).isEqualTo("It goes into your session cookie, encrypted, and the server "
             + "stores it encrypted until this visa is posted.");
         assertThat(out.get("shown").asBoolean()).isTrue();
+    }
+
+    private static String collapsed(String file) throws IOException {
+        return Files.readString(Path.of(file), UTF_8).replaceAll("\\s+", " ");
     }
 
     /** The text of the element with this id, its tags dropped and its whitespace collapsed. */

@@ -26,7 +26,7 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 | **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed, ran longer than 60 s, or, in a changed class, has no master history. | Check that the new tests ran and passed. A test with no master history has only this run to judge it by. |
 | **Filtered out** | Failures not blamed on the PR, each with its reason: they fail on master, are flaky, or passed on a re-run. | Nothing for the PR. Tests that fail on master are on the flaky board (`/flaky.html`). |
 | **No blockers 🎉** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | Good to go. |
-| **No test blockers** | No test was blamed, but the run can't prove the PR clean. The red line under it says why ([caveats](#caveats)). | Sort out what the caveat lists, then rerun. |
+| **No test blockers** | No test was blamed, but the verdict can't call the PR clean. The red line under it says why ([caveats](#caveats)); with no red line, tests started failing on its code and are under **Recently started failing**. | Sort out what the red line lists, then rerun. With no red line, **Rerun** the suites under **Recently started failing**. |
 
 ### Reasons under a test
 
@@ -133,7 +133,7 @@ the visa.
 | **JIRA visa** | Posts the verdict to the IGNITE ticket the PR title names, now. | — |
 | **Auto visa** | Posts the verdict of the current run to the ticket when it finishes, once. `Auto visa ✓`: armed by you; `armed: bob`: armed by others, who get one visa between them. | — |
 | **Auto visa: on in ⚙** | The standing auto-visa of whoever started the run will post it: nothing to arm. | — |
-| **Auto-visa all my runs** (⚙) | Every RunAll you start gets its visa; with auto re-run on too, once the re-runs settle. | — |
+| **Auto-visa all my runs** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
 
 ### Thresholds
 
@@ -143,7 +143,7 @@ the visa.
 | Failed branch runs in a row for a blocker | 3, or every run when fewer (`BLOCKER_FAIL_STREAK`) | `failed all N runs on this branch` |
 | Thin master history | fewer than 10 master runs on the PR's JDK | `only N master run(s)` |
 | A rare master failure | at most 2% of master runs, and none of the newest 10 | `rare on master` |
-| Too many failures for chance | less than 1 in 10,000: 2 in a row against a 1% rate, 3 against 2%, 5 against 12.5% | `rare on master`, the other PR and scale factor reasons |
+| Too many failures for chance | at most 1 in 10,000: 2 in a row against a 1% rate, 3 against 2%, 5 against 12.5% | `rare on master`, the other PR and scale factor reasons |
 | Flaky in other PRs | failing in 3 or more other PRs | `flaky on other PR branches` |
 | Master's failures set aside as down to the scale factor | master fails at least half its runs, only at another scale factor, and other PRs have at least 10 runs | `fails F/R on master at TEST_SCALE_FACTOR=1.0` |
 | Fewer tests than master | at least 10% fewer, for suites with 20 or more tests on master | **Fewer tests than master** |
@@ -317,8 +317,9 @@ The one question the tool answers: **which tests did this PR actually break?**
 - **Pending changes** — if new commits were pushed to the PR after the analysed RunAll, a banner
   says so (**"⚠ N new commits pushed since this run (abc123 → def456) — the verdict is for the older
   code"**) with a **Run RunAll** button, so a stale verdict is never mistaken for the current one.
-- The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
-  chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
+- The freshness line shows the run's **composition** — `suites: 6 fresh, 141 from earlier runs` —
+  because a re-triggered chain on unchanged revisions reuses earlier suite builds (TeamCity
+  substitutes suitable results).
 - When your runs finish — the chain or any re-run of its suites, in whatever order they end — the
   analysis **refreshes itself**, no F5.
 
@@ -395,6 +396,6 @@ counts since start stay on the page as information.
   buttons) — per-browser, with no flash on load.
 - The heavy lifting is cached and pre-warmed in the background, so opening a PR is instant. There
   is no service account: warming runs on real users' TeamCity tokens — every logged-in request
-  donates one, and any **standing option** keeps yours in the pool permanently, which is what
-  keeps the background work (warming, the instant re-analysis of a finished run, live run states)
-  going while nobody has the page open.
+  donates one, and any **standing option** other than PR commands alone keeps yours in the pool
+  while it is on, which is what keeps the background work (warming, the instant re-analysis of a
+  finished run, live run states) going while nobody has the page open.
