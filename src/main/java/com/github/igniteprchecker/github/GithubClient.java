@@ -9,8 +9,10 @@ import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import jakarta.annotation.PreDestroy;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,15 +20,19 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -248,6 +254,34 @@ public class GithubClient implements SnapshotCache {
     public record Ahead(int ahead, String headShort, boolean rewritten) {
     }
 
+    /** Paths of the files that differ between {@code base} and {@code head}, as GitHub's compare lists them. */
+    public Changes changesBetween(String base, String head) {
+        java.util.Map<?, ?> cmp = recorded("compare", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/compare/" + base + "..." + head).body(java.util.Map.class));
+        if (cmp == null)
+            throw new IllegalStateException("GitHub sent no comparison of " + base + " and " + head);
+
+        java.util.List<?> files = cmp.get("files") instanceof java.util.List<?> l ? l : java.util.List.of();
+        java.util.Set<String> paths = files.stream()
+            .map(f -> f instanceof java.util.Map<?, ?> m ? m.get("filename") : null)
+            .filter(String.class::isInstance).map(String.class::cast)
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        Object status = cmp.get("status");
+
+        return new Changes(paths, "diverged".equals(status) || "behind".equals(status),
+            files.size() < COMPARE_FILES_MAX);
+    }
+
+    /** The most files GitHub's compare lists. */
+    private static final int COMPARE_FILES_MAX = 300;
+
+    /**
+     * Files that differ between two commits. {@code complete}: that is all of them, GitHub cut the list short at 300.
+     * {@code rewritten}: head no longer contains base, and the list then holds the base branch's changes as well.
+     */
+    public record Changes(java.util.Set<String> files, boolean rewritten, boolean complete) {
+    }
+
     /** Paths of the PR's changed (not removed) .java files, capped at 300. */
     public java.util.List<String> prJavaFiles(int prNumber) {
         java.util.List<String> out = new java.util.ArrayList<>();
@@ -298,6 +332,91 @@ public class GithubClient implements SnapshotCache {
 
     /** A file a PR changes: its path and how GitHub says it changed. */
     public record PrFile(String path, String status) {
+    }
+
+    /**
+     * The checks GitHub shows for a commit, the latest of each name, up to 100. A check of GitHub Actions is one job
+     * of a workflow, and has the job's id.
+     */
+    public java.util.List<CheckRun> checkRuns(String sha) {
+        CheckRuns runs = recorded("checkRuns", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/commits/" + sha + "/check-runs?per_page=100")
+            .body(CheckRuns.class));
+
+        return runs == null || runs.checkRuns() == null ? java.util.List.of() : runs.checkRuns();
+    }
+
+    /** A check of a commit: GitHub's {@code status} (queued, in_progress, completed) and {@code conclusion}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CheckRun(long id, String name, String status, String conclusion,
+        @JsonProperty("html_url") String htmlUrl) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record CheckRuns(@JsonProperty("check_runs") java.util.List<CheckRun> checkRuns) {
+    }
+
+    /** A GitHub Actions job: how far it got, and its steps in order. */
+    public Job job(long jobId) {
+        Job job = recorded("job", () -> appGet(props.apiUrl() + "/repos/" + props.repo() + "/actions/jobs/" + jobId)
+            .body(Job.class));
+        if (job == null)
+            throw new IllegalStateException("GitHub sent no job " + jobId);
+
+        return job.steps() == null ? new Job(job.status(), java.util.List.of()) : job;
+    }
+
+    /** A job and its steps, each with GitHub's {@code status} and {@code conclusion}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Job(String status, java.util.List<Step> steps) {
+        /** One step of a job, by the name the workflow gives it. */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Step(String name, String status, String conclusion) {
+        }
+    }
+
+    /**
+     * Reads the log of a finished GitHub Actions job with {@code reader}, line by line as it comes in; empty without
+     * the app token, as GitHub gives logs only to a signed-in caller. GitHub answers with a short-lived address of the
+     * log on another host, which gets the request without the token.
+     */
+    public <T> Optional<T> jobLog(long jobId, Function<Stream<String>, T> reader) {
+        if (props.token() == null || props.token().isBlank())
+            return Optional.empty();
+
+        URI asked = URI.create(props.apiUrl() + "/repos/" + props.repo() + "/actions/jobs/" + jobId + "/logs");
+        Logged<T> first = recorded("jobLog", () -> noRedirects.get().uri(asked)
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", "Bearer " + props.token())
+            .exchange((request, response) -> {
+                URI moved = response.getHeaders().getLocation();
+                if (response.getStatusCode().is3xxRedirection() && moved != null)
+                    return new Logged<T>(null, asked.resolve(moved));
+
+                return new Logged<>(readLog(response, reader, jobId), null);
+            }));
+        if (first.at() == null)
+            return Optional.ofNullable(first.read());
+
+        return Optional.ofNullable(recorded("jobLog", () -> http.get().uri(first.at())
+            .exchange((request, response) -> readLog(response, reader, jobId))));
+    }
+
+    private static <T> T readLog(ClientHttpResponse response, Function<Stream<String>, T> reader, long jobId)
+        throws IOException {
+        if (!response.getStatusCode().is2xxSuccessful())
+            throw new RestClientResponseException("GitHub answered " + response.getStatusCode().value()
+                + " for the log of job " + jobId, response.getStatusCode(), response.getStatusText(),
+                response.getHeaders(), null, null);
+
+        try (BufferedReader lines = new BufferedReader(new InputStreamReader(response.getBody(),
+            StandardCharsets.UTF_8))) {
+            return reader.apply(lines.lines());
+        }
+    }
+
+    /** A job's log as the first answer gave it: read there, or to be read {@code at} another address. */
+    private record Logged<T>(T read, URI at) {
     }
 
     /** Raw contents of one file at a ref, from an arbitrary (fork) repo. */
@@ -503,6 +622,9 @@ public class GithubClient implements SnapshotCache {
 
     private final RestClient http;
 
+    /** For calls whose redirect leads to another host: it is followed by hand, without the token. */
+    private final RestClient noRedirects;
+
     private final GithubProperties props;
     private final long ttlMs;
     private final ObjectMapper mapper;
@@ -537,15 +659,24 @@ public class GithubClient implements SnapshotCache {
     public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
         this(props, mapper, metrics, RestClient.builder()
             .requestFactory(OutboundHttp.withPatch(props.readTimeout()))
+            .build(), RestClient.builder()
+            .requestFactory(OutboundHttp.withPatchNoRedirects(props.readTimeout()))
             .build());
     }
 
+    /** A client whose calls all go through {@code http}, which hands a redirect back as it is: a test's stub. */
     GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http) {
+        this(props, mapper, metrics, http, http);
+    }
+
+    private GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http,
+        RestClient noRedirects) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;
         this.metrics = metrics;
         this.http = http;
+        this.noRedirects = noRedirects;
     }
 
     /** Runs a GitHub call, recording its category, outcome and latency for the status page. */

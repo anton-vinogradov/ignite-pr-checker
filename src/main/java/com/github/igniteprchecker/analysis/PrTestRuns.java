@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -22,8 +23,11 @@ import org.springframework.stereotype.Component;
  *
  * <p>Asked when a PR is viewed: one GitHub call for the PR's files, one TeamCity call for the runs of its test
  * classes in the chain (more only for hundreds of classes), and the master history of up to 20 tests of the changed
- * classes, shared with the analysis. A class the PR adds has no master history to look up. An answer is kept for 15
- * minutes per PR and chain, the PR's files for as long; an answer about a chain still going, for 2 minutes.
+ * classes, shared with the analysis. A class the PR adds has no master history to look up. A PR with test classes
+ * also gets Ignite's own check of its head for classes in no test suite ({@link AbandonedTestsCheck}), and, for a
+ * class with no runs, which files changed since the run: one GitHub call for the head, one for the comparison. An
+ * answer is kept for 15 minutes per PR and chain, the PR's files for as long; an answer about a chain still going,
+ * or with Ignite's check still going or out of reach, for 2 minutes.
  */
 @Component
 public class PrTestRuns {
@@ -38,6 +42,9 @@ public class PrTestRuns {
     /** The most tests of changed classes whose master history one answer looks up. */
     static final int MASTER_LOOKUPS = 20;
 
+    /** How long the PR's head is taken as known: the answer and the verdict of one settle ask it twice in a row. */
+    private static final long KEEP_HEAD_MS = 60_000L;
+
     /** What a class name is made of, and so what may go into TeamCity's pattern unescaped. */
     private static final Pattern CLASS_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
 
@@ -47,16 +54,21 @@ public class PrTestRuns {
 
     private final AnalysisCache cache;
 
+    private final AbandonedTestsCheck suites;
+
     private final TtlCache<Integer, List<GithubClient.PrFile>> files = new TtlCache<>(KEEP_MS);
+
+    private final TtlCache<Integer, String> heads = new TtlCache<>(KEEP_HEAD_MS);
 
     private final TtlCache<Asked, PrTests> answers = new TtlCache<>(KEEP_MS);
 
-    private final TtlCache<Asked, PrTests> runningAnswers = new TtlCache<>(KEEP_RUNNING_MS);
+    private final TtlCache<Asked, PrTests> briefAnswers = new TtlCache<>(KEEP_RUNNING_MS);
 
     public PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache) {
         this.github = github;
         this.tc = tc;
         this.cache = cache;
+        this.suites = new AbandonedTestsCheck(github);
     }
 
     /**
@@ -64,25 +76,46 @@ public class PrTestRuns {
      * {@code running}: an answer about it is not the one about the chain once it finished.
      */
     public PrTests of(String token, int pr, long buildId, boolean running) {
-        TtlCache<Asked, PrTests> kept = running ? runningAnswers : answers;
-        Asked asked = new Asked(pr, buildId);
-        Optional<PrTests> was = kept.peek(asked);
+        Asked asked = new Asked(pr, buildId, running);
+        Optional<PrTests> was = answers.peek(asked).or(() -> briefAnswers.peek(asked));
         if (was.isPresent())
             return was.get();
 
         Answer answer = lookUp(token, pr, buildId, running);
         if (answer.keep())
-            kept.put(asked, answer.tests());
+            (running || !answer.settled() ? briefAnswers : answers).put(asked, answer.tests());
 
         return answer.tests();
+    }
+
+    /**
+     * What Ignite's abandoned-tests check of the PR's head says when it finds classes in no test suite; empty when it
+     * finds none, says nothing yet, or the PR adds and changes no test class.
+     */
+    public Optional<AbandonedTestsCheck.Outcome> notInAnySuite(int pr) {
+        try {
+            if (files.get(pr, () -> github.prTestFiles(pr)).isEmpty())
+                return Optional.empty();
+
+            String head = head(pr);
+            AbandonedTestsCheck.Outcome check = head == null ? null : suites.of(head);
+
+            return check != null && check.state() == PrTests.SuiteCheck.State.FAILED ? Optional.of(check)
+                : Optional.empty();
+        }
+        catch (RuntimeException e) {
+            return Optional.empty();
+        }
     }
 
     /** Sweeps out expired answers and file lists (see TtlCache.evictExpired). */
     @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
     void evictExpired() {
         files.evictExpired();
+        heads.evictExpired();
         answers.evictExpired();
-        runningAnswers.evictExpired();
+        briefAnswers.evictExpired();
+        suites.evictExpired();
     }
 
     private Answer lookUp(String token, int pr, long buildId, boolean running) {
@@ -91,10 +124,15 @@ public class PrTestRuns {
             classes = files.get(pr, () -> github.prTestFiles(pr)).stream().map(ClassFile::of).toList();
         }
         catch (RuntimeException e) {
-            return new Answer(new PrTests(buildId, List.of(), "GitHub could not list the PR's files"), false);
+            return new Answer(new PrTests(buildId, List.of(), "GitHub could not list the PR's files"), false, true);
         }
         if (classes.isEmpty())
-            return new Answer(new PrTests(buildId, List.of(), null), true);
+            return new Answer(new PrTests(buildId, List.of(), null), true, true);
+
+        String head = head(pr);
+        AbandonedTestsCheck.Outcome check = head == null
+            ? AbandonedTestsCheck.Outcome.unknown(null, null, "GitHub could not name the PR's head", false)
+            : suites.of(head);
 
         List<String> names = classes.stream().map(ClassFile::simple).filter(n -> CLASS_NAME.matcher(n).matches())
             .distinct().toList();
@@ -103,12 +141,12 @@ public class PrTestRuns {
             runs = tc.testRunsOfClasses(token, buildId, names);
         }
         catch (RuntimeException e) {
-            return new Answer(new PrTests(buildId, withRuns(classes, Map.of()),
-                "TeamCity could not be asked how they ran"), false);
+            return new Answer(answer(buildId, classes, Map.of(), "TeamCity could not be asked how they ran", check,
+                Map.of()), false, check.settled());
         }
         if (runs.isEmpty()) {
-            return new Answer(new PrTests(buildId, withRuns(classes, Map.of()),
-                "TeamCity does not answer how they ran"), true);
+            return new Answer(answer(buildId, classes, Map.of(), "TeamCity does not answer how they ran", check,
+                Map.of()), true, check.settled());
         }
 
         Map<ClassFile, List<PrTests.Run>> byClass = new LinkedHashMap<>();
@@ -131,8 +169,80 @@ public class PrTestRuns {
                 + " tests of changed classes");
 
         String note = notes.isEmpty() ? null : String.join("; ", notes);
+        Map<ClassFile, Boolean> changed = running ? Map.of()
+            : changedSinceRun(token, buildId, head, unexplained(classes, byClass, check));
 
-        return new Answer(new PrTests(buildId, withRuns(classes, byClass), note), true);
+        return new Answer(answer(buildId, classes, byClass, note, check, changed), true, check.settled());
+    }
+
+    /** The PR's head commit; null when GitHub could not say. */
+    private String head(int pr) {
+        try {
+            return heads.get(pr, () -> github.prHead(pr).headSha());
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The classes with no runs whose absence Ignite's check leaves to explain: it passed, or failed naming others. Any
+     * other state of the check explains nothing, and asks nothing more of GitHub.
+     */
+    private static List<ClassFile> unexplained(List<ClassFile> classes, Map<ClassFile, List<PrTests.Run>> byClass,
+        AbandonedTestsCheck.Outcome check) {
+        if (check.state() != PrTests.SuiteCheck.State.PASSED && check.state() != PrTests.SuiteCheck.State.FAILED)
+            return List.of();
+
+        return classes.stream().filter(c -> !byClass.containsKey(c) && !c.notInSuite(check)).toList();
+    }
+
+    /**
+     * Whether a commit after the run changed each class's file, by GitHub's comparison of the run's revision with the
+     * head; a class left out when that cannot be told: a rebase or a force-push mixed master's changes in, or the
+     * list was cut short before the file.
+     */
+    private Map<ClassFile, Boolean> changedSinceRun(String token, long buildId, String head,
+        List<ClassFile> classes) {
+        if (classes.isEmpty() || head == null)
+            return Map.of();
+
+        try {
+            String built = tc.buildRevision(token, buildId).orElse(null);
+            if (built == null)
+                return Map.of();
+
+            GithubClient.Changes changes = built.equals(head)
+                ? new GithubClient.Changes(Set.of(), false, true) : github.changesBetween(built, head);
+            if (changes.rewritten())
+                return Map.of();
+
+            Map<ClassFile, Boolean> changed = new LinkedHashMap<>();
+            for (ClassFile c : classes) {
+                if (changes.files().contains(c.path()))
+                    changed.put(c, true);
+                else if (changes.complete())
+                    changed.put(c, false);
+            }
+
+            return changed;
+        }
+        catch (RuntimeException e) {
+            return Map.of();
+        }
+    }
+
+    private static PrTests answer(long buildId, List<ClassFile> classes, Map<ClassFile, List<PrTests.Run>> byClass,
+        String note, AbandonedTestsCheck.Outcome check, Map<ClassFile, Boolean> changed) {
+        List<PrTests.TestClass> tested = classes.stream()
+            .map(c -> new PrTests.TestClass(c.fqcn(), c.path(), c.added(), byClass.getOrDefault(c, List.of()).stream()
+                .sorted(Comparator.comparing(PrTests.Run::name)).toList(), c.notInSuite(check), changed.get(c)))
+            .toList();
+        List<String> elsewhere = check.classes().stream()
+            .filter(name -> classes.stream().noneMatch(c -> c.fqcn().equals(name))).toList();
+
+        return new PrTests(buildId, tested, note,
+            new PrTests.SuiteCheck(check.state(), check.sha(), check.url(), check.reason(), elsewhere));
     }
 
     /**
@@ -172,14 +282,6 @@ public class PrTestRuns {
             r.status(), r.durationMs(), masterRuns);
     }
 
-    private static List<PrTests.TestClass> withRuns(List<ClassFile> classes,
-        Map<ClassFile, List<PrTests.Run>> byClass) {
-        return classes.stream()
-            .map(c -> new PrTests.TestClass(c.fqcn(), c.path(), c.added(), byClass.getOrDefault(c, List.of()).stream()
-                .sorted(Comparator.comparing(PrTests.Run::name)).toList()))
-            .toList();
-    }
-
     private static PrTests.Run run(TcModel.TestOccurrence o) {
         TcModel.BuildRef b = o.build();
         String suite = b == null ? null : b.buildTypeId();
@@ -190,12 +292,15 @@ public class PrTestRuns {
             o.duration() == null ? 0 : o.duration(), null);
     }
 
-    /** One PR's question about one of its chains. */
-    private record Asked(int pr, long buildId) {
+    /** One PR's question about one of its chains, still going or finished. */
+    private record Asked(int pr, long buildId, boolean running) {
     }
 
-    /** An answer, and whether it may be kept: one that a GitHub or TeamCity error cut short is asked again. */
-    private record Answer(PrTests tests, boolean keep) {
+    /**
+     * An answer, and whether it may be kept: one that a GitHub or TeamCity error cut short is asked again. {@code
+     * settled}: Ignite's check in it is finished, so it may be kept for long.
+     */
+    private record Answer(PrTests tests, boolean keep, boolean settled) {
     }
 
     /**
@@ -221,6 +326,11 @@ public class PrTestRuns {
             String test = suite >= 0 ? testName.substring(suite + 2) : testName;
 
             return test.startsWith(fqcn + ".") || test.startsWith(fqcn + "$") || test.startsWith(simple + ".");
+        }
+
+        /** Whether Ignite's check finds this class in no test suite: a class nested in it is named apart. */
+        boolean notInSuite(AbandonedTestsCheck.Outcome check) {
+            return check.classes().contains(fqcn);
         }
     }
 }

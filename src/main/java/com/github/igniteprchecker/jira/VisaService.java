@@ -1,6 +1,8 @@
 package com.github.igniteprchecker.jira;
 
+import com.github.igniteprchecker.analysis.AbandonedTestsCheck;
 import com.github.igniteprchecker.analysis.Caveats;
+import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
@@ -10,6 +12,7 @@ import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,16 +51,22 @@ public class VisaService {
     private final String publicUrl;
     private final String repo;
 
+    /** Where Ignite's own check of the PR's test classes comes from; null when not asked. */
+    private final PrTestRuns prTests;
+
     @Autowired
     public VisaService(TeamcityProperties tc,
-        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl, GithubProperties github) {
+        @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl, GithubProperties github,
+        PrTestRuns prTests) {
         this.tc = tc;
         this.publicUrl = publicUrl;
         this.repo = github.repo();
+        this.prTests = prTests;
     }
 
+    /** A verdict that says nothing of the PR's test classes in no test suite. */
     public VisaService(TeamcityProperties tc, String publicUrl) {
-        this(tc, publicUrl, new GithubProperties(null, null, null));
+        this(tc, publicUrl, new GithubProperties(null, null, null), null);
     }
 
     /** The verdict in GitHub markdown, for a PR comment mirror of the visa. */
@@ -75,7 +84,33 @@ public class VisaService {
      * the commit the run tested, named in the head line; null when TeamCity did not say.
      */
     public String composeMarkdown(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
-        return markdownVerdict(pr, r, commitsAhead, sha).stripTrailing() + "\n\n" + MARKDOWN_FOOTER;
+        return markdownVerdict(pr, r, commitsAhead, sha).stripTrailing() + notInAnySuite(pr).markdown() + "\n\n"
+            + MARKDOWN_FOOTER;
+    }
+
+    /**
+     * The line on the test classes Ignite's own abandoned-tests check finds in no test suite, which CI never runs, in
+     * both markups after an empty line; empty when it finds none. The verdict above it stays as it is.
+     */
+    Ending notInAnySuite(int pr) {
+        Optional<AbandonedTestsCheck.Outcome> check = prTests == null ? Optional.empty() : prTests.notInAnySuite(pr);
+        if (check.isEmpty())
+            return new Ending("", "");
+
+        List<String> classes = check.get().classes().stream().map(c -> c.substring(c.lastIndexOf('.') + 1)).toList();
+        boolean one = classes.size() == 1;
+        String what = one ? "1 test class is in no test suite" : classes.size() + " test classes are in no test suite";
+        String says = ", so CI never runs " + (one ? "it" : "them") + ": ";
+        String todo = ". Add " + (one ? "it" : "each") + " to a test suite or mark it ";
+        String name = "Ignite's abandoned-tests check";
+        String url = check.get().url();
+        String sha = shortSha(check.get().sha());
+
+        return new Ending(
+            "\n\n⚠️ **" + what + "**" + says + names(classes.stream().map(c -> "`" + c + "`").toList()) + " ("
+                + (url == null ? name : "[" + name + "](" + url + ")") + " on `" + sha + "`)" + todo + "`@Ignore`.",
+            "\n\n(!) *" + what + "*" + says + names(classes.stream().map(c -> "{{" + c + "}}").toList()) + " ("
+                + (url == null ? name : "[" + name + "|" + url + "]") + " on {{" + sha + "}})" + todo + "{{@Ignore}}.");
     }
 
     private String markdownVerdict(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
@@ -326,7 +361,8 @@ public class VisaService {
 
     /** The same verdict in JIRA wiki markup; see {@link #composeMarkdown(int, AnalysisResult, Integer, String)}. */
     public String compose(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
-        return wikiVerdict(pr, r, commitsAhead, sha).stripTrailing() + "\n\n" + WIKI_FOOTER;
+        return wikiVerdict(pr, r, commitsAhead, sha).stripTrailing() + notInAnySuite(pr).wiki() + "\n\n"
+            + WIKI_FOOTER;
     }
 
     private String wikiVerdict(int pr, AnalysisResult r, Integer commitsAhead, String sha) {

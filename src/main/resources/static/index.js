@@ -1386,32 +1386,71 @@ async function loadPrTests(res) {
     } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
 }
 
-// Redrawn once the head is known to have moved since the run: a new class with no runs may have come with it.
-function repaintPrTests(res) {
-    if (lastPrTests && lastPrTests.pr === res.prNumber && lastPrTests.buildId === res.buildId)
-        renderPrTests(lastPrTests.body, res);
-}
-
 function renderPrTests(t, res) {
     const classes = t.classes || [];
+    const check = t.suiteCheck || null;
+    const elsewhere = check && check.state === 'FAILED' ? check.elsewhere || [] : [];
     $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
     const runs = classes.flatMap(c => c.runs);
     $('prTestsCount').textContent = classes.length
         ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})` : '';
     const slow = runs.filter(r => r.durationMs > SLOW_TEST_MS).length;
-    $('prTestsWarn').classList.toggle('hidden', !slow);
-    $('prTestsWarn').textContent = slow ? `⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.` : '';
-    $('prTests').innerHTML = classes.map(c => prTestClass(c, res)).join('');
+    const warns = [notInSuiteWarn(classes.filter(c => c.notInSuite).length + elsewhere.length, check),
+        slow ? esc(`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
+    $('prTestsWarn').classList.toggle('hidden', !warns.length);
+    $('prTestsWarn').innerHTML = warns.join(' ');
+    $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check)).join('')
+        + elsewhere.map(notInSuiteElsewhere).join('');
+    const said = suiteCheckNote(check);
+    $('prTestsCheck').classList.toggle('hidden', !said);
+    $('prTestsCheck').textContent = said;
     $('prTestsNote').classList.toggle('hidden', !t.note);
     $('prTestsNote').textContent = t.note ? 'Not complete: ' + t.note + '.' : '';
 }
 
-function prTestClass(c, res) {
+// Ignite's own check (GitHub Actions, "Check java code") fails on a test class no suite holds: CI never runs it.
+const NOT_IN_SUITE_TAG = '<span class="tag-doubt">not in any suite</span>';
+const NOT_IN_SUITE_TODO = '<div class="caveat">CI never runs it: add it to a test suite or mark it @Ignore.</div>';
+
+function suiteCheckName(check) {
+    const name = 'Ignite\'s abandoned-tests check';
+    return check.url ? `<a href="${esc(check.url)}" target="_self" rel="noopener">${name}</a>` : name;
+}
+
+function notInSuiteWarn(n, check) {
+    if (!n) return '';
+    const one = n === 1;
+    return esc(`⚠ ${n} test class${one ? ' is' : 'es are'} in no test suite, so CI never runs ${one ? 'it' : 'them'}`)
+        + ` (${suiteCheckName(check)} on ${esc(shortSha(check.sha))}).`;
+}
+
+// What Ignite's check of the head could not say, and why; nothing when it passed or named classes.
+function suiteCheckNote(check) {
+    if (!check || check.state === 'PASSED' || check.state === 'FAILED') return '';
+    const on = check.sha ? ' on ' + shortSha(check.sha) : '';
+    if (check.state === 'RUNNING') return `Ignite's abandoned-tests check is still running${on}.`;
+    if (check.state === 'SKIPPED') return `Ignite's abandoned-tests check did not run${on}: ${check.reason}.`;
+    return `Ignite's abandoned-tests check could not be read${on}: ${check.reason || 'GitHub did not say'}.`;
+}
+
+function shortSha(sha) {
+    return String(sha || '').slice(0, 7);
+}
+
+function notInSuiteElsewhere(name) {
+    const simple = name.slice(name.lastIndexOf('.') + 1);
+    return `<li><div class="suite-head"><span class="suite-name" title="${esc(name)}">${esc(simple)}${NOT_IN_SUITE_TAG}`
+        + '</span></div>' + NOT_IN_SUITE_TODO + '</li>';
+}
+
+function prTestClass(c, res, check) {
     const name = c.name.slice(c.name.lastIndexOf('.') + 1);
     const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
-        + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span></span></div>`;
+        + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span>${c.notInSuite ? NOT_IN_SUITE_TAG : ''}`
+        + '</span></div>';
+    const todo = c.notInSuite ? NOT_IN_SUITE_TODO : '';
     if (!c.runs.length)
-        return `<li>${head}<div class="reason">${noRunsOf(c, res)}</div></li>`;
+        return `<li>${head}<div class="reason">${esc(noRunsOf(c, res, check))}</div>${todo}</li>`;
     const count = s => c.runs.filter(r => r.status === s).length;
     const parts = [[count('SUCCESS'), 'passed'], [count('FAILURE'), 'failed'], [count('UNKNOWN'), 'ignored']]
         .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
@@ -1426,15 +1465,23 @@ function prTestClass(c, res) {
         + (r.durationMs > SLOW_TEST_MS ? `<span class="tag-doubt">${esc(fmtTestTime(r.durationMs))}</span>` : '')
         + (r.status === 'FAILURE' && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
         + '</div></li>').join('');
-    return `<li>${head}<div class="reason">${esc(summary)}</div>`
+    return `<li>${head}<div class="reason">${esc(summary)}</div>${todo}`
         + (rows ? `<ul class="suite-tests">${rows}</ul>` : '') + '</li>';
 }
 
-function noRunsOf(c, res) {
+// Why a class did not run, as far as Ignite's check of the head and the files changed since the run tell it.
+function noRunsOf(c, res, check) {
     if (chainRunning(res)) return 'no runs yet: this RunAll is still going';
-    if (c.added && aheadOf(res) > 0)
-        return 'no runs in this RunAll: added by a commit pushed since, an abstract base, or a class no suite runs';
-    return 'no runs in this RunAll: an abstract base, or a class no suite runs';
+    if (c.notInSuite) return 'no runs in this RunAll';
+    const state = check ? check.state : 'UNKNOWN';
+    if (state === 'RUNNING') return 'no runs in this RunAll; whether a suite runs it is not known yet';
+    if (state !== 'PASSED' && state !== 'FAILED') return 'no runs in this RunAll; whether a suite runs it is not known';
+    if (c.changedSinceRun === true)
+        return `no runs in this RunAll: ${c.added ? 'added' : 'changed'} by a commit pushed after it`;
+    if (c.changedSinceRun === false)
+        return 'no runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class';
+    return 'no runs in this RunAll: its suite did not run or broke, it is a base or @Ignore class, '
+        + 'or it changed after this run';
 }
 
 // "0.4 s", "12 s", "4 m 58 s": how long a test ran.
@@ -1461,7 +1508,6 @@ async function loadPending(res) {
         }
         const ahead = p.ahead > 0 ? p.ahead : 1; // superseded code can't be a clean verdict
         pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead, caveat: p.caveat || null };
-        repaintPrTests(res);
         const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
         $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
         $('pendingRow').classList.remove('hidden');

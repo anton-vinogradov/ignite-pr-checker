@@ -142,7 +142,7 @@ class GlossaryTest {
         quoted(PAGE_SCRIPT, "No blockers 🎉", "No test blockers", "1 run", "new test / no master history", "unverified",
             "flaky?", "rev ✓ head", "rev @start", "● includes an unfinished run", " from earlier runs",
             "pushed since this run", "♻️ Auto re-run #", "♻️ Deciding on auto re-runs", "Rerun at top", "Auto visa ✓",
-            "armed: ", "Auto visa: on in ⚙");
+            "armed: ", "Auto visa: on in ⚙", "not in any suite");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "♻ environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
     }
