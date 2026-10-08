@@ -26,7 +26,7 @@ class BrokenGroupsPageTest {
         assertThat(out.get("broken").asText())
             .startsWith("Build failed — nothing else ran; fix the build, then /run-all> Build")
             .contains("non-zero exit code", "145 suites that need it did not run");
-        assertThat(out.get("html").asText().split("class=\"suite-rerun\"", -1)).as("Rerun and Rerun top of the Build")
+        assertThat(out.get("html").asText().split("class=\"suite-rerun\"", -1)).as("Rerun and Rerun at top of the Build")
             .hasSize(3);
         assertThat(out.get("html").asText()).contains("data-suite=\"" + BrokenRuns.BUILD + "\"");
         assertThat(out.get("bannerHidden").asBoolean()).as("the 137 suites the Build kept from running").isTrue();
@@ -61,7 +61,7 @@ class BrokenGroupsPageTest {
 
         String broken = out.get("broken").asText();
         assertThat(broken).containsSubsequence("ci2 glitch: artifacts unavailable (60 suites)", "Rerun (60)",
-            "Rerun top (60)", "a re-run usually gets them", "60 suites", "Suite 1",
+            "Rerun at top (60)", "a re-run usually gets them", "60 suites", "Suite 1",
             "non-zero exit code", "Rerun (2)", "2 suites", "PDS 5", "PDS 6",
             "Cache 5", "execution timeout — ran 12 of master's 35 tests", "Basic 3");
         assertThat(broken.split("ci2 glitch: artifacts unavailable", -1)).hasSize(2);

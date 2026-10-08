@@ -122,8 +122,8 @@ The one question the tool answers: **which tests did this PR actually break?**
   analysed run states its own in the freshness line: `ran 1h 36m · queued 50m`. Chips also carry a
   **revision tag**: `rev ✓ head` for a run on the PR's current head, `⚠ rev abc123` when commits
   were pushed after it started (it tests older code), `rev @start` for queued builds — TeamCity
-  resolves their revision at start, so they pick up the head of that moment. **Cancel all**
-  kills everything you queued.
+  resolves their revision at start, so they pick up the head of that moment. **Cancel my runs**
+  cancels the runs you started; other people's runs keep going.
 - **JIRA visa** — post the verdict to the PR's `IGNITE-XXXXX` ticket in the classic tcbot style:
   one click now, **Auto visa** (one-shot, fires when the current run finishes and posts the verdict of
   the finished run, not one cached mid-run), or the settings (⚙) option *Auto-visa all my runs* —
@@ -169,7 +169,7 @@ The one question the tool answers: **which tests did this PR actually break?**
   kicks in it **updates in place** (⏳ re-running → final verdict) instead of spawning new messages.
 - **Pending changes** — if new commits were pushed to the PR after the analysed RunAll, a banner
   says so (**"⚠ N new commits pushed since this run (abc123 → def456) — the verdict is for the older
-  code"**) with a **Re-run RunAll** button, so a stale verdict is never mistaken for the current one.
+  code"**) with a **Run RunAll** button, so a stale verdict is never mistaken for the current one.
 - The freshness line shows the run's **composition** — `6 ran · 141 reused` — because a re-triggered
   chain on unchanged revisions reuses earlier suite builds (TeamCity substitutes suitable results).
 - When your runs finish — the chain or any re-run of its suites, in whatever order they end — the

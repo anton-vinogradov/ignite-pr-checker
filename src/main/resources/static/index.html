@@ -525,9 +525,9 @@
                     <li>Register an account on <a id="registerLink" href="#" target="_self" rel="noopener">ci2</a>, the
                         TeamCity of Apache Ignite.</li>
                     <li>Create an access token there: Profile → Access Tokens (“Create a token” above opens it).</li>
-                    <li>The token acts with your account's rights. Reading verdicts needs only view access; Rerun
-                        needs the right to run builds, “Rerun top” also to reorder the build queue, and “Cancel my runs”
-                        to stop builds and remove them from the queue.</li>
+                    <li>The token acts with your account's rights. Reading verdicts needs only view access; Run and
+                        Rerun need the right to run builds, “Run at top” and “Rerun at top” also to reorder the build
+                        queue, and “Cancel my runs” to stop builds and remove them from the queue.</li>
                 </ol>
             </details>
         </section>
@@ -554,8 +554,8 @@
                         <div id="prTitle" class="pr-title muted">Pick a PR on the left, or type its number in the filter.</div>
                         <div id="actions" class="actions hidden">
                             <span id="runAllLabel" class="muted">RunAll:</span>
-                            <button class="act" data-act="trigger" data-top="false" title="Queue the whole RunAll chain for this PR">Rerun</button>
-                            <button class="act" data-act="trigger" data-top="true" title="Queue the whole RunAll chain for this PR, at the top of the queue">Rerun top</button>
+                            <button class="act" data-act="trigger" data-top="false" title="Queue the whole RunAll chain for this PR">Run</button>
+                            <button class="act" data-act="trigger" data-top="true" title="Queue the whole RunAll chain for this PR, at the top of the queue">Run at top</button>
                             <button id="notifyBtn" class="act act-sep hidden" type="button">🔔 Notify me</button>
                         </div>
                     </div>
@@ -566,7 +566,7 @@
                     </div>
                     <div id="pendingRow" class="head-row hidden">
                         <span id="pending" class="pending-note"></span>
-                        <button id="pendingRerun" class="act" type="button">Re-run RunAll</button>
+                        <button id="pendingRerun" class="act" type="button">Run RunAll</button>
                     </div>
                     <div id="settlingRow" class="head-row hidden">
                         <span id="settling" class="pending-note"></span>
@@ -588,14 +588,14 @@
                         <ul id="cancelledSuites" class="tests"></ul>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
-                        <h2>Broken suites <span id="brokenCount"></span> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <h2>Broken suites <span id="brokenCount"></span> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
                         <p class="muted">Didn't complete a reliable run — compilation, timeout, out-of-memory, crash or infrastructure.
                             A timed-out or crashed suite is shown here rather than mined for blockers (its failures would be hang cascade,
                             and some tests never ran). Re-run these first: the verdict below can't trust what they would have found.</p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div id="shrunkCard" class="card blockers hidden">
-                        <h2>Fewer tests than master <span id="shrunkCount"></span> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <h2>Fewer tests than master <span id="shrunkCount"></span> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
                         <p class="muted">These suites ran noticeably fewer tests than the same suites run on master. Tests that never
                             ran can't fail — a suite can look green while silently skipping coverage (a broken suite class, an excluded
                             package, a run that ended early). Intentional if this PR removes tests; otherwise re-run and check.</p>
@@ -616,7 +616,7 @@
                             </span>
                             <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
                             <button id="autoVisaBtn" class="act" disabled>Auto visa</button>
-                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span>
+                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span>
                         </h2>
                         <p id="verdictCaveat" class="caveat hidden"></p>
                         <div id="jiraPanel" class="jira-panel hidden">
@@ -632,7 +632,7 @@
                         </div>
                         <ul id="blockers" class="tests"></ul>
                         <div id="oneRunGroup" class="one-run hidden">
-                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun top</button></span></h3>
+                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span></h3>
                             <p class="muted">Each of these failed the only time it ran on this branch. One failure is not proof: re-run
                                 their suites. A test that fails again stays a blocker, one that passes drops out.</p>
                             <ul id="oneRunBlockers" class="tests"></ul>
@@ -641,7 +641,7 @@
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
                     <div id="watchCard" class="card watch hidden">
-                        <h2>Recently started failing <span id="watchCount"></span> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <h2>Recently started failing <span id="watchCount"></span> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
                         <p class="muted">Failing on the current revision, with too few runs of it to tell a real break from a
                             flake — the passes above them ran on other code. A re-run settles it: keep failing and they become
                             blockers, pass and they drop out.</p>
@@ -662,7 +662,7 @@
                     </div>
                     <div class="card">
                         <details>
-                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></summary>
+                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></summary>
                             <ul id="filtered" class="tests"></ul>
                         </details>
                     </div>

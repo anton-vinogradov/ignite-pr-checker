@@ -15,7 +15,7 @@ import com.github.igniteprchecker.jira.JiraClient;
 import org.junit.jupiter.api.Test;
 
 /**
- * One click on a section's "Rerun top" put all 62 suites of PR 13655 at the head of the queue everybody
+ * One click on a section's "Rerun at top" put all 62 suites of PR 13655 at the head of the queue everybody
  * shares, and RunAll queued a chain of ~150 suites next to the user's own running one; neither button
  * said how much it was about to queue. A PR whose RunAll still waited in the queue was told to "trigger
  * one with RunAll above".
@@ -53,7 +53,7 @@ class LargeRunsTest {
             """);
 
         assertThat(out.get("rerun").asText()).isEqualTo("Rerun (6)");
-        assertThat(out.get("top").asText()).isEqualTo("Rerun top (6)");
+        assertThat(out.get("top").asText()).isEqualTo("Rerun at top (6)");
         assertThat(out.get("title").asText()).isEqualTo("Re-run the 6 suites of this section, at the top of the queue");
         assertThat(out.get("label").asText()).isEqualTo("RunAll (~150 suites):");
     }
@@ -184,7 +184,7 @@ class LargeRunsTest {
             """);
 
         assertThat(out.get("none").asText())
-            .isEqualTo("No RunAll run for this PR yet — start one with the RunAll Rerun button above. (TeamCity "
+            .isEqualTo("No RunAll run for this PR yet — start one with Run in the RunAll row above. (TeamCity "
                 + "may have cleaned up an old one.)");
         assertThat(out.get("queued").asText())
             .isEqualTo("RunAll is queued for this PR, starts ~12m — the verdict shows up here once it starts.");

@@ -232,7 +232,7 @@ function openPr(number, push) {
 function suitesOfTests(list) { return [...new Set((list || []).map(t => t.suite).filter(Boolean))]; }
 function suitesOfBroken(list) { return [...new Set((list || []).map(b => b.suite).filter(Boolean))]; }
 
-// From this many suites on, a section re-run asks first: one click on "Rerun top" can put 60 suites
+// From this many suites on, a section re-run asks first: one click on "Rerun at top" can put 60 suites
 // ahead of everybody else's builds.
 const ASK_FROM_SUITES = 5;
 
@@ -259,7 +259,7 @@ async function rerunSuites(suites, top, btn) {
     }
 }
 
-// Wires a section's Rerun / Rerun top buttons to re-run that section's distinct suites, saying how
+// Wires a section's Rerun / Rerun at top buttons to re-run that section's distinct suites, saying how
 // many; hides the control when the section has no suites.
 function wireSectActs(containerId, suites) {
     const c = $(containerId);
@@ -268,7 +268,7 @@ function wireSectActs(containerId, suites) {
     const n = suites.length;
     for (const b of c.querySelectorAll('button')) {
         const top = b.dataset.top === 'true';
-        b.textContent = `${top ? 'Rerun top' : 'Rerun'} (${n})`;
+        b.textContent = `${top ? 'Rerun at top' : 'Rerun'} (${n})`;
         b.title = `Re-run the ${n} suite${n === 1 ? '' : 's'} of this section${top ? ', at the top of the queue' : ''}`;
         b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, top, b); };
     }
@@ -543,7 +543,7 @@ function settlingText(phase) {
 function showNoRun() {
     const chain = runsNow.find(b => b.runAll);
     noRunNote = !chain
-        ? 'No RunAll run for this PR yet — start one with the RunAll Rerun button above. (TeamCity may have cleaned up an old one.)'
+        ? 'No RunAll run for this PR yet — start one with Run in the RunAll row above. (TeamCity may have cleaned up an old one.)'
         : chain.state === 'running'
             ? 'RunAll is running for this PR — its first results show up here shortly.'
             : 'RunAll is queued for this PR' + (chain.startSec >= 0 ? ', starts ' + fmtLeft(chain.startSec) : '')
@@ -740,7 +740,7 @@ function brokenRow(s, rerun = true) {
         + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
     const btns = s.suite && rerun
         ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-            + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
+            + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun at top</button></span>`
         : '';
     // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
     // "tests disappeared" and hides the timeout that emptied the suite.
@@ -789,7 +789,7 @@ function brokenGroupHtml(g, i, kept) {
     const n = (g.rerun || []).length;
     const btns = n
         ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="Re-run the ${n} suites of this group">Rerun (${n})</button>`
-            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="Re-run the ${n} suites of this group, at the top of the queue">Rerun top (${n})</button></span>`
+            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="Re-run the ${n} suites of this group, at the top of the queue">Rerun at top (${n})</button></span>`
         : '';
     const why = g.kind === 'ARTIFACTS'
         ? '<div class="reason">ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.</div>'
@@ -822,7 +822,7 @@ function renderCancelled(el, suites, buildId) {
             + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
         const btns = s.suite
             ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-                + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`
+                + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun at top</button></span>`
             : '';
         return `<li><div class="suite-head"><span class="suite-name">${head}`
             + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
@@ -847,7 +847,7 @@ function renderShrunk(el, suites) {
         const head = esc(s.suiteName || s.suite)
             + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
         const btns = `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-            + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun top</button></span>`;
+            + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun at top</button></span>`;
         return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'shrunk')}`
             + `<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
             + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
@@ -1695,7 +1695,7 @@ function renderList(el, tests, withReason, rerunnable) {
         const rerunBtns = rerunnable && g.btId
             ? `<span class="suite-runs">`
                 + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="false" title="Re-run this suite">Rerun</button>`
-                + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun top</button>`
+                + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun at top</button>`
                 + `</span>`
             : '';
         const rows = g.items.map(t => {
