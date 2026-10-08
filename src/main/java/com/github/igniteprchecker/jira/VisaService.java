@@ -7,6 +7,7 @@ import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.github.GithubClient;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -22,6 +23,18 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class VisaService {
+    /** What each label of a verdict means and what to do about it: the table at the top of the feature tour. */
+    public static final String GLOSSARY = "https://github.com/" + GithubClient.SELF_REPO
+        + "/blob/main/docs/features.md#verdict-glossary";
+
+    /** The last line of every verdict, in GitHub's markdown. */
+    private static final String MARKDOWN_FOOTER = "<sub>What each label means and what to do: [verdict glossary]("
+        + GLOSSARY + ").</sub>";
+
+    /** The same in JIRA's wiki markup. */
+    private static final String WIKI_FOOTER = "_What each label means and what to do: [verdict glossary|" + GLOSSARY
+        + "]._";
+
     /** How the line that marks a verdict comment superseded starts. */
     private static final String SUPERSEDED = "🔁 _Superseded";
 
@@ -62,6 +75,10 @@ public class VisaService {
      * the commit the run tested, named in the head line; null when TeamCity did not say.
      */
     public String composeMarkdown(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
+        return markdownVerdict(pr, r, commitsAhead, sha).stripTrailing() + "\n\n" + MARKDOWN_FOOTER;
+    }
+
+    private String markdownVerdict(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
         String base = tcBase();
         TestGroups tests = new TestGroups(base, page(pr));
         StringBuilder b = new StringBuilder();
@@ -309,6 +326,10 @@ public class VisaService {
 
     /** The same verdict in JIRA wiki markup; see {@link #composeMarkdown(int, AnalysisResult, Integer, String)}. */
     public String compose(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
+        return wikiVerdict(pr, r, commitsAhead, sha).stripTrailing() + "\n\n" + WIKI_FOOTER;
+    }
+
+    private String wikiVerdict(int pr, AnalysisResult r, Integer commitsAhead, String sha) {
         String base = tcBase();
         TestGroups tests = new TestGroups(base, page(pr));
         StringBuilder b = new StringBuilder();

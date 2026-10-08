@@ -79,8 +79,9 @@ class ReadableTestListTest {
             .contains("- Cache 0 · `Test0` — 2 tests: `testIt`, `testOther`")
             .contains("- Cache 4 · `Test4.testIt`")
             .contains("<details><summary>2 more test(s) in 2 class(es)</summary>\n\n- Cache 5 · `Test5.testIt`")
-            .endsWith("- Cache 6 · `Test6.testIt` — failed 3 of 3 runs of this code · [TC](https://ci2.example/"
-                + "buildConfiguration/IgniteTests24Java8_Cache6/9600006?buildTab=tests#testNameId6)\n\n</details>\n");
+            .contains("- Cache 6 · `Test6.testIt` — failed 3 of 3 runs of this code · [TC](https://ci2.example/"
+                + "buildConfiguration/IgniteTests24Java8_Cache6/9600006?buildTab=tests#testNameId6)\n\n</details>\n\n"
+                + "<sub>What each label means");
         assertThat(md.indexOf("Cache 0")).isLessThan(md.indexOf("Cache 1"));
     }
 

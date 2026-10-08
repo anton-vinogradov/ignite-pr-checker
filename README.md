@@ -70,9 +70,9 @@ from the TeamCity REST API; there is no datastore to maintain.
   put any number in the URL (`?pr=12345`) to open it directly — even if it isn't in the list.
 - Blockers are grouped **by suite** (the suite header links to its CI run); each test links straight to
   its failure **in the last finished run**.
-- **Trigger** controls: `RunAll` (*plain* or *at the top of the queue*), a **Rerun / Rerun top** pair on
+- **Trigger** controls: **Run / Run at top** for the whole `RunAll`, a **Rerun / Rerun at top** pair on
   every section (broken suites, blockers, recently-started, filtered) and on each individual suite, a live
-  list of your current runs with queue-aware ETAs, and **Cancel all**.
+  list of your current runs with queue-aware ETAs, and **Cancel my runs**.
 - **JIRA visa**: post the verdict as a comment to the PR's `IGNITE-XXXXX` ticket — one click, armed
   one-shot for when the current run finishes (**Auto visa**), or a standing option in settings (⚙) that
   visas **every** run you trigger. Your JIRA PAT travels in the encrypted session cookie; for the

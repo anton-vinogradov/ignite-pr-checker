@@ -26,7 +26,9 @@ class BrokenGroupsVerdictTest {
             🛑 **Build failed — nothing else ran; fix the build, then /run-all**
             - Build: non-zero exit code
             - Did not run: Platform .NET (Core Linux), Thin client: Node.js, Thin client: PHP, Thin client: Python, \
-            Platform .NET (Windows) and 140 more""");
+            Platform .NET (Windows) and 140 more
+
+            <sub>What each label means and what to do: [verdict glossary](%s).</sub>""".formatted(VisaService.GLOSSARY));
         assertThat(md).doesNotContain("- > Build", "compilation error, timeout, crash", "never ran", "No blockers");
     }
 

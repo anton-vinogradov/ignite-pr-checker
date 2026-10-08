@@ -218,6 +218,10 @@
         .suite-rerun:hover, .act:not(:disabled):hover { background: #f0f4fb; }
         .suite-rerun:disabled, .act:disabled { opacity: 0.5; cursor: default; }
         .hint { border-bottom: 1px dotted var(--muted); cursor: help; }
+        a.help { display: inline-block; width: 1.2em; line-height: 1.2em; text-align: center; border: 1px solid var(--line); border-radius: 50%; font-size: 0.7rem; font-weight: 600; color: var(--muted); text-decoration: none; text-transform: none; letter-spacing: normal; vertical-align: middle; }
+        a.help:hover { color: var(--accent); border-color: var(--accent); }
+        .pr-legend { flex: 1 0 100%; margin: 0; font-size: 0.72rem; line-height: 1.7; text-transform: none; letter-spacing: normal; }
+        .pr-legend .pr-badge, .pr-legend .my-tag { display: inline-block; margin-left: 0; }
         a.ext { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin: 0 0.3em; border: 1px solid var(--line); background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
         a.ext:hover { border-color: #c0c0c0; }
         ul.suite-tests { list-style: none; padding: 0; margin: 0; }
@@ -451,7 +455,8 @@
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —
             <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
-            then paste it here (kept encrypted in your session cookie):
+            then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
+            while an option that needs it is on.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsGhToken" type="password" placeholder="GitHub personal access token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsGhSave" class="act" type="button">Save</button>
@@ -464,7 +469,8 @@
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
             <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-            then paste it here (kept encrypted in your session cookie):
+            then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
+            while auto-visa is on.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsJiraToken" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsJiraSave" class="act" type="button">Save</button>
@@ -507,10 +513,14 @@
                 <a id="tokenLink" class="login-create" href="#" target="_self" rel="noopener">Create a token</a>
             </div>
             <div id="loginErr" class="err"></div>
-            <div class="login-note muted">
-                Log in with your own TeamCity (ci2) access token.<br>
-                Everything runs under your account — there is no shared server token.<br>
-                It is kept encrypted in your session cookie, never on the server.<br>
+            <div id="loginTokenNote" class="login-note muted">
+                Log in with your own TeamCity (ci2) access token. There is no shared server token: the runs you
+                start or cancel here go under your account.<br>
+                The token is kept encrypted in your session cookie. For about an hour after your last request the
+                server also holds it in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
+                everyone.<br>
+                Turn on an option in ⚙ and the server stores the token encrypted until you turn the options off.
+                With any option other than PR commands on, it also keeps doing those reads.<br>
                 Your login lasts until you log out.
             </div>
             <details class="login-help">
@@ -519,9 +529,9 @@
                     <li>Register an account on <a id="registerLink" href="#" target="_self" rel="noopener">ci2</a>, the
                         TeamCity of Apache Ignite.</li>
                     <li>Create an access token there: Profile → Access Tokens (“Create a token” above opens it).</li>
-                    <li>The token acts with your account's rights. Reading verdicts needs only view access; Rerun
-                        needs the right to run builds, “Rerun top” also to reorder the build queue, and “Cancel my runs”
-                        to stop builds and remove them from the queue.</li>
+                    <li>The token acts with your account's rights. Reading verdicts needs only view access; Run and
+                        Rerun need the right to run builds, “Run at top” and “Rerun at top” also to reorder the build
+                        queue, and “Cancel my runs” to stop builds and remove them from the queue.</li>
                 </ol>
             </details>
         </section>
@@ -534,6 +544,14 @@
                     <button id="paneCollapse" class="pane-toggle" type="button" title="Collapse panel" aria-label="Collapse panel">‹</button>
                     <input id="prFilter" type="search" placeholder="Filter, or a PR number" autocomplete="off" spellcheck="false"
                         aria-label="Filter the open PRs, or open any PR by number" title="Filter by number or title; Enter opens the first match (press / to jump here)">
+                    <p id="prLegend" class="pr-legend">
+                        <span class="pr-badge ok" title="A clean run of the PR's current head">✓</span> clean ·
+                        <span class="pr-badge watch" title="No blockers, but tests started failing on its code: a re-run decides">!</span> watch ·
+                        <span class="pr-badge unproven" title="No blockers found, but the run can't prove the PR clean">?</span> not proven ·
+                        <span class="pr-badge bad" title="This many blockers">2</span> blockers ·
+                        <span class="my-tag" title="You started its latest RunAll">My?</span> your run
+                        <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="What each badge means, in the verdict glossary">?</a>
+                    </p>
                 </div>
                 <a id="prOpenAny" class="pr-link pr-open-any hidden" href="/"></a>
                 <ul id="prList" class="pr-list"></ul>
@@ -548,8 +566,8 @@
                         <div id="prTitle" class="pr-title muted">Pick a PR on the left, or type its number in the filter.</div>
                         <div id="actions" class="actions hidden">
                             <span id="runAllLabel" class="muted">RunAll:</span>
-                            <button class="act" data-act="trigger" data-top="false" title="Queue the whole RunAll chain for this PR">Rerun</button>
-                            <button class="act" data-act="trigger" data-top="true" title="Queue the whole RunAll chain for this PR, at the top of the queue">Rerun top</button>
+                            <button class="act" data-act="trigger" data-top="false" title="Queue the whole RunAll chain for this PR">Run</button>
+                            <button class="act" data-act="trigger" data-top="true" title="Queue the whole RunAll chain for this PR, at the top of the queue">Run at top</button>
                             <button id="notifyBtn" class="act act-sep hidden" type="button">🔔 Notify me</button>
                         </div>
                     </div>
@@ -560,7 +578,7 @@
                     </div>
                     <div id="pendingRow" class="head-row hidden">
                         <span id="pending" class="pending-note"></span>
-                        <button id="pendingRerun" class="act" type="button">Re-run RunAll</button>
+                        <button id="pendingRerun" class="act" type="button">Run RunAll</button>
                     </div>
                     <div id="settlingRow" class="head-row hidden">
                         <span id="settling" class="pending-note"></span>
@@ -571,32 +589,33 @@
                     <div id="runsRow" class="head-row hidden">
                         <span id="runs" class="runs muted"></span>
                         <button id="cancelMine" class="cancel hidden" type="button" title="Cancel the runs you started; other people's runs keep going">Cancel my runs</button>
+                        <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas" target="_self" rel="noopener" title="What the run chips and revision tags mean">?</a>
                     </div>
                 </div>
 
                 <div id="results" class="hidden">
                     <p id="mergedNote" class="merged-note hidden"></p>
                     <div id="interruptedBanner" class="card interrupted hidden">
-                        <h2>⚠ Suites that never ran</h2>
+                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them">?</a></h2>
                         <p class="muted" id="interruptedText"></p>
                         <ul id="cancelledSuites" class="tests"></ul>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
-                        <h2>Broken suites <span id="brokenCount"></span> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <h2>Broken suites <span id="brokenCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed">?</a> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
                         <p class="muted">Didn't complete a reliable run — compilation, timeout, out-of-memory, crash or infrastructure.
                             A timed-out or crashed suite is shown here rather than mined for blockers (its failures would be hang cascade,
                             and some tests never ran). Re-run these first: the verdict below can't trust what they would have found.</p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div id="shrunkCard" class="card blockers hidden">
-                        <h2>Fewer tests than master <span id="shrunkCount"></span> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
                         <p class="muted">These suites ran noticeably fewer tests than the same suites run on master. Tests that never
                             ran can't fail — a suite can look green while silently skipping coverage (a broken suite class, an excluded
                             package, a run that ended early). Intentional if this PR removes tests; otherwise re-run and check.</p>
                         <ul id="shrunkSuites" class="tests"></ul>
                     </div>
                     <div id="unstableCard" class="card hidden">
-                        <h2>Crashed near the end of the run <span id="unstableCount"></span></h2>
+                        <h2>Crashed near the end of the run <span id="unstableCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand">?</a></h2>
                         <p class="muted">These suites hit a timeout, out-of-memory error or JVM crash, but only after running over 90% of
                             master's tests. Every test they failed is pre-existing or flaky (see Filtered out), so the results of the
                             tests they ran stand.</p>
@@ -604,19 +623,20 @@
                     </div>
                     <div class="card blockers">
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
+                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them">?</a>
                             <span id="blockerTabs" class="tabs hidden">
                                 <button id="tabSuites" class="act on" type="button" title="Group by the suite they failed in">Suites</button>
                                 <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
                             </span>
                             <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
                             <button id="autoVisaBtn" class="act" disabled>Auto visa</button>
-                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span>
+                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span>
                         </h2>
                         <p id="verdictCaveat" class="caveat hidden"></p>
                         <div id="jiraPanel" class="jira-panel hidden">
                             Posting a visa needs your JIRA Personal Access Token —
                             <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-                            then paste it here (kept encrypted in your session cookie, never stored server-side):
+                            then paste it here. <span id="jiraKept">It stays in your session cookie only, encrypted.</span>
                             <span class="row" style="margin-top: 0.4rem">
                                 <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
                                 <button id="jiraSave" class="act" type="button">Save</button>
@@ -626,7 +646,7 @@
                         </div>
                         <ul id="blockers" class="tests"></ul>
                         <div id="oneRunGroup" class="one-run hidden">
-                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun top</button></span></h3>
+                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Blockers that failed the only time they ran on this branch: a re-run confirms or clears them">?</a> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span></h3>
                             <p class="muted">Each of these failed the only time it ran on this branch. One failure is not proof: re-run
                                 their suites. A test that fails again stays a blocker, one that passes drops out.</p>
                             <ul id="oneRunBlockers" class="tests"></ul>
@@ -635,20 +655,20 @@
                         <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
                     <div id="watchCard" class="card watch hidden">
-                        <h2>Recently started failing <span id="watchCount"></span> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></h2>
+                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the PR's current code, with too few runs of it to tell a break from a flake">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
                         <p class="muted">Failing on the current revision, with too few runs of it to tell a real break from a
                             flake — the passes above them ran on other code. A re-run settles it: keep failing and they become
                             blockers, pass and they drop out.</p>
                         <ul id="watch" class="tests"></ul>
                     </div>
                     <div id="unverifiedCard" class="card watch hidden">
-                        <h2>Could not be checked <span id="unverifiedCount"></span></h2>
+                        <h2>Could not be checked <span id="unverifiedCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own">?</a></h2>
                         <p class="muted">These tests failed, but TeamCity errors kept them from being compared with master and the
                             branch. They are not counted as blockers, and the checker tries them again on its own.</p>
                         <ul id="unverified" class="tests"></ul>
                     </div>
                     <div id="prTestsCard" class="card hidden">
-                        <h2>This PR's tests <span id="prTestsCount"></span></h2>
+                        <h2>This PR's tests <span id="prTestsCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="How the test classes this PR adds or changes ran in this RunAll">?</a></h2>
                         <p class="muted">How the test classes this PR adds or changes ran in this RunAll.</p>
                         <p id="prTestsWarn" class="caveat hidden"></p>
                         <ul id="prTests" class="tests"></ul>
@@ -656,7 +676,7 @@
                     </div>
                     <div class="card">
                         <details>
-                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun top</button></span></summary>
+                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failures not blamed on the PR: they fail on master, are flaky, or passed on a re-run">?</a> <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></summary>
                             <ul id="filtered" class="tests"></ul>
                         </details>
                     </div>

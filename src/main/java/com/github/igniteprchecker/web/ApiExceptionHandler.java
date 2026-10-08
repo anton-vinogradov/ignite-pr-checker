@@ -24,7 +24,8 @@ public class ApiExceptionHandler {
     static final String TOKEN_REJECTED = "TeamCity rejected your token (revoked or expired) — log in again";
 
     static final String FORBIDDEN = "ci2 refused the request (403). Its firewall sometimes blocks valid requests, "
-        + "so try again in a minute; if Rerun or Cancel keeps failing, your ci2 account may lack the rights for it";
+        + "so try again in a minute; if Run, Rerun or Cancel my runs keeps failing, your ci2 account may lack the "
+        + "rights for it";
 
     static final String PREVIOUS_RUNALL_CANCELLED =
         "Your previous RunAll was cancelled, but queuing the new one failed";

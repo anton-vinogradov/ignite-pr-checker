@@ -30,7 +30,8 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * The JIRA "visa": posts the analysis verdict as a comment to the PR's IGNITE ticket, using the
  * user's own JIRA Personal Access Token. The PAT travels in the same encrypted session cookie as
- * the TeamCity token — nothing is stored server-side.
+ * the TeamCity token; an Auto visa also has the server store it, encrypted, until that visa is posted
+ * ({@link VisaSubscriptions}).
  */
 @RestController
 @RequestMapping("/api")
