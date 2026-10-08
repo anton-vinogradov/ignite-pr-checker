@@ -5,15 +5,22 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /** A tiny thread-safe cache whose entries expire after a fixed TTL. */
 final class TtlCache<K, V> {
     private final ConcurrentMap<K, Entry<V>> map = new ConcurrentHashMap<>();
     private final long ttlMs;
+    private final LongSupplier nowMs;
 
     TtlCache(long ttlMs) {
+        this(ttlMs, System::currentTimeMillis);
+    }
+
+    TtlCache(long ttlMs, LongSupplier nowMs) {
         this.ttlMs = ttlMs;
+        this.nowMs = nowMs;
     }
 
     /**
@@ -32,14 +39,14 @@ final class TtlCache<K, V> {
     /** The cached value if present and still fresh; never loads. */
     Optional<V> peek(K key) {
         Entry<V> e = map.get(key);
-        if (e != null && System.currentTimeMillis() < e.expiresAt())
+        if (e != null && nowMs.getAsLong() < e.expiresAt())
             return Optional.of(e.value());
 
         return Optional.empty();
     }
 
     void put(K key, V value) {
-        map.put(key, new Entry<>(value, System.currentTimeMillis() + ttlMs));
+        map.put(key, new Entry<>(value, nowMs.getAsLong() + ttlMs));
     }
 
     /**
@@ -48,14 +55,14 @@ final class TtlCache<K, V> {
      */
     void replace(K key, V value) {
         map.computeIfPresent(key,
-            (k, e) -> System.currentTimeMillis() < e.expiresAt() ? new Entry<>(value, e.expiresAt()) : e);
+            (k, e) -> nowMs.getAsLong() < e.expiresAt() ? new Entry<>(value, e.expiresAt()) : e);
     }
 
     /** Restarts an existing entry's TTL (even an expired one) — for values that cannot go stale. */
     void touch(K key) {
         Entry<V> e = map.get(key);
         if (e != null)
-            map.put(key, new Entry<>(e.value(), System.currentTimeMillis() + ttlMs));
+            map.put(key, new Entry<>(e.value(), nowMs.getAsLong() + ttlMs));
     }
 
     int size() {
@@ -65,7 +72,7 @@ final class TtlCache<K, V> {
     /** Drops entries whose TTL has passed. Expired entries are otherwise never removed (reads only
      * skip them), so without this sweep the map would grow for as long as the process lives. */
     void evictExpired() {
-        long now = System.currentTimeMillis();
+        long now = nowMs.getAsLong();
         map.entrySet().removeIf(e -> now >= e.getValue().expiresAt());
     }
 
@@ -79,7 +86,7 @@ final class TtlCache<K, V> {
 
     /** The values of all still-fresh entries. */
     List<V> freshValues() {
-        long now = System.currentTimeMillis();
+        long now = nowMs.getAsLong();
         List<V> out = new ArrayList<>();
 
         map.forEach((k, e) -> {
@@ -92,7 +99,7 @@ final class TtlCache<K, V> {
 
     /** The still-fresh entries, with their expiry, for a disk snapshot. */
     List<Snapshot<K, V>> export() {
-        long now = System.currentTimeMillis();
+        long now = nowMs.getAsLong();
         List<Snapshot<K, V>> out = new ArrayList<>();
 
         map.forEach((k, e) -> {
@@ -110,7 +117,7 @@ final class TtlCache<K, V> {
      * into cache hits; staleness is handled by the serve-path refresh and the build-id change check.
      */
     void importAll(List<Snapshot<K, V>> entries) {
-        long freshExpiry = System.currentTimeMillis() + ttlMs;
+        long freshExpiry = nowMs.getAsLong() + ttlMs;
 
         for (Snapshot<K, V> s : entries)
             map.put(s.key(), new Entry<>(s.value(), freshExpiry));
@@ -123,7 +130,7 @@ final class TtlCache<K, V> {
      * reviving it would serve it for another full TTL.
      */
     void importUnexpired(List<Snapshot<K, V>> entries) {
-        long now = System.currentTimeMillis();
+        long now = nowMs.getAsLong();
 
         for (Snapshot<K, V> s : entries)
             if (now < s.expiresAt())

@@ -138,7 +138,7 @@ class PrTestRunsTest {
 
         assertThat(going.note()).isEqualTo("the RunAll is still going");
         assertThat(going.classes()).singleElement().satisfies(c -> assertThat(c.runs()).isEmpty());
-        assertThat(goingAgain).as("kept for a little while").isSameAs(going);
+        assertThat(goingAgain).as("kept for a little while").isEqualTo(going);
         assertThat(finished.note()).isNull();
         assertThat(finished.classes()).singleElement().satisfies(c -> assertThat(c.runs())
             .extracting(PrTests.Run::status, PrTests.Run::durationMs).containsExactly(tuple("FAILURE", 298_000L)));

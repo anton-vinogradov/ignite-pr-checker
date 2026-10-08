@@ -34,6 +34,15 @@ public final class OutboundHttp {
         return ClientHttpRequestFactoryBuilder.httpComponents().build(settings(readTimeout));
     }
 
+    /**
+     * The same, but a redirect comes back as the answer: GitHub sends a job's log from another host, and the caller,
+     * not the client, decides what goes there with the request.
+     */
+    public static ClientHttpRequestFactory withPatchNoRedirects(Duration readTimeout) {
+        return ClientHttpRequestFactoryBuilder.httpComponents()
+            .build(settings(readTimeout).withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW));
+    }
+
     private static ClientHttpRequestFactorySettings settings(Duration readTimeout) {
         return ClientHttpRequestFactorySettings.defaults()
             .withConnectTimeout(CONNECT_TIMEOUT)

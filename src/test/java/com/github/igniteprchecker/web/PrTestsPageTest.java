@@ -26,6 +26,17 @@ class PrTestsPageTest {
             { name: 'org.apache.ignite.AbstractGapTest', path: 'p3', added: true, runs: [] }] } });
         """;
 
+    /** PR 13335's new SslRenewalTest with no runs, and what Ignite's check of the head 9a8b7c6 says. */
+    private static final String SSL_TESTS = """
+        function sslTests(state, ssl, elsewhere = [], reason = null) {
+            return { buildId: 9001, note: null, classes: [Object.assign({ name: 'org.apache.ignite.internal.ssl.SslRenewalTest',
+                path: 'modules/core/src/test/java/org/apache/ignite/internal/ssl/SslRenewalTest.java', added: true,
+                runs: [], notInSuite: false, atRun: null }, ssl)],
+                suiteCheck: { state, sha: '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b',
+                    url: 'https://github.com/apache/ignite/actions/runs/18001/job/51234567890', reason, elsewhere } };
+        }
+        """;
+
     @Test
     void thePrsOwnTestsShowHowTheyRanWithWarnings() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PR_TESTS + """
@@ -118,18 +129,128 @@ class PrTestsPageTest {
             .doesNotContain("no runs");
     }
 
-    /** A class added by a commit pushed after the analysed run was not in the code that ran. */
+    /**
+     * PR 13335: SslRenewalTest had no runs in the RunAll the page showed while a newer RunAll went, and the page said
+     * "an abstract base, or a class no suite runs". SecurityTestSuite held it, as Ignite's own check of the head says,
+     * and a commit pushed after the run had moved it to the package it has now.
+     */
     @Test
-    void aNewClassWithNoRunsMayComeFromCommitsPushedSince() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PR_TESTS + """
-            page.route('/api/pending', { body: { pending: true, ahead: 2, builtSha: '5be1c0d', headSha: '9a8b7c6' } });
+    void aClassAddedAfterTheRunSaysSoWhileANewerRunAllGoes() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/analyze', { body: verdict({ live: true, liveBuildId: 9002 }) });
+            page.route('/api/pr-tests', { body: sslTests('PASSED', { atRun: 'ABSENT' }) });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent, check: page.el('prTestsCheck').textContent,
+                warnHidden: page.el('prTestsWarn').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("list").asText())
+            .contains("SslRenewalTestnewno runs in this RunAll: added under this name by a commit pushed after it")
+            .doesNotContain("no suite runs", "abstract base", "not in any suite");
+        assertThat(out.get("check").asText()).isEmpty();
+        assertThat(out.get("warnHidden").asBoolean()).isTrue();
+    }
+
+    /**
+     * The PR added the class before the run, and a commit after the run only changed it: the run had it, and Ignite's
+     * check of the run passed it. That the PR adds it, as against master, says nothing of the run.
+     */
+    @Test
+    void aClassTheRunHadHasTheOtherReasons() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('PASSED', { atRun: 'PASSED_CHECK' }) });
             await page.load('?pr=13575');
             report({ list: page.el('prTests').textContent });
             """);
 
         assertThat(out.get("list").asText()).contains(
-            "AbstractGapTestnewno runs in this RunAll: added by a commit pushed since, an abstract base, or a class no "
-                + "suite runs");
+            "SslRenewalTestnewno runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class")
+            .doesNotContain("added", "after it");
+    }
+
+    /**
+     * The class was there at the run but in no suite, as Ignite's check of the run's revision says; a commit after it
+     * put the class in SecurityTestSuite, and the check of the head passed.
+     */
+    @Test
+    void aClassInNoSuiteAtTheRunSaysSo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('PASSED', { atRun: 'IN_NO_SUITE' }) });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent });
+            """);
+
+        assertThat(out.get("list").asText()).contains("SslRenewalTestnewno runs in this RunAll: it was in no test "
+            + "suite then; a commit pushed after it fixed that").doesNotContain("base or @Ignore");
+    }
+
+    /** After a rebase neither GitHub's comparison nor Ignite's check of the run told: every reason stays open. */
+    @Test
+    void aClassTheRunTellsNothingOfHasEveryReason() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('PASSED', {}) });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent });
+            """);
+
+        assertThat(out.get("list").asText()).contains("SslRenewalTestnewno runs in this RunAll: its suite did not run "
+            + "or broke, it is a base or @Ignore class, or it came into a suite after this run");
+    }
+
+    /** CI never runs a class Ignite's check finds in no suite: the card says so, and what to do. */
+    @Test
+    void aClassInNoSuiteIsFlaggedWithWhatToDo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('FAILED', { notInSuite: true },
+                ['org.apache.ignite.ssl.SslSessionTest']) });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent, warn: page.el('prTestsWarn').textContent,
+                warnHtml: page.el('prTestsWarn').innerHTML,
+                warnHidden: page.el('prTestsWarn').classList.contains('hidden'),
+                checkHidden: page.el('prTestsCheck').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("list").asText())
+            .contains("SslRenewalTestnewnot in any suiteno runs in this RunAll"
+                + "CI never runs it: add it to a test suite or mark it @Ignore.")
+            .contains("SslSessionTestnot in any suiteCI never runs it: add it to a test suite or mark it @Ignore.");
+        assertThat(out.get("warnHidden").asBoolean()).isFalse();
+        assertThat(out.get("warn").asText()).isEqualTo("⚠ 2 test classes are in no test suite, so CI never runs them "
+            + "(Ignite's abandoned-tests check on 9a8b7c6).");
+        assertThat(out.get("warnHtml").asText())
+            .contains("href=\"https://github.com/apache/ignite/actions/runs/18001/job/51234567890\"");
+        assertThat(out.get("checkHidden").asBoolean()).isTrue();
+    }
+
+    /** Ignite's check still going says nothing of a class: the card does not guess. */
+    @Test
+    void whileIgnitesCheckRunsNothingIsConcluded() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('RUNNING', {}) });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent, check: page.el('prTestsCheck').textContent });
+            """);
+
+        assertThat(out.get("list").asText())
+            .contains("SslRenewalTestnewno runs in this RunAll; whether a suite runs it is not known yet")
+            .doesNotContain("base", "commit");
+        assertThat(out.get("check").asText()).isEqualTo("Ignite's abandoned-tests check is still running on 9a8b7c6.");
+    }
+
+    /** Checkstyle failed first, so the abandoned-tests step never ran on the head. */
+    @Test
+    void aSkippedCheckSaysWhy() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('SKIPPED', {}, [], 'an earlier step of its job failed') });
+            await page.load('?pr=13575');
+            report({ list: page.el('prTests').textContent, check: page.el('prTestsCheck').textContent });
+            """);
+
+        assertThat(out.get("list").asText())
+            .contains("SslRenewalTestnewno runs in this RunAll; whether a suite runs it is not known")
+            .doesNotContain("not known yet");
+        assertThat(out.get("check").asText())
+            .isEqualTo("Ignite's abandoned-tests check did not run on 9a8b7c6: an earlier step of its job failed.");
     }
 
     @Test
