@@ -106,8 +106,8 @@ class DocParityTest {
 
     @Test
     void aWrappedParagraphIsOneParagraph() {
-        Section s = outline("# T\n\nOne line,\nwrapped.\n\n- an item\n  wrapped too\n- another\n\n| a | b |\n|---|---|\n"
-            + "| 1 | 2 |\n").get(0);
+        Section s = outline("# T\n\nOne line,\nwrapped.\n\n- an item\n  wrapped too\n- another\n\n"
+            + "| a | b |\n|---|---|\n| 1 | 2 |\n").get(0);
 
         assertThat(s.paragraphs()).isEqualTo(1);
         assertThat(s.items()).isEqualTo(2);
