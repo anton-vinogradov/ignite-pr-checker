@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 /**
  * TcpDiscoveryClientTopologyGapTest came in with PR 13327 taking 298 s, passed there once, and now fails 18 of 100
  * master runs, noise in 77 PRs. The page now shows how the PR's own new and changed test classes ran, and warns
- * about tests over a minute long and tests master never ran.
+ * about tests over a minute long. A new test that passed is no warning: having no master history is what new means.
  */
 class PrTestsPageTest {
     private static final String PR_TESTS = """
@@ -38,8 +38,7 @@ class PrTestsPageTest {
         assertThat(out.get("shown").asBoolean()).isTrue();
         assertThat(out.get("asked").asText()).isEqualTo("/api/pr-tests?pr=13575&build=9001");
         assertThat(out.get("count").asText()).isEqualTo("(3 classes, 3 tests)");
-        assertThat(out.get("warn").asText()).isEqualTo("⚠ 1 test ran longer than 60 s; 2 tests have no master history: "
-            + "this run is all there is to judge them by.");
+        assertThat(out.get("warn").asText()).isEqualTo("⚠ 1 test ran longer than 60 s.");
         assertThat(out.get("list").asText())
             .contains("TcpDiscoveryClientTopologyGapTestnew", "1 passed in Control Utility · longest 4 m 58 s",
                 "TcpDiscoveryClientTopologyGapTest.testGap4 m 58 s")
@@ -47,6 +46,37 @@ class PrTestsPageTest {
                 "GridCommandHandlerTest.testNewOptionfailedno master history")
             .doesNotContain("testCacheIdle")
             .contains("AbstractGapTestnew", "no runs in this RunAll");
+    }
+
+    /**
+     * PR 13335 adds four SSL test classes and changes one: every test passed in under a second. The card said "6 tests
+     * have no master history" in red, as if passing new tests were a problem.
+     */
+    @Test
+    void newTestsThatPassedQuicklyRaiseNoWarning() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            function prRun(id, name, durationMs, masterRuns) {
+                return { testId: id, name: 'IgniteControlUtilityTestSuite: org.apache.ignite.' + name, suite: 'Control',
+                    suiteBuildId: 9002, suiteName: 'Control Utility 1', occurrenceId: 'occ-' + id, status: 'SUCCESS',
+                    durationMs, masterRuns };
+            }
+            page.route('/api/pr-tests', { body: { buildId: 9001, note: null, classes: [
+                { name: 'org.apache.ignite.GridCommandHandlerSslReloadTest', path: 'p1', added: true,
+                    runs: [prRun('1', 'GridCommandHandlerSslReloadTest.testReload', 900, null)] },
+                { name: 'org.apache.ignite.CommandHandlerParsingTest', path: 'p2', added: false, runs: [
+                    prRun('2', 'CommandHandlerParsingTest.testParse', 100, 85),
+                    prRun('3', 'CommandHandlerParsingTest.testParseSslReload', 100, 0)] }] } });
+            await page.load('?pr=13575');
+            report({ warnHidden: page.el('prTestsWarn').classList.contains('hidden'),
+                warn: page.el('prTestsWarn').textContent, list: page.el('prTests').textContent });
+            """);
+
+        assertThat(out.get("warnHidden").asBoolean()).isTrue();
+        assertThat(out.get("warn").asText()).isEmpty();
+        assertThat(out.get("list").asText())
+            .contains("GridCommandHandlerSslReloadTestnew", "1 passed in Control Utility 1",
+                "CommandHandlerParsingTestchanged", "2 passed in Control Utility 1")
+            .doesNotContain("no master history", "testParseSslReload");
     }
 
     /**
