@@ -23,7 +23,7 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 | **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and rerun. |
 | **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. | Nothing for the PR. |
 | **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
-| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed, ran longer than 60 s, or, in a changed class, has no master history. | Check that the new tests ran and passed. A test with no master history has only this run to judge it by. |
+| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed or ran longer than 60 s. A new test that passed is not: it has no master history by nature. | Check that the new tests ran and passed. A failed one is judged in the verdict above as well. |
 | **Filtered out** | Failures not blamed on the PR, each with its reason: they fail on master, are flaky, or passed on a re-run. | Nothing for the PR. Tests that fail on master are on the flaky board (`/flaky.html`). |
 | **No blockers 🎉** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | Good to go. |
 | **No test blockers** | No test was blamed, but the verdict can't call the PR clean. The red line under it says why ([caveats](#caveats)); with no red line, tests started failing on its code and are under **Recently started failing**. | Sort out what the red line lists, then rerun. With no red line, **Rerun** the suites under **Recently started failing**. |
@@ -203,8 +203,7 @@ and the filtered-out noise.
   cause count in the header shows up once someone has opened Root causes for these blockers. Blockers whose failure
   message TeamCity no longer keeps are listed there apart, with a hint to re-run their suites.
 - **This PR's tests** shows how the test classes the PR adds or changes ran: each class with its passed, failed and
-  ignored tests and its longest test, and the tests that failed, ran over 60 s, or, in a changed class, have no master
-  history.
+  ignored tests and its longest test, and the tests that failed or ran over 60 s.
 - **No blockers 🎉** shows only for the verdict the PR list ticks: a run of the PR's current head that covered
   everything and blamed nothing on it. Otherwise the page says **No test blockers** and the red line under it lists
   the caveats, in the same words as the PR comment and the visa.

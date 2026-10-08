@@ -1399,12 +1399,8 @@ function renderPrTests(t, res) {
     $('prTestsCount').textContent = classes.length
         ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})` : '';
     const slow = runs.filter(r => r.durationMs > SLOW_TEST_MS).length;
-    const fresh = classes.reduce((n, c) => n + c.runs.filter(r => c.added || r.masterRuns === 0).length, 0);
-    const warn = [];
-    if (slow) warn.push(`${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s`);
-    if (fresh) warn.push(`${fresh} test${fresh === 1 ? ' has' : 's have'} no master history: this run is all there is to judge ${fresh === 1 ? 'it' : 'them'} by`);
-    $('prTestsWarn').classList.toggle('hidden', !warn.length);
-    $('prTestsWarn').textContent = warn.length ? '⚠ ' + warn.join('; ') + '.' : '';
+    $('prTestsWarn').classList.toggle('hidden', !slow);
+    $('prTestsWarn').textContent = slow ? `⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.` : '';
     $('prTests').innerHTML = classes.map(c => prTestClass(c, res)).join('');
     $('prTestsNote').classList.toggle('hidden', !t.note);
     $('prTestsNote').textContent = t.note ? 'Not complete: ' + t.note + '.' : '';
@@ -1423,12 +1419,12 @@ function prTestClass(c, res) {
     const longest = Math.max(...c.runs.map(r => r.durationMs));
     const summary = parts.join(', ') + (suites.length ? ' in ' + suites.join(', ') : '')
         + ` · longest ${fmtTestTime(longest)}`;
-    const flagged = c.runs.filter(r => r.status === 'FAILURE' || r.durationMs > SLOW_TEST_MS
-        || (!c.added && r.masterRuns === 0));
+    // A new test that passed has no master history by nature: only a failure makes that worth saying.
+    const flagged = c.runs.filter(r => r.status === 'FAILURE' || r.durationMs > SLOW_TEST_MS);
     const rows = flagged.map(r => `<li><div class="tname">${esc(shortTestName(r.name))}`
         + (r.status === 'FAILURE' ? '<span class="tag-doubt">failed</span>' : '')
         + (r.durationMs > SLOW_TEST_MS ? `<span class="tag-doubt">${esc(fmtTestTime(r.durationMs))}</span>` : '')
-        + (!c.added && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
+        + (r.status === 'FAILURE' && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
         + '</div></li>').join('');
     return `<li>${head}<div class="reason">${esc(summary)}</div>`
         + (rows ? `<ul class="suite-tests">${rows}</ul>` : '') + '</li>';
