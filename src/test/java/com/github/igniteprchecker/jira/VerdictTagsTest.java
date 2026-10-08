@@ -33,12 +33,14 @@ class VerdictTagsTest {
             + "- Control Utility · `GridCommandHandlerTest.testCacheIdle` — 1 run; new test / no master history · [TC]")
             .endsWith("\n\n<sub>**1 run**: only one failure on this branch backs it: a re-run of its suite confirms or "
                 + "clears it · **new test / no master history**: master has no runs of the test on this JDK to compare "
-                + "with: a new test, or one master does not run.</sub>");
+                + "with: a new test, or one master does not run.</sub>\n\n<sub>What each label means and what to do: "
+                + "[verdict glossary](" + VisaService.GLOSSARY + ").</sub>");
         assertThat(wiki).contains("(x) *1 blocker(s) in 1 suite(s), all on 1 run:*\n"
             + "- Control Utility · {{GridCommandHandlerTest.testCacheIdle}} — 1 run; new test / no master history · [TC|")
             .endsWith("\n\n_1 run: only one failure on this branch backs it: a re-run of its suite confirms or clears it"
                 + " · new test / no master history: master has no runs of the test on this JDK to compare with: a new "
-                + "test, or one master does not run._");
+                + "test, or one master does not run._\n\n_What each label means and what to do: [verdict glossary|"
+                + VisaService.GLOSSARY + "]._");
     }
 
     @Test
@@ -66,7 +68,8 @@ class VerdictTagsTest {
         assertThat(md).contains("- Control Utility · `TxRecoveryTest.testRecovery` — 1 run; unverified · [TC]")
             .endsWith("<sub>**1 run**: only one failure on this branch backs it: a re-run of its suite confirms or "
                 + "clears it · **unverified**: a TeamCity error kept the check of other PRs' runs of the test from "
-                + "being made.</sub>");
+                + "being made.</sub>\n\n<sub>What each label means and what to do: [verdict glossary]("
+                + VisaService.GLOSSARY + ").</sub>");
     }
 
     @Test
@@ -77,7 +80,7 @@ class VerdictTagsTest {
 
         assertThat(md).contains("❌ **1 blocker(s) in 1 suite(s):**\n"
             + "- Control Utility · `GridCommandHandlerTest.testBaseline` — failed 3 of 3 runs of this code · [TC]")
-            .doesNotContain("<sub>");
+            .doesNotContain("<sub>**");
     }
 
     private static TestVerdict test(String name, boolean blocker, String runs, int codeRuns, Doubt... doubts) {

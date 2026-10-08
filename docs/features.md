@@ -5,6 +5,153 @@
 What Ignite PR Checker can do, screen by screen. The pictures are schematic mockups of the real UI
 (dark theme; there are four themes — Light, Dark, JetBrains and Terminal — the selector in the top bar).
 
+## Verdict glossary
+
+Every label the checker puts on a PR, a suite or a test: what it means and what to do. The **?** marks on the
+page, the PR comment and the JIRA visa link here. The numbers are the defaults in the code; see
+[Thresholds](#thresholds).
+
+### Cards on the PR page
+
+| Card or heading | What it means | What to do |
+|---|---|---|
+| **Blockers** | Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them. Each suite is judged on its own. The line under a test says why ([reasons](#reasons-under-a-test)). | Open **why?** or **TC**, fix the code, push, run RunAll again. |
+| **Not confirmed: 1 run** | Blockers that failed the only time they ran on this branch. They still count as blockers: in the count, the PR list badge, the visa and the comment. | **Rerun** their suites. A second failure confirms the blocker, a pass drops it. |
+| **Recently started failing** | Tests failing on the PR's current code, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
+| **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
+| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here instead of being mined for blockers: its failures would be hang cascade, and some tests never ran. | Rerun them first: the verdict can't trust what they would have found. |
+| **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and rerun. |
+| **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. | Nothing for the PR. |
+| **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
+| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed, ran longer than 60 s, or, in a changed class, has no master history. | Check that the new tests ran and passed. A test with no master history has only this run to judge it by. |
+| **Filtered out** | Failures not blamed on the PR, each with its reason: they fail on master, are flaky, or passed on a re-run. | Nothing for the PR. Tests that fail on master are on the flaky board (`/flaky.html`). |
+| **No blockers 🎉** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | Good to go. |
+| **No test blockers** | No test was blamed, but the run can't prove the PR clean. The red line under it says why ([caveats](#caveats)). | Sort out what the caveat lists, then rerun. |
+
+### Reasons under a test
+
+A reason has a master part and a branch part, joined by `;`. `N`, `F/R` and `abc1234` stand for numbers and a
+revision. `on JDK 17` means only master runs on the PR's JDK were counted. A muted failure is never listed, and a
+run where the test was ignored does not count as a run.
+
+| Reason | What it means | What to do |
+|---|---|---|
+| `not seen failing in N master run(s)` | Master ran the test N times in this suite (its last 100 runs at most) and it never failed. | Read the branch part. |
+| `not seen failing in only N master run(s) on JDK 17` | The same, with fewer than 10 master runs on the PR's JDK: thin evidence. | Read the branch part. |
+| `no master history (can't prove pre-existing)` | Master has no run of the test on the PR's JDK: a new test, or one master does not run. Tagged `new test / no master history`. | Make sure the test is stable: this PR is all there is to judge it by. |
+| `rare on master: fails F/R, passed the last G` | Master fails the test in at most 2% of its runs, none of the newest 10, and the PR's failures in a row are too many to be that chance. | Treat it as a blocker. |
+| `fails F/R on master at TEST_SCALE_FACTOR=1.0, but f/r on other PR branches at 0.1` | Master fails the test in at least half its runs, but only at a scale factor this PR did not run at. Other PRs, run like this one, seldom fail it, and this PR's failures in a row are too many for their rate. | Treat it as a blocker. |
+| `…; fails F/R in K other PRs` (on a blocker) | It fails in 3 or more other PRs too, but this PR's failures in a row are too many to be that flakiness. | Treat it as a blocker. |
+| `failed all N runs on this branch`, `failed the last N of M runs on this branch` | The last 3 finished runs of the suite on the branch failed the test, or all of them when there were fewer. A blocker. | Fix the code. |
+| `failed the only run on this branch` | The test ran once on the branch and failed. A blocker, tagged `1 run`. | **Rerun** the suite to confirm it. |
+| `failed all N runs on revision abc1234` | Every run of the PR's current code failed the test, and there were at least 2. A blocker. | Fix the code. |
+| `first failure on revision abc1234 — watch (nothing has passed on this code; …)` | The current code ran once and failed; the earlier runs were on older code. To watch. | **Rerun** the suite. |
+| `started failing in the last N of M runs on revision abc1234 — watch (an earlier run on the same code passed)` | At least 2 failures in a row on the current code, after a pass on the same code. To watch. | **Rerun** the suite. |
+| `… — watch (too few failures on this code yet to outweigh other PRs)` | The scale factor case above, without enough failures yet to beat the other PRs' rate. To watch. | **Rerun** the suite. |
+| `pre-existing: fails F/R on master` | Master fails the test too. Filtered out. | Nothing for the PR. |
+| `flaky on other PR branches: fails F/R in K other PRs; …` | It fails in 3 or more other PRs, and this PR's failures are not enough to outweigh that. Filtered out. | Nothing for the PR. |
+| `flaky on branch: failed only the latest of N runs on revision abc1234 (an earlier run on the same code passed)` | It failed once after passing on the same code. Filtered out. | Nothing, or rerun to be sure. |
+| `not failing in the last finished run (passed on re-run)` | The newest finished run of the test on the branch passed. Filtered out. | Nothing. |
+| `could not verify (TeamCity error: …)` | A TeamCity error stopped the check. Listed under **Could not be checked**. | Nothing: it is tried again. |
+| `(the N earlier branch runs ran on other code)` | Runs on an older revision don't count; they are dimmed in the strip. | — |
+| `(passed just before, but TeamCity gave no revisions to prove that was the same code)`, `(… could not be placed on a revision)` | TeamCity gave no revision for some runs, so they could not be compared. | — |
+
+### Caveats
+
+The red line under **No test blockers**, and the list under "This run doesn't cover the PR fully" in the comment and
+the visa.
+
+| Caveat | What it means | What to do |
+|---|---|---|
+| `Build failed — N suites that need it did not run` | A run the other suites need failed, so they never ran. | Fix the build, push, run RunAll again. |
+| `the RunAll was interrupted — N suite(s) never ran` | Suites were cancelled before they ran. | **Rerun** them, or run RunAll again. |
+| `N suite(s) have no reliable result (…)` | Broken suites; their causes are in brackets. | See [broken suite causes](#broken-suite-causes). |
+| `N suite(s) ran far fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
+| `N failed test(s) could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
+| `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
+| `N commit(s) pushed since this run — it tested older code` | The PR's head has moved since the run. | Run RunAll again. |
+
+### Broken suite causes
+
+| Cause | What it means | What to do |
+|---|---|---|
+| `compilation error` | The suite's code did not compile. The page offers no **Rerun** for it: the same code fails the same way. | Fix the build, push, run RunAll again. |
+| `execution timeout` | The suite ran out of time. Its failures are likely hang cascade, and some tests never ran. | Rerun. If it times out again, look at the thread dump in TeamCity. |
+| `JVM crash / out of memory` | The JVM died mid-run. | Rerun. If it repeats, look for the crash or the leak in the build log. |
+| `non-zero exit code` | The build exited with an error, and no unmuted test failed. | Open **TC** to see what failed. |
+| `failed dependency` | A run this suite depends on failed. | Fix that run first. |
+| `failed without running tests` | TeamCity named no problem, and no test failed. | Open **TC**, rerun. |
+| `ci2 glitch: artifacts unavailable (N suites)` | ci2 could not hand these suites the artifacts of a run they need, though that run passed. | Rerun: a re-run usually gets them. |
+| `Build failed — N suites that need it did not run; fix the build, then /run-all` | The build step failed, and the suites that need it never ran. `nothing else ran` when that was the whole chain. | Fix the build, push, `/run-all` or **Run**. |
+| `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | The build passes now, but the suites that need it have no result. | `/run-all` or **Run**. |
+| `— ran 33 of master's 67 tests` (after a cause) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. | — |
+| anything else | The first line of TeamCity's own problem text. | Open **TC**. |
+
+### Tags next to a test
+
+| Tag | What it means | What to do |
+|---|---|---|
+| strip of bars | The finished runs of the test in its suite on the branch, oldest to newest: red failed, green passed. Dimmed bars ran on older code and don't count. | — |
+| `flaky?` | The test failed and then passed on the same code. | Look for a race or a timing problem. |
+| `1 run` | Only one failure on this branch backs the verdict. | **Rerun** the suite: it confirms or clears it. |
+| `new test / no master history` | Master has no runs of the test on this JDK to compare with: a new test, or one master does not run. | Make sure the test is stable. |
+| `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
+| `⚖ assertion — likely a real logic failure` (in **why?**) | A failed check. | Fix the code. |
+| `♻ environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
+| `♻ environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
+| `⌛ hang — the test ran out of time; …` | The test hung. The test's thread from the thread dump is shown. | See where that thread waits. |
+| **why?** / **ai** | The failure message / a fix prompt for a coding assistant, copied to the clipboard. | — |
+
+### Badges in the PR list
+
+| Badge | What it means | What to do |
+|---|---|---|
+| red number | Blockers in the PR's latest analysed RunAll. | Open the PR. |
+| **!** | No blockers, but tests started failing on its code. | A rerun decides. |
+| **?** | No blockers found, but the run can't prove the PR clean ([caveats](#caveats)), commits were pushed since the run, or it is not known whether the run tested the PR's current head. | Open the PR for the reason. |
+| **✓** | A clean run of the PR's current head. | — |
+| none | Not analysed yet. | Open the PR to analyse it. |
+| **My?** | Your TeamCity user started its latest RunAll. | — |
+
+### Runs, buttons and visas
+
+| Label | What it means | What to do |
+|---|---|---|
+| `queued`, `running` | A build of this PR on ci2 now. The time next to it is how long it has waited or run so far; `~14m left` and `starts ~5m` are estimates from the queue and the suite's progress. | — |
+| `rev ✓ head` | The run tests the PR's current head. | — |
+| `⚠ rev abc1234` | Commits were pushed after the run started: it tests older code. | Run RunAll again when it matters. |
+| `rev @start` | The run is still queued; the page names its revision once it runs. | — |
+| `by alice` | Someone else started this run. **Cancel my runs** leaves it alone. | — |
+| `● includes an unfinished run` | The verdict folds in the finished suites of a RunAll that is still running. It never reads green. | Wait for the run. |
+| `suites: 6 fresh, 141 from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs on unchanged revisions. | — |
+| `vs previous run: +2 new · −3 fixed · 5 persisting` | Blockers compared with the PR's previous RunAll, suite by suite. | — |
+| `⚠ N new commits pushed since this run` | The verdict is for older code. | **Run RunAll**. |
+| `♻️ Auto re-run #1 of up to 2 in progress`, `♻️ Deciding on auto re-runs…` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
+| **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
+| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section (the number says how many). Five or more suites ask first. | — |
+| **Cancel my runs** | Cancels the builds you started on this PR. | — |
+| **JIRA visa** | Posts the verdict to the IGNITE ticket the PR title names, now. | — |
+| **Auto visa** | Posts the verdict of the current run to the ticket when it finishes, once. `Auto visa ✓`: armed by you; `armed: bob`: armed by others, who get one visa between them. | — |
+| **Auto visa: on in ⚙** | The standing auto-visa of whoever started the run will post it: nothing to arm. | — |
+| **Auto-visa all my runs** (⚙) | Every RunAll you start gets its visa; with auto re-run on too, once the re-runs settle. | — |
+
+### Thresholds
+
+| What | Default | Where it shows |
+|---|---|---|
+| Master runs of a test looked at, per suite | 100 (`MASTER_HISTORY_DEPTH`) | `pre-existing`, `not seen failing in N master run(s)` |
+| Failed branch runs in a row for a blocker | 3, or every run when fewer (`BLOCKER_FAIL_STREAK`) | `failed all N runs on this branch` |
+| Thin master history | fewer than 10 master runs on the PR's JDK | `only N master run(s)` |
+| A rare master failure | at most 2% of master runs, and none of the newest 10 | `rare on master` |
+| Too many failures for chance | less than 1 in 10,000: 2 in a row against a 1% rate, 3 against 2%, 5 against 12.5% | `rare on master`, the other PR and scale factor reasons |
+| Flaky in other PRs | failing in 3 or more other PRs | `flaky on other PR branches` |
+| Master's failures set aside as down to the scale factor | master fails at least half its runs, only at another scale factor, and other PRs have at least 10 runs | `fails F/R on master at TEST_SCALE_FACTOR=1.0` |
+| Fewer tests than master | at least 10% fewer, for suites with 20 or more tests on master | **Fewer tests than master** |
+| A crashed suite whose results stand | ran over 90% of master's tests | **Crashed near the end of the run** |
+| An incomplete verdict held back | 20 minutes | **Could not be checked** |
+| A slow test of the PR | longer than 60 s | **This PR's tests** |
+| A rerun that asks first | 5 suites | **Rerun (N)** |
+
 ## Finding your PR
 
 ![Home search](img/home-search.svg)
