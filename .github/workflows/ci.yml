@@ -25,6 +25,12 @@ jobs:
             node --check "$f"
           done
 
+      # Names the section where a Russian doc says other than its English twin.
+      - name: Check the Russian docs match the English
+        run: |
+          chmod +x ./gradlew
+          ./gradlew test --tests com.github.igniteprchecker.DocParityTest --tests com.github.igniteprchecker.DocLinksTest
+
       - name: Build and test
         run: |
           chmod +x ./gradlew

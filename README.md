@@ -292,6 +292,8 @@ shared helpers in `static/common.js`.
   under your token. To try the warmer: `WARM_ENABLED=true WARM_COUNT=3 ./gradlew bootRun`.
 - `./gradlew test` runs the tests, the page scripts under node included (skipped without node), and writes a coverage
   report to `build/reports/jacoco/test/html`. CI runs `./gradlew build` and `node --check` on every page script.
+- The docs come in pairs, English and Russian. Change both: `DocParityTest` checks they have the same sections and
+  facts.
 
 ## License
 
