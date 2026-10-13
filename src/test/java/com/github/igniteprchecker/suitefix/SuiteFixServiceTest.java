@@ -260,6 +260,28 @@ class SuiteFixServiceTest {
         assertThat(comment()).contains("adds them, each to a suite").doesNotContain("not added");
     }
 
+    /**
+     * Two classes of a PR for one suite: the second is picked with the first already in the suite, so it stands next
+     * to the first, not above it next to IgniteSqlFunctionsTest.
+     */
+    @Test
+    void aSecondClassForTheSameSuiteStandsNextToTheFirst() {
+        String args = FQCN.replace("IgniteFunctionParameterTest", "IgniteFunctionArgsTest");
+        String result = FQCN.replace("IgniteFunctionParameterTest", "IgniteFunctionResultTest");
+        when(prTests.suiteCheck(HEAD)).thenReturn(failed(HEAD, args, result));
+        when(github.prJavaFiles(PR)).thenReturn(List.of(ROOT + "/" + args.replace('.', '/') + ".java",
+            ROOT + "/" + result.replace('.', '/') + ".java"));
+
+        service.sweep();
+
+        ArgumentCaptor<Map<String, String>> files = ArgumentCaptor.captor();
+        verify(github).commitFiles(any(), any(), any(), any(), files.capture(), any());
+        assertThat(files.getValue().get(UTIL)).contains("    IgniteSqlFunctionsTest.class,\n"
+            + "    IgniteFunctionArgsTest.class,\n    IgniteFunctionResultTest.class,\n");
+        assertThat(comment()).contains("- `IgniteFunctionResultTest` → `UtilTestSuite`, next to"
+            + " `IgniteFunctionArgsTest`: it lists 2 classes of the same package.");
+    }
+
     /** The rule picks the suite in the checker itself: the sweep needs no key, only the author's GitHub token. */
     @Test
     void theSweepNeedsNoApiKey() {

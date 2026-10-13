@@ -266,13 +266,13 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
   same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
   not checked. It never touches anyone else's PR and never force-pushes.
-- **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes
-  of the PR in no test suite, each goes next to the class of its module nearest to it: the longest package in common
-  first, then the longest start of the name in common; when several suites list a class as near, the one with more
-  classes of that package wins. One commit from your account lists the new class in that class's suite, on a copy of
-  its line, with an import if needed. A module with no suite listing a class of a package near the new one gets no
-  commit, and the comment says so. Once per head commit, on your own PRs only. A comment in the PR says what went where
-  and why, then what Ignite's check says of the commit. It uses the same GitHub token.
+- **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes of
+  the PR in no test suite, each goes next to the class of its module nearest to it: a class of the same package first,
+  else one of the longest package in common, then the longest start of the name in common; when several suites list a
+  class as near, the one with more such classes wins. One commit from your account lists the new class in that class's
+  suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a package near the
+  new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment in the PR says
+  what went where and why, then what Ignite's check says of the commit. It uses the same GitHub token.
 - **A token that stops working.** When GitHub or JIRA refuses a stored token, the checker drops it and switches off
   the options that need it; the panel says which token to replace. When TeamCity refuses yours, your options pause
   until you log in with a fresh token; nobody else's stop.

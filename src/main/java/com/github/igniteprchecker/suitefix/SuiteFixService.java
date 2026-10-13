@@ -345,7 +345,7 @@ public class SuiteFixService implements SnapshotCache {
         if (edit.failure() != null)
             return Placement.failed(fqcn, "`" + suite.name() + "`: " + edit.failure());
 
-        module.edited.put(suite.path(), edit.source());
+        module.edit(suite, edit.source());
 
         return new Placement(fqcn, suite.name(), choice.get().neighbour(), choice.get().reason(), null);
     }
@@ -634,6 +634,13 @@ public class SuiteFixService implements SnapshotCache {
         /** The suite's source with this attempt's edits so far. */
         String current(String path) {
             return edited.getOrDefault(path, sources.get(path));
+        }
+
+        /** Keeps the suite's new source, and the class it adds among its classes for the next pick. */
+        void edit(TestSuites.Suite suite, String source) {
+            edited.put(suite.path(), source);
+            TestSuites.Suite now = TestSuites.read(suite.path(), source).orElse(suite);
+            suites.values().forEach(known -> known.replaceAll(s -> s.path().equals(suite.path()) ? now : s));
         }
     }
 }

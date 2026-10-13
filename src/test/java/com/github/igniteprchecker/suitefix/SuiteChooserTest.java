@@ -12,12 +12,16 @@ import org.junit.jupiter.api.Test;
  * package exec.exp belongs in UtilTestSuite, next to IgniteSqlFunctionsTest of the same package, not in
  * ExecutionTestSuite with more classes of exec.rel. Indexing's IgniteCacheQueryNodeRestartTxSelfTest belongs next to
  * IgniteCacheQueryNodeRestartSelfTest2 in IgniteBinaryCacheQueryTestSuite2, though IgniteBinaryCacheQueryTestSuite3
- * lists more classes of its package.
+ * lists more classes of its package. Core's GridJobMasterLeaveAwareSelfTest belongs next to GridJobContextSelfTest of
+ * its very package, not GridJobMetricsProcessorLoadTest of a subpackage with a closer name; and GridThreadTest, whose
+ * package no suite lists, next to classes of thread.pool, which the reason does not call its package.
  */
 class SuiteChooserTest {
     private static final String CALCITE = "org.apache.ignite.internal.processors.query.calcite.";
 
     private static final String NEAR = "org.apache.ignite.internal.processors.cache.distributed.near.";
+
+    private static final String INTERNAL = "org.apache.ignite.internal.";
 
     @Test
     void theSuiteOfTheSamePackageWinsOverOneWithMoreClassesNearby() {
@@ -87,6 +91,39 @@ class SuiteChooserTest {
                 assertThat(c.suite()).isSameAs(dht);
                 assertThat(c.reason()).isEqualTo("no suite lists a class of the same package, and it lists 1 class"
                     + " under `org.apache.ignite.internal.processors.cache.distributed`, the nearest");
+            });
+    }
+
+    @Test
+    void aClassOfTheSamePackageIsNearerThanOneOfASubpackageWithACloserName() {
+        TestSuites.Suite jobMetrics = suite("IgniteJobMetricsSelfTestSuite",
+            INTERNAL + "processors.jobmetrics.GridJobMetricsProcessorLoadTest");
+        TestSuites.Suite computeGrid = suite("IgniteComputeGridTestSuite", INTERNAL + "GridJobContextSelfTest",
+            INTERNAL + "managers.checkpoint.GridCheckpointTaskSelfTest",
+            INTERNAL + "processors.compute.ComputeJobChangePriorityTest");
+
+        Optional<SuiteChooser.Choice> choice = SuiteChooser.choose(INTERNAL + "GridJobMasterLeaveAwareSelfTest",
+            List.of(jobMetrics, computeGrid));
+
+        assertThat(choice).hasValueSatisfying(c -> {
+            assertThat(c.suite()).isSameAs(computeGrid);
+            assertThat(c.neighbour()).isEqualTo("GridJobContextSelfTest");
+            assertThat(c.reason()).as("the classes of subpackages are not counted")
+                .isEqualTo("it lists 1 class of the same package");
+        });
+    }
+
+    @Test
+    void classesOfASubpackageAreNotCalledClassesOfTheSamePackage() {
+        TestSuites.Suite util = suite("IgniteUtilSelfTestSuite",
+            INTERNAL + "thread.pool.GridThreadPoolExecutorServiceSelfTest",
+            INTERNAL + "thread.pool.IgniteThreadPoolSizeTest", INTERNAL + "thread.pool.ThreadPoolMetricsTest");
+
+        assertThat(SuiteChooser.choose(INTERNAL + "thread.GridThreadTest", List.of(util)))
+            .hasValueSatisfying(c -> {
+                assertThat(c.neighbour()).isEqualTo("GridThreadPoolExecutorServiceSelfTest");
+                assertThat(c.reason()).isEqualTo("no suite lists a class of the same package, and it lists 3 classes"
+                    + " under `org.apache.ignite.internal.thread`, the nearest");
             });
     }
 
