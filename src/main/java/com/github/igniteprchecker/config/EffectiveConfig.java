@@ -59,6 +59,8 @@ public class EffectiveConfig {
         show("GITHUB_READ_TIMEOUT", duration(github.readTimeout()));
         text("github.api-url", "GITHUB_API_URL", github.apiUrl());
 
+        showAi();
+
         show("JIRA_BASE_URL", env.getProperty("jira.base-url", ""));
         show("JIRA_READ_TIMEOUT", env.getProperty("jira.read-timeout", ""));
 
@@ -111,6 +113,14 @@ public class EffectiveConfig {
     void report() {
         log.info("effective config: {}", line());
         problems.forEach(p -> log.warn("config: {}", p));
+    }
+
+    /** The Anthropic settings, read as {@link AiProperties} reads them. */
+    private void showAi() {
+        AiProperties ai = new AiProperties(env.getProperty("ai.api-key"), env.getProperty("ai.model"), null);
+        show("ANTHROPIC_API_KEY", secret(ai.apiKey()));
+        text("ai.model", "PRC_AI_MODEL", ai.model());
+        show("AI_READ_TIMEOUT", env.getProperty("ai.read-timeout", duration(AiProperties.READ_TIMEOUT)));
     }
 
     private void show(String var, String value) {

@@ -112,8 +112,8 @@ class StandingSettingsTest {
 
     @Test
     void prCommandsWithoutAnyLoginAskForOne() {
-        ResponseEntity<?> res = controller.standingVisa(null, null, null, null, true, "tc-new", "newcomer", null,
-            null);
+        ResponseEntity<?> res = controller.standingVisa(null, null, null, null, true, null, "tc-new", "newcomer",
+            null, null);
 
         assertThat(res.getStatusCode().value()).isEqualTo(412);
         assertThat(((Map<?, ?>)res.getBody()).get("need")).isEqualTo("login");
@@ -137,6 +137,6 @@ class StandingSettingsTest {
 
     private ResponseEntity<?> post(Boolean visa, Boolean rerun, Boolean gh, Boolean style, String jiraToken,
         String ghToken, Boolean commands) {
-        return controller.standingVisa(visa, rerun, gh, style, commands, "tc", USER, jiraToken, ghToken);
+        return controller.standingVisa(visa, rerun, gh, style, commands, null, "tc", USER, jiraToken, ghToken);
     }
 }

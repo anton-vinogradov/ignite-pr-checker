@@ -26,8 +26,8 @@ each label means and what to do about it.
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
 - **Standing options.** In ⚙: auto re-run of failed suites, a JIRA visa or a PR comment for each of your runs, a
-  checkstyle autofix, PR commands. They work while the page is closed. See
-  [Standing options](docs/features.md#standing-options).
+  checkstyle autofix, PR commands, and adding your PR's tests that no suite runs to a suite Claude picks. They work
+  while the page is closed. See [Standing options](docs/features.md#standing-options).
 - **PR commands.** With **PR commands** on, a `/run-all` comment on any pull request queues RunAll under your TeamCity
   account, and a comment in the PR then tells how the run goes: your own when the checker holds your GitHub token,
   else one of the app account. See [Working from the PR](docs/features.md#working-from-the-pr-commands).
@@ -67,7 +67,9 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   the server also holds the token in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
   everyone. A login lasts until logout.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
-  token, the user's JIRA token for visas, and the user's GitHub token for PR comments and the checkstyle autofix.
+  token, the user's JIRA token for visas, and the user's GitHub token for PR comments, the checkstyle autofix and
+  adding tests to suites. That last option also sends a test class's source and its module's suites to Anthropic's
+  API, under the operator's `ANTHROPIC_API_KEY`.
 - **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it and writes as it: the
   replies to commands of users who have not switched PR commands on, reactions, hints, the run story of users without
   their own GitHub token, and the mention that tells such a user their verdict is ready. Use a separate account with no
@@ -123,6 +125,8 @@ settings by hand.
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
 | `GITHUB_TOKEN` | none | Token of the app account: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub is read at most 60 times an hour and nothing is posted under the checker's own account. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
+| `ANTHROPIC_API_KEY` | none | Anthropic API key. With it users may switch on **Add my PRs' tests to a suite**: Claude picks the suite for a test class of their PR that no suite runs. Without it the option is not offered, and the status page says so. |
+| `PRC_AI_MODEL` | `claude-opus-5-5` | The Claude model that picks the suite. |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
@@ -147,6 +151,7 @@ settings by hand.
 | `PRC_LOG_FILE` | none, console only; the unit sets `/opt/ignite-pr-checker/logs/ignite-pr-checker.log` | The service's own log: a file a day, 30 days, at most 500 MB of old files. |
 | `GITHUB_CACHE_SECONDS` | `300` | How long the list of open PRs is cached. |
 | `TEAMCITY_READ_TIMEOUT`, `GITHUB_READ_TIMEOUT`, `JIRA_READ_TIMEOUT` | `60s` | How long a call may wait without data. |
+| `AI_READ_TIMEOUT` | `120s` | How long a call to Claude may wait for its answer: it thinks before it answers. |
 | `GITHUB_API_URL` | `https://api.github.com` | For tests only. |
 | `PRC_JAVA` | set in the unit by `install.sh` | The java `run.sh` starts. |
 
@@ -222,6 +227,7 @@ heap with the peak of its old generation, and the process's resident memory with
 | `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted), GitHub logins, the comments and visas the options follow, the re-run waves. |
 | `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted). |
 | `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply. |
+| `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
 | `problems.json` | Recent warnings and errors for the status page. |
@@ -281,6 +287,7 @@ One Spring Boot application; the packages under `com.github.igniteprchecker`:
 | `jira` | Verdict texts (`VisaService`), the standing options that settle runs with re-runs, comments and visas (`StandingVisas`), and one-shot Auto visas. |
 | `github` | The GitHub client (PR list, comments, reactions, commits) and the PR command poll (`PrCommands`). |
 | `style` | The checkstyle autofix of the author's own PR. |
+| `suitefix` | Adding the author's test classes that no suite runs to a suite Claude picks. |
 | `web` | The HTTP API, login, operator actions, security headers. |
 | `persist` | Snapshots of state and caches on disk, and their backups. |
 | `health`, `metrics` | The status page: recent problems, health of the background jobs, call counters, memory. |
