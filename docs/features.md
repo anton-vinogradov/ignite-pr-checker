@@ -135,7 +135,6 @@ the visa.
 | **Auto visa** | Posts the verdict of the current run to the ticket when it finishes, once. `Auto visa ✓`: armed by you; `armed: bob`: armed by others, who get one visa between them. | — |
 | **Auto visa: on in ⚙** | The standing auto-visa of whoever started the run will post it: nothing to arm. | — |
 | **Auto-visa all my runs** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
-| **Add my PRs' tests to a suite** (⚙), 🧩 **Ignite PR Checker: test suites.** in the PR | Ignite's own check found test classes of your PR in no test suite. Claude picked a suite of each class's module, and one commit from your account lists each next to a class that suite runs. The comment says what went where and why, or why a class was not added; once Ignite's check has run on that commit, it also says what the check found. | `git pull` before your next push. Move a class the picked suite does not run by hand. |
 
 ### Thresholds
 
@@ -267,15 +266,6 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
   same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
   not checked. It never touches anyone else's PR and never force-pushes.
-- **Add my PRs' tests to a suite**: when Ignite's abandoned-tests check on the head of your own PR finds test classes
-  of the PR in no test suite, Claude picks a suite of each class's module, and one commit from your account titled
-  `Add test classes to suites (Ignite PR Checker)` lists each class next to a class that suite already runs: a copy of
-  that class's line, with an import when one is needed. A comment from your account says what went where and why;
-  once Ignite's check has run on that commit, the comment says what it found. The checker looks every 5 minutes. Each
-  head commit gets one try, whatever came of it, and up to 10 classes; a class goes nowhere when Claude's pick is not a
-  suite of the module or names a class the suite does not list. The class's source and its module's suites go to
-  Anthropic's API. It uses the same GitHub token, never touches anyone else's PR and never force-pushes. It needs the
-  operator's Anthropic API key: without one the switch is greyed out and says so.
 - **A token that stops working.** When GitHub or JIRA refuses a stored token, the checker drops it and switches off
   the options that need it; the panel says which token to replace. When TeamCity refuses yours, your options pause
   until you log in with a fresh token; nobody else's stop.

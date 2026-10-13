@@ -138,8 +138,7 @@ class GlossaryTest {
         quoted(PAGE, "Suites that never ran", "Broken suites", "Fewer tests than master",
             "Crashed near the end of the run", "Not confirmed: 1 run", "Recently started failing",
             "Could not be checked", "This PR's tests", "Filtered out", "Run at top", "Run RunAll", "Cancel my runs",
-            "JIRA visa", "Auto visa", "Notify me", "Add my PRs' tests to a suite");
-        quoted(MAIN.resolve("suitefix/SuiteFixService.java"), "🧩 **Ignite PR Checker: test suites.**");
+            "JIRA visa", "Auto visa", "Notify me");
         quoted(PAGE_SCRIPT, "No blockers 🎉", "No test blockers", "1 run", "new test / no master history", "unverified",
             "not in any suite", "flaky?", "rev ✓ head", "rev @start", "● includes an unfinished run", " from earlier runs",
             "pushed since this run", "♻️ Auto re-run #", "♻️ Deciding on auto re-runs", "Rerun at top", "Auto visa ✓",

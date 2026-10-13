@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -66,8 +67,17 @@ public class SuiteFixService implements SnapshotCache {
     /** How long the comment waits for Ignite's check of the commit before it stops waiting. */
     private static final long FOLLOW_MS = 24 * 3600_000L;
 
-    /** How long an attempt is remembered: long past any head anyone still pushes over. */
+    /** How long an attempt is kept come what may; after that, only while its PR still sits on it. */
     private static final long KEEP_MS = 30 * 24 * 3600_000L;
+
+    /** How often the attempts past KEEP_MS are checked against their PRs: a GitHub call each. */
+    private static final long FORGET_EVERY_MS = 24 * 3600_000L;
+
+    /** How long a check that says nothing while not running is asked at every sweep: GitHub may not have started it. */
+    private static final long UNANSWERED_MS = 15 * 60_000L;
+
+    /** How often after that: Ignite's workflow never runs on a PR that conflicts with master. */
+    private static final long UNANSWERED_RETRY_MS = 3600_000L;
 
     /** Heads whose check names no class of their PR, remembered so the sweep does not ask again. */
     private static final int QUIET_MAX = 5000;
@@ -107,11 +117,22 @@ public class SuiteFixService implements SnapshotCache {
             }
         }));
 
+    /** The commits whose check said nothing while not running, as {@link #settledCheck} last heard. */
+    private final Map<String, Unanswered> unanswered = Collections.synchronizedMap(
+        new LinkedHashMap<String, Unanswered>(16, 0.75f, false) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Unanswered> eldest) {
+                return size() > QUIET_MAX;
+            }
+        });
+
     private final AtomicBoolean sweeping = new AtomicBoolean();
 
     private final AtomicInteger pushes = new AtomicInteger();
 
     private volatile long lastSweepAt;
+
+    private long forgottenAt;
 
     /** The users the last sweep acted for. */
     private volatile int users;
@@ -199,8 +220,36 @@ public class SuiteFixService implements SnapshotCache {
             }
         });
         followUp();
-        attempts.values().removeIf(a -> a.at() < started - KEEP_MS);
+        forgetPast(started);
         lastSweepAt = started;
+    }
+
+    /**
+     * Once a day, forgets the attempts older than KEEP_MS whose PR is closed or has moved past both the head tried and
+     * the commit pushed. A PR can wait for review for months on either, and neither may be tried again.
+     */
+    private void forgetPast(long now) {
+        if (now - forgottenAt < FORGET_EVERY_MS)
+            return;
+
+        forgottenAt = now;
+        for (Attempt a : List.copyOf(attempts.values())) {
+            if (now - a.at() <= KEEP_MS)
+                continue;
+
+            GithubClient.PrOutcome pr;
+            try {
+                pr = github.prOutcome(a.pr());
+            }
+            catch (RuntimeException e) {
+                log.warn("could not read PR {} to forget the try of its suites: {}", a.pr(), e.toString());
+
+                continue;
+            }
+            boolean sitsOnIt = a.head().equals(pr.headSha()) || Objects.equals(a.pushed(), pr.headSha());
+            if (pr.closed() || !sitsOnIt)
+                attempts.remove(a.head());
+        }
     }
 
     /**
@@ -214,16 +263,17 @@ public class SuiteFixService implements SnapshotCache {
             || quiet.contains(sha) || attempts.values().stream().anyMatch(a -> sha.equals(a.pushed())))
             return;
 
-        AbandonedTestsCheck.Outcome check = prTests.suiteCheck(sha);
-        if (!check.settled())
+        Optional<AbandonedTestsCheck.Outcome> settled = settledCheck(sha);
+        if (settled.isEmpty())
             return;
 
+        AbandonedTestsCheck.Outcome check = settled.get();
         Map<String, String> ours = new LinkedHashMap<>();
         if (check.state() == State.FAILED) {
-            for (GithubClient.PrFile f : github.prTestFiles(pr)) {
-                String fqcn = TestSuites.classOf(f.path());
+            for (String path : github.prJavaFiles(pr)) {
+                String fqcn = TestSuites.classOf(path);
                 if (check.classes().contains(fqcn))
-                    ours.put(fqcn, f.path());
+                    ours.put(fqcn, path);
             }
         }
         if (ours.isEmpty()) {
@@ -346,22 +396,30 @@ public class SuiteFixService implements SnapshotCache {
         return new Placement(fqcn, suite.get().name(), choice.neighbour(), plain(choice.reason()), null);
     }
 
-    /** Edits the comment of each pushed attempt with what Ignite's check says of the commit, once it says it. */
+    /**
+     * Edits the comment of each pushed attempt with what Ignite's check says of the commit, once it says it, or that it
+     * said nothing within FOLLOW_MS.
+     */
     void followUp() {
         long now = clock.getAsLong();
         for (Attempt a : List.copyOf(attempts.values())) {
             if (a.followed() || a.pushed() == null || a.commentId() == null || a.report() == null)
                 continue;
+
+            String answer;
             if (now - a.at() > FOLLOW_MS) {
-                attempts.put(a.head(), a.followedWith(a.report()));
-                continue;
+                Unanswered last = unanswered.get(a.pushed());
+                answer = noAnswer(a.pushed(), last == null ? null : last.reason());
+            }
+            else {
+                Optional<AbandonedTestsCheck.Outcome> check = settledCheck(a.pushed());
+                if (check.isEmpty())
+                    continue;
+
+                answer = verdict(check.get(), a.pushed(), a.added());
             }
 
-            AbandonedTestsCheck.Outcome check = prTests.suiteCheck(a.pushed());
-            if (!check.settled())
-                continue;
-
-            String body = a.report().replace(pending(a.pushed()), verdict(check, a.pushed(), a.added()));
+            String body = a.report().replace(pending(a.pushed()), answer);
             Optional<StandingVisas.GhActor> actor = standing.actor(a.user()).filter(x -> x.ghToken() != null);
             try {
                 if (actor.isPresent())
@@ -373,6 +431,25 @@ public class SuiteFixService implements SnapshotCache {
             }
             attempts.put(a.head(), a.followedWith(body));
         }
+    }
+
+    /**
+     * What Ignite's check says of commit {@code sha}, once that is final. A check that says nothing while not running,
+     * no job or no log, is asked at every sweep for UNANSWERED_MS, then once in UNANSWERED_RETRY_MS.
+     */
+    private Optional<AbandonedTestsCheck.Outcome> settledCheck(String sha) {
+        long now = clock.getAsLong();
+        Unanswered was = unanswered.get(sha);
+        if (was != null && was.askedAt() - was.since() >= UNANSWERED_MS && now - was.askedAt() < UNANSWERED_RETRY_MS)
+            return Optional.empty();
+
+        AbandonedTestsCheck.Outcome check = prTests.suiteCheck(sha);
+        if (check.settled() || check.state() == State.RUNNING)
+            unanswered.remove(sha);
+        else
+            unanswered.put(sha, new Unanswered(was == null ? now : was.since(), now, check.reason()));
+
+        return check.settled() ? Optional.of(check) : Optional.empty();
     }
 
     /** What went wrong with a GitHub call made with the author's token; a refused token is dropped, as elsewhere. */
@@ -434,6 +511,12 @@ public class SuiteFixService implements SnapshotCache {
     /** The comment's last line while Ignite's check of the commit is not in. */
     static String pending(String pushed) {
         return "_Ignite's check runs again on `" + shortSha(pushed) + "`; its answer will be added here._";
+    }
+
+    /** The comment's last line when Ignite's check of the commit said nothing within FOLLOW_MS, and why if known. */
+    static String noAnswer(String pushed, String why) {
+        return "Ignite's check gave no answer on `" + shortSha(pushed) + "` within a day"
+            + (why == null ? "" : ": " + why) + ".";
     }
 
     /** What Ignite's check of the pushed commit says of the classes it added. */
@@ -536,6 +619,10 @@ public class SuiteFixService implements SnapshotCache {
         Attempt followedWith(String body) {
             return new Attempt(pr, head, at, user, pushed, commentId, body, added, true);
         }
+    }
+
+    /** A check that said nothing while not running: since when, when last asked, and why it said nothing. */
+    private record Unanswered(long since, long askedAt, String reason) {
     }
 
     /** What {@code suite-fixes.json} holds. */

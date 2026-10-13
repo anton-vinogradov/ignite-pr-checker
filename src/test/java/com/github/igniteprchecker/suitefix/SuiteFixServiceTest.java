@@ -3,7 +3,6 @@ package com.github.igniteprchecker.suitefix;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -28,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,6 +81,15 @@ class SuiteFixServiceTest {
         .replace("exec.exp.IgniteSqlFunctionsTest", "exec.rel.ExecutionTest").replace("IgniteSqlFunctionsTest.class",
             "ExecutionTest.class");
 
+    private static final long MINUTE = 60_000L;
+
+    private static final long HOUR = 60 * MINUTE;
+
+    private static final long DAY = 24 * HOUR;
+
+    private static final String NO_JOB = "GitHub shows no Check java code job for it (Ignite's workflow does not run"
+        + " on a PR that conflicts with master)";
+
     private static final StandingVisas.GhActor ALICE = new StandingVisas.GhActor("alice", "tc", "gh-pat", null);
 
     private final GithubClient github = mock(GithubClient.class);
@@ -93,8 +102,10 @@ class SuiteFixServiceTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private final AtomicLong now = new AtomicLong(1_000_000L);
+
     private SuiteFixService service = new SuiteFixService(github, prTests, standing, chooser, mapper, Runnable::run,
-        () -> 1_000_000L);
+        now::get);
 
     @BeforeEach
     void anAuthorWithTheOptionOnAndAClassInNoSuite() {
@@ -103,7 +114,7 @@ class SuiteFixServiceTest {
         when(github.openPrsBy("Alice")).thenReturn(List.of(PR));
         when(github.prHead(PR)).thenReturn(new GithubClient.PrHead("alice", "alice/ignite", "IGNITE-29000", HEAD));
         when(prTests.suiteCheck(HEAD)).thenReturn(failed(HEAD, FQCN));
-        when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(CLASS, "added")));
+        when(github.prJavaFiles(PR)).thenReturn(List.of(CLASS));
         when(github.filesUnder("alice/ignite", HEAD, ROOT)).thenReturn(new GithubClient.Tree(List.of(
             new GithubClient.Tree.File(UTIL, 400), new GithubClient.Tree.File(EXECUTION, 400),
             new GithubClient.Tree.File(ROOT + "/org/apache/ignite/Helper.java", 100)), false));
@@ -161,6 +172,68 @@ class SuiteFixServiceTest {
         verify(github, times(1)).addPrComment(any(), anyInt(), any());
     }
 
+    /** An Ignite PR often waits for review over a month with no push: its head gets no second try, nor comment. */
+    @Test
+    void aHeadThePrStillSitsOnAMonthLaterIsNotTriedAgain() {
+        chooser.pick = new SuiteChooser.Choice("modules/core/src/test/java/Evil.java", "IgniteSqlFunctionsTest",
+            "Because.");
+        when(github.prOutcome(PR)).thenReturn(open(HEAD));
+        service.sweep();
+
+        now.addAndGet(31 * DAY);
+        service.sweep();
+        service.sweep();
+
+        assertThat(chooser.asked).hasSize(1);
+        verify(github, times(1)).addPrComment(any(), anyInt(), any());
+    }
+
+    /** The checker's commit may stay the head for weeks, its check naming a class still in no suite: never tried. */
+    @Test
+    void theCommitPushedIsNotTriedAMonthLater() {
+        service.sweep();
+        when(github.prHead(PR)).thenReturn(new GithubClient.PrHead("alice", "alice/ignite", "IGNITE-29000", PUSHED));
+        when(prTests.suiteCheck(PUSHED)).thenReturn(failed(PUSHED, FQCN));
+        when(github.prOutcome(PR)).thenReturn(open(PUSHED));
+
+        now.addAndGet(31 * DAY);
+        service.sweep();
+        service.sweep();
+
+        verify(github, times(1)).commitFiles(any(), any(), any(), any(), anyMap(), any());
+        verify(github, times(1)).addPrComment(any(), anyInt(), any());
+    }
+
+    @Test
+    void aTryIsForgottenAMonthOnOnceItsPrHasMovedOn() {
+        service.sweep();
+        String newer = "0123456789abcdef0123456789abcdef01234567";
+        when(github.prHead(PR)).thenReturn(new GithubClient.PrHead("alice", "alice/ignite", "IGNITE-29000", newer));
+        when(prTests.suiteCheck(newer)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, newer, JOB, null,
+            List.of(), true));
+        when(github.prOutcome(PR)).thenReturn(open(newer));
+
+        now.addAndGet(29 * DAY);
+        service.sweep();
+        assertThat(service.stats()).containsEntry("attempts", 1);
+
+        now.addAndGet(2 * DAY);
+        service.sweep();
+        assertThat(service.stats()).containsEntry("attempts", 0);
+    }
+
+    @Test
+    void aTryIsForgottenAMonthOnOnceItsPrIsClosed() {
+        service.sweep();
+        when(github.openPrsBy("Alice")).thenReturn(List.of());
+        when(github.prOutcome(PR)).thenReturn(new GithubClient.PrOutcome(true, true, 1, PUSHED, HEAD, "IGNITE-29000"));
+
+        now.addAndGet(31 * DAY);
+        service.sweep();
+
+        assertThat(service.stats()).containsEntry("attempts", 0);
+    }
+
     @Test
     void aSuiteTheModuleDoesNotHaveIsNotCommitted() {
         chooser.pick = new SuiteChooser.Choice("modules/core/src/test/java/Evil.java", "IgniteSqlFunctionsTest",
@@ -201,7 +274,7 @@ class SuiteFixServiceTest {
     void aCheckStillRunningIsWaitedForAndAPassedOneIsNotAskedAgain() {
         when(prTests.suiteCheck(HEAD)).thenReturn(new AbandonedTestsCheck.Outcome(State.RUNNING, HEAD, JOB, null,
             List.of(), false));
-        service.sweep();
+        sweepEvery5MinutesFor(30 * MINUTE);
         assertThat(chooser.asked).isEmpty();
 
         when(prTests.suiteCheck(HEAD)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, HEAD, JOB, null,
@@ -209,9 +282,24 @@ class SuiteFixServiceTest {
         service.sweep();
         service.sweep();
 
-        verify(prTests, times(2)).suiteCheck(HEAD);
+        verify(prTests, times(7)).suiteCheck(HEAD);
         assertThat(chooser.asked).isEmpty();
-        verify(github, never()).prTestFiles(anyInt());
+        verify(github, never()).prJavaFiles(anyInt());
+    }
+
+    /**
+     * Ignite's workflow does not run on a PR that conflicts with master, and GitHub keeps a job's log for a while
+     * only: the check of such a head says nothing for good. Right after a push GitHub may just not have started it.
+     */
+    @Test
+    void aCheckThatSaysNothingIsAskedAtEachSweepFor15MinutesThenHourly() {
+        when(prTests.suiteCheck(HEAD)).thenReturn(new AbandonedTestsCheck.Outcome(State.UNKNOWN, HEAD, null, NO_JOB,
+            List.of(), false));
+
+        sweepEvery5MinutesFor(3 * HOUR);
+
+        verify(prTests, times(6)).suiteCheck(HEAD);
+        assertThat(chooser.asked).isEmpty();
     }
 
     /** Classes Ignite's check names outside the PR's files are not the author's to fix in this PR. */
@@ -223,6 +311,24 @@ class SuiteFixServiceTest {
 
         assertThat(chooser.asked).isEmpty();
         verify(github, never()).addPrComment(any(), anyInt(), any());
+    }
+
+    /** Ignite's test classes are not all in files named *Test.java: IgniteCacheQueryNodeRestartSelfTest2 is one. */
+    @Test
+    void aClassWhoseFileIsNotNamedTestIsAddedToo() {
+        String fqcn = "org.apache.ignite.internal.processors.query.calcite.exec.exp.IgniteFunctionParameterSelfTest2";
+        String path = ROOT + "/" + fqcn.replace('.', '/') + ".java";
+        when(prTests.suiteCheck(HEAD)).thenReturn(failed(HEAD, fqcn));
+        when(github.prJavaFiles(PR)).thenReturn(List.of(path));
+        when(github.rawFileUpTo(eq("alice/ignite"), eq(HEAD), eq(path), anyInt()))
+            .thenReturn(Optional.of("package org.apache.ignite.internal.processors.query.calcite.exec.exp;\n"));
+
+        service.sweep();
+
+        assertThat(chooser.asked).containsExactly(path);
+        verify(github).commitFiles(eq("gh-pat"), eq("alice/ignite"), eq("IGNITE-29000"), eq(HEAD), anyMap(),
+            anyString());
+        assertThat(comment()).contains("- `IgniteFunctionParameterSelfTest2` → `UtilTestSuite`");
     }
 
     @Test
@@ -251,6 +357,23 @@ class SuiteFixServiceTest {
         verify(github).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
         assertThat(body.getValue()).endsWith("⚠️ Ignite's check on `def5678` still finds `IgniteFunctionParameterTest`"
             + " in no test suite: the suite picked may not run it. Move it by hand.");
+    }
+
+    /** The commit conflicts with master, so Ignite's workflow never runs on it: the comment stops promising. */
+    @Test
+    void aCheckWithNoAnswerInADayIsSaidSoInTheComment() {
+        when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.UNKNOWN, PUSHED, null,
+            NO_JOB, List.of(), false));
+        service.sweep();
+
+        now.addAndGet(25 * HOUR);
+        service.sweep();
+        service.sweep();
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(github, times(1)).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        assertThat(body.getValue()).endsWith("\n\nIgnite's check gave no answer on `def5678` within a day: " + NO_JOB
+            + ".").doesNotContain("its answer will be added here");
     }
 
     @Test
@@ -291,6 +414,28 @@ class SuiteFixServiceTest {
         assertThat(body.lines()).noneMatch(l -> l.startsWith("/"));
     }
 
+    /** A suite or a neighbour Claude names goes into the comment as code: only the characters of a name or path. */
+    @Test
+    void aNameClaudeGivesReadsAsNoMentionOrLink() throws Exception {
+        String hostile = "@apache/ignite-committers see [x](https://evil.example)`";
+        chooser.pick = new SuiteChooser.Choice(hostile, "IgniteSqlFunctionsTest", "Because.");
+        service.sweep();
+        chooser.pick = new SuiteChooser.Choice(UTIL, hostile, "Because.");
+        new SuiteFixService(github, prTests, standing, chooser, mapper, Runnable::run, now::get).sweep();
+
+        ArgumentCaptor<String> bodies = ArgumentCaptor.forClass(String.class);
+        verify(github, times(2)).addPrComment(eq("gh-pat"), eq(PR), bodies.capture());
+        assertThat(bodies.getAllValues().get(0)).contains("- `IgniteFunctionParameterTest`: not added, Claude named a"
+            + " suite its module does not have: `apache/ignite-committersseexhttps//evil.example`.\n");
+        assertThat(bodies.getAllValues().get(1)).contains("- `IgniteFunctionParameterTest`: not added, Claude put it"
+            + " next to `apache/ignite-committersseexhttps//evil.example`, which `UtilTestSuite` does not list.\n");
+        for (String body : bodies.getAllValues()) {
+            assertThat(guard("readsAsCommand", body)).isFalse();
+            assertThat(guard("triesCommand", body)).isFalse();
+            assertThat(body).doesNotContain("@apache", "[x]", "(https://evil");
+        }
+    }
+
     @Test
     void theTriesSurviveARestart(@TempDir Path dir) throws Exception {
         service.sweep();
@@ -309,6 +454,13 @@ class SuiteFixServiceTest {
         assertThat(service.stats()).containsEntry("pushed", 1).containsEntry("attempts", 1);
     }
 
+    private void sweepEvery5MinutesFor(long ms) {
+        for (long passed = 0; passed < ms; passed += 5 * MINUTE) {
+            service.sweep();
+            now.addAndGet(5 * MINUTE);
+        }
+    }
+
     private String comment() {
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(github).addPrComment(eq("gh-pat"), eq(PR), body.capture());
@@ -325,6 +477,10 @@ class SuiteFixServiceTest {
 
     private static AbandonedTestsCheck.Outcome failed(String sha, String... classes) {
         return new AbandonedTestsCheck.Outcome(State.FAILED, sha, JOB, null, List.of(classes), true);
+    }
+
+    private static GithubClient.PrOutcome open(String head) {
+        return new GithubClient.PrOutcome(false, false, 0, null, head, "IGNITE-29000");
     }
 
     /** Claude, as the test has it answer; it remembers what it was asked and what it was offered. */

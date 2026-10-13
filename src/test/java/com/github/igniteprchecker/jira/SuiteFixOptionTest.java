@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -72,6 +73,63 @@ class SuiteFixOptionTest {
         assertThat(standing.change("alice", "tc", null, null, suites(false))).isEmpty();
         assertThat(standing.enabled("alice")).isFalse();
         assertThat(standing.suiteFixers()).isEmpty();
+    }
+
+    @Test
+    void switchingItOffGivesTheGithubTokenUpWhileAutoRerunStaysOn() {
+        standing.setAi(new AiProperties("key"));
+        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Alice-V"));
+        standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
+            true));
+
+        assertThat(standing.change("alice", "tc", null, null, suites(false))).isEmpty();
+
+        assertThat(standing.rerunOn("alice")).isTrue();
+        assertThat(standing.settings("alice").ghStored()).isFalse();
+    }
+
+    /** Auto visa and auto re-run act on runs that finish after they are switched on; this one does not move that. */
+    @Test
+    void switchingItOnLeavesTheCutoffOfTheOtherOptions(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("standing-visas.json");
+        try (InputStream in = getClass().getResourceAsStream(FIXTURE)) {
+            Files.copy(in, file);
+        }
+        standing.setAi(new AiProperties("key"));
+        standing.loadFrom(file);
+
+        assertThat(standing.change("avinogradov", "tc-avinogradov", null, null, suites(true))).isEmpty();
+        Path saved = dir.resolve("saved.json");
+        standing.saveTo(saved);
+
+        assertThat(mapper.readTree(saved.toFile()).at("/enrollments")).filteredOn(n -> n.at("/username").asText()
+            .equals("avinogradov")).singleElement().satisfies(n -> {
+                assertThat(n.at("/suiteFix").asBoolean()).isTrue();
+                assertThat(n.at("/enabledAt").asLong()).isEqualTo(1759312800000L);
+            });
+    }
+
+    /** The checkstyle autofix stored the GitHub token without a login; the PRs this option fixes are found by it. */
+    @Test
+    void aLoginTheTokenWasStoredWithoutIsFilledIn(@TempDir Path dir) throws Exception {
+        ObjectNode snapshot;
+        try (InputStream in = getClass().getResourceAsStream(FIXTURE)) {
+            snapshot = (ObjectNode)mapper.readTree(in);
+        }
+        ObjectNode avinogradov = (ObjectNode)snapshot.at("/enrollments/0");
+        avinogradov.put("ghComment", false).remove("ghLogin");
+        Path file = dir.resolve("standing-visas.json");
+        mapper.writeValue(file.toFile(), snapshot);
+        standing.setAi(new AiProperties("key"));
+        standing.loadFrom(file);
+        when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
+
+        assertThat(standing.change("avinogradov", "tc-avinogradov", null, null, suites(true))).isEmpty();
+        assertThat(standing.suiteFixers()).isEmpty();
+
+        standing.ensureGhLogins();
+
+        assertThat(standing.suiteFixers()).containsOnlyKeys("anton-vinogradov");
     }
 
     @Test
