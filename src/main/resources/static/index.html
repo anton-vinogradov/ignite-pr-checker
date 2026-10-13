@@ -457,15 +457,12 @@
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="suiteFixToggle" type="checkbox">
             <span><b>Add my PRs' tests to a suite</b> — when Ignite's abandoned-tests check on the head of my own PR
-                finds test classes of the PR in no test suite, so CI never runs them, Claude picks a suite of the
-                class's module for each, and one commit from my account lists each next to a class that suite
-                already runs. Once per head commit. A comment in the PR says what went where and why, then what
+                finds test classes of the PR in no test suite, so CI never runs them, list each next to the class of
+                its module nearest to it (by package, then by name), in that class's suite, in one commit from my
+                account. Once per head commit. A comment in the PR says what went where and why, then what
                 Ignite's check says of the commit.<br>
-                <span class="muted">Uses the same GitHub token as the options above. The class's source and the
-                suites of its module go to Anthropic's API.</span>
-                <span id="suitesSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span>
-                <span id="suitesOff" class="muted hidden"><br>Not available: this checker has no Anthropic API key.
-                Its operator can add one.</span></span>
+                <span class="muted">Uses the same GitHub token as the options above.</span>
+                <span id="suitesSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —

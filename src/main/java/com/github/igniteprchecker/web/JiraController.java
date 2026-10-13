@@ -94,8 +94,7 @@ public class JiraController {
 
     /**
      * Changes the standing options named in the request and nothing else; a 412 names what the change
-     * needs ({@code need}: jira, github or login), a 409 says why no token would do. Answers with the whole
-     * state, like the GET.
+     * needs ({@code need}: jira, github or login). Answers with the whole state, like the GET.
      */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
@@ -110,8 +109,6 @@ public class JiraController {
         @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
         Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
             new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites));
-        if (refused.isPresent() && refused.get().need() == null)
-            return ResponseEntity.status(409).body(Map.of("error", refused.get().error()));
         if (refused.isPresent())
             return ResponseEntity.status(412)
                 .body(Map.of("error", refused.get().error(), "need", refused.get().need()));

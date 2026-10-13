@@ -60,8 +60,6 @@ dependencies {
         exclude group: 'org.slf4j', module: 'slf4j-simple'
         exclude group: 'commons-logging', module: 'commons-logging'
     }
-    // Claude picks the test suite for a PR's test class that no suite runs.
-    implementation 'com.anthropic:anthropic-java:2.34.0'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 

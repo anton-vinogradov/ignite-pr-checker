@@ -126,8 +126,6 @@ prc.example.org {
 | `SESSION_COOKIE_SECURE` | `false`; `true` в шаблоне env | Отправлять cookie сессии только по HTTPS. `false` — только для тестовой установки на голом HTTP. |
 | `GITHUB_TOKEN` | нет | Токен аккаунта приложения: отдельного аккаунта GitHub без прав в `apache/*`, классический токен со scope `public_repo`. Без него GitHub читается не чаще 60 раз в час, и от имени самого чекера ничего не публикуется. |
 | `PRC_ADMINS` | нет | Имена операторов в TeamCity через запятую. См. [Кто может перезапускать, обновлять и сбрасывать](#кто-может-перезапускать-обновлять-и-сбрасывать). |
-| `ANTHROPIC_API_KEY` | нет | Ключ API Anthropic. С ним пользователи могут включить **Add my PRs' tests to a suite**: Claude выбирает сьюту для тестового класса их PR, который не запускает ни одна сьюта. Без ключа опции нет, и страница статуса так и пишет. |
-| `PRC_AI_MODEL` | `claude-opus-5-5` | Модель Claude, которая выбирает сьюту. |
 | `JAVA_OPTS` | нет | Дополнительные флаги JVM; `run.sh` ставит их после своих, например `-Xmx768m`. См. [Память](#память). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | Какой TeamCity читать, со слешем в конце. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | Тип сборки цепочки RunAll. |
@@ -152,7 +150,6 @@ prc.example.org {
 | `PRC_LOG_FILE` | нет, только консоль; unit задаёт `/opt/ignite-pr-checker/logs/ignite-pr-checker.log` | Собственный лог сервиса: файл в день, 30 дней, не больше 500 МБ старых файлов. |
 | `GITHUB_CACHE_SECONDS` | `300` | Сколько кэшируется список открытых PR. |
 | `TEAMCITY_READ_TIMEOUT`, `GITHUB_READ_TIMEOUT`, `JIRA_READ_TIMEOUT` | `60s` | Сколько вызов может ждать без данных. |
-| `AI_READ_TIMEOUT` | `120s` | Сколько вызов Claude может ждать ответа: он думает, прежде чем ответить. |
 | `GITHUB_API_URL` | `https://api.github.com` | Только для тестов. |
 | `PRC_JAVA` | задаёт `install.sh` в unit | Какую java запускает `run.sh`. |
 

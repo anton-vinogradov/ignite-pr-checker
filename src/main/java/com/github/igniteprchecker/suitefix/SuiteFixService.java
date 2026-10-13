@@ -42,9 +42,9 @@ import org.springframework.web.client.RestClientResponseException;
  * Adds the test classes of an author's own PR that no test suite runs to suites, for the authors who switched "Add
  * my PRs' tests to a suite" on in ⚙. Ignite's own check finds such classes on every push ({@link
  * AbandonedTestsCheck}), and the author had to push again to fix it. Every 5 minutes the sweep looks at the open PRs
- * of these authors: when the check of a PR's head names classes of the PR's own files, Claude picks a suite of the
- * class's module for each ({@link SuiteChooser}), and one commit from the author's account lists each next to a class
- * the suite already lists ({@link TestSuites}). A comment in the PR says what went where and why, and gets the answer
+ * of these authors: when the check of a PR's head names classes of the PR's own files, each goes to the suite of the
+ * class of its module nearest to it ({@link SuiteChooser}), and one commit from the author's account lists each next
+ * to that class ({@link TestSuites}). A comment in the PR says what went where and why, and gets the answer
  * of Ignite's check of that commit once it is in. Each head commit gets one attempt, whatever came of it.
  */
 @Component
@@ -52,9 +52,6 @@ public class SuiteFixService implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(SuiteFixService.class);
 
     private static final long SWEEP_MS = 5 * 60_000L;
-
-    /** The most classes one attempt adds: each costs a call to Claude. */
-    static final int MAX_CLASSES = 10;
 
     /** Ignite's core module has some 130 files named as suites. */
     static final int MAX_SUITE_FILES = 400;
@@ -82,23 +79,11 @@ public class SuiteFixService implements SnapshotCache {
     /** Heads whose check names no class of their PR, remembered so the sweep does not ask again. */
     private static final int QUIET_MAX = 5000;
 
-    /** What Claude's reason may not hold: anything but words and plain punctuation, so no markup, link or mention. */
-    private static final Pattern NOT_PLAIN = Pattern.compile("[^\\p{L}\\p{N} .,;'()-]");
-
-    private static final int REASON_CHARS = 200;
-
-    /** What a class name or a file path Claude names may not hold. */
-    private static final Pattern NOT_NAME = Pattern.compile("[^A-Za-z0-9_$./-]");
-
-    private static final int NAME_CHARS = 120;
-
     private final GithubClient github;
 
     private final PrTestRuns prTests;
 
     private final StandingVisas standing;
-
-    private final SuiteChooser chooser;
 
     private final ObjectMapper mapper;
 
@@ -142,9 +127,8 @@ public class SuiteFixService implements SnapshotCache {
     private boolean automation = true;
 
     @Autowired
-    SuiteFixService(GithubClient github, PrTestRuns prTests, StandingVisas standing, SuiteChooser chooser,
-        ObjectMapper mapper) {
-        this(github, prTests, standing, chooser, mapper, Executors.newSingleThreadExecutor(r -> {
+    SuiteFixService(GithubClient github, PrTestRuns prTests, StandingVisas standing, ObjectMapper mapper) {
+        this(github, prTests, standing, mapper, Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "suite-fix");
             t.setDaemon(true);
 
@@ -152,26 +136,19 @@ public class SuiteFixService implements SnapshotCache {
         }), System::currentTimeMillis);
     }
 
-    SuiteFixService(GithubClient github, PrTestRuns prTests, StandingVisas standing, SuiteChooser chooser,
-        ObjectMapper mapper, Executor pool, LongSupplier clock) {
+    SuiteFixService(GithubClient github, PrTestRuns prTests, StandingVisas standing, ObjectMapper mapper,
+        Executor pool, LongSupplier clock) {
         this.github = github;
         this.prTests = prTests;
         this.standing = standing;
-        this.chooser = chooser;
         this.mapper = mapper;
         this.pool = pool;
         this.clock = clock;
     }
 
-    /** Whether the option can work here: the operator gave the Anthropic API key. */
-    public boolean available() {
-        return chooser.available();
-    }
-
-    /** What the status page shows: whether it works here, for how many users, how many commits, the last sweep. */
+    /** What the status page shows: for how many users, how many commits, the last sweep. */
     public Map<String, Object> stats() {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("available", available());
         out.put("users", users);
         out.put("attempts", attempts.size());
         out.put("pushed", pushes.get());
@@ -180,10 +157,10 @@ public class SuiteFixService implements SnapshotCache {
         return out;
     }
 
-    /** The sweep, on a thread of its own: it waits for GitHub and Claude, and the scheduler has three threads. */
+    /** The sweep, on a thread of its own: it waits for GitHub, and the scheduler has three threads. */
     @Scheduled(fixedDelay = SWEEP_MS, initialDelay = 3 * 60_000L)
     void sweepSoon() {
-        if (!automation || !available() || !sweeping.compareAndSet(false, true))
+        if (!automation || !sweeping.compareAndSet(false, true))
             return;
 
         pool.execute(() -> {
@@ -296,10 +273,8 @@ public class SuiteFixService implements SnapshotCache {
         Map<String, String> ours, StandingVisas.GhActor actor) {
         Module module = new Module(head);
         List<Placement> placed = new ArrayList<>();
-        for (Map.Entry<String, String> c : ours.entrySet()) {
-            placed.add(placed.size() < MAX_CLASSES ? place(c.getKey(), c.getValue(), module)
-                : Placement.failed(c.getKey(), "the checker adds at most " + MAX_CLASSES + " classes at a time"));
-        }
+        for (Map.Entry<String, String> c : ours.entrySet())
+            placed.add(place(c.getKey(), c.getValue(), module));
 
         String pushed = null;
         String commitFailure = null;
@@ -333,7 +308,7 @@ public class SuiteFixService implements SnapshotCache {
         return new Attempt(a.pr(), a.head(), a.at(), a.user(), pushed, commentId, report, added, pushed == null);
     }
 
-    /** One class into the suite Claude picks, in the edits of {@code module}; or why not. */
+    /** One class into the suite {@link SuiteChooser} picks, in the edits of {@code module}; or why not. */
     private Placement place(String fqcn, String path, Module module) {
         Optional<String> root = TestSuites.testRoot(path);
         if (root.isEmpty())
@@ -361,39 +336,18 @@ public class SuiteFixService implements SnapshotCache {
                 + " suite: that suite may not run it");
         }
 
-        Optional<String> source;
-        try {
-            source = github.rawFileUpTo(module.head.headRepo(), module.head.headSha(), path, MAX_FILE_BYTES);
-        }
-        catch (RuntimeException e) {
-            return Placement.failed(fqcn, "GitHub did not give its file");
-        }
-        if (source.isEmpty())
-            return Placement.failed(fqcn, "its file is too large to send");
+        Optional<SuiteChooser.Choice> choice = SuiteChooser.choose(fqcn, suites);
+        if (choice.isEmpty())
+            return Placement.failed(fqcn, "no suite of its module lists a class of a package near its own");
 
-        SuiteChooser.Choice choice;
-        try {
-            choice = chooser.choose(path, source.get(), suites);
-        }
-        catch (SuiteChooser.NoChoice e) {
-            return Placement.failed(fqcn, e.getMessage());
-        }
-
-        Optional<TestSuites.Suite> suite = suites.stream().filter(s -> s.path().equals(choice.suite())).findFirst();
-        if (suite.isEmpty())
-            return Placement.failed(fqcn, "Claude named a suite its module does not have: " + named(choice.suite()));
-        if (!suite.get().lists(choice.neighbour())) {
-            return Placement.failed(fqcn, "Claude put it next to " + named(choice.neighbour()) + ", which `"
-                + suite.get().name() + "` does not list");
-        }
-
-        TestSuites.Edit edit = TestSuites.add(module.current(suite.get().path()), choice.neighbour(), fqcn);
+        TestSuites.Suite suite = choice.get().suite();
+        TestSuites.Edit edit = TestSuites.add(module.current(suite.path()), choice.get().neighbour(), fqcn);
         if (edit.failure() != null)
-            return Placement.failed(fqcn, "`" + suite.get().name() + "`: " + edit.failure());
+            return Placement.failed(fqcn, "`" + suite.name() + "`: " + edit.failure());
 
-        module.edited.put(suite.get().path(), edit.source());
+        module.edited.put(suite.path(), edit.source());
 
-        return new Placement(fqcn, suite.get().name(), choice.neighbour(), plain(choice.reason()), null);
+        return new Placement(fqcn, suite.name(), choice.get().neighbour(), choice.get().reason(), null);
     }
 
     /**
@@ -483,10 +437,10 @@ public class SuiteFixService implements SnapshotCache {
             b.append(" `").append(shortSha(pushed)).append("` on your branch `").append(branch).append("` adds ")
                 .append(added == n ? n == 1 ? "it" : "them" : added + " of them")
                 .append(added == 1 ? " to a suite" : ", each to a suite")
-                .append(" Claude picked (`git pull` before your next push):");
+                .append(" (`git pull` before your next push):");
         }
         else if (commitFailure != null) {
-            b.append(" Claude picked suites, but the commit failed: ").append(commitFailure)
+            b.append(" Suites were picked, but the commit failed: ").append(commitFailure)
                 .append(". Nothing was pushed:");
         }
         else
@@ -497,7 +451,7 @@ public class SuiteFixService implements SnapshotCache {
             String cls = "`" + p.fqcn().substring(p.fqcn().lastIndexOf('.') + 1) + "`";
             if (p.added()) {
                 b.append("\n- ").append(cls).append(" → `").append(p.suite()).append("`, next to `")
-                    .append(p.neighbour()).append('`').append(p.reason().isEmpty() ? "" : ": " + p.reason());
+                    .append(p.neighbour()).append("`: ").append(p.reason()).append('.');
             }
             else
                 b.append("\n- ").append(cls).append(": not added, ").append(p.failure()).append('.');
@@ -541,25 +495,12 @@ public class SuiteFixService implements SnapshotCache {
     /** The commit's message: what was added where, for the branch's history. */
     static String commitMessage(String checked, List<Placement> placed) {
         StringBuilder b = new StringBuilder("Add test classes to suites (Ignite PR Checker)\n\nIgnite's abandoned-tests"
-            + " check on " + shortSha(checked) + " found them in no test suite; Claude picked the suites.\n");
+            + " check on " + shortSha(checked) + " found them in no test suite; each goes next to the class of its"
+            + " module nearest by package, then by name.\n");
         placed.stream().filter(Placement::added).forEach(p -> b.append("\n- ")
             .append(p.fqcn().substring(p.fqcn().lastIndexOf('.') + 1)).append(" -> ").append(p.suite()));
 
         return b.append('\n').toString();
-    }
-
-    /** Claude's text as one plain line: no markup, link, mention or command can come through. */
-    static String plain(String text) {
-        String flat = NOT_PLAIN.matcher(text == null ? "" : text).replaceAll(" ").replaceAll("\\s+", " ").strip();
-
-        return flat.length() > REASON_CHARS ? flat.substring(0, REASON_CHARS - 1).strip() + "…" : flat;
-    }
-
-    /** A name or path Claude gave, as code: only the characters of one, and not too long. */
-    static String named(String text) {
-        String kept = NOT_NAME.matcher(text == null ? "" : text).replaceAll("");
-
-        return "`" + (kept.length() > NAME_CHARS ? kept.substring(0, NAME_CHARS) + "…" : kept) + "`";
     }
 
     private static String shortSha(String sha) {
@@ -594,7 +535,7 @@ public class SuiteFixService implements SnapshotCache {
         pushes.set(s.pushed());
     }
 
-    /** A class's way into a suite: the suite's name, the neighbour and Claude's reason; or why it did not go in. */
+    /** A class's way into a suite: the suite's name, the neighbour and why that suite; or why it did not go in. */
     record Placement(String fqcn, String suite, String neighbour, String reason, String failure) {
         static Placement failed(String fqcn, String why) {
             return new Placement(fqcn, null, null, null, why);

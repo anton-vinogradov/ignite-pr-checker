@@ -117,10 +117,6 @@ final class TestSuites {
         String name() {
             return path.substring(path.lastIndexOf('/') + 1).replace(".java", "");
         }
-
-        boolean lists(String simpleName) {
-            return members.stream().anyMatch(m -> m.name().equals(simpleName));
-        }
     }
 
     /** A class a suite lists, by the name its file uses, and its full name; null when the file does not tell. */

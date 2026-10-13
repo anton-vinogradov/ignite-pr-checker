@@ -102,10 +102,8 @@ function configRows(d) {
         `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(v)}</span></div>`).join('');
 }
 
-// Adding PRs' tests to suites works only with the operator's Anthropic API key, so the card says when it is off.
 function suiteFixCard(f, ago) {
     if (!f) return '';
-    if (!f.available) return card('Suite fixes', 'off', 'no ANTHROPIC_API_KEY: the option is not offered');
     return card('Suite fixes', f.pushed ?? 0,
         `commits · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} · sweep ${ago(f.lastSweepAt)}`);
 }

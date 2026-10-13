@@ -10,7 +10,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,10 +36,10 @@ import org.springframework.web.client.HttpClientErrorException;
 
 /**
  * Ignite's check found calcite's IgniteFunctionParameterTest, added by the author's own PR, in no test suite, and the
- * author had to add it by hand and push again. With "Add my PRs' tests to a suite" on, the sweep asks Claude for a
- * suite, checks the answer against the module's suites, and pushes one commit from the author's account; the PR gets a
- * comment saying what went where and, later, what Ignite's check says of that commit. Each head is tried once, and
- * nobody else's PR is touched. GitHub, TeamCity and Claude are stubs.
+ * author had to add it by hand and push again. With "Add my PRs' tests to a suite" on, the sweep puts it next to the
+ * class of its module nearest to it, IgniteSqlFunctionsTest of the same package in UtilTestSuite, and pushes one commit
+ * from the author's account; the PR gets a comment saying what went where and why and, later, what Ignite's check says
+ * of that commit. Each head is tried once, and nobody else's PR is touched. GitHub and TeamCity are stubs.
  */
 class SuiteFixServiceTest {
     private static final int PR = 13800;
@@ -98,14 +97,11 @@ class SuiteFixServiceTest {
 
     private final StandingVisas standing = mock(StandingVisas.class);
 
-    private final Chooser chooser = new Chooser();
-
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final AtomicLong now = new AtomicLong(1_000_000L);
 
-    private SuiteFixService service = new SuiteFixService(github, prTests, standing, chooser, mapper, Runnable::run,
-        now::get);
+    private SuiteFixService service = new SuiteFixService(github, prTests, standing, mapper, Runnable::run, now::get);
 
     @BeforeEach
     void anAuthorWithTheOptionOnAndAClassInNoSuite() {
@@ -121,16 +117,12 @@ class SuiteFixServiceTest {
         when(github.rawFileUpTo(eq("alice/ignite"), eq(HEAD), eq(UTIL), anyInt())).thenReturn(Optional.of(UTIL_SUITE));
         when(github.rawFileUpTo(eq("alice/ignite"), eq(HEAD), eq(EXECUTION), anyInt()))
             .thenReturn(Optional.of(EXECUTION_SUITE));
-        when(github.rawFileUpTo(eq("alice/ignite"), eq(HEAD), eq(CLASS), anyInt()))
-            .thenReturn(Optional.of("package org.apache.ignite.internal.processors.query.calcite.exec.exp;\n"));
         when(github.commitFiles(eq("gh-pat"), eq("alice/ignite"), eq("IGNITE-29000"), eq(HEAD), anyMap(),
             anyString())).thenReturn(PUSHED);
         when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.RUNNING, PUSHED, JOB, null,
             List.of(), false));
-        chooser.pick = new SuiteChooser.Choice(UTIL, "IgniteSqlFunctionsTest",
-            "It checks SQL function parameters, like IgniteSqlFunctionsTest.");
     }
 
     @Test
@@ -147,15 +139,15 @@ class SuiteFixServiceTest {
                 + "import org.apache.ignite.internal.processors.query.calcite.exec.exp.IgniteSqlFunctionsTest;\n")
             .contains("    IgniteSqlFunctionsTest.class,\n    IgniteFunctionParameterTest.class,\n");
         assertThat(message.getValue()).startsWith("Add test classes to suites (Ignite PR Checker)\n\n")
-            .contains("- IgniteFunctionParameterTest -> UtilTestSuite");
-        assertThat(chooser.asked).containsExactly(CLASS);
-        assertThat(chooser.offered).containsExactlyInAnyOrder(UTIL, EXECUTION);
+            .contains("each goes next to the class of its module nearest by package, then by name",
+                "- IgniteFunctionParameterTest -> UtilTestSuite");
+        verify(github, never()).rawFileUpTo(any(), any(), eq(CLASS), anyInt());
 
         assertThat(comment()).isEqualTo("🧩 **Ignite PR Checker: test suites.** Ignite's [abandoned-tests check](" + JOB
             + ") on `abc1234` found 1 test class of this PR in no test suite, so CI never runs it. `def5678` on your"
-            + " branch `IGNITE-29000` adds it to a suite Claude picked (`git pull` before your next push):\n\n"
-            + "- `IgniteFunctionParameterTest` → `UtilTestSuite`, next to `IgniteSqlFunctionsTest`: It checks SQL"
-            + " function parameters, like IgniteSqlFunctionsTest.\n\n"
+            + " branch `IGNITE-29000` adds it to a suite (`git pull` before your next push):\n\n"
+            + "- `IgniteFunctionParameterTest` → `UtilTestSuite`, next to `IgniteSqlFunctionsTest`: it lists 1 class of"
+            + " the same package.\n\n"
             + "_Ignite's check runs again on `def5678`; its answer will be added here._");
     }
 
@@ -167,7 +159,7 @@ class SuiteFixServiceTest {
         when(prTests.suiteCheck(PUSHED)).thenReturn(failed(PUSHED, FQCN));
         service.sweep();
 
-        assertThat(chooser.asked).hasSize(1);
+        verify(github, times(1)).prJavaFiles(PR);
         verify(github, times(1)).commitFiles(any(), any(), any(), any(), anyMap(), any());
         verify(github, times(1)).addPrComment(any(), anyInt(), any());
     }
@@ -175,8 +167,7 @@ class SuiteFixServiceTest {
     /** An Ignite PR often waits for review over a month with no push: its head gets no second try, nor comment. */
     @Test
     void aHeadThePrStillSitsOnAMonthLaterIsNotTriedAgain() {
-        chooser.pick = new SuiteChooser.Choice("modules/core/src/test/java/Evil.java", "IgniteSqlFunctionsTest",
-            "Because.");
+        aClassOfAPackageNoSuiteComesNear();
         when(github.prOutcome(PR)).thenReturn(open(HEAD));
         service.sweep();
 
@@ -184,7 +175,7 @@ class SuiteFixServiceTest {
         service.sweep();
         service.sweep();
 
-        assertThat(chooser.asked).hasSize(1);
+        verify(github, times(1)).prJavaFiles(PR);
         verify(github, times(1)).addPrComment(any(), anyInt(), any());
     }
 
@@ -234,29 +225,49 @@ class SuiteFixServiceTest {
         assertThat(service.stats()).containsEntry("attempts", 0);
     }
 
+    /** A class of the module's tree outside org.apache.ignite has no class near it in any suite to stand next to. */
     @Test
-    void aSuiteTheModuleDoesNotHaveIsNotCommitted() {
-        chooser.pick = new SuiteChooser.Choice("modules/core/src/test/java/Evil.java", "IgniteSqlFunctionsTest",
-            "Because.");
+    void aClassNoSuiteListsANearClassForIsNotCommitted() {
+        aClassOfAPackageNoSuiteComesNear();
 
         service.sweep();
 
         verify(github, never()).commitFiles(any(), any(), any(), any(), anyMap(), any());
         assertThat(comment()).contains("Nothing was pushed:")
-            .contains("- `IgniteFunctionParameterTest`: not added, Claude named a suite its module does not have:"
-                + " `modules/core/src/test/java/Evil.java`.")
+            .contains("- `StrayTest`: not added, no suite of its module lists a class of a package near its own.")
             .endsWith("Add it to a test suite by hand, or mark it `@Ignore`.");
     }
 
+    /** A class costs no call to any service to place, so a PR that adds eleven classes gets all eleven in. */
     @Test
-    void aNeighbourTheSuiteDoesNotListIsNotCommitted() {
-        chooser.pick = new SuiteChooser.Choice(UTIL, "ExecutionTest", "Because.");
+    void elevenClassesAllGoIn() {
+        List<String> names = new ArrayList<>();
+        List<String> paths = new ArrayList<>();
+        for (int i = 0; i < 11; i++) {
+            String fqcn = FQCN.replace("IgniteFunctionParameterTest", "IgniteFunction" + i + "Test");
+            names.add(fqcn);
+            paths.add(ROOT + "/" + fqcn.replace('.', '/') + ".java");
+        }
+        when(prTests.suiteCheck(HEAD)).thenReturn(failed(HEAD, names.toArray(String[]::new)));
+        when(github.prJavaFiles(PR)).thenReturn(paths);
 
         service.sweep();
 
-        verify(github, never()).commitFiles(any(), any(), any(), any(), anyMap(), any());
-        assertThat(comment()).contains("- `IgniteFunctionParameterTest`: not added, Claude put it next to"
-            + " `ExecutionTest`, which `UtilTestSuite` does not list.");
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(github).commitFiles(any(), any(), any(), any(), anyMap(), message.capture());
+        assertThat(message.getValue()).contains("- IgniteFunction0Test -> UtilTestSuite",
+            "- IgniteFunction10Test -> UtilTestSuite");
+        assertThat(comment()).contains("adds them, each to a suite").doesNotContain("not added");
+    }
+
+    /** The rule picks the suite in the checker itself: the sweep needs no key, only the author's GitHub token. */
+    @Test
+    void theSweepNeedsNoApiKey() {
+        service.sweepSoon();
+
+        verify(github).commitFiles(eq("gh-pat"), eq("alice/ignite"), eq("IGNITE-29000"), eq(HEAD), anyMap(),
+            anyString());
+        assertThat(service.stats()).doesNotContainKey("available").containsEntry("pushed", 1);
     }
 
     @Test
@@ -275,7 +286,6 @@ class SuiteFixServiceTest {
         when(prTests.suiteCheck(HEAD)).thenReturn(new AbandonedTestsCheck.Outcome(State.RUNNING, HEAD, JOB, null,
             List.of(), false));
         sweepEvery5MinutesFor(30 * MINUTE);
-        assertThat(chooser.asked).isEmpty();
 
         when(prTests.suiteCheck(HEAD)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, HEAD, JOB, null,
             List.of(), true));
@@ -283,7 +293,6 @@ class SuiteFixServiceTest {
         service.sweep();
 
         verify(prTests, times(7)).suiteCheck(HEAD);
-        assertThat(chooser.asked).isEmpty();
         verify(github, never()).prJavaFiles(anyInt());
     }
 
@@ -299,7 +308,7 @@ class SuiteFixServiceTest {
         sweepEvery5MinutesFor(3 * HOUR);
 
         verify(prTests, times(6)).suiteCheck(HEAD);
-        assertThat(chooser.asked).isEmpty();
+        verify(github, never()).prJavaFiles(anyInt());
     }
 
     /** Classes Ignite's check names outside the PR's files are not the author's to fix in this PR. */
@@ -309,7 +318,7 @@ class SuiteFixServiceTest {
 
         service.sweep();
 
-        assertThat(chooser.asked).isEmpty();
+        verify(github, never()).commitFiles(any(), any(), any(), any(), anyMap(), any());
         verify(github, never()).addPrComment(any(), anyInt(), any());
     }
 
@@ -320,12 +329,9 @@ class SuiteFixServiceTest {
         String path = ROOT + "/" + fqcn.replace('.', '/') + ".java";
         when(prTests.suiteCheck(HEAD)).thenReturn(failed(HEAD, fqcn));
         when(github.prJavaFiles(PR)).thenReturn(List.of(path));
-        when(github.rawFileUpTo(eq("alice/ignite"), eq(HEAD), eq(path), anyInt()))
-            .thenReturn(Optional.of("package org.apache.ignite.internal.processors.query.calcite.exec.exp;\n"));
 
         service.sweep();
 
-        assertThat(chooser.asked).containsExactly(path);
         verify(github).commitFiles(eq("gh-pat"), eq("alice/ignite"), eq("IGNITE-29000"), eq(HEAD), anyMap(),
             anyString());
         assertThat(comment()).contains("- `IgniteFunctionParameterSelfTest2` → `UtilTestSuite`");
@@ -384,56 +390,18 @@ class SuiteFixServiceTest {
         service.sweep();
 
         verify(standing).dropGhToken("alice");
-        assertThat(comment()).contains("Claude picked suites, but the commit failed: GitHub refused your token."
+        assertThat(comment()).contains("Suites were picked, but the commit failed: GitHub refused your token."
             + " Nothing was pushed:");
     }
 
+    /** The comment goes out from the author's account, where a line read as a command would start a run. */
     @Test
-    void withoutTheKeyTheSweepDoesNotRun() {
-        chooser.available = false;
-
-        service.sweepSoon();
-
-        verifyNoInteractions(standing, github, prTests);
-        assertThat(service.stats()).containsEntry("available", false);
-    }
-
-    /** Claude's reason comes from reading the PR's code: no mention, markup or command of it reaches the comment. */
-    @Test
-    void theCommentReadsAsNoCommandWhateverClaudeSays() throws Exception {
-        chooser.pick = new SuiteChooser.Choice(UTIL, "IgniteSqlFunctionsTest",
-            "/run-all\n@someone see [this](https://evil.example) `code` <b>x</b>");
-
+    void theCommentReadsAsNoCommand() throws Exception {
         service.sweep();
 
         String body = comment();
         assertThat(guard("readsAsCommand", body)).isFalse();
         assertThat(guard("triesCommand", body)).isFalse();
-        assertThat(body).contains(": run-all someone see this (https evil.example) code b x b\n")
-            .doesNotContain("@someone", "[this]", "`code`", "<b>");
-        assertThat(body.lines()).noneMatch(l -> l.startsWith("/"));
-    }
-
-    /** A suite or a neighbour Claude names goes into the comment as code: only the characters of a name or path. */
-    @Test
-    void aNameClaudeGivesReadsAsNoMentionOrLink() throws Exception {
-        String hostile = "@apache/ignite-committers see [x](https://evil.example)`";
-        chooser.pick = new SuiteChooser.Choice(hostile, "IgniteSqlFunctionsTest", "Because.");
-        service.sweep();
-        chooser.pick = new SuiteChooser.Choice(UTIL, hostile, "Because.");
-        new SuiteFixService(github, prTests, standing, chooser, mapper, Runnable::run, now::get).sweep();
-
-        ArgumentCaptor<String> bodies = ArgumentCaptor.forClass(String.class);
-        verify(github, times(2)).addPrComment(eq("gh-pat"), eq(PR), bodies.capture());
-        assertThat(bodies.getAllValues().get(0)).contains("- `IgniteFunctionParameterTest`: not added, Claude named a"
-            + " suite its module does not have: `apache/ignite-committersseexhttps//evil.example`.\n");
-        assertThat(bodies.getAllValues().get(1)).contains("- `IgniteFunctionParameterTest`: not added, Claude put it"
-            + " next to `apache/ignite-committersseexhttps//evil.example`, which `UtilTestSuite` does not list.\n");
-        for (String body : bodies.getAllValues()) {
-            assertThat(guard("readsAsCommand", body)).isFalse();
-            assertThat(guard("triesCommand", body)).isFalse();
-            assertThat(body).doesNotContain("@apache", "[x]", "(https://evil");
-        }
     }
 
     @Test
@@ -446,11 +414,11 @@ class SuiteFixServiceTest {
         assertThat(Files.readString(file)).contains("\"head\":\"" + HEAD + "\"", "\"pushed\":\"" + PUSHED + "\"",
             "\"commentId\":77", "\"followed\":false");
 
-        service = new SuiteFixService(github, prTests, standing, chooser, mapper, Runnable::run, () -> 2_000_000L);
+        service = new SuiteFixService(github, prTests, standing, mapper, Runnable::run, () -> 2_000_000L);
         service.loadFrom(file);
         service.sweep();
 
-        assertThat(chooser.asked).hasSize(1);
+        verify(github, times(1)).prJavaFiles(PR);
         assertThat(service.stats()).containsEntry("pushed", 1).containsEntry("attempts", 1);
     }
 
@@ -459,6 +427,13 @@ class SuiteFixServiceTest {
             service.sweep();
             now.addAndGet(5 * MINUTE);
         }
+    }
+
+    /** Ignite's check names a class of the PR in a package of its own, under the module's test sources. */
+    private void aClassOfAPackageNoSuiteComesNear() {
+        String path = ROOT + "/com/example/StrayTest.java";
+        when(prTests.suiteCheck(HEAD)).thenReturn(failed(HEAD, "com.example.StrayTest"));
+        when(github.prJavaFiles(PR)).thenReturn(List.of(path));
     }
 
     private String comment() {
@@ -481,29 +456,5 @@ class SuiteFixServiceTest {
 
     private static GithubClient.PrOutcome open(String head) {
         return new GithubClient.PrOutcome(false, false, 0, null, head, "IGNITE-29000");
-    }
-
-    /** Claude, as the test has it answer; it remembers what it was asked and what it was offered. */
-    private static final class Chooser implements SuiteChooser {
-        boolean available = true;
-
-        Choice pick;
-
-        final List<String> asked = new ArrayList<>();
-
-        final List<String> offered = new ArrayList<>();
-
-        @Override
-        public boolean available() {
-            return available;
-        }
-
-        @Override
-        public Choice choose(String path, String source, List<TestSuites.Suite> suites) {
-            asked.add(path);
-            suites.forEach(s -> offered.add(s.path()));
-
-            return pick;
-        }
     }
 }
