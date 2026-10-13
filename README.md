@@ -123,8 +123,6 @@ settings by hand.
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
 | `GITHUB_TOKEN` | none | Token of the app account: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub is read at most 60 times an hour and nothing is posted under the checker's own account. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
-| `ANTHROPIC_API_KEY` | none | Anthropic API key. With it users may switch on **Add my PRs' tests to a suite**: Claude picks the suite for a test class of their PR that no suite runs. Without it the option is not offered, and the status page says so. |
-| `PRC_AI_MODEL` | `claude-opus-5-5` | The Claude model that picks the suite. |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
@@ -149,7 +147,6 @@ settings by hand.
 | `PRC_LOG_FILE` | none, console only; the unit sets `/opt/ignite-pr-checker/logs/ignite-pr-checker.log` | The service's own log: a file a day, 30 days, at most 500 MB of old files. |
 | `GITHUB_CACHE_SECONDS` | `300` | How long the list of open PRs is cached. |
 | `TEAMCITY_READ_TIMEOUT`, `GITHUB_READ_TIMEOUT`, `JIRA_READ_TIMEOUT` | `60s` | How long a call may wait without data. |
-| `AI_READ_TIMEOUT` | `120s` | How long a call to Claude may wait for its answer: it thinks before it answers. |
 | `GITHUB_API_URL` | `https://api.github.com` | For tests only. |
 | `PRC_JAVA` | set in the unit by `install.sh` | The java `run.sh` starts. |
 

@@ -149,19 +149,18 @@ class EffectiveConfigTest {
         assertThat(output.getOut()).contains("WARN").contains("config: GITHUB_REPO is empty; using apache/ignite");
     }
 
-    /** The Anthropic key, which adding PRs' tests to suites needs, shows only whether it is set. */
+    /**
+     * Adding PRs' tests to suites picks the suite by a rule, with no model. An env file written for the release that
+     * asked Claude still sets the Anthropic key and model: nothing reads them, and they are no config problem.
+     */
     @Test
-    void theAnthropicSettingsShowAsTheServiceReadsThem() throws IOException {
-        assertThat(config(INSTALLED).settings()).containsEntry("ANTHROPIC_API_KEY", "not set")
-            .containsEntry("PRC_AI_MODEL", "claude-opus-5-5").containsEntry("AI_READ_TIMEOUT", "120s");
-
+    void theAnthropicSettingsOfAnOlderEnvFileAreNotRead() throws IOException {
         Map<String, Object> vars = new HashMap<>(INSTALLED);
         vars.putAll(Map.of("ANTHROPIC_API_KEY", "sk-ant-n0tReallyAKey", "PRC_AI_MODEL", " ", "AI_READ_TIMEOUT", "300s"));
         EffectiveConfig config = config(vars);
 
-        assertThat(config.settings()).containsEntry("ANTHROPIC_API_KEY", "set")
-            .containsEntry("PRC_AI_MODEL", "claude-opus-5-5").containsEntry("AI_READ_TIMEOUT", "300s");
-        assertThat(config.problems()).containsExactly("PRC_AI_MODEL is empty; using claude-opus-5-5");
+        assertThat(config.settings()).doesNotContainKeys("ANTHROPIC_API_KEY", "PRC_AI_MODEL", "AI_READ_TIMEOUT");
+        assertThat(config.problems()).isEmpty();
         assertThat(config.line()).doesNotContain("sk-ant-n0tReallyAKey");
     }
 }

@@ -10,7 +10,6 @@ import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
-import com.github.igniteprchecker.config.AiProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -61,8 +60,6 @@ public class StandingVisas implements SnapshotCache {
     /** An IGNITE ticket key, in any case. Without the hyphen "from Ignite 3" would name ticket IGNITE-3. */
     private static final Pattern ISSUE = Pattern.compile("(?i)\\bIGNITE-\\d{4,}\\b");
     private static final Pattern PR_BRANCH = Pattern.compile("pull/(\\d+)/head");
-    private static final String SUITE_FIX_UNAVAILABLE = "this checker has no Anthropic API key, so it can't pick"
-        + " suites: ask its operator";
 
     private final ObjectMapper mapper;
     private final SessionCodec codec;
@@ -156,9 +153,6 @@ public class StandingVisas implements SnapshotCache {
     @Value("${automation.enabled:true}")
     private boolean automation = true;
 
-    /** Whether the operator gave an Anthropic API key: without it no suite is picked, and the option is not offered. */
-    private volatile boolean suiteFixAvailable;
-
     @Autowired
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
@@ -193,12 +187,6 @@ public class StandingVisas implements SnapshotCache {
 
             return t;
         });
-    }
-
-    /** Offers adding tests to suites when the operator gave the Anthropic API key. */
-    @Autowired(required = false)
-    public void setAi(AiProperties ai) {
-        suiteFixAvailable = ai != null && ai.available();
     }
 
     /**
@@ -241,9 +229,6 @@ public class StandingVisas implements SnapshotCache {
      */
     public Optional<Refusal> change(String username, String tcToken, String sessionJira, String sessionGh,
         OptionChange change) {
-        if (Boolean.TRUE.equals(change.suites()) && !suiteFixAvailable)
-            return Optional.of(new Refusal(null, SUITE_FIX_UNAVAILABLE));
-
         Enrollment prev = enrolled.get(username);
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
         if (!after.any()) {
@@ -333,15 +318,14 @@ public class StandingVisas implements SnapshotCache {
     public Settings settings(String username) {
         Enrollment e = enrolled.get(username);
         if (e == null) {
-            return new Settings(false, false, false, false, false, null, false, false, false, false, false, false,
-                suiteFixAvailable);
+            return new Settings(false, false, false, false, false, null, false, false, false, false, false, false);
         }
 
         Options o = e.options();
 
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
-            e.tc().rejected(), o.suiteFix(), suiteFixAvailable);
+            e.tc().rejected(), o.suiteFix());
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -355,25 +339,24 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, or the GitHub
-     * "login"; null when nothing the user can give would do) and what is wrong.
+     * "login") and what is wrong.
      */
     public record Refusal(String need, String error) {
     }
 
     /**
      * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
-     * so the options run whether or not this browser's session carries it. {@code suitesAvailable}: the checker
-     * has the Anthropic API key that adding tests to suites takes.
+     * so the options run whether or not this browser's session carries it.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
-        boolean tcTokenRejected, boolean suites, boolean suitesAvailable) {
-        /** The settings of a user who does not add tests to suites, on a checker without the key. */
+        boolean tcTokenRejected, boolean suites) {
+        /** The settings of a user who does not add tests to suites. */
         public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
             boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
             boolean tcTokenRejected) {
             this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
-                tcTokenRejected, false, false);
+                tcTokenRejected, false);
         }
     }
 

@@ -10,7 +10,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
-import com.github.igniteprchecker.config.AiProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -26,7 +25,7 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * "Add my PRs' tests to a suite" is a standing option like the checkstyle autofix: it commits with the author's
  * GitHub token, finds the author's PRs by the GitHub login, and lives in standing-visas.json. A snapshot written
- * before it reads back with it off; without the operator's Anthropic API key it is refused and shown unavailable.
+ * before it reads back with it off. The suite is picked by a rule in the checker, so the token is all it takes.
  */
 class SuiteFixOptionTest {
     private static final String FIXTURE = "/snapshots/standing-visas-v1.20.11.json";
@@ -38,19 +37,7 @@ class SuiteFixOptionTest {
     private final StandingVisas standing = standing();
 
     @Test
-    void withoutTheKeyItIsRefusedAndShownUnavailable() {
-        Optional<StandingVisas.Refusal> refused = standing.change("alice", "tc", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, null, null, null, true));
-
-        assertThat(refused).contains(new StandingVisas.Refusal(null,
-            "this checker has no Anthropic API key, so it can't pick suites: ask its operator"));
-        assertThat(standing.settings("alice").suitesAvailable()).isFalse();
-        assertThat(standing.enabled("alice")).isFalse();
-    }
-
-    @Test
     void itTakesTheGithubTokenAndTheLoginItProvesAndGivesTheTokenUpWhenOff() {
-        standing.setAi(new AiProperties("key"));
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("Alice-V"));
 
         assertThat(standing.change("alice", "tc", null, null, suites(true)))
@@ -59,7 +46,6 @@ class SuiteFixOptionTest {
 
         assertThat(standing.settings("alice")).satisfies(st -> {
             assertThat(st.suites()).isTrue();
-            assertThat(st.suitesAvailable()).isTrue();
             assertThat(st.ghStored()).isTrue();
             assertThat(st.login()).isEqualTo("Alice-V");
         });
@@ -77,7 +63,6 @@ class SuiteFixOptionTest {
 
     @Test
     void switchingItOffGivesTheGithubTokenUpWhileAutoRerunStaysOn() {
-        standing.setAi(new AiProperties("key"));
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("Alice-V"));
         standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
             true));
@@ -95,7 +80,6 @@ class SuiteFixOptionTest {
         try (InputStream in = getClass().getResourceAsStream(FIXTURE)) {
             Files.copy(in, file);
         }
-        standing.setAi(new AiProperties("key"));
         standing.loadFrom(file);
 
         assertThat(standing.change("avinogradov", "tc-avinogradov", null, null, suites(true))).isEmpty();
@@ -120,7 +104,6 @@ class SuiteFixOptionTest {
         avinogradov.put("ghComment", false).remove("ghLogin");
         Path file = dir.resolve("standing-visas.json");
         mapper.writeValue(file.toFile(), snapshot);
-        standing.setAi(new AiProperties("key"));
         standing.loadFrom(file);
         when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
 
@@ -134,7 +117,6 @@ class SuiteFixOptionTest {
 
     @Test
     void aTokenGithubRefusesSwitchesItOff() {
-        standing.setAi(new AiProperties("key"));
         when(github.ghUser(anyString())).thenReturn(Optional.of("Alice-V"));
         standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
             true));
@@ -151,7 +133,6 @@ class SuiteFixOptionTest {
         try (InputStream in = getClass().getResourceAsStream(FIXTURE)) {
             Files.copy(in, file);
         }
-        standing.setAi(new AiProperties("key"));
         standing.loadFrom(file);
 
         assertThat(standing.settings("avinogradov").suites()).isFalse();

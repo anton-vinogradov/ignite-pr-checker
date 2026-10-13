@@ -26,23 +26,30 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.suitefix.SuiteFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
- * Adding PRs' tests to suites works only with the operator's Anthropic API key. Without it the switch in ⚙ is greyed
- * out with a note saying why, the server refuses it with that reason rather than asking for a token, and the status
- * page says the option is off; with it, the switch works like the others.
+ * Adding PRs' tests to suites takes the user's GitHub token and nothing of the operator's: the suite is picked by a
+ * rule in the checker. The switch in ⚙ works like the others, the server takes it with the token, and the status page
+ * counts what the option did.
  */
 class SuiteFixSettingsTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private final GithubClient github = mock(GithubClient.class);
+
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), mock(TcClient.class),
-        mock(GithubClient.class), mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class),
+        github, mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class),
         mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
     private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
@@ -51,23 +58,22 @@ class SuiteFixSettingsTest {
         mock(PendingCommits.class), false);
 
     @Test
-    void withoutTheKeyTheServerRefusesItWithTheReason() {
+    void theServerTakesItWithTheGithubToken() {
+        when(github.ghUser("gh-pat")).thenReturn(Optional.of("alice-v"));
+
         ResponseEntity<?> res = controller.standingVisa(null, null, null, null, null, true, "tc", "alice", null,
             "gh-pat");
 
-        assertThat(res.getStatusCode().value()).isEqualTo(409);
-        assertThat(res.getBody()).isEqualTo(Map.of("error",
-            "this checker has no Anthropic API key, so it can't pick suites: ask its operator"));
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(mapper.convertValue(controller.standingVisaStatus("alice"), Map.class))
-            .containsEntry("suites", false).containsEntry("suitesAvailable", false);
+            .containsEntry("suites", true).containsEntry("ghStored", true).doesNotContainKey("suitesAvailable");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void theStatusPageGetsWhatTheOptionDoes() {
         SuiteFixService suiteFix = mock(SuiteFixService.class);
-        when(suiteFix.stats()).thenReturn(Map.of("available", false, "users", 0, "attempts", 0, "pushed", 0,
-            "lastSweepAt", 0L));
+        when(suiteFix.stats()).thenReturn(Map.of("users", 0, "attempts", 0, "pushed", 0, "lastSweepAt", 0L));
         Warmer warmer = mock(Warmer.class);
         StandingVisas standingMock = mock(StandingVisas.class);
         PrCommands commands = mock(PrCommands.class);
@@ -85,64 +91,52 @@ class SuiteFixSettingsTest {
     }
 
     @Test
-    void theStatusCardSaysWhenTheOptionIsOff() throws Exception {
+    void theStatusCardCountsWhatTheOptionDid() throws Exception {
         JsonNode cards = PageFunctions.run("status.js", """
             const ago = ms => ms ? '2m ago' : 'never';
-            out({ off: suiteFixCard({ available: false, users: 0, pushed: 0 }, ago),
-                on: suiteFixCard({ available: true, users: 2, pushed: 3, lastSweepAt: 1 }, ago),
+            out({ idle: suiteFixCard({ users: 0, attempts: 0, pushed: 0, lastSweepAt: 0 }, ago),
+                busy: suiteFixCard({ users: 2, attempts: 4, pushed: 3, lastSweepAt: 1 }, ago),
                 old: suiteFixCard(undefined, ago) });
             """, "card", "suiteFixCard");
 
-        assertThat(cards.get("off").asText()).contains("Suite fixes", ">off <small>no ANTHROPIC_API_KEY: the option"
-            + " is not offered</small>");
-        assertThat(cards.get("on").asText()).contains(">3 <small>commits · 2 users · sweep 2m ago</small>");
+        assertThat(cards.get("idle").asText()).contains("Suite fixes", ">0 <small>commits · 0 users · sweep never"
+            + "</small>");
+        assertThat(cards.get("busy").asText()).contains(">3 <small>commits · 2 users · sweep 2m ago</small>");
         assertThat(cards.get("old").asText()).isEmpty();
     }
 
     @Test
-    void withoutTheKeyTheSwitchIsGreyedOutAndSaysWhy() throws Exception {
-        JsonNode page = PageScript.run("index.html", PageScript.SIGNED_IN + settings(false) + """
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
-            await page.settle();
-            report({ disabled: page.el('suiteFixToggle').disabled,
-                noteShown: !page.el('suitesOff').classList.contains('hidden'),
-                note: page.el('suitesOff').textContent, styleDisabled: page.el('styleFixToggle').disabled });
-            """);
-
-        assertThat(page.get("disabled").asBoolean()).isTrue();
-        assertThat(page.get("noteShown").asBoolean()).isTrue();
-        assertThat(page.get("styleDisabled").asBoolean()).isFalse();
-    }
-
-    @Test
-    void withTheKeyTheSwitchPostsItsOwnFlagOnly() throws Exception {
-        JsonNode page = PageScript.run("index.html", PageScript.SIGNED_IN + settings(true) + """
+    void theSwitchPostsItsOwnFlagOnly() throws Exception {
+        JsonNode page = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            const SETTINGS = { visa: false, rerun: false, gh: false, style: true, commands: false, login: 'alice-v',
+                jiraStored: false, ghStored: true, jiraTokenRejected: false, ghTokenRejected: false,
+                tcTokenRejected: false, suites: false };
+            page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { suites: true }) }, 'POST');
             await page.load('?pr=13575');
             await page.el('settingsBtn').onclick();
             await page.settle();
-            const before = { disabled: page.el('suiteFixToggle').disabled,
-                noteShown: !page.el('suitesOff').classList.contains('hidden') };
+            const disabled = page.el('suiteFixToggle').disabled;
             page.el('suiteFixToggle').checked = true;
             await page.el('suiteFixToggle').onchange();
             await page.settle();
-            report({ before, posts: page.fetches('/api/auto-visa-all?').map(f => f.url),
+            report({ disabled, posts: page.fetches('/api/auto-visa-all?').map(f => f.url),
                 checked: page.el('suiteFixToggle').checked, msg: page.el('settingsMsg').textContent });
             """);
 
-        assertThat(page.at("/before/disabled").asBoolean()).isFalse();
-        assertThat(page.at("/before/noteShown").asBoolean()).isFalse();
+        assertThat(page.get("disabled").asBoolean()).isFalse();
         assertThat(page.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?suites=true\"]");
         assertThat(page.get("checked").asBoolean()).isTrue();
         assertThat(page.get("msg").asText()).isEqualTo("On: checkstyle autofix · tests to suites.");
     }
 
-    /** The settings the server answers: the checkstyle autofix on, on a stored GitHub token. */
-    private static String settings(boolean available) {
-        return "const SETTINGS = { visa: false, rerun: false, gh: false, style: true, commands: false, login: 'alice-v',"
-            + " jiraStored: false, ghStored: true, jiraTokenRejected: false, ghTokenRejected: false,"
-            + " tcTokenRejected: false, suites: false, suitesAvailable: " + available + " };\n"
-            + "page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');\n";
+    @Test
+    void theSwitchSaysHowTheSuiteIsPicked() throws IOException {
+        String html = Files.readString(Path.of("src/main/resources/static/index.html"), StandardCharsets.UTF_8);
+        String label = html.substring(html.indexOf("id=\"suiteFixToggle\""), html.indexOf("</label>",
+            html.indexOf("id=\"suiteFixToggle\""))).replaceAll("\\s+", " ");
+
+        assertThat(label).contains("next to the class of its module nearest to it (by package, then by name)")
+            .doesNotContain("Claude", "Anthropic");
     }
 }
