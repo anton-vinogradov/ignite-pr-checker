@@ -2208,8 +2208,8 @@ $('autoVisaBtn').onclick = armAutoVisa;
 
 // Settings ⚙: the panel shows what the server has and changes only the switch that was clicked.
 const OPTION_TOGGLES = { visa: 'standingVisaToggle', rerun: 'autoRerunToggle', gh: 'ghCommentToggle',
-    style: 'styleFixToggle', commands: 'commandsToggle' };
-const OPTION_NEEDS = { visa: 'jira', gh: 'github', style: 'github', commands: 'login' };
+    style: 'styleFixToggle', commands: 'commandsToggle', suites: 'suiteFixToggle' };
+const OPTION_NEEDS = { visa: 'jira', gh: 'github', style: 'github', commands: 'login', suites: 'github' };
 let standingSettings = null; // the server's last answer
 let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
 
@@ -2247,6 +2247,7 @@ function renderSettings(st) {
     $('visaSaved').classList.toggle('hidden', !(st.visa && st.jiraStored && !hasJira));
     $('ghSaved').classList.toggle('hidden', !(st.gh && st.ghStored && !hasGithub));
     $('styleSaved').classList.toggle('hidden', !(st.style && st.ghStored && !hasGithub));
+    renderSuiteFix(st);
     // A login that comes from the GitHub token is proven by it; a typed one could not replace it.
     const proven = !!(st.login && st.ghStored);
     $('ghLoginInput').value = st.login || '';
@@ -2255,6 +2256,13 @@ function renderSettings(st) {
     $('ghLoginMsg').textContent = proven ? 'from your GitHub token' : '';
     $('settingsLogin').classList.toggle('hidden', !st.commands && pendingOption !== 'commands');
     showTokenNotes(st);
+}
+
+// Adding tests to suites takes the operator's Anthropic API key: without it the switch can only go off.
+function renderSuiteFix(st) {
+    $('suiteFixToggle').disabled = !st.suitesAvailable && !st.suites;
+    $('suitesOff').classList.toggle('hidden', !!st.suitesAvailable);
+    $('suitesSaved').classList.toggle('hidden', !(st.suites && st.suitesAvailable && st.ghStored && !hasGithub));
 }
 
 // A token the service refused takes its options down with it, so the panel must show the
@@ -2319,13 +2327,15 @@ async function setOption(name, on) {
         }
         renderSettings(res);
         const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
-            res.style && 'checkstyle autofix', res.commands && 'PR commands'].filter(Boolean);
+            res.style && 'checkstyle autofix', res.commands && 'PR commands', res.suites && 'tests to suites']
+            .filter(Boolean);
         msg.textContent = active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.';
     } catch (e) {
         toggle.checked = !on;
         msg.textContent = 'could not reach the service — try again';
     } finally {
         toggle.disabled = false;
+        if (standingSettings) renderSuiteFix(standingSettings);
     }
 }
 for (const [name, id] of Object.entries(OPTION_TOGGLES)) $(id).onchange = () => setOption(name, $(id).checked);

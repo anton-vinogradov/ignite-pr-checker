@@ -85,6 +85,12 @@ SESSION_COOKIE_SECURE=true
 # no rights in apache/*. Without it nothing is posted under the checker's own account and GitHub is read at most 60
 # times an hour; what users who linked their own GitHub token post through the checker still goes out under their names.
 #GITHUB_TOKEN=
+# Anthropic API key. With it, users may switch on "Add my PRs' tests to a suite" in the settings: when Ignite's
+# abandoned-tests check finds a test class of their PR in no test suite, Claude picks a suite for it and a commit from
+# the user's own GitHub account adds it there. Without it that option is not offered.
+#ANTHROPIC_API_KEY=
+# The Claude model that picks the suite.
+#PRC_AI_MODEL=claude-opus-5-5
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
 # and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
 # 10 minutes and flush once per hour.

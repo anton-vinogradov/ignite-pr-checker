@@ -62,6 +62,15 @@ github:
   # Give up on a GitHub call that sends nothing for this long.
   read-timeout: 60s
 
+ai:
+  # Anthropic API key of the operator. With it, users may switch on "Add my PRs' tests to a suite" in ⚙: Claude picks
+  # the test suite for a test class of their PR that no suite runs. Empty: the option is not offered.
+  api-key: ${ANTHROPIC_API_KEY:}
+  # The Claude model that picks the suite. Override with PRC_AI_MODEL.
+  model: ${PRC_AI_MODEL:claude-opus-5-5}
+  # Give up on a Claude call that has not answered in this long: it thinks before it answers.
+  read-timeout: 120s
+
 jira:
   # The JIRA that visas go to. Override with JIRA_BASE_URL.
   base-url: ${JIRA_BASE_URL:https://issues.apache.org/jira}

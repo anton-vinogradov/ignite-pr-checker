@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.AiProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -27,6 +28,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,6 +61,8 @@ public class StandingVisas implements SnapshotCache {
     /** An IGNITE ticket key, in any case. Without the hyphen "from Ignite 3" would name ticket IGNITE-3. */
     private static final Pattern ISSUE = Pattern.compile("(?i)\\bIGNITE-\\d{4,}\\b");
     private static final Pattern PR_BRANCH = Pattern.compile("pull/(\\d+)/head");
+    private static final String SUITE_FIX_UNAVAILABLE = "this checker has no Anthropic API key, so it can't pick"
+        + " suites: ask its operator";
 
     private final ObjectMapper mapper;
     private final SessionCodec codec;
@@ -152,6 +156,9 @@ public class StandingVisas implements SnapshotCache {
     @Value("${automation.enabled:true}")
     private boolean automation = true;
 
+    /** Whether the operator gave an Anthropic API key: without it no suite is picked, and the option is not offered. */
+    private volatile boolean suiteFixAvailable;
+
     @Autowired
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
@@ -186,6 +193,12 @@ public class StandingVisas implements SnapshotCache {
 
             return t;
         });
+    }
+
+    /** Offers adding tests to suites when the operator gave the Anthropic API key. */
+    @Autowired(required = false)
+    public void setAi(AiProperties ai) {
+        suiteFixAvailable = ai != null && ai.available();
     }
 
     /**
@@ -228,6 +241,9 @@ public class StandingVisas implements SnapshotCache {
      */
     public Optional<Refusal> change(String username, String tcToken, String sessionJira, String sessionGh,
         OptionChange change) {
+        if (Boolean.TRUE.equals(change.suites()) && !suiteFixAvailable)
+            return Optional.of(new Refusal(null, SUITE_FIX_UNAVAILABLE));
+
         Enrollment prev = enrolled.get(username);
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
         if (!after.any()) {
@@ -272,7 +288,8 @@ public class StandingVisas implements SnapshotCache {
                     : "this option needs your GitHub token"));
             }
         }
-        else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style()))
+        else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style())
+            || Boolean.FALSE.equals(change.suites()))
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || prev.ghLogin() == null))
@@ -315,34 +332,49 @@ public class StandingVisas implements SnapshotCache {
     /** The options and the state of their tokens, as the settings panel shows them. */
     public Settings settings(String username) {
         Enrollment e = enrolled.get(username);
-        if (e == null)
-            return new Settings(false, false, false, false, false, null, false, false, false, false, false);
+        if (e == null) {
+            return new Settings(false, false, false, false, false, null, false, false, false, false, false, false,
+                suiteFixAvailable);
+        }
 
         Options o = e.options();
 
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
-            e.tc().rejected());
+            e.tc().rejected(), o.suiteFix(), suiteFixAvailable);
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
-    public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands) {
+    public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands,
+        Boolean suites) {
+        /** A change that leaves adding tests to suites as it is. */
+        public OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands) {
+            this(visa, rerun, gh, style, commands, null);
+        }
     }
 
     /**
      * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, or the GitHub
-     * "login") and what is wrong.
+     * "login"; null when nothing the user can give would do) and what is wrong.
      */
     public record Refusal(String need, String error) {
     }
 
     /**
      * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
-     * so the options run whether or not this browser's session carries it.
+     * so the options run whether or not this browser's session carries it. {@code suitesAvailable}: the checker
+     * has the Anthropic API key that adding tests to suites takes.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
-        boolean tcTokenRejected) {
+        boolean tcTokenRejected, boolean suites, boolean suitesAvailable) {
+        /** The settings of a user who does not add tests to suites, on a checker without the key. */
+        public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
+            boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
+            boolean tcTokenRejected) {
+            this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
+                tcTokenRejected, false, false);
+        }
     }
 
     /**
@@ -842,7 +874,7 @@ public class StandingVisas implements SnapshotCache {
                 return e;
 
             log.warn("options of {} switched off for want of a token: {}{}", u,
-                ghGone ? "GitHub comment/checkstyle autofix " : "", jiraGone ? "auto-visa" : "");
+                ghGone ? "GitHub comment/checkstyle autofix/suite fix " : "", jiraGone ? "auto-visa" : "");
 
             long now = System.currentTimeMillis();
             Enrollment next = e;
@@ -864,7 +896,8 @@ public class StandingVisas implements SnapshotCache {
     public void ensureGhLogins() {
         switchOffOptionsWithoutTokens();
         enrolled.forEach((u, e) -> {
-            String login = e.options().ghComment() && e.ghLogin() == null && e.gh().token() != null
+            String login = (e.options().ghComment() || e.options().suiteFix()) && e.ghLogin() == null
+                && e.gh().token() != null
                 ? decrypt(e.gh()).flatMap(github::ghUser).filter(l -> !heldByAnother(l, u)).orElse(null) : null;
             String tz = e.tz() == null && e.jira().token() != null
                 ? decrypt(e.jira()).flatMap(jira::myTimezone).orElse(null) : null;
@@ -883,6 +916,20 @@ public class StandingVisas implements SnapshotCache {
     /** Whether checkstyle autofix on own runs is on for the user. */
     public boolean styleFixOn(String username) {
         return options(username).styleFix();
+    }
+
+    /**
+     * The users who add their PRs' tests to suites, by GitHub login, with the GitHub token it commits with. Like the
+     * other options, it pauses while TeamCity refuses the user's token.
+     */
+    public Map<String, GhActor> suiteFixers() {
+        Map<String, GhActor> out = new LinkedHashMap<>();
+        enrolled.forEach((u, e) -> {
+            if (e.options().suiteFix() && e.ghLogin() != null && !e.tc().rejected() && !e.gh().rejected())
+                actorOf(u, e).filter(a -> a.ghToken() != null).ifPresent(a -> out.put(e.ghLogin(), a));
+        });
+
+        return out;
     }
 
     /** Whether GitHub PR comments are on for the user. */
@@ -2030,7 +2077,7 @@ public class StandingVisas implements SnapshotCache {
 
     /** A standing switch. */
     private enum Option {
-        VISA, RERUN, GH_COMMENT, STYLE_FIX, COMMANDS
+        VISA, RERUN, GH_COMMENT, STYLE_FIX, COMMANDS, SUITE_FIX
     }
 
     /** The standing switches that are on, independent of each other. */
@@ -2058,7 +2105,8 @@ public class StandingVisas implements SnapshotCache {
 
         Options apply(OptionChange c) {
             return with(Option.VISA, c.visa()).with(Option.RERUN, c.rerun()).with(Option.GH_COMMENT, c.gh())
-                .with(Option.STYLE_FIX, c.style()).with(Option.COMMANDS, c.commands());
+                .with(Option.STYLE_FIX, c.style()).with(Option.COMMANDS, c.commands())
+                .with(Option.SUITE_FIX, c.suites());
         }
 
         boolean autoVisa() {
@@ -2081,16 +2129,22 @@ public class StandingVisas implements SnapshotCache {
             return on.contains(Option.COMMANDS);
         }
 
+        boolean suiteFix() {
+            return on.contains(Option.SUITE_FIX);
+        }
+
         boolean any() {
             return !on.isEmpty();
         }
 
         /**
          * Whether an option that acts on finished runs was off in {@code before} and is on now. PR
-         * commands act on the commands only, so switching them on moves no cutoff.
+         * commands act on the commands only, and adding tests to suites on the PRs' heads, so switching
+         * them on moves no cutoff.
          */
         boolean switchedOnSince(Options before) {
-            return on.stream().anyMatch(o -> o != Option.COMMANDS && !before.on().contains(o));
+            return on.stream().anyMatch(o -> o != Option.COMMANDS && o != Option.SUITE_FIX
+                && !before.on().contains(o));
         }
 
         /** Whether an option acts on the user's finished runs, so the sweep has something to do for them. */
@@ -2102,13 +2156,13 @@ public class StandingVisas implements SnapshotCache {
             return on.equals(EnumSet.of(Option.COMMANDS));
         }
 
-        /** Both options that act from the user's GitHub account need the GitHub token. */
+        /** The options that act from the user's GitHub account need the GitHub token. */
         boolean needsGh() {
-            return ghComment() || styleFix();
+            return ghComment() || styleFix() || suiteFix();
         }
 
         Options withoutGh() {
-            return with(Option.GH_COMMENT, false).with(Option.STYLE_FIX, false);
+            return with(Option.GH_COMMENT, false).with(Option.STYLE_FIX, false).with(Option.SUITE_FIX, false);
         }
 
         Options withoutVisa() {
@@ -2406,7 +2460,8 @@ public class StandingVisas implements SnapshotCache {
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
-        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince) {
+        Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince,
+        Boolean suiteFix) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -2416,7 +2471,7 @@ public class StandingVisas implements SnapshotCache {
             return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
-                e.tc().rejectedAt(), o.commands(), since);
+                e.tc().rejectedAt(), o.commands(), since, o.suiteFix());
         }
 
         /**
@@ -2444,7 +2499,8 @@ public class StandingVisas implements SnapshotCache {
                 Options.NONE.with(Option.VISA, autoVisa == null || autoVisa).with(Option.RERUN, autoRerun)
                     .with(Option.GH_COMMENT, ghComment != null && ghComment)
                     .with(Option.STYLE_FIX, styleFix != null && styleFix)
-                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands), h,
+                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands)
+                    .with(Option.SUITE_FIX, suiteFix != null && suiteFix), h,
                 Collections.unmodifiableMap(since));
         }
     }

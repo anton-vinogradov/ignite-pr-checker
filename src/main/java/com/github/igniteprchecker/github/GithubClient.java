@@ -455,17 +455,82 @@ public class GithubClient implements SnapshotCache {
      * used to cut the request short.
      */
     private RestClient.RequestHeadersSpec<?> rawGet(String repo, String ref, String path) {
-        String encoded = Arrays.stream(path.split("/", -1))
-            .map(seg -> UriUtils.encodePathSegment(seg, StandardCharsets.UTF_8))
-            .collect(java.util.stream.Collectors.joining("/"));
         RestClient.RequestHeadersSpec<?> req = http.get()
-            .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/contents/" + encoded + "?ref="
-                + UriUtils.encodeQueryParam(ref, StandardCharsets.UTF_8)))
+            .uri(contentsUri(repo, ref, path))
             .header("Accept", "application/vnd.github.raw+json");
         if (props.token() != null && !props.token().isBlank())
             req = req.header("Authorization", "Bearer " + props.token());
 
         return req;
+    }
+
+    /** Where GitHub gives a file, or a directory's list, of a repo at a ref. */
+    private URI contentsUri(String repo, String ref, String path) {
+        String encoded = Arrays.stream(path.split("/", -1))
+            .map(seg -> UriUtils.encodePathSegment(seg, StandardCharsets.UTF_8))
+            .collect(java.util.stream.Collectors.joining("/"));
+
+        return URI.create(props.apiUrl() + "/repos/" + repo + "/contents/" + encoded + "?ref="
+            + UriUtils.encodeQueryParam(ref, StandardCharsets.UTF_8));
+    }
+
+    /**
+     * The files under directory {@code dir} of {@code repo} at {@code ref}, by path from the repo's root, with their
+     * sizes. Two calls: the parent directory, which names the directory's tree, and that tree.
+     */
+    public Tree filesUnder(String repo, String ref, String dir) {
+        int slash = dir.lastIndexOf('/');
+        String name = dir.substring(slash + 1);
+        List<?> entries = recorded("tree", () -> appGet(contentsUri(repo, ref,
+            slash < 0 ? "" : dir.substring(0, slash)).toString()).body(List.class));
+        Optional<String> sha = entries == null ? Optional.empty() : entries.stream()
+            .filter(e -> e instanceof Map<?, ?> m && name.equals(m.get("name")) && "dir".equals(m.get("type")))
+            .map(e -> String.valueOf(((Map<?, ?>)e).get("sha"))).findFirst();
+        if (sha.isEmpty())
+            return new Tree(List.of(), false);
+
+        GitTree tree = recorded("tree", () -> appGet(props.apiUrl() + "/repos/" + repo + "/git/trees/" + sha.get()
+            + "?recursive=1").body(GitTree.class));
+        if (tree == null || tree.tree() == null)
+            throw new IllegalStateException("GitHub sent no tree of " + dir);
+
+        return new Tree(tree.tree().stream().filter(e -> "blob".equals(e.type()))
+            .map(e -> new Tree.File(dir + "/" + e.path(), e.size() == null ? 0 : e.size())).toList(), tree.truncated());
+    }
+
+    /** Files of a directory, with their sizes in bytes. {@code truncated}: GitHub cut the list short. */
+    public record Tree(List<File> files, boolean truncated) {
+        /** A file by its path from the repo's root. */
+        public record File(String path, long size) {
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitTree(List<Entry> tree, boolean truncated) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Entry(String path, String type, Long size) {
+        }
+    }
+
+    /** The open PRs of a GitHub user in the repo, by number, up to 100: one search call. */
+    public List<Integer> openPrsBy(String login) {
+        if (login == null || !LOGIN.matcher(login).matches())
+            return List.of();
+
+        String q = UriUtils.encodeQueryParam("repo:" + props.repo() + " is:pr is:open author:" + login,
+            StandardCharsets.UTF_8);
+        Found found = recorded("prSearch", () -> appGet(props.apiUrl() + "/search/issues?q=" + q
+            + "&per_page=100").body(Found.class));
+
+        return found == null || found.items() == null ? List.of()
+            : found.items().stream().map(Found.Item::number).toList();
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Found(List<Item> items) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Item(int number) {
+        }
     }
 
     /**

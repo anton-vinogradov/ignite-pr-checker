@@ -10,6 +10,7 @@ import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.metrics.ProcessMemory;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
+import com.github.igniteprchecker.suitefix.SuiteFixService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -45,6 +47,10 @@ public class StatusController {
     private final AdminActions admin;
     private final CacheStore store;
     private final EffectiveConfig config;
+
+    /** Adding PRs' tests to suites; null for a status page without it. */
+    private final SuiteFixService suiteFix;
+
     private final String version;
 
     /** The commit the running jar was built from, null when the build did not know it. */
@@ -53,6 +59,7 @@ public class StatusController {
     /** Built from a tree with uncommitted changes: the commit alone does not tell the code. */
     private final boolean dirty;
 
+    /** A status page without adding PRs' tests to suites. */
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
         LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
         com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
@@ -60,6 +67,18 @@ public class StatusController {
         com.github.igniteprchecker.github.PrCommands commands,
         AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
         ObjectProvider<BuildProperties> buildProps) {
+        this(metrics, cache, warmer, github, logs, health, tracker, visaSubs, standing, commands, auth, admin, store,
+            config, buildProps, null);
+    }
+
+    @Autowired
+    public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
+        LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
+        com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
+        com.github.igniteprchecker.jira.StandingVisas standing,
+        com.github.igniteprchecker.github.PrCommands commands,
+        AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
+        ObjectProvider<BuildProperties> buildProps, SuiteFixService suiteFix) {
         this.metrics = metrics;
         this.cache = cache;
         this.warmer = warmer;
@@ -74,6 +93,7 @@ public class StatusController {
         this.admin = admin;
         this.store = store;
         this.config = config;
+        this.suiteFix = suiteFix;
         BuildProperties bp = buildProps.getIfAvailable();
         this.version = bp != null && bp.getVersion() != null ? bp.getVersion() : "dev";
         this.commit = bp != null ? bp.get("commit") : null;
@@ -154,6 +174,8 @@ public class StatusController {
         watcher.put("standingLastSweepMs", standing.lastSweepMs());
         watcher.put("prCommands", commands.handledCount());
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
+        if (suiteFix != null)
+            watcher.put("suiteFix", suiteFix.stats());
         out.put("watcher", watcher);
         out.put("app", app);
         out.put("persistence", viewer.isPresent() ? store.status() : store.summary());

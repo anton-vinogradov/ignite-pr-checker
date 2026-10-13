@@ -148,4 +148,20 @@ class EffectiveConfigTest {
         assertThat(config.problems()).containsExactly("GITHUB_REPO is empty; using apache/ignite");
         assertThat(output.getOut()).contains("WARN").contains("config: GITHUB_REPO is empty; using apache/ignite");
     }
+
+    /** The Anthropic key, which adding PRs' tests to suites needs, shows only whether it is set. */
+    @Test
+    void theAnthropicSettingsShowAsTheServiceReadsThem() throws IOException {
+        assertThat(config(INSTALLED).settings()).containsEntry("ANTHROPIC_API_KEY", "not set")
+            .containsEntry("PRC_AI_MODEL", "claude-opus-5-5").containsEntry("AI_READ_TIMEOUT", "120s");
+
+        Map<String, Object> vars = new HashMap<>(INSTALLED);
+        vars.putAll(Map.of("ANTHROPIC_API_KEY", "sk-ant-n0tReallyAKey", "PRC_AI_MODEL", " ", "AI_READ_TIMEOUT", "300s"));
+        EffectiveConfig config = config(vars);
+
+        assertThat(config.settings()).containsEntry("ANTHROPIC_API_KEY", "set")
+            .containsEntry("PRC_AI_MODEL", "claude-opus-5-5").containsEntry("AI_READ_TIMEOUT", "300s");
+        assertThat(config.problems()).containsExactly("PRC_AI_MODEL is empty; using claude-opus-5-5");
+        assertThat(config.line()).doesNotContain("sk-ant-n0tReallyAKey");
+    }
 }

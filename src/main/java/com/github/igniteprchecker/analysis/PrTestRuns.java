@@ -140,6 +140,11 @@ public class PrTestRuns {
         }
     }
 
+    /** What Ignite's abandoned-tests check says of commit {@code sha}, kept as for the PR's card. */
+    public AbandonedTestsCheck.Outcome suiteCheck(String sha) {
+        return suites.of(sha);
+    }
+
     /** Sweeps out expired answers and file lists (see TtlCache.evictExpired). */
     @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
     void evictExpired() {

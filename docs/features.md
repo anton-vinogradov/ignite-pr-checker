@@ -95,7 +95,7 @@ the visa.
 | `flaky?` | The test failed and then passed on the same code. | Look for a race or a timing problem. |
 | `1 run` | Only one failure on this branch backs the verdict. | **Rerun** the suite: it confirms or clears it. |
 | `new test / no master history` | Master has no runs of the test on this JDK to compare with: a new test, or one master does not run. | Make sure the test is stable. |
-| `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`. |
+| `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PRs' tests to a suite** in ⚙. |
 | `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
 | `⚖ assertion — likely a real logic failure` (in **why?**) | A failed check. | Fix the code. |
 | `♻ environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
@@ -266,6 +266,13 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
   same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
   not checked. It never touches anyone else's PR and never force-pushes.
+- **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes
+  of the PR in no test suite, Claude picks a suite of the class's module and a class that suite already runs, and one
+  commit from your account lists the new class next to it, with an import if needed. The model only chooses; the
+  checker checks that the suite and the neighbour exist and copies the neighbour's line, so nothing from the PR's code
+  is written into the suite. Once per head commit, on your own PRs only. A comment in the PR says what went where and
+  why, then what Ignite's check says of the commit. It uses the same GitHub token and needs an Anthropic API key on the
+  server; the class's source and the suites of its module go to Anthropic's API.
 - **A token that stops working.** When GitHub or JIRA refuses a stored token, the checker drops it and switches off
   the options that need it; the panel says which token to replace. When TeamCity refuses yours, your options pause
   until you log in with a fresh token; nobody else's stop.
