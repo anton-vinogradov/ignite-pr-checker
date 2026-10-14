@@ -2327,9 +2327,18 @@ async function askForToken(need, option) {
     }
 }
 
+// The checkstyle autofix runs only from a PR command, so it goes on only with PR commands and off with them.
+const AUTOFIX_NEEDS_COMMANDS = 'Auto-fix checkstyle runs only from a PR command: switch on PR commands first.';
+
 async function setOption(name, on) {
     const toggle = $(OPTION_TOGGLES[name]), msg = $('settingsMsg');
     msg.textContent = '';
+    if (name === 'style' && on && !(standingSettings || {}).commands) {
+        toggle.checked = false;
+        msg.textContent = AUTOFIX_NEEDS_COMMANDS;
+        return;
+    }
+    const before = standingSettings || {};
     const need = OPTION_NEEDS[name];
     if (on && need && !tokenAvailable(need)) {
         toggle.checked = false;
@@ -2340,6 +2349,11 @@ async function setOption(name, on) {
         const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
+        if (r.status === 412 && res.need === 'commands') {
+            toggle.checked = !on;
+            msg.textContent = AUTOFIX_NEEDS_COMMANDS;
+            return;
+        }
         if (r.status === 412) {
             toggle.checked = !on;
             if (res.need === 'github') hasGithub = false;
@@ -2356,7 +2370,9 @@ async function setOption(name, on) {
         const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
             res.style && 'checkstyle autofix', res.commands && 'PR commands', res.suites && 'tests to suites']
             .filter(Boolean);
-        msg.textContent = active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.';
+        msg.textContent = (active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.')
+            + (before.style && !res.style && name === 'commands'
+                ? ' Auto-fix checkstyle went off with PR commands: it runs only from a command.' : '');
     } catch (e) {
         toggle.checked = !on;
         msg.textContent = 'could not reach the service — try again';

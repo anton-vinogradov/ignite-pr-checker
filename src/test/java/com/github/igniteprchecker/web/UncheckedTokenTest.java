@@ -77,7 +77,7 @@ class UncheckedTokenTest {
     @Test
     void aStoredTokenServesWhileGithubCannotCheckANewOne() {
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
-        controller.standingVisa(null, null, true, null, null, null, "tc", USER, null, "gh-pat");
+        controller.standingVisa(null, null, true, null, true, null, "tc", USER, null, "gh-pat");
         when(github.ghUser("new-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
 
         ResponseEntity<?> res = controller.standingVisa(null, null, null, true, null, null, "tc", USER, null,

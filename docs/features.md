@@ -267,7 +267,8 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
   the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
   same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
-  not checked. It never touches anyone else's PR and never force-pushes.
+  not checked. It never touches anyone else's PR and never force-pushes. It runs only from a command, so it switches
+  on only with **PR commands** on and goes off with them.
 - **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes of
   the PR in no test suite, each goes next to the class of its module nearest to it: a class of the same package first,
   else one of the longest package in common, then the longest start of the name in common; when several suites list a

@@ -93,7 +93,10 @@ class SuiteFixOptionTest {
             });
     }
 
-    /** The checkstyle autofix stored the GitHub token without a login; the PRs this option fixes are found by it. */
+    /**
+     * The checkstyle autofix, with PR commands, stored the GitHub token without a login; the PRs this option fixes are
+     * found by it.
+     */
     @Test
     void aLoginTheTokenWasStoredWithoutIsFilledIn(@TempDir Path dir) throws Exception {
         ObjectNode snapshot;
@@ -101,7 +104,7 @@ class SuiteFixOptionTest {
             snapshot = (ObjectNode)mapper.readTree(in);
         }
         ObjectNode avinogradov = (ObjectNode)snapshot.at("/enrollments/0");
-        avinogradov.put("ghComment", false).remove("ghLogin");
+        avinogradov.put("ghComment", false).put("commands", true).remove("ghLogin");
         Path file = dir.resolve("standing-visas.json");
         mapper.writeValue(file.toFile(), snapshot);
         standing.loadFrom(file);
