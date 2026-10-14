@@ -9,8 +9,6 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -50,7 +48,8 @@ import org.springframework.web.client.RestClient;
 /**
  * GitHub answers 403 to a secondary rate limit too, and the checker took any 403 for a revoked token: a working PAT
  * was dropped, three options went off and the author read "GitHub rejected your personal access token". A token
- * saved while GitHub was down was "rejected" as well. Only GitHub's 401 says the token is dead now.
+ * saved while GitHub was down was "rejected" as well. Only GitHub's 401 to a call made with the token says it is dead
+ * now, and what the checker's own account is refused says nothing of it.
  */
 class PatRefusalRuleTest {
     private static final int PR = 13800;
@@ -89,7 +88,7 @@ class PatRefusalRuleTest {
         }
         """;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -102,27 +101,31 @@ class PatRefusalRuleTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat",
-            new StandingVisas.OptionChange(false, false, true, false, true));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
+            null)));
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
+        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, true, true));
     }
 
+    /** The checker's account is refused the story of a /run-all, rate-limited or not: the author's token stays. */
     @Test
-    void aRateLimitedEditKeepsTheToken() {
+    void aRefusedWriteOfTheCheckersAccountKeepsTheAuthorsToken() {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
             GhUsers.of("Author"))));
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(CHAIN, null, "queued", "pull/13800/head",
             null, null, null, null, null, null, null, null, null, null, null, null, null, null));
-        doThrow(RATE_LIMITED).when(github).updatePrComment(eq("gh-pat"), eq(1L), anyString());
+        doThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED)).when(github)
+            .appReact(anyInt(), any(), eq(1L), anyString());
+        doThrow(RATE_LIMITED).when(github).appComment(anyInt(), any(), anyString());
 
         new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"))
             .poll();
 
         assertThat(standing.ghTokenRejected("author")).isFalse();
-        assertThat(standing.ghOn("author")).isTrue();
-        verify(github, never()).addPrCommentAsAppWithId(anyInt(), contains("GitHub rejected your personal access"));
+        assertThat(standing.styleFixOn("author")).isTrue();
+        assertThat(standing.actor("author")).hasValueSatisfying(a -> assertThat(a.ghToken()).isEqualTo("gh-pat"));
     }
 
     @Test
@@ -167,5 +170,34 @@ class PatRefusalRuleTest {
         assertThat(standing.ghTokenRejected("author")).isTrue();
         assertThat(refused).isEqualTo("🎨 _Checkstyle autofix: GitHub refused your token, so the fix was not pushed —"
             + " running as-is._");
+    }
+
+    /**
+     * A fine-grained token for the author's fork gets 403 on a PR from another repo, which read "Checkstyle autofix
+     * failed (Forbidden)": the note says why now, and the token, good for the fork, stays.
+     */
+    @Test
+    void theAutofixSaysWhenTheTokenMayNotPushThere() {
+        StyleFixService styleFix = new StyleFixService(github, new CheckstyleRunner(github,
+            new GithubProperties("apache/ignite", null, null)), standing);
+        StandingVisas.GhActor author = standing.actor("author").orElseThrow();
+        when(github.rawFile(anyString(), anyString(), eq("checkstyle/checkstyle.xml"))).thenReturn(CHECKSTYLE);
+        when(github.rawFile(anyString(), anyString(), contains("suppressions"))).thenReturn(SUPPRESSIONS);
+        when(github.prHead(PR))
+            .thenReturn(new GithubClient.PrHead("Author", "author/ignite", "ignite-28867", "f195e0c"));
+        when(github.prJavaFiles(PR)).thenReturn(List.of(PATH));
+        when(github.rawFileUpTo("author/ignite", "f195e0c", PATH, CheckstyleRunner.MAX_FILE_BYTES))
+            .thenReturn(Optional.of(MODIFIERS_OUT_OF_ORDER));
+        when(github.commitFiles(eq("gh-pat"), anyString(), anyString(), anyString(), any(), anyString()))
+            .thenThrow(HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY,
+                "{\"message\":\"Resource not accessible by personal access token\"}".getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8));
+
+        String note = styleFix.fixForCommand(PR, author, "Author");
+
+        assertThat(note).isEqualTo("🎨 _Checkstyle autofix: your GitHub token may not push to `author/ignite`, so the"
+            + " fix was not pushed — running as-is. A fine-grained token reaches only the repositories it was given; a"
+            + " PR from a branch of the repo itself or of someone else's fork needs a classic one with public_repo._");
+        assertThat(standing.ghTokenRejected("author")).isFalse();
     }
 }

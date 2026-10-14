@@ -6,12 +6,11 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * GitHub settings. {@code token} belongs to the checker's own GitHub account, the "app account": the PR list
- * and other reads go under it (5000 requests an hour instead of 60), and the checker writes as that account —
- * onboarding replies to PR commands, reactions, hints, and the run narration of users who saved no GitHub
- * token of their own. A classic token with the {@code public_repo} scope of a separate account without write
- * access to the repo; empty, the checker only reads, and such users' commands run with no reply. {@code
- * readTimeout} bounds how long a call may wait for GitHub to send anything. {@code apiUrl} is where the GitHub
- * API lives.
+ * and other reads go under it (5000 requests an hour instead of 60), and every comment, edit and reaction of the
+ * checker in a PR comes from that account, for every user alike. A classic token with the {@code public_repo} scope
+ * of a separate account without write access to the repo; empty, the checker only reads, and the options that write
+ * to GitHub are off. {@code readTimeout} bounds how long a call may wait for GitHub to send anything. {@code apiUrl}
+ * is where the GitHub API lives.
  */
 @ConfigurationProperties(prefix = "github")
 public record GithubProperties(String repo, String token, Integer cacheSeconds, Duration readTimeout, String apiUrl) {

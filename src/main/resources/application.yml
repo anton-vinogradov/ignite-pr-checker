@@ -53,9 +53,9 @@ github:
   # Repo whose open PRs populate the left-hand list.
   repo: ${GITHUB_REPO:apache/ignite}
   # Token of the checker's own GitHub account (classic, public_repo scope). Reads go under it (5000
-  # requests/hour instead of 60), and the checker writes as that account: onboarding replies to PR
-  # commands, reactions, hints and the run narration of users without their own GitHub token. Use a
-  # separate account without write access to the repo. Empty: read-only, and those commands get no reply.
+  # requests/hour instead of 60), and every comment, edit and reaction of the checker in a PR comes from
+  # that account. Use a separate account without write access to the repo. Empty: read-only, and the
+  # PR comment, PR commands, the checkstyle autofix and tests to suites are off.
   token: ${GITHUB_TOKEN:}
   # How long to cache the PR list. Longer = fewer GitHub calls (unauthenticated limit is 60/hour).
   cache-seconds: 300

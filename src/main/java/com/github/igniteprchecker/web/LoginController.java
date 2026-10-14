@@ -65,7 +65,7 @@ public class LoginController {
     }
 
     /** {@code admin}: whether this user may restart, update and flush (the page shows those buttons only then). */
-    public record UserResponse(String username, boolean jira, boolean github, boolean admin) {
+    public record UserResponse(String username, boolean jira, boolean admin) {
     }
 
     @PostMapping("/login")
@@ -108,19 +108,18 @@ public class LoginController {
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(session, issuedAt)).toString())
-            .body(new UserResponse(username.get(), session.jiraToken() != null, session.ghToken() != null,
-                admin.mayAdminister(username.get())));
+            .body(new UserResponse(username.get(), session.jiraToken() != null, admin.mayAdminister(username.get())));
     }
 
     /**
      * The session a login starts: a new TeamCity token replaces the one the browser's cookie carries for the same
-     * user, and the JIRA and GitHub tokens in it stay. Another user's cookie, or one a logout ended, gives nothing. The
+     * user, and the JIRA token in it stays. Another user's cookie, or one a logout ended, gives nothing. The
      * new cookie says it was issued before this check, so a logout the check misses ends it too.
      */
     private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
         return AuthInterceptor.cookie(http).flatMap(codec::decode)
             .filter(s -> username.equals(s.username()) && !users.ended(s))
-            .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token, null, null));
+            .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token, null));
     }
 
     private static ResponseEntity<?> rejected() {
@@ -176,8 +175,7 @@ public class LoginController {
         if (SessionCookies.due(s, checkedAt))
             ok.header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(s, checkedAt)).toString());
 
-        return ok.body(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null,
-            admin.mayAdminister(s.username())));
+        return ok.body(new UserResponse(s.username(), s.jiraToken() != null, admin.mayAdminister(s.username())));
     }
 
     private ResponseCookie sessionCookie(String value) {

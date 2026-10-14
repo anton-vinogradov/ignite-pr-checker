@@ -17,6 +17,7 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
@@ -46,7 +47,7 @@ class SecretRotationTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -131,13 +132,36 @@ class SecretRotationTest {
         assertThat(collapsed("README.md"))
             .doesNotContain("stay on but do nothing until their owner logs in again")
             .contains("drops all their options, the linked GitHub login included, if it cannot read their TeamCity "
-                + "token, or their JIRA token while auto-visa is on, or their GitHub token while the PR comment is "
-                + "on.");
+                + "token, or their JIRA token while auto-visa is on.");
         assertThat(collapsed("README.ru.md"))
             .doesNotContain("остаются включёнными, но ничего не делают")
             .contains("сбрасывает все его опции вместе с привязанным логином GitHub, если не может прочитать его "
-                + "токен TeamCity, или токен JIRA при включённой автовизе, или токен GitHub при включённом "
-                + "комментарии в PR.");
+                + "токен TeamCity или токен JIRA при включённой автовизе.");
+    }
+
+    /**
+     * The PR comment went out under the user's GitHub token, and an unreadable one dropped all their options. The
+     * checker's account posts it now: a GitHub token kept to commit with is no reason to drop the rest.
+     */
+    @Test
+    void anUnreadableGithubTokenDropsNothingAtTheNextFinishedRun(@TempDir Path dir) throws IOException {
+        StandingVisas before = standing("old-secret");
+        when(github.tokenOwner("dave-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("dave-gh"),
+            null)));
+        before.change("dave", "dave-tc", null, "dave-pat", new StandingVisas.OptionChange(false, true, true, null,
+            null, true));
+        Path file = dir.resolve("dave.json");
+        before.saveTo(file);
+        StandingVisas after = standing("new-secret");
+        after.loadFrom(file);
+        after.tcTokenAccepted("dave", "dave-tc");
+        finishedRunOf("dave");
+
+        after.sweep();
+
+        assertThat(after.enabled("dave")).isTrue();
+        assertThat(after.ghOn("dave")).isTrue();
+        assertThat(after.rerunOn("dave")).isTrue();
     }
 
     private StandingVisas standing(String secret) {

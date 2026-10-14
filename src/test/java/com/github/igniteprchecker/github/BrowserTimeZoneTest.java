@@ -2,6 +2,7 @@ package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,7 +54,7 @@ class BrowserTimeZoneTest {
         return Answers.RETURNS_DEFAULTS.answer(inv);
     }));
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -112,9 +113,9 @@ class BrowserTimeZoneTest {
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(queued);
         when(tc.getBuildState("tc", CHAIN)).thenReturn(queued);
         when(tc.chainRemainingSeconds(eq("tc"), eq(CHAIN), any())).thenReturn(3600L);
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
-        when(github.updatePrCommentAsApp(anyLong(), anyString())).thenReturn(true);
+        when(github.appEdit(anyInt(), any(), anyLong(), anyString())).thenReturn(true);
         PrCommands commands = new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class),
             mock(StyleFixService.class), mock(SuiteBaseline.class), "https://checker.example",
             new TeamcityProperties("https://ci2.example/"));
@@ -124,7 +125,7 @@ class BrowserTimeZoneTest {
 
         verify(tc).triggerRunAll("tc", PR, false);
         ArgumentCaptor<String> story = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrCommentAsApp(eq(77L), story.capture());
+        verify(github).appEdit(anyInt(), any(), eq(77L), story.capture());
 
         return story.getValue();
     }

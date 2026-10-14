@@ -44,8 +44,9 @@ import org.springframework.web.client.RestClientResponseException;
  * AbandonedTestsCheck}), and the author had to push again to fix it. Every 5 minutes the sweep looks at the open PRs
  * of these authors: when the check of a PR's head names classes of the PR's own files, each goes to the suite of the
  * class of its module nearest to it ({@link SuiteChooser}), and one commit from the author's account lists each next
- * to that class ({@link TestSuites}). A comment in the PR says what went where and why, and gets the answer
- * of Ignite's check of that commit once it is in. Each head commit gets one attempt, whatever came of it.
+ * to that class ({@link TestSuites}): the author's GitHub token makes that commit and nothing else. A comment of the
+ * checker's account in the PR says what went where and why, and gets the answer of Ignite's check of that commit once
+ * it is in. Each head commit gets one attempt, whatever came of it.
  */
 @Component
 public class SuiteFixService implements SnapshotCache {
@@ -264,7 +265,7 @@ public class SuiteFixService implements SnapshotCache {
         }
 
         Attempt started = new Attempt(pr, sha, clock.getAsLong(), actor.username(), null, null, null, List.of(),
-            false);
+            false, true);
         if (attempts.putIfAbsent(sha, started) != null)
             return;
 
@@ -291,25 +292,34 @@ public class SuiteFixService implements SnapshotCache {
                     pushed);
             }
             catch (RuntimeException e) {
-                commitFailure = why(e, actor);
+                commitFailure = why(e, actor, head.headRepo());
                 log.warn("PR {}: the commit adding tests to suites failed: {}", a.pr(), e.toString());
             }
         }
 
-        String report = report(check, head.headRef(), placed, pushed, commitFailure);
-        Long commentId = null;
-        try {
-            commentId = github.addPrComment(actor.ghToken(), a.pr(), report).id();
-        }
-        catch (RuntimeException e) {
-            why(e, actor);
-            log.warn("PR {}: the report on adding tests to suites was not posted: {}", a.pr(), e.toString());
-        }
-
+        String report = "@" + head.authorLogin() + " " + report(check, head.headRef(), placed, pushed, commitFailure);
+        Long commentId = post(a.pr(), a.user(), report);
         List<String> added = pushed == null ? List.of()
             : placed.stream().filter(Placement::added).map(Placement::fqcn).toList();
 
-        return new Attempt(a.pr(), a.head(), a.at(), a.user(), pushed, commentId, report, added, pushed == null);
+        return new Attempt(a.pr(), a.head(), a.at(), a.user(), pushed, commentId, report, added, pushed == null, true);
+    }
+
+    /**
+     * Posts the report from the checker's account, mentioning the author, who no longer posts it: its id, null when
+     * GitHub did not take it, and the next sweeps post it again.
+     */
+    private Long post(int pr, String user, String report) {
+        try {
+            GithubClient.PostedComment c = github.appComment(pr, user, report);
+
+            return c == null ? null : c.id();
+        }
+        catch (RuntimeException e) {
+            log.warn("PR {}: the report on adding tests to suites was not posted: {}", pr, e.toString());
+
+            return null;
+        }
     }
 
     /** One class into the suite {@link SuiteChooser} picks, in the edits of {@code module}; or why not. */
@@ -355,8 +365,8 @@ public class SuiteFixService implements SnapshotCache {
     }
 
     /**
-     * Posts again each report GitHub did not take, at the next sweeps while it is news: for FOLLOW_MS after its attempt.
-     * A refused token was dropped with the failure; one pasted since posts it.
+     * Posts again each report GitHub did not take, at the next sweeps while it is news: for FOLLOW_MS after its
+     * attempt.
      */
     private void postUnposted() {
         long now = clock.getAsLong();
@@ -364,25 +374,17 @@ public class SuiteFixService implements SnapshotCache {
             if (a.commentId() != null || a.report() == null || now - a.at() > FOLLOW_MS)
                 continue;
 
-            Optional<StandingVisas.GhActor> actor = authorWithToken(a);
-            if (actor.isEmpty())
-                continue;
-
-            try {
-                long id = github.addPrComment(actor.get().ghToken(), a.pr(), a.report()).id();
+            Long id = post(a.pr(), a.user(), a.report());
+            if (id != null) {
                 attempts.put(a.head(), a.postedAs(id));
                 log.info("PR {}: the report on adding tests to suites is posted now", a.pr());
-            }
-            catch (RuntimeException e) {
-                why(e, actor.get());
-                log.warn("PR {}: the report on adding tests to suites was not posted again: {}", a.pr(), e.toString());
             }
         }
     }
 
     /**
      * Edits the comment of each pushed attempt with what Ignite's check says of the commit, once it says it, or that it
-     * said nothing within FOLLOW_MS. An edit that did not go in, GitHub failing it or the token gone, is tried again at
+     * said nothing within FOLLOW_MS. An edit that did not go in, GitHub failing it or asking to wait, is tried again at
      * the next sweeps until FOLLOW_MS is over.
      */
     void followUp() {
@@ -395,16 +397,11 @@ public class SuiteFixService implements SnapshotCache {
             if (body.isEmpty())
                 continue;
 
-            Optional<StandingVisas.GhActor> actor = authorWithToken(a);
             boolean in = false;
             try {
-                if (actor.isPresent()) {
-                    github.updatePrComment(actor.get().ghToken(), a.commentId(), body.get());
-                    in = true;
-                }
+                in = github.appEdit(a.pr(), a.user(), a.commentId(), body.get());
             }
             catch (RuntimeException e) {
-                why(e, actor.get());
                 log.warn("PR {}: the report on adding tests to suites was not updated: {}", a.pr(), e.toString());
             }
             boolean over = now - a.at() > FOLLOW_MS;
@@ -431,11 +428,6 @@ public class SuiteFixService implements SnapshotCache {
             a.added())));
     }
 
-    /** The user the attempt acted for, while they have a GitHub token to post and edit its report with. */
-    private Optional<StandingVisas.GhActor> authorWithToken(Attempt a) {
-        return standing.actor(a.user()).filter(x -> x.ghToken() != null);
-    }
-
     /**
      * What Ignite's check says of commit {@code sha}, once that is final. A check that says nothing while not running,
      * no job or no log, is asked at every sweep for UNANSWERED_MS, then once in UNANSWERED_RETRY_MS.
@@ -455,8 +447,12 @@ public class SuiteFixService implements SnapshotCache {
         return check.settled() ? Optional.of(check) : Optional.empty();
     }
 
-    /** What went wrong with a GitHub call made with the author's token; a refused token is dropped, as elsewhere. */
-    private String why(RuntimeException e, StandingVisas.GhActor actor) {
+    /**
+     * What went wrong with the commit made with the author's token; a refused token is dropped, as elsewhere. A
+     * fine-grained token reaches only the repositories it was given: the branch of a PR from a branch of the repo
+     * itself, or from someone else's fork, is out of its reach.
+     */
+    private String why(RuntimeException e, StandingVisas.GhActor actor, String repo) {
         if (!(e instanceof RestClientResponseException rest))
             return "GitHub could not be reached";
 
@@ -466,6 +462,9 @@ public class SuiteFixService implements SnapshotCache {
 
             return "GitHub refused your token";
         }
+        if (code == 403 && !GithubClient.rateLimited(e) || code == 404)
+            return "your GitHub token may not push to `" + repo + "` (" + code + "): a fine-grained token reaches only"
+                + " the repositories it was given";
 
         return code == 422 ? "the branch moved on meanwhile, or GitHub refused the commit (422)"
             : "GitHub answered " + code;
@@ -580,8 +579,22 @@ public class SuiteFixService implements SnapshotCache {
 
         Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
         if (s.attempts() != null)
-            s.attempts().forEach(a -> attempts.put(a.head(), a));
+            s.attempts().forEach(a -> attempts.put(a.head(), ownReport(a)));
         pushes.set(s.pushed());
+    }
+
+    /**
+     * The attempt as the checker follows it: a report an earlier version posted with the author's token gets no
+     * answer of Ignite's check, since the checker edits only its own comments.
+     */
+    private static Attempt ownReport(Attempt a) {
+        if (a.app() || a.commentId() == null || a.followed())
+            return a;
+
+        log.info("PR {}: the report on adding tests to suites, comment {}, is not edited: it was posted with the "
+            + "author's own GitHub token, and the checker edits only its own comments", a.pr(), a.commentId());
+
+        return a.followedWith(a.report());
     }
 
     /** A class's way into a suite: the suite's name, the neighbour and why that suite; or why it did not go in. */
@@ -599,24 +612,25 @@ public class SuiteFixService implements SnapshotCache {
      * One head commit attempted: the PR, the user it acted for, the commit pushed (null when none), the comment (null
      * while GitHub has not taken it) and its text, the classes added, and whether the comment has the answer of
      * Ignite's check of the commit, or no longer waits for it. The text has the answer once it is known, also while
-     * the edit putting it in waits for another try. The field names are the file format.
+     * the edit putting it in waits for another try. {@code app}: the checker's account posts the report; earlier
+     * versions posted it with the author's token. The field names are the file format.
      */
     record Attempt(int pr, String head, long at, String user, String pushed, Long commentId, String report,
-        List<String> added, boolean followed) {
+        List<String> added, boolean followed, boolean app) {
         Attempt {
             added = added == null ? List.of() : List.copyOf(added);
         }
 
         Attempt postedAs(long id) {
-            return new Attempt(pr, head, at, user, pushed, id, report, added, followed);
+            return new Attempt(pr, head, at, user, pushed, id, report, added, followed, true);
         }
 
         Attempt answeredWith(String body) {
-            return new Attempt(pr, head, at, user, pushed, commentId, body, added, false);
+            return new Attempt(pr, head, at, user, pushed, commentId, body, added, false, app);
         }
 
         Attempt followedWith(String body) {
-            return new Attempt(pr, head, at, user, pushed, commentId, body, added, true);
+            return new Attempt(pr, head, at, user, pushed, commentId, body, added, true, app);
         }
     }
 

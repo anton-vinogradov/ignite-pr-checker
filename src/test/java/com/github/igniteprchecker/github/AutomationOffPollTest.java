@@ -31,7 +31,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class AutomationOffPollTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 

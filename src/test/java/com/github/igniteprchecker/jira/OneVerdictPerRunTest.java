@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -21,7 +22,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -52,7 +53,7 @@ class OneVerdictPerRunTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -71,11 +72,10 @@ class OneVerdictPerRunTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, ISSUE + " Hot reload of SSL certificates", null,
             null, null, null)));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
         when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString()))
             .thenReturn(new JiraClient.PostedComment("18000001", "https://issues.example/browse/" + ISSUE));
@@ -94,17 +94,17 @@ class OneVerdictPerRunTest {
         standing.sweep();
 
         verify(tc).triggerBuildReplacingQueued(eq("tc"), eq("Cache1"), eq(PR), anyBoolean(), anyString());
-        verify(github, never()).addPrComment(anyString(), anyInt(), anyString());
+        verify(github, never()).appComment(anyInt(), any(), anyString());
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
 
         when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict(RUN_ALL)));
         standing.sweep();
         standing.sweep();
 
-        verify(github, times(1)).addPrComment(eq("gh-pat"), eq(PR),
-            contains("Settled after 1 auto re-run wave(s): #1 — 1 blocker suite(s)."));
+        verify(github, times(1)).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave(s): #1 — 1"
+            + " blocker suite(s)."));
         verify(jira, times(1)).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains("*No blockers*"));
-        verify(github, never()).updatePrComment(anyString(), anyLong(), anyString());
+        verify(github, never()).appEdit(anyInt(), any(), anyLong(), anyString());
     }
 
     @Test
@@ -116,7 +116,7 @@ class OneVerdictPerRunTest {
         standing.sweep();
 
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
-        verify(github, never()).addPrComment(anyString(), anyInt(), anyString());
+        verify(github, never()).appComment(anyInt(), any(), anyString());
         assertThat(standing.buildHandled(USER, PR, RUN_ALL)).isFalse();
 
         when(tracker.newestChainUnderWay(PR)).thenReturn(0L);
@@ -174,12 +174,12 @@ class OneVerdictPerRunTest {
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), visa.capture());
         assertThat(visa.getValue()).contains("2 commit(s) pushed since this run")
             .contains("_Tested revision {{9f1c2e7}}; the PR head is now {{41b0d3a}}._");
-        verify(github).addPrComment(eq("gh-pat"), eq(PR),
-            contains("_Tested revision `9f1c2e7`; the PR head is now `41b0d3a`._"));
+        verify(github).appComment(eq(PR), any(), contains("_Tested revision `9f1c2e7`; the PR head is now"
+            + " `41b0d3a`._"));
     }
 
     private void options(boolean rerun) {
-        standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, rerun, true, false, null));
+        standing.change(USER, "tc", "jira-pat", null, new StandingVisas.OptionChange(true, rerun, true, false, null));
     }
 
     private void finished(long buildId) {

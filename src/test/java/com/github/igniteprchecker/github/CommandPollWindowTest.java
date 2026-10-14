@@ -47,7 +47,7 @@ import org.springframework.web.client.ResourceAccessException;
 class CommandPollWindowTest {
     private static final int PR = 13335;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 

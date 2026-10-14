@@ -3,6 +3,7 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,7 +20,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -56,7 +57,7 @@ class SweepAsksWhatFinishedTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -71,12 +72,11 @@ class SweepAsksWhatFinishedTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(github.openPrs()).thenReturn(List.of(pr(OWN), pr(OTHERS), pr(NO_RUN)));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, LAST_WEEK)));
         when(tc.findRunAllBuildForPr("tc", OTHERS)).thenReturn(Optional.of(chain(RUN_ALL + 1, "someone", LAST_WEEK)));
         when(tc.findRunAllBuildForPr("tc", NO_RUN)).thenReturn(Optional.empty());
-        standing.change(USER, "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, true, false, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(null, true, true, false, null));
     }
 
     @Test
@@ -154,7 +154,7 @@ class SweepAsksWhatFinishedTest {
             Optional.of(Set.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
-        when(github.addPrComment(eq("gh-pat"), eq(OWN), anyString()))
+        when(github.appComment(eq(OWN), anyString(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"),
                 new GithubClient.PostedComment(556L, "https://github.com/apache/ignite/pull/13335#c556"));
         standing.sweep();
@@ -169,7 +169,7 @@ class SweepAsksWhatFinishedTest {
         standing.sweep();
 
         verify(tc, times(3)).findRunAllBuildForPr("tc", OWN);
-        verify(github).updatePrComment(eq("gh-pat"), eq(555L), anyString());
+        verify(github).appEdit(anyInt(), anyString(), eq(555L), anyString());
     }
 
     /** TeamCity errors left part of the verdict unchecked: the next sweep tries it again, not the hourly pass. */
@@ -180,13 +180,13 @@ class SweepAsksWhatFinishedTest {
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
         when(analyzer.stillRetrying(any())).thenReturn(true, false);
-        when(github.addPrComment(eq("gh-pat"), eq(OWN), anyString())).thenReturn(comment());
+        when(github.appComment(eq(OWN), anyString(), anyString())).thenReturn(comment());
 
         standing.sweep();
         standing.sweep();
 
         verify(tc, times(2)).findRunAllBuildForPr("tc", OWN);
-        verify(github).addPrComment(eq("gh-pat"), eq(OWN), anyString());
+        verify(github).appComment(eq(OWN), anyString(), anyString());
     }
 
     /** Right after the chain finished, the analysis still named the run before it: the run waits for its own. */
@@ -198,13 +198,13 @@ class SweepAsksWhatFinishedTest {
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL - 900)),
             Optional.of(verdict(RUN_ALL)));
         when(analyzer.forceRefresh("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL - 900)));
-        when(github.addPrComment(eq("gh-pat"), eq(OWN), anyString())).thenReturn(comment());
+        when(github.appComment(eq(OWN), anyString(), anyString())).thenReturn(comment());
 
         standing.sweep();
         standing.sweep();
 
         verify(tc, times(2)).findRunAllBuildForPr("tc", OWN);
-        verify(github).addPrComment(eq("gh-pat"), eq(OWN), anyString());
+        verify(github).appComment(eq(OWN), anyString(), anyString());
     }
 
     /** The settle failed on a TeamCity error: the next sweep settles the run, not the hourly pass. */
@@ -215,13 +215,13 @@ class SweepAsksWhatFinishedTest {
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenThrow(new IllegalStateException("TeamCity answered 502"))
             .thenReturn(Optional.of(verdict(RUN_ALL)));
-        when(github.addPrComment(eq("gh-pat"), eq(OWN), anyString())).thenReturn(comment());
+        when(github.appComment(eq(OWN), anyString(), anyString())).thenReturn(comment());
 
         standing.sweep();
         standing.sweep();
 
         verify(tc, times(2)).findRunAllBuildForPr("tc", OWN);
-        verify(github).addPrComment(eq("gh-pat"), eq(OWN), anyString());
+        verify(github).appComment(eq(OWN), anyString(), anyString());
     }
 
     /**
@@ -235,19 +235,19 @@ class SweepAsksWhatFinishedTest {
         when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
         when(tc.findRunAllBuildForPr(anyString(), eq(OWN))).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
-        when(github.addPrComment(eq("gh-pat"), eq(OWN), anyString())).thenReturn(comment());
+        when(github.appComment(eq(OWN), anyString(), anyString())).thenReturn(comment());
 
         standing.sweep();
         standing.tcTokenAccepted(USER, "tc");
         standing.sweep();
 
         verify(tc, times(2)).findRunAllBuildForPr(anyString(), eq(OWN));
-        verify(github).addPrComment(eq("gh-pat"), eq(OWN), anyString());
+        verify(github).appComment(eq(OWN), anyString(), anyString());
     }
 
     /** Without re-runs no wave or decision keeps the PR waiting: only how its last settle ended does. */
     private void commentsOnly() {
-        standing.change(USER, "tc", null, "gh-pat", new StandingVisas.OptionChange(null, false, null, null, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(null, false, null, null, null));
     }
 
     private static GithubClient.PostedComment comment() {

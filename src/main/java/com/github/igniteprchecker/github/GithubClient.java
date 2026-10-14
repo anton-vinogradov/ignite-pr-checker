@@ -47,18 +47,33 @@ public class GithubClient implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(GithubClient.class);
 
     /**
-     * Validates a user's PAT: the GitHub account it belongs to, by login and id, when the token works; empty when
+     * Validates a user's token: the GitHub account it belongs to, by login and id, when the token works; empty when
      * GitHub refuses it. A token with no scopes or permissions at all works: GitHub names its owner to any token.
      * Throws when GitHub could not say: no answer, an outage, a rate limit.
      */
     public java.util.Optional<GhUser> ghIdentity(String pat) {
+        return tokenOwner(pat).map(TokenOwner::user);
+    }
+
+    /**
+     * Whose a user's token is, and its scopes, as {@link #ghIdentity} asks: GitHub names the scopes of a classic token
+     * with every answer, none of a fine-grained one.
+     */
+    public java.util.Optional<TokenOwner> tokenOwner(String pat) {
         try {
-            GhUser u = recordedAsUser("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
+            ResponseEntity<GhUser> answer = recordedAsUser("user", () -> http.get()
+                .uri(URI.create(props.apiUrl() + "/user"))
                 .header("Authorization", "Bearer " + pat)
                 .header("Accept", "application/vnd.github+json")
-                .retrieve().body(GhUser.class));
+                .retrieve().toEntity(GhUser.class));
+            GhUser u = answer.getBody();
+            if (u == null || u.login() == null)
+                return java.util.Optional.empty();
 
-            return java.util.Optional.ofNullable(u == null || u.login() == null ? null : u);
+            String scopes = answer.getHeaders().getFirst(AppAccountChecks.SCOPES);
+
+            return java.util.Optional.of(new TokenOwner(u, scopes == null ? null : Arrays.stream(scopes.split(","))
+                .map(String::strip).filter(x -> !x.isEmpty()).toList()));
         }
         catch (RuntimeException e) {
             if (refusesToken(e))
@@ -68,12 +83,21 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
+    /** The account a token belongs to, and the scopes of a classic token; null {@code scopes}: GitHub named none. */
+    public record TokenOwner(GhUser user, List<String> scopes) {
+    }
+
     /**
      * Whether GitHub refused the token of the failed call itself: 401, "Bad credentials". A 403 is a rate limit or a
      * resource the token may not touch, and says nothing of the token.
      */
     public static boolean refusesToken(Throwable e) {
         return e instanceof RestClientResponseException rest && rest.getStatusCode().value() == 401;
+    }
+
+    /** Whether GitHub refused the failed call for its rate limits: a 429, or a 403 that says so. */
+    public static boolean rateLimited(Throwable e) {
+        return e instanceof RestClientResponseException rest && AppWrites.waitUntil(rest, 0, 0) != null;
     }
 
     /**
@@ -92,59 +116,14 @@ public class GithubClient implements SnapshotCache {
     private static final java.util.regex.Pattern LOGIN =
         java.util.regex.Pattern.compile("[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}");
 
-    /** Posts a comment to the PR under the USER'S OWN PAT; its id (for later edits) and html url. */
-    public PostedComment addPrComment(String pat, int prNumber, String body) {
-        java.util.Map<?, ?> c = recordedAsUser("prComment", () -> http.post()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
-            .header("Authorization", "Bearer " + pat)
-            .header("Accept", "application/vnd.github+json")
-            .body(java.util.Map.of("body", body))
-            .retrieve().body(java.util.Map.class));
-
-        return c == null ? new PostedComment(0, "")
-            : new PostedComment(((Number)c.get("id")).longValue(), String.valueOf(c.get("html_url")));
-    }
-
     /**
-     * Posts a PR comment under the APP's own token ({@link #appAccount()}): the onboarding reply, a hint or an
-     * explanation to a commander. False when no app token.
+     * Posts a comment to the PR from the app account ({@link #appAccount()}), for {@code user}, whose writes it counts
+     * among (see {@link AppWrites}): its id, for later edits, and html url. Null without {@code GITHUB_TOKEN}. Throws
+     * {@link WriteDeferred} when the write is to wait, else GitHub's own refusal.
      */
-    public boolean addPrCommentAsApp(int prNumber, String body) {
-        if (props.token() == null || props.token().isBlank())
-            return false;
-
-        recorded("onboard", () -> http.post()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
-            .header("Authorization", "Bearer " + props.token())
-            .header("Accept", "application/vnd.github+json")
-            .body(java.util.Map.of("body", body))
-            .retrieve().body(java.util.Map.class));
-
-        return true;
-    }
-
-    /** Reacts to a comment from the app account ({@link #appAccount()}) — the ack for PAT-less commanders. */
-    public boolean reactToCommentAsApp(long commentId, String content) {
-        if (props.token() == null || props.token().isBlank())
-            return false;
-
-        recorded("react", () -> http.post()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
-            .header("Authorization", "Bearer " + props.token())
-            .header("Accept", "application/vnd.github+json")
-            .body(java.util.Map.of("content", content))
-            .retrieve().body(java.util.Map.class));
-
-        return true;
-    }
-
-    /** Posts a PR comment from the APP's account, returning its id/url — the PAT-less narration thread. */
-    public PostedComment addPrCommentAsAppWithId(int prNumber, String body) {
-        if (props.token() == null || props.token().isBlank())
-            return null;
-
-        java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
+    public PostedComment appComment(int pr, String user, String body) {
+        java.util.Map<?, ?> c = appWrite("prComment", pr, user, () -> http.post()
+            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + pr + "/comments"))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -154,20 +133,126 @@ public class GithubClient implements SnapshotCache {
             : new PostedComment(((Number)c.get("id")).longValue(), String.valueOf(c.get("html_url")));
     }
 
-    /** Edits the APP's own narration comment in place. False when no app token is configured. */
-    public boolean updatePrCommentAsApp(long commentId, String body) {
-        if (props.token() == null || props.token().isBlank())
-            return false;
+    /** Edits a comment of the app account in the PR, as {@link #appComment} posts one. False without the token. */
+    public boolean appEdit(int pr, String user, long commentId, String body) {
+        return appWrite("prCommentEdit", pr, user, () -> {
+            http.patch()
+                .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
+                .header("Authorization", "Bearer " + props.token())
+                .header("Accept", "application/vnd.github+json")
+                .body(java.util.Map.of("body", body))
+                .retrieve().toBodilessEntity();
 
-        recorded("prCommentEdit", () -> http.patch()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
-            .header("Authorization", "Bearer " + props.token())
-            .header("Accept", "application/vnd.github+json")
-            .body(java.util.Map.of("body", body))
-            .retrieve().body(java.util.Map.class));
-
-        return true;
+            return Boolean.TRUE;
+        }) != null;
     }
+
+    /** Reacts to a comment of the PR from the app account (content: rocket, confused, ...). False without the token. */
+    public boolean appReact(int pr, String user, long commentId, String content) {
+        return appWrite("react", pr, user, () -> {
+            http.post()
+                .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId
+                    + "/reactions"))
+                .header("Authorization", "Bearer " + props.token())
+                .header("Accept", "application/vnd.github+json")
+                .body(java.util.Map.of("content", content))
+                .retrieve().toBodilessEntity();
+
+            return Boolean.TRUE;
+        }) != null;
+    }
+
+    /**
+     * Deletes a comment of the app account in the PR. True when it is gone, also when GitHub had it no longer; false
+     * without the token.
+     */
+    public boolean appDelete(int pr, String user, long commentId) {
+        try {
+            return appWrite("prCommentDelete", pr, user, () -> {
+                http.delete()
+                    .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
+                    .header("Authorization", "Bearer " + props.token())
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve().toBodilessEntity();
+
+                return Boolean.TRUE;
+            }) != null;
+        }
+        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            return true;
+        }
+    }
+
+    /** Whether the checker has an account to write to GitHub with: {@code GITHUB_TOKEN} is set. */
+    public boolean writes() {
+        return props.token() != null && !props.token().isBlank();
+    }
+
+    /**
+     * Whether a write of the app account may go now: the token is set, GitHub has not refused it, and GitHub did not
+     * ask to wait. A cap of {@link AppWrites} may still defer it.
+     */
+    public boolean canWrite() {
+        return writes() && !appAccount.refused() && !appWrites.paused(System.currentTimeMillis());
+    }
+
+    /** What the status page and the service health show of the app account's writes. */
+    public WriteState writeState() {
+        return appWrites.state(System.currentTimeMillis());
+    }
+
+    /**
+     * A write of the app account, admitted by {@link AppWrites} and recorded like any app call. Null without the
+     * token. A refusal that asks to wait pauses the writes and comes back as {@link WriteDeferred}.
+     */
+    private <T> T appWrite(String category, int pr, String user, Supplier<T> call) {
+        if (!writes())
+            return null;
+
+        long now = System.currentTimeMillis();
+        appWrites.admit(pr, user, now);
+        appWrites.sent(pr, user, now);
+        try {
+            T result = recorded(category, call);
+            appWrites.worked();
+
+            return result;
+        }
+        catch (RestClientResponseException e) {
+            if (!appWrites.limited(e, System.currentTimeMillis()))
+                throw e;
+
+            log.warn("GitHub rate-limits the writes of the app account ({} on a {} call): they wait until {}",
+                e.getStatusCode().value(), category, java.time.Instant.ofEpochMilli(writeState().pausedUntil()));
+
+            throw new WriteDeferred("GitHub answered " + e.getStatusCode().value() + " to a " + category + " call");
+        }
+    }
+
+    /**
+     * A write of the app account that was not made now: GitHub asked to wait, or the writes to its PR or for its user
+     * reached their hourly cap. Nothing went to GitHub, or GitHub took nothing; the caller tries again later.
+     */
+    public static final class WriteDeferred extends RuntimeException {
+        public WriteDeferred(String why) {
+            super(why);
+        }
+    }
+
+    /**
+     * The app account's writes now: {@code pausedUntil}, the time GitHub asked them to wait until (epoch ms, 0 when it
+     * did not); what GitHub {@code refused} a write with last for another reason than its limits, and when, null since
+     * a write went in; who ran into a cap of writes in the last hour ("PR 13800", "user alice").
+     */
+    public record WriteState(long pausedUntil, String refused, long refusedAt, List<String> capped) {
+        /** What anyone may see: whether writes wait or fail and for which PRs, not GitHub's words or whose writes. */
+        public WriteState anonymous() {
+            return new WriteState(pausedUntil, null, refusedAt,
+                capped.stream().map(c -> c.startsWith("PR ") ? c : "a user").distinct().toList());
+        }
+    }
+
+    private final AppWrites appWrites = new AppWrites();
 
     /** The text of a comment of the repo; empty when GitHub has no such comment. */
     public java.util.Optional<String> commentBody(long commentId) {
@@ -638,16 +723,6 @@ public class GithubClient implements SnapshotCache {
     public record PrHead(String authorLogin, String headRepo, String headRef, String headSha) {
     }
 
-    /** Replaces the body of an existing comment — the verdict lives in ONE comment that updates. */
-    public void updatePrComment(String pat, long commentId, String body) {
-        recordedAsUser("prCommentEdit", () -> http.patch()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
-            .header("Authorization", "Bearer " + pat)
-            .header("Accept", "application/vnd.github+json")
-            .body(java.util.Map.of("body", body))
-            .retrieve().body(java.util.Map.class));
-    }
-
     public record PostedComment(long id, String htmlUrl) {
     }
 
@@ -698,16 +773,6 @@ public class GithubClient implements SnapshotCache {
 
     /** A minute of a busy repo is a few comments; ten full pages only follow a long outage. */
     private static final int COMMENT_PAGES = 10;
-
-    /** Reacts to an issue/PR comment under the USER'S OWN PAT (content: rocket, confused, ...). */
-    public void reactToComment(String pat, long commentId, String content) {
-        recordedAsUser("react", () -> http.post()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
-            .header("Authorization", "Bearer " + pat)
-            .header("Accept", "application/vnd.github+json")
-            .body(java.util.Map.of("content", content))
-            .retrieve().body(java.util.Map.class));
-    }
 
     /** One repo comment from the poll: {@code htmlUrl} tells a PR comment from a plain issue's. */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -868,10 +933,9 @@ public class GithubClient implements SnapshotCache {
     }
 
     /**
-     * The GitHub account the checker writes as, the one {@code GITHUB_TOKEN} belongs to: onboarding replies,
-     * reactions, hints and the run narration of users without a GitHub token of their own come from it.
-     * Checked once the service is up and every 6 hours; while GitHub could not say, asked again at most every 10
-     * minutes.
+     * The GitHub account the checker writes as, the one {@code GITHUB_TOKEN} belongs to: every comment, edit and
+     * reaction of the checker in the repo comes from it. Checked once the service is up and every 6 hours; while
+     * GitHub could not say, asked again at most every 10 minutes.
      */
     public AppAccount appAccount() {
         AppAccount known = appAccount;
@@ -903,9 +967,8 @@ public class GithubClient implements SnapshotCache {
         appAccountCheckedAt = System.currentTimeMillis();
         if (props.token() == null || props.token().isBlank()) {
             appAccount = new AppAccount(AppAccount.NONE, null, null);
-            log.info("no GITHUB_TOKEN: GitHub answers at most 60 calls an hour, which the PR command poll alone uses "
-                + "up while anyone has PR commands on, and nothing is written as the app account: commands of users "
-                + "without their own GitHub token get no reaction and no narration");
+            log.info("no GITHUB_TOKEN: GitHub answers at most 60 calls an hour, and the checker has no account to "
+                + "write with: the PR comment, PR commands, the checkstyle autofix and tests to suites are off");
 
             return;
         }
@@ -919,7 +982,7 @@ public class GithubClient implements SnapshotCache {
             appAccount = refusesToken(e)
                 ? new AppAccount(AppAccount.REFUSED, was.login(), was.canPush(), was.id(), List.of()) : stillKnown(was);
             log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", e.getStatusCode().value(),
-                refusesToken(e) ? "the token is refused, nothing is written as the app account" : "asked again later");
+                refusesToken(e) ? "the token is refused, the checker writes nothing to GitHub" : "asked again later");
 
             return;
         }
@@ -954,9 +1017,8 @@ public class GithubClient implements SnapshotCache {
     private static void logChecks(String login, List<AppAccount.Check> checks) {
         checks.stream().filter(c -> c.level().equals(AppAccount.Check.WARN) || c.level().equals(AppAccount.Check.ERROR))
             .forEach(c -> log.warn("GitHub app account @{}: {}", login, c.text()));
-        log.info("GitHub app account: @{} (GITHUB_TOKEN) writes the onboarding replies, reactions and narration of "
-            + "users without their own GitHub token; {}", login,
-            String.join("; ", checks.stream().map(AppAccount.Check::text).toList()));
+        log.info("GitHub app account: @{} (GITHUB_TOKEN) writes every comment, edit and reaction of the checker; {}",
+            login, String.join("; ", checks.stream().map(AppAccount.Check::text).toList()));
     }
 
     /** Whether the app account may push to {@code repo}; null when GitHub does not say. */
@@ -975,8 +1037,7 @@ public class GithubClient implements SnapshotCache {
 
     /**
      * GitHub refused the app token on a call after the startup check: an expired or revoked GITHUB_TOKEN would
-     * otherwise show as fine until the next restart, while every reply, reaction and narration of the app account
-     * fails.
+     * otherwise show as fine until the next restart, while every comment, edit and reaction of the checker fails.
      */
     private void appTokenRefused(String category) {
         if (props.token() == null || props.token().isBlank())
@@ -987,8 +1048,8 @@ public class GithubClient implements SnapshotCache {
             return;
 
         appAccount = new AppAccount(AppAccount.REFUSED, was.login(), was.canPush(), was.id(), List.of());
-        log.warn("GitHub refused GITHUB_TOKEN on a {} call: nothing is written as the app account until a call under "
-            + "it works again", category);
+        log.warn("GitHub refused GITHUB_TOKEN on a {} call: the checker writes nothing to GitHub until a call under it "
+            + "works again", category);
     }
 
     /** A call under the app token worked: if it was refused, GitHub is asked again whom it belongs to. */

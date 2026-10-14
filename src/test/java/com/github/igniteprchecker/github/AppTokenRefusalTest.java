@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -45,9 +46,9 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 /**
- * GITHUB_TOKEN was checked once, at startup: revoked or expired later, it failed every reply, reaction and narration
- * of the app account while the status page went on naming the account, and a refusal of the checker's own narration
- * edit dropped the GitHub token of the user whose run it told, with three of their options.
+ * GITHUB_TOKEN was checked once, at startup: revoked or expired later, it failed every comment, edit and reaction of
+ * the checker while the status page went on naming the account, and a refusal of the checker's own narration edit
+ * dropped the GitHub token of the user whose run it told, with three of their options.
  */
 class AppTokenRefusalTest {
     private static final int PR = 13800;
@@ -101,12 +102,12 @@ class AppTokenRefusalTest {
     }
 
     /**
-     * The commander had no GitHub token of their own when their /run-all went in, so the checker narrates it in a
-     * comment of its own; they saved one since, for the PR comment, and then GITHUB_TOKEN was revoked.
+     * The checker tells a /run-all in a comment of its own; the commander keeps a GitHub token for the checkstyle
+     * autofix, and then GITHUB_TOKEN was revoked.
      */
     @Test
     void theAppsRefusedEditKeepsTheCommandersToken() {
-        GithubClient github = mock(GithubClient.class);
+        GithubClient github = AppWriting.github();
         TcClient tc = mock(TcClient.class);
         StandingVisas standing = new StandingVisas(mapper,
             new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,
@@ -124,19 +125,20 @@ class AppTokenRefusalTest {
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(queued);
         when(tc.getBuildState("tc", CHAIN)).thenReturn(queued);
         when(tc.chainRemainingSeconds(eq("tc"), eq(CHAIN), any())).thenReturn(3600L);
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         commands.poll();
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, null, true, null, null));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
+            null)));
+        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, null, null, true, null));
         doThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED)).when(github)
-            .updatePrCommentAsApp(anyLong(), anyString());
+            .appEdit(anyInt(), any(), anyLong(), anyString());
 
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), anyString());
+        verify(github).appEdit(anyInt(), any(), eq(77L), anyString());
         assertThat(standing.ghTokenRejected("author")).isFalse();
-        assertThat(standing.ghOn("author")).isTrue();
+        assertThat(standing.styleFixOn("author")).isTrue();
     }
 
     private GithubClient client() {

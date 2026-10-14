@@ -3,8 +3,10 @@ package com.github.igniteprchecker.persist;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
+import com.fasterxml.jackson.core.JsonPointer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
@@ -42,10 +44,16 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
  * The state files on prod were written by v1.20.11, and no test read one: a renamed record field would have loaded
  * as empty without a word, and the next save would have written the loss to disk. Each sample of that release must
  * load and save back with nothing lost; a field added since may show up in what is saved. Unknown fields fail here,
- * though the app itself ignores them.
+ * though the app itself ignores them. What the checker no longer acts on is forgotten on purpose, and only that: the
+ * PR comments and run stories written with the user's own GitHub token, which the checker no longer writes with.
  */
 class ReleaseSnapshotsTest {
     private static final String RELEASE = "/snapshots/v1.20.11/";
+
+    /** Where each sample holds what this version forgets on purpose. */
+    private static final Map<String, List<String>> FORGOTTEN = Map.of(
+        "standing-visas.json", List.of("/enrollments/0/ghThreads"),
+        "pr-commands.json", List.of("/watching/13702"));
 
     private static final ObjectMapper MAPPER = Jackson2ObjectMapperBuilder.json().failOnUnknownProperties(true).build();
 
@@ -86,7 +94,12 @@ class ReleaseSnapshotsTest {
         cache.loadFrom(sample);
         cache.saveTo(saved);
 
-        assertThat(lost(MAPPER.readTree(sample.toFile()), MAPPER.readTree(saved.toFile()), "")).isEmpty();
+        JsonNode kept = MAPPER.readTree(sample.toFile());
+        for (String at : FORGOTTEN.getOrDefault(cache.fileName(), List.of())) {
+            JsonPointer field = JsonPointer.compile(at);
+            ((ObjectNode)kept.at(field.head())).remove(field.last().getMatchingProperty());
+        }
+        assertThat(lost(kept, MAPPER.readTree(saved.toFile()), "")).isEmpty();
     }
 
     @Test

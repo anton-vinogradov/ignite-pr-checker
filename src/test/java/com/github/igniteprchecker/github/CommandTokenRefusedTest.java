@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.github;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -43,7 +44,7 @@ import org.springframework.web.client.HttpClientErrorException;
 class CommandTokenRefusedTest {
     private static final int PR = 13335;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -73,8 +74,8 @@ class CommandTokenRefusedTest {
         commands.poll();
         commands.poll();
 
-        verify(github, times(1)).addPrCommentAsApp(eq(PR), contains("TeamCity no longer accepts the token"));
-        verify(github, times(2)).reactToCommentAsApp(anyLong(), eq("confused"));
+        verify(github, times(1)).appComment(eq(PR), any(), contains("TeamCity no longer accepts the token"));
+        verify(github, times(2)).appReact(anyInt(), any(), anyLong(), eq("confused"));
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
     }
 
@@ -90,8 +91,8 @@ class CommandTokenRefusedTest {
 
         restarted.poll();
 
-        verify(github, times(1)).addPrCommentAsApp(eq(PR), contains("TeamCity no longer accepts the token"));
-        verify(github, times(2)).reactToCommentAsApp(anyLong(), eq("confused"));
+        verify(github, times(1)).appComment(eq(PR), any(), contains("TeamCity no longer accepts the token"));
+        verify(github, times(2)).appReact(anyInt(), any(), anyLong(), eq("confused"));
     }
 
     private PrCommands commands() {

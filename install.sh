@@ -82,10 +82,10 @@ SERVER_ADDRESS=127.0.0.1
 # Send the session cookie over HTTPS only. false only for a test install reached over plain HTTP.
 SESSION_COOKIE_SECURE=true
 # Token of the GitHub account the checker acts as: it lists the PRs and reads their comments for /run-all commands,
-# and posts the replies, run narration and reactions. A classic token with the public_repo scope, of an account with
-# no rights in apache/*. Without it nothing is posted under the checker's own account, and GitHub answers the service
-# at most 60 calls an hour, which the PR command poll alone uses up while anyone has PR commands on; what users who
-# linked their own GitHub token post through the checker still goes out under their names.
+# and every comment, edit and reaction of the checker in a PR comes from it, for every user alike. A classic token
+# with the public_repo scope, of an account with no rights in apache/*. Without it GitHub answers the service at most
+# 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix
+# and tests to suites are off.
 #GITHUB_TOKEN=
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
 # and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per

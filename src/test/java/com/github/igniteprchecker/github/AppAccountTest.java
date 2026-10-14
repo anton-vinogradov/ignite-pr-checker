@@ -149,9 +149,10 @@ class AppAccountTest {
         GithubClient github = client(null);
 
         github.checkAppAccount();
-        github.updatePrCommentAsApp(77L, "@Author 🏁 _Run finished._");
+        github.appEdit(13800, "author", 77L, "@Author 🏁 _Run finished._");
 
         assertThat(github.appAccount().state()).isEqualTo("none");
+        assertThat(github.writes()).isFalse();
         server.verify();
     }
 

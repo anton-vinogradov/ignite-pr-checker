@@ -10,7 +10,6 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
-import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -55,13 +54,11 @@ class SessionLifetimeTest {
     private final LoginController login = new LoginController(null, codec, new SessionProperties(true, "test-secret"),
         warmer, users, null, new AdminActions(new AdminProperties(List.of()), mapper), null);
 
-    private final GithubClient github = mock(GithubClient.class);
-
     private final JiraClient jira = mock(JiraClient.class);
 
     private final JiraController tokens = new JiraController(jira, mock(TcClient.class), mock(BlockerAnalyzer.class),
-        codec, mock(VisaService.class), mock(VisaSubscriptions.class), mock(StandingVisas.class), github,
-        mock(PendingCommits.class), true);
+        codec, mock(VisaService.class), mock(VisaSubscriptions.class), mock(StandingVisas.class),
+        mock(GithubClient.class), mock(PendingCommits.class), true);
 
     @Test
     void aCookieInUseIsIssuedAgainBeforeTheBrowserDropsIt() throws Exception {
@@ -114,7 +111,7 @@ class SessionLifetimeTest {
 
     @Test
     void theLoginCookieAsksForWhatBrowsersKeep() {
-        String cookie = codec.encode(new SessionCodec.Session("alice", "alice-tc", null, null));
+        String cookie = codec.encode(new SessionCodec.Session("alice", "alice-tc", null));
 
         ResponseEntity<?> me = login.me(codec.encryptString("{\"username\":\"alice\",\"token\":\"alice-tc\"}"));
 
@@ -160,24 +157,10 @@ class SessionLifetimeTest {
     }
 
     /**
-     * Someone with a copy of alice's cookie pasted a GitHub token while alice logged out: the guard had let the copy
-     * through before the logout, and the cookie issued once GitHub answered was dated after it, so the logout did not
+     * Someone with a copy of alice's cookie pasted a JIRA token while alice logged out: the guard had let the copy
+     * through before the logout, and the cookie issued once JIRA answered was dated after it, so the logout did not
      * end it.
      */
-    @Test
-    void aCookieIssuedWithAGithubTokenWhileALogoutCameIsEndedByIt() throws Exception {
-        String copy = cookie("alice", System.currentTimeMillis() - DAY);
-        MockHttpServletRequest req = passed(copy);
-        when(github.ghIdentity("mallory-gh")).thenAnswer(inv -> answerAfterLogout(copy, "mallory").map(GhUsers::of));
-
-        ResponseEntity<?> saved = tokens.saveGithubToken(new JiraController.TokenRequest("mallory-gh"),
-            (SessionCodec.Session)req.getAttribute(AuthInterceptor.SESSION_ATTR),
-            (Long)req.getAttribute(AuthInterceptor.CHECKED_AT_ATTR));
-
-        assertEnded(saved);
-    }
-
-    /** The same with a JIRA token. */
     @Test
     void aCookieIssuedWithAJiraTokenWhileALogoutCameIsEndedByIt() throws Exception {
         String copy = cookie("alice", System.currentTimeMillis() - DAY);
@@ -200,7 +183,7 @@ class SessionLifetimeTest {
         String copy = cookie("alice", System.currentTimeMillis() - DAY);
         login.logout(true, copy);
         Thread.sleep(5); // alice logs in again a moment later
-        String later = codec.encode(new SessionCodec.Session("alice", "alice-tc", null, null));
+        String later = codec.encode(new SessionCodec.Session("alice", "alice-tc", null));
 
         login.logout(true, copy);
 

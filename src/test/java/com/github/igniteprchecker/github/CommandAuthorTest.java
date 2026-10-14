@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -56,7 +57,7 @@ class CommandAuthorTest {
 
     private static final GithubClient.GhUser APP = new GithubClient.GhUser("ignite-pr-checker", 234567L);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -121,7 +122,7 @@ class CommandAuthorTest {
         command(new GithubClient.GhUser("anton-vinogradov", 98765432L));
 
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
-        verify(github).reactToCommentAsApp(1L, "confused");
+        verify(github).appReact(anyInt(), any(), eq(1L), eq("confused"));
     }
 
     @Test
@@ -219,6 +220,36 @@ class CommandAuthorTest {
         verify(github).ghIdentity("gh-avinogradov");
         assertThat(reloaded.settings("alice").loginUnproven()).isTrue();
         assertThat(reloaded.settings("avinogradov").loginUnproven()).isFalse();
+    }
+
+    /**
+     * A user of v1.27.0 with the PR comment on and PR commands off: the token kept with the login was dropped
+     * unasked, and the login stayed unproven for good, so the verdict comments of the checker's account never
+     * mentioned them.
+     */
+    @Test
+    void theLoginOfSomeoneWithoutPrCommandsIsProvenForTheMention() throws Exception {
+        ObjectNode snapshot = mapper.createObjectNode();
+        snapshot.putArray("enrollments").add(enrollment("olegvlsk", "oleg-vlsk", codec.encryptString("gh-olegvlsk"))
+            .put("commands", false));
+        Path file = dir.resolve("comment-only.json");
+        mapper.writeValue(file.toFile(), snapshot);
+        StandingVisas commentOnly = new StandingVisas(mapper, codec, tc, github, mock(BlockerAnalyzer.class),
+            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+            mock(PendingCommits.class));
+        commentOnly.loadFrom(file);
+
+        new PrCommands(mapper, github, commentOnly, tc, mock(RerunTracker.class), mock(StyleFixService.class),
+            mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"))
+            .poll();
+
+        assertThat(commentOnly.settings("olegvlsk")).satisfies(st -> {
+            assertThat(st.loginUnproven()).isFalse();
+            assertThat(st.ghStored()).as("nothing of theirs commits").isFalse();
+            assertThat(st.gh()).isTrue();
+            assertThat(st.commands()).isFalse();
+        });
+        verify(github, never()).recentIssueComments(anyString());
     }
 
     /** One comment of a fresh poll, by {@code author}. */

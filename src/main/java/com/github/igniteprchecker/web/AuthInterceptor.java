@@ -29,7 +29,6 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
     public static final String JIRA_ATTR = "jiraToken";
-    public static final String GH_ATTR = "ghToken";
 
     /** The whole session: what a re-issued cookie starts from, so the fields it does not change stay. */
     public static final String SESSION_ATTR = "session";
@@ -86,8 +85,6 @@ public class AuthInterceptor implements HandlerInterceptor {
         req.setAttribute(USER_ATTR, session.get().username());
         if (session.get().jiraToken() != null)
             req.setAttribute(JIRA_ATTR, session.get().jiraToken());
-        if (session.get().ghToken() != null)
-            req.setAttribute(GH_ATTR, session.get().ghToken());
         users.touch(session.get().username());
         warmer.offerToken(session.get().token());
         standing.tcTokenOffered(session.get().username(), session.get().token());

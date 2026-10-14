@@ -2,6 +2,7 @@ package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -44,7 +45,7 @@ class NarrationEditsTest {
 
     private static final long NARRATION = 77L;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -66,9 +67,9 @@ class NarrationEditsTest {
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
             GhUsers.of("Newcomer"))));
         when(tc.triggerRunAll("commands-tc", PR, false)).thenReturn(build("queued", null));
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(NARRATION, "https://github.com/apache/ignite/pull/13800#c77"));
-        when(github.updatePrCommentAsApp(eq(NARRATION), anyString())).thenReturn(true);
+        when(github.appEdit(anyInt(), any(), eq(NARRATION), anyString())).thenReturn(true);
         commands.poll();
     }
 
@@ -81,7 +82,7 @@ class NarrationEditsTest {
         for (int minute = 0; minute < 5; minute++)
             commands.updateEtas();
 
-        verify(github, times(1)).updatePrCommentAsApp(eq(NARRATION), anyString());
+        verify(github, times(1)).appEdit(anyInt(), any(), eq(NARRATION), anyString());
     }
 
     @Test
@@ -96,7 +97,7 @@ class NarrationEditsTest {
         commands.updateEtas();
 
         ArgumentCaptor<String> bodies = ArgumentCaptor.forClass(String.class);
-        verify(github, times(3)).updatePrCommentAsApp(eq(NARRATION), bodies.capture());
+        verify(github, times(3)).appEdit(anyInt(), any(), eq(NARRATION), bodies.capture());
         assertThat(bodies.getAllValues().get(0)).contains("Queued — expected to finish **≈ ").contains("/top");
         assertThat(bodies.getAllValues().get(1)).contains("Running — expected to finish **≈ ").doesNotContain("/top");
     }
@@ -106,14 +107,14 @@ class NarrationEditsTest {
     void anEditThatFailedIsMadeAgainNextMinute() {
         when(tc.getBuildState("commands-tc", CHAIN)).thenReturn(build("queued", null), build("running", null));
         when(tc.chainRemainingSeconds(eq("commands-tc"), eq(CHAIN), any())).thenReturn(4 * 3600L);
-        when(github.updatePrCommentAsApp(eq(NARRATION), anyString())).thenReturn(true)
+        when(github.appEdit(anyInt(), any(), eq(NARRATION), anyString())).thenReturn(true)
             .thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY)).thenReturn(true);
 
         for (int minute = 0; minute < 5; minute++)
             commands.updateEtas();
 
         ArgumentCaptor<String> bodies = ArgumentCaptor.forClass(String.class);
-        verify(github, times(3)).updatePrCommentAsApp(eq(NARRATION), bodies.capture());
+        verify(github, times(3)).appEdit(anyInt(), any(), eq(NARRATION), bodies.capture());
         assertThat(bodies.getValue()).contains("Running — expected to finish **≈ ");
     }
 
@@ -125,7 +126,7 @@ class NarrationEditsTest {
         commands.updateEtas();
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrCommentAsApp(eq(NARRATION), body.capture());
+        verify(github).appEdit(anyInt(), any(), eq(NARRATION), body.capture());
         assertThat(body.getValue()).doesNotContain("remaining").doesNotContain("every minute");
         assertThat(PrCommands.readsAsCommand(body.getValue())).isFalse();
     }

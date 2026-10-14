@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -31,7 +32,6 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,7 +44,7 @@ import org.springframework.web.client.HttpServerErrorException;
 /**
  * "/run all", "/run-all.", "`/run-all`" and "Please /run-all" were ignored without a word, "/run-all
  * --top" ran without top, and a refused /top or a failed /run-all got a bare 😕: the commander could
- * not tell a typo from a broken checker.
+ * not tell a typo from a broken checker. The checker's account answers in a reply, whatever token the commander saved.
  */
 class CommandHintsTest {
     private static final int PR = 13800;
@@ -56,7 +56,7 @@ class CommandHintsTest {
     private static final String HINT = "💡 _Nothing was run: a command has to be the very first word of the"
         + " comment, as is — `/run-all`, `/run-all top` or `/top`. Post it that way in a new comment._";
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -71,11 +71,12 @@ class CommandHintsTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
+        when(github.writes()).thenReturn(true);
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
         standing.linkGhLogin("newcomer", "tc-2", GhUsers.of("Newcomer"));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(build("queued"));
-        when(github.addPrCommentAsApp(anyInt(), anyString())).thenReturn(true);
+        when(github.appComment(anyInt(), anyString(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(77L, PR_URL + "#issuecomment-77"));
     }
 
     @ParameterizedTest
@@ -84,17 +85,10 @@ class CommandHintsTest {
         comment(1L, typed, "Author");
 
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
-        verify(github).reactToComment("gh-pat", 1L, "confused");
-        verify(github).updatePrComment("gh-pat", 1L, typed + "\n\n---\n" + HINT);
-    }
-
-    @Test
-    void aParticipantWithoutAGithubTokenGetsTheHintInAReply() {
-        comment(1L, "Please /run-all", "Newcomer");
-
+        verify(github).appReact(PR, "author", 1L, "confused");
         ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
-        verify(github).addPrCommentAsApp(eq(PR), reply.capture());
-        assertThat(reply.getValue()).isEqualTo("@Newcomer " + HINT);
+        verify(github).appComment(eq(PR), eq("author"), reply.capture());
+        assertThat(reply.getValue()).isEqualTo("@Author " + HINT);
         assertThat(PrCommands.readsAsCommand(reply.getValue())).isFalse();
         assertThat(PrCommands.triesCommand(reply.getValue())).isFalse();
     }
@@ -103,8 +97,8 @@ class CommandHintsTest {
     void aStrangerGetsNoPublicAnswer() {
         comment(1L, "Please /run-all", "stranger");
 
-        verify(github, never()).reactToCommentAsApp(anyLong(), anyString());
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, never()).appReact(anyInt(), anyString(), anyLong(), anyString());
+        verify(github, never()).appComment(anyInt(), anyString(), anyString());
     }
 
     /** GitHub's "Quote reply" on a command comment opens with the quoted command. */
@@ -113,9 +107,8 @@ class CommandHintsTest {
         comment(1L, "> /run-all\n> \n> ---\n> 🚀 **RunAll queued** — build 9400000\n\nWhy did Cache 1 fail here?",
             "Author");
 
-        verify(github, never()).reactToComment(anyString(), anyLong(), anyString());
-        verify(github, never()).updatePrComment(anyString(), anyLong(), anyString());
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, never()).appReact(anyInt(), anyString(), anyLong(), anyString());
+        verify(github, never()).appComment(anyInt(), anyString(), anyString());
     }
 
     /** "Please /run-all" written yesterday and edited now: nobody is trying a command any more. */
@@ -123,40 +116,38 @@ class CommandHintsTest {
     void anOldCommentEditedNowGetsNoHint() {
         comment(1L, "Please /run-all", "Author", Instant.now().minusSeconds(3 * 3600));
 
-        verify(github, never()).reactToComment(anyString(), anyLong(), anyString());
-        verify(github, never()).updatePrComment(anyString(), anyLong(), anyString());
+        verify(github, never()).appReact(anyInt(), anyString(), anyLong(), anyString());
+        verify(github, never()).appComment(anyInt(), anyString(), anyString());
     }
 
     /** A user who has the checker comment their verdicts, but no PR commands, uses no commands to hint at. */
     @Test
     void aUserWithoutPrCommandsGetsNoHint() {
-        when(github.ghIdentity("reviewer-pat")).thenReturn(Optional.of(GhUsers.of("Reviewer")));
-        standing.change("reviewer", "tc-3", null, "reviewer-pat",
-            new StandingVisas.OptionChange(false, false, true, false, false));
+        standing.linkGhLogin("reviewer", "tc-3", GhUsers.of("Reviewer"));
+        standing.change("reviewer", "tc-3", null, null, new StandingVisas.OptionChange(false, false, true, false,
+            false));
 
         comment(1L, "Please /run-all", "Reviewer");
 
-        verify(github, never()).reactToComment(anyString(), anyLong(), anyString());
-        verify(github, never()).reactToCommentAsApp(anyLong(), anyString());
-        verify(github, never()).updatePrComment(anyString(), anyLong(), anyString());
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, never()).appReact(anyInt(), anyString(), anyLong(), anyString());
+        verify(github, never()).appComment(anyInt(), anyString(), anyString());
     }
 
     @Test
     void aCommandMentionedInALongerLineIsNotATry() {
         comment(1L, "I ran /run-all yesterday and Cache 1 failed", "Author");
 
-        verify(github, never()).reactToComment(anyString(), anyLong(), anyString());
-        verify(github, never()).updatePrComment(anyString(), anyLong(), anyString());
+        verify(github, never()).appReact(anyInt(), anyString(), anyLong(), anyString());
+        verify(github, never()).appComment(anyInt(), anyString(), anyString());
     }
 
-    /** The hint edits the comment, so the next poll lists it again. */
+    /** The commander edits the comment, so the next poll lists it again. */
     @Test
     void aHintIsGivenOnce() {
         comment(1L, "Please /run-all", "Author");
-        comment(1L, "Please /run-all\n\n---\n" + HINT, "Author");
+        comment(1L, "Please /run-all!", "Author");
 
-        verify(github, times(1)).updatePrComment(eq("gh-pat"), eq(1L), anyString());
+        verify(github, times(1)).appComment(eq(PR), eq("author"), anyString());
     }
 
     @Test
@@ -167,32 +158,19 @@ class CommandHintsTest {
         commands = commands();
         commands.loadFrom(file);
 
-        comment(1L, "Please /run-all\n\n---\n" + HINT, "Author");
+        comment(1L, "Please /run-all!", "Author");
 
-        verify(github, times(1)).updatePrComment(eq("gh-pat"), eq(1L), anyString());
+        verify(github, times(1)).appComment(eq(PR), eq("author"), anyString());
     }
 
     @Test
-    void aCommentFixedAfterTheHintRunsWithoutIt() {
+    void aCommentFixedAfterTheHintRuns() {
         comment(1L, "Please /run-all", "Author");
 
-        comment(1L, "/run-all\n\n---\n" + HINT, "Author");
+        comment(1L, "/run-all", "Author");
 
         verify(tc).triggerRunAll("tc", PR, false);
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L), contains("/run-all\n\n---\n🚀 **RunAll queued**"));
-    }
-
-    /** A comment fixed in the browser comes back with CRLF line breaks, the hint's separator too. */
-    @Test
-    void aCommentFixedInTheBrowserDropsTheHint() {
-        comment(1L, "Please /run-all", "Author");
-
-        comment(1L, "/run-all\r\n\r\n---\r\n" + HINT, "Author");
-
-        ArgumentCaptor<String> fixed = ArgumentCaptor.forClass(String.class);
-        verify(github, times(2)).updatePrComment(eq("gh-pat"), eq(1L), fixed.capture());
-        assertThat(fixed.getValue()).startsWith("/run-all\n\n---\n🚀 **RunAll queued**")
-            .doesNotContain("Nothing was run");
+        verify(github).appComment(eq(PR), eq("author"), startsWith("@Author 🚀 **RunAll queued**"));
     }
 
     @ParameterizedTest
@@ -207,9 +185,9 @@ class CommandHintsTest {
     void aTopWithNoRunOfTheirsSaysWhy() {
         comment(1L, "/top", "Author");
 
-        verify(github).reactToComment("gh-pat", 1L, "confused");
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L), contains("Nothing moved: `/top` moves the RunAll that"
-            + " your own `/run-all` started on this PR, and none is in progress."));
+        verify(github).appReact(PR, "author", 1L, "confused");
+        verify(github).appComment(PR, "author", "@Author ⬆️ _Nothing moved: `/top` moves the RunAll that your own"
+            + " `/run-all` started on this PR, and none is in progress._");
     }
 
     @Test
@@ -219,8 +197,8 @@ class CommandHintsTest {
 
         comment(2L, "/top", "Author");
 
-        verify(github).updatePrComment(eq("gh-pat"), eq(2L), contains("Nothing moved: build " + CHAIN
-            + " is already running, and `/top` only moves a build that still waits in the queue."));
+        verify(github).appComment(PR, "author", "@Author ⬆️ _Nothing moved: build " + CHAIN + " is already running,"
+            + " and `/top` only moves a build that still waits in the queue._");
         verify(tc, never()).moveToQueueTop(anyString(), anyLong());
     }
 
@@ -231,21 +209,21 @@ class CommandHintsTest {
 
         comment(1L, "/run-all", "Newcomer");
 
-        verify(github).addPrCommentAsApp(PR, "@Newcomer 🚀 _Nothing was queued: the request failed with HTTP 502."
-            + " Try again in a few minutes._");
+        verify(github).appComment(PR, "newcomer", "@Newcomer 🚀 _Nothing was queued: the request failed with HTTP"
+            + " 502. Try again in a few minutes._");
     }
 
     /** RunAll was queued, only the story around it failed: "nothing was queued" would be a lie. */
     @Test
     void aRunAllQueuedBeforeAFailureIsNotCalledFailed() {
-        when(github.addPrCommentAsAppWithId(anyInt(), anyString())).thenThrow(new HttpServerErrorException(
+        when(github.appComment(anyInt(), anyString(), anyString())).thenThrow(new HttpServerErrorException(
             HttpStatus.BAD_GATEWAY));
 
         comment(1L, "/run-all", "Newcomer");
 
         verify(tc).triggerRunAll("tc-2", PR, false);
-        verify(github, never()).addPrCommentAsApp(anyInt(), contains("Nothing was queued"));
-        verify(github, never()).reactToCommentAsApp(1L, "confused");
+        verify(github, never()).appComment(anyInt(), anyString(), contains("Nothing was queued"));
+        verify(github, never()).appReact(PR, "newcomer", 1L, "confused");
     }
 
     private void comment(long id, String body, String login) {

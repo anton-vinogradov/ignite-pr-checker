@@ -180,7 +180,7 @@ class ServiceHealthTest {
         assertThat(report.problems()).extracting(ServiceHealth.Problem::level).containsExactly("warn");
     }
 
-    /** GITHUB_TOKEN revoked after the start: every reply, reaction and narration of the app account failed unseen. */
+    /** GITHUB_TOKEN revoked after the start: every comment, edit and reaction of the checker failed unseen. */
     @Test
     void aGithubTokenGithubRefusesIsAnError() {
         GithubClient github = mock(GithubClient.class);
@@ -198,7 +198,7 @@ class ServiceHealthTest {
             github).report(CLEAN_LOG, System.currentTimeMillis());
 
         assertThat(report).isEqualTo(new ServiceHealth.Report("error", "ok", List.of(new ServiceHealth.Problem("error",
-            "GitHub refuses GITHUB_TOKEN: replies, reactions and narration from the app account fail"))));
+            "GitHub refuses GITHUB_TOKEN: every comment, edit and reaction of the checker in PRs fails"))));
     }
 
     /**
@@ -229,6 +229,30 @@ class ServiceHealthTest {
             new GithubClient.AppAccount.Check("error", "GITHUB_TOKEN is a fine-grained token, which cannot write")));
 
         assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING, List.of(), app, NOW).health()).isEqualTo("error");
+    }
+
+    /**
+     * One account writes every user's comments: GitHub making it wait, or refusing it for a block or a locked PR, and
+     * the cap of its writes for a PR, were seen only in the log.
+     */
+    @Test
+    void writesOfTheAppAccountThatWaitOrFailAreAProblem() {
+        long until = NOW + 600_000;
+        GithubClient.WriteState waiting = new GithubClient.WriteState(until, null, 0, List.of("PR 13800"));
+        GithubClient.WriteState refused = new GithubClient.WriteState(0, "GitHub answered 403 to a write: blocked",
+            NOW, List.of());
+
+        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING, List.of(), null, waiting, NOW)).isEqualTo(
+            new ServiceHealth.Report("warn", "ok", List.of(
+                new ServiceHealth.Problem("warn", "GitHub rate-limits the writes of the app account until "
+                    + java.time.Instant.ofEpochMilli(until) + ": they wait and go out then"),
+                new ServiceHealth.Problem("warn", "the writes of the app account reached their hourly cap for PR"
+                    + " 13800: the rest wait"))));
+        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING, List.of(), null, refused, NOW).problems())
+            .containsExactly(new ServiceHealth.Problem("error", "GitHub answered 403 to a write: blocked — the account"
+                + " may be blocked, or the PR locked"));
+        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING, List.of(), null,
+            new GithubClient.WriteState(0, null, 0, List.of()), NOW).health()).isEqualTo("ok");
     }
 
     /** A fresh install left APP_PUBLIC_URL empty: every link it posted led nowhere, and only the log said so, once. */

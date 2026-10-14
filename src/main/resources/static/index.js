@@ -605,9 +605,8 @@ function goHome(push) {
 async function loadMe() {
     const r = await api('/api/me');
     if (r.ok) {
-        const { username, jira, github, admin } = await r.json();
+        const { username, jira, admin } = await r.json();
         hasJira = !!jira;
-        hasGithub = !!github;
         canAdmin = !!admin;
         checkUpdate();
         await enterApp(username);
@@ -2090,7 +2089,6 @@ $('pendingRerun').onclick = () => doTrigger('trigger', false, $('pendingRerun'))
 // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
 // session, the button opens a hint with a deep link to the JIRA profile page to create one.
 let hasJira = false;
-let hasGithub = false;
 let lastIssueKey = '';
 
 let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
@@ -2247,7 +2245,9 @@ function zoneParam(sep) {
 // Settings ⚙: the panel shows what the server has and changes only the switch that was clicked.
 const OPTION_TOGGLES = { visa: 'standingVisaToggle', rerun: 'autoRerunToggle', gh: 'ghCommentToggle',
     style: 'styleFixToggle', commands: 'commandsToggle', suites: 'suiteFixToggle' };
-const OPTION_NEEDS = { visa: 'jira', gh: 'github', style: 'github', commands: 'login', suites: 'github' };
+const OPTION_NEEDS = { visa: 'jira', style: 'github', commands: 'login', suites: 'github' };
+// The options that write to GitHub, from the checker's own account: none goes on without one.
+const GITHUB_OPTIONS = ['gh', 'style', 'commands', 'suites'];
 let standingSettings = null; // the server's last answer
 let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
 
@@ -2283,11 +2283,30 @@ function renderSettings(st) {
     }
     // The options run on the tokens the server holds; this browser's session may not carry them.
     $('visaSaved').classList.toggle('hidden', !(st.visa && st.jiraStored && !hasJira));
-    $('ghSaved').classList.toggle('hidden', !(st.gh && st.ghStored && !hasGithub));
-    $('styleSaved').classList.toggle('hidden', !(st.style && st.ghStored && !hasGithub));
-    $('suitesSaved').classList.toggle('hidden', !(st.suites && st.ghStored && !hasGithub));
+    $('styleSaved').classList.toggle('hidden', !(st.style && st.ghStored));
+    $('suitesSaved').classList.toggle('hidden', !(st.suites && st.ghStored));
     renderLogin(st);
     showTokenNotes(st);
+    renderGithubAccount(st);
+}
+
+// The checker writes in PRs from its own account, named where the PR comment says so. Without one the options that
+// write to GitHub can only go off.
+function renderGithubAccount(st) {
+    $('ghCommentApp').textContent = !st.appLogin ? ''
+        : ' @' + st.appLogin + (st.appPushes === false ? ', which cannot push to the repo,' : '');
+    const off = st.githubAvailable === false;
+    for (const name of GITHUB_OPTIONS) {
+        if (githubLocked(name, st)) $(OPTION_TOGGLES[name]).disabled = true;
+    }
+    $('githubOff').classList.toggle('hidden', !off);
+    $('ghTokenNote').classList.toggle('hidden', !st.ghTokenNote);
+    $('ghTokenNote').textContent = st.ghTokenNote || '';
+}
+
+// An option that writes to GitHub, off while the checker has no account to write with, cannot go on.
+function githubLocked(name, st) {
+    return st.githubAvailable === false && GITHUB_OPTIONS.includes(name) && !st[name];
 }
 
 // PR commands act on the comments of the GitHub account a token proved: the saved GitHub token, or one pasted once.
@@ -2298,8 +2317,8 @@ function renderLogin(st) {
         ? 'GitHub login: @' + st.login + (st.ghStored ? ', proven by your saved GitHub token.' : ', proven.') : '';
     $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
     $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' is not proven: an earlier version of '
-        + 'the checker kept no proof that it is yours. Your PR commands do nothing until you prove your GitHub account '
-        + 'below.' : '';
+        + 'the checker kept no proof that it is yours. ' + (st.commands ? 'Your PR commands do nothing'
+            : 'The verdict comments do not mention you') + ' until you prove your GitHub account below.' : '';
     $('ghLoginProof').classList.toggle('hidden', proven);
     $('ghLoginMsg').textContent = '';
     $('settingsLogin').classList.toggle('hidden', !st.commands && !st.loginUnproven && pendingOption !== 'commands');
@@ -2318,7 +2337,7 @@ function showTokenNotes(st) {
 function tokenAvailable(need) {
     const st = standingSettings || {};
     if (need === 'login') return !!st.login && !st.loginUnproven;
-    return need === 'jira' ? hasJira || !!st.jiraStored : need === 'github' ? hasGithub || !!st.ghStored : true;
+    return need === 'jira' ? hasJira || !!st.jiraStored : need === 'github' ? !!st.ghStored : true;
 }
 
 async function askForToken(need, option) {
@@ -2345,12 +2364,13 @@ async function askForToken(need, option) {
 // the server's backups and this browser's cookie.
 const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
     + 'token until the visa is posted or you cancel it. Copies in the server\'s backups go as the backups rotate, '
-    + 'and your session cookie keeps the tokens you pasted until you log out.';
+    + 'and your session cookie keeps the TeamCity and JIRA tokens you pasted until you log out.';
 
 // The checkstyle autofix runs only from a PR command, so it goes on only with PR commands and off with them.
 const AUTOFIX_NEEDS_COMMANDS = 'Auto-fix checkstyle runs only from a PR command: switch on PR commands first.';
 
-async function setOption(name, on) {
+// A GitHub token goes with the switch it is pasted for, in the request's body: no cookie carries it.
+async function setOption(name, on, githubToken) {
     const toggle = $(OPTION_TOGGLES[name]), msg = $('settingsMsg');
     msg.textContent = '';
     if (name === 'style' && on && !(standingSettings || {}).commands) {
@@ -2360,13 +2380,15 @@ async function setOption(name, on) {
     }
     const before = standingSettings || {};
     const need = OPTION_NEEDS[name];
-    if (on && need && !tokenAvailable(need)) {
+    if (on && need && !(need === 'github' && githubToken) && !tokenAvailable(need)) {
         toggle.checked = false;
         return askForToken(need, name);
     }
     toggle.disabled = true;
     try {
-        const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), { method: 'POST' });
+        const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), githubToken
+            ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ githubToken }) }
+            : { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
         if (r.status === 412 && res.need === 'commands') {
@@ -2376,9 +2398,9 @@ async function setOption(name, on) {
         }
         if (r.status === 412) {
             toggle.checked = !on;
-            if (res.need === 'github') hasGithub = false;
-            else if (res.need === 'jira') hasJira = false;
+            if (res.need === 'jira') hasJira = false;
             msg.textContent = res.error || '';
+            if (res.need === 'github') $('settingsGhMsg').textContent = res.error || '';
             return askForToken(res.need, name);
         }
         if (!r.ok) {
@@ -2397,7 +2419,7 @@ async function setOption(name, on) {
         toggle.checked = !on;
         msg.textContent = 'could not reach the service — try again';
     } finally {
-        toggle.disabled = false;
+        toggle.disabled = githubLocked(name, standingSettings || {});
     }
 }
 for (const [name, id] of Object.entries(OPTION_TOGGLES)) $(id).onchange = () => setOption(name, $(id).checked);
@@ -2476,26 +2498,24 @@ $('cmdHintOpen').onclick = () => {
 };
 $('cmdHintClose').onclick = () => $('cmdHint').classList.add('hidden');
 
+// The token goes to the server with the switch that asked for it, and stays in no cookie and no field.
 $('settingsGhSave').onclick = async () => {
     const input = $('settingsGhToken'), m = $('settingsGhMsg');
     const token = input.value.trim();
     if (!token) { m.textContent = 'paste the token first'; return; }
-    m.textContent = 'checking…';
-    try {
-        const r = await api('/api/github-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
-        });
-        const res = await r.json().catch(() => ({}));
-        if (!r.ok) { m.textContent = res.error || 'GitHub rejected the token'; return; }
-        hasGithub = true;
-        input.value = '';
+    const option = pendingOption;
+    if (!option) { m.textContent = 'switch on the option that needs it: the token goes with that switch'; return; }
+    input.value = '';
+    m.textContent = 'asking GitHub about the token…';
+    pendingOption = null;
+    $(OPTION_TOGGLES[option]).checked = true;
+    await setOption(option, true, token);
+    if (standingSettings && standingSettings[option]) {
         m.textContent = '';
         $('settingsGh').classList.add('hidden');
-        continuePendingOption('GitHub token saved — switch the option on to use it.');
-    } catch (e) {
-        m.textContent = 'could not reach the service — try again';
+    } else {
+        pendingOption = pendingOption || option;
+        if (m.textContent === 'asking GitHub about the token…') m.textContent = $('settingsMsg').textContent;
     }
 };
 $('jiraSave').onclick = saveJiraToken;

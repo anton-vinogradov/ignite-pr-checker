@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -40,7 +41,7 @@ import org.springframework.web.client.HttpServerErrorException;
 class GithubLoginTest {
     private static final String ONE_TIME = "ghp_noScopes0123456789abcdefghij0123456";
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -149,15 +150,16 @@ class GithubLoginTest {
         assertThat(standing.rerunOn("nsamelchev")).as("the other switches stay").isTrue();
     }
 
-    /** A GitHub token saved for the PR comment proves its account as well, and takes it over the same way. */
+    /** A GitHub token saved to add tests to suites proves its account as well, and takes it over the same way. */
     @Test
     void aSavedGithubTokenProvesTheLoginToo() {
         when(github.ghIdentity("token-1")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
         prove("nsamelchev", "token-1");
 
         standing.change("avinogradov", "tc-2", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, true, null, null));
+            new StandingVisas.OptionChange(null, null, null, null, null, true));
 
         assertThat(standing.actorByGhUser(GhUsers.of("anton-vinogradov"))).hasValueSatisfying(
             a -> assertThat(a.username()).isEqualTo("avinogradov"));
@@ -168,9 +170,10 @@ class GithubLoginTest {
     /** The proof outlives the GitHub token it came with: once GitHub refused that token, a login was anyone's. */
     @Test
     void aLoginStaysProvenWhenItsTokenGoes() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
         standing.change("avinogradov", "tc-2", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, true, null, true));
+            new StandingVisas.OptionChange(null, null, null, null, true, true));
 
         standing.dropGhToken("avinogradov");
 
@@ -185,12 +188,14 @@ class GithubLoginTest {
      */
     @Test
     void theBackfillDoesNotGiveOutALoginSomeoneElseHolds() {
-        when(github.ghIdentity("gh-pat-1")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
-        when(github.ghIdentity("gh-pat-2")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner("gh-pat-1")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
+        when(github.tokenOwner("gh-pat-2")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
         standing.change("nsamelchev", "tc-1", null, "gh-pat-1",
-            new StandingVisas.OptionChange(null, null, true, null, null));
+            new StandingVisas.OptionChange(null, null, null, null, null, true));
         standing.change("avinogradov", "tc-2", null, "gh-pat-2",
-            new StandingVisas.OptionChange(null, null, true, null, null));
+            new StandingVisas.OptionChange(null, null, null, null, null, true));
 
         standing.ensureGhLogins();
 
@@ -200,10 +205,11 @@ class GithubLoginTest {
 
     @Test
     void aTokenOfAnotherAccountCannotReplaceTheOneTheSavedTokenProves() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
         when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(GhUsers.of("NSAmelchev")));
         standing.change("avinogradov", "tc-2", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, true, null, null));
+            new StandingVisas.OptionChange(null, null, null, null, null, true));
 
         ResponseEntity<?> res = prove("avinogradov", ONE_TIME);
 
@@ -217,11 +223,11 @@ class GithubLoginTest {
         GithubClient.GhUser app = GhUsers.of("ignite-pr-checker");
         when(github.isAppAccount(app)).thenReturn(true);
         when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(app));
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(app));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(app, null)));
 
         ResponseEntity<?> res = prove("nsamelchev", ONE_TIME);
         Optional<StandingVisas.Refusal> refused = standing.change("avinogradov", "tc-2", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, true, null, null));
+            new StandingVisas.OptionChange(null, null, null, null, null, true));
 
         assertThat(res.getStatusCode().value()).isEqualTo(409);
         assertThat(String.valueOf(res.getBody())).contains("the checker's own GitHub account");

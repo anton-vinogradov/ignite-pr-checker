@@ -22,10 +22,9 @@ class TokenTextsTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
     @Test
-    void aRefusedGithubTokenNamesTheThreeOptionsItTakes() throws IOException {
+    void aRefusedGithubTokenNamesTheOptionsItTakes() throws IOException {
         assertThat(collapsed(PAGE)).doesNotContain("the two options")
-            .contains("the options that need it (the PR comment, the checkstyle autofix, tests to suites) were "
-                + "switched off");
+            .contains("the options that commit with it (the checkstyle autofix, tests to suites) were switched off");
         assertThat(collapsed(Path.of("src/main/java/com/github/igniteprchecker/jira/StandingVisas.java")))
             .doesNotContain("The two options that need this token");
     }
@@ -33,15 +32,16 @@ class TokenTextsTest {
     @Test
     void theGithubOptionsSayWhoseTokenTheyUse() throws IOException {
         assertThat(collapsed(PAGE)).doesNotContain("same GitHub token as the option")
-            .contains("Uses my GitHub token, as the PR comment does;")
-            .contains("Uses my GitHub token, as the PR comment and the autofix do.")
-            .contains("(for the PR comment, the checkstyle autofix or tests to suites)");
+            .contains("Uses my GitHub token, which the checker keeps only to commit with;")
+            .contains("Uses my GitHub token, as the autofix does.")
+            .contains("Needs no GitHub token of mine.");
         assertThat(collapsed(Path.of("docs/features.md"))).doesNotContain("the same GitHub token")
-            .contains("(for the PR comment, the autofix or tests to suites)");
-        assertThat(collapsed(Path.of("README.md")))
-            .contains("the user's GitHub token for PR comments, the checkstyle autofix and adding tests to suites");
-        assertThat(collapsed(Path.of("README.ru.md")))
-            .contains("его токен GitHub для комментариев в PR, автоисправления checkstyle и добавления тестов в сьюты");
+            .contains("It uses your GitHub token, which the checker keeps only for such commits")
+            .contains("Needs no GitHub token of yours.");
+        assertThat(collapsed(Path.of("README.md"))).contains("the user's GitHub token for the checkstyle autofix and"
+            + " adding tests to suites, the two options that commit");
+        assertThat(collapsed(Path.of("README.ru.md"))).contains("его токен GitHub для автоисправления checkstyle и"
+            + " добавления тестов в сьюты — двух опций, которые коммитят");
     }
 
     @Test
@@ -71,8 +71,8 @@ class TokenTextsTest {
 
         assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options; "
             + "an Auto visa you armed keeps your JIRA token until the visa is posted or you cancel it. Copies in the "
-            + "server's backups go as the backups rotate, and your session cookie keeps the tokens you pasted until "
-            + "you log out.");
+            + "server's backups go as the backups rotate, and your session cookie keeps the TeamCity and JIRA tokens "
+            + "you pasted until you log out.");
     }
 
     @Test
@@ -83,15 +83,17 @@ class TokenTextsTest {
         assertThat(collapsed(Path.of("README.ru.md"))).contains("Копии остаются в бэкапах [каталога кэша]");
     }
 
+    /** Without GITHUB_TOKEN there are no PR commands to poll for: the checker has no account to answer them from. */
     @Test
     void noTokenIsNotSixtyReadsAnHour() throws IOException {
-        String poll = "which the PR command poll alone uses up while anyone has PR commands on";
-        assertThat(collapsed(Path.of("README.md"))).doesNotContain("read at most 60 times an hour").contains(poll);
-        assertThat(collapsed(Path.of("install.sh"))).doesNotContain("read at most 60 times").contains(poll);
+        String off = "and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix"
+            + " and tests to suites are off";
+        assertThat(collapsed(Path.of("README.md"))).doesNotContain("read at most 60 times an hour").contains(off);
+        assertThat(collapsed(Path.of("install.sh"))).doesNotContain("read at most 60 times").contains(off);
         assertThat(collapsed(Path.of("src/main/java/com/github/igniteprchecker/github/GithubClient.java")))
-            .doesNotContain("reads GitHub at 60 requests an hour").contains("which the PR command poll alone uses");
+            .doesNotContain("reads GitHub at 60 requests an hour").contains("and the checker has no account to");
         assertThat(collapsed(Path.of("README.ru.md"))).doesNotContain("читается не чаще 60 раз в час")
-            .contains("один опрос PR-команд съедает их все");
+            .contains("а писать чекеру не от кого");
     }
 
     @Test
@@ -116,8 +118,7 @@ class TokenTextsTest {
     void theTokenHintsAdviseAnExpiry() throws IOException {
         String page = collapsed(PAGE);
         assertThat(page).contains("Give it an expiry, say 90 days: when it expires, the options that use it switch "
-            + "off with a note here, and once you paste a new one and switch them back on, the verdict comments held "
-            + "back meanwhile go out")
+            + "off with a note here; paste a new one and switch them back on.")
             .contains("It acts with all the rights of your JIRA account (ASF JIRA has no token scopes), so give it an "
                 + "expiry, say 90 days: when it expires, auto-visa switches off with a note here");
         assertThat(collapsed(Path.of("README.md"))).contains("Give it and the GitHub token an expiry, say 90 days.");
@@ -125,6 +126,20 @@ class TokenTextsTest {
     }
 
     /** The file's text with its whitespace collapsed and the comment marks that start its lines dropped. */
+    /** A PR from a branch of apache/ignite gets the commits there, yet the docs said the token never writes there. */
+    @Test
+    void theUsersTokenIsSaidToCommitToApacheIgniteForABranchThere() throws IOException {
+        assertThat(collapsed(Path.of("README.md"))).doesNotContain("never used to write in `apache/ignite`")
+            .contains("It writes no comments, edits or reactions, and commits to `apache/ignite` only for a PR from a"
+                + " branch of `apache/ignite` itself.");
+        assertThat(collapsed(Path.of("docs/features.md"))).doesNotContain("it never writes in `apache/ignite`")
+            .contains("it writes no comments, and it commits to `apache/ignite` only for a PR from a branch there.");
+        assertThat(collapsed(Path.of("README.ru.md"))).doesNotContain("им не пишется ничего")
+            .contains("в `apache/ignite` он коммитит, только если PR сделан из ветки самого `apache/ignite`.");
+        assertThat(collapsed(Path.of("docs/features.ru.md"))).doesNotContain("им не пишется ничего")
+            .contains("в `apache/ignite` коммитит, только если PR сделан из ветки там.");
+    }
+
     private static String collapsed(Path file) throws IOException {
         return Files.readString(file, UTF_8).replaceAll("(?m)^\\s*(#|\\*|//) ?", "").replaceAll("\\s+", " ");
     }

@@ -258,21 +258,22 @@ GitHub token it needs while it is on.
 - **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
   newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
-- **Comment my runs' verdicts on the GitHub PR** posts the same verdict as a comment from your own GitHub account,
-  once per run, after the re-runs settle. Needs a classic GitHub token with the `public_repo` scope.
+- **Comment my runs' verdicts on the GitHub PR**: the checker's GitHub account posts the same verdict as a comment,
+  once per run, after the re-runs settle, and mentions you when your GitHub login is proven. Needs no GitHub token of
+  yours.
 - **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
   your GitHub login, your GitHub account's id and your TeamCity token; on its own, it lends the token to no background
   work. Proving your GitHub login switches it on: paste a GitHub token with no scopes once, and the checker asks
-  GitHub whose account it is, keeps the login and the id, and forgets the token. A GitHub token you saved for the PR
-  comment, the autofix or tests to suites proves it as well. A comment is your command only when it comes from that
+  GitHub whose account it is, keeps the login and the id, and forgets the token. A GitHub token you saved for the
+  autofix or tests to suites proves it as well. A comment is your command only when it comes from that
   account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked. A
   login an earlier version kept counts as proven only if your saved GitHub token names it; any other runs no command
   until you prove it, and ⚙ says so.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
-  your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
+  your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The run's story names
   the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses your
-  GitHub token, as the PR comment does, and works on a PR with up to 50 changed Java files; a file over 400 KB, or
+  GitHub token, which the checker keeps only for such commits, and works on a PR with up to 50 changed Java files; a file over 400 KB, or
   past 5 MB in all, is not checked. It never touches anyone else's PR and never force-pushes. It runs only from a
   command, so it switches on only with **PR commands** on and goes off with them.
 - **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes of
@@ -280,14 +281,22 @@ GitHub token it needs while it is on.
   else one of the longest package in common, then the longest start of the name in common; when several suites list a
   class as near, the one with more such classes wins. One commit from your account lists the new class in that class's
   suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a package near the
-  new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment in the PR says
-  what went where and why, then what Ignite's check says of the commit. It uses your GitHub token, as the PR comment
-  and the autofix do.
+  new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment of the
+  checker's account in the PR says what went where and why, then what Ignite's check says of the commit. It uses your
+  GitHub token, as the autofix does.
+- **Your GitHub token** only commits, to the branch of your own PR: it writes no comments, and it commits to
+  `apache/ignite` only for a PR from a branch there. Best is a fine-grained token for your fork alone, with Contents:
+  read and write. It cannot reach a PR from a branch of
+  `apache/ignite` itself or from someone else's fork; those need a classic token with `public_repo`, which pushes to
+  every public repository you can push to, `apache/ignite` too if you are a committer. A classic token with `admin:*`,
+  `delete_repo` or `workflow` is refused, one with `repo` is taken with a warning. The page sends the token with the
+  switch, and no cookie keeps it.
 - **A token that stops working.** When GitHub or JIRA refuses a stored token itself, the checker drops it and switches
   off the options that need it; the panel says which token to replace. A rate limit, an outage or a ticket you may not
-  comment on keeps the token, and the visa or the PR comment is tried again at the next sweeps. A visa or PR comment
-  a refused token held back goes out once you save a fresh token and switch its option back on, unless a newer RunAll
-  replaced the run. When TeamCity refuses yours, your options pause until you log in with a fresh token; nobody
+  comment on keeps the token, and the visa is tried again at the next sweeps. A visa a refused token held back goes out
+  once you save a fresh token and switch auto-visa back on, unless a newer RunAll replaced the run. A PR comment GitHub
+  did not take from the checker's account goes at the next sweeps; what that account is refused never touches your
+  token. When TeamCity refuses yours, your options pause until you log in with a fresh token; nobody
   else's stop.
 
 ## Visas and PR comments
@@ -308,38 +317,43 @@ GitHub token it needs while it is on.
   it tested and what the PR head is now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
 - Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
   tested revision and the **Next:** line come after it.
+- The PR comment comes from the checker's account and opens with a mention of the run's starter when their GitHub
+  login is proven, so GitHub tells them. When the PR title names no IGNITE ticket and auto-visa is on, it says why no
+  visa came.
 - Once a newer RunAll of the PR has finished, each older verdict comment in the PR gets a last line saying it is
   superseded and where the newer verdict is.
 
 ## Working from the PR (commands)
 
 The whole cycle, from the start to the verdict, can happen in the pull request. Switch on **PR commands** in ⚙ and
-prove your GitHub login with a token that has no scopes; a GitHub token kept on the server is optional.
+prove your GitHub login with a token that has no scopes; no GitHub token of yours is kept for commands. The checker
+answers from its own GitHub account, the app account.
 
 | Command | What it does |
 |---|---|
 | `/run-all` (also `/runall`) | Queues the whole RunAll chain under your own TeamCity account. |
 | `/run-all top` (also `--top`) | The same, at the top of the ci2 queue; if ci2 does not let your account reorder the queue, at its end, and the ack says so. |
-| `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits. |
+| `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits; the run's story says so. |
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
   A comment written more than an hour ago is not run, even if it is edited later.
-- 🚀 means accepted, 😕 refused. Then comes the story of the run: the queued build, then
-  `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with every change, and in
-  UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or more.
-- When the checker holds your GitHub token (for the PR comment, the autofix or tests to suites), the reactions come
-  from your account and the story is written into your command comment. Otherwise both come from the app account, the story in a
-  comment of its own.
-- After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`)
-  and ends with `🏁 Run finished — see the verdict`, a link to your verdict comment or to the checker's page. If the
-  app account narrates for you, it also mentions you in a new comment when the verdict is ready.
-- A command that is not the first word ("Please /run-all") gets 😕 and a hint saying how to write it. A refused
-  `/top` or a `/run-all` that failed says why, in words.
+- 🚀 means accepted, 😕 refused. Then a comment of the app account, which mentions you, tells the story of the run:
+  the queued build, then `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with
+  every change, and in UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or
+  more; GitHub tells nobody of an edit.
+- After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`).
+  When the verdict is in, a new comment mentions you: the verdict comment, when **Comment my runs' verdicts on the
+  GitHub PR** is on, else one saying the verdict is ready, with a link to it. The autofix's note moves into that
+  comment, and the story's comment is deleted, so the run leaves one comment of the checker in the PR.
+- A command that is not the first word ("Please /run-all") gets 😕 and a reply with a hint saying how to write it. A
+  refused `/top` or a `/run-all` that failed is answered why, in words.
 - A new `/run-all` supersedes your previous one: your queued or running chain on the PR and its re-runs are cancelled
   first, nobody else's. The old story ends with `🛑 Superseded by a newer /run-all`, and the ack says what was
   cancelled.
 - A command from someone whose PR commands are off gets 😕 and a short reply from the app account on how to switch
   them on: once per person, once per PR, at most 5 replies a day.
+- When GitHub makes the app account wait, or its writes reach 40 an hour to one PR or 60 for one user, reactions,
+  replies and story edits go later, not lost; a reaction or a reply that waited a day goes no more.
 
 ## The fix-master queue (`/flaky.html`)
 
@@ -369,6 +383,8 @@ prove your GitHub login with a token that has no scopes; a GitHub token kept on 
   turns away as the caller's mistake are listed greyed out and never colour it.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
+- The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
+  in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
   classic one without `public_repo`) turns the dot red; one that expires within 14 days, scopes beyond `public_repo`,
   and an account that can push to the repo or to the checker's own, where its releases come from, turn it amber. What

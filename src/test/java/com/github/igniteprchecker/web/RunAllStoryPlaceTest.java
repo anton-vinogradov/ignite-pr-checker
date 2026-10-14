@@ -9,9 +9,9 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /**
- * The PR commands caption in ⚙ and both READMEs said the /run-all comment itself then narrates the run. PrCommands
- * edits the command comment only while it holds the user's GitHub token; otherwise the app account tells the story in
- * a comment of its own. A user without a token looked for the story in the wrong place.
+ * The PR commands caption in ⚙ and both READMEs said the /run-all comment itself then narrates the run, and later
+ * that it did so only while the checker held the user's GitHub token. The checker's account tells every run in a
+ * comment of its own now, and mentions the commander when the verdict is ready.
  */
 class RunAllStoryPlaceTest {
     @Test
@@ -23,18 +23,17 @@ class RunAllStoryPlaceTest {
             .replaceAll("\\s+", " ");
 
         assertThat(caption).doesNotContain("the command comment then narrates the run")
-            .contains("a comment in the PR then narrates the run.")
-            .contains("While the server holds my GitHub token (for the PR comment, the checkstyle autofix or tests to "
-                + "suites), the reactions come from my own account and the story is written into my command comment; "
-                + "otherwise the checker's own account reacts and tells the story in a comment of its own.");
+            .doesNotContain("written into my command comment")
+            .contains("the checker's account answers: 🚀 = accepted, 😕 = refused, and a comment of its own tells the"
+                + " run. When the verdict is in, a new comment mentions me, and the story goes.");
     }
 
     @Test
     void theReadmesSayWhereTheStoryGoes() throws IOException {
-        assertThat(collapsed("README.md")).contains("and a comment in the PR then tells how the run goes: your own "
-            + "when the checker holds your GitHub token, else one of the app account.");
-        assertThat(collapsed("README.ru.md")).contains("а потом комментарий в PR рассказывает, как идёт прогон: твой "
-            + "собственный, если у чекера есть твой токен GitHub, иначе комментарий аккаунта приложения.");
+        assertThat(collapsed("README.md")).contains("The checker's GitHub account answers: a comment of its own tells"
+            + " how the run goes, and a new one mentions you when the verdict is ready.");
+        assertThat(collapsed("README.ru.md")).contains("Отвечает аккаунт GitHub самого чекера: его комментарий"
+            + " рассказывает, как идёт прогон, а новый упоминает тебя, когда вердикт готов.");
     }
 
     private static String collapsed(String file) throws IOException {

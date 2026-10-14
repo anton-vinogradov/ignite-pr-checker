@@ -39,7 +39,7 @@ class AutofixNoteTest {
     private static final String NOTE = "🎨 _Checkstyle autofix: fixed 1 of 2 violation(s)._\n\n<details><summary>1"
         + " violation(s) left</summary>\n\n- `p/C.java:6` — MethodName\n\n</details>";
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -57,7 +57,8 @@ class AutofixNoteTest {
 
     @Test
     void theRunAllLineStandsApartFromTheFoldedList() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
+            null)));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, false, true, true));
         when(styleFix.fixForCommand(eq(PR), any(), eq("Author"))).thenReturn(NOTE);
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(9400000L, null, "queued",
@@ -70,7 +71,7 @@ class AutofixNoteTest {
         commands.poll();
 
         ArgumentCaptor<String> ack = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L), ack.capture());
-        assertThat(ack.getValue()).contains("</details>\n\n🚀 **RunAll queued**");
+        verify(github).appComment(eq(PR), eq("author"), ack.capture());
+        assertThat(ack.getValue()).startsWith("@Author " + NOTE).contains("</details>\n\n🚀 **RunAll queued**");
     }
 }

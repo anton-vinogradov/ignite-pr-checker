@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -37,7 +38,7 @@ import org.springframework.http.ResponseEntity;
 class StandingSettingsTest {
     private static final String USER = "avinogradov";
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final JiraClient jira = mock(JiraClient.class);
 
@@ -54,7 +55,8 @@ class StandingSettingsTest {
 
     @BeforeEach
     void enrolledEarlierWithEverything() {
-        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner(anyString())).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
         when(jira.myself(anyString())).thenReturn(Optional.of(USER));
         assertThat(post(true, true, true, true, "jira-pat", "gh-pat", true).getStatusCode().value()).isEqualTo(200);
         clearInvocations(github, jira);
@@ -70,13 +72,14 @@ class StandingSettingsTest {
 
     @Test
     void anOptionSwitchedOnRunsOnTheSavedTokenWhenTheSessionHasNone() {
+        controller.standingVisa(null, null, null, null, null, true, "tc", USER, null, null);
         post(null, null, null, false, null, null);
 
         ResponseEntity<?> res = post(null, null, null, true, null, null);
 
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(standing.styleFixOn(USER)).isTrue();
-        verify(github, never()).ghIdentity(anyString());
+        verify(github, never()).tokenOwner(anyString());
     }
 
     @Test

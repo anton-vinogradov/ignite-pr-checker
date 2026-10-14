@@ -12,6 +12,7 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
@@ -46,7 +47,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 class SuiteFixSettingsTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), mock(TcClient.class),
@@ -60,7 +61,8 @@ class SuiteFixSettingsTest {
 
     @Test
     void theServerTakesItWithTheGithubToken() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("alice-v")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("alice-v"),
+            null)));
 
         ResponseEntity<?> res = controller.standingVisa(null, null, null, null, null, true, "tc", "alice", null,
             "gh-pat");

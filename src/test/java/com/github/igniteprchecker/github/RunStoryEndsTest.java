@@ -3,13 +3,17 @@ package com.github.igniteprchecker.github;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,7 +59,7 @@ class RunStoryEndsTest {
 
     private static final String PR_URL = "https://github.com/apache/ignite/pull/" + PR;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -79,9 +83,9 @@ class RunStoryEndsTest {
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28999 Fix it", null, null, null, null)));
         when(tc.triggerRunAll("tc-a", PR, false)).thenReturn(chain(CHAIN, "queued", null));
         when(tc.triggerRunAll("tc-r", PR, false)).thenReturn(chain(CHAIN + 1, "queued", null));
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString())).thenAnswer(inv -> new GithubClient.PostedComment(
-            inv.getArgument(1, String.class).startsWith("@Author") ? 77L : 78L, PR_URL + "#c"));
-        when(github.updatePrCommentAsApp(anyLong(), anyString())).thenReturn(true);
+        when(github.appComment(eq(PR), any(), anyString())).thenAnswer(inv -> new GithubClient.PostedComment(
+            inv.getArgument(2, String.class).startsWith("@Author") ? 77L : 78L, PR_URL + "#c"));
+        when(github.appEdit(anyInt(), any(), anyLong(), anyString())).thenReturn(true);
     }
 
     @Test
@@ -93,8 +97,7 @@ class RunStoryEndsTest {
 
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("🏁 _Run finished"));
-        verify(github).updatePrCommentAsApp(eq(78L), contains("🏁 _Run finished"));
+        assertToldTheVerdictIsReady();
     }
 
     @Test
@@ -109,7 +112,7 @@ class RunStoryEndsTest {
 
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("🏁 _Run finished — RunAll [" + (CHAIN + 5)
+        verify(github).appEdit(anyInt(), any(), eq(77L), contains("🏁 _Run finished — RunAll [" + (CHAIN + 5)
             + "](https://ci2.example/build/" + (CHAIN + 5) + ") replaced it before it settled; the newest verdict is on"
             + " [the checker's page](https://checker.example/?pr=" + PR + ")._"));
     }
@@ -127,8 +130,9 @@ class RunStoryEndsTest {
         awaitEnd();
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("🏁 _Run finished — the PR was merged before the re-runs"
-            + " settled; the last known verdict is on [the checker's page](https://checker.example/?pr=" + PR + ")._"));
+        verify(github).appEdit(anyInt(), any(), eq(77L), contains("🏁 _Run finished — the PR was merged before the"
+            + " re-runs settled; the last known verdict is on [the checker's page](https://checker.example/?pr=" + PR
+            + ")._"));
     }
 
     @Test
@@ -145,7 +149,7 @@ class RunStoryEndsTest {
         assertThat(cancelled.getValue().test(chain(9400100L, "running", null))).isTrue();
         assertThat(cancelled.getValue().test(chain(9400200L, "running", null))).isFalse();
         assertThat(standing.waveStatus(PR, CHAIN)).isEmpty();
-        verify(github).updatePrCommentAsApp(eq(77L), contains("🛑 _Superseded by [a newer /run-all]"));
+        verify(github).appEdit(anyInt(), any(), eq(77L), contains("🛑 _Superseded by [a newer /run-all]"));
     }
 
     /** The earlier run had long finished: only the re-runs of its wave were cancelled, and the ack said the run was. */
@@ -157,9 +161,9 @@ class RunStoryEndsTest {
 
         command(3L, "Author");
 
-        verify(github).addPrCommentAsAppWithId(eq(PR),
-            contains("The re-runs of your previous run were cancelled — this one supersedes it."));
-        verify(github, never()).addPrCommentAsAppWithId(eq(PR), contains("Your previous run was cancelled"));
+        verify(github).appComment(eq(PR), any(), contains("The re-runs of your previous run were cancelled — this one"
+            + " supersedes it."));
+        verify(github, never()).appComment(eq(PR), any(), contains("Your previous run was cancelled"));
     }
 
     @Test
@@ -169,7 +173,7 @@ class RunStoryEndsTest {
         standing.disable("reviewer");
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(78L), contains("🛑 _No longer followed: the options of the user who"
+        verify(github).appEdit(anyInt(), any(), eq(78L), contains("🛑 _No longer followed: the options of the user who"
             + " started it were switched off._"));
     }
 
@@ -180,8 +184,33 @@ class RunStoryEndsTest {
 
         commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("🛑 _TeamCity no longer has build " + CHAIN
+        verify(github).appEdit(anyInt(), any(), eq(77L), contains("🛑 _TeamCity no longer has build " + CHAIN
             + ", so this story ends here._"));
+    }
+
+    /**
+     * GitHub made the checker's account wait when the story was to get its last line: it gets it at a later look, after
+     * a restart too, and once.
+     */
+    @Test
+    void aLastLineGithubMadeWaitGoesLater(@TempDir Path dir) throws Exception {
+        command(1L, "Author");
+        when(tc.getBuildState("tc-a", CHAIN)).thenReturn(chain(CHAIN, "finished", "UNKNOWN"));
+        when(github.appEdit(anyInt(), any(), eq(77L), endsWith("\n🛑 _Run cancelled._")))
+            .thenThrow(new GithubClient.WriteDeferred("PR 13440 had 40 writes of the app account in the last hour"))
+            .thenThrow(new GithubClient.WriteDeferred("GitHub asked the app account to wait"))
+            .thenReturn(true);
+
+        commands.updateEtas();
+        commands.updateEtas();
+        Path file = dir.resolve("pr-commands.json");
+        commands.saveTo(file);
+        PrCommands restarted = commands();
+        restarted.loadFrom(file);
+        restarted.updateEtas();
+        restarted.updateEtas();
+
+        verify(github, times(3)).appEdit(anyInt(), any(), eq(77L), endsWith("\n🛑 _Run cancelled._"));
     }
 
     @Test
@@ -197,10 +226,18 @@ class RunStoryEndsTest {
 
         restarted.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("🏁 _Run finished"));
-        verify(github).updatePrCommentAsApp(eq(78L), contains("🏁 _Run finished"));
+        assertToldTheVerdictIsReady();
         assertThat(mapper.readTree(file.toFile()).get("watching").get(String.valueOf(PR)).get("commentId").asLong())
             .isEqualTo(2L);
+    }
+
+    /** Each commander got a new comment saying the verdict of their run is ready, and the story of the run went. */
+    private void assertToldTheVerdictIsReady() {
+        verify(github).appComment(eq(PR), eq("author"), startsWith("@Author the verdict of your `/run-all` is ready"));
+        verify(github).appComment(eq(PR), eq("reviewer"), startsWith("@Reviewer the verdict of your `/run-all` is"
+            + " ready"));
+        verify(github).appDelete(PR, "author", 77L);
+        verify(github).appDelete(PR, "reviewer", 78L);
     }
 
     private PrCommands commands() {
@@ -219,7 +256,7 @@ class RunStoryEndsTest {
         commands.poll();
     }
 
-    /** A /run-all on a PR whose title names no ticket: the run is settled, and the story says why no visa came. */
+    /** A /run-all on a PR whose title names no ticket: the run is settled, and its last word says why no visa came. */
     @Test
     void aRunOnAPrWithoutATicketSaysWhyNoVisaCame() {
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "For TC debug", null, null, null, null)));
@@ -241,7 +278,8 @@ class RunStoryEndsTest {
         commands.updateEtas();
 
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
-        verify(github).updatePrCommentAsApp(eq(77L), contains("No JIRA visa: the PR title names no IGNITE ticket."));
+        verify(github).appComment(eq(PR), eq("author"), contains("No JIRA visa: the PR title names no IGNITE"
+            + " ticket."));
     }
 
     /** The author's /run-all finished red, and the settle the story asked for queued the run's wave. */

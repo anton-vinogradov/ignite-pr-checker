@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * Checkstyle autofix at command time: fetch the PR's changed .java files, run the repo's own
  * checkstyle on them, apply the mechanical {@link Fixers}, verify the result got strictly better,
- * and push ONE fix commit to the author's branch under their own PAT — all before the run is
+ * and push ONE fix commit to the author's branch under their own token — all before the run is
  * triggered, so a trivial style failure can't waste a four-hour RunAll. Guard-rails: opt-in per
  * user, only on the commander's OWN pull request, never force-pushed, and the commit is clearly
  * labelled.
@@ -126,6 +126,15 @@ public class StyleFixService {
                     "Checkstyle autofix by Ignite PR Checker (requested via PR command)");
             }
             catch (RuntimeException e) {
+                if (cannotPush(e)) {
+                    log.warn("style autofix for PR {}: the token of {} may not push to {}: {}", pr, actor.username(),
+                        head.headRepo(), e.toString());
+
+                    return "🎨 _Checkstyle autofix: your GitHub token may not push to `" + head.headRepo() + "`, so the"
+                        + " fix was not pushed — running as-is. A fine-grained token reaches only the repositories it"
+                        + " was given; a PR from a branch of the repo itself or of someone else's fork needs a classic"
+                        + " one with public_repo._";
+                }
                 if (!GithubClient.refusesToken(e))
                     throw e;
 
@@ -155,6 +164,19 @@ public class StyleFixService {
 
             return "🎨 _Checkstyle autofix failed (" + e.getClass().getSimpleName() + ") — running as-is._";
         }
+    }
+
+    /**
+     * Whether GitHub answered the commit that the token may not write there: 403, other than its rate limit, or 404
+     * for a repo it cannot see.
+     */
+    private static boolean cannotPush(RuntimeException e) {
+        if (!(e instanceof org.springframework.web.client.RestClientResponseException rest))
+            return false;
+
+        int code = rest.getStatusCode().value();
+
+        return code == 403 && !GithubClient.rateLimited(e) || code == 404;
     }
 
     /** The violations as "path:line — rule", folded; empty when there are none. */
