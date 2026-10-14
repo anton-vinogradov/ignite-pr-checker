@@ -934,8 +934,9 @@ public class GithubClient implements SnapshotCache {
         }
         catch (org.springframework.web.client.RestClientResponseException e) {
             int status = e.getStatusCode().value();
-            appAccount = new AppAccount(status == 401 || status == 403 ? AppAccount.REFUSED : AppAccount.UNKNOWN, null,
-                null);
+            AppAccount was = appAccount;
+            appAccount = status == 401 || status == 403
+                ? new AppAccount(AppAccount.REFUSED, was.login(), was.canPush(), was.id(), List.of()) : stillKnown(was);
             log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", status,
                 status == 401 || status == 403 ? "the token is refused, nothing is written as the app account"
                     : "asked again later");
@@ -943,7 +944,7 @@ public class GithubClient implements SnapshotCache {
             return;
         }
         catch (RuntimeException e) {
-            appAccount = new AppAccount(AppAccount.UNKNOWN, null, null);
+            appAccount = stillKnown(appAccount);
             log.warn("could not ask GitHub whom GITHUB_TOKEN belongs to, asked again later: {}", e.toString());
 
             return;
@@ -959,6 +960,14 @@ public class GithubClient implements SnapshotCache {
         appAccount = new AppAccount(AppAccount.OK, login, canPush, id, checks);
         if (!AppAccount.OK.equals(was.state()) || !Objects.equals(was.login(), login) || !was.checks().equals(checks))
             logChecks(login, checks);
+    }
+
+    /**
+     * The app account when GitHub could not be asked: what GitHub said of it last, as a check every 6 hours that
+     * failed once does not make a known account unknown.
+     */
+    private static AppAccount stillKnown(AppAccount was) {
+        return AppAccount.OK.equals(was.state()) ? was : new AppAccount(AppAccount.UNKNOWN, null, null);
     }
 
     /** What was found of the token, when it is news: the operator reads it in the log too. */

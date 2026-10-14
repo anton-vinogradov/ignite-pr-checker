@@ -90,6 +90,26 @@ class AppAccountTest {
             + expires.substring(0, 10) + ", in 3 days");
     }
 
+    /** The check runs again every 6 hours: one that GitHub failed must not make the known account unknown. */
+    @Test
+    void aRecheckGithubFailedKeepsWhatItSaidLast() {
+        server.expect(requestTo("https://api.github.com/user"))
+            .andRespond(withSuccess("{\"login\":\"ignite-pr-checker\",\"id\":234567}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/user")).andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+        GithubClient github = client("app-token");
+        github.checkAppAccount();
+        GithubClient.AppAccount known = github.appAccount();
+
+        github.checkAppAccount();
+
+        assertThat(github.appAccount()).isEqualTo(known);
+        assertThat(github.isAppAccount(new GithubClient.GhUser("ignite-pr-checker", 234567))).isTrue();
+    }
+
     @Test
     void aTokenGithubRefusesIsSaid() {
         server.expect(requestTo("https://api.github.com/user")).andRespond(withStatus(HttpStatus.UNAUTHORIZED));
