@@ -102,13 +102,23 @@ public class LoginController {
         }
 
         users.touchLogin(username.get());
-        String cookie = codec.encode(username.get(), token);
+        SessionCodec.Session session = sessionOf(username.get(), token, http);
         warmer.offerVerifiedToken(token); // TeamCity just accepted it
         standing.tcTokenAccepted(username.get(), token);
 
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, sessionCookie(cookie).toString())
-            .body(new UserResponse(username.get(), false, false, admin.mayAdminister(username.get())));
+            .header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(session)).toString())
+            .body(new UserResponse(username.get(), session.jiraToken() != null, session.ghToken() != null,
+                admin.mayAdminister(username.get())));
+    }
+
+    /**
+     * The session a login starts: a new TeamCity token replaces the one the browser's cookie carries for the same
+     * user, and the JIRA and GitHub tokens in it stay. Another user's cookie gives nothing.
+     */
+    private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
+        return AuthInterceptor.cookie(http).flatMap(codec::decode).filter(s -> username.equals(s.username()))
+            .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token, null, null));
     }
 
     private static ResponseEntity<?> rejected() {

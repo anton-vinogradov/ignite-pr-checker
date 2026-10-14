@@ -43,10 +43,13 @@ import org.springframework.web.util.UriUtils;
 public class GithubClient implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(GithubClient.class);
 
-    /** Validates a user's PAT: their GitHub login when the token works. */
+    /**
+     * Validates a user's PAT: their GitHub login when the token works, empty when GitHub refuses it. Throws when GitHub
+     * could not say: no answer, an outage, a rate limit.
+     */
     public java.util.Optional<String> ghUser(String pat) {
         try {
-            java.util.Map<?, ?> u = recorded("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
+            java.util.Map<?, ?> u = recordedAsUser("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
                 .header("Authorization", "Bearer " + pat)
                 .header("Accept", "application/vnd.github+json")
                 .retrieve().body(java.util.Map.class));
@@ -54,8 +57,19 @@ public class GithubClient implements SnapshotCache {
             return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
         }
         catch (RuntimeException e) {
-            return java.util.Optional.empty();
+            if (refusesToken(e))
+                return java.util.Optional.empty();
+
+            throw e;
         }
+    }
+
+    /**
+     * Whether GitHub refused the token of the failed call itself: 401, "Bad credentials". A 403 is a rate limit or a
+     * resource the token may not touch, and says nothing of the token.
+     */
+    public static boolean refusesToken(Throwable e) {
+        return e instanceof RestClientResponseException rest && rest.getStatusCode().value() == 401;
     }
 
     /**
@@ -83,7 +97,7 @@ public class GithubClient implements SnapshotCache {
 
     /** Posts a comment to the PR under the USER'S OWN PAT; its id (for later edits) and html url. */
     public PostedComment addPrComment(String pat, int prNumber, String body) {
-        java.util.Map<?, ?> c = recorded("prComment", () -> http.post()
+        java.util.Map<?, ?> c = recordedAsUser("prComment", () -> http.post()
             .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + prNumber + "/comments"))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
@@ -402,8 +416,8 @@ public class GithubClient implements SnapshotCache {
         if (first.at() == null)
             return Optional.ofNullable(first.read());
 
-        return Optional.ofNullable(recorded("jobLog", () -> http.get().uri(first.at())
-            .exchange((request, response) -> readLog(response, reader, jobId))));
+        return Optional.ofNullable(timed("jobLog", () -> http.get().uri(first.at())
+            .exchange((request, response) -> readLog(response, reader, jobId)), false));
     }
 
     private static <T> T readLog(ClientHttpResponse response, Function<Stream<String>, T> reader, long jobId)
@@ -541,30 +555,30 @@ public class GithubClient implements SnapshotCache {
      */
     public String commitFiles(String pat, String repo, String branch, String parentSha,
         java.util.Map<String, String> files, String message) {
-        java.util.Map<?, ?> parent = patGet(pat,
-            props.apiUrl() + "/repos/" + repo + "/git/commits/" + parentSha).body(java.util.Map.class);
+        java.util.Map<?, ?> parent = recordedAsUser("commit", () -> patGet(pat,
+            props.apiUrl() + "/repos/" + repo + "/git/commits/" + parentSha).body(java.util.Map.class));
         String baseTree = (String)((java.util.Map<?, ?>)parent.get("tree")).get("sha");
 
         java.util.List<java.util.Map<String, String>> tree = new java.util.ArrayList<>();
         for (java.util.Map.Entry<String, String> f : files.entrySet()) {
-            java.util.Map<?, ?> blob = recorded("styleCommit", () -> patPost(pat,
+            java.util.Map<?, ?> blob = recordedAsUser("commit", () -> patPost(pat,
                 props.apiUrl() + "/repos/" + repo + "/git/blobs",
                 java.util.Map.of("content", f.getValue(), "encoding", "utf-8")).body(java.util.Map.class));
             tree.add(java.util.Map.of("path", f.getKey(), "mode", "100644", "type", "blob",
                 "sha", (String)blob.get("sha")));
         }
 
-        java.util.Map<?, ?> newTree = recorded("styleCommit", () -> patPost(pat,
+        java.util.Map<?, ?> newTree = recordedAsUser("commit", () -> patPost(pat,
             props.apiUrl() + "/repos/" + repo + "/git/trees",
             java.util.Map.of("base_tree", baseTree, "tree", tree)).body(java.util.Map.class));
 
-        java.util.Map<?, ?> commit = recorded("styleCommit", () -> patPost(pat,
+        java.util.Map<?, ?> commit = recordedAsUser("commit", () -> patPost(pat,
             props.apiUrl() + "/repos/" + repo + "/git/commits",
             java.util.Map.of("message", message, "tree", newTree.get("sha"),
                 "parents", java.util.List.of(parentSha))).body(java.util.Map.class));
 
         String sha = (String)commit.get("sha");
-        recorded("styleCommit", () -> http.patch()
+        recordedAsUser("commit", () -> http.patch()
             .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/git/refs/heads/" + branch))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
@@ -604,7 +618,7 @@ public class GithubClient implements SnapshotCache {
 
     /** Replaces the body of an existing comment — the verdict lives in ONE comment that updates. */
     public void updatePrComment(String pat, long commentId, String body) {
-        recorded("prCommentEdit", () -> http.patch()
+        recordedAsUser("prCommentEdit", () -> http.patch()
             .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
@@ -665,7 +679,7 @@ public class GithubClient implements SnapshotCache {
 
     /** Reacts to an issue/PR comment under the USER'S OWN PAT (content: rocket, confused, ...). */
     public void reactToComment(String pat, long commentId, String content) {
-        recorded("react", () -> http.post()
+        recordedAsUser("react", () -> http.post()
             .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId + "/reactions"))
             .header("Authorization", "Bearer " + pat)
             .header("Accept", "application/vnd.github+json")
@@ -748,17 +762,41 @@ public class GithubClient implements SnapshotCache {
         this.noRedirects = noRedirects;
     }
 
-    /** Runs a GitHub call, recording its category, outcome and latency for the status page. */
+    /**
+     * Runs a GitHub call under the app token (or none), recording its category, outcome and latency for the status
+     * page. GitHub refusing the app token marks the app account refused; a call that works again brings it back.
+     */
     private <T> T recorded(String category, Supplier<T> call) {
+        return timed(category, call, true);
+    }
+
+    /**
+     * Runs a GitHub call under a user's own token. It is recorded apart from the app token's calls, under
+     * {@link #USER_CALL} and its category, and its refusal says nothing of the app token.
+     */
+    private <T> T recordedAsUser(String category, Supplier<T> call) {
+        return timed(USER_CALL + category, call, false);
+    }
+
+    /** What the categories of calls under users' own tokens start with on the status page. */
+    private static final String USER_CALL = "pat:";
+
+    /** Runs and records the call; {@code appToken}: it carries the app token, so its outcome tells of that token. */
+    private <T> T timed(String category, Supplier<T> call, boolean appToken) {
         long t0 = System.nanoTime();
         try {
             T result = call.get();
             metrics.recordGithub(category, true, (System.nanoTime() - t0) / 1_000_000L);
+            if (appToken)
+                appTokenWorked();
 
             return result;
         }
         catch (RuntimeException e) {
             metrics.recordGithub(category, false, (System.nanoTime() - t0) / 1_000_000L);
+            if (appToken && refusesToken(e))
+                appTokenRefused(category);
+
             throw OutboundHttp.naming("GitHub", e);
         }
     }
@@ -840,7 +878,8 @@ public class GithubClient implements SnapshotCache {
 
         String login;
         try {
-            java.util.Map<?, ?> u = recorded("appUser", () -> appGet(props.apiUrl() + "/user").body(java.util.Map.class));
+            java.util.Map<?, ?> u = timed("appUser", () -> appGet(props.apiUrl() + "/user").body(java.util.Map.class),
+                false);
             login = u == null ? null : (String)u.get("login");
         }
         catch (org.springframework.web.client.RestClientResponseException e) {
@@ -873,8 +912,8 @@ public class GithubClient implements SnapshotCache {
     /** Whether the app account may push to the repo; null when GitHub does not say. */
     private Boolean canPush() {
         try {
-            java.util.Map<?, ?> repo = recorded("appRepo", () -> appGet(props.apiUrl() + "/repos/" + props.repo())
-                .body(java.util.Map.class));
+            java.util.Map<?, ?> repo = timed("appRepo", () -> appGet(props.apiUrl() + "/repos/" + props.repo())
+                .body(java.util.Map.class), false);
             Object perms = repo == null ? null : repo.get("permissions");
 
             return perms instanceof java.util.Map<?, ?> m && m.get("push") instanceof Boolean push ? push : null;
@@ -883,6 +922,41 @@ public class GithubClient implements SnapshotCache {
             return null;
         }
     }
+
+    /**
+     * GitHub refused the app token on a call after the startup check: an expired or revoked GITHUB_TOKEN would
+     * otherwise show as fine until the next restart, while every reply, reaction and narration of the app account
+     * fails.
+     */
+    private void appTokenRefused(String category) {
+        if (props.token() == null || props.token().isBlank())
+            return;
+
+        AppAccount was = appAccount;
+        if (AppAccount.REFUSED.equals(was.state()))
+            return;
+
+        appAccount = new AppAccount(AppAccount.REFUSED, was.login(), was.canPush());
+        log.warn("GitHub refused GITHUB_TOKEN on a {} call: nothing is written as the app account until a call under "
+            + "it works again", category);
+    }
+
+    /** A call under the app token worked: if it was refused, GitHub is asked again whom it belongs to. */
+    private void appTokenWorked() {
+        if (!AppAccount.REFUSED.equals(appAccount.state()) || !appAccountRecheck.compareAndSet(false, true))
+            return;
+
+        ownStatsFetch.execute(() -> {
+            try {
+                checkAppAccount();
+            }
+            finally {
+                appAccountRecheck.set(false);
+            }
+        });
+    }
+
+    private final AtomicBoolean appAccountRecheck = new AtomicBoolean();
 
     private static final long APP_ACCOUNT_RECHECK_MS = 10 * 60_000L;
 
@@ -907,6 +981,11 @@ public class GithubClient implements SnapshotCache {
         /** What anyone may see: whether the account can push says how much a leaked server token is worth. */
         public AppAccount anonymous() {
             return new AppAccount(state, login, null);
+        }
+
+        /** Whether GitHub refuses the token. */
+        public boolean refused() {
+            return REFUSED.equals(state);
         }
     }
 

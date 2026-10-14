@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -39,6 +40,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 
 /**
  * The only visa in IGNITE-28938 still reads "(x) 3 blockers… Auto re-run #1 in progress", and PR 13427 was merged
@@ -79,8 +81,10 @@ class ThreadEndingTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
+
     private final StandingVisas standing = new StandingVisas(mapper,
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, mock(BlockerAnalyzer.class),
+        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, analyzer,
         jira, new VisaService(new TeamcityProperties("https://ci2.example/"), "https://checker.example"),
         mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
@@ -169,6 +173,25 @@ class ThreadEndingTest {
         assertThat(standing.settings(USER).ghTokenRejected()).isTrue();
     }
 
+    /**
+     * JIRA answers 403 to an edit of a ticket the user may not touch, and ASF JIRA serves a dead token as an anonymous
+     * user: the failed edit drops the JIRA token only when JIRA's /myself refuses it too.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void aFailedVisaEditDropsTheJiraTokenOnlyWhenJiraRefusesIt(boolean refused) {
+        listed();
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
+        doThrow(HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY, new byte[0],
+            StandardCharsets.UTF_8)).when(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA), anyString());
+        when(jira.tokenRejected("jira-pat")).thenReturn(refused);
+
+        standing.sweep();
+
+        assertThat(standing.jiraTokenRejected(USER)).isEqualTo(refused);
+        assertThat(standing.visaOn(USER)).isEqualTo(!refused);
+    }
+
     /** Its owner switched off everything that settles runs and kept checkstyle autofix, with the GitHub token. */
     @Test
     void aCommentWhoseOptionsWereSwitchedOffSaysSo() {
@@ -215,6 +238,58 @@ class ThreadEndingTest {
         verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA), anyString());
         assertThat(standing.waveStatus(PR, OLD)).isEmpty();
         assertThat(standing.runEnd(PR, OLD)).contains(new StandingVisas.RunEnd(0, true));
+    }
+
+    /**
+     * The run settled while JIRA was down: its final verdict did not replace the visa in progress, and waited to go
+     * out. A newer RunAll replaced the run meanwhile, and the visa kept saying "in progress" for good.
+     */
+    @Test
+    void aVisaWhoseFinalVerdictJiraFailedGetsItsLastLineWhenANewerRunReplacesIt() {
+        listed();
+        settledWhileJiraWasDown();
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
+
+        standing.sweep(); // JIRA still fails the edit
+        standing.sweep();
+        standing.sweep();
+
+        verify(jira, times(3)).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA), anyString());
+        verify(jira, times(2)).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA),
+            contains("Re-runs stopped: RunAll " + NEW));
+    }
+
+    @Test
+    void aVisaWhoseFinalVerdictJiraFailedGetsItsLastLineWhenThePrIsMerged() {
+        listed();
+        settledWhileJiraWasDown();
+        when(github.openPrs()).thenReturn(List.of());
+        when(github.pullState(PR)).thenReturn(Optional.of(new GithubClient.PullState(ISSUE + " Fix it", false, true)));
+
+        standing.sweep(); // JIRA still fails the edit
+        standing.sweep();
+        standing.sweep();
+
+        verify(jira, times(3)).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA), anyString());
+        verify(jira, times(2)).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA),
+            contains("The PR was merged before the re-runs settled"));
+    }
+
+    /** The run settles with JIRA failing both the edit of its visa to the final verdict and a fresh visa. */
+    private void settledWhileJiraWasDown() {
+        long now = System.currentTimeMillis() / 1000;
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(OLD, USER)));
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(new AnalysisResult(PR, OLD,
+            "pull/13427/head", System.currentTimeMillis(), List.of(), List.of(), List.of(), List.of(), List.of(), 140,
+            1, false, 0, false, 0, now - 4 * 3600, now - 4 * 3600, now - 60, now - 60)));
+        HttpServerErrorException down = new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE);
+        doThrow(down).doThrow(down).doNothing().when(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA),
+            anyString());
+        when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString())).thenThrow(down);
+
+        standing.sweep();
+
+        assertThat(standing.buildHandled(USER, PR, OLD)).isTrue();
     }
 
     private void listed() {

@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -37,9 +38,19 @@ public class StyleFixService {
     private final GithubClient github;
     private final CheckstyleRunner checkstyle;
 
+    /** Whose GitHub token to drop when GitHub refuses it; null for a fix that keeps no tokens. */
+    private final StandingVisas standing;
+
+    /** A style fix that keeps no tokens: a refused one is only reported. */
     public StyleFixService(GithubClient github, CheckstyleRunner checkstyle) {
+        this(github, checkstyle, null);
+    }
+
+    @Autowired
+    public StyleFixService(GithubClient github, CheckstyleRunner checkstyle, StandingVisas standing) {
         this.github = github;
         this.checkstyle = checkstyle;
+        this.standing = standing;
     }
 
     /**
@@ -109,8 +120,23 @@ public class StyleFixService {
                     changed.put(e.getKey(), e.getValue());
             }
 
-            String sha = github.commitFiles(actor.ghToken(), head.headRepo(), head.headRef(), head.headSha(),
-                changed, "Checkstyle autofix by Ignite PR Checker (requested via PR command)");
+            String sha;
+            try {
+                sha = github.commitFiles(actor.ghToken(), head.headRepo(), head.headRef(), head.headSha(), changed,
+                    "Checkstyle autofix by Ignite PR Checker (requested via PR command)");
+            }
+            catch (RuntimeException e) {
+                if (!GithubClient.refusesToken(e))
+                    throw e;
+
+                // The one call made with the author's token: its refusal is theirs, and their token is dropped as
+                // everywhere else.
+                if (standing != null)
+                    standing.dropGhToken(actor.username());
+                log.warn("style autofix for PR {}: GitHub refused the token of {}", pr, actor.username());
+
+                return "🎨 _Checkstyle autofix: GitHub refused your token, so the fix was not pushed — running as-is._";
+            }
 
             log.info("style autofix for PR {}: {} -> {} violation(s), {} file(s), commit {}",
                 pr, before.size(), remaining.size(), changed.size(), sha.substring(0, 8));

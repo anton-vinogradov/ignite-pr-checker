@@ -39,20 +39,19 @@ public class SessionCodec {
         this.key = deriveKey(props.secret());
     }
 
-    /** @return the cookie value carrying the encrypted session. */
+    /** @return the cookie value carrying a new session: the TeamCity token alone. */
     public String encode(String username, String token) {
-        return encode(username, token, null);
+        return encode(new Session(username, token, null, null));
     }
 
-    /** @return the cookie value carrying the encrypted session, with an optional JIRA PAT. */
-    public String encode(String username, String token, String jiraToken) {
-        return encode(username, token, jiraToken, null);
-    }
-
-    /** @return the cookie value carrying the encrypted session, with optional JIRA and GitHub PATs. */
-    public String encode(String username, String token, String jiraToken, String ghToken) {
+    /**
+     * @return the cookie value carrying the encrypted session. A cookie re-issued for one changed field is encoded
+     * from the session it replaces, with that field changed, so the others stay.
+     */
+    public String encode(Session session) {
         try {
-            byte[] plain = mapper.writeValueAsBytes(new Payload(username, token, jiraToken, ghToken));
+            byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(),
+                session.jiraToken(), session.ghToken()));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -148,6 +147,20 @@ public class SessionCodec {
     }
 
     public record Session(String username, String token, String jiraToken, String ghToken) {
+        /** The same session under another TeamCity token. */
+        public Session withToken(String tc) {
+            return new Session(username, tc, jiraToken, ghToken);
+        }
+
+        /** The same session with another JIRA PAT. */
+        public Session withJiraToken(String jira) {
+            return new Session(username, token, jira, ghToken);
+        }
+
+        /** The same session with another GitHub PAT. */
+        public Session withGhToken(String gh) {
+            return new Session(username, token, jiraToken, gh);
+        }
     }
 
     /** Old cookies also carried an {@code exp}; it is ignored now that sessions don't time out. */

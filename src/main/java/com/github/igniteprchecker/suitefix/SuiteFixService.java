@@ -177,6 +177,7 @@ public class SuiteFixService implements SnapshotCache {
         long started = clock.getAsLong();
         Map<String, StandingVisas.GhActor> fixers = standing.suiteFixers();
         users = fixers.size();
+        postUnposted();
         fixers.forEach((login, actor) -> {
             List<Integer> prs;
             try {
@@ -351,8 +352,35 @@ public class SuiteFixService implements SnapshotCache {
     }
 
     /**
+     * Posts again each report GitHub did not take, at the next sweeps while it is news: for FOLLOW_MS after its attempt.
+     * A refused token was dropped with the failure; one pasted since posts it.
+     */
+    private void postUnposted() {
+        long now = clock.getAsLong();
+        for (Attempt a : List.copyOf(attempts.values())) {
+            if (a.commentId() != null || a.report() == null || now - a.at() > FOLLOW_MS)
+                continue;
+
+            Optional<StandingVisas.GhActor> actor = authorWithToken(a);
+            if (actor.isEmpty())
+                continue;
+
+            try {
+                long id = github.addPrComment(actor.get().ghToken(), a.pr(), a.report()).id();
+                attempts.put(a.head(), a.postedAs(id));
+                log.info("PR {}: the report on adding tests to suites is posted now", a.pr());
+            }
+            catch (RuntimeException e) {
+                why(e, actor.get());
+                log.warn("PR {}: the report on adding tests to suites was not posted again: {}", a.pr(), e.toString());
+            }
+        }
+    }
+
+    /**
      * Edits the comment of each pushed attempt with what Ignite's check says of the commit, once it says it, or that it
-     * said nothing within FOLLOW_MS.
+     * said nothing within FOLLOW_MS. An edit that did not go in, GitHub failing it or the token gone, is tried again at
+     * the next sweeps until FOLLOW_MS is over.
      */
     void followUp() {
         long now = clock.getAsLong();
@@ -360,31 +388,49 @@ public class SuiteFixService implements SnapshotCache {
             if (a.followed() || a.pushed() == null || a.commentId() == null || a.report() == null)
                 continue;
 
-            String answer;
-            if (now - a.at() > FOLLOW_MS) {
-                Unanswered last = unanswered.get(a.pushed());
-                answer = noAnswer(a.pushed(), last == null ? null : last.reason());
-            }
-            else {
-                Optional<AbandonedTestsCheck.Outcome> check = settledCheck(a.pushed());
-                if (check.isEmpty())
-                    continue;
+            Optional<String> body = answered(a, now);
+            if (body.isEmpty())
+                continue;
 
-                answer = verdict(check.get(), a.pushed(), a.added());
-            }
-
-            String body = a.report().replace(pending(a.pushed()), answer);
-            Optional<StandingVisas.GhActor> actor = standing.actor(a.user()).filter(x -> x.ghToken() != null);
+            Optional<StandingVisas.GhActor> actor = authorWithToken(a);
+            boolean in = false;
             try {
-                if (actor.isPresent())
-                    github.updatePrComment(actor.get().ghToken(), a.commentId(), body);
+                if (actor.isPresent()) {
+                    github.updatePrComment(actor.get().ghToken(), a.commentId(), body.get());
+                    in = true;
+                }
             }
             catch (RuntimeException e) {
                 why(e, actor.get());
                 log.warn("PR {}: the report on adding tests to suites was not updated: {}", a.pr(), e.toString());
             }
-            attempts.put(a.head(), a.followedWith(body));
+            boolean over = now - a.at() > FOLLOW_MS;
+            attempts.put(a.head(), in || over ? a.followedWith(body.get()) : a.answeredWith(body.get()));
         }
+    }
+
+    /**
+     * The report with what Ignite's check says of the pushed commit in place of its last line; empty while the check
+     * says nothing within FOLLOW_MS. A report that has its answer already, its edit having failed, stays as it is.
+     */
+    private Optional<String> answered(Attempt a, long now) {
+        String waiting = pending(a.pushed());
+        if (!a.report().contains(waiting))
+            return Optional.of(a.report());
+
+        if (now - a.at() > FOLLOW_MS) {
+            Unanswered last = unanswered.get(a.pushed());
+
+            return Optional.of(a.report().replace(waiting, noAnswer(a.pushed(), last == null ? null : last.reason())));
+        }
+
+        return settledCheck(a.pushed()).map(check -> a.report().replace(waiting, verdict(check, a.pushed(),
+            a.added())));
+    }
+
+    /** The user the attempt acted for, while they have a GitHub token to post and edit its report with. */
+    private Optional<StandingVisas.GhActor> authorWithToken(Attempt a) {
+        return standing.actor(a.user()).filter(x -> x.ghToken() != null);
     }
 
     /**
@@ -412,7 +458,7 @@ public class SuiteFixService implements SnapshotCache {
             return "GitHub could not be reached";
 
         int code = rest.getStatusCode().value();
-        if (code == 401) {
+        if (GithubClient.refusesToken(e)) {
             standing.dropGhToken(actor.username());
 
             return "GitHub refused your token";
@@ -547,14 +593,23 @@ public class SuiteFixService implements SnapshotCache {
     }
 
     /**
-     * One head commit attempted: the PR, the user it acted for, the commit pushed (null when none), the comment and
-     * its text, the classes added, and whether the comment has the answer of Ignite's check of the commit, or no
-     * longer waits for it. The field names are the file format.
+     * One head commit attempted: the PR, the user it acted for, the commit pushed (null when none), the comment (null
+     * while GitHub has not taken it) and its text, the classes added, and whether the comment has the answer of
+     * Ignite's check of the commit, or no longer waits for it. The text has the answer once it is known, also while
+     * the edit putting it in waits for another try. The field names are the file format.
      */
     record Attempt(int pr, String head, long at, String user, String pushed, Long commentId, String report,
         List<String> added, boolean followed) {
         Attempt {
             added = added == null ? List.of() : List.copyOf(added);
+        }
+
+        Attempt postedAs(long id) {
+            return new Attempt(pr, head, at, user, pushed, id, report, added, followed);
+        }
+
+        Attempt answeredWith(String body) {
+            return new Attempt(pr, head, at, user, pushed, commentId, body, added, false);
         }
 
         Attempt followedWith(String body) {

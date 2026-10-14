@@ -9,6 +9,7 @@ import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 
 /**
  * PR 13335, RunAll 9389046: the author, whose standing auto-visa is on, started the chain, and a
@@ -121,6 +123,7 @@ class StandingHandoverTest {
     void aStandingVisaJiraRefusedLeavesTheVisaToTheOneShot() {
         when(jira.addCommentWithId(anyString(), anyString(), anyString()))
             .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED));
+        when(jira.tokenRejected("author-pat")).thenReturn(true);
         subs.settle(PR, CHAIN, System.currentTimeMillis());
 
         standing.sweep();
@@ -128,6 +131,49 @@ class StandingHandoverTest {
 
         verify(jira).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
         assertThat(subs.armedCount()).isZero();
+    }
+
+    /**
+     * JIRA answered the author's visa 503, with the token alive: the visa was held back for the next sweep, and the
+     * one-shot visa took it for one that would never come. The ticket got the reviewer's visa, then the author's.
+     */
+    @Test
+    void aStandingVisaJiraFailedIsWaitedForAndTheTicketGetsOne() {
+        when(jira.addCommentWithId(eq("author-pat"), eq(ISSUE), anyString()))
+            .thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE))
+            .thenReturn(new JiraClient.PostedComment("1001", "https://issues.example/" + ISSUE + "#1001"));
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
+
+        standing.sweep();
+        subs.settleLeftToStanding();
+
+        assertThat(subs.armed(PR, "reviewer").issue()).as("waits for the standing visa").isEqualTo(ISSUE);
+
+        standing.sweep();
+        subs.settleLeftToStanding();
+
+        verify(jira, times(2)).addCommentWithId(eq("author-pat"), eq(ISSUE), anyString());
+        verify(jira, never()).addComment(anyString(), anyString(), anyString());
+        assertThat(subs.armedCount()).isZero();
+    }
+
+    /** The author pasted a fresh JIRA token after the one-shot visa had posted the run their refused one held back. */
+    @Test
+    void aVisaTheOneShotPostedIsNotPostedAgainWithAFreshToken() {
+        when(jira.addCommentWithId(eq("author-pat"), eq(ISSUE), anyString()))
+            .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED));
+        when(jira.tokenRejected("author-pat")).thenReturn(true);
+        when(jira.myself("fresh-pat")).thenReturn(Optional.of("author"));
+        subs.settle(PR, CHAIN, System.currentTimeMillis());
+        standing.sweep();
+        subs.settleLeftToStanding();
+
+        standing.change("author", "author-tc", "fresh-pat", null,
+            new StandingVisas.OptionChange(true, null, null, null, null));
+        standing.sweep();
+
+        verify(jira).addComment("reviewer-pat", ISSUE, "verdict of " + CHAIN);
+        verify(jira, after(500).never()).addCommentWithId(eq("fresh-pat"), anyString(), anyString());
     }
 
     @Test

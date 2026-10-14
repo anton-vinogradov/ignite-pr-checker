@@ -125,7 +125,7 @@ class SuiteFixSettingsTest {
             """);
 
         assertThat(page.get("disabled").asBoolean()).isFalse();
-        assertThat(page.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?suites=true\"]");
+        assertThat(page.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?suites=true&tz=UTC\"]");
         assertThat(page.get("checked").asBoolean()).isTrue();
         assertThat(page.get("msg").asText()).isEqualTo("On: checkstyle autofix · tests to suites.");
     }

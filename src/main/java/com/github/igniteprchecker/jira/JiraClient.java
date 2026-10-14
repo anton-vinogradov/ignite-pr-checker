@@ -37,7 +37,11 @@ public class JiraClient {
         return baseUrl;
     }
 
-    /** Validates a PAT; the JIRA display/user name when the token works. */
+    /**
+     * Validates a PAT; the JIRA display/user name when the token works, empty when JIRA refuses it. /myself is the
+     * one place to ask: JIRA answers an anonymous caller 401 there, while ASF JIRA serves a dead token on other
+     * resources as an anonymous user (JRASERVER-78126). Throws when JIRA could not say: no answer, an outage.
+     */
     public Optional<String> myself(String token) {
         try {
             Myself me = recorded("myself", () -> http.get().uri(baseUrl + "/rest/api/2/myself")
@@ -48,22 +52,23 @@ public class JiraClient {
             return Optional.ofNullable(me == null ? null : (me.displayName() != null ? me.displayName() : me.name()));
         }
         catch (RestClientResponseException e) {
-            return Optional.empty();
+            if (e.getStatusCode().value() == 401)
+                return Optional.empty();
+
+            throw e;
         }
     }
 
-    /** The user's JIRA-profile timezone (e.g. {@code Europe/Moscow}) — the only place we can get one. */
-    public Optional<String> myTimezone(String token) {
+    /**
+     * Whether JIRA refuses the token, asked of {@link #myself} after a write failed: the failure itself does not say,
+     * as JIRA answers 403 for a ticket the user may not comment on too. False when JIRA could not say.
+     */
+    public boolean tokenRejected(String token) {
         try {
-            Myself me = recorded("myself", () -> http.get().uri(baseUrl + "/rest/api/2/myself")
-                .header("Authorization", "Bearer " + token)
-                .retrieve()
-                .body(Myself.class));
-
-            return Optional.ofNullable(me == null ? null : me.timeZone());
+            return myself(token).isEmpty();
         }
-        catch (RestClientResponseException e) {
-            return Optional.empty();
+        catch (RuntimeException e) {
+            return false;
         }
     }
 
@@ -131,7 +136,7 @@ public class JiraClient {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Myself(String name, String displayName, String timeZone) {
+    private record Myself(String name, String displayName) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

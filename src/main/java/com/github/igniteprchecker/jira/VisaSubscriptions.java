@@ -44,7 +44,7 @@ import org.springframework.stereotype.Component;
  * then the subscription is removed. A chain whose starter's standing auto-visa posts to the same
  * ticket is left to it: the subscription waits until that visa is in, and posts itself if it never
  * comes. Several users armed on one ticket get one visa between them. A visa that could not be posted
- * is tried again, for an hour, across restarts.
+ * is tried again, for an hour, across restarts; one whose token JIRA refuses goes with the token, marked for its user.
  */
 @Component
 public class VisaSubscriptions implements SnapshotCache {
@@ -60,6 +60,11 @@ public class VisaSubscriptions implements SnapshotCache {
     private final TcClient tc;
     private final StandingVisas standing;
     private final ConcurrentMap<Key, Sub> subs = new ConcurrentHashMap<>();
+    /**
+     * The subscriptions dropped with their token because JIRA refused it, until their user arms or cancels one for the
+     * PR again: the page marks them, as ⚙ marks a refused token of the standing auto-visa.
+     */
+    private final ConcurrentMap<Key, Refused> refused = new ConcurrentHashMap<>();
     /** The next try for a PR whose chain's visa could not be posted yet. */
     private final ConcurrentMap<Integer, Retry> retries = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicInteger posted = new java.util.concurrent.atomic.AtomicInteger();
@@ -106,28 +111,39 @@ public class VisaSubscriptions implements SnapshotCache {
 
     /** Arms the user's one-shot subscription: the next finished RunAll of this PR posts the visa to {@code issue}. */
     public void arm(int pr, String issue, String jiraToken, String username) {
-        subs.put(new Key(pr, username), new Sub(issue, codec.encryptString(jiraToken), username,
-            System.currentTimeMillis(), null));
+        Key key = new Key(pr, username);
+        subs.put(key, new Sub(issue, codec.encryptString(jiraToken), username, System.currentTimeMillis(), null));
+        refused.remove(key);
         log.info("auto-visa armed for PR {} -> {} (by {})", pr, issue, username);
     }
 
     /** Cancels the user's own subscription for the PR; anyone else's stays armed. */
     public void cancel(int pr, String username) {
-        if (subs.remove(new Key(pr, username)) != null)
+        Key key = new Key(pr, username);
+        refused.remove(key);
+        if (subs.remove(key) != null)
             log.info("auto-visa cancelled for PR {} by {}", pr, username);
     }
 
-    /** The PR's subscriptions as the user sees them: their own issue, if armed, and who else armed one. */
+    /**
+     * The PR's subscriptions as the user sees them: their own issue, if armed, who else armed one, and the issue of
+     * their own that JIRA's refusal of their token dropped.
+     */
     public Armed armed(int pr, String username) {
         Sub own = subs.get(new Key(pr, username));
+        Refused dropped = refused.get(new Key(pr, username));
         List<String> others = armedOn(pr).stream().map(Map.Entry::getValue).map(Sub::username)
             .filter(u -> u != null && !u.equals(username)).toList();
 
-        return new Armed(own == null ? null : own.issue(), others);
+        return new Armed(own == null ? null : own.issue(), others, own == null && dropped != null ? dropped.issue()
+            : null);
     }
 
-    /** What {@link #armed} answers: {@code issue} is null when the user has no subscription of their own. */
-    public record Armed(String issue, List<String> others) {
+    /**
+     * What {@link #armed} answers: {@code issue} is null when the user has no subscription of their own, and
+     * {@code refusedFor} names the issue of one JIRA's refusal of their token dropped, null when none did.
+     */
+    public record Armed(String issue, List<String> others, String refusedFor) {
     }
 
     /**
@@ -314,7 +330,10 @@ public class VisaSubscriptions implements SnapshotCache {
         return res;
     }
 
-    /** Posts the visa for one subscription; false when JIRA failed it and it is still to be posted. */
+    /**
+     * Posts the visa for one subscription; false when JIRA failed it and it is still to be posted. Once it is in, the
+     * standing visa of the run held back for that ticket no longer goes out ({@link StandingVisas#visaServed}).
+     */
     private boolean post(int pr, Key key, Sub sub, AnalysisResult res, String tcToken, Set<String> postedTo) {
         if (postedTo.contains(sub.issue())) {
             served(pr, key, sub);
@@ -333,12 +352,21 @@ public class VisaSubscriptions implements SnapshotCache {
                 pending.countSince(tcToken, pr, res.buildId()), revision(tcToken, res.buildId())));
             subs.remove(key, sub); // one-shot: the token leaves the disk with it (a re-armed one stays)
             postedTo.add(sub.issue());
+            standing.visaServed(pr, res.buildId(), sub.issue());
             posted.incrementAndGet();
             lastPostedAt = System.currentTimeMillis();
             log.info("auto-visa posted for PR {} -> {} by {} ({})", pr, sub.issue(), sub.username(), url);
             return true;
         }
         catch (RuntimeException e) {
+            if (jira.tokenRejected(token.get())) {
+                if (subs.remove(key, sub))
+                    refused.put(key, new Refused(sub.issue(), sub.armedAt(), System.currentTimeMillis()));
+                log.warn("auto-visa of {} for PR {} dropped with its token: JIRA refuses the token ({})",
+                    sub.username(), pr, e.toString());
+                return true;
+            }
+
             log.warn("auto-visa of {} for PR {} failed (kept armed): {}", sub.username(), pr, e.toString());
             return false;
         }
@@ -433,6 +461,7 @@ public class VisaSubscriptions implements SnapshotCache {
     public void saveTo(Path file) throws IOException {
         List<Persisted> snap = new ArrayList<>();
         subs.forEach((k, s) -> snap.add(Persisted.of(k, s, retries.get(k.pr()))));
+        refused.forEach((k, r) -> snap.add(Persisted.of(k, r)));
         Snapshots.writeAtomic(mapper, file, snap);
     }
 
@@ -443,6 +472,11 @@ public class VisaSubscriptions implements SnapshotCache {
 
         Map<Integer, Retry> tries = new HashMap<>();
         for (Persisted p : mapper.readValue(file.toFile(), Persisted[].class)) {
+            if (p.refusedAt() != null) {
+                refused.put(new Key(p.pr(), p.username()), new Refused(p.issue(), p.armedAt(), p.refusedAt()));
+                continue;
+            }
+
             subs.put(new Key(p.pr(), p.username()), p.sub());
             Retry r = p.retry();
             if (r != null)
@@ -487,13 +521,18 @@ public class VisaSubscriptions implements SnapshotCache {
     private record Handover(Chain chain, String owner) {
     }
 
+    /** A subscription to {@code issue}, armed {@code armedAt}, dropped {@code at} with the token JIRA refused. */
+    private record Refused(String issue, long armedAt, long at) {
+    }
+
     /**
      * A subscription on disk. A handover and a try due are written only when there is one, so a file
-     * without them reads, and is written, as before.
+     * without them reads, and is written, as before. One JIRA's refusal dropped has {@code refusedAt} and no token.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private record Persisted(int pr, String issue, String token, String username, long armedAt, Long chainBuildId,
-        Long chainSeenAt, String leftTo, Long retryChain, Long retryChainSeenAt, Long retryAt, Long retryingSince) {
+        Long chainSeenAt, String leftTo, Long retryChain, Long retryChainSeenAt, Long retryAt, Long retryingSince,
+        Long refusedAt) {
         static Persisted of(Key k, Sub s, Retry r) {
             Chain left = s.leftTo() == null ? null : s.leftTo().chain();
             Chain tried = r == null ? null : r.chain();
@@ -501,7 +540,12 @@ public class VisaSubscriptions implements SnapshotCache {
             return new Persisted(k.pr(), s.issue(), s.token(), s.username(), s.armedAt(),
                 left == null ? null : left.buildId(), left == null ? null : left.seenAt(),
                 s.leftTo() == null ? null : s.leftTo().owner(), tried == null ? null : tried.buildId(),
-                tried == null ? null : tried.seenAt(), r == null ? null : r.at(), r == null ? null : r.since());
+                tried == null ? null : tried.seenAt(), r == null ? null : r.at(), r == null ? null : r.since(), null);
+        }
+
+        static Persisted of(Key k, Refused r) {
+            return new Persisted(k.pr(), r.issue(), null, k.username(), r.armedAt(), null, null, null, null, null, null,
+                null, r.at());
         }
 
         Sub sub() {
