@@ -61,10 +61,10 @@ class NarrationEditsTest {
 
     @BeforeEach
     void setUp() {
-        standing.linkGhLogin("newcomer", "commands-tc", "Newcomer");
+        standing.linkGhLogin("newcomer", "commands-tc", GhUsers.of("Newcomer"));
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser("Newcomer"))));
+            GhUsers.of("Newcomer"))));
         when(tc.triggerRunAll("commands-tc", PR, false)).thenReturn(build("queued", null));
         when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
             .thenReturn(new GithubClient.PostedComment(NARRATION, "https://github.com/apache/ignite/pull/13800#c77"));

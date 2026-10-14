@@ -74,8 +74,8 @@ class RunStoryEndsTest {
 
     @BeforeEach
     void setUp() {
-        standing.linkGhLogin("author", "tc-a", "Author");
-        standing.linkGhLogin("reviewer", "tc-r", "Reviewer");
+        standing.linkGhLogin("author", "tc-a", GhUsers.of("Author"));
+        standing.linkGhLogin("reviewer", "tc-r", GhUsers.of("Reviewer"));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28999 Fix it", null, null, null, null)));
         when(tc.triggerRunAll("tc-a", PR, false)).thenReturn(chain(CHAIN, "queued", null));
         when(tc.triggerRunAll("tc-r", PR, false)).thenReturn(chain(CHAIN + 1, "queued", null));
@@ -215,7 +215,7 @@ class RunStoryEndsTest {
 
     private void command(long id, String login) {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(id, "/run-all",
-            PR_URL + "#issuecomment-" + id, Instant.now().toString(), new GithubClient.GhUser(login))));
+            PR_URL + "#issuecomment-" + id, Instant.now().toString(), GhUsers.of(login))));
         commands.poll();
     }
 

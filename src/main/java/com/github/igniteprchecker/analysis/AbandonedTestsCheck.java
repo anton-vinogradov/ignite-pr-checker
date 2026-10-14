@@ -21,9 +21,9 @@ import org.slf4j.LoggerFactory;
  * and the page put that down to "an abstract base, or a class no suite runs"; SecurityTestSuite held them, and they got
  * these names in commits pushed after that run. The checker asks Ignite's check rather than guessing.
  *
- * <p>Two GitHub calls a commit, its checks and the job's steps, and the job's log when the step failed: the log names
- * the classes. A finished check of a commit does not change and is kept for 6 hours; one still going, or one GitHub
- * could not tell, for 2 minutes.
+ * <p>Two GitHub calls a commit, its checks and the job's steps (its check suites when it has no such job), and the
+ * job's log when the step failed: the log names the classes. A finished check of a commit does not change and is kept
+ * for 6 hours; one still going, or one GitHub could not tell, for 2 minutes.
  */
 public final class AbandonedTestsCheck {
     /** The job of Ignite's workflow "Code Style, Abandoned Tests, Javadocs", named with its JDK. */
@@ -31,6 +31,12 @@ public final class AbandonedTestsCheck {
 
     /** The job's step that fails when a test class is in no suite. */
     static final String STEP = "Run abandoned tests checks";
+
+    /** Why the check says nothing while its workflow run waits for a maintainer. */
+    static final String AWAITS_APPROVAL = "it waits for a maintainer to approve its workflow run";
+
+    /** The app of GitHub Actions' check suites. */
+    private static final String GITHUB_ACTIONS = "github-actions";
 
     private static final long FINISHED_MS = 6 * 3600_000L;
 
@@ -94,10 +100,8 @@ public final class AbandonedTestsCheck {
         catch (RuntimeException e) {
             return Outcome.unknown(sha, null, "GitHub could not be asked", false);
         }
-        if (job.isEmpty()) {
-            return Outcome.unknown(sha, null, "GitHub shows no " + JOB + " job for it (Ignite's workflow does not run "
-                + "on a PR that conflicts with master)", false);
-        }
+        if (job.isEmpty())
+            return noJob(sha);
 
         String url = onGithub(job.get().htmlUrl());
         if ("queued".equals(job.get().status()))
@@ -130,6 +134,26 @@ public final class AbandonedTestsCheck {
                 : new Outcome(State.RUNNING, sha, url, null, List.of(), false);
             default -> Outcome.unknown(sha, url, "its step ended as " + conclusion, false);
         };
+    }
+
+    /**
+     * The commit has no job of Ignite's workflow. Its run may wait for a maintainer's approval, which apache/ignite
+     * asks for every push of a contributor outside the project: GitHub then shows a check suite of GitHub Actions
+     * concluded "action_required", with no check in it. Else the workflow did not run: it does not on a PR in conflict
+     * with master.
+     */
+    private Outcome noJob(String sha) {
+        boolean awaitsApproval;
+        try {
+            awaitsApproval = github.checkSuites(sha).stream().anyMatch(s -> "action_required".equals(s.conclusion())
+                && s.app() != null && GITHUB_ACTIONS.equals(s.app().slug()));
+        }
+        catch (RuntimeException e) {
+            return Outcome.unknown(sha, null, "GitHub could not be asked", false);
+        }
+
+        return Outcome.unknown(sha, null, awaitsApproval ? AWAITS_APPROVAL : "GitHub shows no " + JOB + " job for it"
+            + " (Ignite's workflow does not run on a PR that conflicts with master)", false);
     }
 
     private static Outcome skipped(String sha, String url, String reason) {

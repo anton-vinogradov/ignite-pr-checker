@@ -81,7 +81,7 @@ class BrowserTimeZoneTest {
 
     @Test
     void aZoneThatIsNoneIsIgnoredAndOneSentLaterReplacesIt() {
-        standing.linkGhLogin("author", "tc", "Author", " Europe/Moscow ");
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"), " Europe/Moscow ");
 
         standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null),
             "Mars/Olympus_Mons");
@@ -96,7 +96,7 @@ class BrowserTimeZoneTest {
 
     private void visaOn(String browserTz) {
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
-        standing.linkGhLogin("author", "tc", "Author");
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
         standing.change("author", "tc", "jira-pat", null, new StandingVisas.OptionChange(true, null, null, null, null),
             browserTz);
     }
@@ -106,7 +106,7 @@ class BrowserTimeZoneTest {
         jiraDown.set(true);
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser("Author"))));
+            GhUsers.of("Author"))));
         TcModel.Build queued = new TcModel.Build(CHAIN, null, "queued", "pull/13800/head", null, null, null, null, null,
             null, null, null, null, null, null, null, null, null);
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(queued);

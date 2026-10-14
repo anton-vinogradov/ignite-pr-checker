@@ -23,7 +23,7 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 | **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and rerun. |
 | **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. | Nothing for the PR. |
 | **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
-| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed or ran longer than 60 s. A new test that passed is not: it has no master history by nature. A class that Ignite's own abandoned-tests check finds in no test suite is tagged `not in any suite`. A class with no runs says why: a commit after the run added it or put it in a suite, its suite did not run or broke, or it is a base or `@Ignore` class. While the check runs, was skipped or can't be read, the card says so and draws no conclusion. | Check that the new tests ran and passed. A failed one is judged in the verdict above as well. Add a `not in any suite` class to a test suite or mark it `@Ignore`. |
+| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed or ran longer than 60 s. A new test that passed is not: it has no master history by nature. A class that Ignite's own abandoned-tests check finds in no test suite is tagged `not in any suite`. A class with no runs says why: a commit after the run added it or put it in a suite, its suite did not run or broke, or it is a base or `@Ignore` class. While the check runs, waits for a maintainer to approve its run (a push by someone outside the project), was skipped or can't be read, the card says so and draws no conclusion. | Check that the new tests ran and passed. A failed one is judged in the verdict above as well. Add a `not in any suite` class to a test suite or mark it `@Ignore`. |
 | **Filtered out** | Failures not blamed on the PR, each with its reason: they fail on master, are flaky, or passed on a re-run. | Nothing for the PR. Tests that fail on master are on the flaky board (`/flaky.html`). |
 | **No blockers 🎉** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | Good to go. |
 | **No test blockers** | No test was blamed, but the verdict can't call the PR clean. The red line under it says why ([caveats](#caveats)); with no red line, tests started failing on its code and are under **Recently started failing**. | Sort out what the red line lists, then rerun. With no red line, **Rerun** the suites under **Recently started failing**. |
@@ -261,8 +261,13 @@ GitHub token it needs while it is on.
 - **Comment my runs' verdicts on the GitHub PR** posts the same verdict as a comment from your own GitHub account,
   once per run, after the re-runs settle. Needs a classic GitHub token with the `public_repo` scope.
 - **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
-  your GitHub login and your TeamCity token; on its own, it lends the token to no background work. Linking your
-  GitHub login switches it on.
+  your GitHub login, your GitHub account's id and your TeamCity token; on its own, it lends the token to no background
+  work. Proving your GitHub login switches it on: paste a GitHub token with no scopes once, and the checker asks
+  GitHub whose account it is, keeps the login and the id, and forgets the token. A GitHub token you saved for the PR
+  comment, the autofix or tests to suites proves it as well. A comment is your command only when it comes from that
+  account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked. A
+  login an earlier version kept counts as proven only if your saved GitHub token names it; any other runs no command
+  until you prove it, and ⚙ says so.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
@@ -309,7 +314,7 @@ GitHub token it needs while it is on.
 ## Working from the PR (commands)
 
 The whole cycle, from the start to the verdict, can happen in the pull request. Switch on **PR commands** in ⚙ and
-link your GitHub login; a GitHub token of your own is optional.
+prove your GitHub login with a token that has no scopes; a GitHub token kept on the server is optional.
 
 | Command | What it does |
 |---|---|
@@ -364,9 +369,13 @@ link your GitHub login; a GitHub token of your own is optional.
   turns away as the caller's mistake are listed greyed out and never colour it.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
-- Signed-in viewers also see a warning if that account can push to the repo, the log messages, the settings in effect,
-  and who restarted or flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not
-  set) also get **Restart service**, **Flush caches** and the list on the **Users** tab.
+- The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
+  classic one without `public_repo`) turns the dot red; one that expires within 14 days, scopes beyond `public_repo`,
+  and an account that can push to the repo or to the checker's own, where its releases come from, turn it amber. What
+  GitHub does not say is shown as unknown, not as fine.
+- Signed-in viewers also see what the check found, the log messages, the settings in effect, and who restarted or
+  flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get
+  **Restart service**, **Flush caches** and the list on the **Users** tab.
 
 ## Everything else
 

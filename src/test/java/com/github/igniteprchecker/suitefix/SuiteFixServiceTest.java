@@ -18,11 +18,13 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.AbandonedTestsCheck;
+import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.model.PrTests.SuiteCheck.State;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
+import com.github.igniteprchecker.tc.TcClient;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -407,6 +409,33 @@ class SuiteFixServiceTest {
         verify(github, times(1)).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
         assertThat(body.getValue()).endsWith("\n\nIgnite's check gave no answer on `def5678` within a day: " + NO_JOB
             + ".").doesNotContain("its answer will be added here");
+    }
+
+    /**
+     * The author is outside the project, so Ignite's workflow waits for a maintainer to approve its run on the commit
+     * pushed: a day on, the comment said the commit conflicts with master. Ignite's check is read off GitHub here.
+     */
+    @Test
+    void aCheckWaitingForApprovalForADayIsSaidSo() {
+        long job = 51234567890L;
+        when(github.checkRuns(HEAD)).thenReturn(List.of(new GithubClient.CheckRun(job, "Check java code on JDK 17",
+            "completed", "failure", JOB)));
+        when(github.job(job)).thenReturn(new GithubClient.Job("completed", List.of(
+            new GithubClient.Job.Step("Run abandoned tests checks.", "completed", "failure"))));
+        when(github.jobLog(eq(job), any())).thenReturn(Optional.of(Optional.of(List.of(FQCN))));
+        when(github.checkSuites(PUSHED)).thenReturn(List.of(new GithubClient.CheckSuite(104534382801L, "completed",
+            "action_required", new GithubClient.CheckSuite.App("github-actions"))));
+        service = new SuiteFixService(github, new PrTestRuns(github, mock(TcClient.class), mock(AnalysisCache.class)),
+            standing, mapper, Runnable::run, now::get);
+        service.sweep();
+
+        now.addAndGet(25 * HOUR);
+        service.sweep();
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(github).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        assertThat(body.getValue()).endsWith("\n\nIgnite's check gave no answer on `def5678` within a day: it waits for"
+            + " a maintainer to approve its workflow run.");
     }
 
     @Test

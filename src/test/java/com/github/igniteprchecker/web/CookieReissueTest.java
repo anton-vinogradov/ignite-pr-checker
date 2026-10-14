@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -53,7 +54,7 @@ class CookieReissueTest {
     @Test
     void savingAJiraTokenKeepsTheGithubToken() throws Exception {
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
 
         SessionCodec.Session after = session(controller.saveToken(new JiraController.TokenRequest("jira-pat"),
             new SessionCodec.Session(USER, "tc", null, "gh-pat"), System.currentTimeMillis()));
@@ -65,7 +66,7 @@ class CookieReissueTest {
 
     @Test
     void savingAGithubTokenKeepsTheJiraToken() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
 
         SessionCodec.Session after = session(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"),
             new SessionCodec.Session(USER, "tc", "jira-pat", null), System.currentTimeMillis()));

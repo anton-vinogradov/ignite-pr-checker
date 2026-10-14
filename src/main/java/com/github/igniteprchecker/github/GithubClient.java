@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,7 +33,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -44,17 +47,18 @@ public class GithubClient implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(GithubClient.class);
 
     /**
-     * Validates a user's PAT: their GitHub login when the token works, empty when GitHub refuses it. Throws when GitHub
-     * could not say: no answer, an outage, a rate limit.
+     * Validates a user's PAT: the GitHub account it belongs to, by login and id, when the token works; empty when
+     * GitHub refuses it. A token with no scopes or permissions at all works: GitHub names its owner to any token.
+     * Throws when GitHub could not say: no answer, an outage, a rate limit.
      */
-    public java.util.Optional<String> ghUser(String pat) {
+    public java.util.Optional<GhUser> ghIdentity(String pat) {
         try {
-            java.util.Map<?, ?> u = recordedAsUser("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
+            GhUser u = recordedAsUser("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
                 .header("Authorization", "Bearer " + pat)
                 .header("Accept", "application/vnd.github+json")
-                .retrieve().body(java.util.Map.class));
+                .retrieve().body(GhUser.class));
 
-            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
+            return java.util.Optional.ofNullable(u == null || u.login() == null ? null : u);
         }
         catch (RuntimeException e) {
             if (refusesToken(e))
@@ -73,22 +77,15 @@ public class GithubClient implements SnapshotCache {
     }
 
     /**
-     * GitHub's own spelling of a login, or empty when GitHub has no such user (or the text cannot be
-     * a login at all). Throws when GitHub cannot be asked.
+     * Whether a GitHub account is the app account, the one {@code GITHUB_TOKEN} belongs to: by its id once GitHub
+     * named it, else by its login. False while GitHub has not said whose the token is.
      */
-    public java.util.Optional<String> canonicalLogin(String login) {
-        if (!LOGIN.matcher(login).matches())
-            return java.util.Optional.empty();
+    public boolean isAppAccount(GhUser who) {
+        AppAccount app = appAccount;
+        if (who == null || app.login() == null)
+            return false;
 
-        try {
-            java.util.Map<?, ?> u = recorded("user", () -> appGet(props.apiUrl() + "/users/" + login)
-                .body(java.util.Map.class));
-
-            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
-        }
-        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
-            return java.util.Optional.empty();
-        }
+        return app.id() != null && who.id() > 0 ? app.id() == who.id() : app.login().equalsIgnoreCase(who.login());
     }
 
     /** What GitHub allows in a login: letters, digits and single hyphens inside, up to 39 characters. */
@@ -372,6 +369,31 @@ public class GithubClient implements SnapshotCache {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record CheckRuns(@JsonProperty("check_runs") java.util.List<CheckRun> checkRuns) {
+    }
+
+    /**
+     * The check suites GitHub shows for a commit, up to 100. Each workflow run of GitHub Actions is one, and so is a
+     * run that waits for a maintainer to approve it: that one has no check yet.
+     */
+    public java.util.List<CheckSuite> checkSuites(String sha) {
+        CheckSuites suites = recorded("checkSuites", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/commits/" + sha + "/check-suites?per_page=100")
+            .body(CheckSuites.class));
+
+        return suites == null || suites.checkSuites() == null ? java.util.List.of() : suites.checkSuites();
+    }
+
+    /** A check suite of a commit: the app it belongs to, GitHub's {@code status} and {@code conclusion}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CheckSuite(long id, String status, String conclusion, App app) {
+        /** The app by its slug: "github-actions" for workflow runs. */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record App(String slug) {
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record CheckSuites(@JsonProperty("check_suites") java.util.List<CheckSuite> checkSuites) {
     }
 
     /** A GitHub Actions job: how far it got, and its steps in order. */
@@ -693,8 +715,9 @@ public class GithubClient implements SnapshotCache {
         @JsonProperty("html_url") String htmlUrl, @JsonProperty("created_at") String createdAt, GhUser user) {
     }
 
+    /** A GitHub account: its login, which its owner may change, and its id, which never changes (0: not known). */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record GhUser(String login) {
+    public record GhUser(String login, long id) {
     }
 
     /**
@@ -847,7 +870,8 @@ public class GithubClient implements SnapshotCache {
     /**
      * The GitHub account the checker writes as, the one {@code GITHUB_TOKEN} belongs to: onboarding replies,
      * reactions, hints and the run narration of users without a GitHub token of their own come from it.
-     * Checked once the service is up; while GitHub could not say, asked again at most every 10 minutes.
+     * Checked once the service is up and every 6 hours; while GitHub could not say, asked again at most every 10
+     * minutes.
      */
     public AppAccount appAccount() {
         AppAccount known = appAccount;
@@ -865,7 +889,16 @@ public class GithubClient implements SnapshotCache {
         ownStatsFetch.execute(this::checkAppAccount);
     }
 
-    /** Asks GitHub whom the app token belongs to, and whether that account may push to the repo. */
+    /** A token nears its expiry, and its account gets or loses rights, while the service runs. */
+    @Scheduled(fixedDelay = APP_ACCOUNT_REFRESH_MS, initialDelay = APP_ACCOUNT_REFRESH_MS)
+    void recheckAppAccount() {
+        ownStatsFetch.execute(this::checkAppAccount);
+    }
+
+    /**
+     * Asks GitHub whom the app token belongs to, what kind of token it is and when it expires, and whether that
+     * account may push to the repo and to the checker's own.
+     */
     void checkAppAccount() {
         appAccountCheckedAt = System.currentTimeMillis();
         if (props.token() == null || props.token().isBlank()) {
@@ -877,45 +910,61 @@ public class GithubClient implements SnapshotCache {
             return;
         }
 
-        String login;
+        ResponseEntity<?> user;
         try {
-            java.util.Map<?, ?> u = timed("appUser", () -> appGet(props.apiUrl() + "/user").body(java.util.Map.class),
-                false);
-            login = u == null ? null : (String)u.get("login");
+            user = timed("appUser", () -> appGet(props.apiUrl() + "/user").toEntity(java.util.Map.class), false);
         }
         catch (org.springframework.web.client.RestClientResponseException e) {
-            int status = e.getStatusCode().value();
-            appAccount = new AppAccount(status == 401 || status == 403 ? AppAccount.REFUSED : AppAccount.UNKNOWN, null,
-                null);
-            log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", status,
-                status == 401 || status == 403 ? "the token is refused, nothing is written as the app account"
-                    : "asked again later");
+            AppAccount was = appAccount;
+            appAccount = refusesToken(e)
+                ? new AppAccount(AppAccount.REFUSED, was.login(), was.canPush(), was.id(), List.of()) : stillKnown(was);
+            log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", e.getStatusCode().value(),
+                refusesToken(e) ? "the token is refused, nothing is written as the app account" : "asked again later");
 
             return;
         }
         catch (RuntimeException e) {
-            appAccount = new AppAccount(AppAccount.UNKNOWN, null, null);
+            appAccount = stillKnown(appAccount);
             log.warn("could not ask GitHub whom GITHUB_TOKEN belongs to, asked again later: {}", e.toString());
 
             return;
         }
 
-        Boolean canPush = canPush();
-        appAccount = new AppAccount(AppAccount.OK, login, canPush);
-        if (Boolean.TRUE.equals(canPush))
-            log.warn("GITHUB_TOKEN belongs to @{}, who can push to {}: anyone who reads the server's token can too. "
-                + "Use an account without write access to the repo", login, props.repo());
-        else
-            log.info("GitHub app account: @{} (GITHUB_TOKEN) writes the onboarding replies, reactions and narration "
-                + "of users without their own GitHub token", login);
+        java.util.Map<?, ?> u = user.getBody() instanceof java.util.Map<?, ?> body ? body : null;
+        String login = u == null ? null : (String)u.get("login");
+        Long id = u != null && u.get("id") instanceof Number n ? n.longValue() : null;
+        Boolean canPush = canPush(props.repo());
+        List<AppAccount.Check> checks = AppAccountChecks.of(props.token(), user.getHeaders(), props.repo(), canPush,
+            canPush(SELF_REPO), System.currentTimeMillis());
+        AppAccount was = appAccount;
+        appAccount = new AppAccount(AppAccount.OK, login, canPush, id, checks);
+        if (!AppAccount.OK.equals(was.state()) || !Objects.equals(was.login(), login) || !was.checks().equals(checks))
+            logChecks(login, checks);
     }
 
-    /** Whether the app account may push to the repo; null when GitHub does not say. */
-    private Boolean canPush() {
+    /**
+     * The app account when GitHub could not be asked: what GitHub said of it last, as a check every 6 hours that
+     * failed once does not make a known account unknown.
+     */
+    private static AppAccount stillKnown(AppAccount was) {
+        return AppAccount.OK.equals(was.state()) ? was : new AppAccount(AppAccount.UNKNOWN, null, null);
+    }
+
+    /** What was found of the token, when it is news: the operator reads it in the log too. */
+    private static void logChecks(String login, List<AppAccount.Check> checks) {
+        checks.stream().filter(c -> c.level().equals(AppAccount.Check.WARN) || c.level().equals(AppAccount.Check.ERROR))
+            .forEach(c -> log.warn("GitHub app account @{}: {}", login, c.text()));
+        log.info("GitHub app account: @{} (GITHUB_TOKEN) writes the onboarding replies, reactions and narration of "
+            + "users without their own GitHub token; {}", login,
+            String.join("; ", checks.stream().map(AppAccount.Check::text).toList()));
+    }
+
+    /** Whether the app account may push to {@code repo}; null when GitHub does not say. */
+    private Boolean canPush(String repo) {
         try {
-            java.util.Map<?, ?> repo = timed("appRepo", () -> appGet(props.apiUrl() + "/repos/" + props.repo())
+            java.util.Map<?, ?> found = timed("appRepo", () -> appGet(props.apiUrl() + "/repos/" + repo)
                 .body(java.util.Map.class), false);
-            Object perms = repo == null ? null : repo.get("permissions");
+            Object perms = found == null ? null : found.get("permissions");
 
             return perms instanceof java.util.Map<?, ?> m && m.get("push") instanceof Boolean push ? push : null;
         }
@@ -937,7 +986,7 @@ public class GithubClient implements SnapshotCache {
         if (AppAccount.REFUSED.equals(was.state()))
             return;
 
-        appAccount = new AppAccount(AppAccount.REFUSED, was.login(), was.canPush());
+        appAccount = new AppAccount(AppAccount.REFUSED, was.login(), was.canPush(), was.id(), List.of());
         log.warn("GitHub refused GITHUB_TOKEN on a {} call: nothing is written as the app account until a call under "
             + "it works again", category);
     }
@@ -961,16 +1010,19 @@ public class GithubClient implements SnapshotCache {
 
     private static final long APP_ACCOUNT_RECHECK_MS = 10 * 60_000L;
 
+    private static final long APP_ACCOUNT_REFRESH_MS = 6 * 3600_000L;
+
     private volatile AppAccount appAccount = new AppAccount(AppAccount.UNKNOWN, null, null);
 
     private volatile long appAccountCheckedAt;
 
     /**
-     * Whom {@code GITHUB_TOKEN} belongs to. {@code state}: "ok" with the {@code login} (and {@code canPush}, whether
-     * it may push to the repo, null when unknown), "none" without a token, "refused" when GitHub refuses it,
-     * "unknown" until GitHub has said.
+     * Whom {@code GITHUB_TOKEN} belongs to. {@code state}: "ok" with the {@code login} and {@code id} (and
+     * {@code canPush}, whether it may push to the repo, null when unknown), "none" without a token, "refused" when
+     * GitHub refuses it, "unknown" until GitHub has said. {@code checks}: what was found of the token and the account
+     * when GitHub last said, see {@link AppAccountChecks}.
      */
-    public record AppAccount(String state, String login, Boolean canPush) {
+    public record AppAccount(String state, String login, Boolean canPush, Long id, List<Check> checks) {
         static final String OK = "ok";
 
         static final String NONE = "none";
@@ -979,14 +1031,46 @@ public class GithubClient implements SnapshotCache {
 
         static final String UNKNOWN = "unknown";
 
-        /** What anyone may see: whether the account can push says how much a leaked server token is worth. */
+        /** An account nothing was checked of. */
+        public AppAccount(String state, String login, Boolean canPush) {
+            this(state, login, canPush, null, List.of());
+        }
+
+        /**
+         * What anyone may see: whether the account can push says how much a leaked server token is worth, and so do
+         * the checks, which keep their levels only.
+         */
         public AppAccount anonymous() {
-            return new AppAccount(state, login, null);
+            return new AppAccount(state, login, null, id,
+                checks.stream().map(c -> new Check(c.level(), null)).toList());
         }
 
         /** Whether GitHub refuses the token. */
         public boolean refused() {
             return REFUSED.equals(state);
+        }
+
+        /** One thing found of the token or its account: {@code level} "ok", "unknown", "warn" or "error". */
+        public record Check(String level, String text) {
+            public static final String WARN = "warn";
+
+            public static final String ERROR = "error";
+
+            static Check ok(String text) {
+                return new Check("ok", text);
+            }
+
+            static Check unknown(String text) {
+                return new Check("unknown", text);
+            }
+
+            static Check warn(String text) {
+                return new Check(WARN, text);
+            }
+
+            static Check error(String text) {
+                return new Check(ERROR, text);
+            }
         }
     }
 

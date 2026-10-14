@@ -102,14 +102,13 @@ class DocFactsTest {
             .contains("строки о проверенной ревизии и строка **Next:** идут после неё.");
     }
 
-    /** An anonymous status page gets the app account without canPush, so it shows no warning. */
+    /** An anonymous status page gets what the check of the app token found as levels only, without the texts. */
     @Test
-    void thePushWarningIsForSignedInViewers() throws IOException {
-        assertThat(collapsed(TOUR))
-            .contains("Signed-in viewers also see a warning if that account can push to the repo");
-        assertThat(collapsed(TOUR_RU)).contains("Вошедшие видят ещё предупреждение, если этот аккаунт может пушить");
-        assertThat(collapsed(README)).contains("warns signed-in viewers if that account can push to the repo");
-        assertThat(collapsed(README_RU)).contains("предупреждает вошедших, если этот аккаунт может пушить");
+    void whatTheAppTokenCheckFoundIsForSignedInViewers() throws IOException {
+        assertThat(collapsed(TOUR)).contains("Signed-in viewers also see what the check found");
+        assertThat(collapsed(TOUR_RU)).contains("Вошедшие видят ещё, что нашла проверка");
+        assertThat(collapsed(README)).contains("the status page shows signed-in viewers what it found");
+        assertThat(collapsed(README_RU)).contains("страница статуса показывает вошедшим, что нашлось");
     }
 
     /**

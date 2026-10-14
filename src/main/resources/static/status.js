@@ -73,8 +73,9 @@ function githubCalls(byCategory) {
     return out;
 }
 
-// Whose GitHub account the checker writes as (GITHUB_TOKEN): the operator has to know, and it must not be
-// one that can push to the repo.
+// Whose GitHub account the checker writes as (GITHUB_TOKEN) and what its last check found: the operator has to
+// know, the token must be able to write and not expire unnoticed, the account must not push to the repo or the
+// checker's own, and what GitHub did not say is unknown, not fine.
 function appAccountCard(a) {
     if (!a || a.state === 'unknown')
         return card('App account', '—', 'GitHub has not said whose GITHUB_TOKEN this is yet');
@@ -82,9 +83,21 @@ function appAccountCard(a) {
         return card('App account', 'none', 'no GITHUB_TOKEN: read-only, commands of users without a token get no reply', 'warn');
     if (a.state === 'refused')
         return card('App account', 'refused', 'GitHub refuses GITHUB_TOKEN', 'bad');
-    return a.canPush
-        ? card('App account', '@' + esc(a.login), '⚠ can push to the repo — use an account without write access', 'warn')
-        : card('App account', '@' + esc(a.login), 'writes replies, reactions and narration for users without a token', 'ok');
+    return card('App account', '@' + esc(a.login), appAccountFound(a.checks || []), appAccountLevel(a.checks || []));
+}
+
+function appAccountFound(checks) {
+    if (!checks.length) return 'nothing is known of its token yet';
+    const said = checks.filter(c => c.text).map(c => esc(c.text));
+    return said.length ? said.join(' · ') : 'log in on the main page to see what its check found';
+}
+
+// The card's colour: the worst check; an unknown one leaves it grey, as nothing says it is fine.
+function appAccountLevel(checks) {
+    const has = level => checks.some(c => c.level === level);
+    if (has('error')) return 'bad';
+    if (has('warn')) return 'warn';
+    return !checks.length || has('unknown') ? '' : 'ok';
 }
 
 // Snapshots of the state on disk: off is amber only when it was meant to be on; a durable file

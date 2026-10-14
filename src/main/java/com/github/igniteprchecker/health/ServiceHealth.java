@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
  * while users have standing options, every background TeamCity read has stopped; a warm cycle in which nearly every
  * PR failed means TeamCity calls fail across the board, which the warmer logs at debug only. Durable state that
  * failed to load, or keeps failing to save, counts until it is dealt with, and so does a setting that is not as meant,
- * and a GITHUB_TOKEN GitHub refuses.
+ * a GITHUB_TOKEN GitHub refuses, and what its last check found wrong with it.
  */
 @Component
 public class ServiceHealth {
@@ -118,6 +118,8 @@ public class ServiceHealth {
             problems.add(Problem.error("GitHub refuses GITHUB_TOKEN: replies, reactions and narration from the app "
                 + "account fail"));
         }
+        if (app != null && !app.refused())
+            problems.addAll(appAccountProblems(app));
 
         String logHealth = log.health(now);
         String health = logHealth;
@@ -127,6 +129,14 @@ public class ServiceHealth {
             health = "warn";
 
         return new Report(health, logHealth, problems);
+    }
+
+    /** What was found wrong with GITHUB_TOKEN or its account: a token that cannot write, expires soon, can push. */
+    private static List<Problem> appAccountProblems(GithubClient.AppAccount app) {
+        return app.checks().stream()
+            .filter(c -> c.level().equals(GithubClient.AppAccount.Check.WARN)
+                || c.level().equals(GithubClient.AppAccount.Check.ERROR))
+            .map(c -> new Problem(c.level(), c.text())).toList();
     }
 
     private static List<Problem> persistenceProblems(CacheStore.Status persistence) {

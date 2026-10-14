@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -64,8 +65,8 @@ class UncheckedTokenTest {
 
     @Test
     void aTokenGithubCouldNotCheckIsNotCalledRejected() {
-        when(github.ghUser("gh-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
-        when(github.ghUser("dead-pat")).thenReturn(Optional.empty());
+        when(github.ghIdentity("gh-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+        when(github.ghIdentity("dead-pat")).thenReturn(Optional.empty());
 
         assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"), session, checkedAt), 502,
             UNCHECKED_GH);
@@ -79,9 +80,9 @@ class UncheckedTokenTest {
     /** The stored token keeps serving the options while GitHub cannot check one the session brings. */
     @Test
     void aStoredTokenServesWhileGithubCannotCheckANewOne() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         controller.standingVisa(null, null, true, null, true, null, "tc", USER, null, "gh-pat");
-        when(github.ghUser("new-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+        when(github.ghIdentity("new-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
 
         ResponseEntity<?> res = controller.standingVisa(null, null, null, true, null, null, "tc", USER, null,
             "new-pat");

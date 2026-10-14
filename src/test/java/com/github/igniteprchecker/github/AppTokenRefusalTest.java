@@ -73,6 +73,8 @@ class AppTokenRefusalTest {
             .andRespond(withSuccess("{\"login\":\"ignite-pr-checker-bot\"}", MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
             .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> github.pullState(PR)).isInstanceOf(HttpClientErrorException.Unauthorized.class);
 
@@ -81,7 +83,8 @@ class AppTokenRefusalTest {
         github.pullState(PR);
 
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(github.appAccount())
-            .isEqualTo(new GithubClient.AppAccount("ok", "ignite-pr-checker-bot", false)));
+            .extracting(GithubClient.AppAccount::state, GithubClient.AppAccount::login,
+                GithubClient.AppAccount::canPush).containsExactly("ok", "ignite-pr-checker-bot", false));
     }
 
     /** A user's own token refused says nothing of the app's, and its calls are counted apart. */
@@ -91,7 +94,7 @@ class AppTokenRefusalTest {
         server.expect(requestTo("https://api.github.com/user")).andExpect(header("Authorization", "Bearer user-pat"))
             .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
 
-        assertThat(github.ghUser("user-pat")).isEmpty();
+        assertThat(github.ghIdentity("user-pat")).isEmpty();
 
         assertThat(github.appAccount().state()).isEqualTo("unknown");
         assertThat(metrics.github().byCategory()).containsOnlyKeys("pat:user");
@@ -112,10 +115,10 @@ class AppTokenRefusalTest {
         PrCommands commands = new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class),
             mock(StyleFixService.class), mock(SuiteBaseline.class), "https://checker.example",
             new TeamcityProperties("https://ci2.example/"));
-        standing.linkGhLogin("author", "tc", "Author");
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser("Author"))));
+            GhUsers.of("Author"))));
         TcModel.Build queued = new TcModel.Build(CHAIN, null, "queued", "pull/" + PR + "/head", null, null, null, null,
             null, null, null, null, null, null, null, null, null, null);
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(queued);
@@ -124,7 +127,7 @@ class AppTokenRefusalTest {
         when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         commands.poll();
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, null, true, null, null));
         doThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED)).when(github)
             .updatePrCommentAsApp(anyLong(), anyString());

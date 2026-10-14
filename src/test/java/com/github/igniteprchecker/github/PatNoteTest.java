@@ -68,11 +68,11 @@ class PatNoteTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser("Author"))));
+            GhUsers.of("Author"))));
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(chain("queued"));
         when(tc.getBuildState("tc", CHAIN)).thenReturn(chain("queued"));
         when(tc.chainRemainingSeconds(eq("tc"), eq(CHAIN), any())).thenReturn(3600L);

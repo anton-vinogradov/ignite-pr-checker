@@ -20,6 +20,7 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -145,7 +146,7 @@ class TcTokenRefusalTest {
 
         assertThat(standing.actor(LIVE)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("fresh-tc"));
 
-        standing.linkGhLogin(LIVE, "old-browser-tc", "anton-vinogradov");
+        standing.linkGhLogin(LIVE, "old-browser-tc", GhUsers.of("anton-vinogradov"));
 
         assertThat(standing.actor(LIVE)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("fresh-tc"));
 

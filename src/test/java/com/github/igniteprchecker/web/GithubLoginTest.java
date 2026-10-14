@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -18,19 +19,27 @@ import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.HttpServerErrorException;
 
 /**
- * The GitHub login for PR commands was stored as typed and matched with case: GitHub reports the
- * author of a comment as "NSAmelchev", so a login linked as "nsamelchev" never matched, while the
- * panel answered "PR commands are live" to anything typed, typos included. A login typed in by hand
- * could also sit on someone else's account, and the owner then got 409 and their /run-all went out
- * under the claimant's TeamCity token.
+ * The GitHub login for PR commands was typed in by hand and proved nothing: anyone could take a login nobody had linked
+ * yet, and the owner's /run-all then went out under the claimant's TeamCity token, while a 409 told a newcomer whose
+ * login was taken that it was in the checker. The login is now proven with a token pasted once: GitHub names the
+ * account, the checker keeps its login and id, and the token goes nowhere.
  */
 class GithubLoginTest {
+    private static final String ONE_TIME = "ghp_noScopes0123456789abcdefghij0123456";
+
     private final GithubClient github = mock(GithubClient.class);
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -50,85 +59,124 @@ class GithubLoginTest {
         standing.change("nsamelchev", "tc-1", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
         standing.change("avinogradov", "tc-2", null, null,
             new StandingVisas.OptionChange(null, true, null, null, null));
-        when(github.canonicalLogin("nsamelchev")).thenReturn(Optional.of("NSAmelchev"));
-        when(github.canonicalLogin("anton-vinogradov")).thenReturn(Optional.of("anton-vinogradov"));
-        when(github.canonicalLogin("nsamelchevv")).thenReturn(Optional.empty());
     }
 
     @Test
-    void aLoginIsStoredTheWayGithubSpellsItAndFoundByTheCommandsAuthor() {
-        ResponseEntity<?> res = link("nsamelchev", " @nsamelchev ");
+    void aTokenProvesTheLoginAndSwitchesCommandsOn() {
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(GhUsers.of("NSAmelchev")));
+
+        ResponseEntity<?> res = prove("nsamelchev", " " + ONE_TIME + " ");
 
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(res.getBody()).isInstanceOfSatisfying(StandingVisas.Settings.class, st -> {
             assertThat(st.login()).isEqualTo("NSAmelchev");
-            assertThat(st.commands()).as("linking is how PR commands are switched on").isTrue();
+            assertThat(st.commands()).as("proving the login is how PR commands are switched on").isTrue();
+            assertThat(st.loginUnproven()).isFalse();
+            assertThat(st.ghStored()).as("the token is not kept").isFalse();
         });
-        assertThat(standing.actorByGhLogin("NSAmelchev")).hasValueSatisfying(
-            a -> assertThat(a.username()).isEqualTo("nsamelchev"));
+        assertThat(standing.actorByGhUser(GhUsers.of("NSAmelchev"))).hasValueSatisfying(a -> {
+            assertThat(a.username()).isEqualTo("nsamelchev");
+            assertThat(a.ghToken()).isNull();
+        });
     }
 
-    /** Linking used to answer 412 until some other option was switched on. */
+    /** The token goes into no cookie and no file: the answer sets no cookie, and the snapshot does not hold it. */
     @Test
-    void linkingALoginIsAllPrCommandsNeed() {
-        when(github.canonicalLogin("newcomer")).thenReturn(Optional.of("Newcomer"));
+    void theTokenIsForgotten(@TempDir Path dir) throws Exception {
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(GhUsers.of("NSAmelchev")));
 
-        ResponseEntity<?> res = controller.saveGithubLogin(new JiraController.TokenRequest("newcomer"), "tc-3",
+        ResponseEntity<?> res = prove("nsamelchev", ONE_TIME);
+        standing.saveTo(dir.resolve("standing-visas.json"));
+
+        assertThat(res.getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
+        assertThat(Files.readString(dir.resolve("standing-visas.json"))).contains("\"ghLogin\":\"NSAmelchev\"")
+            .contains("\"ghId\":" + GhUsers.idOf("NSAmelchev")).doesNotContain(ONE_TIME);
+    }
+
+    /** Proving the login was how PR commands went on, and it answered 412 until some other option was on. */
+    @Test
+    void provingTheLoginIsAllPrCommandsNeed() {
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(GhUsers.of("Newcomer")));
+
+        ResponseEntity<?> res = controller.saveGithubLogin(new JiraController.TokenRequest(ONE_TIME), "tc-3",
             "newcomer");
 
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(standing.settings("newcomer")).isEqualTo(new StandingVisas.Settings(false, false, false, false,
             true, "Newcomer", false, false, false, false, false));
-        assertThat(standing.actorByGhLogin("Newcomer"))
+        assertThat(standing.actorByGhUser(GhUsers.of("Newcomer")))
             .hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("tc-3"));
     }
 
+    /** A login typed in where the token goes is no token: GitHub refuses it, and nothing is linked. */
     @Test
-    void aTypoIsRefusedAndNothingIsLinked() {
-        ResponseEntity<?> res = link("nsamelchev", "nsamelchevv");
+    void aTypedLoginIsNoProof() {
+        when(github.ghIdentity(anyString())).thenReturn(Optional.empty());
 
-        assertThat(res.getStatusCode().value()).isEqualTo(404);
+        ResponseEntity<?> res = prove("nsamelchev", "NSAmelchev");
+
+        assertThat(res.getStatusCode().value()).as("a 401 would end the session on the page").isEqualTo(422);
+        assertThat(res.getBody()).isEqualTo(Map.of("error", "GitHub rejected the token"));
         assertThat(standing.ghLoginOf("nsamelchev")).isNull();
     }
 
-    /** Linked before logins were checked: stored as typed, in another case than GitHub's. */
     @Test
-    void aLoginLinkedInAnotherCaseStillMatchesAndIsPutRight() {
-        standing.linkGhLogin("nsamelchev", "tc-1", "nsamelchev");
+    void githubBeingDownIsNotARefusal() {
+        when(github.ghIdentity(ONE_TIME)).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
 
-        assertThat(standing.actorByGhLogin("NSAmelchev")).isPresent();
-        assertThat(standing.ghLoginOf("nsamelchev")).isEqualTo("NSAmelchev");
-    }
-
-    @Test
-    void aLoginProvenByATokenTakesOverAClaimTypedInByHand() {
-        link("nsamelchev", "anton-vinogradov");
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
-
-        standing.change("avinogradov", "tc-2", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, true, null, null));
-
-        assertThat(standing.actorByGhLogin("anton-vinogradov")).hasValueSatisfying(
-            a -> assertThat(a.username()).isEqualTo("avinogradov"));
+        assertThat(prove("nsamelchev", ONE_TIME).getStatusCode().value()).isEqualTo(502);
         assertThat(standing.ghLoginOf("nsamelchev")).isNull();
-        assertThat(link("nsamelchev", "anton-vinogradov").getStatusCode().value()).isEqualTo(409);
     }
 
     /**
-     * The claimant's PR commands cannot work once the login is gone, and every other click of theirs
-     * was then refused for want of a login to use commands with.
+     * nsamelchev proved anton-vinogradov's account by mistake, a token of it at hand: the owner's proof takes it over,
+     * and the answer to the owner says nothing of who held it.
      */
     @Test
-    void losingATypedLoginSwitchesCommandsOffAndLeavesTheOtherSwitchesFree() {
-        link("nsamelchev", "anton-vinogradov");
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
+    void theOwnersProofTakesTheAccountOverAndNamesNobody() {
+        when(github.ghIdentity("token-1")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.ghIdentity("token-2")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        prove("nsamelchev", "token-1");
+
+        ResponseEntity<?> res = prove("avinogradov", "token-2");
+
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(String.valueOf(res.getBody())).doesNotContain("nsamelchev");
+        assertThat(standing.actorByGhUser(GhUsers.of("anton-vinogradov"))).hasValueSatisfying(
+            a -> assertThat(a.username()).isEqualTo("avinogradov"));
+        assertThat(standing.ghLoginOf("nsamelchev")).isNull();
+        assertThat(standing.commandsOn("nsamelchev")).isFalse();
+        assertThat(standing.rerunOn("nsamelchev")).as("the other switches stay").isTrue();
+    }
+
+    /** A GitHub token saved for the PR comment proves its account as well, and takes it over the same way. */
+    @Test
+    void aSavedGithubTokenProvesTheLoginToo() {
+        when(github.ghIdentity("token-1")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        prove("nsamelchev", "token-1");
+
         standing.change("avinogradov", "tc-2", null, "gh-pat",
             new StandingVisas.OptionChange(null, null, true, null, null));
 
-        assertThat(standing.commandsOn("nsamelchev")).isFalse();
-        assertThat(standing.change("nsamelchev", "tc-1", null, null,
-            new StandingVisas.OptionChange(null, false, null, null, null))).isEmpty();
-        assertThat(standing.rerunOn("nsamelchev")).isFalse();
+        assertThat(standing.actorByGhUser(GhUsers.of("anton-vinogradov"))).hasValueSatisfying(
+            a -> assertThat(a.username()).isEqualTo("avinogradov"));
+        assertThat(standing.settings("avinogradov").loginUnproven()).isFalse();
+        assertThat(standing.ghLoginOf("nsamelchev")).isNull();
+    }
+
+    /** The proof outlives the GitHub token it came with: once GitHub refused that token, a login was anyone's. */
+    @Test
+    void aLoginStaysProvenWhenItsTokenGoes() {
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        standing.change("avinogradov", "tc-2", null, "gh-pat",
+            new StandingVisas.OptionChange(null, null, true, null, true));
+
+        standing.dropGhToken("avinogradov");
+
+        assertThat(standing.settings("avinogradov").loginUnproven()).isFalse();
+        assertThat(standing.actorByGhUser(GhUsers.of("anton-vinogradov"))).hasValueSatisfying(
+            a -> assertThat(a.username()).isEqualTo("avinogradov"));
     }
 
     /**
@@ -137,8 +185,8 @@ class GithubLoginTest {
      */
     @Test
     void theBackfillDoesNotGiveOutALoginSomeoneElseHolds() {
-        when(github.ghUser("gh-pat-1")).thenReturn(Optional.of("anton-vinogradov"));
-        when(github.ghUser("gh-pat-2")).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity("gh-pat-1")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.ghIdentity("gh-pat-2")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         standing.change("nsamelchev", "tc-1", null, "gh-pat-1",
             new StandingVisas.OptionChange(null, null, true, null, null));
         standing.change("avinogradov", "tc-2", null, "gh-pat-2",
@@ -151,18 +199,54 @@ class GithubLoginTest {
     }
 
     @Test
-    void aTypedLoginCannotReplaceTheOneATokenProves() {
-        when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
+    void aTokenOfAnotherAccountCannotReplaceTheOneTheSavedTokenProves() {
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(GhUsers.of("NSAmelchev")));
         standing.change("avinogradov", "tc-2", null, "gh-pat",
             new StandingVisas.OptionChange(null, null, true, null, null));
 
-        ResponseEntity<?> res = link("avinogradov", "nsamelchev");
+        ResponseEntity<?> res = prove("avinogradov", ONE_TIME);
 
         assertThat(res.getStatusCode().value()).isEqualTo(409);
         assertThat(standing.ghLoginOf("avinogradov")).isEqualTo("anton-vinogradov");
     }
 
-    private ResponseEntity<?> link(String username, String typed) {
-        return controller.saveGithubLogin(new JiraController.TokenRequest(typed), "tc", username);
+    /** The checker's own comments must never read as somebody's commands. */
+    @Test
+    void theAppAccountCannotBeLinked() {
+        GithubClient.GhUser app = GhUsers.of("ignite-pr-checker");
+        when(github.isAppAccount(app)).thenReturn(true);
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(app));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(app));
+
+        ResponseEntity<?> res = prove("nsamelchev", ONE_TIME);
+        Optional<StandingVisas.Refusal> refused = standing.change("avinogradov", "tc-2", null, "gh-pat",
+            new StandingVisas.OptionChange(null, null, true, null, null));
+
+        assertThat(res.getStatusCode().value()).isEqualTo(409);
+        assertThat(String.valueOf(res.getBody())).contains("the checker's own GitHub account");
+        assertThat(refused).hasValueSatisfying(r -> assertThat(r.need()).isEqualTo("github"));
+        assertThat(standing.ghLoginOf("nsamelchev")).isNull();
+        assertThat(standing.ghLoginOf("avinogradov")).isNull();
+    }
+
+    /**
+     * In the minutes after a restart GitHub has not yet said whose GITHUB_TOKEN is, and a token of that account proves
+     * it like any other. Once GitHub says, its comments are nobody's commands all the same.
+     */
+    @Test
+    void theAppAccountProvenBeforeItWasKnownCommandsNothing() {
+        GithubClient.GhUser app = GhUsers.of("ignite-pr-checker");
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(app));
+        prove("nsamelchev", ONE_TIME);
+
+        when(github.isAppAccount(app)).thenReturn(true);
+
+        assertThat(standing.ghLoginOf("nsamelchev")).isEqualTo("ignite-pr-checker");
+        assertThat(standing.actorByGhUser(app)).isEmpty();
+    }
+
+    private ResponseEntity<?> prove(String username, String token) {
+        return controller.saveGithubLogin(new JiraController.TokenRequest(token), "tc", username);
     }
 }

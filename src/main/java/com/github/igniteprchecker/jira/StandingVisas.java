@@ -272,7 +272,7 @@ public class StandingVisas implements SnapshotCache {
             jiraCred = Credential.NONE;
 
         Credential ghCred = null;
-        String login = null;
+        GithubClient.GhUser login = null;
         if (after.needsGh()) {
             String stored = prev == null ? null : decrypt(prev.gh()).orElse(null);
             boolean fresh = sessionGh != null && !sessionGh.equals(stored);
@@ -281,11 +281,15 @@ public class StandingVisas implements SnapshotCache {
             // stops recognising the author of "/run-all" and replies to them as a stranger.
             boolean unchecked = false;
             try {
-                login = fresh ? github.ghUser(sessionGh).orElse(null) : null;
+                login = fresh ? github.ghIdentity(sessionGh).orElse(null) : null;
             }
             catch (RuntimeException e) {
                 log.warn("GitHub could not check the token offered for {}: {}", username, e.toString());
                 unchecked = true;
+            }
+            if (login != null && github.isAppAccount(login)) {
+                return Optional.of(new Refusal("github", "this token is of @" + login.login() + ", the checker's own"
+                    + " GitHub account — paste a token of your own account"));
             }
             if (login != null)
                 ghCred = new Credential(codec.encryptString(sessionGh), 0);
@@ -304,18 +308,18 @@ public class StandingVisas implements SnapshotCache {
             || Boolean.FALSE.equals(change.suites()) || prev != null && prev.options().needsGh())
             ghCred = Credential.NONE;
 
-        if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || prev.ghLogin() == null))
-            return Optional.of(new Refusal("login", "link your GitHub login to use PR commands"));
+        if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || !prev.ghLoginProven()))
+            return Optional.of(new Refusal("login", "prove your GitHub login to use PR commands"));
 
         Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
         Credential jiraNext = jiraCred;
         Credential ghNext = ghCred;
         String tzNext = zoneOf(browserTz);
-        String loginNext = login;
+        GithubClient.GhUser loginNext = login;
         long now = System.currentTimeMillis();
 
         // A settings change must not forget which builds were already handled (or their comments),
-        // nor a GitHub login the user linked by hand (a PAT-derived one is authoritative though).
+        // nor a GitHub login proven before (the one the PAT proves now replaces it).
         Enrollment e = enrolled.compute(username, (u, cur) -> {
             Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc);
             Options options = base.options().apply(change);
@@ -330,7 +334,7 @@ public class StandingVisas implements SnapshotCache {
             next = ghNext == null ? next : next.withGh(ghNext);
             next = tzNext == null ? next : next.withTz(tzNext);
 
-            return loginNext == null ? next : next.withGhLogin(loginNext);
+            return loginNext == null ? next : next.withGhAccount(GhAccount.of(loginNext));
         });
         if (loginNext != null && e != null)
             releaseLogin(loginNext, username);
@@ -373,7 +377,7 @@ public class StandingVisas implements SnapshotCache {
 
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
-            e.tc().rejected(), o.suiteFix());
+            e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven());
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -398,11 +402,20 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
-     * so the options run whether or not this browser's session carries it.
+     * so the options run whether or not this browser's session carries it. {@code loginUnproven}: no token proved
+     * the {@code login} an earlier version kept, and PR commands wait until one does.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
-        boolean tcTokenRejected, boolean suites) {
+        boolean tcTokenRejected, boolean suites, boolean loginUnproven) {
+        /** The settings of a user whose login, if any, is proven. */
+        public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
+            boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
+            boolean tcTokenRejected, boolean suites) {
+            this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
+                tcTokenRejected, suites, false);
+        }
+
         /** The settings of a user who does not add tests to suites. */
         public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
             boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
@@ -413,19 +426,24 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The user behind a GitHub login, with decrypted tokens — the PR command poll resolves the
-     * comment's author through this; whether they may command is {@link #commandsOn}.
+     * The user whose proven GitHub account wrote a comment, with decrypted tokens — the PR command poll
+     * resolves the comment's author through this; whether they may command is {@link #commandsOn}. The
+     * account is matched by its id: a login its owner gave up can be someone else's now. The checker's own
+     * account is nobody's.
      */
-    public Optional<GhActor> actorByGhLogin(String login) {
+    public Optional<GhActor> actorByGhUser(GithubClient.GhUser author) {
+        if (github.isAppAccount(author))
+            return Optional.empty();
+
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
-            String held = en.getValue().ghLogin();
-            if (!login.equalsIgnoreCase(held))
+            GhAccount held = en.getValue().ghAccount();
+            if (held == null || !held.proven() || !held.is(author))
                 continue;
 
-            // GitHub logins ignore case and the poll gets GitHub's own spelling: a login typed in
-            // another case still matches, and is stored the way GitHub spells it from now on.
-            if (!login.equals(held))
-                enrolled.computeIfPresent(en.getKey(), (u, e) -> held.equals(e.ghLogin()) ? e.withGhLogin(login) : e);
+            // The login as GitHub spells it now, a rename included.
+            GhAccount now = GhAccount.of(author);
+            if (!now.equals(held))
+                enrolled.computeIfPresent(en.getKey(), (u, e) -> held.equals(e.ghAccount()) ? e.withGhAccount(now) : e);
 
             // The PAT is optional for commands: without one the checker acks and narrates
             // from its own (the operator's) account instead of the user's.
@@ -631,20 +649,21 @@ public class StandingVisas implements SnapshotCache {
         return e != null && e.gh().token() == null;
     }
 
-    /**
-     * Links a GitHub login, as GitHub spells it, and switches PR commands on — the login is all they
-     * need besides the TeamCity token, so no other option has to be on. Returns "ok", "taken"
-     * (someone else holds it) or "token" (the user's login comes from their GitHub token, which proves
-     * it, so a typed one cannot replace it).
-     */
-    public String linkGhLogin(String username, String tcToken, String login) {
-        return linkGhLogin(username, tcToken, login, null);
+    /** Links a proven GitHub account with no time zone from the browser. */
+    public String linkGhLogin(String username, String tcToken, GithubClient.GhUser proven) {
+        return linkGhLogin(username, tcToken, proven, null);
     }
 
-    /** The same, and the browser's time zone {@code browserTz} becomes the user's when it is one. */
-    public String linkGhLogin(String username, String tcToken, String login, String browserTz) {
-        if (heldByAnother(login, username))
-            return "taken";
+    /**
+     * Links the GitHub account a token of the user's was just found to belong to, and switches PR commands on —
+     * the login is all they need besides the TeamCity token, so no other option has to be on. The account leaves
+     * whoever held it before: the proof is the user's. The browser's time zone {@code browserTz} becomes the user's
+     * when it is one. Returns "ok", "app" (the checker's own account, whose comments are nobody's commands) or
+     * "token" (the GitHub token the server keeps for the user proves another account, whose login stays).
+     */
+    public String linkGhLogin(String username, String tcToken, GithubClient.GhUser proven, String browserTz) {
+        if (github.isAppAccount(proven))
+            return "app";
 
         String tz = zoneOf(browserTz);
 
@@ -653,69 +672,75 @@ public class StandingVisas implements SnapshotCache {
         String[] result = {"ok"};
         enrolled.compute(username, (u, cur) -> {
             Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc).withEnabledAt(now);
-            boolean fromToken = base.gh().token() != null && base.ghLogin() != null;
-            if (fromToken && !login.equalsIgnoreCase(base.ghLogin())) {
+            if (base.gh().token() != null && base.ghLoginProven() && !base.ghAccount().is(proven)) {
                 result[0] = "token";
 
                 return cur;
             }
 
             return base.withTc(tcKept(base.tc(), tcToken))
-                .withGhLogin(fromToken ? base.ghLogin() : login)
+                .withGhAccount(GhAccount.of(proven))
                 .withTz(tz == null ? base.tz() : tz)
                 .withOptions(base.options().withCommands());
         });
-        if (result[0].equals("ok"))
-            log.info("PR commands on for {} as GitHub user {}", username, login);
+        if (result[0].equals("ok")) {
+            releaseLogin(proven, username);
+            log.info("PR commands on for {} as GitHub user {} (id {}), proven with a token", username,
+                proven.login(), proven.id());
+        }
 
         return result[0];
     }
 
-    private boolean heldByAnother(String login, String username) {
-        return enrolled.entrySet().stream()
-            .anyMatch(en -> !en.getKey().equals(username) && login.equalsIgnoreCase(en.getValue().ghLogin()));
+    private boolean heldByAnother(GithubClient.GhUser account, String username) {
+        return enrolled.entrySet().stream().anyMatch(en -> !en.getKey().equals(username)
+            && en.getValue().ghAccount() != null && en.getValue().ghAccount().is(account));
     }
 
     /**
-     * A login proven by a GitHub token belongs to its owner alone: a claim someone typed in by hand
-     * (a typo, or someone else's login) would route the owner's commands to the claimant's account.
-     * The claimant's PR commands go off with the login: the poll finds a commander by login, so left
-     * on they would promise what cannot happen. The checkstyle autofix, which runs only from a command,
-     * goes with them, and so does the GitHub token when nothing left needs it. Like any last option
-     * switched off, it takes the enrollment with it when nothing else is on.
+     * A GitHub account belongs to whoever proved it last: a login typed in by hand, as earlier versions
+     * took it (a typo, or someone else's login), would route the owner's commands to the claimant's
+     * account. The other user's PR commands go off with the login: left on they would promise what cannot
+     * happen. The checkstyle autofix, which runs only from a command, goes with them, and so does the
+     * GitHub token when nothing left needs it. Like any last option switched off, it takes the enrollment
+     * with it when nothing else is on.
      */
-    private void releaseLogin(String login, String owner) {
+    private void releaseLogin(GithubClient.GhUser account, String owner) {
         enrolled.forEach((u, e) -> {
-            if (u.equals(owner) || !login.equalsIgnoreCase(e.ghLogin()))
+            if (u.equals(owner) || e.ghAccount() == null || !e.ghAccount().is(account))
                 return;
 
             enrolled.computeIfPresent(u, (k, cur) -> {
-                if (!login.equalsIgnoreCase(cur.ghLogin()))
+                if (cur.ghAccount() == null || !cur.ghAccount().is(account))
                     return cur;
 
                 Options left = cur.options().with(Option.COMMANDS, false).consistent();
                 if (!left.any())
                     return null;
 
-                Enrollment released = cur.withGhLogin(null).withOptions(left);
+                Enrollment released = cur.withGhAccount(null).withOptions(left);
 
                 return left.needsGh() ? released : released.withGh(new Credential(null, cur.gh().rejectedAt()));
             });
             log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account; PR commands of {} "
-                + "switched off", login, u, owner, owner, u);
+                + "switched off", account.login(), u, owner, owner, u);
         });
     }
 
-    /** The user's linked GitHub login (PAT-derived or hand-linked), or null. */
+    /** The user's linked GitHub login, proven or not; null when none. */
     public String ghLoginOf(String username) {
         Enrollment e = enrolled.get(username);
 
         return e == null ? null : e.ghLogin();
     }
 
-    /** Whether anyone has PR commands on — gates the PR command poll entirely. */
+    /**
+     * Whether anyone has PR commands on with a proven login, or with one their GitHub token is yet to be asked about —
+     * gates the PR command poll entirely.
+     */
     public boolean anyGhEnrolled() {
-        return enrolled.values().stream().anyMatch(e -> e.options().commands() && e.ghLogin() != null);
+        return enrolled.values().stream()
+            .anyMatch(e -> e.options().commands() && (e.ghLoginProven() || e.ghLoginToAsk()));
     }
 
     /** Whether the user's comments on pull requests are taken as commands. */
@@ -929,7 +954,7 @@ public class StandingVisas implements SnapshotCache {
     public record WaveStatus(int wave, String what, Long etaEpochSec) {
     }
 
-    /** Same as {@link #actorByGhLogin} but by the TC username — for follow-ups on an accepted command. */
+    /** Same as {@link #actorByGhUser} but by the TC username — for follow-ups on an accepted command. */
     public Optional<GhActor> actor(String username) {
         Enrollment e = enrolled.get(username);
 
@@ -965,32 +990,71 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Backfills {@code ghLogin} for enrollments made before it was recorded (one GitHub call per such user, until
-     * GitHub answers); no-op when everything is already resolved. GitHub failing to answer leaves it for the next time.
+     * Backfills the GitHub login of enrollments made before it was recorded, and asks the GitHub token kept next to a
+     * login of an earlier version whether it names that login (one GitHub call per such user, until GitHub answers);
+     * no-op when everything is already resolved. GitHub failing to answer leaves it for the next time.
      */
     public void ensureGhLogins() {
         switchOffOptionsWithoutTokens();
         enrolled.forEach((u, e) -> {
-            if (!(e.options().ghComment() || e.options().suiteFix()) || e.ghLogin() != null || e.gh().token() == null)
-                return;
-
-            String login;
-            try {
-                login = decrypt(e.gh()).flatMap(github::ghUser).filter(l -> !heldByAnother(l, u)).orElse(null);
-            }
-            catch (RuntimeException ex) {
-                log.info("GitHub login of {} not backfilled this time: {}", u, ex.toString());
-
-                return;
-            }
-            if (login == null)
-                return;
-
-            // The lookup ran outside the map, so the login goes in only if it is still missing.
-            Enrollment next = enrolled.computeIfPresent(u, (k, cur) -> cur.ghLogin() == null ? cur.withGhLogin(login)
-                : cur);
-            log.info("backfilled for {}: gh login {}", u, next == null ? null : next.ghLogin());
+            if (e.ghAccount() == null)
+                backfillLogin(u, e);
+            else if (e.ghAccount().askToken())
+                askToken(u, e);
         });
+    }
+
+    private void backfillLogin(String username, Enrollment e) {
+        if (!(e.options().ghComment() || e.options().suiteFix()) || e.gh().token() == null)
+            return;
+
+        GithubClient.GhUser login;
+        try {
+            login = decrypt(e.gh()).flatMap(github::ghIdentity)
+                .filter(l -> !heldByAnother(l, username) && !github.isAppAccount(l)).orElse(null);
+        }
+        catch (RuntimeException ex) {
+            log.info("GitHub login of {} not backfilled this time: {}", username, ex.toString());
+
+            return;
+        }
+        if (login == null)
+            return;
+
+        // The lookup ran outside the map, so the login goes in only if it is still missing.
+        Enrollment next = enrolled.computeIfPresent(username, (k, cur) -> cur.ghAccount() == null
+            ? cur.withGhAccount(GhAccount.of(login)) : cur);
+        log.info("backfilled for {}: gh login {}", username, next == null ? null : next.ghLogin());
+    }
+
+    /**
+     * A login an earlier version kept next to the user's GitHub token is proven only if that token names it: v1.27.0
+     * could also keep a login typed in by hand there, next to a token of another account, and that login's owner would
+     * then command under this user's TeamCity token. GitHub's answer gives the account's id. A token GitHub refuses,
+     * or one gone since, proves nothing.
+     */
+    private void askToken(String username, Enrollment e) {
+        GhAccount held = e.ghAccount();
+        Optional<GithubClient.GhUser> named;
+        try {
+            named = decrypt(e.gh()).flatMap(github::ghIdentity);
+        }
+        catch (RuntimeException ex) {
+            log.info("GitHub login {} of {} not checked with the GitHub token this time: {}", held.login(), username,
+                ex.toString());
+
+            return;
+        }
+
+        GhAccount next = named.filter(n -> n.login().equalsIgnoreCase(held.login()) && !github.isAppAccount(n))
+            .map(GhAccount::of).orElse(GhAccount.unproven(held.login()));
+        enrolled.computeIfPresent(username, (k, cur) -> held.equals(cur.ghAccount()) ? cur.withGhAccount(next) : cur);
+        if (next.proven())
+            log.info("GitHub login {} of {} proven by the GitHub token, id {}", next.login(), username, next.id());
+        else
+            log.warn("GitHub login {} of {} is not proven: the GitHub token kept with it {}; PR commands wait until a "
+                + "token proves the account", held.login(), username, named.map(n -> github.isAppAccount(n)
+                    ? "is of the app account" : "is of " + n.login()).orElse("is refused or gone"));
     }
 
     /** Whether checkstyle autofix on own runs is on for the user. */
@@ -2176,39 +2240,54 @@ public class StandingVisas implements SnapshotCache {
      * undo each other. {@code enabledAt} is when an option that acts on runs was last switched on, and
      * {@code onSince} when each one was; snapshots of v1.20.11 and before have {@code enabledAt} only.
      */
-    private record Enrollment(Credential tc, Credential jira, Credential gh, String ghLogin, String tz,
+    private record Enrollment(Credential tc, Credential jira, Credential gh, GhAccount ghAccount, String tz,
         long enabledAt, Options options, Handled handled, Map<Option, Long> onSince) {
         static Enrollment fresh(Credential tc) {
             return new Enrollment(tc, Credential.NONE, Credential.NONE, null, null, 0, Options.NONE, Handled.empty(),
                 Map.of());
         }
 
+        /** The login of the user's GitHub account, proven or not; null when none is linked. */
+        String ghLogin() {
+            return ghAccount == null ? null : ghAccount.login();
+        }
+
+        /** Whether a token proved the user's GitHub account. */
+        boolean ghLoginProven() {
+            return ghAccount != null && ghAccount.proven();
+        }
+
+        /** Whether the user's GitHub token is yet to be asked whether it names the login an earlier version kept. */
+        boolean ghLoginToAsk() {
+            return ghAccount != null && ghAccount.askToken() && gh.token() != null;
+        }
+
         Enrollment withTc(Credential c) {
-            return new Enrollment(c, jira, gh, ghLogin, tz, enabledAt, options, handled, onSince);
+            return new Enrollment(c, jira, gh, ghAccount, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withJira(Credential c) {
-            return new Enrollment(tc, c, gh, ghLogin, tz, enabledAt, options, handled, onSince);
+            return new Enrollment(tc, c, gh, ghAccount, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withGh(Credential c) {
-            return new Enrollment(tc, jira, c, ghLogin, tz, enabledAt, options, handled, onSince);
+            return new Enrollment(tc, jira, c, ghAccount, tz, enabledAt, options, handled, onSince);
         }
 
-        Enrollment withGhLogin(String login) {
-            return new Enrollment(tc, jira, gh, login, tz, enabledAt, options, handled, onSince);
+        Enrollment withGhAccount(GhAccount account) {
+            return new Enrollment(tc, jira, gh, account, tz, enabledAt, options, handled, onSince);
         }
 
         Enrollment withTz(String zone) {
-            return new Enrollment(tc, jira, gh, ghLogin, zone, enabledAt, options, handled, onSince);
+            return new Enrollment(tc, jira, gh, ghAccount, zone, enabledAt, options, handled, onSince);
         }
 
         Enrollment withOptions(Options o) {
-            return new Enrollment(tc, jira, gh, ghLogin, tz, enabledAt, o, handled, onSince);
+            return new Enrollment(tc, jira, gh, ghAccount, tz, enabledAt, o, handled, onSince);
         }
 
         Enrollment withEnabledAt(long at) {
-            return new Enrollment(tc, jira, gh, ghLogin, tz, at, options, handled, onSince);
+            return new Enrollment(tc, jira, gh, ghAccount, tz, at, options, handled, onSince);
         }
 
         /** With the options {@code next}: one switched on {@code now} acts on the runs that finish from now on. */
@@ -2216,7 +2295,7 @@ public class StandingVisas implements SnapshotCache {
             Map<Option, Long> since = new EnumMap<>(Option.class);
             next.on().forEach(o -> since.put(o, options.on().contains(o) ? since(o) : now));
 
-            return new Enrollment(tc, jira, gh, ghLogin, tz, enabledAt, next, handled,
+            return new Enrollment(tc, jira, gh, ghAccount, tz, enabledAt, next, handled,
                 Collections.unmodifiableMap(since));
         }
 
@@ -2237,6 +2316,27 @@ public class StandingVisas implements SnapshotCache {
             options.on().stream().filter(o -> since(o) <= finishedMs).forEach(acting::add);
 
             return new Options(acting);
+        }
+    }
+
+    /**
+     * The GitHub account the user's PR comments come from: its {@code login}, its {@code id} once known, and whether
+     * GitHub named it to a token of the user ({@code proven}). Only a proven account's comments are their commands: a
+     * login typed in by hand, as earlier versions took it, could be anyone's. {@code askToken}: an earlier version
+     * kept the login next to the user's GitHub token, which is yet to be asked whether it names that login.
+     */
+    private record GhAccount(String login, Long id, boolean proven, boolean askToken) {
+        static GhAccount of(GithubClient.GhUser user) {
+            return new GhAccount(user.login(), user.id() > 0 ? user.id() : null, true, false);
+        }
+
+        static GhAccount unproven(String login) {
+            return new GhAccount(login, null, false, false);
+        }
+
+        /** Whether {@code user} is this account: by the id, or by the login while the id is not known. */
+        boolean is(GithubClient.GhUser user) {
+            return id != null ? id == user.id() : login.equalsIgnoreCase(user.login());
         }
     }
 
@@ -2677,23 +2777,28 @@ public class StandingVisas implements SnapshotCache {
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
         Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince,
-        Boolean suiteFix, Map<Integer, Owed> owed) {
+        Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
             Map<String, Long> since = new HashMap<>();
             e.onSince().forEach((option, at) -> since.put(option.name(), at));
+            GhAccount gh = e.ghAccount();
 
             return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
-                e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()));
+                e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()),
+                gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven());
         }
 
         /**
          * Missing fields are what the snapshots written before them meant: before the PR commands
          * switch, a linked GitHub login was all commands needed. The checkstyle autofix saved on without PR
          * commands, which it never ran without, is off, and the GitHub token goes when nothing else needs it.
+         * Before logins were proven, one stored with a GitHub token mostly came from that token, but one typed in by
+         * hand could sit next to a token of another account: the token is asked whose it is. One stored without a
+         * token could have been typed in by hand.
          */
         Enrollment enrollment() {
             Handled h = Handled.empty();
@@ -2723,9 +2828,13 @@ public class StandingVisas implements SnapshotCache {
                 log.info("checkstyle autofix of {} is off: it runs only from a PR command, and PR commands are off{}",
                     username, ghUnneeded ? "; the GitHub token, which nothing else needs, is dropped" : "");
 
+            boolean ghKept = ghToken != null && !ghUnneeded;
+            GhAccount account = ghLogin == null ? null : ghLoginProven != null
+                ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ghKept);
+
             return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
-                new Credential(ghUnneeded ? null : ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz,
+                new Credential(ghUnneeded ? null : ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), account, tz,
                 enabledAt, options, h, Collections.unmodifiableMap(since));
         }
     }

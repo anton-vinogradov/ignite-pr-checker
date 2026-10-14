@@ -201,6 +201,36 @@ class ServiceHealthTest {
             "GitHub refuses GITHUB_TOKEN: replies, reactions and narration from the app account fail"))));
     }
 
+    /**
+     * GITHUB_TOKEN expires in five days and its account can push to the checker's own repo: GitHub said so at the last
+     * check, and only a restart's log line or none told the operator.
+     */
+    @Test
+    void whatTheCheckOfGithubTokenFoundWrongIsAProblem() {
+        GithubClient.AppAccount app = new GithubClient.AppAccount("ok", "ignite-pr-checker", false, 234567L, List.of(
+            new GithubClient.AppAccount.Check("ok", "classic token, scopes: public_repo"),
+            new GithubClient.AppAccount.Check("warn", "GITHUB_TOKEN expires on 2026-10-19, in 5 days: make a new one"),
+            new GithubClient.AppAccount.Check("unknown", "GitHub did not say whether the app account can push to "
+                + "apache/ignite"),
+            new GithubClient.AppAccount.Check("warn",
+                "the app account can push to anton-vinogradov/ignite-pr-checker")));
+
+        ServiceHealth.Report report = ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING, List.of(), app, NOW);
+
+        assertThat(report).isEqualTo(new ServiceHealth.Report("warn", "ok", List.of(
+            new ServiceHealth.Problem("warn", "GITHUB_TOKEN expires on 2026-10-19, in 5 days: make a new one"),
+            new ServiceHealth.Problem("warn", "the app account can push to anton-vinogradov/ignite-pr-checker"))));
+    }
+
+    /** A token that cannot write fails every reply of the app account: red, as a refused one. */
+    @Test
+    void aGithubTokenThatCannotWriteIsAnError() {
+        GithubClient.AppAccount app = new GithubClient.AppAccount("ok", "ignite-pr-checker", false, 234567L, List.of(
+            new GithubClient.AppAccount.Check("error", "GITHUB_TOKEN is a fine-grained token, which cannot write")));
+
+        assertThat(ServiceHealth.assess(CLEAN_LOG, onTime(), SAVING, List.of(), app, NOW).health()).isEqualTo("error");
+    }
+
     /** A fresh install left APP_PUBLIC_URL empty: every link it posted led nowhere, and only the log said so, once. */
     @Test
     void aSettingThatIsNotAsMeantKeepsItAmber() {

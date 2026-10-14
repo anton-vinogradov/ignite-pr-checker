@@ -73,7 +73,10 @@ public class SuiteFixService implements SnapshotCache {
     /** How long a check that says nothing while not running is asked at every sweep: GitHub may not have started it. */
     private static final long UNANSWERED_MS = 15 * 60_000L;
 
-    /** How often after that: Ignite's workflow never runs on a PR that conflicts with master. */
+    /**
+     * How often after that: Ignite's workflow never runs on a PR that conflicts with master, and on a push of someone
+     * outside the project only once a maintainer approves it.
+     */
     private static final long UNANSWERED_RETRY_MS = 3600_000L;
 
     /** Heads whose check names no class of their PR, remembered so the sweep does not ask again. */

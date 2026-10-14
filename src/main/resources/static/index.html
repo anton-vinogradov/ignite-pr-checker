@@ -433,18 +433,27 @@
                 top, <code>/top</code> moves the run my command started to the top while it still waits; the top
                 needs a ci2 account that may reorder the queue. Picked up within a minute; 🚀 = accepted, 😕 =
                 refused, and a comment in the PR then narrates the run.<br>
-                <span class="muted">Needs my GitHub login; stores only that and my TeamCity token (encrypted). While
-                the server holds my GitHub token (for the PR comment, the checkstyle autofix or tests to suites), the
-                reactions come from my own account and the story is written into my command comment; otherwise the
-                checker's own account reacts and tells the story in a comment of its own.</span></span>
+                <span class="muted">Needs my GitHub login, proven once with a token; stores only the login, my GitHub
+                account's id and my TeamCity token (encrypted). While the server holds my GitHub token (for the PR
+                comment, the checkstyle autofix or tests to suites), the reactions come from my own account and the
+                story is written into my command comment; otherwise the checker's own account reacts and tells the
+                story in a comment of its own.</span></span>
         </label>
         <div id="settingsLogin" class="hidden" style="margin-top: 0.4rem">
-            <span class="row">
-                GitHub login:&nbsp;
-                <input id="ghLoginInput" type="text" placeholder="GitHub login" style="max-width: 160px" />
-                <button id="ghLoginSave" class="act" type="button">Link</button>
-                <span id="ghLoginMsg" class="muted"></span>
-            </span>
+            <span id="ghLoginState" class="muted"></span>
+            <p id="ghLoginUnproven" class="caveat hidden"></p>
+            <div id="ghLoginProof">
+                Prove your GitHub login once —
+                <a href="https://github.com/settings/tokens/new?description=Ignite%20PR%20Checker%20login" target="_self" rel="noopener">create a token with no scopes</a>
+                (a classic one with no box ticked, or a fine-grained one with no permissions, with the shortest
+                expiry), paste it here, and delete it afterwards. GitHub tells the checker whose account it is; the
+                checker keeps the login and the account's id, never the token: it goes into no cookie and no file.
+                <span class="row" style="margin-top: 0.4rem">
+                    <input id="ghLoginToken" type="password" placeholder="GitHub token with no scopes" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
+                    <button id="ghLoginSave" class="act" type="button">Prove</button>
+                    <span id="ghLoginMsg" class="muted"></span>
+                </span>
+            </div>
         </div>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="styleFixToggle" type="checkbox">

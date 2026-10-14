@@ -14,6 +14,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -51,7 +52,7 @@ class AutofixNeedsCommandsTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
     }
 
     @Test
@@ -64,7 +65,7 @@ class AutofixNeedsCommandsTest {
             .isEqualTo("Auto-fix checkstyle runs only from a PR command: switch on PR commands first");
         assertThat(standing.settings(USER).style()).isFalse();
         assertThat(standing.settings(USER).ghStored()).isFalse();
-        verify(github, never()).ghUser(anyString());
+        verify(github, never()).ghIdentity(anyString());
     }
 
     @Test

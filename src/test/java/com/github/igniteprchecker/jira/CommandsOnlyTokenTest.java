@@ -14,6 +14,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -45,7 +46,7 @@ class CommandsOnlyTokenTest {
 
     @Test
     void aCommandsOnlyTokenStaysOutOfBackgroundWork() {
-        standing.linkGhLogin("newcomer", "commands-tc", "Newcomer");
+        standing.linkGhLogin("newcomer", "commands-tc", GhUsers.of("Newcomer"));
         standing.change("avinogradov", "rerun-tc", null, null,
             new StandingVisas.OptionChange(null, true, null, null, null));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13800, "IGNITE-29000 Something", null, null, null,
@@ -62,7 +63,7 @@ class CommandsOnlyTokenTest {
     /** Their run, found with someone else's token: nothing will post or re-run it, so nothing computes it. */
     @Test
     void theSweepComputesNoVerdictForARunOfCommandsOnly() {
-        standing.linkGhLogin("newcomer", "commands-tc", "Newcomer");
+        standing.linkGhLogin("newcomer", "commands-tc", GhUsers.of("Newcomer"));
         standing.change("avinogradov", "rerun-tc", null, null,
             new StandingVisas.OptionChange(null, true, null, null, null));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13800, "IGNITE-29000 Something", null, null, null,

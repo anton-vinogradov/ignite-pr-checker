@@ -67,7 +67,7 @@ class PrCommandsSnapshotTest {
         when(standing.anyGhEnrolled()).thenReturn(true);
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(7L,
             "/run-all", "https://github.com/apache/ignite/pull/13800#issuecomment-7", Instant.now().toString(),
-            new GithubClient.GhUser("nizhikov"))));
+            GhUsers.of("nizhikov"))));
 
         commands.poll();
 

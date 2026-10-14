@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -38,7 +39,7 @@ class SuiteFixOptionTest {
 
     @Test
     void itTakesTheGithubTokenAndTheLoginItProvesAndGivesTheTokenUpWhenOff() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Alice-V"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Alice-V")));
 
         assertThat(standing.change("alice", "tc", null, null, suites(true)))
             .hasValueSatisfying(r -> assertThat(r.need()).isEqualTo("github"));
@@ -63,7 +64,7 @@ class SuiteFixOptionTest {
 
     @Test
     void switchingItOffGivesTheGithubTokenUpWhileAutoRerunStaysOn() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Alice-V"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Alice-V")));
         standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
             true));
 
@@ -108,7 +109,7 @@ class SuiteFixOptionTest {
         Path file = dir.resolve("standing-visas.json");
         mapper.writeValue(file.toFile(), snapshot);
         standing.loadFrom(file);
-        when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
 
         assertThat(standing.change("avinogradov", "tc-avinogradov", null, null, suites(true))).isEmpty();
         assertThat(standing.suiteFixers()).isEmpty();
@@ -120,7 +121,7 @@ class SuiteFixOptionTest {
 
     @Test
     void aTokenGithubRefusesSwitchesItOff() {
-        when(github.ghUser(anyString())).thenReturn(Optional.of("Alice-V"));
+        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("Alice-V")));
         standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
             true));
 

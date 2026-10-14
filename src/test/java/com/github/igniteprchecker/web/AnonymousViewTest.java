@@ -138,6 +138,17 @@ class AnonymousViewTest {
         assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains("\"canPush\":true");
     }
 
+    /** What the check of the server's token found says as much of its worth: anyone sees how bad, not what. */
+    @Test
+    void statusShowsTheChecksOfTheAppTokenToSignedInViewersOnly() throws Exception {
+        when(github.appAccount()).thenReturn(new GithubClient.AppAccount("ok", "ignite-pr-checker", false, 234567L,
+            List.of(new GithubClient.AppAccount.Check("warn", "GITHUB_TOKEN has scopes beyond public_repo (repo)"))));
+
+        assertThat(mapper.writeValueAsString(status.status(new MockHttpServletRequest())))
+            .contains("\"checks\":[{\"level\":\"warn\",\"text\":null}]").doesNotContain("scopes beyond");
+        assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains("scopes beyond public_repo (repo)");
+    }
+
     @Test
     void prListNamesWhoTriggeredARunToSignedInViewersOnly() {
         GithubClient github = mock(GithubClient.class);
