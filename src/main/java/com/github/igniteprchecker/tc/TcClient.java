@@ -29,8 +29,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * Thin wrapper over the TeamCity REST API. Stateless with respect to auth: every call takes the
- * caller's personal token, so requests run with that user's TeamCity permissions.
+ * Thin wrapper over the TeamCity REST API. Stateless with respect to auth: every call takes a user's personal
+ * token and runs with that user's TeamCity permissions. What a user does goes under their own token; background
+ * reads (warming, run states, the standing options' lookups) borrow other users' tokens and only read with them.
  *
  * <p>Query values are percent-encoded by hand as a precaution: the TeamCity WAF rejects some raw
  * characters (e.g. {@code [}/{@code ]}) in the URL. Locators here use numeric ids to avoid them.
@@ -683,31 +684,104 @@ public class TcClient {
         return occ.testOccurrence().get(0).details();
     }
 
-    /** Enqueues the RunAll chain for a PR branch. {@code top} puts it at the head of the queue. */
+    /**
+     * Enqueues the RunAll chain for a PR branch. {@code top} puts it at the head of the queue; a chain TeamCity queued
+     * but did not move there comes in a {@link QueuedBelowTopException}.
+     */
     public TcModel.Build triggerRunAll(String token, int prNumber, boolean top) {
         return triggerBuild(token, analysis.runAllBuildType(), prNumber, top);
     }
 
-    /** Enqueues one build type for a PR branch. {@code top} puts it at the head of the queue. */
+    /**
+     * Enqueues one build type for a PR branch. {@code top} puts it at the head of the queue; a build TeamCity queued
+     * but did not move there comes in a {@link QueuedBelowTopException}.
+     */
     public TcModel.Build triggerBuild(String token, String buildTypeId, int prNumber, boolean top) {
         return triggerBuild(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker");
     }
 
     /** Same, with an explicit TeamCity trigger comment — so TC itself tells WHY a build was queued. */
     public TcModel.Build triggerBuild(String token, String buildTypeId, int prNumber, boolean top, String comment) {
+        return queue(token, buildTypeId, prNumber, top, comment, top ? waitingIds(token, buildTypeId, prNumber) : null);
+    }
+
+    /**
+     * Queues the build. TeamCity puts a build into the queue before it moves it to the top, so an error answer to
+     * {@code top} may come for a build that is queued all the same: one of the token's user's that was not among the
+     * {@code waiting} ones is taken for it, and comes in a {@link QueuedBelowTopException}. With {@code waiting} null
+     * nothing is looked for.
+     */
+    private TcModel.Build queue(String token, String buildTypeId, int prNumber, boolean top, String comment,
+        Set<Long> waiting) {
         Map<String, Object> payload = Map.of(
             "branchName", "pull/" + prNumber + "/head",
             "buildType", Map.of("id", buildTypeId),
             "triggeringOptions", Map.of("queueAtTop", top),
             "comment", Map.of("text", comment));
 
-        return recorded("trigger", () -> http.post()
-            .uri(url("app/rest/buildQueue", query("fields", "id,state,branchName,buildTypeId,webUrl,buildType(name)")))
-            .header("Authorization", "Bearer " + token)
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(payload)
-            .retrieve()
-            .body(TcModel.Build.class));
+        try {
+            return recorded("trigger", () -> http.post()
+                .uri(url("app/rest/buildQueue",
+                    query("fields", "id,state,branchName,buildTypeId,webUrl,buildType(name)")))
+                .header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(payload)
+                .retrieve()
+                .body(TcModel.Build.class));
+        }
+        catch (TcResponseException e) {
+            if (!top || waiting == null || e.getStatusCode().value() == 401)
+                throw e;
+
+            TcModel.Build queued = queuedSince(token, buildTypeId, prNumber, waiting).orElseThrow(() -> e);
+            log.info("TeamCity queued build {} of {} for PR {}, but answered {} to putting it at the top: it waits at "
+                + "the end of the queue", queued.id(), buildTypeId, prNumber, e.getStatusCode().value());
+
+            throw new QueuedBelowTopException(queued, e);
+        }
+    }
+
+    /**
+     * Ids of the standalone builds of the suite waiting in the queue for the PR branch, whoever queued them; null when
+     * TeamCity does not say.
+     */
+    private Set<Long> waitingIds(String token, String buildTypeId, int prNumber) {
+        try {
+            return idsOf(userBuildsInState(token, prNumber, "queued"), buildTypeId);
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The newest build of the suite that the token's user has waiting in the queue for the PR branch and that is not
+     * one of {@code waiting}.
+     */
+    private Optional<TcModel.Build> queuedSince(String token, String buildTypeId, int prNumber, Set<Long> waiting) {
+        try {
+            List<TcModel.Build> fresh = userBuildsInState(token, prNumber, "queued").stream()
+                .filter(b -> buildTypeId.equals(b.buildTypeId()) && !waiting.contains(b.id()))
+                .toList();
+            String username = fresh.isEmpty() ? null : tokenOwner(token);
+
+            return fresh.stream()
+                .filter(b -> username != null && username.equals(starter(b)))
+                .max(Comparator.comparingLong(TcModel.Build::id));
+        }
+        catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static Set<Long> idsOf(List<TcModel.Build> builds, String buildTypeId) {
+        Set<Long> ids = new HashSet<>();
+        for (TcModel.Build b : builds) {
+            if (buildTypeId.equals(b.buildTypeId()))
+                ids.add(b.id());
+        }
+
+        return ids;
     }
 
     /**
@@ -793,37 +867,51 @@ public class TcClient {
     public TcModel.Build triggerOwnBuildReplacingQueued(String token, String username, String buildTypeId,
         int prNumber, boolean top) {
         return triggerReplacingQueued(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker",
-            q -> username.equals(starter(q)));
+            () -> username);
     }
 
     /**
-     * Re-runs a suite for the automation, first cancelling identical STANDALONE builds of it already
-     * sitting in the queue for the same PR branch, whoever queued them (they'd run the same thing later
-     * for nothing). Queued dependencies of a running chain are left alone — cancelling those would break
-     * the chain. {@code comment} tells on TeamCity why the build was queued.
+     * Re-runs a suite for the automation, first cancelling identical STANDALONE builds of it that the token's own
+     * user already has in the queue for the same PR branch, as a re-run from the page does: someone else's build
+     * stays. TeamCity is asked whose the token is only when such a build waits. {@code comment} tells on TeamCity
+     * why the build was queued.
      */
     public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
         String comment) {
-        return triggerReplacingQueued(token, buildTypeId, prNumber, top, comment, q -> true);
+        return triggerReplacingQueued(token, buildTypeId, prNumber, top, comment, () -> tokenOwner(token));
     }
 
     private TcModel.Build triggerReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
-        String comment, Predicate<TcModel.Build> replaceable) {
+        String comment, Supplier<String> owner) {
         String branch = "pull/" + prNumber + "/head";
-        for (TcModel.Build q : queuedBuilds(token)) {
-            boolean standalone = q.triggered() != null && "user".equals(q.triggered().type());
-            if (standalone && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName())
-                && replaceable.test(q)) {
-                try {
-                    cancelBuild(token, q);
-                }
-                catch (RestClientResponseException e) {
-                    // already started or gone — it is doing useful work now, leave it be
-                }
+        List<TcModel.Build> identical = queuedBuilds(token).stream()
+            .filter(q -> q.triggered() != null && "user".equals(q.triggered().type())
+                && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName()))
+            .toList();
+        String username = identical.isEmpty() ? null : owner.get();
+        for (TcModel.Build q : identical) {
+            if (username == null || !username.equals(starter(q)))
+                continue;
+
+            try {
+                cancelBuild(token, q);
+            }
+            catch (RestClientResponseException e) {
+                // already started or gone — it is doing useful work now, leave it be
             }
         }
 
-        return triggerBuild(token, buildTypeId, prNumber, top, comment);
+        return queue(token, buildTypeId, prNumber, top, comment, idsOf(identical, buildTypeId));
+    }
+
+    /** Whose the token is; null when TeamCity does not say, and then no build is anyone's own. */
+    private String tokenOwner(String token) {
+        try {
+            return currentUsername(token).orElse(null);
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** The newest finished run of one suite on the PR branch — standalone re-runs included. */

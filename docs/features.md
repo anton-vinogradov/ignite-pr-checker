@@ -226,10 +226,11 @@ and the filtered-out noise.
   is a test in a suite, so a test fixed on Linux counts as fixed there while Windows still fails it.
 - **Run** and **Run at top** queue a new RunAll for the PR, at the end or at the top of the ci2 queue. They always ask
   first and say how big the chain is. If your own RunAll of the PR is still going, OK cancels it and queues the new
-  one; someone else's RunAll stays.
+  one; someone else's RunAll stays. ci2 lets only some accounts reorder its queue: for anyone else TeamCity queues the
+  chain at the end, and the page says so.
 - **Rerun** and **Rerun at top** re-run one suite, every suite of a section, or a group of broken suites; a section's
   buttons say how many suites. From 5 suites on they ask first. Your own identical re-run still in the queue is
-  replaced; someone else's stays.
+  replaced; someone else's stays. At the top works as for Run.
 - **The runs row** lists the PR's queued and running builds: how long each has waited or run, an estimate
   (`~14m left`, `starts ~5m`), a revision tag (`rev ✓ head`, `⚠ rev abc1234`, `rev @start`) and `by alice` for
   someone else's run. The same chips appear on the suites they re-run.
@@ -243,15 +244,17 @@ and the filtered-out noise.
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
 `/run-all` comment, or in TeamCity. An option does not reach back: runs that finished before it was switched on are
-left alone. Each stores the tokens it needs, encrypted, while it is on.
+left alone. While any of them is on, the server stores your TeamCity token, encrypted, and each also stores the JIRA or
+GitHub token it needs while it is on.
 
 - **Auto re-run failed suites on my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
   suites, and also the suites TeamCity cancelled by itself, not those a person cancelled. A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
   top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
-  systemic. Identical suites already in the queue are cancelled first. A failed Build is re-run alone; suites that
-  failed to compile, and the suites a failed Build kept from running, are never re-run.
+  systemic. If ci2 does not let your account reorder its queue, the re-runs go to its end. Your own identical re-runs
+  still in the queue are cancelled first; someone else's stay. A failed Build is re-run alone; suites that failed to
+  compile, and the suites a failed Build kept from running, are never re-run.
 - **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
   newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
@@ -263,16 +266,18 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
-  the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
-  same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
-  not checked. It never touches anyone else's PR and never force-pushes.
+  the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses your
+  GitHub token, as the PR comment does, and works on a PR with up to 50 changed Java files; a file over 400 KB, or
+  past 5 MB in all, is not checked. It never touches anyone else's PR and never force-pushes. It runs only from a
+  command, so it switches on only with **PR commands** on and goes off with them.
 - **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes of
   the PR in no test suite, each goes next to the class of its module nearest to it: a class of the same package first,
   else one of the longest package in common, then the longest start of the name in common; when several suites list a
   class as near, the one with more such classes wins. One commit from your account lists the new class in that class's
   suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a package near the
   new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment in the PR says
-  what went where and why, then what Ignite's check says of the commit. It uses the same GitHub token.
+  what went where and why, then what Ignite's check says of the commit. It uses your GitHub token, as the PR comment
+  and the autofix do.
 - **A token that stops working.** When GitHub or JIRA refuses a stored token itself, the checker drops it and switches
   off the options that need it; the panel says which token to replace. A rate limit, an outage or a ticket you may not
   comment on keeps the token, and the visa or the PR comment is tried again at the next sweeps. A visa or PR comment
@@ -309,7 +314,7 @@ link your GitHub login; a GitHub token of your own is optional.
 | Command | What it does |
 |---|---|
 | `/run-all` (also `/runall`) | Queues the whole RunAll chain under your own TeamCity account. |
-| `/run-all top` (also `--top`) | The same, at the top of the ci2 queue. |
+| `/run-all top` (also `--top`) | The same, at the top of the ci2 queue; if ci2 does not let your account reorder the queue, at its end, and the ack says so. |
 | `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits. |
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
@@ -317,8 +322,8 @@ link your GitHub login; a GitHub token of your own is optional.
 - 🚀 means accepted, 😕 refused. Then comes the story of the run: the queued build, then
   `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with every change, and in
   UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or more.
-- When the checker holds your GitHub token (for the PR comment or the autofix), the reactions come from your account
-  and the story is written into your command comment. Otherwise both come from the app account, the story in a
+- When the checker holds your GitHub token (for the PR comment, the autofix or tests to suites), the reactions come
+  from your account and the story is written into your command comment. Otherwise both come from the app account, the story in a
   comment of its own.
 - After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`)
   and ends with `🏁 Run finished — see the verdict`, a link to your verdict comment or to the checker's page. If the
@@ -369,7 +374,8 @@ link your GitHub login; a GitHub token of your own is optional.
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form.
+  login form. **Log out** ends your login in every browser, copies of its cookie included; a login left unused for 400
+  days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

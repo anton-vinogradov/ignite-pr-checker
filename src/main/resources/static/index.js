@@ -43,14 +43,15 @@ function paintLoginPr() {
         + `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">open #${esc(pr)} on GitHub</a>.`;
 }
 
-// A 401 is either the guard (no session) or TeamCity refusing the saved token. The second must say
-// why the user is suddenly at the login form, and end the session that still carries the dead token.
+// A 401 is the guard: no session, TeamCity refusing the saved token, or a logout that ended this session. The last
+// two must say why the user is suddenly at the login form. A refused token also ends the session that still carries
+// it, in this browser only: the user's other sessions may run on other tokens.
 async function loggedOut(r) {
     const body = r ? await r.json().catch(() => ({})) : {};
-    if (body.tokenRejected) {
-        await api('/api/logout', { method: 'POST' }).catch(() => {});
+    if (body.tokenRejected)
+        await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
+    if (body.tokenRejected || body.sessionEnded)
         $('loginErr').textContent = body.error;
-    }
     signedOut();
 }
 
@@ -252,11 +253,23 @@ async function rerunSuites(suites, top, btn) {
         if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
         const links = (res.triggered || [])
             .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
-        $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links;
+        $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links
+            + belowTopNote(res.triggered);
         loadRuns(pr);
     } finally {
         btn.disabled = false;
     }
+}
+
+// TeamCity queues a build before it moves it to the top, and ci2 lets only some accounts reorder the queue: a refused
+// move leaves the build queued at the end, and the server marks it so.
+function belowTopNote(triggered) {
+    const all = triggered || [], below = all.filter(b => b.belowTop);
+    if (!below.length) return '';
+    const status = below[0].topRefusal;
+    return ` — ${below.length === all.length ? '' : below.length + ' of them '}at the end of the queue, not the top: `
+        + `TeamCity refused to move ${below.length === 1 ? 'it' : 'them'} up (HTTP ${esc(status)})`
+        + (status === 403 ? '; your ci2 account may not have the permission to reorder the queue' : '') + '.';
 }
 
 // Wires a section's Rerun / Rerun at top buttons to re-run that section's distinct suites, saying how
@@ -1596,7 +1609,7 @@ async function doTrigger(act, top, btn) {
         const links = (res.triggered || [])
             .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
         $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links
-            + (res.replaced ? ' — cancelled your previous RunAll' : '');
+            + (res.replaced ? ' — cancelled your previous RunAll' : '') + belowTopNote(res.triggered);
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -1661,6 +1674,7 @@ async function rerunSuite(suite, top, btn) {
         const b = (res.triggered || [])[0];
         $('status').innerHTML = b
             ? `Queued #${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`
+                + belowTopNote(res.triggered)
             : 'Queued.';
         loadRuns(pr);
     } finally {
@@ -2081,12 +2095,15 @@ let lastIssueKey = '';
 
 let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
 
-// Where the JIRA PAT ends up depends on what it is pasted for: a visa posted now needs the session alone. The
-// settings panel, where it is pasted for the standing auto-visa, says its own.
+// Where the JIRA PAT ends up depends on what it is pasted for: a visa posted now needs the session alone, yet a change
+// in ⚙ stores the session's PAT for the standing auto-visa. The settings panel, where it is pasted for that, says its own.
+const JIRA_KEPT_FOR_VISA = 'It goes into your session cookie, encrypted. While Auto-visa all my runs is on in ⚙, '
+    + 'your next change there also stores it on the server.';
+
 function jiraKeptNote(action) {
     return action === 'auto'
         ? 'It goes into your session cookie, encrypted, and the server stores it encrypted until this visa is posted.'
-        : 'It stays in your session cookie only, encrypted.';
+        : JIRA_KEPT_FOR_VISA;
 }
 
 async function postVisa() {
@@ -2314,9 +2331,24 @@ async function askForToken(need, option) {
     }
 }
 
+// What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,
+// the server's backups and this browser's cookie.
+const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
+    + 'token until the visa is posted or you cancel it. Copies in the server\'s backups go as the backups rotate, '
+    + 'and your session cookie keeps the tokens you pasted until you log out.';
+
+// The checkstyle autofix runs only from a PR command, so it goes on only with PR commands and off with them.
+const AUTOFIX_NEEDS_COMMANDS = 'Auto-fix checkstyle runs only from a PR command: switch on PR commands first.';
+
 async function setOption(name, on) {
     const toggle = $(OPTION_TOGGLES[name]), msg = $('settingsMsg');
     msg.textContent = '';
+    if (name === 'style' && on && !(standingSettings || {}).commands) {
+        toggle.checked = false;
+        msg.textContent = AUTOFIX_NEEDS_COMMANDS;
+        return;
+    }
+    const before = standingSettings || {};
     const need = OPTION_NEEDS[name];
     if (on && need && !tokenAvailable(need)) {
         toggle.checked = false;
@@ -2327,6 +2359,11 @@ async function setOption(name, on) {
         const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
+        if (r.status === 412 && res.need === 'commands') {
+            toggle.checked = !on;
+            msg.textContent = AUTOFIX_NEEDS_COMMANDS;
+            return;
+        }
         if (r.status === 412) {
             toggle.checked = !on;
             if (res.need === 'github') hasGithub = false;
@@ -2343,7 +2380,9 @@ async function setOption(name, on) {
         const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
             res.style && 'checkstyle autofix', res.commands && 'PR commands', res.suites && 'tests to suites']
             .filter(Boolean);
-        msg.textContent = active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.';
+        msg.textContent = (active.length ? 'On: ' + active.join(' · ') + '.' : ALL_OFF)
+            + (before.style && !res.style && name === 'commands'
+                ? ' Auto-fix checkstyle went off with PR commands: it runs only from a command.' : '');
     } catch (e) {
         toggle.checked = !on;
         msg.textContent = 'could not reach the service — try again';

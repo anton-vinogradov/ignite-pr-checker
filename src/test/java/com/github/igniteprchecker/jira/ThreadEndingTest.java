@@ -192,12 +192,15 @@ class ThreadEndingTest {
         assertThat(standing.visaOn(USER)).isEqualTo(!refused);
     }
 
-    /** Its owner switched off everything that settles runs and kept checkstyle autofix, with the GitHub token. */
+    /**
+     * Its owner switched off everything that settles runs and kept PR commands and checkstyle autofix, with the GitHub
+     * token.
+     */
     @Test
     void aCommentWhoseOptionsWereSwitchedOffSaysSo() {
         listed();
         when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(OLD, USER)));
-        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, false, false, true, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, false, false, true, true));
 
         standing.sweep();
 

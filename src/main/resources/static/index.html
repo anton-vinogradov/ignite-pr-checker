@@ -363,7 +363,7 @@
                 title="Release notes: what changes for users">what's new</a>
             <div id="session" class="row muted hidden">
                 <span id="username"></span>
-                <button id="logout">Log out</button>
+                <button id="logout" title="End your login here and in every other browser">Log out</button>
             </div>
             <button id="reloadPill" class="status-link reload-pill hidden" type="button"
                 title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
@@ -410,9 +410,10 @@
                 the suites still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the
                 first; up to 10 suites go to the top of the queue, more go to the tail so they don't push everyone
                 else back. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
-                systemic. Identical suites already in the queue are cancelled first. The visa and the PR comment
-                wait for the re-runs and come out once, with the final verdict; meanwhile the PR page and the
-                <code>/run-all</code> comment show the waves.<br>
+                systemic. If ci2 does not let my account reorder its queue, the re-runs go to its end. My
+                identical re-runs still in the queue are cancelled first; other people's stay. The visa and the PR
+                comment wait for the re-runs and come out once, with the final verdict; meanwhile the PR page and
+                the <code>/run-all</code> comment show the waves.<br>
                 <span class="muted">Works on its own, on any PR — no JIRA ticket needed; your TeamCity token is
                 stored encrypted at rest while this is on.</span></span>
         </label>
@@ -429,12 +430,13 @@
             <input id="commandsToggle" type="checkbox">
             <span><b>PR commands</b> — comment on any pull request: <code>/run-all</code> (or <code>/runall</code>)
                 queues the whole RunAll chain under my TeamCity account, <code>/run-all top</code> queues it at the
-                top, <code>/top</code> moves the run my command started to the top while it still waits. Picked up
-                within a minute; 🚀 = accepted, 😕 = refused, and a comment in the PR then narrates the run.<br>
+                top, <code>/top</code> moves the run my command started to the top while it still waits; the top
+                needs a ci2 account that may reorder the queue. Picked up within a minute; 🚀 = accepted, 😕 =
+                refused, and a comment in the PR then narrates the run.<br>
                 <span class="muted">Needs my GitHub login; stores only that and my TeamCity token (encrypted). While
-                the server holds my GitHub token (for the PR comment or the checkstyle autofix), the reactions come
-                from my own account and the story is written into my command comment; otherwise the checker's own
-                account reacts and tells the story in a comment of its own.</span></span>
+                the server holds my GitHub token (for the PR comment, the checkstyle autofix or tests to suites), the
+                reactions come from my own account and the story is written into my command comment; otherwise the
+                checker's own account reacts and tells the story in a comment of its own.</span></span>
         </label>
         <div id="settingsLogin" class="hidden" style="margin-top: 0.4rem">
             <span class="row">
@@ -448,10 +450,10 @@
             <input id="styleFixToggle" type="checkbox">
             <span><b>Auto-fix checkstyle on my runs</b> — when I command a run on my own PR and the changed
                 files violate checkstyle, fix what is mechanically fixable (imports, whitespace, modifier
-                order…) and push the fix commit from my account before the run starts. <i>Yes, I trust the
-                robots with my whitespace.</i> 🤖<br>
-                <span class="muted">Uses the same GitHub token as the option above; javadoc/naming/wrapping
-                still need a human — you'll be told what remains.</span>
+                order…) and push the fix commit from my account before the run starts. Works only with PR commands
+                on, and goes off with them. <i>Yes, I trust the robots with my whitespace.</i> 🤖<br>
+                <span class="muted">Uses my GitHub token, as the PR comment does; javadoc/naming/wrapping still
+                need a human — you'll be told what remains.</span>
                 <span id="styleSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
@@ -461,29 +463,35 @@
                 its module nearest to it (by package, then by name), in that class's suite, in one commit from my
                 account. Once per head commit. A comment in the PR says what went where and why, then what
                 Ignite's check says of the commit.<br>
-                <span class="muted">Uses the same GitHub token as the options above.</span>
+                <span class="muted">Uses my GitHub token, as the PR comment and the autofix do.</span>
                 <span id="suitesSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
             A GitHub personal access token is needed —
             <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
             then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
-            while an option that needs it is on.
+            while an option that needs it is on. Give it an expiry, say 90 days: when it expires, the options that use
+            it switch off with a note here, and once you paste a new one and switch them back on, the verdict comments
+            held back meanwhile go out, for runs no newer RunAll replaced.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsGhToken" type="password" placeholder="GitHub personal access token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsGhSave" class="act" type="button">Save</button>
                 <span id="settingsGhMsg" class="muted"></span>
             </span>
             <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so it was dropped and
-                the two options that need it were switched off — acks and the live status come from the checker's
-                own account meanwhile. Paste a fresh one above and switch them back on: the verdict comments it could
-                not post then go out, for runs no newer RunAll replaced.</p>
+                the options that need it (the PR comment, the checkstyle autofix, tests to suites) were switched off
+                — acks and the live status come from the checker's own account meanwhile. Paste a fresh one above and
+                switch them back on: the verdict comments it could not post then go out, for runs no newer RunAll
+                replaced.</p>
         </div>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
             <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
             then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
-            while auto-visa is on.
+            while auto-visa is on. It acts with all the rights of your JIRA account (ASF JIRA has no token scopes), so
+            give it an expiry, say 90 days: when it expires, auto-visa switches off with a note here, and once you
+            paste a new one and switch it back on, the visas held back meanwhile go out, for runs no newer RunAll
+            replaced.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsJiraToken" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsJiraSave" class="act" type="button">Save</button>
@@ -533,9 +541,10 @@
                 The token is kept encrypted in your session cookie. For about an hour after your last request the
                 server also holds it in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
                 everyone.<br>
-                Turn on an option in ⚙ and the server stores the token encrypted until you turn the options off.
+                Turn on an option in ⚙ and the server stores the token encrypted until you turn the options off;
+                copies stay in the server's backups until they rotate out.
                 With any option other than PR commands on, it also keeps doing those reads.<br>
-                Your login lasts until you log out.
+                Your login lasts until you log out, which ends it in every browser, or leave it unused for 400 days.
             </div>
             <details class="login-help">
                 <summary>No ci2 account or token yet?</summary>
@@ -545,7 +554,8 @@
                     <li>Create an access token there: Profile → Access Tokens (“Create a token” above opens it).</li>
                     <li>The token acts with your account's rights. Reading verdicts needs only view access; Run and
                         Rerun need the right to run builds, “Run at top” and “Rerun at top” also to reorder the build
-                        queue, and “Cancel my runs” to stop builds and remove them from the queue.</li>
+                        queue (without it, TeamCity queues them at the end), and “Cancel my runs” to stop builds and
+                        remove them from the queue.</li>
                 </ol>
             </details>
         </section>
@@ -650,7 +660,9 @@
                         <div id="jiraPanel" class="jira-panel hidden">
                             Posting a visa needs your JIRA Personal Access Token —
                             <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-                            then paste it here. <span id="jiraKept">It stays in your session cookie only, encrypted.</span>
+                            then paste it here. <span id="jiraKept">It goes into your session cookie, encrypted.
+                            While Auto-visa all my runs is on in ⚙, your next change there also stores it on the
+                            server.</span>
                             <span class="row" style="margin-top: 0.4rem">
                                 <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
                                 <button id="jiraSave" class="act" type="button">Save</button>

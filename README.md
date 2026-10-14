@@ -65,9 +65,15 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
 - **Users** log in with their own ci2 access token. It travels encrypted (AES-GCM) in an HttpOnly session cookie, and
   the runs a user starts or cancels on the page go under their account. For about an hour after a user's last request
   the server also holds the token in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
-  everyone. A login lasts until logout.
+  everyone. A login lasts until the user logs out, which ends it in every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
-  token, the user's JIRA token for visas, and the user's GitHub token for PR comments and the checkstyle autofix.
+  token with any option, the user's JIRA token for visas, and the user's GitHub token for PR comments, the checkstyle
+  autofix and adding tests to suites. Copies stay in the backups of the [cache directory](#the-cache-directory) until
+  they rotate out: a daily backup for 7 days, a copy made before an update until 5 newer ones replace it.
+- **Expiry.** The JIRA token acts with all the rights of the user's JIRA account (ASF JIRA has no token scopes). Give it
+  and the GitHub token an expiry, say 90 days. When one expires, the options that use it switch off with a note in ⚙;
+  once the user pastes a new one and switches them back on, the visas and PR comments held back meanwhile go out, for
+  runs no newer RunAll replaced.
 - **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it and writes as it: the
   replies to commands of users who have not switched PR commands on, reactions, hints, the run story of users without
   their own GitHub token, and the mention that tells such a user their verdict is ready. Use a separate account with no
@@ -121,7 +127,7 @@ settings by hand.
 | `SERVER_PORT` | `8080` | The port. |
 | `SESSION_SECRET` | a random key per start; `install.sh` writes a stable one | Encrypts the session cookies and the stored tokens. Read [The cache directory](#the-cache-directory) before you change it. |
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
-| `GITHUB_TOKEN` | none | Token of the app account: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub is read at most 60 times an hour and nothing is posted under the checker's own account. |
+| `GITHUB_TOKEN` | none | Token of the app account: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, which the PR command poll alone uses up while anyone has PR commands on, and nothing is posted under the checker's own account. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
@@ -226,7 +232,8 @@ heap with the peak of its old generation, and the process's resident memory with
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
 | `problems.json` | Recent warnings and errors for the status page. |
-| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json`, `users.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters, and who used the service and when (names only, no tokens). Without them the service starts slower and the list of users starts over. |
+| `users.json` | Who used the service and when, and when each last logged out: the session cookies they had before stay refused. Names only, no tokens. |
+| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
 | `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
 | `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |
@@ -277,7 +284,7 @@ One Spring Boot application; the packages under `com.github.igniteprchecker`:
 
 | Package | What it does |
 |---|---|
-| `tc` | The TeamCity REST client, always under the caller's token, and `RerunTracker`, which follows queued and running builds. |
+| `tc` | The TeamCity REST client, and `RerunTracker`, which follows queued and running builds. What a user does goes under their own token; background reads borrow other users' tokens and only read with them. |
 | `analysis` | The verdict: `ChainCollector` walks the RunAll chain, `BlockerAnalyzer` judges each failure, plus caveats, root causes, the flaky board, merged PRs' verdicts, and the warmer with its token pool. |
 | `jira` | Verdict texts (`VisaService`), the standing options that settle runs with re-runs, comments and visas (`StandingVisas`), and one-shot Auto visas. |
 | `github` | The GitHub client (PR list, comments, reactions, commits) and the PR command poll (`PrCommands`). |

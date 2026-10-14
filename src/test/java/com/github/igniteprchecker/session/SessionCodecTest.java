@@ -19,7 +19,10 @@ class SessionCodecTest {
 
         SessionCodec.Session session = new SessionCodec.Session("bob", "tc-token-xyz", "jira-pat", "gh-pat");
 
-        assertThat(codec.decode(codec.encode(session))).contains(session);
+        assertThat(codec.decode(codec.encode(session))).hasValueSatisfying(s -> {
+            assertThat(new SessionCodec.Session(s.username(), s.token(), s.jiraToken(), s.ghToken())).isEqualTo(session);
+            assertThat(s.issuedAt()).isPositive();
+        });
     }
 
     @Test

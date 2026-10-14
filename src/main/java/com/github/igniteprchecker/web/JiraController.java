@@ -10,7 +10,6 @@ import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
-import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -18,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -39,8 +37,6 @@ import org.springframework.web.client.RestClientResponseException;
 @RequestMapping("/api")
 public class JiraController {
     private static final Logger log = LoggerFactory.getLogger(JiraController.class);
-
-    private static final Duration COOKIE_MAX_AGE = Duration.ofDays(3650);
 
     private final JiraClient jira;
     private final TcClient tc;
@@ -79,7 +75,8 @@ public class JiraController {
     /** Validates the PAT against JIRA and re-issues the session cookie with it on board. */
     @PostMapping("/jira-token")
     public ResponseEntity<?> saveToken(@RequestBody TokenRequest req,
-        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session) {
+        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session,
+        @RequestAttribute(AuthInterceptor.CHECKED_AT_ATTR) long checkedAt) {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
@@ -93,11 +90,10 @@ public class JiraController {
         if (who.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "JIRA rejected the token"));
 
-        String cookie = codec.encode(session.withJiraToken(req.token().trim()));
+        String cookie = codec.encode(session.withJiraToken(req.token().trim()), checkedAt);
 
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, ResponseCookie.from(AuthInterceptor.COOKIE, cookie)
-                .httpOnly(true).secure(cookieSecure).sameSite("Lax").path("/").maxAge(COOKIE_MAX_AGE).build().toString())
+            .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())
             .body(Map.of("jiraUser", who.get()));
     }
 
@@ -184,7 +180,8 @@ public class JiraController {
     /** Validates a GitHub PAT and re-issues the session cookie with it on board. */
     @PostMapping("/github-token")
     public ResponseEntity<?> saveGithubToken(@RequestBody TokenRequest req,
-        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session) {
+        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session,
+        @RequestAttribute(AuthInterceptor.CHECKED_AT_ATTR) long checkedAt) {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
@@ -198,11 +195,10 @@ public class JiraController {
         if (who.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
 
-        String cookie = codec.encode(session.withGhToken(req.token().trim()));
+        String cookie = codec.encode(session.withGhToken(req.token().trim()), checkedAt);
 
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, ResponseCookie.from(AuthInterceptor.COOKIE, cookie)
-                .httpOnly(true).secure(cookieSecure).sameSite("Lax").path("/").maxAge(COOKIE_MAX_AGE).build().toString())
+            .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())
             .body(Map.of("githubUser", who.get()));
     }
 

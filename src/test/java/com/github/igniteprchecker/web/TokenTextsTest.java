@@ -1,0 +1,131 @@
+package com.github.igniteprchecker.web;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+
+/**
+ * The token audit of 14.10 found the texts about tokens wrong: a refused GitHub token "switched off the two options"
+ * where three went, the autofix used "the same GitHub token as the option above", PR commands, which needs none, the
+ * reasons to store the GitHub token left out adding tests to suites, "All off" said the stored tokens were removed
+ * while the cookie, the backups and an armed Auto visa kept them, a server without GITHUB_TOKEN was said to read
+ * GitHub 60 times an hour when the command poll alone takes those 60, the TeamCity client was said to call "always
+ * under the caller's token", and SESSION_SECRET was called the cookie's secret though it encrypts every stored token.
+ * Nor did anything advise an expiry for the JIRA and GitHub tokens.
+ */
+class TokenTextsTest {
+    private static final Path PAGE = Path.of("src/main/resources/static/index.html");
+
+    @Test
+    void aRefusedGithubTokenNamesTheThreeOptionsItTakes() throws IOException {
+        assertThat(collapsed(PAGE)).doesNotContain("the two options")
+            .contains("the options that need it (the PR comment, the checkstyle autofix, tests to suites) were "
+                + "switched off");
+        assertThat(collapsed(Path.of("src/main/java/com/github/igniteprchecker/jira/StandingVisas.java")))
+            .doesNotContain("The two options that need this token");
+    }
+
+    @Test
+    void theGithubOptionsSayWhoseTokenTheyUse() throws IOException {
+        assertThat(collapsed(PAGE)).doesNotContain("same GitHub token as the option")
+            .contains("Uses my GitHub token, as the PR comment does;")
+            .contains("Uses my GitHub token, as the PR comment and the autofix do.")
+            .contains("(for the PR comment, the checkstyle autofix or tests to suites)");
+        assertThat(collapsed(Path.of("docs/features.md"))).doesNotContain("the same GitHub token")
+            .contains("(for the PR comment, the autofix or tests to suites)");
+        assertThat(collapsed(Path.of("README.md")))
+            .contains("the user's GitHub token for PR comments, the checkstyle autofix and adding tests to suites");
+        assertThat(collapsed(Path.of("README.ru.md")))
+            .contains("его токен GitHub для комментариев в PR, автоисправления checkstyle и добавления тестов в сьюты");
+    }
+
+    @Test
+    void theTourSaysTheTeamCityTokenGoesWithAnyOption() throws IOException {
+        assertThat(collapsed(Path.of("docs/features.md"))).doesNotContain("Each stores the tokens it needs")
+            .contains("While any of them is on, the server stores your TeamCity token, encrypted");
+        assertThat(collapsed(Path.of("docs/features.ru.md")))
+            .contains("Пока включена хоть одна, сервер хранит твой токен TeamCity зашифрованным");
+    }
+
+    @Test
+    void allOffSaysWhatStillHoldsTheTokens() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            const SETTINGS = { visa: false, rerun: true, gh: false, style: false, commands: false, login: null,
+                jiraStored: false, ghStored: false, jiraTokenRejected: false, ghTokenRejected: false,
+                tcTokenRejected: false, suites: false };
+            page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { rerun: false }) }, 'POST');
+            await page.load('?pr=13575');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            page.el('autoRerunToggle').checked = false;
+            await page.el('autoRerunToggle').onchange();
+            await page.settle();
+            report({ msg: page.el('settingsMsg').textContent });
+            """);
+
+        assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options; "
+            + "an Auto visa you armed keeps your JIRA token until the visa is posted or you cancel it. Copies in the "
+            + "server's backups go as the backups rotate, and your session cookie keeps the tokens you pasted until "
+            + "you log out.");
+    }
+
+    @Test
+    void theStoredTokensAreSaidToStayInTheBackups() throws IOException {
+        assertThat(collapsed(Path.of("README.md"))).contains("Copies stay in the backups of the [cache directory]"
+            + "(#the-cache-directory) until they rotate out: a daily backup for 7 days, a copy made before an update "
+            + "until 5 newer ones replace it.");
+        assertThat(collapsed(Path.of("README.ru.md"))).contains("Копии остаются в бэкапах [каталога кэша]");
+    }
+
+    @Test
+    void noTokenIsNotSixtyReadsAnHour() throws IOException {
+        String poll = "which the PR command poll alone uses up while anyone has PR commands on";
+        assertThat(collapsed(Path.of("README.md"))).doesNotContain("read at most 60 times an hour").contains(poll);
+        assertThat(collapsed(Path.of("install.sh"))).doesNotContain("read at most 60 times").contains(poll);
+        assertThat(collapsed(Path.of("src/main/java/com/github/igniteprchecker/github/GithubClient.java")))
+            .doesNotContain("reads GitHub at 60 requests an hour").contains("which the PR command poll alone uses");
+        assertThat(collapsed(Path.of("README.ru.md"))).doesNotContain("читается не чаще 60 раз в час")
+            .contains("один опрос PR-команд съедает их все");
+    }
+
+    @Test
+    void backgroundReadsAreNotSaidToGoUnderTheCallersToken() throws IOException {
+        assertThat(collapsed(Path.of("README.md"))).doesNotContain("always under the caller's token")
+            .contains("background reads borrow other users' tokens and only read with them");
+        assertThat(collapsed(Path.of("README.ru.md"))).doesNotContain("всегда под токеном вызывающего");
+        assertThat(collapsed(Path.of("src/main/java/com/github/igniteprchecker/tc/TcClient.java")))
+            .contains("background reads (warming, run states, the standing options' lookups) borrow other users' "
+                + "tokens");
+    }
+
+    @Test
+    void theSessionSecretIsSaidToEncryptTheStoredTokens() throws IOException {
+        assertThat(collapsed(Path.of("src/main/resources/application.yml")))
+            .contains("encrypts the session cookies and every token the service stores");
+        assertThat(collapsed(Path.of("install.sh"))).doesNotContain("the session-cookie secret")
+            .contains("SESSION_SECRET, which encrypts the session cookies and every token the service stores");
+    }
+
+    @Test
+    void theTokenHintsAdviseAnExpiry() throws IOException {
+        String page = collapsed(PAGE);
+        assertThat(page).contains("Give it an expiry, say 90 days: when it expires, the options that use it switch "
+            + "off with a note here, and once you paste a new one and switch them back on, the verdict comments held "
+            + "back meanwhile go out")
+            .contains("It acts with all the rights of your JIRA account (ASF JIRA has no token scopes), so give it an "
+                + "expiry, say 90 days: when it expires, auto-visa switches off with a note here");
+        assertThat(collapsed(Path.of("README.md"))).contains("Give it and the GitHub token an expiry, say 90 days.");
+        assertThat(collapsed(Path.of("README.ru.md"))).contains("стоит задать срок, например 90 дней");
+    }
+
+    /** The file's text with its whitespace collapsed and the comment marks that start its lines dropped. */
+    private static String collapsed(Path file) throws IOException {
+        return Files.readString(file, UTF_8).replaceAll("(?m)^\\s*(#|\\*|//) ?", "").replaceAll("\\s+", " ");
+    }
+}

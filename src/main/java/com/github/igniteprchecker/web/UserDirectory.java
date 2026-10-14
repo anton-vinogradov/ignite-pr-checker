@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
+import com.github.igniteprchecker.session.SessionCodec;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,8 +17,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Who has been using the tool: usernames seen on authenticated requests, with first/last activity
- * and login counts. Persisted, so the answer to "who logged in?" survives restarts. No tokens here —
- * names only.
+ * and login counts, and when each last logged out. Persisted within a second, so the answer to "who
+ * logged in?" and a logout survive restarts: the session cookies a user had before a logout stay
+ * refused. No tokens here — names only.
  */
 @Component
 public class UserDirectory implements SnapshotCache {
@@ -40,10 +42,33 @@ public class UserDirectory implements SnapshotCache {
         i.logins.incrementAndGet();
     }
 
+    /** A logout: every session of the user issued until now ends, in any browser, copies of its cookie included. */
+    public void endSessions(String username) {
+        Info i = info(username);
+        synchronized (i) {
+            i.sessionsEndedAt = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * Whether the session was issued before its user last logged out. A logout this check does not see takes its time
+     * after the check, so a cookie issued from the session with a time taken before the check is ended by it.
+     */
+    public boolean ended(SessionCodec.Session session) {
+        Info i = users.get(session.username());
+        if (i == null)
+            return false;
+
+        synchronized (i) {
+            return i.sessionsEndedAt > 0 && session.issuedAt() <= i.sessionsEndedAt;
+        }
+    }
+
     /** Everyone ever seen, most recently active first. */
     public List<UserView> list() {
         List<UserView> out = new ArrayList<>();
-        users.forEach((name, i) -> out.add(new UserView(name, i.firstSeen, i.lastSeen, i.logins.get())));
+        users.forEach((name, i) -> out.add(new UserView(name, i.firstSeen, i.lastSeen, i.logins.get(),
+            i.sessionsEndedAt)));
         out.sort(Comparator.comparingLong(UserView::lastSeen).reversed());
 
         return out;
@@ -56,6 +81,11 @@ public class UserDirectory implements SnapshotCache {
     @Override
     public String fileName() {
         return "users.json";
+    }
+
+    @Override
+    public boolean durable() {
+        return true;
     }
 
     @Override
@@ -73,6 +103,7 @@ public class UserDirectory implements SnapshotCache {
             Info i = new Info(u.firstSeen());
             i.lastSeen = u.lastSeen();
             i.logins.set(u.logins());
+            i.sessionsEndedAt = u.sessionsEndedAt();
             users.put(u.name(), i);
         }
     }
@@ -81,13 +112,17 @@ public class UserDirectory implements SnapshotCache {
         final long firstSeen;
         volatile long lastSeen;
         final AtomicLong logins = new AtomicLong();
+        volatile long sessionsEndedAt;
 
         Info(long firstSeen) {
             this.firstSeen = firstSeen;
         }
     }
 
-    /** One user of the tool: identity and activity summary (no secrets). */
-    public record UserView(String name, long firstSeen, long lastSeen, long logins) {
+    /**
+     * One user of the tool: identity and activity summary (no secrets), and when they last logged out (0: never;
+     * absent from the files of earlier versions).
+     */
+    public record UserView(String name, long firstSeen, long lastSeen, long logins, long sessionsEndedAt) {
     }
 }

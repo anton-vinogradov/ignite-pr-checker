@@ -102,7 +102,7 @@ class ReleaseSnapshotsTest {
     @Test
     void whatTheServiceActsOnIsWrittenAtOnce() {
         assertThat(stateOfTheRelease().filter(SnapshotCache::durable).map(SnapshotCache::fileName))
-            .containsExactly("standing-visas.json", "pr-commands.json", "visa-subs.json", "reruns.json");
+            .containsExactly("standing-visas.json", "pr-commands.json", "visa-subs.json", "reruns.json", "users.json");
     }
 
     /**

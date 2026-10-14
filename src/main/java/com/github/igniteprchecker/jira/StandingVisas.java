@@ -15,6 +15,7 @@ import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.session.SessionCodec;
+import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
@@ -239,6 +240,9 @@ public class StandingVisas implements SnapshotCache {
         OptionChange change, String browserTz) {
         Enrollment prev = enrolled.get(username);
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
+        if (Boolean.TRUE.equals(change.style()) && !after.commands())
+            return Optional.of(new Refusal("commands",
+                "Auto-fix checkstyle runs only from a PR command: switch on PR commands first"));
         if (!after.any()) {
             disable(username);
 
@@ -297,7 +301,7 @@ public class StandingVisas implements SnapshotCache {
             }
         }
         else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style())
-            || Boolean.FALSE.equals(change.suites()))
+            || Boolean.FALSE.equals(change.suites()) || prev != null && prev.options().needsGh())
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || prev.ghLogin() == null))
@@ -382,8 +386,8 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, or the GitHub
-     * "login") and what is wrong. Null {@code need}: the service could not check the token, and nothing is
+     * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, the GitHub "login", or
+     * PR "commands" on) and what is wrong. Null {@code need}: the service could not check the token, and nothing is
      * wrong with it as far as anyone knows.
      */
     public record Refusal(String need, String error) {
@@ -453,7 +457,7 @@ public class StandingVisas implements SnapshotCache {
         if (username == null)
             return;
 
-        // The two options that need this token go off with it. Leaving them checked would promise
+        // The options that need this token go off with it. Leaving them checked would promise
         // work the checker can no longer do — the point of the switch is that it means something.
         boolean dropped = changed(username, e -> e.gh().token() == null ? e
             : e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh()));
@@ -676,8 +680,9 @@ public class StandingVisas implements SnapshotCache {
      * A login proven by a GitHub token belongs to its owner alone: a claim someone typed in by hand
      * (a typo, or someone else's login) would route the owner's commands to the claimant's account.
      * The claimant's PR commands go off with the login: the poll finds a commander by login, so left
-     * on they would promise what cannot happen. Like any last option switched off, it takes the
-     * enrollment with it when nothing else is on.
+     * on they would promise what cannot happen. The checkstyle autofix, which runs only from a command,
+     * goes with them, and so does the GitHub token when nothing left needs it. Like any last option
+     * switched off, it takes the enrollment with it when nothing else is on.
      */
     private void releaseLogin(String login, String owner) {
         enrolled.forEach((u, e) -> {
@@ -688,9 +693,13 @@ public class StandingVisas implements SnapshotCache {
                 if (!login.equalsIgnoreCase(cur.ghLogin()))
                     return cur;
 
-                Options left = cur.options().with(Option.COMMANDS, false);
+                Options left = cur.options().with(Option.COMMANDS, false).consistent();
+                if (!left.any())
+                    return null;
 
-                return left.any() ? cur.withGhLogin(null).withOptions(left) : null;
+                Enrollment released = cur.withGhLogin(null).withOptions(left);
+
+                return left.needsGh() ? released : released.withGh(new Credential(null, cur.gh().rejectedAt()));
             });
             log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account; PR commands of {} "
                 + "switched off", login, u, owner, owner, u);
@@ -1102,9 +1111,9 @@ public class StandingVisas implements SnapshotCache {
 
         TcModel.Build b;
         try {
-            b = asUser(who, () -> tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
-                "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
-                    + " is still running, settling it now rather than after the chain"));
+            b = asUser(who, () -> QueuedBelowTopException.queued(() -> tc.triggerBuildReplacingQueued(tcToken.get(),
+                ev.suite(), ev.pr(), true, "Early re-run by Ignite PR Checker: this suite failed while RunAll "
+                    + ev.chainBuildId() + " is still running, settling it now rather than after the chain")));
         }
         catch (RuntimeException ex) {
             // The wave counts only what was re-queued; the announcement a restart repeats may try this one again.
@@ -1123,7 +1132,7 @@ public class StandingVisas implements SnapshotCache {
 
             return new Retry(ev.pr(), id, 1, wave, List.of(wave), r != null ? r.note() : null, who, queued);
         });
-        log.info("early re-run of {} for PR {} queued at top (chain {} still running, build {})",
+        log.info("early re-run of {} for PR {} queued (chain {} still running, build {})",
             ev.suiteName(), ev.pr(), ev.chainBuildId(), b.id());
     }
 
@@ -1585,7 +1594,8 @@ public class StandingVisas implements SnapshotCache {
         RuntimeException failed = null;
         for (String suite : suites) {
             try {
-                TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken, suite, pr, top, tcComment);
+                TcModel.Build b = QueuedBelowTopException.queued(
+                    () -> tc.triggerBuildReplacingQueued(tcToken, suite, pr, top, tcComment));
                 rerunTracker.record(pr, b);
                 queued.add(b.id());
             }
@@ -2274,7 +2284,12 @@ public class StandingVisas implements SnapshotCache {
         Options apply(OptionChange c) {
             return with(Option.VISA, c.visa()).with(Option.RERUN, c.rerun()).with(Option.GH_COMMENT, c.gh())
                 .with(Option.STYLE_FIX, c.style()).with(Option.COMMANDS, c.commands())
-                .with(Option.SUITE_FIX, c.suites());
+                .with(Option.SUITE_FIX, c.suites()).consistent();
+        }
+
+        /** The checkstyle autofix runs only from a PR command: without PR commands it is off. */
+        Options consistent() {
+            return commands() ? this : with(Option.STYLE_FIX, false);
         }
 
         boolean autoVisa() {
@@ -2677,7 +2692,8 @@ public class StandingVisas implements SnapshotCache {
 
         /**
          * Missing fields are what the snapshots written before them meant: before the PR commands
-         * switch, a linked GitHub login was all commands needed.
+         * switch, a linked GitHub login was all commands needed. The checkstyle autofix saved on without PR
+         * commands, which it never ran without, is off, and the GitHub token goes when nothing else needs it.
          */
         Enrollment enrollment() {
             Handled h = Handled.empty();
@@ -2696,15 +2712,21 @@ public class StandingVisas implements SnapshotCache {
                     since.put(o, at);
             }
 
+            Options saved = Options.NONE.with(Option.VISA, autoVisa == null || autoVisa).with(Option.RERUN, autoRerun)
+                .with(Option.GH_COMMENT, ghComment != null && ghComment)
+                .with(Option.STYLE_FIX, styleFix != null && styleFix)
+                .with(Option.COMMANDS, commands == null ? ghLogin != null : commands)
+                .with(Option.SUITE_FIX, suiteFix != null && suiteFix);
+            Options options = saved.consistent();
+            boolean ghUnneeded = saved.needsGh() && !options.needsGh();
+            if (options != saved)
+                log.info("checkstyle autofix of {} is off: it runs only from a PR command, and PR commands are off{}",
+                    username, ghUnneeded ? "; the GitHub token, which nothing else needs, is dropped" : "");
+
             return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
-                new Credential(ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz, enabledAt,
-                Options.NONE.with(Option.VISA, autoVisa == null || autoVisa).with(Option.RERUN, autoRerun)
-                    .with(Option.GH_COMMENT, ghComment != null && ghComment)
-                    .with(Option.STYLE_FIX, styleFix != null && styleFix)
-                    .with(Option.COMMANDS, commands == null ? ghLogin != null : commands)
-                    .with(Option.SUITE_FIX, suiteFix != null && suiteFix), h,
-                Collections.unmodifiableMap(since));
+                new Credential(ghUnneeded ? null : ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), ghLogin, tz,
+                enabledAt, options, h, Collections.unmodifiableMap(since));
         }
     }
 }

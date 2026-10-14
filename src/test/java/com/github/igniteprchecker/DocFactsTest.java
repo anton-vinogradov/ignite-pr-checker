@@ -43,7 +43,7 @@ class DocFactsTest {
     @Test
     void theCacheDirectoryTableTellsStateFromCaches() throws IOException {
         Map<String, Boolean> durable = snapshotFiles();
-        assertThat(durable).containsEntry("standing-visas.json", true).containsEntry("users.json", false)
+        assertThat(durable).containsEntry("standing-visas.json", true).containsEntry("metrics.json", false)
             .hasSizeGreaterThanOrEqualTo(13);
 
         assertTable(README, "### The cache directory", "Caches:", durable);

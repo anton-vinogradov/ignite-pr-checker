@@ -60,13 +60,16 @@ class UncheckedTokenTest {
 
     private final SessionCodec.Session session = new SessionCodec.Session(USER, "tc", null, null);
 
+    private final long checkedAt = System.currentTimeMillis();
+
     @Test
     void aTokenGithubCouldNotCheckIsNotCalledRejected() {
         when(github.ghUser("gh-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
         when(github.ghUser("dead-pat")).thenReturn(Optional.empty());
 
-        assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"), session), 502, UNCHECKED_GH);
-        assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("dead-pat"), session), 401,
+        assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"), session, checkedAt), 502,
+            UNCHECKED_GH);
+        assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("dead-pat"), session, checkedAt), 401,
             "GitHub rejected the token");
         assertAnswer(controller.standingVisa(null, null, true, null, null, null, "tc", USER, null, "gh-pat"), 502,
             UNCHECKED_GH);
@@ -77,7 +80,7 @@ class UncheckedTokenTest {
     @Test
     void aStoredTokenServesWhileGithubCannotCheckANewOne() {
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
-        controller.standingVisa(null, null, true, null, null, null, "tc", USER, null, "gh-pat");
+        controller.standingVisa(null, null, true, null, true, null, "tc", USER, null, "gh-pat");
         when(github.ghUser("new-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
 
         ResponseEntity<?> res = controller.standingVisa(null, null, null, true, null, null, "tc", USER, null,
@@ -92,7 +95,8 @@ class UncheckedTokenTest {
     void aTokenJiraCouldNotCheckIsNotCalledRejected() {
         when(jira.myself("jira-pat")).thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY));
 
-        assertAnswer(controller.saveToken(new JiraController.TokenRequest("jira-pat"), session), 502, UNCHECKED_JIRA);
+        assertAnswer(controller.saveToken(new JiraController.TokenRequest("jira-pat"), session, checkedAt), 502,
+            UNCHECKED_JIRA);
         assertAnswer(controller.standingVisa(true, null, null, null, null, null, "tc", USER, "jira-pat", null), 502,
             UNCHECKED_JIRA);
         assertAnswer(controller.armAutoVisa(13654, "IGNITE-28890", USER, "jira-pat"), 502, UNCHECKED_JIRA);

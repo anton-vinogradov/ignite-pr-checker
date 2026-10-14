@@ -39,7 +39,7 @@ class TokenExpiryTest {
     private void enrolWithEverything() {
         when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
         when(jira.myself(anyString())).thenReturn(Optional.of(USER));
-        standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, true, null));
+        standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, true, true));
     }
 
     @Test
