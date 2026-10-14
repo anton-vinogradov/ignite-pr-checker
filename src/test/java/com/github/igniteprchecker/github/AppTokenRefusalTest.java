@@ -73,6 +73,8 @@ class AppTokenRefusalTest {
             .andRespond(withSuccess("{\"login\":\"ignite-pr-checker-bot\"}", MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
             .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> github.pullState(PR)).isInstanceOf(HttpClientErrorException.Unauthorized.class);
 
@@ -81,7 +83,8 @@ class AppTokenRefusalTest {
         github.pullState(PR);
 
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(github.appAccount())
-            .isEqualTo(new GithubClient.AppAccount("ok", "ignite-pr-checker-bot", false)));
+            .extracting(GithubClient.AppAccount::state, GithubClient.AppAccount::login,
+                GithubClient.AppAccount::canPush).containsExactly("ok", "ignite-pr-checker-bot", false));
     }
 
     /** A user's own token refused says nothing of the app's, and its calls are counted apart. */

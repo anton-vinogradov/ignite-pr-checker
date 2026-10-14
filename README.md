@@ -78,7 +78,10 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   replies to commands of users who have not switched PR commands on, reactions, hints, the run story of users without
   their own GitHub token, and the mention that tells such a user their verdict is ready. Use a separate account with no
   rights in `apache/*` and a classic token with the `public_repo` scope: a leaked token then cannot push to Apache
-  Ignite. The status page shows whose token it is, and warns signed-in viewers if that account can push to the repo.
+  Ignite. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
+  what it found: whose token it is, whether it can write to the repo (a fine-grained token cannot, nor a classic one
+  without `public_repo`), when it expires (a warning 14 days ahead), and whether the account can push to the repo or to
+  the checker's own, where its releases come from. What GitHub does not say shows as unknown.
 
 There is no shared JIRA account: visas go out under the JIRA token of the user they are for.
 

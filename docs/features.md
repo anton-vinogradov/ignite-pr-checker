@@ -364,9 +364,13 @@ link your GitHub login; a GitHub token of your own is optional.
   turns away as the caller's mistake are listed greyed out and never colour it.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
-- Signed-in viewers also see a warning if that account can push to the repo, the log messages, the settings in effect,
-  and who restarted or flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not
-  set) also get **Restart service**, **Flush caches** and the list on the **Users** tab.
+- The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
+  classic one without `public_repo`) turns the dot red; one that expires within 14 days, scopes beyond `public_repo`,
+  and an account that can push to the repo or to the checker's own, where its releases come from, turn it amber. What
+  GitHub does not say is shown as unknown, not as fine.
+- Signed-in viewers also see what the check found, the log messages, the settings in effect, and who restarted or
+  flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get
+  **Restart service**, **Flush caches** and the list on the **Users** tab.
 
 ## Everything else
 

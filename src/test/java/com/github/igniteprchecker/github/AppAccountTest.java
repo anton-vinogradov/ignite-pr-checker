@@ -9,7 +9,11 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.metrics.Metrics;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -30,15 +34,20 @@ class AppAccountTest {
     @Test
     void theAccountTheCheckerWritesAsIsNamed() {
         server.expect(requestTo("https://api.github.com/user")).andExpect(header("Authorization", "Bearer app-token"))
-            .andRespond(withSuccess("{\"login\":\"ignite-pr-checker-bot\"}", MediaType.APPLICATION_JSON));
+            .andRespond(withSuccess("{\"login\":\"ignite-pr-checker-bot\",\"id\":234567}",
+                MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
             .andRespond(withSuccess("{\"permissions\":{\"admin\":false,\"push\":false,\"pull\":true}}",
                 MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
         GithubClient github = client("app-token");
 
         github.checkAppAccount();
 
-        assertThat(github.appAccount()).isEqualTo(new GithubClient.AppAccount("ok", "ignite-pr-checker-bot", false));
+        assertThat(github.appAccount()).extracting(GithubClient.AppAccount::state, GithubClient.AppAccount::login,
+            GithubClient.AppAccount::canPush, GithubClient.AppAccount::id)
+            .containsExactly("ok", "ignite-pr-checker-bot", false, 234567L);
     }
 
     @Test
@@ -47,11 +56,38 @@ class AppAccountTest {
             .andRespond(withSuccess("{\"login\":\"anton-vinogradov\"}", MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
             .andRespond(withSuccess("{\"permissions\":{\"push\":true}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":true}}", MediaType.APPLICATION_JSON));
         GithubClient github = client("app-token");
 
         github.checkAppAccount();
 
         assertThat(github.appAccount().canPush()).isTrue();
+    }
+
+    /** GitHub tells of the token in the headers of its answer: its scopes and, for one that expires, when. */
+    @Test
+    void theTokensScopesAndExpiryAreReadOffGithubsAnswer() {
+        String expires = LocalDateTime.now(ZoneOffset.UTC).plusDays(3).plusHours(1)
+            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " UTC";
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("X-OAuth-Scopes", "public_repo, workflow");
+        headers.add("github-authentication-token-expiration", expires);
+        server.expect(requestTo("https://api.github.com/user"))
+            .andRespond(withSuccess("{\"login\":\"ignite-pr-checker\",\"id\":234567}", MediaType.APPLICATION_JSON)
+                .headers(headers));
+        server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"name\":\"ignite-pr-checker\"}", MediaType.APPLICATION_JSON));
+        GithubClient github = client("ghp_app");
+
+        github.checkAppAccount();
+
+        assertThat(github.appAccount().checks()).extracting(GithubClient.AppAccount.Check::level)
+            .containsExactly("warn", "warn", "ok", "unknown");
+        assertThat(github.appAccount().checks().get(1).text()).startsWith("GITHUB_TOKEN expires on "
+            + expires.substring(0, 10) + ", in 3 days");
     }
 
     @Test
