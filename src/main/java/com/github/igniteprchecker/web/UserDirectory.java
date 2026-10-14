@@ -44,14 +44,24 @@ public class UserDirectory implements SnapshotCache {
 
     /** A logout: every session of the user issued until now ends, in any browser, copies of its cookie included. */
     public void endSessions(String username) {
-        info(username).sessionsEndedAt = System.currentTimeMillis();
+        Info i = info(username);
+        synchronized (i) {
+            i.sessionsEndedAt = System.currentTimeMillis();
+        }
     }
 
-    /** Whether the session was issued before its user last logged out. */
+    /**
+     * Whether the session was issued before its user last logged out. A logout this check does not see takes its time
+     * after the check, so a cookie issued from the session with a time taken before the check is ended by it.
+     */
     public boolean ended(SessionCodec.Session session) {
         Info i = users.get(session.username());
+        if (i == null)
+            return false;
 
-        return i != null && i.sessionsEndedAt > 0 && session.issuedAt() <= i.sessionsEndedAt;
+        synchronized (i) {
+            return i.sessionsEndedAt > 0 && session.issuedAt() <= i.sessionsEndedAt;
+        }
     }
 
     /** Everyone ever seen, most recently active first. */

@@ -34,6 +34,12 @@ public class AuthInterceptor implements HandlerInterceptor {
     /** The whole session: what a re-issued cookie starts from, so the fields it does not change stay. */
     public static final String SESSION_ATTR = "session";
 
+    /**
+     * When the guard found the session live (epoch ms): a cookie re-issued from it says it was issued then, so a logout
+     * while the request waits on JIRA or GitHub ends that cookie too.
+     */
+    public static final String CHECKED_AT_ATTR = "sessionCheckedAt";
+
     static final String REVOKED = "TeamCity rejected your token — log in again";
 
     static final String ENDED = "You logged out of the checker, here or in another browser — log in again";
@@ -66,14 +72,16 @@ public class AuthInterceptor implements HandlerInterceptor {
 
             return false;
         }
+        long checkedAt = System.currentTimeMillis();
         if (users.ended(session.get())) {
             refuse(resp, "{\"error\":\"" + ENDED + "\",\"sessionEnded\":true}");
 
             return false;
         }
 
-        renewIfDue(session.get(), resp);
+        renewIfDue(session.get(), checkedAt, resp);
         req.setAttribute(SESSION_ATTR, session.get());
+        req.setAttribute(CHECKED_AT_ATTR, checkedAt);
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
         if (session.get().jiraToken() != null)
@@ -93,10 +101,10 @@ public class AuthInterceptor implements HandlerInterceptor {
     }
 
     /** Issues the session's cookie again when it is old enough; see {@link SessionCookies}. */
-    private void renewIfDue(SessionCodec.Session session, HttpServletResponse resp) {
-        if (SessionCookies.due(session, System.currentTimeMillis())) {
+    private void renewIfDue(SessionCodec.Session session, long checkedAt, HttpServletResponse resp) {
+        if (SessionCookies.due(session, checkedAt)) {
             resp.addHeader(HttpHeaders.SET_COOKIE,
-                SessionCookies.issued(codec.encode(session), cookieSecure).toString());
+                SessionCookies.issued(codec.encode(session, checkedAt), cookieSecure).toString());
         }
     }
 

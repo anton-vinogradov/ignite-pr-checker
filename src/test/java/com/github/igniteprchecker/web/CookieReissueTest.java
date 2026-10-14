@@ -56,7 +56,7 @@ class CookieReissueTest {
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
 
         SessionCodec.Session after = session(controller.saveToken(new JiraController.TokenRequest("jira-pat"),
-            new SessionCodec.Session(USER, "tc", null, "gh-pat")));
+            new SessionCodec.Session(USER, "tc", null, "gh-pat"), System.currentTimeMillis()));
 
         assertThat(after).isEqualTo(new SessionCodec.Session(USER, "tc", "jira-pat", "gh-pat"));
         assertThat(switchCommentOn(after).getStatusCode().value()).isEqualTo(200);
@@ -68,7 +68,7 @@ class CookieReissueTest {
         when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
 
         SessionCodec.Session after = session(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"),
-            new SessionCodec.Session(USER, "tc", "jira-pat", null)));
+            new SessionCodec.Session(USER, "tc", "jira-pat", null), System.currentTimeMillis()));
 
         assertThat(after).isEqualTo(new SessionCodec.Session(USER, "tc", "jira-pat", "gh-pat"));
     }
@@ -88,6 +88,25 @@ class CookieReissueTest {
 
         assertThat(same).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", "jira-pat", "gh-pat"));
         assertThat(other).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null, null));
+    }
+
+    /**
+     * alice logged out in one browser. The other browser still held the cookie of the ended session, with her JIRA and
+     * GitHub tokens, and a login there must not take them into the new session.
+     */
+    @Test
+    void aLoginAfterALogoutTakesNoPatsOfTheEndedCookie() {
+        when(tc.currentUsername("fresh-tc")).thenReturn(Optional.of(USER));
+        UserDirectory users = new UserDirectory(mapper);
+        LoginController login = new LoginController(tc, codec, new SessionProperties(false, "test-secret"),
+            mock(Warmer.class), users, new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper),
+            standing);
+        MockHttpServletRequest other = carrying(new SessionCodec.Session(USER, "old-tc", "jira-pat", "gh-pat"));
+
+        login.logout(true, codec.encode(new SessionCodec.Session(USER, "old-tc", null, null)));
+        SessionCodec.Session after = session(login.login(new LoginController.LoginRequest("fresh-tc"), other));
+
+        assertThat(after).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null, null));
     }
 
     /** What ⚙ does next: switches the PR comment on, through the session guard, with the tokens the cookie carries. */

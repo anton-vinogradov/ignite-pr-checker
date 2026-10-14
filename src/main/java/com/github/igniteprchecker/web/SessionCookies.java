@@ -7,14 +7,15 @@ import org.springframework.http.ResponseCookie;
 /**
  * The session cookie as the browser gets it. Chrome keeps a cookie at most 400 days from the response that set it,
  * whatever it asks for, so every browser is asked for that, and a request with a cookie older than
- * {@link #RENEW_AFTER} gets it again: a login in use does not end on its own.
+ * {@link #RENEW_AFTER} gets it again: a login in use does not end on its own, and one left unused ends 400 days
+ * after its last use, give or take a day.
  */
 final class SessionCookies {
     /** The longest Chrome keeps a cookie. */
     static final Duration MAX_AGE = Duration.ofDays(400);
 
     /** How old a cookie gets before a request renews it; most requests set no cookie. */
-    static final Duration RENEW_AFTER = Duration.ofDays(30);
+    static final Duration RENEW_AFTER = Duration.ofDays(1);
 
     private SessionCookies() {
     }

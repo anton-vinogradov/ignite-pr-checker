@@ -99,6 +99,36 @@ class AutofixNeedsCommandsTest {
         assertThat(standing.settings(USER).ghStored()).isTrue();
     }
 
+    /** Auto re-run keeps the options on, yet nothing left needs the GitHub token. */
+    @Test
+    void prCommandsOffDropTheAutofixTokenWhileAutoRerunStaysOn() {
+        controller.standingVisa(null, true, null, true, true, null, "tc", USER, null, "gh-pat");
+
+        post(null, null, false, null);
+
+        assertThat(standing.settings(USER).rerun()).isTrue();
+        assertThat(standing.settings(USER).style()).isFalse();
+        assertThat(standing.settings(USER).ghStored()).isFalse();
+    }
+
+    /**
+     * Another checker user proved the same GitHub account with a token: the claimant's PR commands went off with the
+     * login, and the autofix stayed on with its token, though it runs only from a command.
+     */
+    @Test
+    void aLoginProvenByAnotherTakesTheAutofixAndItsTokenAlong() {
+        controller.standingVisa(null, true, null, true, true, null, "tc", "claimant", null, "claimant-pat");
+
+        post(true, null, null, "gh-pat");
+
+        assertThat(standing.settings("claimant").login()).isNull();
+        assertThat(standing.settings("claimant").commands()).isFalse();
+        assertThat(standing.settings("claimant").style()).isFalse();
+        assertThat(standing.settings("claimant").ghStored()).isFalse();
+        assertThat(standing.settings("claimant").rerun()).isTrue();
+        assertThat(standing.settings(USER).login()).isEqualTo("anton-vinogradov");
+    }
+
     /** A snapshot of the version that let the autofix stay on without PR commands. */
     @Test
     void anOlderSnapshotWithTheAutofixAloneLoadsWithItOff(@TempDir Path dir) throws Exception {

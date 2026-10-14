@@ -101,19 +101,21 @@ public class LoginController {
         }
 
         users.touchLogin(username.get());
+        long issuedAt = System.currentTimeMillis();
         SessionCodec.Session session = sessionOf(username.get(), token, http);
         warmer.offerVerifiedToken(token); // TeamCity just accepted it
         standing.tcTokenAccepted(username.get(), token);
 
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(session)).toString())
+            .header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(session, issuedAt)).toString())
             .body(new UserResponse(username.get(), session.jiraToken() != null, session.ghToken() != null,
                 admin.mayAdminister(username.get())));
     }
 
     /**
      * The session a login starts: a new TeamCity token replaces the one the browser's cookie carries for the same
-     * user, and the JIRA and GitHub tokens in it stay. Another user's cookie, or one a logout ended, gives nothing.
+     * user, and the JIRA and GitHub tokens in it stay. Another user's cookie, or one a logout ended, gives nothing. The
+     * new cookie says it was issued before this check, so a logout the check misses ends it too.
      */
     private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
         return AuthInterceptor.cookie(http).flatMap(codec::decode)
@@ -140,13 +142,16 @@ public class LoginController {
     /**
      * Logs out: this browser's cookie goes, and with {@code everywhere}, as the Log out button asks, every session of
      * the user issued until now ends, copies of this cookie included. The page asks for this browser only when
-     * TeamCity has refused the session's token: that ends no other session, which may run on another token.
+     * TeamCity has refused the session's token: that ends no other session, which may run on another token. A cookie
+     * the guard would refuse ends nothing, or a copy a logout already ended could end each later login of its user.
      */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@RequestParam(defaultValue = "true") boolean everywhere,
         @CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
-        if (everywhere)
-            codec.decode(cookie).ifPresent(s -> users.endSessions(s.username()));
+        if (everywhere) {
+            codec.decode(cookie).filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s))
+                .ifPresent(s -> users.endSessions(s.username()));
+        }
 
         return ResponseEntity.noContent()
             .header(HttpHeaders.SET_COOKIE, SessionCookies.cleared(props.cookieSecure()).toString())
@@ -162,13 +167,14 @@ public class LoginController {
         SessionCodec.Session s = session.get();
         if (warmer.tokenRevoked(s.token()))
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED, "tokenRejected", true));
+        long checkedAt = System.currentTimeMillis();
         if (users.ended(s))
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.ENDED, "sessionEnded", true));
 
         warmer.offerToken(s.token());
         ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
-        if (SessionCookies.due(s, System.currentTimeMillis()))
-            ok.header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(s)).toString());
+        if (SessionCookies.due(s, checkedAt))
+            ok.header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(s, checkedAt)).toString());
 
         return ok.body(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null,
             admin.mayAdminister(s.username())));

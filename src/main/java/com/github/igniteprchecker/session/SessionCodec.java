@@ -51,9 +51,18 @@ public class SessionCodec {
      * encoded from the session it replaces, with that field changed, so the others stay.
      */
     public String encode(Session session) {
+        return encode(session, System.currentTimeMillis());
+    }
+
+    /**
+     * @return the cookie value carrying the encrypted session, issued at {@code issuedAt}. A cookie re-issued from a
+     * session the guard let through says it was issued when the guard checked it: a logout after that check ends the
+     * new cookie too, however long the answer took.
+     */
+    public String encode(Session session, long issuedAt) {
         try {
             byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(),
-                session.jiraToken(), session.ghToken(), System.currentTimeMillis()));
+                session.jiraToken(), session.ghToken(), issuedAt));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);

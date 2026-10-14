@@ -13,10 +13,10 @@ import org.junit.jupiter.api.Test;
  * The token audit of 14.10 found the texts about tokens wrong: a refused GitHub token "switched off the two options"
  * where three went, the autofix used "the same GitHub token as the option above", PR commands, which needs none, the
  * reasons to store the GitHub token left out adding tests to suites, "All off" said the stored tokens were removed
- * while the cookie and the backups kept them, a server without GITHUB_TOKEN was said to read GitHub 60 times an hour
- * when the command poll alone takes those 60, the TeamCity client was said to call "always under the caller's token",
- * and SESSION_SECRET was called the cookie's secret though it encrypts every stored token. Nor did anything advise an
- * expiry for the JIRA and GitHub tokens.
+ * while the cookie, the backups and an armed Auto visa kept them, a server without GITHUB_TOKEN was said to read
+ * GitHub 60 times an hour when the command poll alone takes those 60, the TeamCity client was said to call "always
+ * under the caller's token", and SESSION_SECRET was called the cookie's secret though it encrypts every stored token.
+ * Nor did anything advise an expiry for the JIRA and GitHub tokens.
  */
 class TokenTextsTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
@@ -69,9 +69,10 @@ class TokenTextsTest {
             report({ msg: page.el('settingsMsg').textContent });
             """);
 
-        assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer stores your tokens; copies in "
-            + "its backups go as the backups rotate, and your session cookie keeps the ones you pasted until you log "
-            + "out.");
+        assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options; "
+            + "an Auto visa you armed keeps your JIRA token until the visa is posted or you cancel it. Copies in the "
+            + "server's backups go as the backups rotate, and your session cookie keeps the tokens you pasted until "
+            + "you log out.");
     }
 
     @Test

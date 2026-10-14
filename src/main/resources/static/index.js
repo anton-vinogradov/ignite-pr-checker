@@ -2331,9 +2331,11 @@ async function askForToken(need, option) {
     }
 }
 
-// What the server drops when every option goes off, and what it does not: its backups and this browser's cookie.
-const ALL_OFF = 'All off — the server no longer stores your tokens; copies in its backups go as the backups rotate, '
-    + 'and your session cookie keeps the ones you pasted until you log out.';
+// What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,
+// the server's backups and this browser's cookie.
+const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
+    + 'token until the visa is posted or you cancel it. Copies in the server\'s backups go as the backups rotate, '
+    + 'and your session cookie keeps the tokens you pasted until you log out.';
 
 // The checkstyle autofix runs only from a PR command, so it goes on only with PR commands and off with them.
 const AUTOFIX_NEEDS_COMMANDS = 'Auto-fix checkstyle runs only from a PR command: switch on PR commands first.';

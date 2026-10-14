@@ -75,7 +75,8 @@ public class JiraController {
     /** Validates the PAT against JIRA and re-issues the session cookie with it on board. */
     @PostMapping("/jira-token")
     public ResponseEntity<?> saveToken(@RequestBody TokenRequest req,
-        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session) {
+        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session,
+        @RequestAttribute(AuthInterceptor.CHECKED_AT_ATTR) long checkedAt) {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
@@ -89,7 +90,7 @@ public class JiraController {
         if (who.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "JIRA rejected the token"));
 
-        String cookie = codec.encode(session.withJiraToken(req.token().trim()));
+        String cookie = codec.encode(session.withJiraToken(req.token().trim()), checkedAt);
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())
@@ -179,7 +180,8 @@ public class JiraController {
     /** Validates a GitHub PAT and re-issues the session cookie with it on board. */
     @PostMapping("/github-token")
     public ResponseEntity<?> saveGithubToken(@RequestBody TokenRequest req,
-        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session) {
+        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session,
+        @RequestAttribute(AuthInterceptor.CHECKED_AT_ATTR) long checkedAt) {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
@@ -193,7 +195,7 @@ public class JiraController {
         if (who.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
 
-        String cookie = codec.encode(session.withGhToken(req.token().trim()));
+        String cookie = codec.encode(session.withGhToken(req.token().trim()), checkedAt);
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())

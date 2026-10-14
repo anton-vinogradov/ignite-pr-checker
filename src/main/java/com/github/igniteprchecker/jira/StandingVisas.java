@@ -680,8 +680,9 @@ public class StandingVisas implements SnapshotCache {
      * A login proven by a GitHub token belongs to its owner alone: a claim someone typed in by hand
      * (a typo, or someone else's login) would route the owner's commands to the claimant's account.
      * The claimant's PR commands go off with the login: the poll finds a commander by login, so left
-     * on they would promise what cannot happen. Like any last option switched off, it takes the
-     * enrollment with it when nothing else is on.
+     * on they would promise what cannot happen. The checkstyle autofix, which runs only from a command,
+     * goes with them, and so does the GitHub token when nothing left needs it. Like any last option
+     * switched off, it takes the enrollment with it when nothing else is on.
      */
     private void releaseLogin(String login, String owner) {
         enrolled.forEach((u, e) -> {
@@ -693,8 +694,12 @@ public class StandingVisas implements SnapshotCache {
                     return cur;
 
                 Options left = cur.options().with(Option.COMMANDS, false).consistent();
+                if (!left.any())
+                    return null;
 
-                return left.any() ? cur.withGhLogin(null).withOptions(left) : null;
+                Enrollment released = cur.withGhLogin(null).withOptions(left);
+
+                return left.needsGh() ? released : released.withGh(new Credential(null, cur.gh().rejectedAt()));
             });
             log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account; PR commands of {} "
                 + "switched off", login, u, owner, owner, u);
