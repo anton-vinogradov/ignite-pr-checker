@@ -374,6 +374,31 @@ public class GithubClient implements SnapshotCache {
     private record CheckRuns(@JsonProperty("check_runs") java.util.List<CheckRun> checkRuns) {
     }
 
+    /**
+     * The check suites GitHub shows for a commit, up to 100. Each workflow run of GitHub Actions is one, and so is a
+     * run that waits for a maintainer to approve it: that one has no check yet.
+     */
+    public java.util.List<CheckSuite> checkSuites(String sha) {
+        CheckSuites suites = recorded("checkSuites", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/commits/" + sha + "/check-suites?per_page=100")
+            .body(CheckSuites.class));
+
+        return suites == null || suites.checkSuites() == null ? java.util.List.of() : suites.checkSuites();
+    }
+
+    /** A check suite of a commit: the app it belongs to, GitHub's {@code status} and {@code conclusion}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CheckSuite(long id, String status, String conclusion, App app) {
+        /** The app by its slug: "github-actions" for workflow runs. */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record App(String slug) {
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record CheckSuites(@JsonProperty("check_suites") java.util.List<CheckSuite> checkSuites) {
+    }
+
     /** A GitHub Actions job: how far it got, and its steps in order. */
     public Job job(long jobId) {
         Job job = recorded("job", () -> appGet(props.apiUrl() + "/repos/" + props.repo() + "/actions/jobs/" + jobId)

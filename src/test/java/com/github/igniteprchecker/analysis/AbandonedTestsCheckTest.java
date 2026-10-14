@@ -152,6 +152,38 @@ class AbandonedTestsCheckTest {
         assertThat(outcome.settled()).isFalse();
     }
 
+    /**
+     * Vladsz83 is outside the project, so the run of Ignite's workflow on his push waits for a maintainer to approve
+     * it: GitHub shows its check suite concluded "action_required" and no job, and the check said his PR conflicts
+     * with master. The approval may come any minute, so the check is asked again.
+     */
+    @Test
+    void aRunWaitingForApprovalIsNamedSo() {
+        when(github.checkRuns(SHA)).thenReturn(List.of(new GithubClient.CheckRun(1, "Rolling Upgrade check",
+            "completed", "success", null)));
+        when(github.checkSuites(SHA)).thenReturn(List.of(
+            new GithubClient.CheckSuite(104534382800L, "completed", "success",
+                new GithubClient.CheckSuite.App("github-actions")),
+            new GithubClient.CheckSuite(104534382801L, "completed", "action_required",
+                new GithubClient.CheckSuite.App("github-actions"))));
+
+        AbandonedTestsCheck.Outcome outcome = check.of(SHA);
+
+        assertThat(outcome.state()).isEqualTo(State.UNKNOWN);
+        assertThat(outcome.reason()).isEqualTo("it waits for a maintainer to approve its workflow run");
+        assertThat(outcome.settled()).isFalse();
+    }
+
+    /** Another app's suite waiting for an action says nothing of Ignite's workflow. */
+    @Test
+    void anotherAppsSuiteWaitingForActionIsNoApproval() {
+        when(github.checkSuites(SHA)).thenReturn(List.of(new GithubClient.CheckSuite(5, "completed",
+            "action_required", new GithubClient.CheckSuite.App("some-ci"))));
+
+        assertThat(check.of(SHA).reason()).isEqualTo("GitHub shows no Check java code job for it (Ignite's workflow "
+            + "does not run on a PR that conflicts with master)");
+    }
+
     /** GitHub gives a job's log only to a signed-in caller; without the app token the classes can't be named. */
     @Test
     void withoutATokenTheLogIsNotRead() {
