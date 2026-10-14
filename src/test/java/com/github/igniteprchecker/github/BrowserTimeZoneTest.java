@@ -66,10 +66,43 @@ class BrowserTimeZoneTest {
 
     @Test
     void aRunAllRunsWhileJiraIsDownAndItsStoryIsInTheBrowsersTimeZone() {
+        visaOn("Europe/Moscow");
+
+        assertThat(runAllWhileJiraIsDown()).containsPattern("expected to finish \\*\\*≈ \\d\\d:\\d\\d MSK\\*\\*");
+    }
+
+    /** As standing-visas.json of the release before has it: an auto visa with a JIRA token, and no zone yet. */
+    @Test
+    void aRunAllOfAUserWithNoZoneRunsWhileJiraIsDownAndItsStoryIsInUtc() {
+        visaOn(null);
+
+        assertThat(runAllWhileJiraIsDown()).containsPattern("expected to finish \\*\\*≈ \\d\\d:\\d\\d UTC\\*\\*");
+    }
+
+    @Test
+    void aZoneThatIsNoneIsIgnoredAndOneSentLaterReplacesIt() {
+        standing.linkGhLogin("author", "tc", "Author", " Europe/Moscow ");
+
+        standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null),
+            "Mars/Olympus_Mons");
+
+        assertThat(standing.actor("author")).hasValueSatisfying(a -> assertThat(a.tz()).isEqualTo("Europe/Moscow"));
+
+        standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, false, null, null, null),
+            "Asia/Novosibirsk");
+
+        assertThat(standing.actor("author")).hasValueSatisfying(a -> assertThat(a.tz()).isEqualTo("Asia/Novosibirsk"));
+    }
+
+    private void visaOn(String browserTz) {
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
         standing.linkGhLogin("author", "tc", "Author");
         standing.change("author", "tc", "jira-pat", null, new StandingVisas.OptionChange(true, null, null, null, null),
-            "Europe/Moscow");
+            browserTz);
+    }
+
+    /** The story of the author's /run-all, polled and timed while every JIRA call fails. */
+    private String runAllWhileJiraIsDown() {
         jiraDown.set(true);
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
@@ -92,21 +125,7 @@ class BrowserTimeZoneTest {
         verify(tc).triggerRunAll("tc", PR, false);
         ArgumentCaptor<String> story = ArgumentCaptor.forClass(String.class);
         verify(github).updatePrCommentAsApp(eq(77L), story.capture());
-        assertThat(story.getValue()).containsPattern("expected to finish \\*\\*≈ \\d\\d:\\d\\d MSK\\*\\*");
-    }
 
-    @Test
-    void aZoneThatIsNoneIsIgnoredAndOneSentLaterReplacesIt() {
-        standing.linkGhLogin("author", "tc", "Author", " Europe/Moscow ");
-
-        standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null),
-            "Mars/Olympus_Mons");
-
-        assertThat(standing.actor("author")).hasValueSatisfying(a -> assertThat(a.tz()).isEqualTo("Europe/Moscow"));
-
-        standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, false, null, null, null),
-            "Asia/Novosibirsk");
-
-        assertThat(standing.actor("author")).hasValueSatisfying(a -> assertThat(a.tz()).isEqualTo("Asia/Novosibirsk"));
+        return story.getValue();
     }
 }

@@ -27,6 +27,39 @@ class TokenRefusalPageTest {
             + " was dropped with it. Click to arm it again; a new token is asked for if needed.");
     }
 
+    /** JIRA rejected the token of a manual JIRA visa: the panel opened for a new one, and did not say why. */
+    @Test
+    void aVisaWhoseTokenJiraRejectedSaysSo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/me', { body: { username: 'alice', jira: true, github: false } });
+            page.route('/api/jira-visa', { status: 412, body: { error: 'JIRA rejected your token — paste a new one' } },
+                'POST');
+            await page.load('?pr=13575');
+            page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
+            await page.run('postVisa')();
+            report({ msg: page.el('jiraMsg').textContent, open: !page.el('jiraPanel').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("open").asBoolean()).isTrue();
+        assertThat(out.get("msg").asText()).isEqualTo("JIRA rejected your token — paste a new one");
+    }
+
+    @Test
+    void anAutoVisaWhoseTokenJiraRejectedSaysSo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/me', { body: { username: 'alice', jira: true, github: false } });
+            page.route('/api/auto-visa?pr=13575&issue', { status: 412,
+                body: { error: 'JIRA rejected the stored token — re-enter it' } }, 'POST');
+            await page.load('?pr=13575');
+            page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
+            await page.run('armAutoVisa')();
+            report({ msg: page.el('jiraMsg').textContent, open: !page.el('jiraPanel').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("open").asBoolean()).isTrue();
+        assertThat(out.get("msg").asText()).isEqualTo("JIRA rejected the stored token — re-enter it");
+    }
+
     @Test
     void linkingTheLoginSendsTheBrowsersTimeZone() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """

@@ -826,6 +826,8 @@ public class StandingVisas implements SnapshotCache {
      * (the living visa of the build, interim or final), the sweep is still to post it, or neither. A PR
      * the sweep no longer lists keeps its posted visa: the visa went to the ticket of the PR's title. A run
      * a newer RunAll of the PR replaces, or holds back while it goes, gets no standing visa (see {@link #runEnd}).
+     * A visa held back, JIRA having failed it, is still to be posted while its owner's option and token stand, the PR
+     * listed or not: a later sweep posts it.
      */
     public VisaCover visaCover(String username, int pr, long buildId, String issue) {
         Enrollment e = username == null ? null : enrolled.get(username);
@@ -838,14 +840,39 @@ public class StandingVisas implements SnapshotCache {
             return VisaCover.POSTED;
 
         boolean settled = Long.valueOf(buildId).equals(e.handled().posted().get(pr));
-        boolean comes = !settled && runEnd(pr, buildId).isEmpty();
+        Owed owed = e.handled().owed().get(pr);
+        boolean comes = settled ? owed != null && owed.buildId() == buildId && owed.visaDeliverableBy(e)
+            : visaTicket(username, pr).isPresent();
 
-        return comes && visaTicket(username, pr).isPresent() ? VisaCover.PENDING : VisaCover.NONE;
+        return comes && runEnd(pr, buildId).isEmpty() ? VisaCover.PENDING : VisaCover.NONE;
     }
 
     /** See {@link #visaCover}. */
     public enum VisaCover {
         POSTED, PENDING, NONE
+    }
+
+    /**
+     * A one-shot Auto visa put the verdict of the PR's run {@code buildId} in {@code issue}. A standing visa of that
+     * run held back for the same ticket would be a copy of it now, so it no longer goes out.
+     */
+    public void visaServed(int pr, long buildId, String issue) {
+        synchronized (settleLock) {
+            Optional<String> ticket = titleTicket(pr);
+            if (ticket.isPresent() && !ticket.get().equals(issue))
+                return;
+
+            enrolled.forEach((user, e) -> e.handled().owed().computeIfPresent(pr, (k, owed) -> {
+                if (owed.buildId() != buildId || !owed.visa())
+                    return owed;
+
+                log.info("PR {}: the held-back visa of RunAll {} for {} no longer goes out: a one-shot Auto visa put "
+                    + "it in {}", pr, buildId, user, issue);
+                Owed left = owed.after(true, false);
+
+                return left.comment() ? left : null;
+            }));
+        }
     }
 
     /**
@@ -1859,12 +1886,27 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** Forgets what the verdict of the user's run of the PR before {@code latest} still owed them, and says why. */
+    /**
+     * Forgets what the verdict of the user's run of the PR before {@code latest} still owed them, and says why. Not
+     * while a living comment of that run still says "re-run in progress": it stays open by what is owed, so the next
+     * settle tries its last line again.
+     */
     private static void forgetOwed(String user, Enrollment e, int pr, long latest, String why) {
         Owed owed = e.handled().owed().get(pr);
-        if (owed != null && owed.buildId() < latest && e.handled().owed().remove(pr, owed))
+        if (owed == null || owed.buildId() >= latest || living(e, pr, owed.buildId()))
+            return;
+
+        if (e.handled().owed().remove(pr, owed))
             log.info("PR {}: the held-back verdict of RunAll {} for {} no longer goes out: {}", pr, owed.buildId(),
                 user, why);
+    }
+
+    /** Whether a comment or visa of the user's run {@code buildId} of the PR is not marked ended yet. */
+    private static boolean living(Enrollment e, int pr, long buildId) {
+        GhThread g = e.handled().ghThreads().get(pr);
+        JiraThread j = e.handled().jiraThreads().get(pr);
+
+        return g != null && g.buildId() == buildId && !g.done() || j != null && j.buildId() == buildId && !j.done();
     }
 
     /**
@@ -1884,10 +1926,14 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Whether a living comment may still say "re-run in progress": it is not marked ended, and its run was not
-     * settled. Comments from before this release carry no mark; the settled ones were finished then.
+     * settled, or its settled verdict did not all go out. Comments from before this release carry no mark; the
+     * settled ones were finished then.
      */
     private static boolean open(Enrollment e, int pr, long buildId, boolean done) {
-        return !done && !Long.valueOf(buildId).equals(e.handled().posted().get(pr));
+        Owed owed = e.handled().owed().get(pr);
+
+        return !done && (!Long.valueOf(buildId).equals(e.handled().posted().get(pr))
+            || owed != null && owed.buildId() == buildId);
     }
 
     /**
@@ -2322,8 +2368,13 @@ public class StandingVisas implements SnapshotCache {
 
         /** Whether the user's options and tokens let some of it go out now. */
         boolean deliverableBy(Enrollment e) {
-            return !e.tc().rejected() && (visa && e.options().autoVisa() && e.jira().token() != null
-                || comment && e.options().ghComment() && e.gh().token() != null);
+            return visaDeliverableBy(e) || comment && !e.tc().rejected() && e.options().ghComment()
+                && e.gh().token() != null;
+        }
+
+        /** Whether the user's options and tokens let its visa go out now. */
+        boolean visaDeliverableBy(Enrollment e) {
+            return visa && !e.tc().rejected() && e.options().autoVisa() && e.jira().token() != null;
         }
     }
 

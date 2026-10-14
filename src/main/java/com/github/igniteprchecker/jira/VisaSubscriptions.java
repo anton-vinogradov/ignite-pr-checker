@@ -330,7 +330,10 @@ public class VisaSubscriptions implements SnapshotCache {
         return res;
     }
 
-    /** Posts the visa for one subscription; false when JIRA failed it and it is still to be posted. */
+    /**
+     * Posts the visa for one subscription; false when JIRA failed it and it is still to be posted. Once it is in, the
+     * standing visa of the run held back for that ticket no longer goes out ({@link StandingVisas#visaServed}).
+     */
     private boolean post(int pr, Key key, Sub sub, AnalysisResult res, String tcToken, Set<String> postedTo) {
         if (postedTo.contains(sub.issue())) {
             served(pr, key, sub);
@@ -349,6 +352,7 @@ public class VisaSubscriptions implements SnapshotCache {
                 pending.countSince(tcToken, pr, res.buildId()), revision(tcToken, res.buildId())));
             subs.remove(key, sub); // one-shot: the token leaves the disk with it (a re-armed one stays)
             postedTo.add(sub.issue());
+            standing.visaServed(pr, res.buildId(), sub.issue());
             posted.incrementAndGet();
             lastPostedAt = System.currentTimeMillis();
             log.info("auto-visa posted for PR {} -> {} by {} ({})", pr, sub.issue(), sub.username(), url);

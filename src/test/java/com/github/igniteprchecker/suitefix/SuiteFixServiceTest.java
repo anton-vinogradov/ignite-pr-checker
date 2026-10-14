@@ -3,9 +3,13 @@ package com.github.igniteprchecker.suitefix;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -33,6 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 
 /**
  * Ignite's check found calcite's IgniteFunctionParameterTest, added by the author's own PR, in no test suite, and the
@@ -416,6 +421,58 @@ class SuiteFixServiceTest {
             + " Nothing was pushed:");
     }
 
+    /** GitHub answers 403 to a secondary rate limit: the token stays, and the answer goes in at the next sweep. */
+    @Test
+    void anEditGithubRateLimitedIsTriedAgain() {
+        service.sweep();
+        when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
+            List.of(), true));
+        doThrow(rateLimited()).doNothing().when(github).updatePrComment(eq("gh-pat"), eq(77L), anyString());
+
+        service.sweep();
+        service.sweep();
+        service.sweep();
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(github, times(2)).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        assertThat(body.getAllValues()).allSatisfy(b -> assertThat(b)
+            .endsWith("\n\n✅ Ignite's check on `def5678` finds every test class in a suite."));
+        verify(standing, never()).dropGhToken(anyString());
+    }
+
+    @Test
+    void anEditThatKeepsFailingStopsADayOn() {
+        service.sweep();
+        when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
+            List.of(), true));
+        doThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY)).when(github)
+            .updatePrComment(eq("gh-pat"), eq(77L), anyString());
+        sweepEvery5MinutesFor(DAY + HOUR);
+        clearInvocations(github);
+
+        service.sweep();
+
+        verify(github, never()).updatePrComment(any(), anyLong(), any());
+    }
+
+    @Test
+    void aReportGithubRateLimitedIsPostedAtTheNextSweep() {
+        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString())).thenThrow(rateLimited())
+            .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
+        service.sweep();
+        when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
+            List.of(), true));
+
+        service.sweep();
+        service.sweep();
+
+        ArgumentCaptor<String> report = ArgumentCaptor.forClass(String.class);
+        verify(github, times(2)).addPrComment(eq("gh-pat"), eq(PR), report.capture());
+        assertThat(report.getAllValues().get(1)).isEqualTo(report.getAllValues().get(0));
+        verify(github).updatePrComment(eq("gh-pat"), eq(77L), contains("finds every test class in a suite"));
+        verify(standing, never()).dropGhToken(anyString());
+    }
+
     /** The comment goes out from the author's account, where a line read as a command would start a run. */
     @Test
     void theCommentReadsAsNoCommand() throws Exception {
@@ -470,6 +527,11 @@ class SuiteFixServiceTest {
         m.setAccessible(true);
 
         return (boolean)m.invoke(null, body);
+    }
+
+    private static HttpClientErrorException rateLimited() {
+        return HttpClientErrorException.create(HttpStatus.FORBIDDEN, "You have exceeded a secondary rate limit", null,
+            null, null);
     }
 
     private static AbandonedTestsCheck.Outcome failed(String sha, String... classes) {

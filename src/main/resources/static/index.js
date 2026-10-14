@@ -2100,12 +2100,20 @@ async function postVisa() {
         const r = await api(`/api/jira-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (r.status === 412) { hasJira = false; await toggleJiraPanel(true); $('status').textContent = ''; return; }
+        if (r.status === 412) { $('status').textContent = ''; return askJiraTokenAgain('visa', res.error); }
         if (!r.ok) { $('status').textContent = friendly(res.error, 'visa failed'); return; }
         $('status').innerHTML = `Visa posted to ${esc(lastIssueKey)}<a class="ext" href="${res.url}" target="_self" rel="noopener" title="Open the comment in JIRA">JIRA</a>`;
     } finally {
         btn.disabled = false;
     }
+}
+
+// A 412: the session has no JIRA token, or JIRA rejected it. The panel asks for one and says which.
+async function askJiraTokenAgain(action, why) {
+    hasJira = false;
+    pendingJiraAction = action;
+    await toggleJiraPanel(true);
+    $('jiraMsg').textContent = why || '';
 }
 
 async function toggleJiraPanel(showIt) {
@@ -2197,7 +2205,7 @@ async function armAutoVisa() {
         const r = await api(path, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (r.status === 412) { hasJira = false; pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
+        if (r.status === 412) return askJiraTokenAgain('auto', res.error);
         if (!r.ok) { $('status').textContent = friendly(res.error, 'auto-visa failed'); return; }
         autoVisa.armed = !!res.armed;
         autoVisa.refusedFor = null;
