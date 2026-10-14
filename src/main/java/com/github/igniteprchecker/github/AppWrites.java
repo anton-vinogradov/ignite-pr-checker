@@ -104,6 +104,11 @@ final class AppWrites {
         return true;
     }
 
+    /** How many PRs and users the writes are counted for. */
+    synchronized int counted() {
+        return recent.size();
+    }
+
     /** Whether GitHub asked the app account to wait at {@code now}. */
     synchronized boolean paused(long now) {
         return now < pausedUntil;

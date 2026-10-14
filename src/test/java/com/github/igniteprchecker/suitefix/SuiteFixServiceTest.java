@@ -552,7 +552,7 @@ class SuiteFixServiceTest {
 
         assertThat(service.durable()).isTrue();
         assertThat(Files.readString(file)).contains("\"head\":\"" + HEAD + "\"", "\"pushed\":\"" + PUSHED + "\"",
-            "\"commentId\":77", "\"followed\":false");
+            "\"commentId\":77", "\"followed\":false", "\"app\":true");
 
         service = new SuiteFixService(github, prTests, standing, mapper, Runnable::run, () -> 2_000_000L);
         service.loadFrom(file);
@@ -560,6 +560,27 @@ class SuiteFixServiceTest {
 
         verify(github, times(1)).prJavaFiles(PR);
         assertThat(service.stats()).containsEntry("pushed", 1).containsEntry("attempts", 1);
+    }
+
+    /**
+     * An earlier version posted the report with the author's token: the checker's account may not edit that comment,
+     * and GitHub's refusal would read on the status page as a blocked account.
+     */
+    @Test
+    void aReportPostedWithTheAuthorsTokenGetsNoAnswer(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve(service.fileName());
+        Files.writeString(file, """
+            {"attempts": [{"pr": %d, "head": "%s", "at": %d, "user": "alice", "pushed": "%s", "commentId": 4242,
+              "report": "Added.\\n\\n%s", "added": ["%s"], "followed": false}], "pushed": 1}
+            """.formatted(PR, HEAD, now.get() - HOUR, PUSHED, SuiteFixService.pending(PUSHED), FQCN));
+        service.loadFrom(file);
+        when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
+            List.of(), true));
+
+        service.sweep();
+
+        verify(github, never()).appEdit(anyInt(), any(), eq(4242L), anyString());
+        verify(github, never()).appComment(anyInt(), any(), anyString());
     }
 
     private void sweepEvery5MinutesFor(long ms) {

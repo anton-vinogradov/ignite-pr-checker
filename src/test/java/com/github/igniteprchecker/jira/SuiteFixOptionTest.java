@@ -64,6 +64,21 @@ class SuiteFixOptionTest {
         assertThat(standing.suiteFixers()).isEmpty();
     }
 
+    /**
+     * The operator took GITHUB_TOKEN away while the option was on: a commit would land in the PR, and the report of
+     * what went where would never be posted.
+     */
+    @Test
+    void itRestsWhileTheCheckerHasNoAccountToReportWith() {
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Alice-V"),
+            null)));
+        standing.change("alice", "tc", null, "gh-pat", suites(true));
+
+        when(github.writes()).thenReturn(false);
+
+        assertThat(standing.suiteFixers()).isEmpty();
+    }
+
     @Test
     void switchingItOffGivesTheGithubTokenUpWhileAutoRerunStaysOn() {
         when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Alice-V"),

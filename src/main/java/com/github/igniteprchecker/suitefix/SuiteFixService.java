@@ -265,7 +265,7 @@ public class SuiteFixService implements SnapshotCache {
         }
 
         Attempt started = new Attempt(pr, sha, clock.getAsLong(), actor.username(), null, null, null, List.of(),
-            false);
+            false, true);
         if (attempts.putIfAbsent(sha, started) != null)
             return;
 
@@ -302,7 +302,7 @@ public class SuiteFixService implements SnapshotCache {
         List<String> added = pushed == null ? List.of()
             : placed.stream().filter(Placement::added).map(Placement::fqcn).toList();
 
-        return new Attempt(a.pr(), a.head(), a.at(), a.user(), pushed, commentId, report, added, pushed == null);
+        return new Attempt(a.pr(), a.head(), a.at(), a.user(), pushed, commentId, report, added, pushed == null, true);
     }
 
     /**
@@ -579,8 +579,22 @@ public class SuiteFixService implements SnapshotCache {
 
         Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
         if (s.attempts() != null)
-            s.attempts().forEach(a -> attempts.put(a.head(), a));
+            s.attempts().forEach(a -> attempts.put(a.head(), ownReport(a)));
         pushes.set(s.pushed());
+    }
+
+    /**
+     * The attempt as the checker follows it: a report an earlier version posted with the author's token gets no
+     * answer of Ignite's check, since the checker edits only its own comments.
+     */
+    private static Attempt ownReport(Attempt a) {
+        if (a.app() || a.commentId() == null || a.followed())
+            return a;
+
+        log.info("PR {}: the report on adding tests to suites, comment {}, is not edited: it was posted with the "
+            + "author's own GitHub token, and the checker edits only its own comments", a.pr(), a.commentId());
+
+        return a.followedWith(a.report());
     }
 
     /** A class's way into a suite: the suite's name, the neighbour and why that suite; or why it did not go in. */
@@ -598,24 +612,25 @@ public class SuiteFixService implements SnapshotCache {
      * One head commit attempted: the PR, the user it acted for, the commit pushed (null when none), the comment (null
      * while GitHub has not taken it) and its text, the classes added, and whether the comment has the answer of
      * Ignite's check of the commit, or no longer waits for it. The text has the answer once it is known, also while
-     * the edit putting it in waits for another try. The field names are the file format.
+     * the edit putting it in waits for another try. {@code app}: the checker's account posts the report; earlier
+     * versions posted it with the author's token. The field names are the file format.
      */
     record Attempt(int pr, String head, long at, String user, String pushed, Long commentId, String report,
-        List<String> added, boolean followed) {
+        List<String> added, boolean followed, boolean app) {
         Attempt {
             added = added == null ? List.of() : List.copyOf(added);
         }
 
         Attempt postedAs(long id) {
-            return new Attempt(pr, head, at, user, pushed, id, report, added, followed);
+            return new Attempt(pr, head, at, user, pushed, id, report, added, followed, true);
         }
 
         Attempt answeredWith(String body) {
-            return new Attempt(pr, head, at, user, pushed, commentId, body, added, false);
+            return new Attempt(pr, head, at, user, pushed, commentId, body, added, false, app);
         }
 
         Attempt followedWith(String body) {
-            return new Attempt(pr, head, at, user, pushed, commentId, body, added, true);
+            return new Attempt(pr, head, at, user, pushed, commentId, body, added, true, app);
         }
     }
 

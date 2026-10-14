@@ -45,6 +45,22 @@ class LoginProofPageTest {
         assertThat(out.get("form").asBoolean()).isTrue();
     }
 
+    /** Without PR commands an unproven login costs the mention in the verdict comment, not commands. */
+    @Test
+    void anUnprovenLoginWithoutPrCommandsIsSaidToCostTheMention() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: Object.assign({}, TYPED, { commands: false, gh: true }) }, 'GET');
+            await page.load('?pr=13575');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            report({ warning: page.el('ghLoginUnproven').textContent });
+            """);
+
+        assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 is not proven: an earlier version of the"
+            + " checker kept no proof that it is yours. The verdict comments do not mention you until you prove your"
+            + " GitHub account below.");
+    }
+
     @Test
     void aLoginNextToASavedTokenIsNotSaidToBeTyped() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """

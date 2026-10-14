@@ -2297,11 +2297,16 @@ function renderGithubAccount(st) {
         : ' @' + st.appLogin + (st.appPushes === false ? ', which cannot push to the repo,' : '');
     const off = st.githubAvailable === false;
     for (const name of GITHUB_OPTIONS) {
-        if (off && !st[name]) $(OPTION_TOGGLES[name]).disabled = true;
+        if (githubLocked(name, st)) $(OPTION_TOGGLES[name]).disabled = true;
     }
     $('githubOff').classList.toggle('hidden', !off);
     $('ghTokenNote').classList.toggle('hidden', !st.ghTokenNote);
     $('ghTokenNote').textContent = st.ghTokenNote || '';
+}
+
+// An option that writes to GitHub, off while the checker has no account to write with, cannot go on.
+function githubLocked(name, st) {
+    return st.githubAvailable === false && GITHUB_OPTIONS.includes(name) && !st[name];
 }
 
 // PR commands act on the comments of the GitHub account a token proved: the saved GitHub token, or one pasted once.
@@ -2312,8 +2317,8 @@ function renderLogin(st) {
         ? 'GitHub login: @' + st.login + (st.ghStored ? ', proven by your saved GitHub token.' : ', proven.') : '';
     $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
     $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' is not proven: an earlier version of '
-        + 'the checker kept no proof that it is yours. Your PR commands do nothing until you prove your GitHub account '
-        + 'below.' : '';
+        + 'the checker kept no proof that it is yours. ' + (st.commands ? 'Your PR commands do nothing'
+            : 'The verdict comments do not mention you') + ' until you prove your GitHub account below.' : '';
     $('ghLoginProof').classList.toggle('hidden', proven);
     $('ghLoginMsg').textContent = '';
     $('settingsLogin').classList.toggle('hidden', !st.commands && !st.loginUnproven && pendingOption !== 'commands');
@@ -2359,7 +2364,7 @@ async function askForToken(need, option) {
 // the server's backups and this browser's cookie.
 const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
     + 'token until the visa is posted or you cancel it. Copies in the server\'s backups go as the backups rotate, '
-    + 'and your session cookie keeps the tokens you pasted until you log out.';
+    + 'and your session cookie keeps the TeamCity and JIRA tokens you pasted until you log out.';
 
 // The checkstyle autofix runs only from a PR command, so it goes on only with PR commands and off with them.
 const AUTOFIX_NEEDS_COMMANDS = 'Auto-fix checkstyle runs only from a PR command: switch on PR commands first.';
@@ -2414,7 +2419,7 @@ async function setOption(name, on, githubToken) {
         toggle.checked = !on;
         msg.textContent = 'could not reach the service — try again';
     } finally {
-        toggle.disabled = false;
+        toggle.disabled = githubLocked(name, standingSettings || {});
     }
 }
 for (const [name, id] of Object.entries(OPTION_TOGGLES)) $(id).onchange = () => setOption(name, $(id).checked);

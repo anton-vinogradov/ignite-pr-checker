@@ -171,4 +171,33 @@ class PatRefusalRuleTest {
         assertThat(refused).isEqualTo("🎨 _Checkstyle autofix: GitHub refused your token, so the fix was not pushed —"
             + " running as-is._");
     }
+
+    /**
+     * A fine-grained token for the author's fork gets 403 on a PR from another repo, which read "Checkstyle autofix
+     * failed (Forbidden)": the note says why now, and the token, good for the fork, stays.
+     */
+    @Test
+    void theAutofixSaysWhenTheTokenMayNotPushThere() {
+        StyleFixService styleFix = new StyleFixService(github, new CheckstyleRunner(github,
+            new GithubProperties("apache/ignite", null, null)), standing);
+        StandingVisas.GhActor author = standing.actor("author").orElseThrow();
+        when(github.rawFile(anyString(), anyString(), eq("checkstyle/checkstyle.xml"))).thenReturn(CHECKSTYLE);
+        when(github.rawFile(anyString(), anyString(), contains("suppressions"))).thenReturn(SUPPRESSIONS);
+        when(github.prHead(PR))
+            .thenReturn(new GithubClient.PrHead("Author", "author/ignite", "ignite-28867", "f195e0c"));
+        when(github.prJavaFiles(PR)).thenReturn(List.of(PATH));
+        when(github.rawFileUpTo("author/ignite", "f195e0c", PATH, CheckstyleRunner.MAX_FILE_BYTES))
+            .thenReturn(Optional.of(MODIFIERS_OUT_OF_ORDER));
+        when(github.commitFiles(eq("gh-pat"), anyString(), anyString(), anyString(), any(), anyString()))
+            .thenThrow(HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY,
+                "{\"message\":\"Resource not accessible by personal access token\"}".getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8));
+
+        String note = styleFix.fixForCommand(PR, author, "Author");
+
+        assertThat(note).isEqualTo("🎨 _Checkstyle autofix: your GitHub token may not push to `author/ignite`, so the"
+            + " fix was not pushed — running as-is. A fine-grained token reaches only the repositories it was given; a"
+            + " PR from a branch of the repo itself or of someone else's fork needs a classic one with public_repo._");
+        assertThat(standing.ghTokenRejected("author")).isFalse();
+    }
 }

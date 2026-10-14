@@ -1,9 +1,18 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.metrics.Metrics;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 
 /**
  * The checker kept any GitHub token GitHub put a name to, for the PR comment as well: a committer's classic token with
@@ -46,5 +55,27 @@ class CommitTokensTest {
         assertThat(CommitTokens.refusal("ghp_x", List.of())).hasValueSatisfying(r -> assertThat(r)
             .startsWith("this classic token has no public_repo scope, so it cannot commit to your PR's branch"));
         assertThat(CommitTokens.refusal("ghp_x", List.of("read:user", "gist"))).isPresent();
+    }
+
+    /** GitHub names a classic token's scopes in a header of its answer, and a fine-grained token's in none. */
+    @Test
+    void theScopesAreReadOffGithubsAnswer() {
+        RestClient.Builder http = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
+        ObjectMapper mapper = new ObjectMapper();
+        GithubClient github = new GithubClient(new GithubProperties("apache/ignite", "app-token", 300), mapper,
+            new Metrics(mapper), http.build());
+        server.expect(requestTo("https://api.github.com/user")).andExpect(header("Authorization", "Bearer ghp_x"))
+            .andRespond(withSuccess("{\"login\": \"alice-v\", \"id\": 42}", MediaType.APPLICATION_JSON)
+                .header("X-OAuth-Scopes", "public_repo, admin:org"));
+        server.expect(requestTo("https://api.github.com/user"))
+            .andRespond(withSuccess("{\"login\": \"alice-v\", \"id\": 42}", MediaType.APPLICATION_JSON));
+
+        assertThat(github.tokenOwner("ghp_x")).hasValueSatisfying(o -> {
+            assertThat(o.user()).isEqualTo(new GithubClient.GhUser("alice-v", 42L));
+            assertThat(o.scopes()).containsExactly("public_repo", "admin:org");
+        });
+        assertThat(github.tokenOwner("github_pat_x")).hasValueSatisfying(o -> assertThat(o.scopes()).isNull());
+        server.verify();
     }
 }

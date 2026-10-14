@@ -144,4 +144,27 @@ class CommitTokenPageTest {
         assertThat(out.get("visa").asBoolean()).isFalse();
         assertThat(out.get("app").asText()).isEmpty();
     }
+
+    /** The switch just turned off came back enabled, though the server would refuse to turn it on again. */
+    @Test
+    void withoutAnAccountAnOptionSwitchedOffStaysGrey() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            const NONE = Object.assign({}, SETTINGS, { gh: true, githubAvailable: false, appLogin: null });
+            page.route('/api/auto-visa-all', { body: NONE }, 'GET');
+            page.route('/api/auto-visa-all', { body: Object.assign({}, NONE, { gh: false }) }, 'POST');
+            await page.load('?pr=13575');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            const before = page.el('ghCommentToggle').disabled;
+            page.el('ghCommentToggle').checked = false;
+            await page.el('ghCommentToggle').onchange();
+            await page.settle();
+            report({ before, after: page.el('ghCommentToggle').disabled,
+                checked: page.el('ghCommentToggle').checked });
+            """);
+
+        assertThat(out.get("before").asBoolean()).as("on, so it can be switched off").isFalse();
+        assertThat(out.get("checked").asBoolean()).isFalse();
+        assertThat(out.get("after").asBoolean()).as("off now, and it cannot go on again").isTrue();
+    }
 }

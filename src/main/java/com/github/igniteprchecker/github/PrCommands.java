@@ -147,7 +147,8 @@ public class PrCommands implements SnapshotCache {
     /**
      * Reads the comments updated since the last poll that worked, a few minutes more to be safe. The
      * window moves on only once it was read: when GitHub fails, the next poll reads it again. Without an account to
-     * answer from there are no PR commands.
+     * answer from there are no PR commands. The logins earlier versions kept are proven first, also for users with
+     * no PR commands: the verdict comment mentions only a proven login.
      */
     @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
     void poll() {
@@ -157,13 +158,14 @@ public class PrCommands implements SnapshotCache {
             return;
 
         sendOutbox(now);
-        if (!github.writes() || !standing.anyGhEnrolled()) {
+        boolean commanded = github.writes() && standing.anyGhEnrolled();
+        if (commanded || standing.anyGhLoginToAsk())
+            standing.ensureGhLogins();
+        if (!commanded) {
             sinceMs = now; // nobody's comments are commands: they must not run once someone switches commands on
 
             return;
         }
-
-        standing.ensureGhLogins();
 
         String sinceIso = Instant.ofEpochMilli(Math.max(sinceMs - OVERLAP_MS, now - MAX_LOOKBACK_MS))
             .truncatedTo(ChronoUnit.SECONDS).toString();
@@ -781,18 +783,18 @@ public class PrCommands implements SnapshotCache {
     /**
      * The verdict of the run is in: the commander is mentioned in a new comment that has it — the verdict comment of
      * "Comment my runs' verdicts", or else one that says it is ready — and the story goes, so the run leaves one
-     * comment of the checker in the PR. A story with the checkstyle autofix's note keeps the note, and a link. Each
-     * step that does not go in now is tried again at the next look.
+     * comment of the checker in the PR. The checkstyle autofix's note, which says what was pushed to the commander's
+     * branch, moves into that comment. Each step that does not go in now is tried again at the next look.
      */
     private void finishWithVerdict(CommandRun run) {
         CommandRun now = current(run);
-        if (now.readyId() == 0 && standing.verdictCommentId(now.username(), now.pr(), now.buildId()).isEmpty()) {
-            long ready = postReady(now);
+        if (now.readyId() == 0) {
+            java.util.OptionalLong verdict = standing.verdictCommentId(now.username(), now.pr(), now.buildId());
+            long ready = verdict.isEmpty() ? postReady(now) : withNote(now, verdict.getAsLong());
             if (ready == 0)
                 return;
 
-            long id = ready;
-            now = watching.computeIfPresent(now.commentId(), (k, r) -> r.readyAs(id));
+            now = watching.computeIfPresent(now.commentId(), (k, r) -> r.readyAs(ready));
             if (now == null)
                 return;
         }
@@ -807,7 +809,8 @@ public class PrCommands implements SnapshotCache {
             + " the verdict of your `/run-all`") + " is ready: RunAll [" + run.buildId() + "](" + tcBaseUrl + "/build/"
             + run.buildId() + ") — " + verdictLink(run, run.pr(), "see the verdict") + "."
             + (standing.visaOn(run.username()) && standing.settledWithoutTicket(run.buildId())
-                ? " No JIRA visa: the PR title names no IGNITE ticket." : "");
+                ? " No JIRA visa: the PR title names no IGNITE ticket." : "")
+            + (run.note() == null ? "" : "\n\n" + run.note());
         if (readsAsCommand(body))
             throw new IllegalStateException("the checker must never post a comment that reads as a command");
 
@@ -830,19 +833,41 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * Deletes the story's comment once the verdict is out; one that carries the autofix's note is cut down to the
-     * note and a link to the verdict instead. True when done.
+     * The verdict comment of the run, with the autofix's note added at its end when the run has one: its id, 0 when
+     * the note did not go in now. A verdict comment GitHub no longer has gives way to a new comment that the verdict is
+     * ready.
      */
+    private long withNote(CommandRun run, long verdict) {
+        if (run.note() == null)
+            return verdict;
+
+        try {
+            Optional<String> body = github.commentBody(verdict);
+            if (body.isEmpty())
+                return postReady(run);
+            if (body.get().contains(run.note()))
+                return verdict;
+
+            return github.appEdit(run.pr(), run.username(), verdict, body.get().stripTrailing() + "\n\n" + run.note())
+                ? verdict : 0;
+        }
+        catch (GithubClient.WriteDeferred e) {
+            log.info("the autofix note of RunAll {} on PR {} waits: {}", run.buildId(), run.pr(), e.getMessage());
+
+            return 0;
+        }
+        catch (RuntimeException e) {
+            log.warn("the autofix note of RunAll {} on PR {} not added to its verdict, tried again later: {}",
+                run.buildId(), run.pr(), e.toString());
+
+            return 0;
+        }
+    }
+
+    /** Deletes the story's comment once the verdict is out. True when done. */
     private boolean removeStory(CommandRun run) {
         try {
-            if (run.note() == null)
-                return github.appDelete(run.pr(), run.username(), run.narrationId());
-
-            String login = standing.ghLoginOf(run.username());
-
-            return github.appEdit(run.pr(), run.username(), run.narrationId(), (login == null ? "" : "@" + login + " ")
-                + run.note() + "\n\n🏁 _RunAll [" + run.buildId() + "](" + tcBaseUrl + "/build/" + run.buildId()
-                + ") finished — " + verdictLink(run, run.pr(), "see the verdict") + "._");
+            return github.appDelete(run.pr(), run.username(), run.narrationId());
         }
         catch (GithubClient.WriteDeferred e) {
             log.info("the story of RunAll {} on PR {} stays a while: {}", run.buildId(), run.pr(), e.getMessage());
@@ -1030,9 +1055,10 @@ public class PrCommands implements SnapshotCache {
      * An accepted command still being told: its comment, the story's text without its status line ({@code
      * baseBody}), the chain it watches, and the checker's comment that tells it ({@code narrationId}, 0 until GitHub
      * took it). {@code app}: the story is the checker's own comment; earlier versions wrote some into the commander's.
-     * {@code note}: what the story keeps once the verdict is out, the checkstyle autofix's note. {@code ending}: the
-     * last line once the story is over, null while it goes. {@code readyId}: the comment that told the commander the
-     * verdict is ready, 0 when none. The PR came from the key of v1.20.11's snapshot, which has it in no field.
+     * {@code note}: the checkstyle autofix's note, which goes on into the comment that brings the verdict. {@code
+     * ending}: the last line once the story is over, null while it goes. {@code readyId}: the comment that brought the
+     * commander the verdict, the verdict comment or one saying it is ready; 0 until one did. The PR came from the key
+     * of v1.20.11's snapshot, which has it in no field.
      */
     private record CommandRun(long commentId, String baseBody, long buildId, String username,
         long narrationId, boolean app, int pr, String note, String ending, long readyId) {

@@ -5,9 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Test;
  * Someone without a GitHub token of their own commands from the checker's comment, whose story then ends with an
  * edit: GitHub tells nobody about edits, so they learnt that the verdict was in only by looking. Now every commander
  * is mentioned in a new comment once the verdict is ready, and the story goes: the run leaves one comment of the
- * checker in the PR. The autofix's note, which tells the commander what was pushed to their branch, stays.
+ * checker in the PR. The autofix's note, which tells the commander what was pushed to their branch, goes with it.
  */
 class VerdictMentionTest {
     private static final int PR = 13800;
@@ -102,8 +102,9 @@ class VerdictMentionTest {
         verify(github, times(1)).appDelete(PR, "newcomer", 77L);
     }
 
+    /** The autofix's note says what was pushed to the commander's branch: the comment with the verdict has it. */
     @Test
-    void theStoryOfARunTheAutofixPushedForKeepsTheNote() {
+    void theAutofixNoteGoesIntoTheCommentThatSaysTheVerdictIsReady() {
         when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
             null)));
         standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
@@ -117,11 +118,10 @@ class VerdictMentionTest {
 
         commands.updateEtas();
 
-        verify(github).appComment(eq(PR), eq("author"), startsWith("@Author the verdict of your `/run-all` is ready"));
-        verify(github, never()).appDelete(anyInt(), any(), anyLong());
-        verify(github).appEdit(PR, "author", 77L, "@Author 🎨 _Checkstyle autofix: pushed `abc1234` to your branch"
-            + " `x` — `git pull` before your next push._\n\n🏁 _RunAll [9400000](https://ci2.example/build/9400000)"
-            + " finished — [see the verdict](https://checker.example/?pr=13800)._");
+        verify(github).appComment(PR, "author", MENTION.replace("@Newcomer", "@Author") + "\n\n🎨 _Checkstyle"
+            + " autofix: pushed `abc1234` to your branch `x` — `git pull` before your next push._");
+        verify(github).appDelete(PR, "author", 77L);
+        verify(github, never()).appEdit(anyInt(), any(), anyLong(), contains("🏁"));
     }
 
     @Test

@@ -768,6 +768,11 @@ public class StandingVisas implements SnapshotCache {
             .anyMatch(e -> e.options().commands() && (e.ghLoginProven() || e.ghLoginToAsk()));
     }
 
+    /** Whether a GitHub token an earlier version kept is yet to be asked whether it names the login kept with it. */
+    public boolean anyGhLoginToAsk() {
+        return enrolled.values().stream().anyMatch(Enrollment::ghLoginToAsk);
+    }
+
     /** Whether the user's comments on pull requests are taken as commands. */
     public boolean commandsOn(String username) {
         return options(username).commands();
@@ -1117,9 +1122,13 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The users who add their PRs' tests to suites, by GitHub login, with the GitHub token it commits with. Like the
-     * other options, it pauses while TeamCity refuses the user's token.
+     * other options, it pauses while TeamCity refuses the user's token. None without the checker's account: a commit
+     * would land in the PR with no comment to say what it is.
      */
     public Map<String, GhActor> suiteFixers() {
+        if (!github.writes())
+            return Map.of();
+
         Map<String, GhActor> out = new LinkedHashMap<>();
         enrolled.forEach((u, e) -> {
             if (e.options().suiteFix() && e.ghLogin() != null && !e.tc().rejected() && !e.gh().rejected())
@@ -2757,10 +2766,11 @@ public class StandingVisas implements SnapshotCache {
          * switch, a linked GitHub login was all commands needed. The checkstyle autofix saved on without PR
          * commands, which it never ran without, is off, and the GitHub token goes when nothing else needs it.
          * Before logins were proven, one stored with a GitHub token mostly came from that token, but one typed in by
-         * hand could sit next to a token of another account: the token is asked whose it is, for PR commands. One
-         * stored without a token could have been typed in by hand. Before the checker's account wrote the PR comments,
-         * the user's GitHub token did: a token kept for nothing else goes, once asked, and the verdict comments it
-         * posted are no longer the checker's to edit.
+         * hand could sit next to a token of another account: the token is asked whose it is, since PR commands and
+         * the mention in the verdict comment take only a proven login. One stored without a token could have been
+         * typed in by hand. Before the checker's account wrote the PR comments, the user's GitHub token did: a token
+         * kept for nothing else goes, once asked, and the verdict comments it posted are no longer the checker's to
+         * edit.
          */
         Enrollment enrollment() {
             Handled h = Handled.empty();
@@ -2797,7 +2807,7 @@ public class StandingVisas implements SnapshotCache {
                 log.info("checkstyle autofix of {} is off: it runs only from a PR command, and PR commands are off{}",
                     username, ghUnneeded ? "; the GitHub token, which nothing else needs, is dropped" : "");
 
-            boolean ask = ghToken != null && ghLogin != null && ghLoginProven == null && options.commands();
+            boolean ask = ghToken != null && ghLogin != null && ghLoginProven == null;
             boolean ghKept = ghToken != null && (options.needsGh() || ask);
             if (ghToken != null && !ghKept && !ghUnneeded)
                 log.info("GitHub token of {} dropped: no option of theirs commits, and the checker's account posts"

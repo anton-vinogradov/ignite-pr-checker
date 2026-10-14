@@ -222,6 +222,36 @@ class CommandAuthorTest {
         assertThat(reloaded.settings("avinogradov").loginUnproven()).isFalse();
     }
 
+    /**
+     * A user of v1.27.0 with the PR comment on and PR commands off: the token kept with the login was dropped
+     * unasked, and the login stayed unproven for good, so the verdict comments of the checker's account never
+     * mentioned them.
+     */
+    @Test
+    void theLoginOfSomeoneWithoutPrCommandsIsProvenForTheMention() throws Exception {
+        ObjectNode snapshot = mapper.createObjectNode();
+        snapshot.putArray("enrollments").add(enrollment("olegvlsk", "oleg-vlsk", codec.encryptString("gh-olegvlsk"))
+            .put("commands", false));
+        Path file = dir.resolve("comment-only.json");
+        mapper.writeValue(file.toFile(), snapshot);
+        StandingVisas commentOnly = new StandingVisas(mapper, codec, tc, github, mock(BlockerAnalyzer.class),
+            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+            mock(PendingCommits.class));
+        commentOnly.loadFrom(file);
+
+        new PrCommands(mapper, github, commentOnly, tc, mock(RerunTracker.class), mock(StyleFixService.class),
+            mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"))
+            .poll();
+
+        assertThat(commentOnly.settings("olegvlsk")).satisfies(st -> {
+            assertThat(st.loginUnproven()).isFalse();
+            assertThat(st.ghStored()).as("nothing of theirs commits").isFalse();
+            assertThat(st.gh()).isTrue();
+            assertThat(st.commands()).isFalse();
+        });
+        verify(github, never()).recentIssueComments(anyString());
+    }
+
     /** One comment of a fresh poll, by {@code author}. */
     private void command(GithubClient.GhUser author) {
         long id = nextComment++;

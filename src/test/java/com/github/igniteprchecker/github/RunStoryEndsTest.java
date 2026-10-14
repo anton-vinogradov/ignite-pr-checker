@@ -7,11 +7,13 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -184,6 +186,31 @@ class RunStoryEndsTest {
 
         verify(github).appEdit(anyInt(), any(), eq(77L), contains("🛑 _TeamCity no longer has build " + CHAIN
             + ", so this story ends here._"));
+    }
+
+    /**
+     * GitHub made the checker's account wait when the story was to get its last line: it gets it at a later look, after
+     * a restart too, and once.
+     */
+    @Test
+    void aLastLineGithubMadeWaitGoesLater(@TempDir Path dir) throws Exception {
+        command(1L, "Author");
+        when(tc.getBuildState("tc-a", CHAIN)).thenReturn(chain(CHAIN, "finished", "UNKNOWN"));
+        when(github.appEdit(anyInt(), any(), eq(77L), endsWith("\n🛑 _Run cancelled._")))
+            .thenThrow(new GithubClient.WriteDeferred("PR 13440 had 40 writes of the app account in the last hour"))
+            .thenThrow(new GithubClient.WriteDeferred("GitHub asked the app account to wait"))
+            .thenReturn(true);
+
+        commands.updateEtas();
+        commands.updateEtas();
+        Path file = dir.resolve("pr-commands.json");
+        commands.saveTo(file);
+        PrCommands restarted = commands();
+        restarted.loadFrom(file);
+        restarted.updateEtas();
+        restarted.updateEtas();
+
+        verify(github, times(3)).appEdit(anyInt(), any(), eq(77L), endsWith("\n🛑 _Run cancelled._"));
     }
 
     @Test

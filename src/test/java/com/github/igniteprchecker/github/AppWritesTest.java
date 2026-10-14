@@ -132,6 +132,7 @@ class AppWritesTest {
 
         writes.admit(1, null, NOW + 3600_001L);
 
+        assertThat(writes.counted()).as("PR 13800 and the one written to now").isEqualTo(2);
         assertThatThrownBy(() -> writes.admit(13800, null, NOW + 3600_001L))
             .isInstanceOf(GithubClient.WriteDeferred.class);
     }

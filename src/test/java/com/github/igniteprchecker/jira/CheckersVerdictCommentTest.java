@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -73,10 +74,8 @@ class CheckersVerdictCommentTest {
             null, null, null)));
         when(github.appComment(eq(PR), anyString(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
-        when(tc.findRunAllBuildForPr(anyString(), eq(PR))).thenReturn(Optional.of(new TcModel.Build(RUN, "FAILURE",
-            "finished", "pull/13335/head", null, null, null, null, null, null, null, null,
-            new TcModel.Triggered("user", new TcModel.User(AUTHOR)), null, null, null, null, null)));
-        when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(verdict()));
+        when(tc.findRunAllBuildForPr(anyString(), eq(PR))).thenReturn(Optional.of(build(RUN)));
+        when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(verdict(RUN)));
     }
 
     @Test
@@ -151,6 +150,40 @@ class CheckersVerdictCommentTest {
         assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(555L);
     }
 
+    /**
+     * While the checker's account cannot write, the verdict comment of the run before waits for its superseded line
+     * with the PR at rest: each sweep settled the PR again for it, asking TeamCity every 10 minutes.
+     */
+    @Test
+    void aSupersededLineTheCheckerCannotWriteNowWaitsWithItsPrAtRest() {
+        commentOn();
+        when(tc.findRunAllBuildForPr(anyString(), eq(PR))).thenReturn(Optional.of(build(RUN - 1)));
+        when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(verdict(RUN - 1)));
+        when(github.appComment(eq(PR), anyString(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(444L, "https://github.com/apache/ignite/pull/13335#c444"));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of(PR)));
+        standing.sweep();
+        when(tc.findRunAllBuildForPr(anyString(), eq(PR))).thenReturn(Optional.of(build(RUN)));
+        when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(verdict(RUN)));
+        when(github.canWrite()).thenReturn(false);
+        when(github.appComment(eq(PR), anyString(), anyString())).thenThrow(new GithubClient.WriteDeferred("wait"));
+        standing.sweep();
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+
+        standing.sweep();
+
+        verify(tc, times(2)).findRunAllBuildForPr(anyString(), eq(PR));
+
+        when(github.canWrite()).thenReturn(true);
+        doReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555")).when(github)
+            .appComment(eq(PR), anyString(), anyString());
+        when(github.commentBody(444L)).thenReturn(Optional.of("verdict of RunAll 9389045"));
+        standing.sweep();
+
+        verify(github).appEdit(eq(PR), eq(AUTHOR), eq(444L), contains("by the newer RunAll [9389046]"));
+        assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(555L);
+    }
+
     @Test
     void theCommentSaysWhyNoVisaCame() {
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "For TC debug", null, null, null, null)));
@@ -192,11 +225,16 @@ class CheckersVerdictCommentTest {
         standing.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(null, null, true, null, null));
     }
 
-    private static AnalysisResult verdict() {
+    private static TcModel.Build build(long id) {
+        return new TcModel.Build(id, "FAILURE", "finished", "pull/13335/head", null, null, null, null, null, null, null,
+            null, new TcModel.Triggered("user", new TcModel.User(AUTHOR)), null, null, null, null, null);
+    }
+
+    private static AnalysisResult verdict(long run) {
         TestVerdict blocker = new TestVerdict(9389011L, "org.apache.ignite.CacheTest.testPut", "Cache1", 9389011L,
             "Cache 1", "o1", true, false, "not seen failing in 100 master run(s)", "FF", 2);
 
-        return new AnalysisResult(PR, RUN, "pull/13335/head", System.currentTimeMillis(), List.of(blocker), List.of(),
+        return new AnalysisResult(PR, run, "pull/13335/head", System.currentTimeMillis(), List.of(blocker), List.of(),
             List.of(), List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 1, 0);
     }
 }

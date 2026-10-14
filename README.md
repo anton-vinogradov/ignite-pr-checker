@@ -76,8 +76,9 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   checker keeps the login and the account's id, and takes a comment for a command only when its author has that id.
   The app account cannot be linked.
 - **The user's GitHub token** commits, and only that: the autofix's commit and the one adding tests to suites, to the
-  branch of the user's own PR. It is never used to write in `apache/ignite`. Best is a fine-grained token for the
-  user's fork alone, with Contents: read and write. It cannot reach a PR from a branch of `apache/ignite` itself or of
+  branch of the user's own PR. It writes no comments, edits or reactions, and commits to `apache/ignite` only for a
+  PR from a branch of `apache/ignite` itself. Best is a fine-grained token for the user's fork alone, with Contents:
+  read and write. It cannot reach a PR from a branch of `apache/ignite` itself or of
   someone else's fork: those need a classic token with `public_repo`, which pushes to every public repository the user
   can push to, `apache/ignite` too for a committer. The checker refuses a classic token with `admin:*`, `delete_repo`
   or `workflow`, takes one with `repo` with a warning, and keeps none in a cookie: the page sends it with the switch.

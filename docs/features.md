@@ -284,8 +284,9 @@ GitHub token it needs while it is on.
   new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment of the
   checker's account in the PR says what went where and why, then what Ignite's check says of the commit. It uses your
   GitHub token, as the autofix does.
-- **Your GitHub token** only commits, to the branch of your own PR: it never writes in `apache/ignite`. Best is a
-  fine-grained token for your fork alone, with Contents: read and write. It cannot reach a PR from a branch of
+- **Your GitHub token** only commits, to the branch of your own PR: it writes no comments, and it commits to
+  `apache/ignite` only for a PR from a branch there. Best is a fine-grained token for your fork alone, with Contents:
+  read and write. It cannot reach a PR from a branch of
   `apache/ignite` itself or from someone else's fork; those need a classic token with `public_repo`, which pushes to
   every public repository you can push to, `apache/ignite` too if you are a committer. A classic token with `admin:*`,
   `delete_repo` or `workflow` is refused, one with `repo` is taken with a warning. The page sends the token with the
@@ -342,8 +343,8 @@ answers from its own GitHub account, the app account.
   more; GitHub tells nobody of an edit.
 - After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`).
   When the verdict is in, a new comment mentions you: the verdict comment, when **Comment my runs' verdicts on the
-  GitHub PR** is on, else one saying the verdict is ready, with a link to it. The story's comment is deleted then, so
-  the run leaves one comment of the checker in the PR; a story with the autofix's note keeps the note and a link.
+  GitHub PR** is on, else one saying the verdict is ready, with a link to it. The autofix's note moves into that
+  comment, and the story's comment is deleted, so the run leaves one comment of the checker in the PR.
 - A command that is not the first word ("Please /run-all") gets 😕 and a reply with a hint saying how to write it. A
   refused `/top` or a `/run-all` that failed is answered why, in words.
 - A new `/run-all` supersedes your previous one: your queued or running chain on the PR and its re-runs are cancelled

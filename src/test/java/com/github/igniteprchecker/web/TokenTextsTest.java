@@ -71,8 +71,8 @@ class TokenTextsTest {
 
         assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options; "
             + "an Auto visa you armed keeps your JIRA token until the visa is posted or you cancel it. Copies in the "
-            + "server's backups go as the backups rotate, and your session cookie keeps the tokens you pasted until "
-            + "you log out.");
+            + "server's backups go as the backups rotate, and your session cookie keeps the TeamCity and JIRA tokens "
+            + "you pasted until you log out.");
     }
 
     @Test
@@ -126,6 +126,20 @@ class TokenTextsTest {
     }
 
     /** The file's text with its whitespace collapsed and the comment marks that start its lines dropped. */
+    /** A PR from a branch of apache/ignite gets the commits there, yet the docs said the token never writes there. */
+    @Test
+    void theUsersTokenIsSaidToCommitToApacheIgniteForABranchThere() throws IOException {
+        assertThat(collapsed(Path.of("README.md"))).doesNotContain("never used to write in `apache/ignite`")
+            .contains("It writes no comments, edits or reactions, and commits to `apache/ignite` only for a PR from a"
+                + " branch of `apache/ignite` itself.");
+        assertThat(collapsed(Path.of("docs/features.md"))).doesNotContain("it never writes in `apache/ignite`")
+            .contains("it writes no comments, and it commits to `apache/ignite` only for a PR from a branch there.");
+        assertThat(collapsed(Path.of("README.ru.md"))).doesNotContain("им не пишется ничего")
+            .contains("в `apache/ignite` он коммитит, только если PR сделан из ветки самого `apache/ignite`.");
+        assertThat(collapsed(Path.of("docs/features.ru.md"))).doesNotContain("им не пишется ничего")
+            .contains("в `apache/ignite` коммитит, только если PR сделан из ветки там.");
+    }
+
     private static String collapsed(Path file) throws IOException {
         return Files.readString(file, UTF_8).replaceAll("(?m)^\\s*(#|\\*|//) ?", "").replaceAll("\\s+", " ");
     }

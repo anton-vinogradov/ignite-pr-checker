@@ -3,6 +3,10 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -87,6 +91,16 @@ class AppAccountCardTest {
             "class=\"v warn\"");
         assertThat(cards.get(2).asText()).contains("GitHub answered 403 to a write: blocked", "class=\"v bad\"");
         assertThat(cards.get(3).asText()).contains("log in to see what it said");
+    }
+
+    /** The calls by token said users' tokens post the comments, edits and reactions, which the app account does. */
+    @Test
+    void theCallsOfEachTokenAreNamedAsTheyAre() throws IOException {
+        String page = Files.readString(Path.of("src/main/resources/static/status.html"), StandardCharsets.UTF_8);
+
+        assertThat(page).contains("App (server) token · last hour <span class=\"muted\">· PRs, files, checks, comment"
+            + " poll; every comment, edit &amp; reaction</span>", "Users' own PATs · last hour <span class=\"muted\">·"
+            + " token checks, fix commits</span>");
     }
 
     /** Runs {@code script} after the page's functions; whatever it passes to {@code out} comes back. */
