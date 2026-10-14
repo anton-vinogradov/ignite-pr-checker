@@ -793,37 +793,51 @@ public class TcClient {
     public TcModel.Build triggerOwnBuildReplacingQueued(String token, String username, String buildTypeId,
         int prNumber, boolean top) {
         return triggerReplacingQueued(token, buildTypeId, prNumber, top, "Triggered by Ignite PR Checker",
-            q -> username.equals(starter(q)));
+            () -> username);
     }
 
     /**
-     * Re-runs a suite for the automation, first cancelling identical STANDALONE builds of it already
-     * sitting in the queue for the same PR branch, whoever queued them (they'd run the same thing later
-     * for nothing). Queued dependencies of a running chain are left alone — cancelling those would break
-     * the chain. {@code comment} tells on TeamCity why the build was queued.
+     * Re-runs a suite for the automation, first cancelling identical STANDALONE builds of it that the token's own
+     * user already has in the queue for the same PR branch, as a re-run from the page does: someone else's build
+     * stays. TeamCity is asked whose the token is only when such a build waits. {@code comment} tells on TeamCity
+     * why the build was queued.
      */
     public TcModel.Build triggerBuildReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
         String comment) {
-        return triggerReplacingQueued(token, buildTypeId, prNumber, top, comment, q -> true);
+        return triggerReplacingQueued(token, buildTypeId, prNumber, top, comment, () -> tokenOwner(token));
     }
 
     private TcModel.Build triggerReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
-        String comment, Predicate<TcModel.Build> replaceable) {
+        String comment, Supplier<String> owner) {
         String branch = "pull/" + prNumber + "/head";
-        for (TcModel.Build q : queuedBuilds(token)) {
-            boolean standalone = q.triggered() != null && "user".equals(q.triggered().type());
-            if (standalone && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName())
-                && replaceable.test(q)) {
-                try {
-                    cancelBuild(token, q);
-                }
-                catch (RestClientResponseException e) {
-                    // already started or gone — it is doing useful work now, leave it be
-                }
+        List<TcModel.Build> identical = queuedBuilds(token).stream()
+            .filter(q -> q.triggered() != null && "user".equals(q.triggered().type())
+                && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName()))
+            .toList();
+        String username = identical.isEmpty() ? null : owner.get();
+        for (TcModel.Build q : identical) {
+            if (username == null || !username.equals(starter(q)))
+                continue;
+
+            try {
+                cancelBuild(token, q);
+            }
+            catch (RestClientResponseException e) {
+                // already started or gone — it is doing useful work now, leave it be
             }
         }
 
         return triggerBuild(token, buildTypeId, prNumber, top, comment);
+    }
+
+    /** Whose the token is; null when TeamCity does not say, and then no build is anyone's own. */
+    private String tokenOwner(String token) {
+        try {
+            return currentUsername(token).orElse(null);
+        }
+        catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** The newest finished run of one suite on the PR branch — standalone re-runs included. */

@@ -250,8 +250,8 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
   top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
-  systemic. Identical suites already in the queue are cancelled first. A failed Build is re-run alone; suites that
-  failed to compile, and the suites a failed Build kept from running, are never re-run.
+  systemic. Your own identical re-runs still in the queue are cancelled first; someone else's stay. A failed Build is
+  re-run alone; suites that failed to compile, and the suites a failed Build kept from running, are never re-run.
 - **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
   newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
