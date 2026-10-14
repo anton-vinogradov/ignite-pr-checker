@@ -18,20 +18,19 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Per-user login: the user supplies their own TeamCity token, which is validated against TeamCity and
- * then carried, encrypted, inside a stateless HttpOnly session cookie (no server-side session store).
+ * then carried, encrypted, inside a stateless HttpOnly session cookie (no server-side session store). A
+ * logout ends the user's sessions in every browser; see {@link UserDirectory#endSessions}.
  */
 @RestController
 @RequestMapping("/api")
 public class LoginController {
     private final UserDirectory users;
-
-    /** Effectively unlimited cookie lifetime; the session is ended by logout, not by time. */
-    private static final Duration COOKIE_MAX_AGE = Duration.ofDays(3650);
 
     private final TcClient tc;
     private final SessionCodec codec;
@@ -114,10 +113,11 @@ public class LoginController {
 
     /**
      * The session a login starts: a new TeamCity token replaces the one the browser's cookie carries for the same
-     * user, and the JIRA and GitHub tokens in it stay. Another user's cookie gives nothing.
+     * user, and the JIRA and GitHub tokens in it stay. Another user's cookie, or one a logout ended, gives nothing.
      */
     private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
-        return AuthInterceptor.cookie(http).flatMap(codec::decode).filter(s -> username.equals(s.username()))
+        return AuthInterceptor.cookie(http).flatMap(codec::decode)
+            .filter(s -> username.equals(s.username()) && !users.ended(s))
             .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token, null, null));
     }
 
@@ -137,10 +137,19 @@ public class LoginController {
         return min == 1 ? "a minute" : min + " minutes";
     }
 
+    /**
+     * Logs out: this browser's cookie goes, and with {@code everywhere}, as the Log out button asks, every session of
+     * the user issued until now ends, copies of this cookie included. The page asks for this browser only when
+     * TeamCity has refused the session's token: that ends no other session, which may run on another token.
+     */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout() {
+    public ResponseEntity<Void> logout(@RequestParam(defaultValue = "true") boolean everywhere,
+        @CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
+        if (everywhere)
+            codec.decode(cookie).ifPresent(s -> users.endSessions(s.username()));
+
         return ResponseEntity.noContent()
-            .header(HttpHeaders.SET_COOKIE, clearedCookie().toString())
+            .header(HttpHeaders.SET_COOKIE, SessionCookies.cleared(props.cookieSecure()).toString())
             .build();
     }
 
@@ -153,27 +162,19 @@ public class LoginController {
         SessionCodec.Session s = session.get();
         if (warmer.tokenRevoked(s.token()))
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED, "tokenRejected", true));
+        if (users.ended(s))
+            return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.ENDED, "sessionEnded", true));
 
         warmer.offerToken(s.token());
+        ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
+        if (SessionCookies.due(s, System.currentTimeMillis()))
+            ok.header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(s)).toString());
 
-        return ResponseEntity.ok(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null,
+        return ok.body(new UserResponse(s.username(), s.jiraToken() != null, s.ghToken() != null,
             admin.mayAdminister(s.username())));
     }
 
     private ResponseCookie sessionCookie(String value) {
-        // Persistent cookie so the browser keeps it across restarts; the session ends only at logout.
-        return baseCookie(value).maxAge(COOKIE_MAX_AGE).build();
-    }
-
-    private ResponseCookie clearedCookie() {
-        return baseCookie("").maxAge(0).build();
-    }
-
-    private ResponseCookie.ResponseCookieBuilder baseCookie(String value) {
-        return ResponseCookie.from(AuthInterceptor.COOKIE, value)
-            .httpOnly(true)
-            .secure(props.cookieSecure())
-            .sameSite("Lax")
-            .path("/");
+        return SessionCookies.issued(value, props.cookieSecure());
     }
 }

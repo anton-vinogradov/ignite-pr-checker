@@ -43,14 +43,15 @@ function paintLoginPr() {
         + `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">open #${esc(pr)} on GitHub</a>.`;
 }
 
-// A 401 is either the guard (no session) or TeamCity refusing the saved token. The second must say
-// why the user is suddenly at the login form, and end the session that still carries the dead token.
+// A 401 is the guard: no session, TeamCity refusing the saved token, or a logout that ended this session. The last
+// two must say why the user is suddenly at the login form. A refused token also ends the session that still carries
+// it, in this browser only: the user's other sessions may run on other tokens.
 async function loggedOut(r) {
     const body = r ? await r.json().catch(() => ({})) : {};
-    if (body.tokenRejected) {
-        await api('/api/logout', { method: 'POST' }).catch(() => {});
+    if (body.tokenRejected)
+        await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
+    if (body.tokenRejected || body.sessionEnded)
         $('loginErr').textContent = body.error;
-    }
     signedOut();
 }
 

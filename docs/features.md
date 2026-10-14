@@ -372,7 +372,8 @@ link your GitHub login; a GitHub token of your own is optional.
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form.
+  login form. **Log out** ends your login in every browser, copies of its cookie included; a login left unused for 400
+  days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

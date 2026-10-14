@@ -65,7 +65,7 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
 - **Users** log in with their own ci2 access token. It travels encrypted (AES-GCM) in an HttpOnly session cookie, and
   the runs a user starts or cancels on the page go under their account. For about an hour after a user's last request
   the server also holds the token in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
-  everyone. A login lasts until logout.
+  everyone. A login lasts until the user logs out, which ends it in every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token, the user's JIRA token for visas, and the user's GitHub token for PR comments and the checkstyle autofix.
 - **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it and writes as it: the
@@ -226,7 +226,8 @@ heap with the peak of its old generation, and the process's resident memory with
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
 | `problems.json` | Recent warnings and errors for the status page. |
-| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json`, `users.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters, and who used the service and when (names only, no tokens). Without them the service starts slower and the list of users starts over. |
+| `users.json` | Who used the service and when, and when each last logged out: the session cookies they had before stay refused. Names only, no tokens. |
+| `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
 | `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
 | `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |

@@ -108,10 +108,12 @@ class CookieReissueTest {
         return req;
     }
 
+    /** The session the answer's cookie carries; when it was issued is left out. */
     private SessionCodec.Session session(ResponseEntity<?> res) {
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         String setCookie = res.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        SessionCodec.Session s = codec.decode(HttpCookie.parse(setCookie).get(0).getValue()).orElseThrow();
 
-        return codec.decode(HttpCookie.parse(setCookie).get(0).getValue()).orElseThrow();
+        return new SessionCodec.Session(s.username(), s.token(), s.jiraToken(), s.ghToken());
     }
 }

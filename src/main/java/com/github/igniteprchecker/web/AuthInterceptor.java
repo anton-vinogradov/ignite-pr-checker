@@ -6,15 +6,20 @@ import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
  * Guards protected endpoints: resolves the session cookie and exposes the user's token as a request attribute.
- * A session whose TeamCity token TeamCity has since rejected (401) is refused: the cookie never expires, so
+ * A session whose TeamCity token TeamCity has since rejected (401) is refused: the session does not time out, so
  * otherwise a revoked token would keep working here for good. The refusal carries {@code tokenRejected}, as
- * {@link ApiExceptionHandler}'s does, so the page can tell it from a missing session and say why it logs out.
+ * {@link ApiExceptionHandler}'s does, so the page can tell it from a missing session and say why it logs out. A
+ * session issued before its user logged out is refused with {@code sessionEnded}. A cookie older than
+ * {@link SessionCookies#RENEW_AFTER} is issued again with the answer, so the browser keeps a login in use.
  */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
@@ -31,9 +36,14 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     static final String REVOKED = "TeamCity rejected your token — log in again";
 
+    static final String ENDED = "You logged out of the checker, here or in another browser — log in again";
+
     private final SessionCodec codec;
     private final Warmer warmer;
     private final StandingVisas standing;
+
+    @Value("${session.cookie-secure:false}")
+    private boolean cookieSecure;
 
     public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing) {
         this.users = users;
@@ -52,14 +62,17 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         if (warmer.tokenRevoked(session.get().token())) {
-            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            resp.setContentType("application/json");
-            resp.setCharacterEncoding("UTF-8");
-            resp.getWriter().write("{\"error\":\"" + REVOKED + "\",\"tokenRejected\":true}");
+            refuse(resp, "{\"error\":\"" + REVOKED + "\",\"tokenRejected\":true}");
+
+            return false;
+        }
+        if (users.ended(session.get())) {
+            refuse(resp, "{\"error\":\"" + ENDED + "\",\"sessionEnded\":true}");
 
             return false;
         }
 
+        renewIfDue(session.get(), resp);
         req.setAttribute(SESSION_ATTR, session.get());
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
@@ -76,7 +89,22 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     /** The session of a request to a public endpoint, if it carries one that would pass this guard. */
     public Optional<SessionCodec.Session> signedIn(HttpServletRequest req) {
-        return cookie(req).flatMap(codec::decode).filter(s -> !warmer.tokenRevoked(s.token()));
+        return cookie(req).flatMap(codec::decode).filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
+    }
+
+    /** Issues the session's cookie again when it is old enough; see {@link SessionCookies}. */
+    private void renewIfDue(SessionCodec.Session session, HttpServletResponse resp) {
+        if (SessionCookies.due(session, System.currentTimeMillis())) {
+            resp.addHeader(HttpHeaders.SET_COOKIE,
+                SessionCookies.issued(codec.encode(session), cookieSecure).toString());
+        }
+    }
+
+    private static void refuse(HttpServletResponse resp, String json) throws IOException {
+        resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        resp.setContentType("application/json");
+        resp.setCharacterEncoding("UTF-8");
+        resp.getWriter().write(json);
     }
 
     static Optional<String> cookie(HttpServletRequest req) {
