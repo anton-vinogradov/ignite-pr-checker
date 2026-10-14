@@ -26,6 +26,9 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String JIRA_ATTR = "jiraToken";
     public static final String GH_ATTR = "ghToken";
 
+    /** The whole session: what a re-issued cookie starts from, so the fields it does not change stay. */
+    public static final String SESSION_ATTR = "session";
+
     static final String REVOKED = "TeamCity rejected your token — log in again";
 
     private final SessionCodec codec;
@@ -57,6 +60,7 @@ public class AuthInterceptor implements HandlerInterceptor {
             return false;
         }
 
+        req.setAttribute(SESSION_ATTR, session.get());
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
         if (session.get().jiraToken() != null)
@@ -75,7 +79,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         return cookie(req).flatMap(codec::decode).filter(s -> !warmer.tokenRevoked(s.token()));
     }
 
-    private static Optional<String> cookie(HttpServletRequest req) {
+    static Optional<String> cookie(HttpServletRequest req) {
         if (req.getCookies() == null)
             return Optional.empty();
 
