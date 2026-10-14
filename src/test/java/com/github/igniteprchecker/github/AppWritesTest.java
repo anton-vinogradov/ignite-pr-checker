@@ -121,6 +121,21 @@ class AppWritesTest {
             .as("whose writes is not for anyone to see").containsExactly("PR 13800", "a user");
     }
 
+    /** A month of PRs: the counts of those not written to in the last hour go, and a busy one stays capped. */
+    @Test
+    void forgettingIdleCountsKeepsABusyPrCapped() {
+        AppWrites writes = new AppWrites();
+        for (int pr = 0; pr < 600; pr++)
+            writes.sent(pr, null, NOW);
+        for (int i = 0; i < AppWrites.PER_PR_HOUR; i++)
+            writes.sent(13800, null, NOW + 3000_000L);
+
+        writes.admit(1, null, NOW + 3600_001L);
+
+        assertThatThrownBy(() -> writes.admit(13800, null, NOW + 3600_001L))
+            .isInstanceOf(GithubClient.WriteDeferred.class);
+    }
+
     @Test
     void aWriteThatWorksClearsTheRefusalAndCounts() {
         GithubClient github = new GithubClient(new GithubProperties("apache/ignite", "app-token", 300), mapper,

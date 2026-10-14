@@ -32,7 +32,10 @@ final class AppWrites {
 
     private static final long HOUR_MS = 3600_000L;
 
-    /** Writes made in the last hour, by PR ("pr:N") and by user ("user:name"). */
+    /** Above this many PRs and users written for, those with no write in the last hour are forgotten. */
+    private static final int KEYS_KEPT = 500;
+
+    /** Writes made in the last hour, by PR ("PR:N") and by user ("user:name"). */
     private final Map<String, Deque<Long>> recent = new HashMap<>();
 
     /** Who ran into a cap, and when last. */
@@ -52,6 +55,8 @@ final class AppWrites {
     synchronized void admit(int pr, String user, long now) {
         if (now < pausedUntil)
             throw new GithubClient.WriteDeferred("GitHub asked the app account to wait until " + pausedUntil);
+        if (recent.size() > KEYS_KEPT)
+            recent.entrySet().removeIf(en -> en.getValue().isEmpty() || en.getValue().peekLast() <= now - HOUR_MS);
 
         for (String key : keys(pr, user)) {
             Deque<Long> times = recent.computeIfAbsent(key, k -> new ArrayDeque<>());

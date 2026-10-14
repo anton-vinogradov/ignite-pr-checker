@@ -778,7 +778,7 @@ public class StandingVisas implements SnapshotCache {
         return options(username).settlesRuns();
     }
 
-    /** The auto re-run wave currently settling a build — for external narrators (the command comment). */
+    /** The auto re-run wave currently settling a build — for external narrators (the story of a /run-all). */
     public Optional<WaveStatus> waveStatus(int pr, long buildId) {
         Retry r = waves.get(buildId);
         if (r == null || r.pr() != pr)
