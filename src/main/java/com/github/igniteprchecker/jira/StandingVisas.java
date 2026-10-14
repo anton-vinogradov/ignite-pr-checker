@@ -15,6 +15,7 @@ import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.session.SessionCodec;
+import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
@@ -1102,9 +1103,9 @@ public class StandingVisas implements SnapshotCache {
 
         TcModel.Build b;
         try {
-            b = asUser(who, () -> tc.triggerBuildReplacingQueued(tcToken.get(), ev.suite(), ev.pr(), true,
-                "Early re-run by Ignite PR Checker: this suite failed while RunAll " + ev.chainBuildId()
-                    + " is still running, settling it now rather than after the chain"));
+            b = asUser(who, () -> QueuedBelowTopException.queued(() -> tc.triggerBuildReplacingQueued(tcToken.get(),
+                ev.suite(), ev.pr(), true, "Early re-run by Ignite PR Checker: this suite failed while RunAll "
+                    + ev.chainBuildId() + " is still running, settling it now rather than after the chain")));
         }
         catch (RuntimeException ex) {
             // The wave counts only what was re-queued; the announcement a restart repeats may try this one again.
@@ -1123,7 +1124,7 @@ public class StandingVisas implements SnapshotCache {
 
             return new Retry(ev.pr(), id, 1, wave, List.of(wave), r != null ? r.note() : null, who, queued);
         });
-        log.info("early re-run of {} for PR {} queued at top (chain {} still running, build {})",
+        log.info("early re-run of {} for PR {} queued (chain {} still running, build {})",
             ev.suiteName(), ev.pr(), ev.chainBuildId(), b.id());
     }
 
@@ -1585,7 +1586,8 @@ public class StandingVisas implements SnapshotCache {
         RuntimeException failed = null;
         for (String suite : suites) {
             try {
-                TcModel.Build b = tc.triggerBuildReplacingQueued(tcToken, suite, pr, top, tcComment);
+                TcModel.Build b = QueuedBelowTopException.queued(
+                    () -> tc.triggerBuildReplacingQueued(tcToken, suite, pr, top, tcComment));
                 rerunTracker.record(pr, b);
                 queued.add(b.id());
             }

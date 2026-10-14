@@ -226,10 +226,11 @@ and the filtered-out noise.
   is a test in a suite, so a test fixed on Linux counts as fixed there while Windows still fails it.
 - **Run** and **Run at top** queue a new RunAll for the PR, at the end or at the top of the ci2 queue. They always ask
   first and say how big the chain is. If your own RunAll of the PR is still going, OK cancels it and queues the new
-  one; someone else's RunAll stays.
+  one; someone else's RunAll stays. ci2 lets only some accounts reorder its queue: for anyone else TeamCity queues the
+  chain at the end, and the page says so.
 - **Rerun** and **Rerun at top** re-run one suite, every suite of a section, or a group of broken suites; a section's
   buttons say how many suites. From 5 suites on they ask first. Your own identical re-run still in the queue is
-  replaced; someone else's stays.
+  replaced; someone else's stays. At the top works as for Run.
 - **The runs row** lists the PR's queued and running builds: how long each has waited or run, an estimate
   (`~14m left`, `starts ~5m`), a revision tag (`rev ✓ head`, `⚠ rev abc1234`, `rev @start`) and `by alice` for
   someone else's run. The same chips appear on the suites they re-run.
@@ -250,8 +251,9 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
   top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
-  systemic. Your own identical re-runs still in the queue are cancelled first; someone else's stay. A failed Build is
-  re-run alone; suites that failed to compile, and the suites a failed Build kept from running, are never re-run.
+  systemic. If ci2 does not let your account reorder its queue, the re-runs go to its end. Your own identical re-runs
+  still in the queue are cancelled first; someone else's stay. A failed Build is re-run alone; suites that failed to
+  compile, and the suites a failed Build kept from running, are never re-run.
 - **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
   newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
@@ -309,7 +311,7 @@ link your GitHub login; a GitHub token of your own is optional.
 | Command | What it does |
 |---|---|
 | `/run-all` (also `/runall`) | Queues the whole RunAll chain under your own TeamCity account. |
-| `/run-all top` (also `--top`) | The same, at the top of the ci2 queue. |
+| `/run-all top` (also `--top`) | The same, at the top of the ci2 queue; if ci2 does not let your account reorder the queue, at its end, and the ack says so. |
 | `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits. |
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.

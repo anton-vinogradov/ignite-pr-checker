@@ -6,6 +6,7 @@ import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.style.StyleFixService;
+import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -240,7 +241,14 @@ public class PrCommands implements SnapshotCache {
             String styleNote = pat && standing.styleFixOn(actor.get().username())
                 ? styleFix.fixForCommand(pr, actor.get(), c.user().login()) : null;
 
-            build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top()));
+            QueuedBelowTopException belowTop = null;
+            try {
+                build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), pr, cmd.top()));
+            }
+            catch (QueuedBelowTopException e) {
+                build = e.build();
+                belowTop = e;
+            }
             tracker.record(pr, build);
             endStoriesOf(user, pr, actor.get(), "\n🛑 _Superseded by "
                 + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._");
@@ -251,9 +259,11 @@ public class PrCommands implements SnapshotCache {
             String link = build.webUrl() == null || build.webUrl().isBlank()
                 ? "build " + buildId : "[build " + buildId + "](" + build.webUrl() + ")";
             String ack = (styleNote == null ? "" : styleNote + "\n\n")
-                + "🚀 **RunAll queued" + (cmd.top() ? " at the top of the queue" : "")
+                + "🚀 **RunAll queued"
+                + (belowTop != null ? ", but not at the top" : cmd.top() ? " at the top of the queue" : "")
                 + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/?pr=" + pr
                 + ")."
+                + (belowTop == null ? "" : " " + notMovedUp("it", belowTop.status()) + ".")
                 + superseded(chains, reruns)
                 + " When the run finishes, this comment links the verdict.";
 
@@ -273,7 +283,7 @@ public class PrCommands implements SnapshotCache {
             }
 
             log.info("/run-all by {} ({}): RunAll queued for PR {}{}{}", c.user().login(), actor.get().username(),
-                pr, cmd.top() ? " (top)" : "", pat ? "" : " (app-narrated)");
+                pr, belowTop != null ? " (top refused)" : cmd.top() ? " (top)" : "", pat ? "" : " (app-narrated)");
         }
         catch (Throwable e) {
             // Throwable: an Error escaping here once took the whole command poll down with it.
@@ -298,6 +308,12 @@ public class PrCommands implements SnapshotCache {
                 : " Your previous run was cancelled — this one supersedes it.";
 
         return reruns > 0 ? " The re-runs of your previous run were cancelled — this one supersedes it." : "";
+    }
+
+    /** Why TeamCity did not move {@code what} up the queue, in words: ci2 lets only some accounts reorder it. */
+    private static String notMovedUp(String what, int status) {
+        return "TeamCity refused to move " + what + " up (HTTP " + status + ")"
+            + (status == 403 ? ": your ci2 account may not have the permission to reorder the build queue" : "");
     }
 
     /** Why a call failed, in a few words a commander can act on. */
@@ -441,11 +457,24 @@ public class PrCommands implements SnapshotCache {
                 return;
             }
 
-            standing.asUser(actor.username(), () -> {
-                tc.moveToQueueTop(actor.tcToken(), run.buildId());
+            try {
+                standing.asUser(actor.username(), () -> {
+                    tc.moveToQueueTop(actor.tcToken(), run.buildId());
 
-                return null;
-            });
+                    return null;
+                });
+            }
+            catch (RestClientResponseException e) {
+                if (e.getStatusCode().value() != 403)
+                    throw e;
+
+                react(actor, c.id(), "confused");
+                explain(actor, c, pr, "⬆️ _Nothing moved: " + notMovedUp("build " + run.buildId(), 403) + "._");
+                log.info("/top by {} for PR {}: TeamCity refused to move build {} up (403)", c.user().login(), pr,
+                    run.buildId());
+
+                return;
+            }
             handledTotal.incrementAndGet();
             react(actor, c.id(), "rocket");
             if (actor.ghToken() != null)

@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
@@ -11,6 +12,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,9 +58,9 @@ public class TriggerController {
             ? tc.cancelOwnBuilds(token, pr, username, b -> runAllBuildType.equals(b.buildTypeId()))
             : 0;
 
-        TcModel.Build queued;
+        Map<String, Object> queued;
         try {
-            queued = tc.triggerRunAll(token, pr, top);
+            queued = queued(pr, () -> tc.triggerRunAll(token, pr, top));
         }
         catch (RuntimeException e) {
             if (replaced == 0)
@@ -67,7 +69,7 @@ public class TriggerController {
             throw new ReplacementNotQueuedException(replaced, e);
         }
 
-        return ResponseEntity.ok(Map.of("triggered", List.of(brief(track(pr, queued))), "replaced", replaced));
+        return ResponseEntity.ok(Map.of("triggered", List.of(queued), "replaced", replaced));
     }
 
     /** Re-run only the suites that contain the current blockers. */
@@ -88,7 +90,7 @@ public class TriggerController {
             return ResponseEntity.badRequest().body(Map.of("error", "no blocker suites to re-run"));
 
         List<Map<String, Object>> triggered = suites.stream()
-            .map(suite -> brief(track(pr, tc.triggerBuild(token, suite, pr, top))))
+            .map(suite -> queued(pr, () -> tc.triggerBuild(token, suite, pr, top)))
             .toList();
 
         return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -106,7 +108,7 @@ public class TriggerController {
             return ResponseEntity.badRequest().body(Map.of("error", "no suites to re-run"));
 
         List<Map<String, Object>> triggered = ids.stream()
-            .map(suite -> brief(track(pr, tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top))))
+            .map(suite -> queued(pr, () -> tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top)))
             .toList();
 
         return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -122,7 +124,7 @@ public class TriggerController {
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
         return ResponseEntity.ok(Map.of("triggered",
-            List.of(brief(track(pr, tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top))))));
+            List.of(queued(pr, () -> tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top)))));
     }
 
     /** Tool-triggered builds that are still queued/running (public; feeds the live suite chips). */
@@ -206,6 +208,23 @@ public class TriggerController {
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         return ResponseEntity.ok(Map.of("cancelled",
             tc.cancelOwnBuilds(token, pr, username, b -> ids == null || ids.contains(b.id()))));
+    }
+
+    /**
+     * Queues a build and describes it for the page, tracked. {@code belowTop}: TeamCity queued it but did not move it to
+     * the top of the queue, as asked; {@code topRefusal} is the HTTP status it answered with.
+     */
+    private Map<String, Object> queued(int pr, Supplier<TcModel.Build> trigger) {
+        try {
+            return brief(track(pr, trigger.get()));
+        }
+        catch (QueuedBelowTopException e) {
+            Map<String, Object> m = brief(track(pr, e.build()));
+            m.put("belowTop", true);
+            m.put("topRefusal", e.status());
+
+            return m;
+        }
     }
 
     /** Registers a queued/running build with the rerun tracker, passing the build through. */

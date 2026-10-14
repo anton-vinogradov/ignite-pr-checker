@@ -252,11 +252,23 @@ async function rerunSuites(suites, top, btn) {
         if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
         const links = (res.triggered || [])
             .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
-        $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links;
+        $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links
+            + belowTopNote(res.triggered);
         loadRuns(pr);
     } finally {
         btn.disabled = false;
     }
+}
+
+// TeamCity queues a build before it moves it to the top, and ci2 lets only some accounts reorder the queue: a refused
+// move leaves the build queued at the end, and the server marks it so.
+function belowTopNote(triggered) {
+    const all = triggered || [], below = all.filter(b => b.belowTop);
+    if (!below.length) return '';
+    const status = below[0].topRefusal;
+    return ` — ${below.length === all.length ? '' : below.length + ' of them '}at the end of the queue, not the top: `
+        + `TeamCity refused to move ${below.length === 1 ? 'it' : 'them'} up (HTTP ${esc(status)})`
+        + (status === 403 ? '; your ci2 account may not have the permission to reorder the queue' : '') + '.';
 }
 
 // Wires a section's Rerun / Rerun at top buttons to re-run that section's distinct suites, saying how
@@ -1596,7 +1608,7 @@ async function doTrigger(act, top, btn) {
         const links = (res.triggered || [])
             .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
         $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links
-            + (res.replaced ? ' — cancelled your previous RunAll' : '');
+            + (res.replaced ? ' — cancelled your previous RunAll' : '') + belowTopNote(res.triggered);
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -1661,6 +1673,7 @@ async function rerunSuite(suite, top, btn) {
         const b = (res.triggered || [])[0];
         $('status').innerHTML = b
             ? `Queued #${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`
+                + belowTopNote(res.triggered)
             : 'Queued.';
         loadRuns(pr);
     } finally {
