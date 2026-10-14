@@ -244,7 +244,8 @@ and the filtered-out noise.
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
 `/run-all` comment, or in TeamCity. An option does not reach back: runs that finished before it was switched on are
-left alone. Each stores the tokens it needs, encrypted, while it is on.
+left alone. While any of them is on, the server stores your TeamCity token, encrypted, and each also stores the JIRA or
+GitHub token it needs while it is on.
 
 - **Auto re-run failed suites on my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
   suites, and also the suites TeamCity cancelled by itself, not those a person cancelled. A suite that fails while the
@@ -265,17 +266,18 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
-  the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses the
-  same GitHub token and works on a PR with up to 50 changed Java files; a file over 400 KB, or past 5 MB in all, is
-  not checked. It never touches anyone else's PR and never force-pushes. It runs only from a command, so it switches
-  on only with **PR commands** on and goes off with them.
+  the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses your
+  GitHub token, as the PR comment does, and works on a PR with up to 50 changed Java files; a file over 400 KB, or
+  past 5 MB in all, is not checked. It never touches anyone else's PR and never force-pushes. It runs only from a
+  command, so it switches on only with **PR commands** on and goes off with them.
 - **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes of
   the PR in no test suite, each goes next to the class of its module nearest to it: a class of the same package first,
   else one of the longest package in common, then the longest start of the name in common; when several suites list a
   class as near, the one with more such classes wins. One commit from your account lists the new class in that class's
   suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a package near the
   new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment in the PR says
-  what went where and why, then what Ignite's check says of the commit. It uses the same GitHub token.
+  what went where and why, then what Ignite's check says of the commit. It uses your GitHub token, as the PR comment
+  and the autofix do.
 - **A token that stops working.** When GitHub or JIRA refuses a stored token itself, the checker drops it and switches
   off the options that need it; the panel says which token to replace. A rate limit, an outage or a ticket you may not
   comment on keeps the token, and the visa or the PR comment is tried again at the next sweeps. A visa or PR comment
@@ -320,8 +322,8 @@ link your GitHub login; a GitHub token of your own is optional.
 - 🚀 means accepted, 😕 refused. Then comes the story of the run: the queued build, then
   `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with every change, and in
   UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or more.
-- When the checker holds your GitHub token (for the PR comment or the autofix), the reactions come from your account
-  and the story is written into your command comment. Otherwise both come from the app account, the story in a
+- When the checker holds your GitHub token (for the PR comment, the autofix or tests to suites), the reactions come
+  from your account and the story is written into your command comment. Otherwise both come from the app account, the story in a
   comment of its own.
 - After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`)
   and ends with `🏁 Run finished — see the verdict`, a link to your verdict comment or to the checker's page. If the

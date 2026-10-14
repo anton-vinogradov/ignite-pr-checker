@@ -65,7 +65,8 @@ install -d -o prc  -g prc  -m 750 "$APP_DIR/logs"
 install -d -o root -g prc  -m 750 "$ETC_DIR"
 
 # 3. config (created once; never overwritten on update). Users log in with their own TeamCity
-# token via the web UI; these are the instance's settings plus the session-cookie secret.
+# token via the web UI; these are the instance's settings plus SESSION_SECRET, which encrypts the session
+# cookies and every token the service stores.
 if [ ! -f "$ETC_DIR/env" ]; then
     log "writing config template at $ETC_DIR/env"
     cat > "$ETC_DIR/env" <<'ENV'
@@ -82,8 +83,9 @@ SERVER_ADDRESS=127.0.0.1
 SESSION_COOKIE_SECURE=true
 # Token of the GitHub account the checker acts as: it lists the PRs and reads their comments for /run-all commands,
 # and posts the replies, run narration and reactions. A classic token with the public_repo scope, of an account with
-# no rights in apache/*. Without it nothing is posted under the checker's own account and GitHub is read at most 60
-# times an hour; what users who linked their own GitHub token post through the checker still goes out under their names.
+# no rights in apache/*. Without it nothing is posted under the checker's own account, and GitHub answers the service
+# at most 60 calls an hour, which the PR command poll alone uses up while anyone has PR commands on; what users who
+# linked their own GitHub token post through the checker still goes out under their names.
 #GITHUB_TOKEN=
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
 # and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
@@ -101,7 +103,7 @@ SESSION_COOKIE_SECURE=true
 #JAVA_OPTS=
 ENV
 fi
-# Ensure a stable session secret exists (so logins survive restarts/updates). Generated once.
+# Ensure a stable session secret exists (so logins and the stored tokens survive restarts/updates). Generated once.
 if ! grep -q '^SESSION_SECRET=' "$ETC_DIR/env"; then
     log "generating SESSION_SECRET"
     printf 'SESSION_SECRET=%s\n' "$(head -c 32 /dev/urandom | base64)" >> "$ETC_DIR/env"

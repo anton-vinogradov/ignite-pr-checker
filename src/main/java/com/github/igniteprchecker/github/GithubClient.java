@@ -870,8 +870,9 @@ public class GithubClient implements SnapshotCache {
         appAccountCheckedAt = System.currentTimeMillis();
         if (props.token() == null || props.token().isBlank()) {
             appAccount = new AppAccount(AppAccount.NONE, null, null);
-            log.info("no GITHUB_TOKEN: the checker reads GitHub at 60 requests an hour and writes nothing there; "
-                + "commands of users without their own GitHub token get no reaction and no narration");
+            log.info("no GITHUB_TOKEN: GitHub answers at most 60 calls an hour, which the PR command poll alone uses "
+                + "up while anyone has PR commands on, and nothing is written as the app account: commands of users "
+                + "without their own GitHub token get no reaction and no narration");
 
             return;
         }

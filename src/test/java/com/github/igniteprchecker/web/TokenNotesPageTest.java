@@ -28,7 +28,8 @@ class TokenNotesPageTest {
                 + "the server also holds it in memory and uses it only to read from TeamCity, to pre-analyse open PRs "
                 + "for everyone.")
             .contains("Turn on an option in ⚙ and the server stores the token encrypted until you turn the options "
-                + "off. With any option other than PR commands on, it also keeps doing those reads.");
+                + "off; copies stay in the server's backups until they rotate out. With any option other than PR "
+                + "commands on, it also keeps doing those reads.");
         assertThat(new WarmProperties(null, null, null, null).tokenTtlMinutes()).as("about an hour").isEqualTo(60);
     }
 
@@ -65,7 +66,8 @@ class TokenNotesPageTest {
                 shown: !page.el('jiraPanel').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("visa").asText()).isEqualTo("It stays in your session cookie only, encrypted.");
+        assertThat(out.get("visa").asText()).isEqualTo("It goes into your session cookie, encrypted. While Auto-visa "
+            + "all my runs is on in ⚙, your next change there also stores it on the server.");
         assertThat(out.get("auto").asText()).isEqualTo("It goes into your session cookie, encrypted, and the server "
             + "stores it encrypted until this visa is posted.");
         assertThat(out.get("shown").asBoolean()).isTrue();

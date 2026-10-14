@@ -2095,12 +2095,15 @@ let lastIssueKey = '';
 
 let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
 
-// Where the JIRA PAT ends up depends on what it is pasted for: a visa posted now needs the session alone. The
-// settings panel, where it is pasted for the standing auto-visa, says its own.
+// Where the JIRA PAT ends up depends on what it is pasted for: a visa posted now needs the session alone, yet a change
+// in ⚙ stores the session's PAT for the standing auto-visa. The settings panel, where it is pasted for that, says its own.
+const JIRA_KEPT_FOR_VISA = 'It goes into your session cookie, encrypted. While Auto-visa all my runs is on in ⚙, '
+    + 'your next change there also stores it on the server.';
+
 function jiraKeptNote(action) {
     return action === 'auto'
         ? 'It goes into your session cookie, encrypted, and the server stores it encrypted until this visa is posted.'
-        : 'It stays in your session cookie only, encrypted.';
+        : JIRA_KEPT_FOR_VISA;
 }
 
 async function postVisa() {
@@ -2328,6 +2331,10 @@ async function askForToken(need, option) {
     }
 }
 
+// What the server drops when every option goes off, and what it does not: its backups and this browser's cookie.
+const ALL_OFF = 'All off — the server no longer stores your tokens; copies in its backups go as the backups rotate, '
+    + 'and your session cookie keeps the ones you pasted until you log out.';
+
 // The checkstyle autofix runs only from a PR command, so it goes on only with PR commands and off with them.
 const AUTOFIX_NEEDS_COMMANDS = 'Auto-fix checkstyle runs only from a PR command: switch on PR commands first.';
 
@@ -2371,7 +2378,7 @@ async function setOption(name, on) {
         const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
             res.style && 'checkstyle autofix', res.commands && 'PR commands', res.suites && 'tests to suites']
             .filter(Boolean);
-        msg.textContent = (active.length ? 'On: ' + active.join(' · ') + '.' : 'All off — stored tokens removed.')
+        msg.textContent = (active.length ? 'On: ' + active.join(' · ') + '.' : ALL_OFF)
             + (before.style && !res.style && name === 'commands'
                 ? ' Auto-fix checkstyle went off with PR commands: it runs only from a command.' : '');
     } catch (e) {

@@ -29,8 +29,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * Thin wrapper over the TeamCity REST API. Stateless with respect to auth: every call takes the
- * caller's personal token, so requests run with that user's TeamCity permissions.
+ * Thin wrapper over the TeamCity REST API. Stateless with respect to auth: every call takes a user's personal
+ * token and runs with that user's TeamCity permissions. What a user does goes under their own token; background
+ * reads (warming, run states, the standing options' lookups) borrow other users' tokens and only read with them.
  *
  * <p>Query values are percent-encoded by hand as a precaution: the TeamCity WAF rejects some raw
  * characters (e.g. {@code [}/{@code ]}) in the URL. Locators here use numeric ids to avoid them.

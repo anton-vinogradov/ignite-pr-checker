@@ -457,7 +457,7 @@ public class StandingVisas implements SnapshotCache {
         if (username == null)
             return;
 
-        // The two options that need this token go off with it. Leaving them checked would promise
+        // The options that need this token go off with it. Leaving them checked would promise
         // work the checker can no longer do — the point of the switch is that it means something.
         boolean dropped = changed(username, e -> e.gh().token() == null ? e
             : e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh()));

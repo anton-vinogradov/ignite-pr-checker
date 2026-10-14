@@ -24,9 +24,9 @@ class RunAllStoryPlaceTest {
 
         assertThat(caption).doesNotContain("the command comment then narrates the run")
             .contains("a comment in the PR then narrates the run.")
-            .contains("While the server holds my GitHub token (for the PR comment or the checkstyle autofix), the "
-                + "reactions come from my own account and the story is written into my command comment; otherwise "
-                + "the checker's own account reacts and tells the story in a comment of its own.");
+            .contains("While the server holds my GitHub token (for the PR comment, the checkstyle autofix or tests to "
+                + "suites), the reactions come from my own account and the story is written into my command comment; "
+                + "otherwise the checker's own account reacts and tells the story in a comment of its own.");
     }
 
     @Test
