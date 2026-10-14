@@ -99,14 +99,14 @@ class OneCommentPerRunTest {
             .thenThrow(new GithubClient.WriteDeferred("PR 13440 had 40 writes of the app account in the last hour"))
             .thenReturn(new GithubClient.PostedComment(79L, PR_URL + "#c79"));
         command();
-        settled(() -> standing.buildHandled("author", PR, CHAIN));
+        settled(() -> standing.buildHandled("author", PR, CHAIN) && standing.verdictCommentDue("author", PR, CHAIN));
 
         commands.updateEtas();
 
         verify(github, never()).appComment(eq(PR), any(), contains("the verdict of your `/run-all` is ready"));
         verify(github, never()).appDelete(anyInt(), any(), anyLong());
 
-        settled(() -> standing.verdictCommentId("author", PR, CHAIN).isPresent());
+        settled(this::verdictLanded);
         commands.updateEtas();
 
         verify(github).appDelete(PR, "author", 77L);
@@ -121,7 +121,7 @@ class OneCommentPerRunTest {
         when(github.commentBody(79L)).thenReturn(Optional.of(VERDICT + "(https://checker.example/?pr=13440)** verdict"
             + " · RunAll build [9400000]\n"));
         command();
-        settled(() -> standing.verdictCommentId("author", PR, CHAIN).isPresent());
+        settled(this::verdictLanded);
 
         commands.updateEtas();
 
@@ -135,6 +135,12 @@ class OneCommentPerRunTest {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             PR_URL + "#issuecomment-1", Instant.now().toString(), GhUsers.of("Author"))));
         commands.poll();
+    }
+
+    /** The settle thread marks the run handled and records its verdict comment as two steps: the story needs both. */
+    private boolean verdictLanded() {
+        return standing.buildHandled("author", PR, CHAIN) && standing.verdictCommentId("author", PR, CHAIN).isPresent()
+            && !standing.verdictCommentDue("author", PR, CHAIN);
     }
 
     /** Settles the PR on the settle thread, and waits for {@code done}. */
