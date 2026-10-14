@@ -98,7 +98,7 @@ const routes = [];
 const fetches = [];
 async function fakeFetch(url, opts = {}) {
     const method = (opts.method || 'GET').toUpperCase();
-    fetches.push({ url, method });
+    fetches.push({ url, method, body: opts.body });
     const route = routes.filter(r => url.startsWith(r.prefix) && (!r.method || r.method === method))
         .sort((a, b) => b.prefix.length - a.prefix.length)[0];
     let answer = route ? route.answer : { status: 404, body: {} };

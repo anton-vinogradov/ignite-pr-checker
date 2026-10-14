@@ -63,7 +63,7 @@ class OnboardingTest {
 
     @BeforeEach
     void setUp() {
-        standing.linkGhLogin("avinogradov", "tc", "anton-vinogradov"); // someone has to have commands on
+        standing.linkGhLogin("avinogradov", "tc", GhUsers.of("anton-vinogradov")); // someone has to have commands on
         when(github.recentIssueComments(anyString())).thenAnswer(inv -> {
             List<GithubClient.IssueComment> batch = List.copyOf(comments);
             comments.clear();
@@ -86,10 +86,10 @@ class OnboardingTest {
     /** The checker knows their login from the GitHub token, yet they never switched commands on. */
     @Test
     void someoneWithOtherOptionsButCommandsOffIsToldHowToSwitchThemOn() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("NSAmelchev"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("NSAmelchev")));
         standing.change("nsamelchev", "tc-2", null, "gh-pat",
             new StandingVisas.OptionChange(null, null, true, null, null));
-        assertThat(standing.actorByGhLogin("NSAmelchev")).isPresent();
+        assertThat(standing.actorByGhUser(GhUsers.of("NSAmelchev"))).isPresent();
 
         command(13701, "NSAmelchev");
 
@@ -137,7 +137,7 @@ class OnboardingTest {
         long id = nextId++;
         comments.add(new GithubClient.IssueComment(id, "/run-all",
             "https://github.com/apache/ignite/pull/" + pr + "#issuecomment-" + id, Instant.now().toString(),
-            new GithubClient.GhUser(login)));
+            GhUsers.of(login)));
         commands.poll();
     }
 

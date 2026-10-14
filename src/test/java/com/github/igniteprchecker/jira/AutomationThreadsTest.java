@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -75,7 +76,7 @@ class AutomationThreadsTest {
                 beans.get("visaPosterExecutor"));
 
             StandingVisas standing = context.getBean(StandingVisas.class);
-            when(github.ghUser("gh-pat")).thenReturn(Optional.of("alice-gh"));
+            when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("alice-gh")));
             standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, true, true, false, null));
             when(tc.buildTriggeredBy(anyString(), anyLong())).thenAnswer(inv -> ran("early re-run", Optional.empty()));
             when(github.openPrs()).thenReturn(List.of());

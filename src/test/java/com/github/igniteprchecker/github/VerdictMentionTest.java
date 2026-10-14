@@ -59,7 +59,7 @@ class VerdictMentionTest {
 
     @Test
     void aCommanderWithoutATokenIsMentionedOnceTheVerdictIsReady() {
-        standing.linkGhLogin("newcomer", "tc", "Newcomer");
+        standing.linkGhLogin("newcomer", "tc", GhUsers.of("Newcomer"));
         when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         command("Newcomer");
@@ -74,7 +74,7 @@ class VerdictMentionTest {
 
     @Test
     void aCommanderWhoseOwnTokenTellsTheStoryGetsNoSecondComment() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, false, true, true));
         command("Author");
         when(tc.getBuildState("tc", CHAIN)).thenReturn(build("finished", "FAILURE"));
@@ -86,7 +86,7 @@ class VerdictMentionTest {
 
     @Test
     void aCancelledRunIsNoVerdict() {
-        standing.linkGhLogin("newcomer", "tc", "Newcomer");
+        standing.linkGhLogin("newcomer", "tc", GhUsers.of("Newcomer"));
         when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         command("Newcomer");
@@ -101,7 +101,7 @@ class VerdictMentionTest {
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(build("queued", null));
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser(login))));
+            GhUsers.of(login))));
         commands.poll();
     }
 

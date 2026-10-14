@@ -71,9 +71,9 @@ class CommandHintsTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
-        standing.linkGhLogin("newcomer", "tc-2", "Newcomer");
+        standing.linkGhLogin("newcomer", "tc-2", GhUsers.of("Newcomer"));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(build("queued"));
         when(github.addPrCommentAsApp(anyInt(), anyString())).thenReturn(true);
     }
@@ -130,7 +130,7 @@ class CommandHintsTest {
     /** A user who has the checker comment their verdicts, but no PR commands, uses no commands to hint at. */
     @Test
     void aUserWithoutPrCommandsGetsNoHint() {
-        when(github.ghUser("reviewer-pat")).thenReturn(Optional.of("Reviewer"));
+        when(github.ghIdentity("reviewer-pat")).thenReturn(Optional.of(GhUsers.of("Reviewer")));
         standing.change("reviewer", "tc-3", null, "reviewer-pat",
             new StandingVisas.OptionChange(false, false, true, false, false));
 
@@ -254,7 +254,7 @@ class CommandHintsTest {
 
     private void comment(long id, String body, String login, Instant createdAt) {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(id, body,
-            PR_URL + "#issuecomment-" + id, createdAt.toString(), new GithubClient.GhUser(login))));
+            PR_URL + "#issuecomment-" + id, createdAt.toString(), GhUsers.of(login))));
         commands.poll();
     }
 

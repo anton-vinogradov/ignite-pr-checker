@@ -102,7 +102,7 @@ class PatRefusalRuleTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat",
             new StandingVisas.OptionChange(false, false, true, false, true));
     }
@@ -111,7 +111,7 @@ class PatRefusalRuleTest {
     void aRateLimitedEditKeepsTheToken() {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser("Author"))));
+            GhUsers.of("Author"))));
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(CHAIN, null, "queued", "pull/13800/head",
             null, null, null, null, null, null, null, null, null, null, null, null, null, null));
         doThrow(RATE_LIMITED).when(github).updatePrComment(eq("gh-pat"), eq(1L), anyString());
@@ -135,9 +135,10 @@ class PatRefusalRuleTest {
         server.expect(requestTo("https://api.github.com/user")).andRespond(withStatus(HttpStatus.FORBIDDEN));
         server.expect(requestTo("https://api.github.com/user")).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
 
-        assertThat(client.ghUser("dead-pat")).isEmpty();
-        assertThatThrownBy(() -> client.ghUser("pat")).isInstanceOf(HttpClientErrorException.Forbidden.class);
-        assertThatThrownBy(() -> client.ghUser("pat")).isInstanceOf(HttpServerErrorException.ServiceUnavailable.class);
+        assertThat(client.ghIdentity("dead-pat")).isEmpty();
+        assertThatThrownBy(() -> client.ghIdentity("pat")).isInstanceOf(HttpClientErrorException.Forbidden.class);
+        assertThatThrownBy(() -> client.ghIdentity("pat"))
+            .isInstanceOf(HttpServerErrorException.ServiceUnavailable.class);
     }
 
     /** The autofix commits under the author's own token: GitHub refusing it drops it, as everywhere else. */

@@ -60,7 +60,7 @@ class CommandTokenRefusedTest {
     void setUp() {
         standing.change("nsamelchev", "expired-tc", null, null,
             new StandingVisas.OptionChange(false, true, false, false, null));
-        standing.linkGhLogin("nsamelchev", "expired-tc", "NSAmelchev");
+        standing.linkGhLogin("nsamelchev", "expired-tc", GhUsers.of("NSAmelchev"));
         when(tc.cancelOwnRunAllChains(eq("expired-tc"), eq(PR), anyString())).thenThrow(
             HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", HttpHeaders.EMPTY, new byte[0],
                 null));
@@ -101,6 +101,6 @@ class CommandTokenRefusedTest {
 
     private static GithubClient.IssueComment runAll(long id) {
         return new GithubClient.IssueComment(id, "/run-all", "https://github.com/apache/ignite/pull/13335#issuecomment-"
-            + id, Instant.now().toString(), new GithubClient.GhUser("NSAmelchev"));
+            + id, Instant.now().toString(), GhUsers.of("NSAmelchev"));
     }
 }

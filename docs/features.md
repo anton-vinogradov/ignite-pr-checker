@@ -261,8 +261,12 @@ GitHub token it needs while it is on.
 - **Comment my runs' verdicts on the GitHub PR** posts the same verdict as a comment from your own GitHub account,
   once per run, after the re-runs settle. Needs a classic GitHub token with the `public_repo` scope.
 - **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
-  your GitHub login and your TeamCity token; on its own, it lends the token to no background work. Linking your
-  GitHub login switches it on.
+  your GitHub login, your GitHub account's id and your TeamCity token; on its own, it lends the token to no background
+  work. Proving your GitHub login switches it on: paste a GitHub token with no scopes once, and the checker asks
+  GitHub whose account it is, keeps the login and the id, and forgets the token. A GitHub token you saved for the PR
+  comment, the autofix or tests to suites proves it as well. A comment is your command only when it comes from that
+  account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked. A
+  login an earlier version took as typed runs no command until you prove it, and ⚙ says so.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names
@@ -309,7 +313,7 @@ GitHub token it needs while it is on.
 ## Working from the PR (commands)
 
 The whole cycle, from the start to the verdict, can happen in the pull request. Switch on **PR commands** in ⚙ and
-link your GitHub login; a GitHub token of your own is optional.
+prove your GitHub login with a token that has no scopes; a GitHub token kept on the server is optional.
 
 | Command | What it does |
 |---|---|

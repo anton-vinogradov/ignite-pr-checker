@@ -46,7 +46,7 @@ class AutomationOffPollTest {
 
     @BeforeEach
     void commandsOn() {
-        standing.linkGhLogin("nsamelchev", "tc", "NSAmelchev");
+        standing.linkGhLogin("nsamelchev", "tc", GhUsers.of("NSAmelchev"));
     }
 
     @Test

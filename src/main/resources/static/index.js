@@ -2286,14 +2286,22 @@ function renderSettings(st) {
     $('ghSaved').classList.toggle('hidden', !(st.gh && st.ghStored && !hasGithub));
     $('styleSaved').classList.toggle('hidden', !(st.style && st.ghStored && !hasGithub));
     $('suitesSaved').classList.toggle('hidden', !(st.suites && st.ghStored && !hasGithub));
-    // A login that comes from the GitHub token is proven by it; a typed one could not replace it.
-    const proven = !!(st.login && st.ghStored);
-    $('ghLoginInput').value = st.login || '';
-    $('ghLoginInput').readOnly = proven;
-    $('ghLoginSave').classList.toggle('hidden', proven);
-    $('ghLoginMsg').textContent = proven ? 'from your GitHub token' : '';
-    $('settingsLogin').classList.toggle('hidden', !st.commands && pendingOption !== 'commands');
+    renderLogin(st);
     showTokenNotes(st);
+}
+
+// PR commands act on the comments of the GitHub account a token proved: the saved GitHub token, or one pasted once.
+// A login typed in by hand, as earlier versions took it, could be anyone's, so its commands wait for the proof.
+function renderLogin(st) {
+    const proven = !!st.login && !st.loginUnproven;
+    $('ghLoginState').textContent = proven
+        ? 'GitHub login: @' + st.login + (st.ghStored ? ', proven by your saved GitHub token.' : ', proven.') : '';
+    $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
+    $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' was typed in by hand and never '
+        + 'proven, so your PR commands do nothing until a token of that account proves it below.' : '';
+    $('ghLoginProof').classList.toggle('hidden', proven);
+    $('ghLoginMsg').textContent = '';
+    $('settingsLogin').classList.toggle('hidden', !st.commands && !st.loginUnproven && pendingOption !== 'commands');
 }
 
 // A token the service refused takes its options down with it, so the panel must show the
@@ -2308,7 +2316,7 @@ function showTokenNotes(st) {
 
 function tokenAvailable(need) {
     const st = standingSettings || {};
-    if (need === 'login') return !!st.login;
+    if (need === 'login') return !!st.login && !st.loginUnproven;
     return need === 'jira' ? hasJira || !!st.jiraStored : need === 'github' ? hasGithub || !!st.ghStored : true;
 }
 
@@ -2316,8 +2324,9 @@ async function askForToken(need, option) {
     pendingOption = option;
     if (need === 'login') {
         $('settingsLogin').classList.remove('hidden');
-        $('ghLoginMsg').textContent = 'enter your GitHub login and press Link';
-        $('ghLoginInput').focus();
+        $('ghLoginProof').classList.remove('hidden');
+        $('ghLoginMsg').textContent = 'paste a token with no scopes and press Prove';
+        $('ghLoginToken').focus();
     } else if (need === 'jira') {
         $('settingsJira').classList.remove('hidden');
         try {
@@ -2427,25 +2436,26 @@ $('settingsJiraSave').onclick = async () => {
     }
 };
 
-// Linking the login is what switches PR commands on.
+// Proving the login is what switches PR commands on. The token goes to the server once and stays nowhere, the input
+// field included; a 401 here is GitHub refusing it, as with the GitHub token below.
 $('ghLoginSave').onclick = async () => {
-    const input = $('ghLoginInput'), m = $('ghLoginMsg');
-    const login = input.value.trim();
-    if (!login) { m.textContent = 'enter the login first'; return; }
-    m.textContent = 'checking with GitHub…';
+    const input = $('ghLoginToken'), m = $('ghLoginMsg');
+    const token = input.value.trim();
+    input.value = '';
+    if (!token) { m.textContent = 'paste the token first'; return; }
+    m.textContent = 'asking GitHub whose token it is…';
     try {
         const r = await api('/api/github-login' + zoneParam('?'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: login })
+            body: JSON.stringify({ token })
         });
-        if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { m.textContent = res.error || 'could not link'; return; }
+        if (!r.ok) { m.textContent = res.error || 'could not prove the login'; return; }
         pendingOption = null;
         renderSettings(res);
-        m.textContent = '';
-        $('settingsMsg').textContent = 'Linked as @' + res.login + ' — PR commands are on.';
+        $('settingsMsg').textContent = 'Proven: @' + res.login + ' — PR commands are on. You may delete the token on '
+            + 'GitHub now.';
     } catch (e) {
         m.textContent = 'could not reach the service — try again';
     }

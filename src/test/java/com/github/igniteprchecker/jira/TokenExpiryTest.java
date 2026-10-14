@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -37,7 +38,7 @@ class TokenExpiryTest {
         mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
     private void enrolWithEverything() {
-        when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself(anyString())).thenReturn(Optional.of(USER));
         standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, true, true));
     }
@@ -100,8 +101,8 @@ class TokenExpiryTest {
     @Test
     void aTokenGithubCannotNameIsNotStoredAndCostsNoLogin() {
         standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
-        standing.linkGhLogin(USER, "tc", "anton-vinogradov");
-        when(github.ghUser(anyString())).thenReturn(Optional.empty()); // expired PAT from the session
+        standing.linkGhLogin(USER, "tc", GhUsers.of("anton-vinogradov"));
+        when(github.ghIdentity(anyString())).thenReturn(Optional.empty()); // expired PAT from the session
 
         Optional<StandingVisas.Refusal> refused =
             standing.change(USER, "tc", null, "dead-gh-pat",

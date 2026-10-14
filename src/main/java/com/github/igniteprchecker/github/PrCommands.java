@@ -210,7 +210,7 @@ public class PrCommands implements SnapshotCache {
         }
 
         int pr = Integer.parseInt(m.group(1));
-        Optional<StandingVisas.GhActor> actor = standing.actorByGhLogin(c.user().login());
+        Optional<StandingVisas.GhActor> actor = standing.actorByGhUser(c.user());
         if (actor.isEmpty() || !standing.commandsOn(actor.get().username())) {
             onboard(pr, c.id(), c.user().login(), cmd.name());
 
@@ -332,7 +332,7 @@ public class PrCommands implements SnapshotCache {
         if (hinted.containsKey(c.id()) || writtenBefore(c, now - COMMAND_MAX_AGE_MS))
             return;
 
-        Optional<StandingVisas.GhActor> actor = standing.actorByGhLogin(c.user().login());
+        Optional<StandingVisas.GhActor> actor = standing.actorByGhUser(c.user());
         if (actor.isEmpty() || !standing.commandsOn(actor.get().username()))
             return;
 
@@ -526,8 +526,9 @@ public class PrCommands implements SnapshotCache {
                 "@" + login + " nothing was queued: [Ignite PR Checker](" + publicUrl + ") runs commands under your"
                 + " own TeamCity account, and PR commands are not switched on for your GitHub login. To switch them"
                 + " on, log in at " + publicUrl + " with a [TeamCity access token](" + tcTokens + "), open ⚙, tick"
-                + " **PR commands** and enter your GitHub login. Then `/run-all` here queues RunAll (`/run-all top`"
-                + " at the top of the queue), and `/top` moves it up while it waits.");
+                + " **PR commands** and prove your GitHub login with a token that has no scopes. Then `/run-all`"
+                + " here queues RunAll (`/run-all top` at the top of the queue), and `/top` moves it up while it"
+                + " waits.");
             if (sent) {
                 onboarded.put(login, now);
                 onboardedPrs.put(pr, now);

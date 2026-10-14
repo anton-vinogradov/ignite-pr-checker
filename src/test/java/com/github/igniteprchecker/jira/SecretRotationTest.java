@@ -17,6 +17,7 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -65,7 +66,7 @@ class SecretRotationTest {
 
         StandingVisas before = standing("old-secret");
         before.change("alice", "alice-tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
-        before.linkGhLogin("alice", "alice-tc", "alice-gh");
+        before.linkGhLogin("alice", "alice-tc", GhUsers.of("alice-gh"));
         before.change("bob", "bob-tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
         before.change("carol", "carol-tc", "carol-jira", null,
             new StandingVisas.OptionChange(true, true, false, false, null));
@@ -84,7 +85,7 @@ class SecretRotationTest {
         rotated.sweep();
 
         assertThat(rotated.enabled("alice")).isFalse();
-        assertThat(rotated.actorByGhLogin("alice-gh")).as("PR commands go with the options").isEmpty();
+        assertThat(rotated.actorByGhUser(GhUsers.of("alice-gh"))).as("PR commands go with the options").isEmpty();
         assertThat(rotated.rerunOn("bob")).as("bob logged in again").isTrue();
     }
 

@@ -28,9 +28,10 @@ each label means and what to do about it.
 - **Standing options.** In ⚙: auto re-run of failed suites, a JIRA visa or a PR comment for each of your runs, a
   checkstyle autofix, PR commands. They work while the page is closed. See
   [Standing options](docs/features.md#standing-options).
-- **PR commands.** With **PR commands** on, a `/run-all` comment on any pull request queues RunAll under your TeamCity
-  account, and a comment in the PR then tells how the run goes: your own when the checker holds your GitHub token,
-  else one of the app account. See [Working from the PR](docs/features.md#working-from-the-pr-commands).
+- **PR commands.** With **PR commands** on and your GitHub login proven once with a token, a `/run-all` comment on any
+  pull request queues RunAll under your TeamCity account, and a comment in the PR then tells how the run goes: your
+  own when the checker holds your GitHub token, else one of the app account. See
+  [Working from the PR](docs/features.md#working-from-the-pr-commands).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The fix-master queue](docs/features.md#the-fix-master-queue-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
@@ -70,6 +71,10 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   token with any option, the user's JIRA token for visas, and the user's GitHub token for PR comments, the checkstyle
   autofix and adding tests to suites. Copies stay in the backups of the [cache directory](#the-cache-directory) until
   they rotate out: a daily backup for 7 days, a copy made before an update until 5 newer ones replace it.
+- **GitHub login.** PR commands act on the comments of the GitHub account the user proved: with a token pasted once,
+  of no scopes, which the checker asks GitHub about and forgets, or with the GitHub token kept for the options. The
+  checker keeps the login and the account's id, and takes a comment for a command only when its author has that id.
+  The app account cannot be linked.
 - **Expiry.** The JIRA token acts with all the rights of the user's JIRA account (ASF JIRA has no token scopes). Give it
   and the GitHub token an expiry, say 90 days. When one expires, the options that use it switch off with a note in ⚙;
   once the user pastes a new one and switches them back on, the visas and PR comments held back meanwhile go out, for
@@ -228,7 +233,7 @@ heap with the peak of its old generation, and the process's resident memory with
 
 | File | What it holds |
 |---|---|
-| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted), GitHub logins, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
+| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
 | `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted), and those JIRA refused the token of, without it. |
 | `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply. |
 | `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |

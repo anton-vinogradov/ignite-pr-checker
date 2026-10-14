@@ -18,11 +18,11 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 /**
- * A GitHub login was linked exactly as typed: "nsamelchev" never matched the "NSAmelchev" GitHub
- * reports as a comment's author, and a typo was linked as happily as a real login. Linking now asks
- * GitHub for the user, with the typed text in the request's path.
+ * A login a GitHub token proved before the checker kept account ids gets the id of the account it names: GitHub is
+ * asked for the user, with the login in the request's path. "nsamelchev" is "NSAmelchev" to GitHub, and a login given
+ * up names nobody.
  */
-class CanonicalLoginTest {
+class UserByLoginTest {
     private final RestClient.Builder http = RestClient.builder();
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
@@ -37,7 +37,7 @@ class CanonicalLoginTest {
         server.expect(requestTo("https://api.github.com/users/nsamelchev"))
             .andRespond(withSuccess("{\"login\":\"NSAmelchev\",\"id\":1}", MediaType.APPLICATION_JSON));
 
-        assertThat(github.canonicalLogin("nsamelchev")).contains("NSAmelchev");
+        assertThat(github.userByLogin("nsamelchev")).contains(new GithubClient.GhUser("NSAmelchev", 1));
     }
 
     @Test
@@ -45,7 +45,7 @@ class CanonicalLoginTest {
         server.expect(requestTo("https://api.github.com/users/nsamelchevv"))
             .andRespond(withStatus(HttpStatus.NOT_FOUND));
 
-        assertThat(github.canonicalLogin("nsamelchevv")).isEmpty();
+        assertThat(github.userByLogin("nsamelchevv")).isEmpty();
         server.verify();
     }
 
@@ -54,14 +54,14 @@ class CanonicalLoginTest {
     void githubBeingDownIsNotNoSuchUser() {
         server.expect(requestTo("https://api.github.com/users/nsamelchev")).andRespond(withServerError());
 
-        assertThatThrownBy(() -> github.canonicalLogin("nsamelchev")).isInstanceOf(RestClientException.class);
+        assertThatThrownBy(() -> github.userByLogin("nsamelchev")).isInstanceOf(RestClientException.class);
     }
 
     @Test
     void textThatCannotBeALoginIsNotSentToGithub() {
-        assertThat(github.canonicalLogin("../user")).isEmpty();
-        assertThat(github.canonicalLogin("nsamelchev?per_page=1")).isEmpty();
-        assertThat(github.canonicalLogin("-nsamelchev")).isEmpty();
+        assertThat(github.userByLogin("../user")).isEmpty();
+        assertThat(github.userByLogin("nsamelchev?per_page=1")).isEmpty();
+        assertThat(github.userByLogin("-nsamelchev")).isEmpty();
 
         server.verify();
     }

@@ -47,17 +47,18 @@ public class GithubClient implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(GithubClient.class);
 
     /**
-     * Validates a user's PAT: their GitHub login when the token works, empty when GitHub refuses it. Throws when GitHub
-     * could not say: no answer, an outage, a rate limit.
+     * Validates a user's PAT: the GitHub account it belongs to, by login and id, when the token works; empty when
+     * GitHub refuses it. A token with no scopes or permissions at all works: GitHub names its owner to any token.
+     * Throws when GitHub could not say: no answer, an outage, a rate limit.
      */
-    public java.util.Optional<String> ghUser(String pat) {
+    public java.util.Optional<GhUser> ghIdentity(String pat) {
         try {
-            java.util.Map<?, ?> u = recordedAsUser("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
+            GhUser u = recordedAsUser("user", () -> http.get().uri(URI.create(props.apiUrl() + "/user"))
                 .header("Authorization", "Bearer " + pat)
                 .header("Accept", "application/vnd.github+json")
-                .retrieve().body(java.util.Map.class));
+                .retrieve().body(GhUser.class));
 
-            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
+            return java.util.Optional.ofNullable(u == null || u.login() == null ? null : u);
         }
         catch (RuntimeException e) {
             if (refusesToken(e))
@@ -76,22 +77,33 @@ public class GithubClient implements SnapshotCache {
     }
 
     /**
-     * GitHub's own spelling of a login, or empty when GitHub has no such user (or the text cannot be
-     * a login at all). Throws when GitHub cannot be asked.
+     * The GitHub user a login names now, by GitHub's own spelling of it and the account's id; empty when GitHub has no
+     * such user (or the text cannot be a login at all). Throws when GitHub cannot be asked.
      */
-    public java.util.Optional<String> canonicalLogin(String login) {
+    public java.util.Optional<GhUser> userByLogin(String login) {
         if (!LOGIN.matcher(login).matches())
             return java.util.Optional.empty();
 
         try {
-            java.util.Map<?, ?> u = recorded("user", () -> appGet(props.apiUrl() + "/users/" + login)
-                .body(java.util.Map.class));
+            GhUser u = recorded("user", () -> appGet(props.apiUrl() + "/users/" + login).body(GhUser.class));
 
-            return java.util.Optional.ofNullable(u == null ? null : (String)u.get("login"));
+            return java.util.Optional.ofNullable(u == null || u.login() == null ? null : u);
         }
         catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
             return java.util.Optional.empty();
         }
+    }
+
+    /**
+     * Whether a GitHub account is the app account, the one {@code GITHUB_TOKEN} belongs to: by its id once GitHub
+     * named it, else by its login. False while GitHub has not said whose the token is.
+     */
+    public boolean isAppAccount(GhUser who) {
+        AppAccount app = appAccount;
+        if (who == null || app.login() == null)
+            return false;
+
+        return app.id() != null && who.id() > 0 ? app.id() == who.id() : app.login().equalsIgnoreCase(who.login());
     }
 
     /** What GitHub allows in a login: letters, digits and single hyphens inside, up to 39 characters. */
@@ -721,8 +733,9 @@ public class GithubClient implements SnapshotCache {
         @JsonProperty("html_url") String htmlUrl, @JsonProperty("created_at") String createdAt, GhUser user) {
     }
 
+    /** A GitHub account: its login, which its owner may change, and its id, which never changes (0: not known). */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record GhUser(String login) {
+    public record GhUser(String login, long id) {
     }
 
     /**

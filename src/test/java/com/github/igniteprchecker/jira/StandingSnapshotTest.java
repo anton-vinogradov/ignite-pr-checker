@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -80,6 +81,33 @@ class StandingSnapshotTest {
         assertKeeps(mapper.readTree(file.toFile()), mapper.readTree(saved.toFile()), "$");
     }
 
+    /**
+     * v1.20.11 kept avinogradov's login with the GitHub token that proved it, and nsamelchev's without one: typed in
+     * by hand, or kept after its token went, nothing tells which. The proof stays with the login once saved again.
+     */
+    @Test
+    void aLoginStoredWithItsGithubTokenIsProvenAndTheOtherIsNot(@TempDir Path dir) throws Exception {
+        standing.loadFrom(fixture(dir));
+
+        assertThat(standing.settings("avinogradov").loginUnproven()).isFalse();
+        assertThat(standing.settings("nsamelchev")).satisfies(st -> {
+            assertThat(st.login()).isEqualTo("NSAmelchev");
+            assertThat(st.loginUnproven()).isTrue();
+        });
+
+        standing.dropGhToken("avinogradov");
+        Path saved = dir.resolve("saved.json");
+        standing.saveTo(saved);
+        StandingVisas reloaded = new StandingVisas(mapper,
+            new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, mock(GithubClient.class),
+            mock(BlockerAnalyzer.class), jira, mock(VisaService.class), tracker, mock(Warmer.class),
+            mock(PendingCommits.class));
+        reloaded.loadFrom(saved);
+
+        assertThat(reloaded.settings("avinogradov").loginUnproven()).isFalse();
+        assertThat(reloaded.settings("nsamelchev").loginUnproven()).isTrue();
+    }
+
     @Test
     void aChainNobodyRerunsForLeavesNoMemo(@TempDir Path dir) throws Exception {
         standing.loadFrom(fixture(dir));
@@ -129,7 +157,7 @@ class StandingSnapshotTest {
             new StandingVisas.OptionChange(true, true, false, false, null)));
         save.start();
         assertThat(asked.await(10, TimeUnit.SECONDS)).isTrue();
-        standing.linkGhLogin("oldtimer", "tc-oldtimer", "old-timer");
+        standing.linkGhLogin("oldtimer", "tc-oldtimer", GhUsers.of("old-timer"));
         linked.countDown();
         save.join(10_000);
 

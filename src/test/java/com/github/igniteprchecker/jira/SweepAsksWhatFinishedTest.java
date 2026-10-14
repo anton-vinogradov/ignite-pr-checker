@@ -19,6 +19,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -70,7 +71,7 @@ class SweepAsksWhatFinishedTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(github.openPrs()).thenReturn(List.of(pr(OWN), pr(OTHERS), pr(NO_RUN)));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, LAST_WEEK)));
         when(tc.findRunAllBuildForPr("tc", OTHERS)).thenReturn(Optional.of(chain(RUN_ALL + 1, "someone", LAST_WEEK)));

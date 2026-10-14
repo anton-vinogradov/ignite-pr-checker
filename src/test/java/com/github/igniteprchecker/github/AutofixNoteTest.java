@@ -57,7 +57,7 @@ class AutofixNoteTest {
 
     @Test
     void theRunAllLineStandsApartFromTheFoldedList() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, false, true, true));
         when(styleFix.fixForCommand(eq(PR), any(), eq("Author"))).thenReturn(NOTE);
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(9400000L, null, "queued",
@@ -65,7 +65,7 @@ class AutofixNoteTest {
             null, null, null));
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
-            new GithubClient.GhUser("Author"))));
+            GhUsers.of("Author"))));
 
         commands.poll();
 

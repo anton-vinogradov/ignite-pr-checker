@@ -73,7 +73,7 @@ class CommandPollWindowTest {
 
     @BeforeEach
     void setUp() {
-        standing.linkGhLogin("nsamelchev", "tc", "NSAmelchev");
+        standing.linkGhLogin("nsamelchev", "tc", GhUsers.of("NSAmelchev"));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(new TcModel.Build(9400000L, null,
             "queued", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
         when(github.recentIssueComments(anyString())).thenAnswer(inv -> {
@@ -128,13 +128,13 @@ class CommandPollWindowTest {
     @Test
     void aCommentThatFailsDoesNotStopTheOthers() {
         StandingVisas tripping = spy(standing);
-        doThrow(new IllegalStateException("lookup failed")).when(tripping).actorByGhLogin("Broken");
+        doThrow(new IllegalStateException("lookup failed")).when(tripping).actorByGhUser(GhUsers.of("Broken"));
         PrCommands polled = new PrCommands(mapper, github, tripping, tc, mock(RerunTracker.class),
             mock(StyleFixService.class), mock(SuiteBaseline.class), "https://checker.example",
             new TeamcityProperties("https://ci2.example/"));
         repo.add(new Listed(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.ofEpochMilli(now).toString(),
-            new GithubClient.GhUser("Broken")), now));
+            GhUsers.of("Broken")), now));
         repo.add(runAll(2L, now, now));
 
         polled.poll();
@@ -197,7 +197,7 @@ class CommandPollWindowTest {
     private static Listed runAll(long id, long createdAt, long updatedAt) {
         return new Listed(new GithubClient.IssueComment(id, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-" + id,
-            Instant.ofEpochMilli(createdAt).toString(), new GithubClient.GhUser("NSAmelchev")), updatedAt);
+            Instant.ofEpochMilli(createdAt).toString(), GhUsers.of("NSAmelchev")), updatedAt);
     }
 
     /** A comment and its {@code updated_at}, which is what GitHub's {@code since} filters on. */

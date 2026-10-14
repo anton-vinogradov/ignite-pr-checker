@@ -12,6 +12,7 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
@@ -59,7 +60,7 @@ class SuiteFixSettingsTest {
 
     @Test
     void theServerTakesItWithTheGithubToken() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("alice-v"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("alice-v")));
 
         ResponseEntity<?> res = controller.standingVisa(null, null, null, null, null, true, "tc", "alice", null,
             "gh-pat");

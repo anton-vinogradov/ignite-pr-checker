@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -167,7 +168,7 @@ class SessionLifetimeTest {
     void aCookieIssuedWithAGithubTokenWhileALogoutCameIsEndedByIt() throws Exception {
         String copy = cookie("alice", System.currentTimeMillis() - DAY);
         MockHttpServletRequest req = passed(copy);
-        when(github.ghUser("mallory-gh")).thenAnswer(inv -> answerAfterLogout(copy, "mallory"));
+        when(github.ghIdentity("mallory-gh")).thenAnswer(inv -> answerAfterLogout(copy, "mallory").map(GhUsers::of));
 
         ResponseEntity<?> saved = tokens.saveGithubToken(new JiraController.TokenRequest("mallory-gh"),
             (SessionCodec.Session)req.getAttribute(AuthInterceptor.SESSION_ATTR),

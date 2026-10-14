@@ -137,42 +137,42 @@ public class JiraController {
         return standing.settings(username);
     }
 
-    /** Links a GitHub login with no time zone from the browser. */
+    /** Proves a GitHub login with no time zone from the browser. */
     public ResponseEntity<?> saveGithubLogin(TokenRequest req, String tcToken, String username) {
         return saveGithubLogin(req, null, tcToken, username);
     }
 
     /**
-     * Links a GitHub login and switches PR commands on. The login is stored the way GitHub spells it,
-     * and only if GitHub knows such a user; {@code tz}, the browser's time zone, goes with it. Answers with
-     * the whole settings state.
+     * Proves the user's GitHub login with a token they paste once, and switches PR commands on. GitHub names the
+     * account the token belongs to; the checker keeps its login and id and forgets the token, which goes into no
+     * cookie, no file and no log. A login typed in by hand would let anyone take someone else's, whose /run-all
+     * would then go out under the claimant's TeamCity token. {@code tz}, the browser's time zone, goes with it.
+     * Answers with the whole settings state.
      */
     @PostMapping("/github-login")
     public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
         @RequestParam(required = false) String tz,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        String typed = req.token() == null ? "" : req.token().strip().replaceFirst("^@", "");
-        if (typed.isBlank())
-            return ResponseEntity.badRequest().body(Map.of("error", "empty login"));
+        String token = req.token() == null ? "" : req.token().strip();
+        if (token.isEmpty())
+            return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
-        Optional<String> login;
+        Optional<GithubClient.GhUser> who;
         try {
-            login = github.canonicalLogin(typed);
+            who = github.ghIdentity(token);
         }
         catch (RuntimeException e) {
-            return ResponseEntity.status(502)
-                .body(Map.of("error", "GitHub could not be asked — try again in a minute"));
+            return uncheckedToken("GitHub", e);
         }
-        if (login.isEmpty())
-            return ResponseEntity.status(404).body(Map.of("error", "no such GitHub user: " + typed));
+        if (who.isEmpty())
+            return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
 
-        return switch (standing.linkGhLogin(username, tcToken, login.get(), tz)) {
-            case "taken" -> ResponseEntity.status(409).body(Map.of("error", "@" + login.get() + " is linked to another"
-                + " checker user. If the account is yours, switch on \"Comment my runs' verdicts\" with your GitHub"
-                + " token: the token proves the account and takes the login over."));
-            case "token" -> ResponseEntity.status(409).body(Map.of("error",
-                "your login comes from your GitHub token: @" + standing.ghLoginOf(username)));
+        return switch (standing.linkGhLogin(username, tcToken, who.get(), tz)) {
+            case "app" -> ResponseEntity.status(409).body(Map.of("error", "this token is of @" + who.get().login()
+                + ", the checker's own GitHub account: prove your own account with a token of it"));
+            case "token" -> ResponseEntity.status(409).body(Map.of("error", "the GitHub token the checker keeps for"
+                + " you proves @" + standing.ghLoginOf(username) + ", and that is your login"));
             default -> ResponseEntity.ok(standing.settings(username));
         };
     }
@@ -185,9 +185,9 @@ public class JiraController {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
-        java.util.Optional<String> who;
+        Optional<GithubClient.GhUser> who;
         try {
-            who = github.ghUser(req.token().trim());
+            who = github.ghIdentity(req.token().trim());
         }
         catch (RuntimeException e) {
             return uncheckedToken("GitHub", e);
@@ -199,7 +199,7 @@ public class JiraController {
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())
-            .body(Map.of("githubUser", who.get()));
+            .body(Map.of("githubUser", who.get().login()));
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */

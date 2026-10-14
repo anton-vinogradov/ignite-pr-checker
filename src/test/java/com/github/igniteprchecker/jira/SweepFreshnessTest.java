@@ -27,6 +27,7 @@ import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -168,7 +169,7 @@ class SweepFreshnessTest {
         cache.putResult(RUN_ALL, verdict((now - 60) * 1000, 9389300L, chainFinished,
             List.of(DPC1, QUERIES5, QUERIES6), now - 120));
         newerChainCancelled();
-        standing.linkGhLogin(USER, TOK, "anton-vinogradov");
+        standing.linkGhLogin(USER, TOK, GhUsers.of("anton-vinogradov"));
         standing.change(USER, TOK, null, null, new StandingVisas.OptionChange(null, null, null, null, false));
 
         standing.sweep();

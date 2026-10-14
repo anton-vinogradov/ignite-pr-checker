@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -53,7 +54,7 @@ class StandingSettingsTest {
 
     @BeforeEach
     void enrolledEarlierWithEverything() {
-        when(github.ghUser(anyString())).thenReturn(Optional.of("anton-vinogradov"));
+        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself(anyString())).thenReturn(Optional.of(USER));
         assertThat(post(true, true, true, true, "jira-pat", "gh-pat", true).getStatusCode().value()).isEqualTo(200);
         clearInvocations(github, jira);
@@ -75,7 +76,7 @@ class StandingSettingsTest {
 
         assertThat(res.getStatusCode().value()).isEqualTo(200);
         assertThat(standing.styleFixOn(USER)).isTrue();
-        verify(github, never()).ghUser(anyString());
+        verify(github, never()).ghIdentity(anyString());
     }
 
     @Test

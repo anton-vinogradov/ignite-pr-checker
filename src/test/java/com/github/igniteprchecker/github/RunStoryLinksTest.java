@@ -68,7 +68,7 @@ class RunStoryLinksTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghUser("gh-pat")).thenReturn(Optional.of("Author"));
+        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(build(CHAIN, "queued", null));
         when(github.commentUrl(anyInt(), anyLong()))
@@ -129,7 +129,7 @@ class RunStoryLinksTest {
 
     private void command(long id) {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(id,
-            "/run-all", PR_URL + "#issuecomment-" + id, Instant.now().toString(), new GithubClient.GhUser("Author"))));
+            "/run-all", PR_URL + "#issuecomment-" + id, Instant.now().toString(), GhUsers.of("Author"))));
         commands.poll();
     }
 
