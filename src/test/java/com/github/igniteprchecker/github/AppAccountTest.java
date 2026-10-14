@@ -110,6 +110,30 @@ class AppAccountTest {
         assertThat(github.isAppAccount(new GithubClient.GhUser("ignite-pr-checker", 234567))).isTrue();
     }
 
+    /** A 403 on the recheck is GitHub's rate limit, which says nothing of the token: only a 401 refuses it. */
+    @Test
+    void aRateLimitOnTheRecheckIsNoRefusal() {
+        server.expect(requestTo("https://api.github.com/user"))
+            .andRespond(withSuccess("{\"login\":\"ignite-pr-checker\",\"id\":234567}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/apache/ignite"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/anton-vinogradov/ignite-pr-checker"))
+            .andRespond(withSuccess("{\"permissions\":{\"push\":false}}", MediaType.APPLICATION_JSON));
+        HttpHeaders limited = new HttpHeaders();
+        limited.add("x-ratelimit-remaining", "0");
+        server.expect(requestTo("https://api.github.com/user")).andRespond(withStatus(HttpStatus.FORBIDDEN)
+            .headers(limited).contentType(MediaType.APPLICATION_JSON)
+            .body("{\"message\":\"API rate limit exceeded for user ID 234567.\"}"));
+        GithubClient github = client("app-token");
+        github.checkAppAccount();
+        GithubClient.AppAccount known = github.appAccount();
+
+        github.checkAppAccount();
+
+        assertThat(github.appAccount()).isEqualTo(known);
+        assertThat(github.appAccount().state()).isEqualTo("ok");
+    }
+
     @Test
     void aTokenGithubRefusesIsSaid() {
         server.expect(requestTo("https://api.github.com/user")).andRespond(withStatus(HttpStatus.UNAUTHORIZED));

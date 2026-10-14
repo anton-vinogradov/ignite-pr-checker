@@ -2291,14 +2291,15 @@ function renderSettings(st) {
 }
 
 // PR commands act on the comments of the GitHub account a token proved: the saved GitHub token, or one pasted once.
-// A login typed in by hand, as earlier versions took it, could be anyone's, so its commands wait for the proof.
+// A login an earlier version kept without a proof could be anyone's, so its commands wait for one.
 function renderLogin(st) {
     const proven = !!st.login && !st.loginUnproven;
     $('ghLoginState').textContent = proven
         ? 'GitHub login: @' + st.login + (st.ghStored ? ', proven by your saved GitHub token.' : ', proven.') : '';
     $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
-    $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' was typed in by hand and never '
-        + 'proven, so your PR commands do nothing until a token of that account proves it below.' : '';
+    $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' is not proven: an earlier version of '
+        + 'the checker kept no proof that it is yours. Your PR commands do nothing until you prove your GitHub account '
+        + 'below.' : '';
     $('ghLoginProof').classList.toggle('hidden', proven);
     $('ghLoginMsg').textContent = '';
     $('settingsLogin').classList.toggle('hidden', !st.commands && !st.loginUnproven && pendingOption !== 'commands');
@@ -2437,7 +2438,7 @@ $('settingsJiraSave').onclick = async () => {
 };
 
 // Proving the login is what switches PR commands on. The token goes to the server once and stays nowhere, the input
-// field included; a 401 here is GitHub refusing it, as with the GitHub token below.
+// field included.
 $('ghLoginSave').onclick = async () => {
     const input = $('ghLoginToken'), m = $('ghLoginMsg');
     const token = input.value.trim();
@@ -2450,6 +2451,7 @@ $('ghLoginSave').onclick = async () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token })
         });
+        if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
         if (!r.ok) { m.textContent = res.error || 'could not prove the login'; return; }
         pendingOption = null;

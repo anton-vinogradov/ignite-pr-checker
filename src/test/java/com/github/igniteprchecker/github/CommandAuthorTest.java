@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -35,13 +36,16 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpServerErrorException;
 
 /**
  * A PR command was the command of whoever had linked the author's login, a string: after a rename, another account
  * could take the login and command under the old owner's TeamCity token, and a login typed in by hand was anyone's.
  * The author is now matched by the id of a proven account. Production's standing-visas.json of v1.27.0 holds two
- * logins its users' GitHub tokens proved, and no id: the id comes from GitHub at the first poll, and a login typed in
- * by hand, which an earlier version could hold, runs nothing until a token proves it.
+ * logins next to their users' GitHub tokens, and no id: at the first poll each token is asked whose it is, which
+ * proves the login and gives the id. A login typed in by hand, which an earlier version could hold, runs nothing until
+ * a token proves it.
  */
 class CommandAuthorTest {
     private static final int PR = 13800;
@@ -49,6 +53,8 @@ class CommandAuthorTest {
     private static final String PR_URL = "https://github.com/apache/ignite/pull/" + PR;
 
     private static final long ANTON = 1729371L;
+
+    private static final GithubClient.GhUser APP = new GithubClient.GhUser("ignite-pr-checker", 234567L);
 
     private final GithubClient github = mock(GithubClient.class);
 
@@ -78,12 +84,17 @@ class CommandAuthorTest {
         enrollments.add(enrollment("avinogradov", "anton-vinogradov", codec.encryptString("gh-avinogradov")));
         enrollments.add(enrollment("olegvlsk", "oleg-vlsk", codec.encryptString("gh-olegvlsk")));
         enrollments.add(enrollment("typist", "Vladsz83", null));
+        enrollments.add(enrollment("alice", "victim", codec.encryptString("gh-alice")));
+        enrollments.add(enrollment("operator", "ignite-pr-checker", codec.encryptString("gh-operator")));
         Path file = dir.resolve("standing-visas.json");
         mapper.writeValue(file.toFile(), snapshot);
         standing.loadFrom(file);
-        when(github.userByLogin("anton-vinogradov"))
+        when(github.ghIdentity("gh-avinogradov"))
             .thenReturn(Optional.of(new GithubClient.GhUser("anton-vinogradov", ANTON)));
-        when(github.userByLogin("oleg-vlsk")).thenReturn(Optional.of(new GithubClient.GhUser("oleg-vlsk", 5550101L)));
+        when(github.ghIdentity("gh-olegvlsk")).thenReturn(Optional.of(new GithubClient.GhUser("oleg-vlsk", 5550101L)));
+        when(github.ghIdentity("gh-alice")).thenReturn(Optional.of(new GithubClient.GhUser("shared", 555L)));
+        when(github.ghIdentity("gh-operator")).thenReturn(Optional.of(APP));
+        when(github.isAppAccount(APP)).thenReturn(true);
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(new TcModel.Build(9400000L, null,
             "queued", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
     }
@@ -142,15 +153,72 @@ class CommandAuthorTest {
         assertThat(standing.settings("typist").loginUnproven()).isFalse();
     }
 
-    /** The account was renamed before GitHub named its id: the login it was proven under names nobody now. */
+    /** GitHub could not say whose oleg-vlsk's token is at the first poll: the next poll asks again. */
     @Test
-    void aProvenLoginThatNamesNobodyNowIsNoLongerProven() {
-        when(github.userByLogin("oleg-vlsk")).thenReturn(Optional.empty());
+    void aTokenGithubCouldNotAskIsAskedAgain() {
+        when(github.ghIdentity("gh-olegvlsk")).thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY))
+            .thenReturn(Optional.of(new GithubClient.GhUser("oleg-vlsk", 5550101L)));
+
+        command(new GithubClient.GhUser("anton-vinogradov", ANTON));
+        assertThat(standing.settings("olegvlsk").loginUnproven()).isTrue();
+        command(new GithubClient.GhUser("oleg-vlsk", 5550101L));
+
+        verify(tc).triggerRunAll("tc-olegvlsk", PR, false);
+        assertThat(standing.settings("olegvlsk").loginUnproven()).isFalse();
+    }
+
+    /** A token GitHub refuses now proves nothing: ⚙ asks oleg-vlsk to prove the account again. */
+    @Test
+    void aRefusedTokenProvesNothing() {
+        when(github.ghIdentity("gh-olegvlsk")).thenReturn(Optional.empty());
 
         command(new GithubClient.GhUser("oleg-vlsk", 5550101L));
 
         verify(tc, never()).triggerRunAll("tc-olegvlsk", PR, false);
         assertThat(standing.settings("olegvlsk").loginUnproven()).isTrue();
+    }
+
+    /**
+     * alice's and bob's GitHub tokens were of one account, and bob's took its login over; v1.27.0 then let alice type
+     * in the login "victim", and kept it next to her token. victim's /run-all must not go out under alice's TeamCity
+     * token.
+     */
+    @Test
+    void aLoginTypedInNextToATokenOfAnotherAccountCommandsNothing() {
+        command(new GithubClient.GhUser("victim", 777L));
+
+        verify(tc, never()).triggerRunAll(eq("tc-alice"), anyInt(), anyBoolean());
+        assertThat(standing.settings("alice").loginUnproven()).isTrue();
+    }
+
+    /**
+     * The operator saved a token of the checker's own account as his GitHub token in v1.27.0: the token names the
+     * login, but the checker's own comments are nobody's commands.
+     */
+    @Test
+    void theAppAccountIsNotProvenByItsToken() {
+        command(APP);
+
+        verify(tc, never()).triggerRunAll(eq("tc-operator"), anyInt(), anyBoolean());
+        assertThat(standing.settings("operator").loginUnproven()).isTrue();
+    }
+
+    /** Only one poll asks: the answer stays in the snapshot. */
+    @Test
+    void theAnswerIsKept() throws Exception {
+        command(new GithubClient.GhUser("victim", 777L));
+        standing.saveTo(dir.resolve("saved.json"));
+        StandingVisas reloaded = new StandingVisas(mapper, codec, tc, github, mock(BlockerAnalyzer.class),
+            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+            mock(PendingCommits.class));
+        reloaded.loadFrom(dir.resolve("saved.json"));
+
+        reloaded.ensureGhLogins();
+
+        verify(github).ghIdentity("gh-alice");
+        verify(github).ghIdentity("gh-avinogradov");
+        assertThat(reloaded.settings("alice").loginUnproven()).isTrue();
+        assertThat(reloaded.settings("avinogradov").loginUnproven()).isFalse();
     }
 
     /** One comment of a fresh poll, by {@code author}. */

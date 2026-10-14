@@ -77,24 +77,6 @@ public class GithubClient implements SnapshotCache {
     }
 
     /**
-     * The GitHub user a login names now, by GitHub's own spelling of it and the account's id; empty when GitHub has no
-     * such user (or the text cannot be a login at all). Throws when GitHub cannot be asked.
-     */
-    public java.util.Optional<GhUser> userByLogin(String login) {
-        if (!LOGIN.matcher(login).matches())
-            return java.util.Optional.empty();
-
-        try {
-            GhUser u = recorded("user", () -> appGet(props.apiUrl() + "/users/" + login).body(GhUser.class));
-
-            return java.util.Optional.ofNullable(u == null || u.login() == null ? null : u);
-        }
-        catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
-            return java.util.Optional.empty();
-        }
-    }
-
-    /**
      * Whether a GitHub account is the app account, the one {@code GITHUB_TOKEN} belongs to: by its id once GitHub
      * named it, else by its login. False while GitHub has not said whose the token is.
      */
@@ -933,13 +915,11 @@ public class GithubClient implements SnapshotCache {
             user = timed("appUser", () -> appGet(props.apiUrl() + "/user").toEntity(java.util.Map.class), false);
         }
         catch (org.springframework.web.client.RestClientResponseException e) {
-            int status = e.getStatusCode().value();
             AppAccount was = appAccount;
-            appAccount = status == 401 || status == 403
+            appAccount = refusesToken(e)
                 ? new AppAccount(AppAccount.REFUSED, was.login(), was.canPush(), was.id(), List.of()) : stillKnown(was);
-            log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", status,
-                status == 401 || status == 403 ? "the token is refused, nothing is written as the app account"
-                    : "asked again later");
+            log.warn("GitHub answered {} when asked whom GITHUB_TOKEN belongs to: {}", e.getStatusCode().value(),
+                refusesToken(e) ? "the token is refused, nothing is written as the app account" : "asked again later");
 
             return;
         }

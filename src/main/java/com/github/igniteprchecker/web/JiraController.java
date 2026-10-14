@@ -147,7 +147,7 @@ public class JiraController {
      * account the token belongs to; the checker keeps its login and id and forgets the token, which goes into no
      * cookie, no file and no log. A login typed in by hand would let anyone take someone else's, whose /run-all
      * would then go out under the claimant's TeamCity token. {@code tz}, the browser's time zone, goes with it.
-     * Answers with the whole settings state.
+     * Answers with the whole settings state; a 422 when GitHub refuses the token, as a 401 is the session's own.
      */
     @PostMapping("/github-login")
     public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
@@ -166,7 +166,7 @@ public class JiraController {
             return uncheckedToken("GitHub", e);
         }
         if (who.isEmpty())
-            return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
+            return ResponseEntity.status(422).body(Map.of("error", "GitHub rejected the token"));
 
         return switch (standing.linkGhLogin(username, tcToken, who.get(), tz)) {
             case "app" -> ResponseEntity.status(409).body(Map.of("error", "this token is of @" + who.get().login()

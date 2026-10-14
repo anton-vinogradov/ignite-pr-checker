@@ -48,8 +48,10 @@ class StandingSnapshotTest {
 
     private final RerunTracker tracker = mock(RerunTracker.class);
 
+    private final GithubClient github = mock(GithubClient.class);
+
     private final StandingVisas standing = new StandingVisas(mapper,
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, mock(GithubClient.class),
+        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,
         mock(BlockerAnalyzer.class), jira, mock(VisaService.class), tracker, mock(Warmer.class),
         mock(PendingCommits.class));
 
@@ -82,12 +84,17 @@ class StandingSnapshotTest {
     }
 
     /**
-     * v1.20.11 kept avinogradov's login with the GitHub token that proved it, and nsamelchev's without one: typed in
-     * by hand, or kept after its token went, nothing tells which. The proof stays with the login once saved again.
+     * v1.20.11 kept avinogradov's login with a GitHub token, and nsamelchev's without one: typed in by hand, or kept
+     * after its token went, nothing tells which. avinogradov's is proven once the token names it, and the proof stays
+     * with the login once saved again.
      */
     @Test
-    void aLoginStoredWithItsGithubTokenIsProvenAndTheOtherIsNot(@TempDir Path dir) throws Exception {
+    void aLoginStoredWithAGithubTokenThatNamesItIsProvenAndTheOtherIsNot(@TempDir Path dir) throws Exception {
         standing.loadFrom(fixture(dir));
+        when(github.ghIdentity("gh-avinogradov")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        assertThat(standing.settings("avinogradov").loginUnproven()).as("until the token is asked").isTrue();
+
+        standing.ensureGhLogins();
 
         assertThat(standing.settings("avinogradov").loginUnproven()).isFalse();
         assertThat(standing.settings("nsamelchev")).satisfies(st -> {
@@ -106,6 +113,26 @@ class StandingSnapshotTest {
 
         assertThat(reloaded.settings("avinogradov").loginUnproven()).isFalse();
         assertThat(reloaded.settings("nsamelchev").loginUnproven()).isTrue();
+    }
+
+    /** Saved again before the token was asked, avinogradov's login still waits for the question, not for a proof. */
+    @Test
+    void aLoginNotAskedAboutYetIsAskedAfterARestart(@TempDir Path dir) throws Exception {
+        standing.loadFrom(fixture(dir));
+        Path saved = dir.resolve("saved.json");
+        standing.saveTo(saved);
+        StandingVisas reloaded = new StandingVisas(mapper,
+            new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,
+            mock(BlockerAnalyzer.class), jira, mock(VisaService.class), tracker, mock(Warmer.class),
+            mock(PendingCommits.class));
+        reloaded.loadFrom(saved);
+        when(github.ghIdentity("gh-avinogradov")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        assertThat(reloaded.settings("avinogradov").loginUnproven()).isTrue();
+        assertThat(reloaded.anyGhEnrolled()).as("the PR command poll runs, and asks").isTrue();
+
+        reloaded.ensureGhLogins();
+
+        assertThat(reloaded.settings("avinogradov").loginUnproven()).isFalse();
     }
 
     @Test

@@ -266,7 +266,8 @@ GitHub token it needs while it is on.
   GitHub whose account it is, keeps the login and the id, and forgets the token. A GitHub token you saved for the PR
   comment, the autofix or tests to suites proves it as well. A comment is your command only when it comes from that
   account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked. A
-  login an earlier version took as typed runs no command until you prove it, and ⚙ says so.
+  login an earlier version kept counts as proven only if your saved GitHub token names it; any other runs no command
+  until you prove it, and ⚙ says so.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The command comment names

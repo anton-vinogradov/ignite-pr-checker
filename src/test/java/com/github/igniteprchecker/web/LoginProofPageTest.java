@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * ⚙ took the GitHub login for PR commands as typed, so anyone could claim someone else's. It now asks for a token
- * with no scopes, sent once and kept nowhere, the field included, and says when a login an earlier version took as
- * typed waits for that proof.
+ * with no scopes, sent once and kept nowhere, the field included, and says when a login an earlier version kept
+ * waits for that proof.
  */
 class LoginProofPageTest {
     private static final String SETTINGS = """
@@ -16,10 +16,16 @@ class LoginProofPageTest {
             jiraStored: false, ghStored: false, jiraTokenRejected: false, ghTokenRejected: false,
             tcTokenRejected: false, suites: false, loginUnproven: false };
         const TYPED = Object.assign({}, SETTINGS, { login: 'Vladsz83', loginUnproven: true });
+        const NAMED_BY_ANOTHER = Object.assign({}, SETTINGS, { login: 'oleg-vlsk', ghStored: true,
+            loginUnproven: true });
         """;
 
+    /**
+     * An earlier version kept the login without a proof: typed in by hand, or next to a token that names another
+     * account now. ⚙ cannot tell which, and says only what is true of both.
+     */
     @Test
-    void aLoginTypedInByHandAsksForTheProof() throws Exception {
+    void anUnprovenLoginAsksForTheProof() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: TYPED }, 'GET');
             await page.load('?pr=13575');
@@ -33,9 +39,25 @@ class LoginProofPageTest {
 
         assertThat(out.get("shown").asBoolean()).isTrue();
         assertThat(out.get("warned").asBoolean()).isTrue();
-        assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 was typed in by hand and never proven, so your"
-            + " PR commands do nothing until a token of that account proves it below.");
+        assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 is not proven: an earlier version of the"
+            + " checker kept no proof that it is yours. Your PR commands do nothing until you prove your GitHub account"
+            + " below.");
         assertThat(out.get("form").asBoolean()).isTrue();
+    }
+
+    @Test
+    void aLoginNextToASavedTokenIsNotSaidToBeTyped() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: NAMED_BY_ANOTHER }, 'GET');
+            await page.load('?pr=13575');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            report({ warning: page.el('ghLoginUnproven').textContent,
+                state: page.el('ghLoginState').textContent });
+            """);
+
+        assertThat(out.get("warning").asText()).startsWith("⚠ @oleg-vlsk is not proven:").doesNotContain("typed");
+        assertThat(out.get("state").asText()).isEmpty();
     }
 
     @Test
@@ -71,7 +93,7 @@ class LoginProofPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             const OFF = Object.assign({}, SETTINGS, { commands: false, login: null });
             page.route('/api/auto-visa-all', { body: OFF }, 'GET');
-            page.route('/api/github-login', { status: 401, body: { error: 'GitHub rejected the token' } }, 'POST');
+            page.route('/api/github-login', { status: 422, body: { error: 'GitHub rejected the token' } }, 'POST');
             await page.load('?pr=13575');
             await page.el('settingsBtn').onclick();
             await page.settle();
@@ -90,5 +112,31 @@ class LoginProofPageTest {
         assertThat(out.get("msg").asText()).isEqualTo("GitHub rejected the token");
         assertThat(out.get("login").asBoolean()).as("still signed in").isTrue();
         assertThat(out.get("commands").asBoolean()).isFalse();
+    }
+
+    /**
+     * The user logged out of the checker in another browser, then pressed Prove here: the 401 is the checker's
+     * own, so the page goes to the login form and says why, as every other request does.
+     */
+    @Test
+    void anEndedSessionIsNoRefusedToken() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: TYPED }, 'GET');
+            page.route('/api/github-login', { status: 401, body: { sessionEnded: true,
+                error: 'You logged out of the checker, here or in another browser — log in again' } }, 'POST');
+            await page.load('?pr=13575');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            page.el('ghLoginToken').value = 'ghp_noScopes';
+            await page.el('ghLoginSave').onclick();
+            await page.settle();
+            report({ loginShown: !page.el('loginView').classList.contains('hidden'),
+                message: page.el('loginErr').textContent, msg: page.el('ghLoginMsg').textContent });
+            """);
+
+        assertThat(out.get("loginShown").asBoolean()).isTrue();
+        assertThat(out.get("message").asText())
+            .isEqualTo("You logged out of the checker, here or in another browser — log in again");
+        assertThat(out.get("msg").asText()).doesNotContain("logged out");
     }
 }

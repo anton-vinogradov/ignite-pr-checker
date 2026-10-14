@@ -115,7 +115,7 @@ class GithubLoginTest {
 
         ResponseEntity<?> res = prove("nsamelchev", "NSAmelchev");
 
-        assertThat(res.getStatusCode().value()).isEqualTo(401);
+        assertThat(res.getStatusCode().value()).as("a 401 would end the session on the page").isEqualTo(422);
         assertThat(res.getBody()).isEqualTo(Map.of("error", "GitHub rejected the token"));
         assertThat(standing.ghLoginOf("nsamelchev")).isNull();
     }
@@ -228,6 +228,21 @@ class GithubLoginTest {
         assertThat(refused).hasValueSatisfying(r -> assertThat(r.need()).isEqualTo("github"));
         assertThat(standing.ghLoginOf("nsamelchev")).isNull();
         assertThat(standing.ghLoginOf("avinogradov")).isNull();
+    }
+
+    /**
+     * In the minutes after a restart GitHub has not yet said whose GITHUB_TOKEN is, and a token of that account proves
+     * it like any other. Once GitHub says, its comments are nobody's commands all the same.
+     */
+    @Test
+    void theAppAccountProvenBeforeItWasKnownCommandsNothing() {
+        GithubClient.GhUser app = GhUsers.of("ignite-pr-checker");
+        when(github.ghIdentity(ONE_TIME)).thenReturn(Optional.of(app));
+        prove("nsamelchev", ONE_TIME);
+
+        when(github.isAppAccount(app)).thenReturn(true);
+
+        assertThat(standing.ghLoginOf("nsamelchev")).isEqualTo("ignite-pr-checker");
         assertThat(standing.actorByGhUser(app)).isEmpty();
     }
 
