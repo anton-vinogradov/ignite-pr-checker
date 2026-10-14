@@ -9,8 +9,6 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -50,7 +48,8 @@ import org.springframework.web.client.RestClient;
 /**
  * GitHub answers 403 to a secondary rate limit too, and the checker took any 403 for a revoked token: a working PAT
  * was dropped, three options went off and the author read "GitHub rejected your personal access token". A token
- * saved while GitHub was down was "rejected" as well. Only GitHub's 401 says the token is dead now.
+ * saved while GitHub was down was "rejected" as well. Only GitHub's 401 to a call made with the token says it is dead
+ * now, and what the checker's own account is refused says nothing of it.
  */
 class PatRefusalRuleTest {
     private static final int PR = 13800;
@@ -89,7 +88,7 @@ class PatRefusalRuleTest {
         }
         """;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -102,27 +101,31 @@ class PatRefusalRuleTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat",
-            new StandingVisas.OptionChange(false, false, true, false, true));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
+            null)));
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
+        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, true, true));
     }
 
+    /** The checker's account is refused the story of a /run-all, rate-limited or not: the author's token stays. */
     @Test
-    void aRateLimitedEditKeepsTheToken() {
+    void aRefusedWriteOfTheCheckersAccountKeepsTheAuthorsToken() {
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L, "/run-all",
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
             GhUsers.of("Author"))));
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(CHAIN, null, "queued", "pull/13800/head",
             null, null, null, null, null, null, null, null, null, null, null, null, null, null));
-        doThrow(RATE_LIMITED).when(github).updatePrComment(eq("gh-pat"), eq(1L), anyString());
+        doThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED)).when(github)
+            .appReact(anyInt(), any(), eq(1L), anyString());
+        doThrow(RATE_LIMITED).when(github).appComment(anyInt(), any(), anyString());
 
         new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"))
             .poll();
 
         assertThat(standing.ghTokenRejected("author")).isFalse();
-        assertThat(standing.ghOn("author")).isTrue();
-        verify(github, never()).addPrCommentAsAppWithId(anyInt(), contains("GitHub rejected your personal access"));
+        assertThat(standing.styleFixOn("author")).isTrue();
+        assertThat(standing.actor("author")).hasValueSatisfying(a -> assertThat(a.ghToken()).isEqualTo("gh-pat"));
     }
 
     @Test

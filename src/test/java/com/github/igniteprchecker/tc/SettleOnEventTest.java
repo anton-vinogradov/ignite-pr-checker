@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.tc;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -18,7 +19,7 @@ import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -53,7 +54,7 @@ class SettleOnEventTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -97,7 +98,7 @@ class SettleOnEventTest {
         when(tc.getBuildState("tc", RERUN)).thenReturn(rerun("finished"));
         tracker.refresh();
 
-        verify(github, timeout(5_000)).addPrComment(eq("gh-pat"), eq(PR), contains("Settled after 1 auto re-run wave(s)"));
+        verify(github, timeout(5_000)).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave(s)"));
     }
 
     /** The application's beans for the tracker's events, with an enrolled user who has auto re-run on. */
@@ -123,7 +124,7 @@ class SettleOnEventTest {
         stubs();
         when(tc.triggerBuildReplacingQueued(eq("tc"), anyString(), eq(PR), anyBoolean(), anyString()))
             .thenReturn(rerun("queued"));
-        context.getBean(StandingVisas.class).change(USER, "tc", null, "gh-pat",
+        context.getBean(StandingVisas.class).change(USER, "tc", null, null,
             new StandingVisas.OptionChange(false, true, true, false, null));
 
         return context.getBean(RerunTracker.class);
@@ -132,10 +133,9 @@ class SettleOnEventTest {
     private void stubs() {
         when(warmer.borrowToken()).thenReturn("tc");
         when(tc.queuedBuilds("tc")).thenReturn(List.of());
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28867 Hot reload of SSL certificates",
             null, null, null, null)));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
         when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(new TcModel.Build(CHAIN, "FAILURE", "finished",
             "pull/13335/head", RUN_ALL, null, null, null, null, null, null, null,

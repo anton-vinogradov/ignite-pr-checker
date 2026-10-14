@@ -59,30 +59,32 @@ class UncheckedTokenTest {
     private final JiraController controller = new JiraController(jira, mock(TcClient.class), analyzer, codec,
         mock(VisaService.class), mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
 
-    private final SessionCodec.Session session = new SessionCodec.Session(USER, "tc", null, null);
+    private final SessionCodec.Session session = new SessionCodec.Session(USER, "tc", null);
 
     private final long checkedAt = System.currentTimeMillis();
 
     @Test
     void aTokenGithubCouldNotCheckIsNotCalledRejected() {
-        when(github.ghIdentity("gh-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
-        when(github.ghIdentity("dead-pat")).thenReturn(Optional.empty());
+        when(github.writes()).thenReturn(true);
+        when(github.tokenOwner("gh-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+        when(github.tokenOwner("dead-pat")).thenReturn(Optional.empty());
 
-        assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"), session, checkedAt), 502,
+        assertAnswer(controller.standingVisa(null, null, null, null, null, true, "tc", USER, null, "gh-pat"), 502,
             UNCHECKED_GH);
-        assertAnswer(controller.saveGithubToken(new JiraController.TokenRequest("dead-pat"), session, checkedAt), 401,
-            "GitHub rejected the token");
-        assertAnswer(controller.standingVisa(null, null, true, null, null, null, "tc", USER, null, "gh-pat"), 502,
-            UNCHECKED_GH);
-        assertThat(standing.ghOn(USER)).isFalse();
+        assertAnswer(controller.standingVisa(null, null, null, null, null, true, "tc", USER, null, "dead-pat"), 412,
+            "GitHub rejected the token — paste a new one");
+        assertThat(standing.settings(USER).suites()).isFalse();
     }
 
-    /** The stored token keeps serving the options while GitHub cannot check one the session brings. */
+    /** The stored token keeps serving the options while GitHub cannot check one the page brings. */
     @Test
     void aStoredTokenServesWhileGithubCannotCheckANewOne() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
-        controller.standingVisa(null, null, true, null, true, null, "tc", USER, null, "gh-pat");
-        when(github.ghIdentity("new-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+        when(github.writes()).thenReturn(true);
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
+        standing.linkGhLogin(USER, "tc", GhUsers.of("anton-vinogradov"));
+        controller.standingVisa(null, null, null, null, null, true, "tc", USER, null, "gh-pat");
+        when(github.tokenOwner("new-pat")).thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
 
         ResponseEntity<?> res = controller.standingVisa(null, null, null, true, null, null, "tc", USER, null,
             "new-pat");

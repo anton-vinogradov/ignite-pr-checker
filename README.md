@@ -29,8 +29,8 @@ each label means and what to do about it.
   checkstyle autofix, PR commands. They work while the page is closed. See
   [Standing options](docs/features.md#standing-options).
 - **PR commands.** With **PR commands** on and your GitHub login proven once with a token, a `/run-all` comment on any
-  pull request queues RunAll under your TeamCity account, and a comment in the PR then tells how the run goes: your
-  own when the checker holds your GitHub token, else one of the app account. See
+  pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a comment of its own
+  tells how the run goes, and a new one mentions you when the verdict is ready. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The fix-master queue](docs/features.md#the-fix-master-queue-flakyhtml).
@@ -68,22 +68,30 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   the server also holds the token in memory and uses it only to read from TeamCity, to pre-analyse open PRs for
   everyone. A login lasts until the user logs out, which ends it in every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
-  token with any option, the user's JIRA token for visas, and the user's GitHub token for PR comments, the checkstyle
-  autofix and adding tests to suites. Copies stay in the backups of the [cache directory](#the-cache-directory) until
+  token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
+  adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
   they rotate out: a daily backup for 7 days, a copy made before an update until 5 newer ones replace it.
 - **GitHub login.** PR commands act on the comments of the GitHub account the user proved: with a token pasted once,
-  of no scopes, which the checker asks GitHub about and forgets, or with the GitHub token kept for the options. The
+  of no scopes, which the checker asks GitHub about and forgets, or with the GitHub token kept for the commits. The
   checker keeps the login and the account's id, and takes a comment for a command only when its author has that id.
   The app account cannot be linked.
+- **The user's GitHub token** commits, and only that: the autofix's commit and the one adding tests to suites, to the
+  branch of the user's own PR. It is never used to write in `apache/ignite`. Best is a fine-grained token for the
+  user's fork alone, with Contents: read and write. It cannot reach a PR from a branch of `apache/ignite` itself or of
+  someone else's fork: those need a classic token with `public_repo`, which pushes to every public repository the user
+  can push to, `apache/ignite` too for a committer. The checker refuses a classic token with `admin:*`, `delete_repo`
+  or `workflow`, takes one with `repo` with a warning, and keeps none in a cookie: the page sends it with the switch.
 - **Expiry.** The JIRA token acts with all the rights of the user's JIRA account (ASF JIRA has no token scopes). Give it
   and the GitHub token an expiry, say 90 days. When one expires, the options that use it switch off with a note in ⚙;
-  once the user pastes a new one and switches them back on, the visas and PR comments held back meanwhile go out, for
-  runs no newer RunAll replaced.
-- **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it and writes as it: the
-  replies to commands of users who have not switched PR commands on, reactions, hints, the run story of users without
-  their own GitHub token, and the mention that tells such a user their verdict is ready. Use a separate account with no
-  rights in `apache/*` and a classic token with the `public_repo` scope: a leaked token then cannot push to Apache
-  Ignite. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
+  once the user pastes a new one and switches them back on, the visas held back meanwhile go out, for runs no newer
+  RunAll replaced.
+- **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it, and everything it
+  writes in a PR comes from it, for every user alike: verdict comments, which mention the run's starter, the stories of
+  `/run-all`, reactions, replies and the reports of tests added to suites. It edits and deletes only its own comments.
+  Use a separate account with no rights in `apache/*` and a classic token with the `public_repo` scope: a leaked token
+  then cannot push to Apache Ignite. When GitHub makes its writes wait (a secondary rate limit) they go out later, and
+  so do the writes past 40 an hour to one PR or 60 for one user; the status page shows writes that wait or that GitHub
+  refuses. Without the token the options that write to GitHub are off. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
   what it found: whose token it is, whether it can write to the repo (a fine-grained token cannot, nor a classic one
   without `public_repo`), when it expires (a warning 14 days ahead), and whether the account can push to the repo or to
   the checker's own, where its releases come from. What GitHub does not say shows as unknown.
@@ -135,7 +143,7 @@ settings by hand.
 | `SERVER_PORT` | `8080` | The port. |
 | `SESSION_SECRET` | a random key per start; `install.sh` writes a stable one | Encrypts the session cookies and the stored tokens. Read [The cache directory](#the-cache-directory) before you change it. |
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
-| `GITHUB_TOKEN` | none | Token of the app account: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, which the PR command poll alone uses up while anyone has PR commands on, and nothing is posted under the checker's own account. |
+| `GITHUB_TOKEN` | none | Token of the app account, which writes every comment of the checker: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix and tests to suites are off. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
@@ -235,7 +243,7 @@ heap with the peak of its old generation, and the process's resident memory with
 |---|---|
 | `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
 | `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted), and those JIRA refused the token of, without it. |
-| `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply. |
+| `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply, the reactions and replies GitHub has not taken yet. |
 | `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
@@ -253,9 +261,8 @@ The tokens in these files, the backups included, are encrypted with `SESSION_SEC
 everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. The standing options do not wait
 for their owner: when a run of a user with auto re-run, auto-visa or the PR comment on finishes, the checker drops all
 their options, the linked GitHub login included, if it cannot read their TeamCity token, or their JIRA token while
-auto-visa is on, or their GitHub token while the PR comment is on. A user stores a fresh TeamCity token by logging in
-again, and a fresh JIRA or GitHub token by switching auto-visa, the PR comment or the autofix off and on with the new
-token. Change the secret only if it leaked, and ask the users to do both before their next run finishes.
+auto-visa is on. A user stores a fresh TeamCity token by logging in again, and a fresh JIRA or GitHub token by
+switching auto-visa, the autofix or tests to suites off and on with the new token. Change the secret only if it leaked, and ask the users to do both before their next run finishes.
 
 ### Who may restart, update and flush
 

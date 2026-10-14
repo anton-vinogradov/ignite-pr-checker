@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.github;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -31,7 +32,6 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -54,7 +54,7 @@ class TopRefusedTest {
     private static final HttpClientErrorException REFUSED = HttpClientErrorException.create(
         HttpStatusCode.valueOf(403), "Forbidden", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -73,8 +73,7 @@ class TopRefusedTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
     }
 
     @Test
@@ -85,9 +84,9 @@ class TopRefusedTest {
 
         verify(tc, times(1)).triggerRunAll(anyString(), anyInt(), anyBoolean());
         verify(tracker).record(PR, chain());
-        verify(github).reactToComment("gh-pat", 1L, "rocket");
-        verify(github, never()).reactToComment("gh-pat", 1L, "confused");
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L), contains("🚀 **RunAll queued, but not at the top** —"
+        verify(github).appReact(PR, "author", 1L, "rocket");
+        verify(github, never()).appReact(anyInt(), any(), eq(1L), eq("confused"));
+        verify(github).appComment(eq(PR), eq("author"), contains("🚀 **RunAll queued, but not at the top** —"
             + " [build 9400000](https://ci2.example/build/9400000) · live progress & verdict: [Ignite PR Checker]"
             + "(https://checker.example/?pr=13800). TeamCity refused to move it up (HTTP 403): your ci2 account may"
             + " not have the permission to reorder the build queue."));
@@ -102,9 +101,9 @@ class TopRefusedTest {
 
         comment(2L, "/top");
 
-        verify(github).reactToComment("gh-pat", 2L, "confused");
-        verify(github).updatePrComment("gh-pat", 2L, "/top\n\n---\n⬆️ _Nothing moved: TeamCity refused to move build"
-            + " 9400000 up (HTTP 403): your ci2 account may not have the permission to reorder the build queue._");
+        verify(github).appReact(PR, "author", 2L, "confused");
+        verify(github).appComment(PR, "author", "@Author ⬆️ _Nothing moved: TeamCity refused to move build 9400000 up"
+            + " (HTTP 403): your ci2 account may not have the permission to reorder the build queue._");
     }
 
     private void comment(long id, String body) {

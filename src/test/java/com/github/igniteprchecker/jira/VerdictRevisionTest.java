@@ -23,7 +23,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -37,7 +37,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 
 /**
  * Ten of the fourteen comments of 13335 were verdicts. "No blockers" of ec2c458 stood while the head was f195e0c,
@@ -64,7 +63,7 @@ class VerdictRevisionTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -84,19 +83,19 @@ class VerdictRevisionTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
-        when(github.ghIdentity("reviewer-gh-pat")).thenReturn(Optional.of(GhUsers.of("nizhikov")));
+        when(github.writes()).thenReturn(true);
+        when(github.canWrite()).thenReturn(true);
+        when(github.appEdit(anyInt(), anyString(), anyLong(), anyString())).thenReturn(true);
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, ISSUE + " Hot reload of SSL certificates", null,
             null, null, null)));
-        when(github.addPrComment(anyString(), eq(PR), anyString()))
+        when(github.appComment(eq(PR), anyString(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"),
                 new GithubClient.PostedComment(556L, "https://github.com/apache/ignite/pull/13335#c556"));
         when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString()))
             .thenReturn(new JiraClient.PostedComment("18000001", "https://issues.example/browse/" + ISSUE));
         when(tc.buildRevision(anyString(), anyLong())).thenReturn(Optional.of(TESTED));
-        standing.change(AUTHOR, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, false, true, false,
-            null));
+        standing.change(AUTHOR, "tc", "jira-pat", null, new StandingVisas.OptionChange(true, false, true, false, null));
     }
 
     @Test
@@ -105,7 +104,7 @@ class VerdictRevisionTest {
 
         standing.sweep();
 
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), contains("· tested [ec2c458](https://github.com/apache/ignite/"
+        verify(github).appComment(eq(PR), eq(AUTHOR), contains("· tested [ec2c458](https://github.com/apache/ignite/"
             + "pull/13335/commits/" + TESTED + ") ·"));
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains("· tested [ec2c458|https://github.com/apache/"
             + "ignite/pull/13335/commits/" + TESTED + "] ·"));
@@ -143,24 +142,25 @@ class VerdictRevisionTest {
         standing.sweep();
         standing.sweep();
 
-        verify(github, times(1)).updatePrComment("gh-pat", 555L, "verdict of " + FIRST + MARK);
-        verify(github, never()).updatePrComment(anyString(), eq(556L), anyString());
+        verify(github, times(1)).appEdit(PR, AUTHOR, 555L, "verdict of " + FIRST + MARK);
+        verify(github, never()).appEdit(anyInt(), anyString(), eq(556L), anyString());
     }
 
+    /** The verdict of someone else's run is the checker's comment too, and is marked by the checker's account. */
     @Test
-    void anotherUsersVerdictIsMarkedWithTheirOwnToken() {
-        standing.change(REVIEWER, "reviewer-tc", null, "reviewer-gh-pat",
-            new StandingVisas.OptionChange(false, false, true, false, null));
+    void anotherUsersVerdictIsMarked() {
+        standing.change(REVIEWER, "reviewer-tc", null, null, new StandingVisas.OptionChange(false, false, true, false,
+            null));
         finished(FIRST, REVIEWER);
         standing.sweep();
-        verify(github).addPrComment(eq("reviewer-gh-pat"), eq(PR), anyString());
+        verify(github).appComment(eq(PR), eq(REVIEWER), anyString());
         when(github.commentBody(555L)).thenReturn(Optional.of("verdict of " + FIRST));
 
         finished(SECOND, AUTHOR);
         standing.sweep();
         standing.sweep();
 
-        verify(github).updatePrComment("reviewer-gh-pat", 555L, "verdict of " + FIRST + MARK);
+        verify(github).appEdit(PR, REVIEWER, 555L, "verdict of " + FIRST + MARK);
         verify(github, times(1)).commentBody(555L);
     }
 
@@ -180,7 +180,7 @@ class VerdictRevisionTest {
         standing.sweep();
         standing.sweep();
 
-        verify(github, times(1)).updatePrComment("gh-pat", 555L, "verdict of " + FIRST + MARK);
+        verify(github, times(1)).appEdit(PR, AUTHOR, 555L, "verdict of " + FIRST + MARK);
         verify(github, times(2)).commentBody(555L);
     }
 
@@ -200,14 +200,18 @@ class VerdictRevisionTest {
 
         restarted.sweep();
 
-        verify(github).updatePrComment("gh-pat", 555L, "verdict of " + FIRST + MARK);
+        verify(github).appEdit(PR, AUTHOR, 555L, "verdict of " + FIRST + MARK);
         assertThat(mapper.readTree(file.toFile()).get("enrollments").get(0).get("ghThreads").get(String.valueOf(PR))
             .get("unmarked").toString()).isEqualTo("[555]");
     }
 
-    /** A living comment from before this release is still redone while its re-runs go: it names the commit too. */
+    /**
+     * A living comment an earlier version posted with the user's own token was redone while its re-runs went. It is
+     * not the checker's to edit: it is forgotten, and the run's verdict comes once, settled, from the checker's
+     * account.
+     */
     @Test
-    void anInterimVerdictNamesTheCommit(@TempDir Path dir) throws Exception {
+    void aLivingCommentOfTheUsersOwnTokenIsNotRedone(@TempDir Path dir) throws Exception {
         standing.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
@@ -221,8 +225,8 @@ class VerdictRevisionTest {
 
         standing.sweep();
 
-        verify(github).updatePrComment(eq("gh-pat"), eq(501L), contains("· tested [ec2c458](https://github.com/apache/"
-            + "ignite/pull/13335/commits/" + TESTED + ") ·"));
+        verify(github, never()).appEdit(anyInt(), anyString(), eq(501L), anyString());
+        verify(github, never()).appComment(anyInt(), anyString(), anyString());
     }
 
     @Test
@@ -236,29 +240,34 @@ class VerdictRevisionTest {
         standing.sweep();
         standing.sweep();
 
-        verify(github, never()).updatePrComment(anyString(), eq(555L), anyString());
+        verify(github, never()).appEdit(anyInt(), anyString(), eq(555L), anyString());
         verify(github, times(1)).commentBody(555L);
     }
 
-    /** standing-visas.json of v1.20.11 knows neither whether a comment is final nor whether it was marked. */
+    /**
+     * The five verdict comments on production were posted with their owners' own tokens, which the checker no longer
+     * writes with: a newer run does not mark them, and they are not asked about again.
+     */
     @Test
-    void aVerdictCommentFromAnOlderReleaseIsMarkedToo(@TempDir Path dir) throws Exception {
+    void aVerdictCommentOfTheUsersOwnTokenIsForgotten(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
         ObjectNode snap = (ObjectNode)mapper.readTree(file.toFile());
         ObjectNode enrollment = (ObjectNode)snap.get("enrollments").get(0);
         enrollment.putObject("posted").put(String.valueOf(PR), FIRST);
-        enrollment.putObject("ghThreads").putObject(String.valueOf(PR)).put("buildId", FIRST).put("commentId", 501L);
+        enrollment.putObject("ghThreads").putObject(String.valueOf(PR)).put("buildId", FIRST).put("commentId", 501L)
+            .put("done", true);
         mapper.writeValue(file.toFile(), snap);
         standing.loadFrom(file);
-        when(github.commentBody(501L)).thenReturn(Optional.of("verdict of " + FIRST));
 
         finished(SECOND, AUTHOR);
         standing.sweep();
+        standing.saveTo(file);
 
-        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrComment(eq("gh-pat"), eq(501L), body.capture());
-        assertThat(body.getValue()).isEqualTo("verdict of " + FIRST + MARK);
+        verify(github, never()).commentBody(501L);
+        verify(github, never()).appEdit(anyInt(), anyString(), eq(501L), anyString());
+        assertThat(mapper.readTree(file.toFile()).get("enrollments").get(0).get("ghThreads").get(String.valueOf(PR))
+            .get("commentId").asLong()).isEqualTo(555L);
     }
 
     private void finished(long buildId, String by) {

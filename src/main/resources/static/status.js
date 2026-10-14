@@ -80,10 +80,25 @@ function appAccountCard(a) {
     if (!a || a.state === 'unknown')
         return card('App account', '—', 'GitHub has not said whose GITHUB_TOKEN this is yet');
     if (a.state === 'none')
-        return card('App account', 'none', 'no GITHUB_TOKEN: read-only, commands of users without a token get no reply', 'warn');
+        return card('App account', 'none', 'no GITHUB_TOKEN: the PR comment, PR commands, the checkstyle autofix and'
+            + ' tests to suites are off', 'warn');
     if (a.state === 'refused')
         return card('App account', 'refused', 'GitHub refuses GITHUB_TOKEN', 'bad');
     return card('App account', '@' + esc(a.login), appAccountFound(a.checks || []), appAccountLevel(a.checks || []));
+}
+
+// Whether the app account's writes go: GitHub may refuse one (a block, a locked PR) or make them wait, and the writes
+// for a PR or a user may reach their hourly cap. Those that wait go out later, so a wait is amber.
+function appWritesCard(w) {
+    if (!w) return '';
+    const said = [];
+    if (w.refusedAt) said.push(w.refused ? esc(w.refused) : 'GitHub refused a write: log in to see what it said');
+    if (w.pausedUntil) said.push('GitHub rate-limits them until ' + new Date(w.pausedUntil).toLocaleTimeString()
+        + ': they go out then');
+    if ((w.capped || []).length) said.push('hourly cap reached for ' + w.capped.map(esc).join(', ')
+        + ': the rest wait');
+    if (!said.length) return card('App writes', 'ok', 'none refused or waiting', 'ok');
+    return card('App writes', w.refusedAt ? 'refused' : 'waiting', said.join(' · '), w.refusedAt ? 'bad' : 'warn');
 }
 
 function appAccountFound(checks) {
@@ -232,6 +247,7 @@ function render(d) {
         card('App token (1h)', appCalls.toLocaleString(), `${appFails} failed · server-side calls`,
             appCalls ? (appFails === 0 ? 'ok' : 'warn') : ''),
         appAccountCard(d.app.githubAccount),
+        appWritesCard(d.app.githubWrites),
         card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
         card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
             d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : '',

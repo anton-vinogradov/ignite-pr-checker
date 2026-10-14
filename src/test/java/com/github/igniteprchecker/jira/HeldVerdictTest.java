@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -22,7 +23,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -60,7 +61,7 @@ class HeldVerdictTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -79,7 +80,6 @@ class HeldVerdictTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
         when(jira.myself("fresh-jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, ISSUE + " Hot reload of SSL certificates", null,
@@ -146,8 +146,8 @@ class HeldVerdictTest {
 
     @Test
     void aRateLimitedCommentKeepsTheTokenAndGoesOutAtTheNextSweep() {
-        standing.change(AUTHOR, "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, null));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString())).thenThrow(HttpClientErrorException.create(
+        standing.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(false, false, true, false, null));
+        when(github.appComment(eq(PR), any(), anyString())).thenThrow(HttpClientErrorException.create(
                 HttpStatusCode.valueOf(403), "You have exceeded a secondary rate limit", HttpHeaders.EMPTY, new byte[0],
                 StandardCharsets.UTF_8))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
@@ -161,7 +161,7 @@ class HeldVerdictTest {
         standing.sweep();
         standing.sweep();
 
-        verify(github, times(2)).addPrComment(eq("gh-pat"), eq(PR), contains("RunAll"));
+        verify(github, times(2)).appComment(eq(PR), any(), contains("RunAll"));
         assertThat(standing.verdictCommentId(AUTHOR, PR, FIRST)).hasValue(555L);
     }
 

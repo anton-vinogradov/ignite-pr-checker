@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -31,7 +32,6 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,7 +40,8 @@ import org.mockito.ArgumentCaptor;
 /**
  * The /run-all comment promised "The verdict lands here", while the verdict came in a comment of its
  * own; it ended with "the verdict comment has the full story" and "Superseded by a newer /run-all"
- * with no link, though both comments were known.
+ * with no link, though both comments were known. The story is the checker's own comment now, and it goes once the
+ * verdict comment of its chain is in.
  */
 class RunStoryLinksTest {
     private static final int PR = 13800;
@@ -51,7 +52,7 @@ class RunStoryLinksTest {
 
     private static final String PR_URL = "https://github.com/apache/ignite/pull/" + PR;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -68,8 +69,10 @@ class RunStoryLinksTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
+        standing.change("author", "tc", null, null, new StandingVisas.OptionChange(false, false, true, false, true));
+        when(github.appComment(eq(PR), any(), anyString())).thenReturn(new GithubClient.PostedComment(77L,
+            PR_URL + "#issuecomment-77"));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(build(CHAIN, "queued", null));
         when(github.commentUrl(anyInt(), anyLong()))
             .thenAnswer(inv -> PR_URL + "#issuecomment-" + inv.getArgument(1, Long.class));
@@ -80,21 +83,22 @@ class RunStoryLinksTest {
         command(1L);
 
         ArgumentCaptor<String> ack = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L), ack.capture());
-        assertThat(ack.getValue()).contains("When the run finishes, this comment links the verdict")
-            .doesNotContain("lands here");
+        verify(github).appComment(eq(PR), eq("author"), ack.capture());
+        assertThat(ack.getValue()).contains("When the run finishes, a new comment brings you the verdict, and this"
+            + " story goes.").doesNotContain("lands here");
     }
 
+    /** The verdict comment of the chain mentions the commander: the story says nothing more, and goes. */
     @Test
-    void theFinishedStoryLinksTheVerdictCommentOfItsChain(@TempDir Path dir) throws Exception {
+    void theFinishedStoryGivesWayToTheVerdictCommentOfItsChain(@TempDir Path dir) throws Exception {
         command(1L);
         verdictPosted(555L, dir);
         when(tc.getBuildState("tc", CHAIN)).thenReturn(build(CHAIN, "finished", "FAILURE"));
 
         commands.updateEtas();
 
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L),
-            contains("🏁 _Run finished — [see the verdict](" + PR_URL + "#issuecomment-555)._"));
+        verify(github).appDelete(PR, "author", 77L);
+        verify(github, times(1)).appComment(eq(PR), any(), anyString());
     }
 
     /**
@@ -110,7 +114,7 @@ class RunStoryLinksTest {
         commands.updateEtas();
 
         ArgumentCaptor<String> story = ArgumentCaptor.forClass(String.class);
-        verify(github, times(2)).updatePrComment(eq("gh-pat"), eq(1L), story.capture());
+        verify(github).appEdit(eq(PR), any(), eq(77L), story.capture());
         assertThat(story.getValue()).contains("Auto re-run **#1** — 3 suites that failed mid-run — "
             + "[details](https://checker.example/?pr=" + PR + ")").doesNotContain("#issuecomment-555");
     }
@@ -123,8 +127,8 @@ class RunStoryLinksTest {
 
         command(2L);
 
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L),
-            contains("🛑 _Superseded by [a newer /run-all](" + PR_URL + "#issuecomment-2)._"));
+        verify(github).appEdit(eq(PR), any(), eq(77L), contains("🛑 _Superseded by [a newer /run-all](" + PR_URL
+            + "#issuecomment-2)._"));
     }
 
     private void command(long id) {
@@ -133,7 +137,7 @@ class RunStoryLinksTest {
         commands.poll();
     }
 
-    /** The sweep posted the verdict of the chain as the author's comment and marked the run handled. */
+    /** The sweep posted the verdict of the chain from the checker's account and marked the run handled. */
     private void verdictPosted(long commentId, Path dir) throws Exception {
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
@@ -141,7 +145,7 @@ class RunStoryLinksTest {
         ObjectNode enrollment = (ObjectNode)snap.get("enrollments").get(0);
         enrollment.putObject("posted").put(String.valueOf(PR), CHAIN);
         enrollment.putObject("ghThreads").putObject(String.valueOf(PR)).put("buildId", CHAIN)
-            .put("commentId", commentId);
+            .put("commentId", commentId).put("done", true).put("app", true);
         mapper.writeValue(file.toFile(), snap);
         standing.loadFrom(file);
     }
@@ -154,7 +158,7 @@ class RunStoryLinksTest {
         ObjectNode enrollment = (ObjectNode)snap.get("enrollments").get(0);
         enrollment.putObject("posted").put(String.valueOf(PR), PREVIOUS);
         enrollment.putObject("ghThreads").putObject(String.valueOf(PR)).put("buildId", PREVIOUS)
-            .put("commentId", commentId);
+            .put("commentId", commentId).put("done", true).put("app", true);
         snap.putObject("retries").putObject(String.valueOf(PR)).put("buildId", CHAIN).put("attempts", 1)
             .put("what", "3 suites that failed mid-run").putNull("note").putArray("history")
             .add("3 suites that failed mid-run");

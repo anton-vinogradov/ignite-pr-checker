@@ -43,7 +43,7 @@ public class SessionCodec {
 
     /** @return the cookie value carrying a new session: the TeamCity token alone. */
     public String encode(String username, String token) {
-        return encode(new Session(username, token, null, null));
+        return encode(new Session(username, token, null));
     }
 
     /**
@@ -62,7 +62,7 @@ public class SessionCodec {
     public String encode(Session session, long issuedAt) {
         try {
             byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(),
-                session.jiraToken(), session.ghToken(), issuedAt));
+                session.jiraToken(), issuedAt));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -130,8 +130,7 @@ public class SessionCodec {
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
             Payload p = mapper.readValue(cipher.doFinal(ct), Payload.class);
 
-            return Optional.of(new Session(p.username(), p.token(), p.jiraToken(), p.ghToken(),
-                p.iat() == null ? 0 : p.iat()));
+            return Optional.of(new Session(p.username(), p.token(), p.jiraToken(), p.iat() == null ? 0 : p.iat()));
         }
         catch (Exception e) {
             return Optional.empty();
@@ -162,33 +161,29 @@ public class SessionCodec {
      * A user's session. {@code issuedAt} is when its cookie was issued (epoch ms); 0 for a cookie issued before
      * cookies said so, and for a session not issued yet.
      */
-    public record Session(String username, String token, String jiraToken, String ghToken, long issuedAt) {
+    public record Session(String username, String token, String jiraToken, long issuedAt) {
         /** A session not issued yet. */
-        public Session(String username, String token, String jiraToken, String ghToken) {
-            this(username, token, jiraToken, ghToken, 0);
+        public Session(String username, String token, String jiraToken) {
+            this(username, token, jiraToken, 0);
         }
 
         /** The same session under another TeamCity token. */
         public Session withToken(String tc) {
-            return new Session(username, tc, jiraToken, ghToken, issuedAt);
+            return new Session(username, tc, jiraToken, issuedAt);
         }
 
         /** The same session with another JIRA PAT. */
         public Session withJiraToken(String jira) {
-            return new Session(username, token, jira, ghToken, issuedAt);
-        }
-
-        /** The same session with another GitHub PAT. */
-        public Session withGhToken(String gh) {
-            return new Session(username, token, jiraToken, gh, issuedAt);
+            return new Session(username, token, jira, issuedAt);
         }
     }
 
     /**
-     * Old cookies also carried an {@code exp}, ignored now that sessions don't time out. {@code iat}, when the cookie
-     * was issued, is absent from the cookies of earlier versions.
+     * Old cookies also carried an {@code exp}, ignored now that sessions don't time out, and a {@code ghToken}, which
+     * the checker no longer takes from a cookie: it goes at the cookie's next issue. {@code iat}, when the cookie was
+     * issued, is absent from the cookies of earlier versions.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Payload(String username, String token, String jiraToken, String ghToken, Long iat) {
+    private record Payload(String username, String token, String jiraToken, Long iat) {
     }
 }

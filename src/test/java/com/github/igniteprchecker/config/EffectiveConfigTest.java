@@ -118,7 +118,8 @@ class EffectiveConfigTest {
         assertThat(config.settings()).containsEntry("SERVER_ADDRESS", "127.0.0.1")
             .containsEntry("SESSION_COOKIE_SECURE", "true").containsEntry("APP_PUBLIC_URL", "empty");
         assertThat(config.problems()).singleElement().asString().startsWith("APP_PUBLIC_URL is empty");
-        assertThat(template).contains("#GITHUB_TOKEN=").contains("posts the replies").contains("public_repo");
+        assertThat(template).contains("#GITHUB_TOKEN=").contains("every comment, edit and reaction")
+            .contains("public_repo");
     }
 
     @Test

@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -33,13 +34,14 @@ class SuiteFixOptionTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final StandingVisas standing = standing();
 
     @Test
     void itTakesTheGithubTokenAndTheLoginItProvesAndGivesTheTokenUpWhenOff() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Alice-V")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Alice-V"),
+            null)));
 
         assertThat(standing.change("alice", "tc", null, null, suites(true)))
             .hasValueSatisfying(r -> assertThat(r.need()).isEqualTo("github"));
@@ -64,7 +66,8 @@ class SuiteFixOptionTest {
 
     @Test
     void switchingItOffGivesTheGithubTokenUpWhileAutoRerunStaysOn() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Alice-V")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Alice-V"),
+            null)));
         standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
             true));
 
@@ -121,7 +124,8 @@ class SuiteFixOptionTest {
 
     @Test
     void aTokenGithubRefusesSwitchesItOff() {
-        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("Alice-V")));
+        when(github.tokenOwner(anyString())).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Alice-V"),
+            null)));
         standing.change("alice", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, true, null, null, null,
             true));
 

@@ -1,9 +1,10 @@
 package com.github.igniteprchecker.github;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,13 +30,13 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Someone who switched on PR commands alone gets no visa, re-run or verdict comment, so nothing will
- * ever mark their run settled: the story in their command comment must end when the chain finishes,
- * not wait for a verdict that never comes.
+ * ever mark their run settled: the story of their command must end when the chain finishes, not wait for a verdict
+ * that never comes. A new comment tells them the verdict is ready, and the story goes: the run leaves one comment.
  */
 class CommandsOnlyTest {
     private static final int PR = 13800;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -61,14 +62,18 @@ class CommandsOnlyTest {
             "https://github.com/apache/ignite/pull/" + PR + "#issuecomment-1", Instant.now().toString(),
             GhUsers.of("Newcomer"))));
         when(tc.triggerRunAll("commands-tc", PR, false)).thenReturn(build("queued", null));
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         commands.poll();
         when(tc.getBuildState("commands-tc", 9400000L)).thenReturn(build("finished", "SUCCESS"));
 
         commands.updateEtas();
+        commands.updateEtas();
 
-        verify(github).updatePrCommentAsApp(eq(77L), contains("Run finished — [see the verdict](https://checker.example/?pr=13800)"));
+        verify(github).appComment(PR, "newcomer", "@Newcomer the verdict of your `/run-all` is ready: RunAll"
+            + " [9400000](https://ci2.example/build/9400000) — [see the verdict](https://checker.example/?pr=13800).");
+        verify(github).appDelete(PR, "newcomer", 77L);
+        verify(github, times(2)).appComment(eq(PR), any(), anyString());
     }
 
     private static TcModel.Build build(String state, String status) {

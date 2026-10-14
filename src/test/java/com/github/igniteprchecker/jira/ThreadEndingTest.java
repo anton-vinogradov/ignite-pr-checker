@@ -1,13 +1,14 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,7 +21,7 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -39,7 +40,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 
@@ -47,7 +47,8 @@ import org.springframework.web.client.HttpServerErrorException;
  * The only visa in IGNITE-28938 still reads "(x) 3 blockers… Auto re-run #1 in progress", and PR 13427 was merged
  * with it: the sweep looked at the latest RunAll of the 50 most recently updated PRs only, and nothing ever ended a
  * living comment whose run a newer one had replaced or whose PR was closed. standing-visas.json on prod still holds
- * re-run waves from August.
+ * re-run waves from August. Its PR comment was posted with the user's own GitHub token, which the checker no longer
+ * writes with: that one is left as it is.
  */
 class ThreadEndingTest {
     private static final String USER = "avinogradov";
@@ -76,7 +77,7 @@ class ThreadEndingTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final JiraClient jira = mock(JiraClient.class);
 
@@ -91,9 +92,8 @@ class ThreadEndingTest {
 
     @BeforeEach
     void setUp(@TempDir Path dir) throws Exception {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
-        standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, false, null));
+        standing.change(USER, "tc", "jira-pat", null, new StandingVisas.OptionChange(true, true, true, false, null));
         livingCommentsOf(OLD, dir);
         when(github.commentBody(COMMENT)).thenReturn(Optional.of(IN_PROGRESS_GH));
         when(jira.commentBody("jira-pat", ISSUE, VISA)).thenReturn(Optional.of(IN_PROGRESS_JIRA));
@@ -109,69 +109,11 @@ class ThreadEndingTest {
 
         String replaced = "Re-runs stopped: RunAll " + NEW + " replaced this run before they settled. The verdict"
             + " above is this run's last; the newest is on ";
-        verify(github).updatePrComment("gh-pat", COMMENT, IN_PROGRESS_GH.substring(0, IN_PROGRESS_GH.indexOf("\n\n⏳"))
-            + "\n\n🛑 _" + replaced + "[the checker's page](https://checker.example/?pr=13427)._");
         verify(jira).updateComment("jira-pat", ISSUE, VISA, IN_PROGRESS_JIRA.substring(0,
             IN_PROGRESS_JIRA.indexOf("\r\n\r\n⏳")) + "\n\n_" + replaced + "[the checker's page|https://checker.example/?pr=13427]._");
-        verify(github, times(1)).commentBody(COMMENT);
+        verify(github, never()).commentBody(COMMENT);
+        verify(github, never()).appEdit(anyInt(), any(), eq(COMMENT), anyString());
         assertThat(standing.waveStatus(PR, OLD)).isEmpty();
-    }
-
-    /** A comment that already carries its final verdict keeps it; it only says that a newer run superseded it. */
-    @Test
-    void aCommentThatAlreadyEndedIsOnlyMarkedSuperseded() {
-        listed();
-        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
-        String verdict = "**[Ignite PR Checker](…)** verdict\n\n✅ **No blockers**";
-        when(github.commentBody(COMMENT)).thenReturn(Optional.of(verdict));
-
-        standing.sweep();
-        standing.sweep();
-
-        verify(github, times(1)).updatePrComment(anyString(), anyLong(), anyString());
-        verify(github).updatePrComment("gh-pat", COMMENT, verdict + "\n\n🔁 _Superseded by the newer RunAll [" + NEW
-            + "](https://ci2.example/build/" + NEW + ") — its verdict is on [the checker's page]"
-            + "(https://checker.example/?pr=13427)._");
-        verify(github, times(1)).commentBody(COMMENT);
-    }
-
-    /**
-     * The old comment is read under the app's token, whose 60 anonymous requests an hour the PR list and /status
-     * share, or which the operator has just revoked: GitHub refusing it is no reason to drop the owner's own PAT.
-     */
-    @ParameterizedTest
-    @ValueSource(ints = {401, 403})
-    void aRefusedReadUnderTheAppsTokenKeepsTheOwnersToken(int status) {
-        listed();
-        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
-        when(github.commentBody(COMMENT)).thenThrow(HttpClientErrorException.create(HttpStatusCode.valueOf(status),
-            "API rate limit exceeded", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8));
-
-        standing.sweep();
-
-        StandingVisas.Settings settings = standing.settings(USER);
-        assertThat(settings.ghStored()).isTrue();
-        assertThat(settings.gh()).isTrue();
-        assertThat(settings.ghTokenRejected()).isFalse();
-
-        doReturn(Optional.of(IN_PROGRESS_GH)).when(github).commentBody(COMMENT);
-        standing.sweep();
-
-        verify(github).updatePrComment(eq("gh-pat"), eq(COMMENT), contains("Re-runs stopped: RunAll " + NEW));
-    }
-
-    /** The owner's PAT itself refused on the edit: it is dropped, as everywhere else. */
-    @Test
-    void aRefusedEditDropsTheOwnersToken() {
-        listed();
-        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
-        doThrow(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Bad credentials", HttpHeaders.EMPTY,
-            new byte[0], StandardCharsets.UTF_8)).when(github).updatePrComment(eq("gh-pat"), eq(COMMENT), anyString());
-
-        standing.sweep();
-
-        assertThat(standing.settings(USER).ghStored()).isFalse();
-        assertThat(standing.settings(USER).ghTokenRejected()).isTrue();
     }
 
     /**
@@ -194,23 +136,6 @@ class ThreadEndingTest {
     }
 
     /**
-     * Its owner switched off everything that settles runs and kept PR commands and checkstyle autofix, with the GitHub
-     * token.
-     */
-    @Test
-    void aCommentWhoseOptionsWereSwitchedOffSaysSo() {
-        listed();
-        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(OLD, USER)));
-        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, false, false, true, true));
-
-        standing.sweep();
-
-        verify(github).updatePrComment("gh-pat", COMMENT, IN_PROGRESS_GH.substring(0, IN_PROGRESS_GH.indexOf("\n\n⏳"))
-            + "\n\n⏹ _Re-runs no longer followed: the options that settle this run were switched off. The verdict"
-            + " above is the last known._");
-    }
-
-    /**
      * v1.20.11 kept one switch-on time for all options and moved it when one more was switched on while the re-runs
      * went: the run's options are all on, but none was by that time.
      */
@@ -222,9 +147,9 @@ class ThreadEndingTest {
 
         standing.sweep();
 
-        verify(github).updatePrComment("gh-pat", COMMENT, IN_PROGRESS_GH.substring(0, IN_PROGRESS_GH.indexOf("\n\n⏳"))
-            + "\n\n⏹ _Re-runs no longer followed: the options that settle this run were changed after it finished."
-            + " The verdict above is the last known._");
+        verify(jira).updateComment("jira-pat", ISSUE, VISA, IN_PROGRESS_JIRA.substring(0,
+            IN_PROGRESS_JIRA.indexOf("\r\n\r\n⏳")) + "\n\n_Re-runs no longer followed: the options that settle this"
+            + " run were changed after it finished. The verdict above is the last known._");
         assertThat(standing.buildHandled(USER, PR, OLD)).isTrue();
     }
 
@@ -236,10 +161,10 @@ class ThreadEndingTest {
 
         standing.sweep();
 
-        verify(github).updatePrComment(eq("gh-pat"), eq(COMMENT),
-            eq(IN_PROGRESS_GH.substring(0, IN_PROGRESS_GH.indexOf("\n\n⏳"))
-                + "\n\n🏁 _The PR was merged before the re-runs settled: the verdict above is the last known._"));
-        verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA), anyString());
+        verify(github, never()).appEdit(anyInt(), any(), eq(COMMENT), anyString());
+        verify(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA),
+            eq(IN_PROGRESS_JIRA.substring(0, IN_PROGRESS_JIRA.indexOf("\r\n\r\n⏳"))
+                + "\n\n_The PR was merged before the re-runs settled: the verdict above is the last known._"));
         assertThat(standing.waveStatus(PR, OLD)).isEmpty();
         assertThat(standing.runEnd(PR, OLD)).contains(new StandingVisas.RunEnd(0, true));
     }

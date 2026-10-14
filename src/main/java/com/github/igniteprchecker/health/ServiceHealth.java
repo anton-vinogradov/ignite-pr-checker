@@ -7,6 +7,8 @@ import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.CacheStore;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +20,8 @@ import org.springframework.stereotype.Component;
  * while users have standing options, every background TeamCity read has stopped; a warm cycle in which nearly every
  * PR failed means TeamCity calls fail across the board, which the warmer logs at debug only. Durable state that
  * failed to load, or keeps failing to save, counts until it is dealt with, and so does a setting that is not as meant,
- * a GITHUB_TOKEN GitHub refuses, and what its last check found wrong with it.
+ * a GITHUB_TOKEN GitHub refuses, what its last check found wrong with it, and writes of its account that GitHub
+ * refuses or makes wait.
  */
 @Component
 public class ServiceHealth {
@@ -67,8 +70,9 @@ public class ServiceHealth {
             warmer.cycleStartedAt(), warmer.lastWarmed() + warmer.lastCached() + warmer.lastFailed(),
             warmer.lastFailed(), warmer.pooledTokens(), standing.enrolledCount());
         GithubClient.AppAccount app = github == null ? null : github.appAccount();
+        GithubClient.WriteState writes = github == null ? null : github.writeState();
 
-        return assess(log, clocks, store.status(), config.problems(), app, now);
+        return assess(log, clocks, store.status(), config.problems(), app, writes, now);
     }
 
     static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence,
@@ -79,6 +83,12 @@ public class ServiceHealth {
     /** {@code app}: whose GitHub account the checker writes as, null when not known. */
     static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence,
         List<String> configProblems, GithubClient.AppAccount app, long now) {
+        return assess(log, clocks, persistence, configProblems, app, null, now);
+    }
+
+    /** {@code writes}: how the writes of that account go, null when not known. */
+    static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence,
+        List<String> configProblems, GithubClient.AppAccount app, GithubClient.WriteState writes, long now) {
         List<Problem> problems = new ArrayList<>();
 
         long sweepAgo = now - (clocks.lastSweepAt() > 0 ? clocks.lastSweepAt() : clocks.startedAt());
@@ -115,11 +125,13 @@ public class ServiceHealth {
         configProblems.forEach(p -> problems.add(Problem.warn(p)));
 
         if (app != null && app.refused()) {
-            problems.add(Problem.error("GitHub refuses GITHUB_TOKEN: replies, reactions and narration from the app "
-                + "account fail"));
+            problems.add(Problem.error("GitHub refuses GITHUB_TOKEN: every comment, edit and reaction of the checker "
+                + "in PRs fails"));
         }
         if (app != null && !app.refused())
             problems.addAll(appAccountProblems(app));
+        if (writes != null)
+            problems.addAll(writeProblems(writes));
 
         String logHealth = log.health(now);
         String health = logHealth;
@@ -137,6 +149,28 @@ public class ServiceHealth {
             .filter(c -> c.level().equals(GithubClient.AppAccount.Check.WARN)
                 || c.level().equals(GithubClient.AppAccount.Check.ERROR))
             .map(c -> new Problem(c.level(), c.text())).toList();
+    }
+
+    /**
+     * The app account cannot write as it should: GitHub made its writes wait, refused one for another reason than its
+     * limits (a block, a locked PR), or the writes for a PR or a user reached their hourly cap. The writes that wait go
+     * out later, so a wait is a warning.
+     */
+    private static List<Problem> writeProblems(GithubClient.WriteState writes) {
+        List<Problem> problems = new ArrayList<>();
+        if (writes.pausedUntil() > 0) {
+            Instant until = Instant.ofEpochMilli(writes.pausedUntil()).truncatedTo(ChronoUnit.SECONDS);
+            problems.add(Problem.warn("GitHub rate-limits the writes of the app account until " + until
+                + ": they wait and go out then"));
+        }
+        if (writes.refused() != null)
+            problems.add(Problem.error(writes.refused() + " — the account may be blocked, or the PR locked"));
+        if (!writes.capped().isEmpty()) {
+            problems.add(Problem.warn("the writes of the app account reached their hourly cap for "
+                + String.join(", ", writes.capped()) + ": the rest wait"));
+        }
+
+        return problems;
     }
 
     private static List<Problem> persistenceProblems(CacheStore.Status persistence) {

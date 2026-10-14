@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Test;
  * account GitHub said nothing of was shown green: now it is grey, saying what is unknown.
  */
 class AppAccountCardTest {
-    private static final String[] FUNCTIONS = {"card", "appAccountCard", "appAccountFound", "appAccountLevel"};
+    private static final String[] FUNCTIONS = {"card", "appAccountCard", "appAccountFound", "appAccountLevel",
+        "appWritesCard"};
 
     private static final String FINE = """
         [{ level: 'ok', text: 'classic token, scopes: public_repo' }, { level: 'ok', text: 'does not expire' },
@@ -68,8 +69,24 @@ class AppAccountCardTest {
     void noTokenAndARefusedOneAreSaid() throws Exception {
         JsonNode cards = run("out([appAccountCard({ state: 'none' }), appAccountCard({ state: 'refused' })]);");
 
-        assertThat(cards.get(0).asText()).contains("no GITHUB_TOKEN");
+        assertThat(cards.get(0).asText()).contains("no GITHUB_TOKEN: the PR comment, PR commands, the checkstyle"
+            + " autofix and tests to suites are off");
         assertThat(cards.get(1).asText()).contains("GitHub refuses GITHUB_TOKEN", "class=\"v bad\"");
+    }
+
+    /** The account writes every user's comments: whether its writes wait or fail is the operator's to know. */
+    @Test
+    void writesThatWaitAreAmberAndARefusedOneRed() throws Exception {
+        JsonNode cards = run("out([appWritesCard({ pausedUntil: 0, refusedAt: 0, capped: [] }),"
+            + " appWritesCard({ pausedUntil: Date.now() + 60000, refusedAt: 0, capped: ['PR 13800'] }),"
+            + " appWritesCard({ pausedUntil: 0, refusedAt: 1, refused: 'GitHub answered 403 to a write: blocked',"
+            + " capped: [] }), appWritesCard({ pausedUntil: 0, refusedAt: 1, refused: null, capped: [] })]);");
+
+        assertThat(cards.get(0).asText()).contains("App writes", "none refused or waiting", "class=\"v ok\"");
+        assertThat(cards.get(1).asText()).contains("GitHub rate-limits them until", "hourly cap reached for PR 13800",
+            "class=\"v warn\"");
+        assertThat(cards.get(2).asText()).contains("GitHub answered 403 to a write: blocked", "class=\"v bad\"");
+        assertThat(cards.get(3).asText()).contains("log in to see what it said");
     }
 
     /** Runs {@code script} after the page's functions; whatever it passes to {@code out} comes back. */

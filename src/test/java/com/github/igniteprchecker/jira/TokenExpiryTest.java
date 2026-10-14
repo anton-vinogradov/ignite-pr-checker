@@ -11,6 +11,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -30,7 +31,7 @@ class TokenExpiryTest {
     private static final String USER = "avinogradov";
 
     private final ObjectMapper mapper = new ObjectMapper();
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
     private final JiraClient jira = mock(JiraClient.class);
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper()),
@@ -38,7 +39,8 @@ class TokenExpiryTest {
         mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
     private void enrolWithEverything() {
-        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner(anyString())).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
         when(jira.myself(anyString())).thenReturn(Optional.of(USER));
         standing.change(USER, "tc", "jira-pat", "gh-pat", new StandingVisas.OptionChange(true, true, true, true, true));
     }
@@ -49,9 +51,9 @@ class TokenExpiryTest {
 
         standing.dropGhToken(USER);
 
-        assertThat(standing.ghOn(USER)).isFalse();
         assertThat(standing.styleFixOn(USER)).isFalse();
         assertThat(standing.ghTokenRejected(USER)).isTrue();
+        assertThat(standing.ghOn(USER)).as("the checker's account posts the PR comment").isTrue();
         assertThat(standing.ghLoginOf(USER)).isEqualTo("anton-vinogradov"); // the login is not a credential
         assertThat(standing.visaOn(USER)).as("JIRA is a different token").isTrue();
         assertThat(standing.rerunOn(USER)).as("auto re-run needs no GitHub token").isTrue();
@@ -73,10 +75,10 @@ class TokenExpiryTest {
         enrolWithEverything();
         standing.dropGhToken(USER);
 
-        standing.change(USER, "tc", null, "fresh-gh-pat", new StandingVisas.OptionChange(null, null, true, null, null));
+        standing.change(USER, "tc", null, "fresh-gh-pat", new StandingVisas.OptionChange(null, null, null, true, null));
 
         assertThat(standing.ghTokenRejected(USER)).isFalse();
-        assertThat(standing.ghOn(USER)).isTrue();
+        assertThat(standing.styleFixOn(USER)).isTrue();
     }
 
     /** A token can also vanish without a 401 — made undecryptable, or lost by an older build. */
@@ -92,7 +94,7 @@ class TokenExpiryTest {
 
         standing.ensureGhLogins(); // the command poll's own housekeeping
 
-        assertThat(standing.ghOn(USER)).isFalse();
+        assertThat(standing.ghOn(USER)).as("the checker's account posts the PR comment").isTrue();
         assertThat(standing.styleFixOn(USER)).isFalse();
         assertThat(standing.ghTokenRejected(USER)).isTrue();
         assertThat(standing.rerunOn(USER)).as("auto re-run runs on the TeamCity token").isTrue();
@@ -102,14 +104,14 @@ class TokenExpiryTest {
     void aTokenGithubCannotNameIsNotStoredAndCostsNoLogin() {
         standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
         standing.linkGhLogin(USER, "tc", GhUsers.of("anton-vinogradov"));
-        when(github.ghIdentity(anyString())).thenReturn(Optional.empty()); // expired PAT from the session
+        when(github.tokenOwner(anyString())).thenReturn(Optional.empty()); // an expired PAT
 
         Optional<StandingVisas.Refusal> refused =
             standing.change(USER, "tc", null, "dead-gh-pat",
-                new StandingVisas.OptionChange(null, null, true, null, null));
+                new StandingVisas.OptionChange(null, null, null, true, null));
 
         assertThat(refused).hasValueSatisfying(r -> assertThat(r.need()).isEqualTo("github"));
-        assertThat(standing.ghOn(USER)).isFalse();
+        assertThat(standing.styleFixOn(USER)).isFalse();
         assertThat(standing.ghLoginOf(USER)).isEqualTo("anton-vinogradov");
     }
 }

@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -21,6 +22,7 @@ import com.github.igniteprchecker.analysis.AbandonedTestsCheck;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.model.PrTests.SuiteCheck.State;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -98,7 +100,7 @@ class SuiteFixServiceTest {
 
     private static final StandingVisas.GhActor ALICE = new StandingVisas.GhActor("alice", "tc", "gh-pat", null);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final PrTestRuns prTests = mock(PrTestRuns.class);
 
@@ -126,7 +128,7 @@ class SuiteFixServiceTest {
             .thenReturn(Optional.of(EXECUTION_SUITE));
         when(github.commitFiles(eq("gh-pat"), eq("alice/ignite"), eq("IGNITE-29000"), eq(HEAD), anyMap(),
             anyString())).thenReturn(PUSHED);
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.RUNNING, PUSHED, JOB, null,
             List.of(), false));
@@ -150,7 +152,8 @@ class SuiteFixServiceTest {
                 "- IgniteFunctionParameterTest -> UtilTestSuite");
         verify(github, never()).rawFileUpTo(any(), any(), eq(CLASS), anyInt());
 
-        assertThat(comment()).isEqualTo("🧩 **Ignite PR Checker: test suites.** Ignite's [abandoned-tests check](" + JOB
+        assertThat(comment()).isEqualTo("@alice 🧩 **Ignite PR Checker: test suites.** Ignite's [abandoned-tests check]("
+            + JOB
             + ") on `abc1234` found 1 test class of this PR in no test suite, so CI never runs it. `def5678` on your"
             + " branch `IGNITE-29000` adds it to a suite (`git pull` before your next push):\n\n"
             + "- `IgniteFunctionParameterTest` → `UtilTestSuite`, next to `IgniteSqlFunctionsTest`: it lists 1 class of"
@@ -168,7 +171,7 @@ class SuiteFixServiceTest {
 
         verify(github, times(1)).prJavaFiles(PR);
         verify(github, times(1)).commitFiles(any(), any(), any(), any(), anyMap(), any());
-        verify(github, times(1)).addPrComment(any(), anyInt(), any());
+        verify(github, times(1)).appComment(anyInt(), any(), any());
     }
 
     /** An Ignite PR often waits for review over a month with no push: its head gets no second try, nor comment. */
@@ -183,7 +186,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         verify(github, times(1)).prJavaFiles(PR);
-        verify(github, times(1)).addPrComment(any(), anyInt(), any());
+        verify(github, times(1)).appComment(anyInt(), any(), any());
     }
 
     /** The checker's commit may stay the head for weeks, its check naming a class still in no suite: never tried. */
@@ -199,7 +202,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         verify(github, times(1)).commitFiles(any(), any(), any(), any(), anyMap(), any());
-        verify(github, times(1)).addPrComment(any(), anyInt(), any());
+        verify(github, times(1)).appComment(anyInt(), any(), any());
     }
 
     @Test
@@ -307,7 +310,7 @@ class SuiteFixServiceTest {
 
         verify(prTests, never()).suiteCheck(any());
         verify(github, never()).commitFiles(any(), any(), any(), any(), anyMap(), any());
-        verify(github, never()).addPrComment(any(), anyInt(), any());
+        verify(github, never()).appComment(anyInt(), any(), any());
     }
 
     @Test
@@ -348,7 +351,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         verify(github, never()).commitFiles(any(), any(), any(), any(), anyMap(), any());
-        verify(github, never()).addPrComment(any(), anyInt(), any());
+        verify(github, never()).appComment(anyInt(), any(), any());
     }
 
     /** Ignite's test classes are not all in files named *Test.java: IgniteCacheQueryNodeRestartSelfTest2 is one. */
@@ -376,7 +379,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github, times(1)).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        verify(github, times(1)).appEdit(anyInt(), any(), eq(77L), body.capture());
         assertThat(body.getValue()).endsWith("\n\n✅ Ignite's check on `def5678` finds every test class in a suite.")
             .doesNotContain("its answer will be added here");
     }
@@ -389,7 +392,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        verify(github).appEdit(anyInt(), any(), eq(77L), body.capture());
         assertThat(body.getValue()).endsWith("⚠️ Ignite's check on `def5678` still finds `IgniteFunctionParameterTest`"
             + " in no test suite: the suite picked may not run it. Move it by hand.");
     }
@@ -406,7 +409,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github, times(1)).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        verify(github, times(1)).appEdit(anyInt(), any(), eq(77L), body.capture());
         assertThat(body.getValue()).endsWith("\n\nIgnite's check gave no answer on `def5678` within a day: " + NO_JOB
             + ".").doesNotContain("its answer will be added here");
     }
@@ -433,7 +436,7 @@ class SuiteFixServiceTest {
         service.sweep();
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        verify(github).appEdit(anyInt(), any(), eq(77L), body.capture());
         assertThat(body.getValue()).endsWith("\n\nIgnite's check gave no answer on `def5678` within a day: it waits for"
             + " a maintainer to approve its workflow run.");
     }
@@ -450,23 +453,52 @@ class SuiteFixServiceTest {
             + " Nothing was pushed:");
     }
 
-    /** GitHub answers 403 to a secondary rate limit: the token stays, and the answer goes in at the next sweep. */
+    /** GitHub made the checker's account wait: the answer goes in at the next sweep. */
     @Test
     void anEditGithubRateLimitedIsTriedAgain() {
         service.sweep();
         when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
             List.of(), true));
-        doThrow(rateLimited()).doNothing().when(github).updatePrComment(eq("gh-pat"), eq(77L), anyString());
+        doThrow(new GithubClient.WriteDeferred("GitHub asked to wait")).doReturn(true).when(github)
+            .appEdit(anyInt(), any(), eq(77L), anyString());
 
         service.sweep();
         service.sweep();
         service.sweep();
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github, times(2)).updatePrComment(eq("gh-pat"), eq(77L), body.capture());
+        verify(github, times(2)).appEdit(anyInt(), any(), eq(77L), body.capture());
         assertThat(body.getAllValues()).allSatisfy(b -> assertThat(b)
             .endsWith("\n\n✅ Ignite's check on `def5678` finds every test class in a suite."));
         verify(standing, never()).dropGhToken(anyString());
+    }
+
+    /** The report is the checker's own comment: GitHub refusing the checker's account says nothing of the author's. */
+    @Test
+    void aRefusedReportKeepsTheAuthorsToken() {
+        when(github.appComment(eq(PR), any(), anyString())).thenThrow(HttpClientErrorException.create(
+            HttpStatus.UNAUTHORIZED, "Bad credentials", null, null, null));
+
+        service.sweep();
+
+        verify(github).commitFiles(eq("gh-pat"), any(), any(), any(), anyMap(), any());
+        verify(github).appComment(eq(PR), eq("alice"), startsWith("@alice 🧩"));
+        verify(standing, never()).dropGhToken(anyString());
+    }
+
+    /** A fine-grained token given only the author's own fork cannot push to a PR of another repo's branch. */
+    @Test
+    void aTokenThatMayNotPushThereIsSaidSo() {
+        when(github.commitFiles(any(), any(), any(), any(), anyMap(), any()))
+            .thenThrow(HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Resource not accessible by personal"
+                + " access token", null, null, null));
+
+        service.sweep();
+
+        verify(standing, never()).dropGhToken(anyString());
+        assertThat(comment()).contains("Suites were picked, but the commit failed: your GitHub token may not push to"
+            + " `alice/ignite` (403): a fine-grained token reaches only the repositories it was given. Nothing was"
+            + " pushed:");
     }
 
     @Test
@@ -475,18 +507,18 @@ class SuiteFixServiceTest {
         when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
             List.of(), true));
         doThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY)).when(github)
-            .updatePrComment(eq("gh-pat"), eq(77L), anyString());
+            .appEdit(anyInt(), any(), eq(77L), anyString());
         sweepEvery5MinutesFor(DAY + HOUR);
         clearInvocations(github);
 
         service.sweep();
 
-        verify(github, never()).updatePrComment(any(), anyLong(), any());
+        verify(github, never()).appEdit(anyInt(), any(), anyLong(), any());
     }
 
     @Test
     void aReportGithubRateLimitedIsPostedAtTheNextSweep() {
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString())).thenThrow(rateLimited())
+        when(github.appComment(eq(PR), any(), anyString())).thenThrow(rateLimited())
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         service.sweep();
         when(prTests.suiteCheck(PUSHED)).thenReturn(new AbandonedTestsCheck.Outcome(State.PASSED, PUSHED, JOB, null,
@@ -496,13 +528,13 @@ class SuiteFixServiceTest {
         service.sweep();
 
         ArgumentCaptor<String> report = ArgumentCaptor.forClass(String.class);
-        verify(github, times(2)).addPrComment(eq("gh-pat"), eq(PR), report.capture());
+        verify(github, times(2)).appComment(eq(PR), any(), report.capture());
         assertThat(report.getAllValues().get(1)).isEqualTo(report.getAllValues().get(0));
-        verify(github).updatePrComment(eq("gh-pat"), eq(77L), contains("finds every test class in a suite"));
+        verify(github).appEdit(anyInt(), any(), eq(77L), contains("finds every test class in a suite"));
         verify(standing, never()).dropGhToken(anyString());
     }
 
-    /** The comment goes out from the author's account, where a line read as a command would start a run. */
+    /** The comment goes out from the checker's account, whose comments the command poll reads as well. */
     @Test
     void theCommentReadsAsNoCommand() throws Exception {
         service.sweep();
@@ -546,7 +578,7 @@ class SuiteFixServiceTest {
 
     private String comment() {
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), body.capture());
+        verify(github).appComment(eq(PR), any(), body.capture());
 
         return body.getValue();
     }

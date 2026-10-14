@@ -117,7 +117,7 @@ class StatusHealthTest {
         when(standing.lastSweepAt()).thenReturn(System.currentTimeMillis() - Duration.ofMinutes(40).toMillis());
         when(commands.lastPollAt()).thenReturn(System.currentTimeMillis());
         MockHttpServletRequest signedIn = new MockHttpServletRequest();
-        when(auth.signedIn(signedIn)).thenReturn(Optional.of(new SessionCodec.Session("alice", "tok", null, null)));
+        when(auth.signedIn(signedIn)).thenReturn(Optional.of(new SessionCodec.Session("alice", "tok", null)));
 
         Map<String, Object> out = status.status(signedIn);
 

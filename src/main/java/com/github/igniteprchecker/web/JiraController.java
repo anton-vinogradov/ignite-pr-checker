@@ -100,13 +100,16 @@ public class JiraController {
     /** Changes the standing options with no time zone from the browser. */
     public ResponseEntity<?> standingVisa(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands,
         Boolean suites, String tcToken, String username, String jiraToken, String ghToken) {
-        return standingVisa(visa, rerun, gh, style, commands, suites, null, tcToken, username, jiraToken, ghToken);
+        return standingVisa(visa, rerun, gh, style, commands, suites, null, new OptionTokens(ghToken), tcToken,
+            username, jiraToken);
     }
 
     /**
      * Changes the standing options named in the request and nothing else; a 412 names what the change
-     * needs ({@code need}: jira, github or login), a 502 says the service could not check the token. {@code tz}
-     * is the browser's time zone. Answers with the whole state, like the GET.
+     * needs ({@code need}: jira, github or login), a 409 says the checker has no GitHub account for an option that
+     * writes to GitHub, a 502 that the service could not check the token. The GitHub token an option that commits
+     * needs comes in the body, {@code githubToken}, and goes into no cookie: the server keeps it while such an option
+     * is on. {@code tz} is the browser's time zone. Answers with the whole state, like the GET.
      */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
@@ -116,19 +119,27 @@ public class JiraController {
         @RequestParam(required = false) Boolean commands,
         @RequestParam(required = false) Boolean suites,
         @RequestParam(required = false) String tz,
+        @RequestBody(required = false) OptionTokens tokens,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
-        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
-        @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
+        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
+        String ghToken = tokens == null || tokens.githubToken() == null || tokens.githubToken().isBlank() ? null
+            : tokens.githubToken().strip();
         Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
             new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites), tz);
         if (refused.isPresent() && refused.get().need() == null)
             return ResponseEntity.status(502).body(Map.of("error", refused.get().error()));
+        if (refused.isPresent() && refused.get().equals(StandingVisas.Refusal.UNAVAILABLE))
+            return ResponseEntity.status(409).body(Map.of("error", refused.get().error()));
         if (refused.isPresent())
             return ResponseEntity.status(412)
                 .body(Map.of("error", refused.get().error(), "need", refused.get().need()));
 
         return ResponseEntity.ok(standing.settings(username));
+    }
+
+    /** What a change of the standing options may bring along: the GitHub token of an option that commits. */
+    public record OptionTokens(String githubToken) {
     }
 
     /** The logged-in user's standing options, and whether the server holds the tokens they run on. */
@@ -157,6 +168,9 @@ public class JiraController {
         String token = req.token() == null ? "" : req.token().strip();
         if (token.isEmpty())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
+        if (!github.writes())
+            return ResponseEntity.status(409).body(Map.of("error", "PR commands are "
+                + StandingVisas.Refusal.UNAVAILABLE.error()));
 
         Optional<GithubClient.GhUser> who;
         try {
@@ -169,37 +183,14 @@ public class JiraController {
             return ResponseEntity.status(422).body(Map.of("error", "GitHub rejected the token"));
 
         return switch (standing.linkGhLogin(username, tcToken, who.get(), tz)) {
+            case "unavailable" -> ResponseEntity.status(409).body(Map.of("error", "PR commands are "
+                + StandingVisas.Refusal.UNAVAILABLE.error()));
             case "app" -> ResponseEntity.status(409).body(Map.of("error", "this token is of @" + who.get().login()
                 + ", the checker's own GitHub account: prove your own account with a token of it"));
             case "token" -> ResponseEntity.status(409).body(Map.of("error", "the GitHub token the checker keeps for"
                 + " you proves @" + standing.ghLoginOf(username) + ", and that is your login"));
             default -> ResponseEntity.ok(standing.settings(username));
         };
-    }
-
-    /** Validates a GitHub PAT and re-issues the session cookie with it on board. */
-    @PostMapping("/github-token")
-    public ResponseEntity<?> saveGithubToken(@RequestBody TokenRequest req,
-        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session,
-        @RequestAttribute(AuthInterceptor.CHECKED_AT_ATTR) long checkedAt) {
-        if (req.token() == null || req.token().isBlank())
-            return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
-
-        Optional<GithubClient.GhUser> who;
-        try {
-            who = github.ghIdentity(req.token().trim());
-        }
-        catch (RuntimeException e) {
-            return uncheckedToken("GitHub", e);
-        }
-        if (who.isEmpty())
-            return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
-
-        String cookie = codec.encode(session.withGhToken(req.token().trim()), checkedAt);
-
-        return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())
-            .body(Map.of("githubUser", who.get().login()));
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */

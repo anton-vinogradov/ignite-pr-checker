@@ -17,10 +17,10 @@ class SessionCodecTest {
     void roundTrip() {
         SessionCodec codec = codec("top-secret");
 
-        SessionCodec.Session session = new SessionCodec.Session("bob", "tc-token-xyz", "jira-pat", "gh-pat");
+        SessionCodec.Session session = new SessionCodec.Session("bob", "tc-token-xyz", "jira-pat");
 
         assertThat(codec.decode(codec.encode(session))).hasValueSatisfying(s -> {
-            assertThat(new SessionCodec.Session(s.username(), s.token(), s.jiraToken(), s.ghToken())).isEqualTo(session);
+            assertThat(new SessionCodec.Session(s.username(), s.token(), s.jiraToken())).isEqualTo(session);
             assertThat(s.issuedAt()).isPositive();
         });
     }
@@ -43,7 +43,7 @@ class SessionCodecTest {
     @Test
     void rejectsTamperedAndMissing() {
         SessionCodec codec = codec("top-secret");
-        String cookie = codec.encode(new SessionCodec.Session("bob", "tc-token-xyz", "jira-pat", null));
+        String cookie = codec.encode(new SessionCodec.Session("bob", "tc-token-xyz", "jira-pat"));
 
         assertThat(codec.decode(cookie.substring(0, cookie.length() - 2) + "xx")).isEmpty();
         assertThat(codec.decode(null)).isEmpty();

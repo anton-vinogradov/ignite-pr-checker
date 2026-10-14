@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -18,7 +19,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -49,7 +50,7 @@ class RerunWavesTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -65,10 +66,9 @@ class RerunWavesTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28867 Hot reload of SSL certificates",
             null, null, null, null)));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
         when(tc.buildTriggeredBy("tc", RUN_ALL)).thenReturn(Optional.of(USER));
         when(tc.triggerBuildReplacingQueued(anyString(), anyString(), eq(PR), anyBoolean(), anyString()))
@@ -156,7 +156,7 @@ class RerunWavesTest {
         standing.sweep();
 
         ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), comment.capture());
+        verify(github).appComment(eq(PR), any(), comment.capture());
         assertThat(comment.getValue()).endsWith("➡️ **Next:** fix the blockers, push, and run RunAll again — a "
             + "`/run-all` comment here does it when PR commands are on in the checker's ⚙.");
     }
@@ -170,12 +170,12 @@ class RerunWavesTest {
         standing.sweep();
 
         ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), comment.capture());
+        verify(github).appComment(eq(PR), any(), comment.capture());
         assertThat(comment.getValue()).doesNotContain("Next:");
     }
 
     private void options(boolean rerun) {
-        standing.change(USER, "tc", null, "gh-pat", new StandingVisas.OptionChange(false, rerun, true, false, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, rerun, true, false, null));
     }
 
     private void failMidRun() {

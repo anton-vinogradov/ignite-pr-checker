@@ -134,6 +134,8 @@ public class StatusController {
         app.put("githubRate", github.rateLimit());
         app.put("githubAccount", Optional.ofNullable(github.appAccount())
             .map(a -> viewer.isPresent() ? a : a.anonymous()).orElse(null));
+        app.put("githubWrites", Optional.ofNullable(github.writeState())
+            .map(w -> viewer.isPresent() ? w : w.anonymous()).orElse(null));
         app.put("pooledTokens", warmer.pooledTokens());
         app.put("lastWarmed", warmer.lastWarmed());
         app.put("warmerRunning", warmer.warming());

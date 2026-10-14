@@ -22,7 +22,7 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -52,7 +52,7 @@ class FreshRunOnEventTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -72,15 +72,14 @@ class FreshRunOnEventTest {
     @BeforeEach
     void setUp() {
         long now = System.currentTimeMillis() / 1000;
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28867 Hot reload", null, null, null,
             null)));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
         when(tc.branchFinishedAfter(anyString(), eq(PR), anyLong())).thenReturn(true);
         doReturn(chain(BEFORE, now - 86_400)).when(chains).collectForBuild(eq("tc"), eq(PR), eq(BEFORE), any());
         doReturn(chain(CHAIN, now - 5)).when(chains).collectForBuild(eq("tc"), eq(PR), eq(CHAIN), any());
-        standing.change(USER, "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, false, true, false, null));
     }
 
     @Test
@@ -90,14 +89,14 @@ class FreshRunOnEventTest {
 
         finish();
 
-        verify(github, timeout(5_000)).addPrComment(eq("gh-pat"), eq(PR), anyString());
+        verify(github, timeout(5_000)).appComment(eq(PR), any(), anyString());
     }
 
     @Test
     void theVerdictComesAtOnceWhenNobodyLookedTheRunUp() {
         finish();
 
-        verify(github, timeout(5_000)).addPrComment(eq("gh-pat"), eq(PR), anyString());
+        verify(github, timeout(5_000)).appComment(eq(PR), any(), anyString());
     }
 
     private void finish() {

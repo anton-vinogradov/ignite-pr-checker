@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -56,7 +57,7 @@ class CommandAuthorTest {
 
     private static final GithubClient.GhUser APP = new GithubClient.GhUser("ignite-pr-checker", 234567L);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -121,7 +122,7 @@ class CommandAuthorTest {
         command(new GithubClient.GhUser("anton-vinogradov", 98765432L));
 
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
-        verify(github).reactToCommentAsApp(1L, "confused");
+        verify(github).appReact(anyInt(), any(), eq(1L), eq("confused"));
     }
 
     @Test

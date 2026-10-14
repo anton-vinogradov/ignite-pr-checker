@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -18,7 +19,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -45,7 +46,7 @@ class TicketlessPrTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -62,9 +63,8 @@ class TicketlessPrTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13662#c555"));
         when(jira.addCommentWithId(eq("jira-pat"), anyString(), anyString()))
             .thenReturn(new JiraClient.PostedComment("18000001", "https://issues.example/browse/IGNITE-28867"));
@@ -79,7 +79,7 @@ class TicketlessPrTest {
     @Test
     void reRunsAndThePrCommentNeedNoTicket() {
         title("MINOR: Fix javadoc of GridCacheProcessor");
-        standing.change(USER, "tc", null, "gh-pat", new StandingVisas.OptionChange(false, true, true, false, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, true, true, false, null));
         when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict(blocker())));
 
         standing.sweep();
@@ -89,7 +89,7 @@ class TicketlessPrTest {
         when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict()));
         standing.sweep();
 
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), contains("No blockers"));
+        verify(github).appComment(eq(PR), any(), contains("No blockers"));
         assertThat(standing.buildHandled(USER, PR, RUN_ALL)).isTrue();
     }
 

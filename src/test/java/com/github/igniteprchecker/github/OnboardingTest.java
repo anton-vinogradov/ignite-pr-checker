@@ -1,10 +1,12 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -31,7 +33,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,7 +45,7 @@ import org.mockito.ArgumentCaptor;
  * switch, and the reply is short and rationed.
  */
 class OnboardingTest {
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -70,7 +71,7 @@ class OnboardingTest {
 
             return batch;
         });
-        when(github.addPrCommentAsApp(anyInt(), anyString())).thenReturn(true);
+        when(github.appComment(anyInt(), any(), anyString())).thenReturn(new GithubClient.PostedComment(77L, ""));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(new TcModel.Build(9400000L, null,
             "queued", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
     }
@@ -80,21 +81,21 @@ class OnboardingTest {
         command(13700, "anton-vinogradov");
 
         verify(tc).triggerRunAll("tc", 13700, false);
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, never()).appComment(anyInt(), any(), contains("nothing was queued"));
     }
 
-    /** The checker knows their login from the GitHub token, yet they never switched commands on. */
+    /** The checker knows their login, proven once, yet they switched commands off and kept the PR comment. */
     @Test
     void someoneWithOtherOptionsButCommandsOffIsToldHowToSwitchThemOn() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("NSAmelchev")));
-        standing.change("nsamelchev", "tc-2", null, "gh-pat",
-            new StandingVisas.OptionChange(null, null, true, null, null));
+        standing.linkGhLogin("nsamelchev", "tc-2", GhUsers.of("NSAmelchev"));
+        standing.change("nsamelchev", "tc-2", null, null,
+            new StandingVisas.OptionChange(null, null, true, null, false));
         assertThat(standing.actorByGhUser(GhUsers.of("NSAmelchev"))).isPresent();
 
         command(13701, "NSAmelchev");
 
         verify(tc, never()).triggerRunAll(eq("tc-2"), anyInt(), anyBoolean());
-        verify(github).addPrCommentAsApp(eq(13701), anyString());
+        verify(github).appComment(eq(13701), any(), anyString());
     }
 
     @Test
@@ -102,7 +103,7 @@ class OnboardingTest {
         command(13702, "stranger");
 
         ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
-        verify(github).addPrCommentAsApp(eq(13702), reply.capture());
+        verify(github).appComment(eq(13702), any(), reply.capture());
         assertThat(reply.getValue()).contains("**PR commands**").doesNotContainIgnoringCase("re-run");
         assertThat(reply.getValue().split("\\s+")).hasSizeLessThan(100);
         assertThat(PrCommands.readsAsCommand(reply.getValue())).isFalse();
@@ -114,8 +115,8 @@ class OnboardingTest {
         command(13703, "stranger1");
         command(13703, "stranger2");
 
-        verify(github, times(1)).addPrCommentAsApp(eq(13703), anyString());
-        verify(github, times(2)).reactToCommentAsApp(anyLong(), eq("confused"));
+        verify(github, times(1)).appComment(eq(13703), any(), anyString());
+        verify(github, times(2)).appReact(anyInt(), any(), anyLong(), eq("confused"));
     }
 
     @Test
@@ -130,7 +131,7 @@ class OnboardingTest {
         for (int i = 3; i < 7; i++)
             command(13710 + i, "stranger" + i);
 
-        verify(github, times(5)).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, times(5)).appComment(anyInt(), any(), anyString());
     }
 
     private void command(int pr, String login) {

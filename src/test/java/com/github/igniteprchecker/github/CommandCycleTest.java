@@ -1,16 +1,16 @@
 package com.github.igniteprchecker.github;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,21 +29,17 @@ import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.web.client.HttpClientErrorException;
 
 /**
  * PR commands were tested only for how they parse a comment, while the loop around them, from the poll to TeamCity
  * and back to the comment, is what went wrong in production: here it runs on a fake GitHub and TeamCity, for the
- * accepted command, a stranger's, a refused GitHub token, and /top.
+ * accepted command, a stranger's, a commander with a GitHub token of their own, and /top.
  */
 class CommandCycleTest {
     private static final int PR = 13800;
@@ -52,7 +48,7 @@ class CommandCycleTest {
 
     private static final String PR_URL = "https://github.com/apache/ignite/pull/" + PR;
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -71,9 +67,10 @@ class CommandCycleTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, true, false, true));
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
         when(tc.triggerRunAll(anyString(), anyInt(), anyBoolean())).thenReturn(chain("queued"));
+        when(github.appComment(eq(PR), any(), anyString())).thenReturn(new GithubClient.PostedComment(77L,
+            PR_URL + "#issuecomment-77"));
     }
 
     @Test
@@ -84,9 +81,9 @@ class CommandCycleTest {
         order.verify(tc).cancelOwnRunAllChains("tc", PR, "author");
         order.verify(tc).triggerRunAll("tc", PR, true);
         order.verify(tracker).record(eq(PR), eq(chain("queued")));
-        verify(github).reactToComment("gh-pat", 1L, "rocket");
-        verify(github).updatePrComment(eq("gh-pat"), eq(1L), startsWith("/run-all top\n\n---\n🚀 **RunAll queued at the"
-            + " top of the queue** — [build 9400000](https://ci2.example/build/9400000) · live progress & verdict:"
+        verify(github).appReact(PR, "author", 1L, "rocket");
+        verify(github).appComment(eq(PR), eq("author"), startsWith("@Author 🚀 **RunAll queued at the top of the"
+            + " queue** — [build 9400000](https://ci2.example/build/9400000) · live progress & verdict:"
             + " [Ignite PR Checker](https://checker.example/?pr=13800)."));
     }
 
@@ -95,22 +92,29 @@ class CommandCycleTest {
         comment(1L, "/run-all", "Someone");
 
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
-        verify(github).reactToCommentAsApp(1L, "confused");
+        verify(github).appReact(PR, "@someone", 1L, "confused");
     }
 
+    /**
+     * A commander who saved a GitHub token for the checkstyle autofix was answered under it: their own reaction, the
+     * story written into their comment. A fine-grained token for their fork gets 403 there, so the checker's account
+     * answers everyone alike.
+     */
     @Test
-    void aTokenGithubRefusesHandsTheAckToTheAppAccount() {
-        doThrow(HttpClientErrorException.create(HttpStatusCode.valueOf(401), "Bad credentials", HttpHeaders.EMPTY,
-            new byte[0], StandardCharsets.UTF_8)).when(github).reactToComment("gh-pat", 1L, "rocket");
+    void aCommanderWithASavedTokenIsAnsweredByTheCheckersAccount() {
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
+            null)));
+        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, null, null, true, null));
 
         comment(1L, "/run-all", "Author");
 
         verify(tc).triggerRunAll("tc", PR, false);
-        verify(github).reactToCommentAsApp(1L, "rocket");
-        verify(github).addPrCommentAsAppWithId(eq(PR), startsWith("@Author 🚀 **RunAll queued**"));
-        assertThat(standing.ghTokenRejected("author")).isTrue();
+        verify(github).appReact(PR, "author", 1L, "rocket");
+        verify(github).appComment(eq(PR), eq("author"), startsWith("@Author 🚀 **RunAll queued**"));
+        verify(github, never()).appEdit(anyInt(), any(), eq(1L), anyString());
     }
 
+    /** /top answered "moved" by editing the commander's own comment; the run's story says it now. */
     @Test
     void topMovesTheCommandersQueuedRun() {
         comment(1L, "/run-all", "Author");
@@ -119,9 +123,10 @@ class CommandCycleTest {
         comment(2L, "/top", "Author");
 
         verify(tc).moveToQueueTop("tc", CHAIN);
-        verify(github).reactToComment("gh-pat", 2L, "rocket");
-        verify(github).updatePrComment(eq("gh-pat"), eq(2L), contains("⬆️ **Build 9400000 moved to the top of the"
+        verify(github).appReact(PR, "author", 2L, "rocket");
+        verify(github).appEdit(eq(PR), eq("author"), eq(77L), contains("\n⬆️ **Build 9400000 moved to the top of the"
             + " queue.**"));
+        verify(github, times(1)).appComment(eq(PR), any(), anyString());
     }
 
     private void comment(long id, String body, String login) {

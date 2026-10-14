@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -19,7 +20,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GhUsers;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -52,7 +53,7 @@ class OptionSwitchedMidSettleTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
@@ -70,11 +71,10 @@ class OptionSwitchedMidSettleTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, ISSUE + " Hot reload of SSL certificates", null,
             null, null, null)));
-        when(github.addPrComment(eq("gh-pat"), eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
         when(tc.triggerBuildReplacingQueued(eq("tc"), anyString(), eq(PR), anyBoolean(), anyString()))
             .thenReturn(new TcModel.Build(9389100L, null, "queued", null, null, null, null, null, null, null, null,
@@ -82,7 +82,7 @@ class OptionSwitchedMidSettleTest {
         when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(new TcModel.Build(RUN_ALL, "FAILURE",
             "finished", "pull/13335/head", null, null, null, null, TcDates.format(now - 3_600), null, null, null,
             new TcModel.Triggered("user", new TcModel.User(USER)), null, null, null, null, null)));
-        standing.change(USER, "tc", null, "gh-pat", new StandingVisas.OptionChange(false, true, true, false, null));
+        standing.change(USER, "tc", null, null, new StandingVisas.OptionChange(false, true, true, false, null));
         switchedOnADayAgo();
     }
 
@@ -96,7 +96,7 @@ class OptionSwitchedMidSettleTest {
         when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict()));
         standing.sweep();
 
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), contains("Settled after 1 auto re-run wave(s)"));
+        verify(github).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave(s)"));
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
         assertThat(standing.buildHandled(USER, PR, RUN_ALL)).isTrue();
     }
@@ -109,7 +109,7 @@ class OptionSwitchedMidSettleTest {
 
         standing.sweep();
 
-        verify(github).addPrComment(eq("gh-pat"), eq(PR), anyString());
+        verify(github).appComment(eq(PR), any(), anyString());
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
 
         Path file = dir.resolve("standing-visas.json");

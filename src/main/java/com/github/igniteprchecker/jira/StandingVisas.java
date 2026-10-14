@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.github.CommitTokens;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -229,20 +230,24 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Applies a settings change, touching only the options it names: a click on one switch must not
-     * turn the others off. An option that needs a token takes the one the session carries when it is
+     * turn the others off. An option that needs a token takes the one offered with the change when it is
      * new (checked with the service first), else the stored one, so a fresh login without the PATs in
      * its cookie still works; a stored token goes only when the last option that needs it is switched
-     * off explicitly. {@code browserTz}, the browser's time zone, becomes the user's when it is one. A
-     * verdict an earlier refusal held back goes out once its option is on again. Empty when the change was
-     * made, else what is missing.
+     * off explicitly. {@code offeredGh} is the GitHub token the page sends with the switch of an option that
+     * commits: it is kept on the server only, and only a token that commits and does no more. The options that write
+     * to GitHub go on only while the checker has an account to write with. {@code browserTz}, the browser's time
+     * zone, becomes the user's when it is one. A verdict an earlier refusal held back goes out once its option is on
+     * again. Empty when the change was made, else what is missing.
      */
-    public Optional<Refusal> change(String username, String tcToken, String sessionJira, String sessionGh,
+    public Optional<Refusal> change(String username, String tcToken, String sessionJira, String offeredGh,
         OptionChange change, String browserTz) {
         Enrollment prev = enrolled.get(username);
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
         if (Boolean.TRUE.equals(change.style()) && !after.commands())
             return Optional.of(new Refusal("commands",
                 "Auto-fix checkstyle runs only from a PR command: switch on PR commands first"));
+        if (change.switchesOnGithub() && !github.writes())
+            return Optional.of(Refusal.UNAVAILABLE);
         if (!after.any()) {
             disable(username);
 
@@ -275,24 +280,33 @@ public class StandingVisas implements SnapshotCache {
         GithubClient.GhUser login = null;
         if (after.needsGh()) {
             String stored = prev == null ? null : decrypt(prev.gh()).orElse(null);
-            boolean fresh = sessionGh != null && !sessionGh.equals(stored);
-            // A token GitHub can't put a name to is dead — an expired PAT still riding in the session
-            // cookie, say. Storing it buys nothing and costs the login: with no login, the command poll
-            // stops recognising the author of "/run-all" and replies to them as a stranger.
+            boolean fresh = offeredGh != null && !offeredGh.equals(stored);
+            // A token GitHub can't put a name to is dead. Storing it buys nothing and costs the login: with no login,
+            // the command poll stops recognising the author of "/run-all" and replies to them as a stranger.
             boolean unchecked = false;
+            GithubClient.TokenOwner owner = null;
             try {
-                login = fresh ? github.ghIdentity(sessionGh).orElse(null) : null;
+                owner = fresh ? github.tokenOwner(offeredGh).orElse(null) : null;
             }
             catch (RuntimeException e) {
                 log.warn("GitHub could not check the token offered for {}: {}", username, e.toString());
                 unchecked = true;
             }
+            login = owner == null ? null : owner.user();
             if (login != null && github.isAppAccount(login)) {
                 return Optional.of(new Refusal("github", "this token is of @" + login.login() + ", the checker's own"
                     + " GitHub account — paste a token of your own account"));
             }
+            Optional<String> tooMuch = owner == null ? Optional.empty()
+                : CommitTokens.refusal(offeredGh, owner.scopes());
+            if (tooMuch.isPresent()) {
+                log.info("GitHub token offered for {} not kept: {}", username, tooMuch.get());
+
+                return Optional.of(new Refusal("github", tooMuch.get()));
+            }
             if (login != null)
-                ghCred = new Credential(codec.encryptString(sessionGh), 0);
+                ghCred = new Credential(codec.encryptString(offeredGh), 0,
+                    CommitTokens.note(offeredGh, owner.scopes()));
             else if (stored == null) {
                 if (unchecked)
                     return Optional.of(Refusal.unchecked("GitHub"));
@@ -304,8 +318,8 @@ public class StandingVisas implements SnapshotCache {
                     : "this option needs your GitHub token"));
             }
         }
-        else if (Boolean.FALSE.equals(change.gh()) || Boolean.FALSE.equals(change.style())
-            || Boolean.FALSE.equals(change.suites()) || prev != null && prev.options().needsGh())
+        else if (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
+            || prev != null && prev.options().needsGh())
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || !prev.ghLoginProven()))
@@ -319,7 +333,7 @@ public class StandingVisas implements SnapshotCache {
         long now = System.currentTimeMillis();
 
         // A settings change must not forget which builds were already handled (or their comments),
-        // nor a GitHub login proven before (the one the PAT proves now replaces it).
+        // nor a GitHub login proven before (the one the offered token proves now replaces it).
         Enrollment e = enrolled.compute(username, (u, cur) -> {
             Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc);
             Options options = base.options().apply(change);
@@ -343,7 +357,7 @@ public class StandingVisas implements SnapshotCache {
         donateWarmTokens();
         if (e != null)
             e.handled().owed().forEach((pr, owed) -> {
-                if (owed.deliverableBy(e))
+                if (deliverable(owed, e))
                     settleSoon(pr);
             });
 
@@ -369,15 +383,20 @@ public class StandingVisas implements SnapshotCache {
     /** The options and the state of their tokens, as the settings panel shows them. */
     public Settings settings(String username) {
         Enrollment e = enrolled.get(username);
+        GithubClient.AppAccount account = github.writes() ? github.appAccount() : null;
+        String app = account == null ? null : account.login();
+        Boolean appPushes = account == null ? null : account.canPush();
         if (e == null) {
-            return new Settings(false, false, false, false, false, null, false, false, false, false, false, false);
+            return new Settings(false, false, false, false, false, null, false, false, false, false, false, false,
+                false, github.writes(), app, appPushes, null);
         }
 
         Options o = e.options();
 
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
-            e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven());
+            e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven(), github.writes(), app,
+            appPushes, e.gh().token() == null ? null : e.gh().note());
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -387,14 +406,24 @@ public class StandingVisas implements SnapshotCache {
         public OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands) {
             this(visa, rerun, gh, style, commands, null);
         }
+
+        /** Whether it switches on an option that writes to GitHub: all but the visa and the auto re-run. */
+        boolean switchesOnGithub() {
+            return Boolean.TRUE.equals(gh) || Boolean.TRUE.equals(style) || Boolean.TRUE.equals(commands)
+                || Boolean.TRUE.equals(suites);
+        }
     }
 
     /**
-     * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, the GitHub "login", or
-     * PR "commands" on) and what is wrong. Null {@code need}: the service could not check the token, and nothing is
-     * wrong with it as far as anyone knows.
+     * Why a settings change was not made: what it {@code need}s ("jira" or "github" token, the GitHub "login", PR
+     * "commands" on, or the checker's own GitHub account, "app") and what is wrong. Null {@code need}: the service
+     * could not check the token, and nothing is wrong with it as far as anyone knows.
      */
     public record Refusal(String need, String error) {
+        /** An option that writes to GitHub, on a checker with no account to write with. */
+        public static final Refusal UNAVAILABLE = new Refusal("app", "not available: this checker has no GitHub account"
+            + " to write with (GITHUB_TOKEN); its operator can add one");
+
         static Refusal unchecked(String service) {
             return new Refusal(null, service + " could not check the token right now — try again in a minute");
         }
@@ -403,17 +432,21 @@ public class StandingVisas implements SnapshotCache {
     /**
      * What the settings panel shows. {@code jiraStored}/{@code ghStored}: the server holds that token,
      * so the options run whether or not this browser's session carries it. {@code loginUnproven}: no token proved
-     * the {@code login} an earlier version kept, and PR commands wait until one does.
+     * the {@code login} an earlier version kept, and PR commands wait until one does. {@code githubAvailable}: the
+     * checker has a GitHub account to write with, {@code appLogin} (null until GitHub named it), and the options that
+     * write to GitHub may go on; {@code appPushes}: whether that account may push to the repo, null while GitHub has
+     * not said. {@code ghTokenNote}: what the user should know of the GitHub token the server holds.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
-        boolean tcTokenRejected, boolean suites, boolean loginUnproven) {
-        /** The settings of a user whose login, if any, is proven. */
+        boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
+        Boolean appPushes, String ghTokenNote) {
+        /** The settings of a user whose login, if any, is proven, on a checker with a GitHub account. */
         public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
             boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
             boolean tcTokenRejected, boolean suites) {
             this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
-                tcTokenRejected, suites, false);
+                tcTokenRejected, suites, false, true, null, null, null);
         }
 
         /** The settings of a user who does not add tests to suites. */
@@ -445,8 +478,6 @@ public class StandingVisas implements SnapshotCache {
             if (!now.equals(held))
                 enrolled.computeIfPresent(en.getKey(), (u, e) -> held.equals(e.ghAccount()) ? e.withGhAccount(now) : e);
 
-            // The PAT is optional for commands: without one the checker acks and narrates
-            // from its own (the operator's) account instead of the user's.
             Optional<GhActor> actor = actorOf(en.getKey(), en.getValue());
             if (actor.isPresent())
                 return actor;
@@ -465,11 +496,9 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Forgets a GitHub token GitHub itself rejected. Keeping it would fail every reaction, ack and
-     * per-minute narration edit with the same 401 — which is exactly how a working /run-all (the
-     * TeamCity chain was queued) looked to its author like nothing had happened. The login stays:
-     * it is how commands resolve the actor, and the checker narrates from its own account until a
-     * fresh token is pasted.
+     * Forgets a GitHub token GitHub itself rejected on a commit made with it: every next commit would fail the
+     * same way. The login stays: it is how commands resolve the actor. Only the user's own commits come here; what
+     * the checker's account writes never touches the user's token.
      */
     public void dropGhToken(String username) {
         if (username == null)
@@ -480,8 +509,8 @@ public class StandingVisas implements SnapshotCache {
         boolean dropped = changed(username, e -> e.gh().token() == null ? e
             : e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh()));
         if (dropped)
-            log.warn("GitHub token of {} was rejected by GitHub: dropped, its options switched off — "
-                + "acks come from the app account until a fresh PAT is saved", username);
+            log.warn("GitHub token of {} was rejected by GitHub: dropped, the checkstyle autofix and tests to suites "
+                + "switched off until a fresh token is saved", username);
     }
 
     /**
@@ -642,13 +671,6 @@ public class StandingVisas implements SnapshotCache {
         return e != null && e.jira().rejected();
     }
 
-    /** Whether this user's GitHub-account features are waiting for a fresh PAT. */
-    public boolean ghTokenMissing(String username) {
-        Enrollment e = enrolled.get(username);
-
-        return e != null && e.gh().token() == null;
-    }
-
     /** Links a proven GitHub account with no time zone from the browser. */
     public String linkGhLogin(String username, String tcToken, GithubClient.GhUser proven) {
         return linkGhLogin(username, tcToken, proven, null);
@@ -658,10 +680,13 @@ public class StandingVisas implements SnapshotCache {
      * Links the GitHub account a token of the user's was just found to belong to, and switches PR commands on —
      * the login is all they need besides the TeamCity token, so no other option has to be on. The account leaves
      * whoever held it before: the proof is the user's. The browser's time zone {@code browserTz} becomes the user's
-     * when it is one. Returns "ok", "app" (the checker's own account, whose comments are nobody's commands) or
-     * "token" (the GitHub token the server keeps for the user proves another account, whose login stays).
+     * when it is one. Returns "ok", "app" (the checker's own account, whose comments are nobody's commands),
+     * "token" (the GitHub token the server keeps for the user proves another account, whose login stays) or
+     * "unavailable" (the checker has no GitHub account to answer commands from).
      */
     public String linkGhLogin(String username, String tcToken, GithubClient.GhUser proven, String browserTz) {
+        if (!github.writes())
+            return "unavailable";
         if (github.isAppAccount(proven))
             return "app";
 
@@ -846,13 +871,24 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** The user's PR comment that carries this build's verdict, if one was posted. */
+    /** The PR comment that carries the verdict of the user's build, if one was posted. */
     public java.util.OptionalLong verdictCommentId(String username, int pr, long buildId) {
         Enrollment e = enrolled.get(username);
         GhThread t = e == null ? null : e.handled().ghThreads().get(pr);
 
         return t != null && t.buildId() == buildId ? java.util.OptionalLong.of(t.commentId())
             : java.util.OptionalLong.empty();
+    }
+
+    /**
+     * Whether the verdict comment of the user's build is still to come: the run is settled, "Comment my runs'
+     * verdicts" is on, and GitHub did not take the comment yet. The next settles post it, or a newer run forgets it.
+     */
+    public boolean verdictCommentDue(String username, int pr, long buildId) {
+        Enrollment e = enrolled.get(username);
+        Owed owed = e == null ? null : e.handled().owed().get(pr);
+
+        return owed != null && owed.buildId() == buildId && owed.comment() && e.options().ghComment();
     }
 
     /**
@@ -974,7 +1010,7 @@ public class StandingVisas implements SnapshotCache {
                 return e;
 
             log.warn("options of {} switched off for want of a token: {}{}", u,
-                ghGone ? "GitHub comment/checkstyle autofix/suite fix " : "", jiraGone ? "auto-visa" : "");
+                ghGone ? "checkstyle autofix/suite fix " : "", jiraGone ? "auto-visa" : "");
 
             long now = System.currentTimeMillis();
             Enrollment next = e;
@@ -997,16 +1033,29 @@ public class StandingVisas implements SnapshotCache {
     public void ensureGhLogins() {
         switchOffOptionsWithoutTokens();
         enrolled.forEach((u, e) -> {
-            if (e.ghAccount() == null)
-                backfillLogin(u, e);
-            else if (e.ghAccount().askToken())
-                askToken(u, e);
+            boolean answered = e.ghAccount() == null ? backfillLogin(u, e)
+                : !e.ghAccount().askToken() || askToken(u, e);
+            if (answered)
+                releaseUnneededGhToken(u);
         });
     }
 
-    private void backfillLogin(String username, Enrollment e) {
-        if (!(e.options().ghComment() || e.options().suiteFix()) || e.gh().token() == null)
-            return;
+    /**
+     * Drops a GitHub token an earlier version kept for the PR comment once GitHub said whose it is: the checker's
+     * account posts the comment now, and a token is kept only to commit with.
+     */
+    private void releaseUnneededGhToken(String username) {
+        boolean dropped = changed(username, e -> e.gh().token() == null || e.options().needsGh() || e.ghLoginToAsk()
+            ? e : e.withGh(new Credential(null, e.gh().rejectedAt())));
+        if (dropped)
+            log.info("GitHub token of {} dropped: no option of theirs commits, and the checker's account posts their"
+                + " PR comments", username);
+    }
+
+    /** False when GitHub could not say whose the token is, and the login is to be asked about again. */
+    private boolean backfillLogin(String username, Enrollment e) {
+        if (e.gh().token() == null)
+            return true;
 
         GithubClient.GhUser login;
         try {
@@ -1016,24 +1065,26 @@ public class StandingVisas implements SnapshotCache {
         catch (RuntimeException ex) {
             log.info("GitHub login of {} not backfilled this time: {}", username, ex.toString());
 
-            return;
+            return false;
         }
         if (login == null)
-            return;
+            return true;
 
         // The lookup ran outside the map, so the login goes in only if it is still missing.
         Enrollment next = enrolled.computeIfPresent(username, (k, cur) -> cur.ghAccount() == null
             ? cur.withGhAccount(GhAccount.of(login)) : cur);
         log.info("backfilled for {}: gh login {}", username, next == null ? null : next.ghLogin());
+
+        return true;
     }
 
     /**
      * A login an earlier version kept next to the user's GitHub token is proven only if that token names it: v1.27.0
      * could also keep a login typed in by hand there, next to a token of another account, and that login's owner would
      * then command under this user's TeamCity token. GitHub's answer gives the account's id. A token GitHub refuses,
-     * or one gone since, proves nothing.
+     * or one gone since, proves nothing. False when GitHub could not say, and the token is to be asked again.
      */
-    private void askToken(String username, Enrollment e) {
+    private boolean askToken(String username, Enrollment e) {
         GhAccount held = e.ghAccount();
         Optional<GithubClient.GhUser> named;
         try {
@@ -1043,7 +1094,7 @@ public class StandingVisas implements SnapshotCache {
             log.info("GitHub login {} of {} not checked with the GitHub token this time: {}", held.login(), username,
                 ex.toString());
 
-            return;
+            return false;
         }
 
         GhAccount next = named.filter(n -> n.login().equalsIgnoreCase(held.login()) && !github.isAppAccount(n))
@@ -1055,6 +1106,8 @@ public class StandingVisas implements SnapshotCache {
             log.warn("GitHub login {} of {} is not proven: the GitHub token kept with it {}; PR commands wait until a "
                 + "token proves the account", held.login(), username, named.map(n -> github.isAppAccount(n)
                     ? "is of the app account" : "is of " + n.login()).orElse("is refused or gone"));
+
+        return true;
     }
 
     /** Whether checkstyle autofix on own runs is on for the user. */
@@ -1326,16 +1379,16 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Whether a living comment of the user's on the PR waits for a settle: one still saying "re-run in progress", or a
-     * verdict comment of a run before {@code latest} not yet marked superseded.
+     * verdict comment of a run before {@code latest} not yet marked superseded, while the checker's account can write.
      */
-    private static boolean waitsForSettle(Enrollment e, int pr, long latest) {
+    private boolean waitsForSettle(Enrollment e, int pr, long latest) {
         GhThread g = e.handled().ghThreads().get(pr);
         JiraThread j = e.handled().jiraThreads().get(pr);
-        boolean ghWaits = g != null && (!g.unmarked().isEmpty() || open(e, pr, g.buildId(), g.done())
-            || g.buildId() < latest && !g.superseded());
+        boolean ghWaits = g != null && github.canWrite() && (!g.unmarked().isEmpty()
+            || open(e, pr, g.buildId(), g.done()) || g.buildId() < latest && !g.superseded());
         Owed owed = e.handled().owed().get(pr);
 
-        return ghWaits || j != null && open(e, pr, j.buildId(), j.done()) || owed != null && owed.deliverableBy(e);
+        return ghWaits || j != null && open(e, pr, j.buildId(), j.done()) || owed != null && deliverable(owed, e);
     }
 
     /**
@@ -1431,7 +1484,7 @@ public class StandingVisas implements SnapshotCache {
                     prs.add(pr);
             });
             e.handled().owed().forEach((pr, owed) -> {
-                if (owed.deliverableBy(e))
+                if (deliverable(owed, e))
                     prs.add(pr);
             });
         });
@@ -1503,7 +1556,7 @@ public class StandingVisas implements SnapshotCache {
                 Options acting = e.actingOn(finishedMs);
                 if (!acting.settlesRuns()) {
                     endThreads(who, e, pr, b -> b == buildId,
-                        e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed(), 0);
+                        e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed());
                     settled(e, pr.number(), buildId);
                     rests = true;
                     return 0; // nothing to post or re-run: a verdict computed now would go nowhere
@@ -1511,9 +1564,7 @@ public class StandingVisas implements SnapshotCache {
 
                 Optional<String> tcToken = decrypt(e.tc());
                 Optional<String> jiraToken = decrypt(e.jira());
-                Optional<String> ghToken = decrypt(e.gh());
-                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty())
-                    || (e.options().ghComment() && ghToken.isEmpty())) {
+                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty())) {
                     enrolled.remove(who);
                     log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
                     rests = true;
@@ -1523,10 +1574,8 @@ public class StandingVisas implements SnapshotCache {
                 if (acting.autoRerun()) {
                     deciding.put(pr.number(), buildId);
                     undecided = true;
-                    if (rerunTracker.hasActive(pr.number())) {
-                        refreshInterim(who, e, ghToken, pr.number(), buildId, tcToken.get());
+                    if (rerunTracker.hasActive(pr.number()))
                         return 0; // the verdict waits until the re-runs settle
-                    }
                 }
 
                 Optional<AnalysisResult> res = verdictOf(tcToken.get(), pr.number(), buildId);
@@ -1550,8 +1599,7 @@ public class StandingVisas implements SnapshotCache {
 
                 undecided = false;
                 rests = true;
-                return postSettled(who, e, acting, pr, buildId, res.get(), tcToken.get(), jiraToken.orElse(null),
-                    ghToken.orElse(null));
+                return postSettled(who, e, acting, pr, buildId, res.get(), tcToken.get(), jiraToken.orElse(null));
             }
             catch (RuntimeException ex) {
                 // Lookups never get here with a refusal; what does came from the triggerer's own token.
@@ -1691,11 +1739,11 @@ public class StandingVisas implements SnapshotCache {
      * say — and marks the run handled; what did not go out stays owed. 1 when a visa went out.
      */
     private int postSettled(String who, Enrollment e, Options acting, PrSummary pr, long buildId, AnalysisResult res,
-        String tcToken, String jiraToken, String ghToken) {
+        String tcToken, String jiraToken) {
         Retry done = waves.get(buildId);
         Owed due = new Owed(buildId, acting.autoVisa(), acting.ghComment(), done == null ? null : done.history(),
             done == null ? null : done.note());
-        int posted = deliver(who, e, pr, due, due.visa(), due.comment(), res, tcToken, jiraToken, ghToken);
+        int posted = deliver(who, e, pr, due, due.visa(), due.comment(), res, tcToken, jiraToken);
         settled(e, pr.number(), buildId);
 
         return posted;
@@ -1707,13 +1755,12 @@ public class StandingVisas implements SnapshotCache {
      */
     private int deliverOwed(String who, Enrollment e, PrSummary pr, long buildId, String tcToken) {
         Owed owed = e.handled().owed().get(pr.number());
-        if (owed == null || owed.buildId() != buildId || !owed.deliverableBy(e))
+        if (owed == null || owed.buildId() != buildId || !deliverable(owed, e))
             return 0;
 
         Optional<String> jiraToken = decrypt(e.jira());
-        Optional<String> ghToken = decrypt(e.gh());
         boolean visa = owed.visa() && e.options().autoVisa() && jiraToken.isPresent();
-        boolean comment = owed.comment() && e.options().ghComment() && ghToken.isPresent();
+        boolean comment = owed.comment() && e.options().ghComment() && github.canWrite();
         if (!visa && !comment)
             return 0;
 
@@ -1725,8 +1772,16 @@ public class StandingVisas implements SnapshotCache {
         log.info("PR {}: the verdict of RunAll {} held back from {} goes out now ({}{})", pr.number(), buildId, who,
             visa ? "visa " : "", comment ? "PR comment" : "");
 
-        return deliver(who, e, pr, owed, visa, comment, res.get(), tcToken, jiraToken.orElse(null),
-            ghToken.orElse(null));
+        return deliver(who, e, pr, owed, visa, comment, res.get(), tcToken, jiraToken.orElse(null));
+    }
+
+    /**
+     * Whether the user's options and tokens let some of what the run's verdict owes them go out now: the visa, or the
+     * PR comment while the checker's account can write.
+     */
+    private boolean deliverable(Owed owed, Enrollment e) {
+        return owed.visaDeliverableBy(e) || owed.comment() && !e.tc().rejected() && e.options().ghComment()
+            && github.canWrite();
     }
 
     /**
@@ -1734,7 +1789,7 @@ public class StandingVisas implements SnapshotCache {
      * left of it. 1 when a visa went out.
      */
     private int deliver(String who, Enrollment e, PrSummary pr, Owed owed, boolean visa, boolean comment,
-        AnalysisResult res, String tcToken, String jiraToken, String ghToken) {
+        AnalysisResult res, String tcToken, String jiraToken) {
         long buildId = owed.buildId();
         String note = owed.note();
         String settled = settledLine(owed.waves());
@@ -1755,16 +1810,18 @@ public class StandingVisas implements SnapshotCache {
         }
         boolean commentIn = false;
         if (comment) {
-            String md = visas.composeMarkdown(pr.number(), res, commitsAhead, sha);
+            String md = mention(e) + visas.composeMarkdown(pr.number(), res, commitsAhead, sha);
             if (ahead != null)
                 md = md + "\n\n_" + revisions(ahead, "`", "`") + "_";
             if (settled != null)
                 md = md + "\n\n_" + settled + "_";
             if (note != null)
                 md = md + "\n\n_" + note + "_";
+            if (e.options().autoVisa() && ticketless.contains(buildId))
+                md = md + "\n\n_No JIRA visa: the PR title names no IGNITE ticket._";
             if (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS)
                 md = md + NEXT_STEP;
-            commentIn = upsertGhComment(who, e, ghToken, pr.number(), buildId, md, true);
+            commentIn = upsertGhComment(who, e, pr.number(), buildId, md);
         }
 
         Owed left = owed.after(visa && visaSent != Delivery.FAILED, commentIn);
@@ -1774,6 +1831,14 @@ public class StandingVisas implements SnapshotCache {
             e.handled().owed().remove(pr.number());
 
         return visaSent == Delivery.POSTED ? 1 : 0;
+    }
+
+    /**
+     * "@login " for the start of the verdict comment of the user's run, when a token proved their GitHub login: the
+     * checker's account posts it, and GitHub tells the user of a mention. Empty when their login is not proven.
+     */
+    private static String mention(Enrollment e) {
+        return e.ghLoginProven() ? "@" + e.ghLogin() + " " : "";
     }
 
     /** What became of a visa: it went out, there was none to post, or it is still to go out. */
@@ -1851,42 +1916,21 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * A living comment from before this release says "re-run in progress"; while its re-runs go, its settle
-     * estimate stays honest. Runs from now on get no such comment: theirs comes out once, settled.
-     */
-    private void refreshInterim(String who, Enrollment e, Optional<String> ghToken, int pr, long buildId,
-        String tcToken) {
-        GhThread t = e.handled().ghThreads().get(pr);
-        if (!e.options().ghComment() || ghToken.isEmpty() || t == null || t.buildId() != buildId || t.done())
-            return;
-
-        Optional<AnalysisResult> res = analyzer.analyzeForAction(tcToken, pr);
-        if (res.isEmpty() || res.get().buildId() != buildId)
-            return;
-
-        Retry r = waves.get(buildId);
-        String verdict = visas.composeMarkdown(pr, res.get(), null, revision(tcToken, buildId));
-        upsertGhComment(who, e, ghToken.get(), pr, buildId, verdict
-            + pendingLine(r != null ? r.what() : "re-run suite(s)", r != null ? r.attempts() : 1,
-                r != null ? r.history() : null, activeEtaEpoch(pr), e.tz(), "**"), false);
-    }
-
-    /**
      * Ends the living comments of the PR's runs before {@code latest}: comments from before this release
      * that a newer run left "in progress" for good. Their waves go too.
      */
     private void endReplaced(PrSummary pr, long latest) {
         VisaService.Ending ending = visas.replaced(pr.number(), latest);
-        enrolled.forEach((user, e) -> endThreads(user, e, pr, b -> b < latest, ending, latest));
+        enrolled.forEach((user, e) -> endThreads(user, e, pr, b -> b < latest, ending));
         enrolled.forEach((user, e) -> forgetOwed(user, e, pr.number(), latest, "RunAll " + latest + " replaced it"));
         waves.values().removeIf(r -> r.pr() == pr.number() && r.buildId() < latest && !rerunTracker.tracks(r.buildId()));
     }
 
     /**
-     * Marks the PR's verdict comments of runs before {@code latest}, whoever posted them, as superseded: the PR
-     * read like a pile of current verdicts, the old red ones among them. Each gets one line, once, edited with its
-     * owner's token. A comment that already says a newer run replaced it, or that no token of its owner can edit
-     * any more, is only marked so here; a failure leaves it for the next settle, also once a newer verdict of its
+     * Marks the PR's verdict comments of runs before {@code latest}, whoever's runs they tell, as superseded: the PR
+     * read like a pile of current verdicts, the old red ones among them. Each gets one line, once, edited by the
+     * checker's account, which posted it. A comment that already says a newer run replaced it, or that GitHub no
+     * longer has, is only marked so here; a failure leaves it for the next settle, also once a newer verdict of its
      * owner has taken its place.
      */
     private void markSuperseded(int pr, long latest) {
@@ -1912,10 +1956,12 @@ public class StandingVisas implements SnapshotCache {
      * is to be tried again.
      */
     private boolean supersede(String user, Enrollment e, int pr, long commentId, long latest) {
-        Optional<String> token = decrypt(e.gh());
+        if (!github.canWrite())
+            return false;
+
         Optional<String> body;
         try {
-            body = token.isEmpty() ? Optional.empty() : github.commentBody(commentId);
+            body = github.commentBody(commentId);
         }
         catch (RuntimeException ex) {
             log.warn("reading verdict comment {} of PR {} failed, marked superseded later: {}", commentId, pr,
@@ -1925,19 +1971,12 @@ public class StandingVisas implements SnapshotCache {
         }
         try {
             if (body.isPresent() && !visas.saysSuperseded(body.get()))
-                github.updatePrComment(token.get(), commentId, body.get().stripTrailing()
-                    + visas.superseded(pr, latest));
+                github.appEdit(pr, user, commentId, body.get().stripTrailing() + visas.superseded(pr, latest));
             log.info("verdict comment {} of PR {} marked superseded by RunAll {}", commentId, pr, latest);
 
             return true;
         }
         catch (RuntimeException ex) {
-            if (GithubClient.refusesToken(ex)) {
-                dropGhToken(user);
-
-                return true;
-            }
-
             log.warn("marking verdict comment {} of PR {} superseded failed, tried again later: {}", commentId, pr,
                 ex.toString());
 
@@ -1952,7 +1991,7 @@ public class StandingVisas implements SnapshotCache {
             deciding.remove(pr);
             PrSummary summary = new PrSummary(pr, title, null, null, null, null);
             VisaService.Ending ending = visas.prClosed(merged);
-            enrolled.forEach((user, e) -> endThreads(user, e, summary, b -> true, ending, 0));
+            enrolled.forEach((user, e) -> endThreads(user, e, summary, b -> true, ending));
             enrolled.forEach((user, e) -> forgetOwed(user, e, pr, Long.MAX_VALUE,
                 "the PR was " + (merged ? "merged" : "closed")));
             if (waves.values().removeIf(r -> r.pr() == pr))
@@ -1984,15 +2023,11 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Ends the user's open living comments of the PR whose build {@code ofBuild} accepts; {@code newer} is the
-     * RunAll that replaced their runs, 0 when none did.
+     * Ends the user's open living visas of the PR whose build {@code ofBuild} accepts. A PR comment is posted only
+     * once its run is settled, and needs no last line.
      */
     private void endThreads(String user, Enrollment e, PrSummary pr, java.util.function.LongPredicate ofBuild,
-        VisaService.Ending ending, long newer) {
-        GhThread g = e.handled().ghThreads().get(pr.number());
-        if (g != null && ofBuild.test(g.buildId()) && open(e, pr.number(), g.buildId(), g.done()))
-            endGh(user, e, pr.number(), g, ending.markdown(), newer);
-
+        VisaService.Ending ending) {
         JiraThread j = e.handled().jiraThreads().get(pr.number());
         if (j != null && ofBuild.test(j.buildId()) && open(e, pr.number(), j.buildId(), j.done()))
             endJira(user, e, pr, j, ending.wiki());
@@ -2011,54 +2046,10 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Puts the last line in place of a PR comment's "re-run in progress" one. A comment without it was
-     * finished already: it is only marked ended, or marked superseded when the {@code newer} RunAll replaced
-     * its run. One GitHub no longer has, or that no token of its owner can edit any more, is forgotten. A
+     * Puts the last line in place of a visa's "re-run in progress" one. A visa without it was finished already: it is
+     * only marked ended. One JIRA no longer has, or that no token of its owner can edit any more, is forgotten. A
      * failure leaves it for the next settle.
      */
-    private void endGh(String user, Enrollment e, int pr, GhThread t, String line, long newer) {
-        Optional<String> token = decrypt(e.gh());
-        Optional<String> body;
-        try {
-            body = token.isEmpty() ? Optional.empty() : github.commentBody(t.commentId());
-        }
-        catch (RuntimeException ex) {
-            // The comment is read under the app's token: a refusal there says nothing of the owner's PAT.
-            log.warn("reading living comment {} of PR {} failed, tried again later: {}", t.commentId(), pr,
-                ex.toString());
-
-            return;
-        }
-        if (body.isEmpty()) {
-            e.handled().ghThreads().remove(pr, t);
-            log.info("living comment {} of PR {} forgotten: {}", t.commentId(), pr,
-                token.isEmpty() ? "no GitHub token of " + user + " to edit it with" : "GitHub has no such comment");
-
-            return;
-        }
-        try {
-            if (pendingAt(body.get()) >= 0)
-                github.updatePrComment(token.get(), t.commentId(), withLastLine(body.get(), line));
-            else if (newer > 0 && !visas.saysSuperseded(body.get()))
-                github.updatePrComment(token.get(), t.commentId(), body.get().stripTrailing()
-                    + visas.superseded(pr, newer));
-            e.handled().ghThreads().replace(pr, t, newer > 0 ? t.ended().supersededNow() : t.ended());
-            log.info("living comment {} of PR {} (build {}) ended", t.commentId(), pr, t.buildId());
-        }
-        catch (RuntimeException ex) {
-            if (GithubClient.refusesToken(ex)) {
-                dropGhToken(user);
-                e.handled().ghThreads().remove(pr, t);
-
-                return;
-            }
-
-            log.warn("ending living comment {} of PR {} failed, tried again later: {}", t.commentId(), pr,
-                ex.toString());
-        }
-    }
-
-    /** The same for a visa in the ticket; see {@link #endGh}. */
     private void endJira(String user, Enrollment e, PrSummary pr, JiraThread t, String line) {
         Optional<String> token = decrypt(e.jira());
         String issue = t.issue() != null ? t.issue() : ticketIn(pr.title()).orElse(null);
@@ -2101,44 +2092,44 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The whole run's story lives in ONE PR comment, edited in place when it is posted again for the same
-     * build. A failure never breaks the sweep (the JIRA visa may already be out), and a failed edit falls back
-     * to a fresh comment rather than losing the verdict. {@code done}: the comment carries the settled verdict.
-     * False when the comment is not in: GitHub failed, or refused the token, which is dropped.
+     * The run's verdict in ONE PR comment of the checker's account, edited in place when it is posted again for the
+     * same build. A failure never breaks the sweep (the JIRA visa may already be out), and a failed edit falls back
+     * to a fresh comment rather than losing the verdict. False when the comment is not in: GitHub failed, or asked
+     * the checker to wait, and it is tried again at the next settle. What the checker's account is refused never
+     * touches the user's own token.
      */
-    private boolean upsertGhComment(String who, Enrollment e, String ghToken, int pr, long buildId, String md,
-        boolean done) {
+    private boolean upsertGhComment(String who, Enrollment e, int pr, long buildId, String md) {
         try {
             GhThread t = e.handled().ghThreads().get(pr);
             if (t != null && t.buildId() == buildId) {
                 try {
-                    github.updatePrComment(ghToken, t.commentId(), md);
-                    e.handled().ghThreads().put(pr, new GhThread(buildId, t.commentId(), done, false, t.unmarked()));
-                    log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
+                    if (github.appEdit(pr, who, t.commentId(), md)) {
+                        e.handled().ghThreads().put(pr, GhThread.posted(buildId, t.commentId(), t.unmarked()));
+                        log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
 
-                    return true;
+                        return true;
+                    }
+                }
+                catch (GithubClient.WriteDeferred deferred) {
+                    throw deferred;
                 }
                 catch (RuntimeException editEx) {
-                    if (GithubClient.refusesToken(editEx))
-                        throw editEx;
-
                     log.warn("editing GitHub comment {} for PR {} failed ({}), posting fresh",
                         t.commentId(), pr, editEx.toString());
                 }
             }
-            GithubClient.PostedComment posted = github.addPrComment(ghToken, pr, md);
-            e.handled().ghThreads().put(pr, new GhThread(buildId, posted.id(), done, false,
-                unmarkedAfter(e, pr, t, buildId)));
+            GithubClient.PostedComment posted = github.appComment(pr, who, md);
+            if (posted == null)
+                return false;
+
+            e.handled().ghThreads().put(pr, GhThread.posted(buildId, posted.id(), unmarkedAfter(e, pr, t, buildId)));
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
 
             return true;
         }
         catch (RuntimeException ghEx) {
-            if (GithubClient.refusesToken(ghEx))
-                dropGhToken(who);
-            else
-                log.warn("standing GitHub comment for PR {} failed, tried again at the next settle: {}", pr,
-                    ghEx.toString());
+            log.warn("standing GitHub comment for PR {} failed, tried again at the next settle: {}", pr,
+                ghEx.toString());
 
             return false;
         }
@@ -2340,9 +2331,16 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** A stored token (encrypted; null once dropped) and when its service last refused it (0: never). */
-    private record Credential(String token, long rejectedAt) {
+    /**
+     * A stored token (encrypted; null once dropped), when its service last refused it (0: never), and what the user
+     * should know of it ({@code note}, null when nothing).
+     */
+    private record Credential(String token, long rejectedAt, String note) {
         static final Credential NONE = new Credential(null, 0);
+
+        Credential(String token, long rejectedAt) {
+            this(token, rejectedAt, null);
+        }
 
         static Credential refusedAt(long at) {
             return new Credential(null, at);
@@ -2439,13 +2437,16 @@ public class StandingVisas implements SnapshotCache {
             return on.equals(EnumSet.of(Option.COMMANDS));
         }
 
-        /** The options that act from the user's GitHub account need the GitHub token. */
+        /**
+         * The options that commit to the branch of the user's PR need their GitHub token; whatever the checker writes
+         * in a PR, it writes from its own account.
+         */
         boolean needsGh() {
-            return ghComment() || styleFix() || suiteFix();
+            return styleFix() || suiteFix();
         }
 
         Options withoutGh() {
-            return with(Option.GH_COMMENT, false).with(Option.STYLE_FIX, false).with(Option.SUITE_FIX, false);
+            return with(Option.STYLE_FIX, false).with(Option.SUITE_FIX, false);
         }
 
         Options withoutVisa() {
@@ -2472,19 +2473,14 @@ public class StandingVisas implements SnapshotCache {
     /**
      * What of the verdict of the handled run {@code buildId} did not go out when it was settled: the {@code visa}, the
      * PR {@code comment}, with the re-run {@code waves} and the {@code note} they were to carry. Its service refused
-     * the token, or failed. It goes out once its option is on with a working token, while the run is the PR's latest
-     * finished RunAll and no newer one goes; a newer RunAll or the PR's close forgets it.
+     * the token, failed, or asked to wait. It goes out once its option is on with a working token, the comment while
+     * the checker's account can write, while the run is the PR's latest finished RunAll and no newer one goes; a newer
+     * RunAll or the PR's close forgets it.
      */
     private record Owed(long buildId, boolean visa, boolean comment, List<String> waves, String note) {
         /** What is left owed once the visa and the comment that went out ({@code visaOut}, {@code commentOut}) are. */
         Owed after(boolean visaOut, boolean commentOut) {
             return new Owed(buildId, visa && !visaOut, comment && !commentOut, waves, note);
-        }
-
-        /** Whether the user's options and tokens let some of it go out now. */
-        boolean deliverableBy(Enrollment e) {
-            return visaDeliverableBy(e) || comment && !e.tc().rejected() && e.options().ghComment()
-                && e.gh().token() != null;
         }
 
         /** Whether the user's options and tokens let its visa go out now. */
@@ -2505,26 +2501,29 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The one living PR comment of a run: which build it narrates, where to edit it, whether it is final, whether it
+     * The verdict comment of a run in the PR: which build it tells, where to edit it, whether it is final, whether it
      * says a newer run superseded it, and the owner's earlier verdict comments on the PR still to be marked so.
-     * Comments of v1.20.11 and before carry the first two only.
+     * {@code app}: the checker's account posted it. Earlier versions posted with the owner's token, which the checker
+     * no longer writes with; comments of v1.20.11 and before carry the first two fields only.
      */
-    private record GhThread(long buildId, long commentId, boolean done, boolean superseded, List<Long> unmarked) {
+    private record GhThread(long buildId, long commentId, boolean done, boolean superseded, List<Long> unmarked,
+        boolean app) {
         GhThread {
             unmarked = unmarked == null ? List.of() : List.copyOf(unmarked);
         }
 
-        GhThread ended() {
-            return new GhThread(buildId, commentId, true, superseded, unmarked);
+        /** The settled verdict of the run, just posted by the checker's account. */
+        static GhThread posted(long buildId, long commentId, List<Long> unmarked) {
+            return new GhThread(buildId, commentId, true, false, unmarked, true);
         }
 
         GhThread supersededNow() {
-            return new GhThread(buildId, commentId, done, true, unmarked);
+            return new GhThread(buildId, commentId, done, true, unmarked, app);
         }
 
         GhThread marked(long comment) {
             return new GhThread(buildId, commentId, done, superseded,
-                unmarked.stream().filter(c -> c != comment).toList());
+                unmarked.stream().filter(c -> c != comment).toList(), app);
         }
     }
 
@@ -2596,17 +2595,6 @@ public class StandingVisas implements SnapshotCache {
         return out;
     }
 
-    /** The ⏳ status line of the living comment while re-runs settle, numbered, with the waves so far.
-     * {@code b} is the bold marker of the target markup: {@code **} for GitHub, {@code *} for JIRA. */
-    private static String pendingLine(String what, int attempt, List<String> history, Long etaEpochSec, String tz,
-        String b) {
-        return "\n\n⏳ _Auto re-run " + b + "#" + (history == null || history.isEmpty() ? attempt : history.size())
-            + b + " (of up to " + MAX_RERUNS + ") in progress — " + what + " re-queued"
-            + (etaEpochSec == null ? "" : ", " + b + "≈ settled by " + wallClock(etaEpochSec, tz) + b)
-            + ". This comment updates when they settle._"
-            + earlierWaves(history);
-    }
-
     /**
      * The run's visa in the ticket, posted once it is settled; one of the same build already there (a visa
      * from before this release, posted while re-runs went) is edited in place. A failed edit falls back to
@@ -2662,18 +2650,6 @@ public class StandingVisas implements SnapshotCache {
         dropJiraToken(user);
 
         return true;
-    }
-
-    /** "Earlier re-runs: #1 — …" for every wave before the current one; empty when none. */
-    private static String earlierWaves(List<String> history) {
-        if (history == null || history.size() < 2)
-            return "";
-
-        StringBuilder b = new StringBuilder("\n_Earlier re-runs:");
-        for (int i = 0; i < history.size() - 1; i++)
-            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
-
-        return b.append("._").toString();
     }
 
     /** The final "how it settled" line: every re-run wave in order; null when there were none. */
@@ -2752,22 +2728,6 @@ public class StandingVisas implements SnapshotCache {
         return max > 0 ? max : null;
     }
 
-    /** Wall-clock stamp in the time zone the user's browser named (UTC when unknown). */
-    private static String wallClock(long epochSec, String tz) {
-        java.time.ZoneId zone = java.time.ZoneId.of("UTC");
-        if (tz != null) {
-            try {
-                zone = java.time.ZoneId.of(tz);
-            }
-            catch (java.time.DateTimeException ignored) {
-                // a zone of an older snapshot this JDK does not know falls back to UTC
-            }
-        }
-
-        return java.time.Instant.ofEpochSecond(epochSec).atZone(zone)
-            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm zzz", java.util.Locale.ENGLISH));
-    }
-
     /**
      * One enrollment as it is written to disk; the field names are the file format. {@code onSince} is keyed by
      * the option's name, so a snapshot that names an option this version does not know still loads.
@@ -2777,7 +2737,7 @@ public class StandingVisas implements SnapshotCache {
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
         Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince,
-        Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven) {
+        Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven, String ghTokenNote) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -2789,7 +2749,7 @@ public class StandingVisas implements SnapshotCache {
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
                 e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()),
-                gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven());
+                gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven(), e.gh().note());
         }
 
         /**
@@ -2797,15 +2757,24 @@ public class StandingVisas implements SnapshotCache {
          * switch, a linked GitHub login was all commands needed. The checkstyle autofix saved on without PR
          * commands, which it never ran without, is off, and the GitHub token goes when nothing else needs it.
          * Before logins were proven, one stored with a GitHub token mostly came from that token, but one typed in by
-         * hand could sit next to a token of another account: the token is asked whose it is. One stored without a
-         * token could have been typed in by hand.
+         * hand could sit next to a token of another account: the token is asked whose it is, for PR commands. One
+         * stored without a token could have been typed in by hand. Before the checker's account wrote the PR comments,
+         * the user's GitHub token did: a token kept for nothing else goes, once asked, and the verdict comments it
+         * posted are no longer the checker's to edit.
          */
         Enrollment enrollment() {
             Handled h = Handled.empty();
             if (posted != null)
                 h.posted().putAll(posted);
-            if (ghThreads != null)
-                h.ghThreads().putAll(ghThreads);
+            if (ghThreads != null) {
+                ghThreads.forEach((pr, t) -> {
+                    if (t.app())
+                        h.ghThreads().put(pr, t);
+                    else
+                        log.info("verdict comment {} of {} on PR {} forgotten: it was posted with their own GitHub "
+                            + "token, and the checker edits only its own comments", t.commentId(), username, pr);
+                });
+            }
             if (jiraThreads != null)
                 h.jiraThreads().putAll(jiraThreads);
             if (owed != null)
@@ -2828,14 +2797,19 @@ public class StandingVisas implements SnapshotCache {
                 log.info("checkstyle autofix of {} is off: it runs only from a PR command, and PR commands are off{}",
                     username, ghUnneeded ? "; the GitHub token, which nothing else needs, is dropped" : "");
 
-            boolean ghKept = ghToken != null && !ghUnneeded;
+            boolean ask = ghToken != null && ghLogin != null && ghLoginProven == null && options.commands();
+            boolean ghKept = ghToken != null && (options.needsGh() || ask);
+            if (ghToken != null && !ghKept && !ghUnneeded)
+                log.info("GitHub token of {} dropped: no option of theirs commits, and the checker's account posts"
+                    + " their PR comments", username);
             GhAccount account = ghLogin == null ? null : ghLoginProven != null
-                ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ghKept);
+                ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ask);
 
             return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
-                new Credential(ghUnneeded ? null : ghToken, ghRejectedAt == null ? 0 : ghRejectedAt), account, tz,
-                enabledAt, options, h, Collections.unmodifiableMap(since));
+                new Credential(ghKept ? ghToken : null, ghRejectedAt == null ? 0 : ghRejectedAt,
+                    ghKept ? ghTokenNote : null), account, tz, enabledAt, options, h,
+                Collections.unmodifiableMap(since));
         }
     }
 }

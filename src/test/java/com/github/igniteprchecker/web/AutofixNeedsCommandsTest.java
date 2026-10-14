@@ -14,6 +14,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -38,7 +39,7 @@ import org.springframework.http.ResponseEntity;
 class AutofixNeedsCommandsTest {
     private static final String USER = "avinogradov";
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -52,7 +53,8 @@ class AutofixNeedsCommandsTest {
 
     @BeforeEach
     void setUp() {
-        when(github.ghIdentity(anyString())).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner(anyString())).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), null)));
     }
 
     @Test
@@ -65,7 +67,7 @@ class AutofixNeedsCommandsTest {
             .isEqualTo("Auto-fix checkstyle runs only from a PR command: switch on PR commands first");
         assertThat(standing.settings(USER).style()).isFalse();
         assertThat(standing.settings(USER).ghStored()).isFalse();
-        verify(github, never()).ghIdentity(anyString());
+        verify(github, never()).tokenOwner(anyString());
     }
 
     @Test
@@ -91,13 +93,14 @@ class AutofixNeedsCommandsTest {
 
     @Test
     void prCommandsOffKeepTheTokenAnotherOptionNeeds() {
-        post(true, true, true, "gh-pat");
+        controller.standingVisa(null, null, true, true, true, true, "tc", USER, null, "gh-pat");
 
         post(null, null, false, null);
 
         assertThat(standing.settings(USER).style()).isFalse();
         assertThat(standing.settings(USER).gh()).isTrue();
-        assertThat(standing.settings(USER).ghStored()).isTrue();
+        assertThat(standing.settings(USER).suites()).isTrue();
+        assertThat(standing.settings(USER).ghStored()).as("tests to suites commit with it").isTrue();
     }
 
     /** Auto re-run keeps the options on, yet nothing left needs the GitHub token. */
@@ -120,7 +123,7 @@ class AutofixNeedsCommandsTest {
     void aLoginProvenByAnotherTakesTheAutofixAndItsTokenAlong() {
         controller.standingVisa(null, true, null, true, true, null, "tc", "claimant", null, "claimant-pat");
 
-        post(true, null, null, "gh-pat");
+        controller.standingVisa(null, null, null, null, null, true, "tc", USER, null, "gh-pat");
 
         assertThat(standing.settings("claimant").login()).isNull();
         assertThat(standing.settings("claimant").commands()).isFalse();

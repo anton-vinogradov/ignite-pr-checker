@@ -419,25 +419,21 @@
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="ghCommentToggle" type="checkbox">
-            <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes,
-                post the verdict as a comment on the pull request, from my own GitHub account, once per run (with
-                auto re-run on, once the re-runs settle).<br>
-                <span class="muted">Requires a GitHub personal access token with the <code>public_repo</code>
-                scope; it is stored encrypted at rest while this is on.</span>
-                <span id="ghSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
+            <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes, the
+                checker's account<span id="ghCommentApp"></span> posts the verdict as a comment on the pull request, once per run (with auto re-run on, once the re-runs settle), and mentions me when my
+                GitHub login is proven.<br>
+                <span class="muted">Needs no GitHub token of mine.</span></span>
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
             <input id="commandsToggle" type="checkbox">
             <span><b>PR commands</b> — comment on any pull request: <code>/run-all</code> (or <code>/runall</code>)
                 queues the whole RunAll chain under my TeamCity account, <code>/run-all top</code> queues it at the
                 top, <code>/top</code> moves the run my command started to the top while it still waits; the top
-                needs a ci2 account that may reorder the queue. Picked up within a minute; 🚀 = accepted, 😕 =
-                refused, and a comment in the PR then narrates the run.<br>
+                needs a ci2 account that may reorder the queue. Picked up within a minute; the checker's account
+                answers: 🚀 = accepted, 😕 = refused, and a comment of its own tells the run. When the verdict is in,
+                a new comment mentions me, and the story goes.<br>
                 <span class="muted">Needs my GitHub login, proven once with a token; stores only the login, my GitHub
-                account's id and my TeamCity token (encrypted). While the server holds my GitHub token (for the PR
-                comment, the checkstyle autofix or tests to suites), the reactions come from my own account and the
-                story is written into my command comment; otherwise the checker's own account reacts and tells the
-                story in a comment of its own.</span></span>
+                account's id and my TeamCity token (encrypted).</span></span>
         </label>
         <div id="settingsLogin" class="hidden" style="margin-top: 0.4rem">
             <span id="ghLoginState" class="muted"></span>
@@ -461,8 +457,8 @@
                 files violate checkstyle, fix what is mechanically fixable (imports, whitespace, modifier
                 order…) and push the fix commit from my account before the run starts. Works only with PR commands
                 on, and goes off with them. <i>Yes, I trust the robots with my whitespace.</i> 🤖<br>
-                <span class="muted">Uses my GitHub token, as the PR comment does; javadoc/naming/wrapping still
-                need a human — you'll be told what remains.</span>
+                <span class="muted">Uses my GitHub token, which the checker keeps only to commit with;
+                javadoc/naming/wrapping still need a human — you'll be told what remains.</span>
                 <span id="styleSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <label class="settings-row" style="margin-top: 0.5rem">
@@ -470,28 +466,33 @@
             <span><b>Add my PRs' tests to a suite</b> — when Ignite's abandoned-tests check on the head of my own PR
                 finds test classes of the PR in no test suite, so CI never runs them, list each next to the class of
                 its module nearest to it (by package, then by name), in that class's suite, in one commit from my
-                account. Once per head commit. A comment in the PR says what went where and why, then what
-                Ignite's check says of the commit.<br>
-                <span class="muted">Uses my GitHub token, as the PR comment and the autofix do.</span>
+                account. Once per head commit. A comment of the checker's account in the PR says what went where and
+                why, then what Ignite's check says of the commit.<br>
+                <span class="muted">Uses my GitHub token, as the autofix does.</span>
                 <span id="suitesSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
         </label>
         <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
-            A GitHub personal access token is needed —
-            <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">create one (classic, public_repo scope)</a>,
-            then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
-            while an option that needs it is on. Give it an expiry, say 90 days: when it expires, the options that use
-            it switch off with a note here, and once you paste a new one and switch them back on, the verdict comments
-            held back meanwhile go out, for runs no newer RunAll replaced.
+            A GitHub token that may push to your PR's branch is needed, for these commits only: the checker writes in
+            PRs from its own account. Best is a
+            <a href="https://github.com/settings/personal-access-tokens/new" target="_self" rel="noopener">fine-grained token</a>:
+            resource owner — you; repository access — only select repositories, your fork of ignite; permissions —
+            Contents: read and write (Metadata: read comes with it). A fine-grained token cannot reach a PR from a
+            branch of apache/ignite itself or from someone else's fork; for those, a
+            <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">classic token with the public_repo scope</a>
+            — which pushes to every public repository you can push to, apache/ignite too if you are a committer. A
+            classic one with <code>repo</code> is taken with a warning; with <code>admin:*</code>,
+            <code>delete_repo</code> or <code>workflow</code> it is refused. Paste it here: it goes with the switch to
+            the server, which stores it encrypted while an option that commits is on, and into no cookie. Give it an
+            expiry, say 90 days: when it expires, the options that use it switch off with a note here; paste a new one
+            and switch them back on.
             <span class="row" style="margin-top: 0.4rem">
                 <input id="settingsGhToken" type="password" placeholder="GitHub personal access token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
                 <button id="settingsGhSave" class="act" type="button">Save</button>
                 <span id="settingsGhMsg" class="muted"></span>
             </span>
             <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so it was dropped and
-                the options that need it (the PR comment, the checkstyle autofix, tests to suites) were switched off
-                — acks and the live status come from the checker's own account meanwhile. Paste a fresh one above and
-                switch them back on: the verdict comments it could not post then go out, for runs no newer RunAll
-                replaced.</p>
+                the options that commit with it (the checkstyle autofix, tests to suites) were switched off. Paste a
+                fresh one above and switch them back on.</p>
         </div>
         <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
             A JIRA Personal Access Token is needed —
@@ -510,6 +511,10 @@
                 auto-visa was switched off. Paste a fresh one above and switch it back on: the visas it could not
                 post then go out, for runs no newer RunAll replaced.</p>
         </div>
+        <p id="ghTokenNote" class="muted hidden"></p>
+        <p id="githubOff" class="caveat hidden">Not available: this checker has no GitHub account to write with
+            (<code>GITHUB_TOKEN</code>), so the PR comment, PR commands, the checkstyle autofix and tests to suites
+            are off. Its operator can add one.</p>
         <div id="settingsMsg" class="muted"></div>
     </div>
 

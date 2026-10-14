@@ -43,13 +43,13 @@ class TokenNotesPageTest {
                 + "включена");
     }
 
-    /** The PATs pasted in ⚙ are for the options, which store them. */
+    /** The PATs pasted in ⚙ are for the options, which store them; the GitHub one rides in no cookie. */
     @Test
     void theSettingsPanelsSayTheOptionsStoreTheirTokens() throws IOException {
         assertThat(textOf("settingsJira")).contains("It goes into your session cookie, encrypted, and the server "
             + "stores it encrypted while auto-visa is on.");
-        assertThat(textOf("settingsGh")).contains("It goes into your session cookie, encrypted, and the server "
-            + "stores it encrypted while an option that needs it is on.");
+        assertThat(textOf("settingsGh")).contains("it goes with the switch to the server, which stores it "
+            + "encrypted while an option that commits is on, and into no cookie.");
         assertThat(Files.readString(PAGE, UTF_8)).doesNotContain("never stored server-side");
     }
 

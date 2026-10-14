@@ -138,6 +138,19 @@ class AnonymousViewTest {
         assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains("\"canPush\":true");
     }
 
+    /** What GitHub said refusing a write, and whose writes reached a cap, are for signed-in viewers. */
+    @Test
+    void statusTellsAnonymousViewersThatWritesFailButNotWhyOrWhose() throws Exception {
+        when(github.writeState()).thenReturn(new GithubClient.WriteState(0, "GitHub answered 403 to a write: blocked",
+            1L, List.of("PR 13800", "user nsamelchev")));
+
+        String anonymous = mapper.writeValueAsString(status.status(new MockHttpServletRequest()));
+
+        assertThat(anonymous).contains("\"githubWrites\"", "\"refusedAt\":1", "PR 13800", "a user")
+            .doesNotContain("blocked", "user nsamelchev");
+        assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains("blocked", "user nsamelchev");
+    }
+
     /** What the check of the server's token found says as much of its worth: anyone sees how bad, not what. */
     @Test
     void statusShowsTheChecksOfTheAppTokenToSignedInViewersOnly() throws Exception {

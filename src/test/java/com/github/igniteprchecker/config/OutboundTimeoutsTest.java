@@ -96,15 +96,15 @@ class OutboundTimeoutsTest {
     }
 
     private GithubClient github(String apiUrl) {
-        return new GithubClient(new GithubProperties("apache/ignite", null, 300, SHORT, apiUrl), new ObjectMapper(),
-            metrics);
+        return new GithubClient(new GithubProperties("apache/ignite", "app-token", 300, SHORT, apiUrl),
+            new ObjectMapper(), metrics);
     }
 
     @Test
     void gitHubCallGivesUp() {
         GithubClient github = github(silentUrl());
 
-        assertTimeoutPreemptively(HANG_GUARD, () -> assertThat(answerTo(() -> github.updatePrComment("pat", 1, "x")))
+        assertTimeoutPreemptively(HANG_GUARD, () -> assertThat(answerTo(() -> github.appEdit(1, "user", 1, "x")))
             .isEqualTo("GitHub did not answer — try again in a moment"));
     }
 
@@ -122,7 +122,7 @@ class OutboundTimeoutsTest {
         });
         api.start();
         try {
-            github("http://127.0.0.1:" + api.getAddress().getPort()).updatePrComment("pat", 1, "x");
+            github("http://127.0.0.1:" + api.getAddress().getPort()).appEdit(1, "user", 1, "x");
 
             assertThat(requests).containsExactly("PATCH /repos/apache/ignite/issues/comments/1");
         }

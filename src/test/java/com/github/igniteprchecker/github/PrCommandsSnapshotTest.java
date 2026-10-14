@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -29,12 +31,13 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * pr-commands.json remembers handled comments, the narrated runs and who was already onboarded. The
  * file v1.20.11 wrote must read back whole: a lost "handled" re-runs a command, a lost "onboarded"
- * replies to the same person again.
+ * replies to the same person again. A story told in the commander's own comment, with their token, is the one thing
+ * not told on: the checker writes only to its own comments.
  */
 class PrCommandsSnapshotTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final StandingVisas standing = mock(StandingVisas.class);
 
@@ -53,7 +56,11 @@ class PrCommandsSnapshotTest {
         Path saved = dir.resolve("saved.json");
         commands.saveTo(saved);
 
-        assertKeeps(mapper.readTree(file.toFile()), mapper.readTree(saved.toFile()), "$");
+        JsonNode old = mapper.readTree(file.toFile());
+        JsonNode now = mapper.readTree(saved.toFile());
+        assertThat(now.get("narrations").isEmpty()).as("its story lives in the commander's own comment").isTrue();
+        ((ObjectNode)old).remove("watching");
+        assertKeeps(old, now, "$");
         assertThat(commands.handledCount()).isEqualTo(42);
     }
 
@@ -71,7 +78,7 @@ class PrCommandsSnapshotTest {
 
         commands.poll();
 
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, never()).appComment(anyInt(), any(), anyString());
     }
 
     private static void assertKeeps(JsonNode old, JsonNode now, String path) {

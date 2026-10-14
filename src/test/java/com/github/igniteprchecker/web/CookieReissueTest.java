@@ -21,6 +21,7 @@ import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.Cookie;
 import java.net.HttpCookie;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -30,7 +31,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 /**
  * Saving a JIRA token re-issued the session cookie without the GitHub token it carried: the next switch of a GitHub
- * option in ⚙ answered "this option needs your GitHub token" for a token pasted a minute before.
+ * option in ⚙ answered "this option needs your GitHub token" for a token pasted a minute before. The GitHub token no
+ * longer rides in the cookie at all: a cookie of an earlier version loses it when it is issued again.
  */
 class CookieReissueTest {
     private static final String USER = "avinogradov";
@@ -52,26 +54,23 @@ class CookieReissueTest {
         mock(VisaService.class), mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
 
     @Test
-    void savingAJiraTokenKeepsTheGithubToken() throws Exception {
+    void savingAJiraTokenDropsTheGithubTokenOfAnEarlierCookie() throws Exception {
+        when(github.writes()).thenReturn(true);
         when(jira.myself("jira-pat")).thenReturn(Optional.of("Anton Vinogradov"));
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(
+            GhUsers.of("anton-vinogradov"), List.of("public_repo"))));
+        String earlier = codec.encryptString("{\"username\":\"" + USER + "\",\"token\":\"tc\",\"ghToken\":\"gh-pat\","
+            + "\"iat\":" + System.currentTimeMillis() + "}");
+        SessionCodec.Session old = codec.decode(earlier).orElseThrow();
 
-        SessionCodec.Session after = session(controller.saveToken(new JiraController.TokenRequest("jira-pat"),
-            new SessionCodec.Session(USER, "tc", null, "gh-pat"), System.currentTimeMillis()));
+        ResponseEntity<?> saved = controller.saveToken(new JiraController.TokenRequest("jira-pat"), old,
+            System.currentTimeMillis());
 
-        assertThat(after).isEqualTo(new SessionCodec.Session(USER, "tc", "jira-pat", "gh-pat"));
-        assertThat(switchCommentOn(after).getStatusCode().value()).isEqualTo(200);
-        assertThat(standing.ghOn(USER)).isTrue();
-    }
-
-    @Test
-    void savingAGithubTokenKeepsTheJiraToken() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
-
-        SessionCodec.Session after = session(controller.saveGithubToken(new JiraController.TokenRequest("gh-pat"),
-            new SessionCodec.Session(USER, "tc", "jira-pat", null), System.currentTimeMillis()));
-
-        assertThat(after).isEqualTo(new SessionCodec.Session(USER, "tc", "jira-pat", "gh-pat"));
+        assertThat(session(saved)).isEqualTo(new SessionCodec.Session(USER, "tc", "jira-pat"));
+        assertThat(mapper.readTree(codec.decryptString(cookieOf(saved)).orElseThrow()).has("ghToken")).isFalse();
+        assertThat(switchOn(earlier).getStatusCode().value()).as("the guard takes no GitHub token from a cookie")
+            .isEqualTo(412);
+        assertThat(standing.styleFixOn(USER)).isFalse();
     }
 
     /** Logged in again with a fresh TeamCity token while the browser still held the session of the old one. */
@@ -83,17 +82,17 @@ class CookieReissueTest {
             new AdminActions(new AdminProperties(null), mapper), standing);
 
         SessionCodec.Session same = session(login.login(new LoginController.LoginRequest("fresh-tc"),
-            carrying(new SessionCodec.Session(USER, "old-tc", "jira-pat", "gh-pat"))));
+            carrying(new SessionCodec.Session(USER, "old-tc", "jira-pat"))));
         SessionCodec.Session other = session(login.login(new LoginController.LoginRequest("fresh-tc"),
-            carrying(new SessionCodec.Session("someone-else", "their-tc", "their-jira", "their-gh"))));
+            carrying(new SessionCodec.Session("someone-else", "their-tc", "their-jira"))));
 
-        assertThat(same).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", "jira-pat", "gh-pat"));
-        assertThat(other).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null, null));
+        assertThat(same).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", "jira-pat"));
+        assertThat(other).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null));
     }
 
     /**
-     * alice logged out in one browser. The other browser still held the cookie of the ended session, with her JIRA and
-     * GitHub tokens, and a login there must not take them into the new session.
+     * alice logged out in one browser. The other browser still held the cookie of the ended session, with her JIRA
+     * token, and a login there must not take it into the new session.
      */
     @Test
     void aLoginAfterALogoutTakesNoPatsOfTheEndedCookie() {
@@ -102,23 +101,28 @@ class CookieReissueTest {
         LoginController login = new LoginController(tc, codec, new SessionProperties(false, "test-secret"),
             mock(Warmer.class), users, new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper),
             standing);
-        MockHttpServletRequest other = carrying(new SessionCodec.Session(USER, "old-tc", "jira-pat", "gh-pat"));
+        MockHttpServletRequest other = carrying(new SessionCodec.Session(USER, "old-tc", "jira-pat"));
 
-        login.logout(true, codec.encode(new SessionCodec.Session(USER, "old-tc", null, null)));
+        login.logout(true, codec.encode(new SessionCodec.Session(USER, "old-tc", null)));
         SessionCodec.Session after = session(login.login(new LoginController.LoginRequest("fresh-tc"), other));
 
-        assertThat(after).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null, null));
+        assertThat(after).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null));
     }
 
-    /** What ⚙ does next: switches the PR comment on, through the session guard, with the tokens the cookie carries. */
-    private ResponseEntity<?> switchCommentOn(SessionCodec.Session session) throws Exception {
-        MockHttpServletRequest req = carrying(session);
+    /**
+     * What ⚙ does next: switches PR commands and the checkstyle autofix on through the session guard, with no token
+     * in the request.
+     */
+    private ResponseEntity<?> switchOn(String cookie) throws Exception {
+        standing.linkGhLogin(USER, "tc", GhUsers.of("anton-vinogradov"));
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/auto-visa-all");
+        req.setCookies(new Cookie(AuthInterceptor.COOKIE, cookie));
         AuthInterceptor auth = new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing);
         assertThat(auth.preHandle(req, new MockHttpServletResponse(), new Object())).isTrue();
 
-        return controller.standingVisa(null, null, true, null, null, null,
+        return controller.standingVisa(null, null, null, true, null, null,
             (String)req.getAttribute(AuthInterceptor.TOKEN_ATTR), (String)req.getAttribute(AuthInterceptor.USER_ATTR),
-            (String)req.getAttribute(AuthInterceptor.JIRA_ATTR), (String)req.getAttribute(AuthInterceptor.GH_ATTR));
+            (String)req.getAttribute(AuthInterceptor.JIRA_ATTR), null);
     }
 
     private MockHttpServletRequest carrying(SessionCodec.Session session) {
@@ -128,12 +132,15 @@ class CookieReissueTest {
         return req;
     }
 
+    private static String cookieOf(ResponseEntity<?> res) {
+        return HttpCookie.parse(res.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getValue();
+    }
+
     /** The session the answer's cookie carries; when it was issued is left out. */
     private SessionCodec.Session session(ResponseEntity<?> res) {
         assertThat(res.getStatusCode().value()).isEqualTo(200);
-        String setCookie = res.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
-        SessionCodec.Session s = codec.decode(HttpCookie.parse(setCookie).get(0).getValue()).orElseThrow();
+        SessionCodec.Session s = codec.decode(cookieOf(res)).orElseThrow();
 
-        return new SessionCodec.Session(s.username(), s.token(), s.jiraToken(), s.ghToken());
+        return new SessionCodec.Session(s.username(), s.token(), s.jiraToken());
     }
 }

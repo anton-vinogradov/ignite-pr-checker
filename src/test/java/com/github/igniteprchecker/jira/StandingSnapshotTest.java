@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -35,7 +36,8 @@ import org.junit.jupiter.api.io.TempDir;
  * standing-visas.json holds everyone's encrypted tokens, options and the ids of the living comments.
  * A release that reads it with a loss switches options off or posts a second visa into a ticket, so
  * the file written by v1.20.11 must come back whole, and the mid-run memo must not grow with chains
- * nobody will ever look at again (four on prod, two of them empty).
+ * nobody will ever look at again (four on prod, two of them empty). Only the PR comments a user's own token posted go:
+ * the checker writes with its own account now.
  */
 class StandingSnapshotTest {
     private static final String FIXTURE = "/snapshots/standing-visas-v1.20.11.json";
@@ -48,7 +50,7 @@ class StandingSnapshotTest {
 
     private final RerunTracker tracker = mock(RerunTracker.class);
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,
@@ -80,7 +82,21 @@ class StandingSnapshotTest {
         Path saved = dir.resolve("saved.json");
         standing.saveTo(saved);
 
-        assertKeeps(mapper.readTree(file.toFile()), mapper.readTree(saved.toFile()), "$");
+        JsonNode old = mapper.readTree(file.toFile());
+        JsonNode now = mapper.readTree(saved.toFile());
+        assertThat(enrollmentOf(now, "avinogradov").get("ghThreads").isEmpty())
+            .as("the verdict comment avinogradov's own token posted is no longer the checker's to edit").isTrue();
+        ((ObjectNode)enrollmentOf(old, "avinogradov")).remove("ghThreads");
+        assertKeeps(old, now, "$");
+    }
+
+    private static JsonNode enrollmentOf(JsonNode snapshot, String username) {
+        for (JsonNode e : snapshot.get("enrollments")) {
+            if (e.get("username").asText().equals(username))
+                return e;
+        }
+
+        throw new AssertionError("no enrollment of " + username);
     }
 
     /**

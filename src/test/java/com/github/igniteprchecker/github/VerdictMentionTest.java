@@ -1,9 +1,13 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -32,7 +36,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Someone without a GitHub token of their own commands from the checker's comment, whose story then ends with an
- * edit: GitHub tells nobody about edits, so they learnt that the verdict was in only by looking.
+ * edit: GitHub tells nobody about edits, so they learnt that the verdict was in only by looking. Now every commander
+ * is mentioned in a new comment once the verdict is ready, and the story goes: the run leaves one comment of the
+ * checker in the PR. The autofix's note, which tells the commander what was pushed to their branch, stays.
  */
 class VerdictMentionTest {
     private static final int PR = 13800;
@@ -42,7 +48,7 @@ class VerdictMentionTest {
     private static final String MENTION = "@Newcomer the verdict of your `/run-all` is ready: RunAll [9400000]"
         + "(https://ci2.example/build/9400000) — [see the verdict](https://checker.example/?pr=13800).";
 
-    private final GithubClient github = mock(GithubClient.class);
+    private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -53,14 +59,15 @@ class VerdictMentionTest {
         mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
         mock(Warmer.class), mock(PendingCommits.class));
 
+    private final StyleFixService styleFix = mock(StyleFixService.class);
+
     private final PrCommands commands = new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class),
-        mock(StyleFixService.class), mock(SuiteBaseline.class), "https://checker.example",
-        new TeamcityProperties("https://ci2.example/"));
+        styleFix, mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"));
 
     @Test
-    void aCommanderWithoutATokenIsMentionedOnceTheVerdictIsReady() {
+    void aCommanderIsMentionedOnceTheVerdictIsReadyAndTheStoryGoes() {
         standing.linkGhLogin("newcomer", "tc", GhUsers.of("Newcomer"));
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         command("Newcomer");
         when(tc.getBuildState("tc", CHAIN)).thenReturn(build("finished", "FAILURE"));
@@ -68,33 +75,68 @@ class VerdictMentionTest {
         commands.updateEtas();
         commands.updateEtas();
 
-        verify(github, times(1)).addPrCommentAsApp(PR, MENTION);
+        verify(github, times(1)).appComment(PR, "newcomer", MENTION);
+        verify(github).appDelete(PR, "newcomer", 77L);
         assertThat(PrCommands.readsAsCommand(MENTION)).isFalse();
     }
 
+    /** GitHub asked the checker's account to wait: the mention goes at a later look, once, and the story after it. */
     @Test
-    void aCommanderWhoseOwnTokenTellsTheStoryGetsNoSecondComment() {
-        when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("Author")));
-        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, false, true, true));
+    void aMentionGithubMadeWaitGoesLater() {
+        standing.linkGhLogin("newcomer", "tc", GhUsers.of("Newcomer"));
+        when(github.appComment(eq(PR), any(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
+        command("Newcomer");
+        when(tc.getBuildState("tc", CHAIN)).thenReturn(build("finished", "FAILURE"));
+        when(github.appComment(PR, "newcomer", MENTION)).thenThrow(new GithubClient.WriteDeferred("wait a minute"))
+            .thenReturn(new GithubClient.PostedComment(78L, "https://github.com/apache/ignite/pull/13800#c78"));
+
+        commands.updateEtas();
+
+        verify(github, never()).appDelete(anyInt(), any(), anyLong());
+
+        commands.updateEtas();
+        commands.updateEtas();
+
+        verify(github, times(2)).appComment(PR, "newcomer", MENTION);
+        verify(github, times(1)).appDelete(PR, "newcomer", 77L);
+    }
+
+    @Test
+    void theStoryOfARunTheAutofixPushedForKeepsTheNote() {
+        when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
+            null)));
+        standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
+        standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(null, null, null, true, null));
+        when(styleFix.fixForCommand(eq(PR), any(), eq("Author"))).thenReturn("🎨 _Checkstyle autofix: pushed"
+            + " `abc1234` to your branch `x` — `git pull` before your next push._");
+        when(github.appComment(eq(PR), any(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         command("Author");
         when(tc.getBuildState("tc", CHAIN)).thenReturn(build("finished", "FAILURE"));
 
         commands.updateEtas();
 
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github).appComment(eq(PR), eq("author"), startsWith("@Author the verdict of your `/run-all` is ready"));
+        verify(github, never()).appDelete(anyInt(), any(), anyLong());
+        verify(github).appEdit(PR, "author", 77L, "@Author 🎨 _Checkstyle autofix: pushed `abc1234` to your branch"
+            + " `x` — `git pull` before your next push._\n\n🏁 _RunAll [9400000](https://ci2.example/build/9400000)"
+            + " finished — [see the verdict](https://checker.example/?pr=13800)._");
     }
 
     @Test
     void aCancelledRunIsNoVerdict() {
         standing.linkGhLogin("newcomer", "tc", GhUsers.of("Newcomer"));
-        when(github.addPrCommentAsAppWithId(eq(PR), anyString()))
+        when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         command("Newcomer");
         when(tc.getBuildState("tc", CHAIN)).thenReturn(build("finished", "UNKNOWN"));
 
         commands.updateEtas();
 
-        verify(github, never()).addPrCommentAsApp(anyInt(), anyString());
+        verify(github, times(1)).appComment(anyInt(), any(), anyString());
+        verify(github).appEdit(eq(PR), eq("newcomer"), eq(77L), endsWith("\n🛑 _Run cancelled._"));
+        verify(github, never()).appDelete(anyInt(), any(), anyLong());
     }
 
     private void command(String login) {
