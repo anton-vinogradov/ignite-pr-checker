@@ -2,8 +2,12 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.lang.reflect.Field;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 
 class TokenPoolTest {
@@ -63,12 +67,13 @@ class TokenPoolTest {
     }
 
     @Test
-    void rejectionExpiresWithTheTtl() throws Exception {
-        TokenPool pool = new TokenPool(40); // 40 ms TTL and cooldown
+    void rejectionExpiresWithTheTtl() {
+        AtomicLong now = new AtomicLong(1_800_000_000_000L);
+        TokenPool pool = new TokenPool(40, now::get); // 40 ms TTL and cooldown
         pool.offer("t", false);
         pool.remove("t");
 
-        Thread.sleep(70);
+        now.addAndGet(70);
 
         assertThat(pool.offer("t", false)).isTrue(); // cooled down: worth one more try
         assertThat(pool.size()).isEqualTo(1);
@@ -76,12 +81,13 @@ class TokenPoolTest {
 
     /** The session cookie never expires, so a session must not outlive TeamCity's 401 on its token. */
     @Test
-    void a401KeepsTheTokenRevokedPastTheCooldownUntilALogin() throws Exception {
-        TokenPool pool = new TokenPool(40);
+    void a401KeepsTheTokenRevokedPastTheCooldownUntilALogin() {
+        AtomicLong now = new AtomicLong(1_800_000_000_000L);
+        TokenPool pool = new TokenPool(40, now::get);
         pool.offer("dead", false);
         pool.remove("dead", true);
 
-        Thread.sleep(70);
+        now.addAndGet(70);
         pool.offer("dead", false); // an enrollment re-donates it after the cooldown
 
         assertThat(pool.revoked("dead")).isTrue();
@@ -107,15 +113,73 @@ class TokenPoolTest {
         assertThat(new TokenPool(TimeUnit.MINUTES.toMillis(60)).next()).isNull();
     }
 
+    /**
+     * A heap dump of the service held every TeamCity token ever refused, in the clear and for good: a revoked token
+     * is someone's account, and some come back to life when TeamCity had only a hiccup.
+     */
     @Test
-    void staleTokensAreEvicted() throws Exception {
-        TokenPool pool = new TokenPool(40); // 40 ms TTL
+    void aRefusedTokenIsKeptByItsHashOnly() throws Exception {
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
+        pool.offer("revoked-tc-token", false);
+        pool.offer("blocked-tc-token", false);
+
+        pool.remove("revoked-tc-token", true);
+        pool.remove("blocked-tc-token", false);
+
+        assertThat(held(pool)).doesNotContain("revoked-tc-token", "blocked-tc-token");
+        assertThat(pool.revoked("revoked-tc-token")).isTrue();
+        assertThat(pool.offer("blocked-tc-token", false)).as("still cooling down").isFalse();
+    }
+
+    @Test
+    void aRevokedTokenIsForgottenAfterAMonth() {
+        AtomicLong now = new AtomicLong(1_800_000_000_000L);
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60), now::get);
+        pool.remove("dead", true);
+
+        now.addAndGet(TokenPool.REVOKED_MEMORY.toMillis());
+        assertThat(pool.revoked("dead")).isTrue();
+
+        now.incrementAndGet();
+        assertThat(pool.revoked("dead")).isFalse();
+    }
+
+    @Test
+    void theMemoryOfRevokedTokensIsBounded() {
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
+        for (int i = 0; i <= TokenPool.REVOKED_MAX; i++)
+            pool.remove("dead-" + i, true);
+
+        assertThat(pool.revoked("dead-0")).isFalse();
+        assertThat(pool.revoked("dead-1")).isTrue();
+        assertThat(pool.revoked("dead-" + TokenPool.REVOKED_MAX)).isTrue();
+    }
+
+    @Test
+    void staleTokensAreEvicted() {
+        AtomicLong now = new AtomicLong(1_800_000_000_000L);
+        TokenPool pool = new TokenPool(40, now::get); // 40 ms TTL
         pool.offer("old", false);
 
-        Thread.sleep(70);
+        now.addAndGet(70);
         pool.offer("fresh", false); // "old" is now past its TTL
 
         assertThat(pool.size()).isEqualTo(1);
         assertThat(pool.next()).isEqualTo("fresh");
+    }
+
+    /** Everything the pool's maps and sets hold, keys and values, as text. */
+    private static String held(TokenPool pool) throws IllegalAccessException {
+        StringBuilder all = new StringBuilder();
+        for (Field f : TokenPool.class.getDeclaredFields()) {
+            f.setAccessible(true);
+            Object v = f.get(pool);
+            if (v instanceof Map<?, ?> m)
+                all.append(m.keySet()).append(m.values());
+            else if (v instanceof Collection<?> c)
+                all.append(c);
+        }
+
+        return all.toString();
     }
 }

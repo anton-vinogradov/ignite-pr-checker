@@ -1,10 +1,16 @@
 package com.github.igniteprchecker.analysis;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongSupplier;
 
 /**
  * The set of TeamCity tokens the background work may run under, so the warmer can spread its load
@@ -12,22 +18,39 @@ import java.util.concurrent.atomic.AtomicInteger;
  * sources: every authenticated request donates its token (evicted once not re-offered within the
  * TTL — that user has gone), and users with standing options on re-donate theirs on every sweep, so
  * background work keeps running while nobody is browsing. In-memory only — tokens are secrets and
- * are never persisted here.
+ * are never persisted here. The tokens TeamCity refused are kept by their SHA-256 only: a heap dump
+ * must not hand out the revoked tokens of the past along with the live ones.
  */
 final class TokenPool {
+    /** How long a revoked token's sessions stay refused here; past it, the first TeamCity call refuses them again. */
+    static final Duration REVOKED_MEMORY = Duration.ofDays(30);
+
+    /** Bounds the memory of revoked tokens; past it the oldest is forgotten first. */
+    static final int REVOKED_MAX = 10_000;
+
     private final Map<String, Long> lastSeen = new ConcurrentHashMap<>();
-    /** Tokens TeamCity rejected, with when — re-donating one before its cooldown ends is pointless. */
+    /** Hashes of tokens TeamCity rejected, with when — re-donating one before its cooldown ends is pointless. */
     private final Map<String, Long> rejected = new ConcurrentHashMap<>();
     /**
-     * Tokens TeamCity answered 401 for. Unlike the cooldown this never lapses by itself: a session carrying one
-     * stays refused until a login with the same token proves it valid again.
+     * Hashes of tokens TeamCity answered 401 for, oldest first. A session carrying one stays refused until a login
+     * with the same token proves it valid again, or for {@link #REVOKED_MEMORY}.
      */
-    private final Set<String> revoked = ConcurrentHashMap.newKeySet();
+    private final Map<String, Long> revoked = new LinkedHashMap<>() {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+            return size() > REVOKED_MAX;
+        }
+    };
     private final AtomicInteger cursor = new AtomicInteger();
     private final long ttlMs;
+    private final LongSupplier nowMs;
 
     TokenPool(long ttlMs) {
+        this(ttlMs, System::currentTimeMillis);
+    }
+
+    TokenPool(long ttlMs, LongSupplier nowMs) {
         this.ttlMs = ttlMs;
+        this.nowMs = nowMs;
     }
 
     /**
@@ -41,14 +64,17 @@ final class TokenPool {
             return false;
 
         if (verified) {
-            rejected.remove(token);
-            revoked.remove(token);
+            String key = hash(token);
+            rejected.remove(key);
+            synchronized (revoked) {
+                revoked.remove(key);
+            }
         }
         else if (inCooldown(token))
             return false;
 
         boolean wasEmpty = tokens().isEmpty();
-        lastSeen.put(token, System.currentTimeMillis());
+        lastSeen.put(token, nowMs.getAsLong());
 
         return wasEmpty;
     }
@@ -60,26 +86,49 @@ final class TokenPool {
 
     /** Same, and with {@code revoked} (a 401, TeamCity's verdict on the token itself) also refuse its sessions. */
     void remove(String token, boolean revoked) {
+        long now = nowMs.getAsLong();
+        String key = hash(token);
         lastSeen.remove(token);
-        rejected.put(token, System.currentTimeMillis());
-        if (revoked)
-            this.revoked.add(token);
+        rejected.values().removeIf(at -> now - at > ttlMs);
+        rejected.put(key, now);
+        if (!revoked)
+            return;
+
+        synchronized (this.revoked) {
+            this.revoked.remove(key);
+            this.revoked.put(key, now);
+        }
     }
 
-    /** Whether TeamCity answered 401 for this token and no login has proven it valid since. */
+    /** Whether TeamCity answered 401 for this token lately and no login has proven it valid since. */
     boolean revoked(String token) {
-        return token != null && revoked.contains(token);
+        if (token == null)
+            return false;
+
+        String key = hash(token);
+        synchronized (revoked) {
+            Long at = revoked.get(key);
+            if (at == null)
+                return false;
+            if (nowMs.getAsLong() - at <= REVOKED_MEMORY.toMillis())
+                return true;
+
+            revoked.remove(key);
+
+            return false;
+        }
     }
 
     private boolean inCooldown(String token) {
-        Long at = rejected.get(token);
+        String key = hash(token);
+        Long at = rejected.get(key);
         if (at == null)
             return false;
 
-        if (System.currentTimeMillis() - at <= ttlMs)
+        if (nowMs.getAsLong() - at <= ttlMs)
             return true;
 
-        rejected.remove(token); // cooled down: worth another try (a revoked one just gets rejected again)
+        rejected.remove(key); // cooled down: worth another try (a revoked one just gets rejected again)
 
         return false;
     }
@@ -99,9 +148,20 @@ final class TokenPool {
 
     /** Non-stale tokens, evicting any not re-offered within the TTL. */
     private List<String> tokens() {
-        long now = System.currentTimeMillis();
+        long now = nowMs.getAsLong();
         lastSeen.entrySet().removeIf(e -> now - e.getValue() > ttlMs);
 
         return List.copyOf(lastSeen.keySet());
+    }
+
+    /** What the pool keeps of a refused token. */
+    static String hash(String token) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(token.getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
