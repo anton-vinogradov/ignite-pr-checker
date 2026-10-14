@@ -2144,7 +2144,7 @@ async function saveJiraToken() {
 }
 // One-shot auto visa: post the verdict to the ticket when this PR's run finishes — no babysitting.
 // Each user arms and cancels their own; a standing auto-visa that posts this run's verdict makes it moot.
-let autoVisa = { armed: false, others: [], standingBy: null };
+let autoVisa = { armed: false, others: [], standingBy: null, refusedFor: null };
 
 function paintAutoVisa() {
     const b = $('autoVisaBtn');
@@ -2159,10 +2159,14 @@ function paintAutoVisa() {
         return;
     }
     const others = autoVisa.others.join(', ');
+    const refused = !autoVisa.armed && autoVisa.refusedFor;
     b.disabled = !lastIssueKey;
-    b.textContent = (autoVisa.armed ? 'Auto visa ✓' : 'Auto visa') + (others ? ` · armed: ${others}` : '');
+    b.textContent = (autoVisa.armed ? 'Auto visa ✓' : refused ? 'Auto visa ⚠' : 'Auto visa')
+        + (others ? ` · armed: ${others}` : '');
     b.title = !lastIssueKey
         ? 'The PR title has no IGNITE-XXXXX ticket to post to'
+        : refused
+            ? `JIRA rejected your token, so your auto visa for ${refused} was dropped with it. Click to arm it again; a new token is asked for if needed.`
         : autoVisa.armed
             ? `Armed by you: the verdict will be posted to ${lastIssueKey} when the current run finishes — click to cancel yours (removes your stored token)`
             : others
@@ -2176,7 +2180,8 @@ async function loadAutoVisa(pr) {
         if (!r.ok) return;
         const d = await r.json();
         if (pr !== selectedPr) return;
-        autoVisa = { armed: !!d.armed, others: d.others || [], standingBy: d.standingBy || null };
+        autoVisa = { armed: !!d.armed, others: d.others || [], standingBy: d.standingBy || null,
+            refusedFor: d.tokenRejectedFor || null };
         paintAutoVisa();
     } catch (e) { /* status is a bonus */ }
 }
@@ -2195,6 +2200,7 @@ async function armAutoVisa() {
         if (r.status === 412) { hasJira = false; pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
         if (!r.ok) { $('status').textContent = friendly(res.error, 'auto-visa failed'); return; }
         autoVisa.armed = !!res.armed;
+        autoVisa.refusedFor = null;
         $('status').textContent = autoVisa.armed
             ? `Auto visa armed — the verdict will land in ${lastIssueKey} when the run finishes.`
             : 'Your auto visa is cancelled.';
@@ -2205,6 +2211,13 @@ async function armAutoVisa() {
 
 $('visaBtn').onclick = postVisa;
 $('autoVisaBtn').onclick = armAutoVisa;
+
+// The browser's time zone goes with every change in ⚙: the run's story in the PR gives its times in it.
+function zoneParam(sep) {
+    let zone = '';
+    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* UTC then */ }
+    return zone ? sep + 'tz=' + encodeURIComponent(zone) : '';
+}
 
 // Settings ⚙: the panel shows what the server has and changes only the switch that was clicked.
 const OPTION_TOGGLES = { visa: 'standingVisaToggle', rerun: 'autoRerunToggle', gh: 'ghCommentToggle',
@@ -2303,7 +2316,7 @@ async function setOption(name, on) {
     }
     toggle.disabled = true;
     try {
-        const r = await api('/api/auto-visa-all?' + name + '=' + on, { method: 'POST' });
+        const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
         if (r.status === 412) {
@@ -2374,7 +2387,7 @@ $('ghLoginSave').onclick = async () => {
     if (!login) { m.textContent = 'enter the login first'; return; }
     m.textContent = 'checking with GitHub…';
     try {
-        const r = await api('/api/github-login', {
+        const r = await api('/api/github-login' + zoneParam('?'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: login })

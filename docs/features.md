@@ -273,9 +273,12 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a package near the
   new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment in the PR says
   what went where and why, then what Ignite's check says of the commit. It uses the same GitHub token.
-- **A token that stops working.** When GitHub or JIRA refuses a stored token, the checker drops it and switches off
-  the options that need it; the panel says which token to replace. When TeamCity refuses yours, your options pause
-  until you log in with a fresh token; nobody else's stop.
+- **A token that stops working.** When GitHub or JIRA refuses a stored token itself, the checker drops it and switches
+  off the options that need it; the panel says which token to replace. A rate limit, an outage or a ticket you may not
+  comment on keeps the token, and the visa or the PR comment is tried again at the next sweeps. A visa or PR comment
+  a refused token held back goes out once you save a fresh token and switch its option back on, unless a newer RunAll
+  replaced the run. When TeamCity refuses yours, your options pause until you log in with a fresh token; nobody
+  else's stop.
 
 ## Visas and PR comments
 
@@ -284,7 +287,8 @@ left alone. Each stores the tokens it needs, encrypted, while it is on.
   get one visa between them. When the run's starter has **Auto-visa all my runs** on, the button reads
   **Auto visa: on in ⚙**.
 - The JIRA token for these buttons rides in your session cookie; Auto visa also has the server store it, encrypted,
-  until the visa is posted.
+  until the visa is posted. If JIRA refuses the token, your Auto visa is dropped with it, and the button reads
+  **Auto visa ⚠** until you arm it again.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
 - The lists of blockers, tests to watch and unchecked tests are grouped by suite and class, the biggest group first.
@@ -311,8 +315,8 @@ link your GitHub login; a GitHub token of your own is optional.
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
   A comment written more than an hour ago is not run, even if it is edited later.
 - 🚀 means accepted, 😕 refused. Then comes the story of the run: the queued build, then
-  `⏱ Queued — expected to finish ≈ 21:05 MSK` in the time zone of your JIRA profile, UTC without one. It is edited
-  when the stage changes or the estimate moves by 10 minutes or more.
+  `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with every change, and in
+  UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or more.
 - When the checker holds your GitHub token (for the PR comment or the autofix), the reactions come from your account
   and the story is written into your command comment. Otherwise both come from the app account, the story in a
   comment of its own.
@@ -353,7 +357,8 @@ link your GitHub login; a GitHub token of your own is optional.
   also turns red or amber when a background job stops (the standing sweep, the PR command poll, the warm cycle), a
   state file could not be read, or a setting is out of range; such problems are listed at the top. Requests Spring
   turns away as the caller's mistake are listed greyed out and never colour it.
-- The GitHub section shows the app account: whose `GITHUB_TOKEN` it is.
+- The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
+  dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
 - Signed-in viewers also see a warning if that account can push to the repo, the log messages, the settings in effect,
   and who restarted or flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not
   set) also get **Restart service**, **Flush caches** and the list on the **Users** tab.

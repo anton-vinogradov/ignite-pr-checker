@@ -60,6 +60,19 @@ function startupCard(a) {
     return card('Startup warm-up', '—', 'pending');
 }
 
+// GitHub calls by token: the server names those under users' own PATs "pat:<category>"; the rest run under the
+// app (server) token, or none.
+function githubCalls(byCategory) {
+    const out = { app: {}, pat: {}, appCalls: 0, appFails: 0 };
+    for (const [k, v] of Object.entries(byCategory || {})) {
+        if (k.startsWith('pat:')) { out.pat[k.slice(4)] = v; continue; }
+        out.app[k] = v;
+        out.appCalls += v.total;
+        out.appFails += v.fail;
+    }
+    return out;
+}
+
 // Whose GitHub account the checker writes as (GITHUB_TOKEN): the operator has to know, and it must not be
 // one that can push to the repo.
 function appAccountCard(a) {
@@ -199,14 +212,7 @@ function render(d) {
             t.total ? sev(t.avgLatencyMs, 500, 2000) : ''),
     ].join('');
 
-    // Categories under users' own PATs; everything else runs under the app (server) token.
-    const PAT_CATS = new Set(['user', 'prComment', 'prCommentEdit', 'react']);
-    const ghApp = {}, ghPat = {};
-    let appCalls = 0, appFails = 0;
-    for (const [k, v] of Object.entries(gh.byCategory || {})) {
-        if (PAT_CATS.has(k)) { ghPat[k] = v; }
-        else { ghApp[k] = v; appCalls += v.total; appFails += v.fail; }
-    }
+    const { app: ghApp, pat: ghPat, appCalls, appFails } = githubCalls(gh.byCategory);
     $('ghCards').innerHTML = [
         card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`,
             g.total ? (g.fail === 0 ? 'ok' : g.fail <= 5 ? 'warn' : 'bad') : ''),

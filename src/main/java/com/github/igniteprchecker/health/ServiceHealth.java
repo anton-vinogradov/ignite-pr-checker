@@ -2,12 +2,14 @@ package com.github.igniteprchecker.health;
 
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
+import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.CacheStore;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,7 +17,8 @@ import org.springframework.stereotype.Component;
  * stops logs nothing, so the clocks the jobs keep are held against how often they run. Without a pooled token
  * while users have standing options, every background TeamCity read has stopped; a warm cycle in which nearly every
  * PR failed means TeamCity calls fail across the board, which the warmer logs at debug only. Durable state that
- * failed to load, or keeps failing to save, counts until it is dealt with, and so does a setting that is not as meant.
+ * failed to load, or keeps failing to save, counts until it is dealt with, and so does a setting that is not as meant,
+ * and a GITHUB_TOKEN GitHub refuses.
  */
 @Component
 public class ServiceHealth {
@@ -36,27 +39,46 @@ public class ServiceHealth {
     private final PrCommands commands;
     private final CacheStore store;
     private final EffectiveConfig config;
+
+    /** Whose GitHub account the checker writes as; null for a health that does not look at it. */
+    private final GithubClient github;
+
     private final long startedAt = System.currentTimeMillis();
 
+    /** A health that does not look at the GitHub app account. */
     public ServiceHealth(Warmer warmer, StandingVisas standing, PrCommands commands, CacheStore store,
         EffectiveConfig config) {
+        this(warmer, standing, commands, store, config, null);
+    }
+
+    @Autowired
+    public ServiceHealth(Warmer warmer, StandingVisas standing, PrCommands commands, CacheStore store,
+        EffectiveConfig config, GithubClient github) {
         this.warmer = warmer;
         this.standing = standing;
         this.commands = commands;
         this.store = store;
         this.config = config;
+        this.github = github;
     }
 
     public Report report(LogTracker.Snapshot log, long now) {
         Clocks clocks = new Clocks(startedAt, standing.lastSweepAt(), commands.lastPollAt(), warmer.warming(),
             warmer.cycleStartedAt(), warmer.lastWarmed() + warmer.lastCached() + warmer.lastFailed(),
             warmer.lastFailed(), warmer.pooledTokens(), standing.enrolledCount());
+        GithubClient.AppAccount app = github == null ? null : github.appAccount();
 
-        return assess(log, clocks, store.status(), config.problems(), now);
+        return assess(log, clocks, store.status(), config.problems(), app, now);
     }
 
     static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence,
         List<String> configProblems, long now) {
+        return assess(log, clocks, persistence, configProblems, null, now);
+    }
+
+    /** {@code app}: whose GitHub account the checker writes as, null when not known. */
+    static Report assess(LogTracker.Snapshot log, Clocks clocks, CacheStore.Status persistence,
+        List<String> configProblems, GithubClient.AppAccount app, long now) {
         List<Problem> problems = new ArrayList<>();
 
         long sweepAgo = now - (clocks.lastSweepAt() > 0 ? clocks.lastSweepAt() : clocks.startedAt());
@@ -91,6 +113,11 @@ public class ServiceHealth {
             problems.addAll(persistenceProblems(persistence));
 
         configProblems.forEach(p -> problems.add(Problem.warn(p)));
+
+        if (app != null && app.refused()) {
+            problems.add(Problem.error("GitHub refuses GITHUB_TOKEN: replies, reactions and narration from the app "
+                + "account fail"));
+        }
 
         String logHealth = log.health(now);
         String health = logHealth;

@@ -14,6 +14,8 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -36,6 +38,8 @@ import org.springframework.web.client.RestClientResponseException;
 @RestController
 @RequestMapping("/api")
 public class JiraController {
+    private static final Logger log = LoggerFactory.getLogger(JiraController.class);
+
     private static final Duration COOKIE_MAX_AGE = Duration.ofDays(3650);
 
     private final JiraClient jira;
@@ -79,7 +83,13 @@ public class JiraController {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
-        Optional<String> who = jira.myself(req.token().trim());
+        Optional<String> who;
+        try {
+            who = jira.myself(req.token().trim());
+        }
+        catch (RuntimeException e) {
+            return uncheckedToken("JIRA", e);
+        }
         if (who.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "JIRA rejected the token"));
 
@@ -91,9 +101,16 @@ public class JiraController {
             .body(Map.of("jiraUser", who.get()));
     }
 
+    /** Changes the standing options with no time zone from the browser. */
+    public ResponseEntity<?> standingVisa(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands,
+        Boolean suites, String tcToken, String username, String jiraToken, String ghToken) {
+        return standingVisa(visa, rerun, gh, style, commands, suites, null, tcToken, username, jiraToken, ghToken);
+    }
+
     /**
      * Changes the standing options named in the request and nothing else; a 412 names what the change
-     * needs ({@code need}: jira, github or login). Answers with the whole state, like the GET.
+     * needs ({@code need}: jira, github or login), a 502 says the service could not check the token. {@code tz}
+     * is the browser's time zone. Answers with the whole state, like the GET.
      */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
@@ -102,12 +119,15 @@ public class JiraController {
         @RequestParam(required = false) Boolean style,
         @RequestParam(required = false) Boolean commands,
         @RequestParam(required = false) Boolean suites,
+        @RequestParam(required = false) String tz,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
         @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken,
         @RequestAttribute(value = AuthInterceptor.GH_ATTR, required = false) String ghToken) {
         Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
-            new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites));
+            new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites), tz);
+        if (refused.isPresent() && refused.get().need() == null)
+            return ResponseEntity.status(502).body(Map.of("error", refused.get().error()));
         if (refused.isPresent())
             return ResponseEntity.status(412)
                 .body(Map.of("error", refused.get().error(), "need", refused.get().need()));
@@ -121,12 +141,19 @@ public class JiraController {
         return standing.settings(username);
     }
 
+    /** Links a GitHub login with no time zone from the browser. */
+    public ResponseEntity<?> saveGithubLogin(TokenRequest req, String tcToken, String username) {
+        return saveGithubLogin(req, null, tcToken, username);
+    }
+
     /**
      * Links a GitHub login and switches PR commands on. The login is stored the way GitHub spells it,
-     * and only if GitHub knows such a user. Answers with the whole settings state.
+     * and only if GitHub knows such a user; {@code tz}, the browser's time zone, goes with it. Answers with
+     * the whole settings state.
      */
     @PostMapping("/github-login")
     public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
+        @RequestParam(required = false) String tz,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         String typed = req.token() == null ? "" : req.token().strip().replaceFirst("^@", "");
@@ -144,7 +171,7 @@ public class JiraController {
         if (login.isEmpty())
             return ResponseEntity.status(404).body(Map.of("error", "no such GitHub user: " + typed));
 
-        return switch (standing.linkGhLogin(username, tcToken, login.get())) {
+        return switch (standing.linkGhLogin(username, tcToken, login.get(), tz)) {
             case "taken" -> ResponseEntity.status(409).body(Map.of("error", "@" + login.get() + " is linked to another"
                 + " checker user. If the account is yours, switch on \"Comment my runs' verdicts\" with your GitHub"
                 + " token: the token proves the account and takes the login over."));
@@ -161,7 +188,13 @@ public class JiraController {
         if (req.token() == null || req.token().isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
 
-        java.util.Optional<String> who = github.ghUser(req.token().trim());
+        java.util.Optional<String> who;
+        try {
+            who = github.ghUser(req.token().trim());
+        }
+        catch (RuntimeException e) {
+            return uncheckedToken("GitHub", e);
+        }
         if (who.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", "GitHub rejected the token"));
 
@@ -182,8 +215,13 @@ public class JiraController {
             return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
         if (!issue.matches("IGNITE-\\d+"))
             return ResponseEntity.badRequest().body(Map.of("error", "bad issue key"));
-        if (jira.myself(jiraToken).isEmpty())
-            return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
+        try {
+            if (jira.myself(jiraToken).isEmpty())
+                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
+        }
+        catch (RuntimeException e) {
+            return uncheckedToken("JIRA", e);
+        }
 
         visaSubs.arm(pr, issue, jiraToken, username);
 
@@ -212,6 +250,8 @@ public class JiraController {
         out.put("armed", armed.issue() != null);
         if (armed.issue() != null)
             out.put("issue", armed.issue());
+        if (armed.refusedFor() != null)
+            out.put("tokenRejectedFor", armed.refusedFor());
         out.put("others", armed.others());
         String owner = standing.visaOwnerOfRunUnderWay(pr);
         if (owner != null)
@@ -251,9 +291,20 @@ public class JiraController {
             return ResponseEntity.ok(Map.of("url", url));
         }
         catch (RestClientResponseException e) {
+            if (jira.tokenRejected(jiraToken))
+                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected your token — paste a new one"));
+
             return ResponseEntity.status(502)
                 .body(Map.of("error", "JIRA rejected the comment (" + e.getStatusCode() + ")"));
         }
+    }
+
+    /** The service could not check a token: it may well be good, so the user is asked to try again, not for another. */
+    private static ResponseEntity<?> uncheckedToken(String service, RuntimeException e) {
+        log.warn("{} could not check a token: {}", service, e.toString());
+
+        return ResponseEntity.status(502)
+            .body(Map.of("error", service + " could not check the token right now — try again in a minute"));
     }
 
     /** The commit the build tested, for the visa to name; null when TeamCity does not say. */

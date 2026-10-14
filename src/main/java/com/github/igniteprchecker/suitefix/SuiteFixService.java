@@ -412,7 +412,7 @@ public class SuiteFixService implements SnapshotCache {
             return "GitHub could not be reached";
 
         int code = rest.getStatusCode().value();
-        if (code == 401) {
+        if (GithubClient.refusesToken(e)) {
             standing.dropGhToken(actor.username());
 
             return "GitHub refused your token";

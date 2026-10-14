@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
+import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.CacheStore;
@@ -177,6 +178,27 @@ class ServiceHealthTest {
         assertThat(report.health()).isEqualTo("error");
         assertThat(report.logHealth()).isEqualTo("error");
         assertThat(report.problems()).extracting(ServiceHealth.Problem::level).containsExactly("warn");
+    }
+
+    /** GITHUB_TOKEN revoked after the start: every reply, reaction and narration of the app account failed unseen. */
+    @Test
+    void aGithubTokenGithubRefusesIsAnError() {
+        GithubClient github = mock(GithubClient.class);
+        when(github.appAccount()).thenReturn(new GithubClient.AppAccount("refused", "ignite-pr-checker-bot", false));
+        Warmer warmer = mock(Warmer.class);
+        when(warmer.pooledTokens()).thenReturn(2);
+        StandingVisas standing = mock(StandingVisas.class);
+        when(standing.lastSweepAt()).thenReturn(System.currentTimeMillis());
+        PrCommands commands = mock(PrCommands.class);
+        when(commands.lastPollAt()).thenReturn(System.currentTimeMillis());
+        CacheStore store = mock(CacheStore.class);
+        when(store.status()).thenReturn(SAVING);
+
+        ServiceHealth.Report report = new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class),
+            github).report(CLEAN_LOG, System.currentTimeMillis());
+
+        assertThat(report).isEqualTo(new ServiceHealth.Report("error", "ok", List.of(new ServiceHealth.Problem("error",
+            "GitHub refuses GITHUB_TOKEN: replies, reactions and narration from the app account fail"))));
     }
 
     /** A fresh install left APP_PUBLIC_URL empty: every link it posted led nowhere, and only the log said so, once. */

@@ -110,7 +110,7 @@ class StandingSnapshotTest {
     }
 
     /**
-     * Saving the options asks JIRA for the user's timezone; a GitHub login linked while that call was
+     * Saving the options asks JIRA whether a new token works; a GitHub login linked while that call was
      * out used to be overwritten with the copy read before it.
      */
     @Test
@@ -118,12 +118,11 @@ class StandingSnapshotTest {
         standing.loadFrom(fixture(dir));
         CountDownLatch asked = new CountDownLatch(1);
         CountDownLatch linked = new CountDownLatch(1);
-        when(jira.myself("jira-pat")).thenReturn(Optional.of("oldtimer"));
-        when(jira.myTimezone("jira-pat")).thenAnswer(inv -> {
+        when(jira.myself("jira-pat")).thenAnswer(inv -> {
             asked.countDown();
             linked.await(10, TimeUnit.SECONDS);
 
-            return Optional.of("Europe/Moscow");
+            return Optional.of("oldtimer");
         });
 
         Thread save = new Thread(() -> standing.change("oldtimer", "tc-oldtimer", "jira-pat", null,

@@ -535,16 +535,12 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * Whether GitHub refused the user's own token — a PAT that expired or was revoked. It is dropped
-     * on the spot, so the checker stops retrying a dead credential every minute and switches to its
-     * own account instead of leaving the author with a silent PR.
+     * Whether GitHub refused the user's own token on a call made with it — a PAT that expired or was revoked. It is
+     * dropped on the spot, so the checker stops retrying a dead credential every minute and switches to its own
+     * account instead of leaving the author with a silent PR. A rate limit is no refusal: the token stays.
      */
     private boolean patRejected(StandingVisas.GhActor actor, RuntimeException e) {
-        if (actor.ghToken() == null || !(e instanceof RestClientResponseException rest))
-            return false;
-
-        int code = rest.getStatusCode().value();
-        if (code != 401 && code != 403)
+        if (actor.ghToken() == null || !GithubClient.refusesToken(e))
             return false;
 
         standing.dropGhToken(actor.username());
@@ -584,10 +580,20 @@ public class PrCommands implements SnapshotCache {
         if (!run.app() && actor.ghToken() == null)
             return takeOverNarration(pr, run, body);
 
-        try {
-            if (run.app())
+        if (run.app()) {
+            // The checker's own comment, edited under the app token: its refusal is the server's trouble, which the
+            // service health shows, and never the user's.
+            try {
                 return github.updatePrCommentAsApp(run.narrationId(), body);
+            }
+            catch (RuntimeException e) {
+                log.warn("editing the checker's narration for PR {} failed: {}", pr, e.toString());
 
+                return false;
+            }
+        }
+
+        try {
             github.updatePrComment(actor.ghToken(), run.commentId(), body);
 
             return true;
@@ -877,8 +883,8 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * A wall-clock time in the AUTHOR'S timezone (their JIRA-profile one — GitHub exposes none); UTC
-     * when unknown, so the stamp is honest either way.
+     * A wall-clock time in the AUTHOR'S time zone (the one their browser named when they last changed ⚙ — GitHub
+     * exposes none); UTC when unknown, so the stamp is honest either way.
      */
     private static String wallClock(long epochSec, String tz) {
         java.time.ZoneId zone = java.time.ZoneId.of("UTC");
@@ -887,7 +893,7 @@ public class PrCommands implements SnapshotCache {
                 zone = java.time.ZoneId.of(tz);
             }
             catch (java.time.DateTimeException ignored) {
-                // an unparsable profile timezone falls back to UTC
+                // a zone of an older snapshot this JDK does not know falls back to UTC
             }
         }
 

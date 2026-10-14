@@ -169,6 +169,25 @@ class ThreadEndingTest {
         assertThat(standing.settings(USER).ghTokenRejected()).isTrue();
     }
 
+    /**
+     * JIRA answers 403 to an edit of a ticket the user may not touch, and ASF JIRA serves a dead token as an anonymous
+     * user: the failed edit drops the JIRA token only when JIRA's /myself refuses it too.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void aFailedVisaEditDropsTheJiraTokenOnlyWhenJiraRefusesIt(boolean refused) {
+        listed();
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
+        doThrow(HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY, new byte[0],
+            StandardCharsets.UTF_8)).when(jira).updateComment(eq("jira-pat"), eq(ISSUE), eq(VISA), anyString());
+        when(jira.tokenRejected("jira-pat")).thenReturn(refused);
+
+        standing.sweep();
+
+        assertThat(standing.jiraTokenRejected(USER)).isEqualTo(refused);
+        assertThat(standing.visaOn(USER)).isEqualTo(!refused);
+    }
+
     /** Its owner switched off everything that settles runs and kept checkstyle autofix, with the GitHub token. */
     @Test
     void aCommentWhoseOptionsWereSwitchedOffSaysSo() {
