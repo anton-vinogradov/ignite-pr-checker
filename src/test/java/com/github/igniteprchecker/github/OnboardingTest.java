@@ -41,8 +41,9 @@ import org.mockito.ArgumentCaptor;
 /**
  * PR commands used to need a standing option, and the reply to a stranger's /run-all was 250 words
  * advising to switch on auto re-run, which loads ci2, just to use commands. Every stranger in a PR
- * got such a reply, and every repeat of the same command another 😕. Commands now have their own
- * switch, and the reply is short and rationed.
+ * got such a reply. Commands now have their own switch, and the reply is short and rationed: once per person and PR,
+ * a few a day. The reply went once per person for good and once per PR, so a second person on the same PR, or the
+ * same person on their next PR, got a bare 😕, and a repeat got nothing at all.
  */
 class OnboardingTest {
     private final GithubClient github = AppWriting.github();
@@ -95,7 +96,8 @@ class OnboardingTest {
         command(13701, "NSAmelchev");
 
         verify(tc, never()).triggerRunAll(eq("tc-2"), anyInt(), anyBoolean());
-        verify(github).appComment(eq(13701), any(), anyString());
+        verify(github).appComment(13701, "nsamelchev", "@NSAmelchev nothing was queued: **PR commands** are off for"
+            + " you. Switch them on in ⚙ at https://checker.example, under **GitHub account**.");
     }
 
     @Test
@@ -118,8 +120,11 @@ class OnboardingTest {
 
         ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
         verify(github).appComment(eq(13704), any(), reply.capture());
-        assertThat(reply.getValue()).contains("tick **PR commands** and press **Link GitHub**.")
-            .doesNotContain("no scopes");
+        assertThat(reply.getValue()).isEqualTo("@stranger nothing was queued: this GitHub account is not linked to a"
+            + " ci2 account in [Ignite PR Checker](https://checker.example). Log in there with a [TeamCity access"
+            + " token](https://ci2.example/profile.html?item=accessTokens), open ⚙ and press **Link GitHub** under"
+            + " **GitHub account**: that also switches on **PR commands**. After that, `/run-all` here queues RunAll"
+            + " under your ci2 account.");
     }
 
     /** A checker with no OAuth App: a GitHub token for commits is what links an account there. */
@@ -129,19 +134,38 @@ class OnboardingTest {
 
         ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
         verify(github).appComment(eq(13705), any(), reply.capture());
-        assertThat(reply.getValue()).contains("switch on **Add my PRs' tests to a suite** with a GitHub token, which"
-            + " links your GitHub account, then tick **PR commands**.").doesNotContain("Link GitHub");
+        assertThat(reply.getValue()).contains("switch on **Add my PR's tests that no suite runs** with a GitHub token"
+            + " of this account, which links it. Then switch on **PR commands**.").doesNotContain("Link GitHub");
         assertThat(reply.getValue().split("\\s+")).hasSizeLessThan(100);
     }
 
     @Test
-    void onePrGetsOneReplyAndARepeatNoSecondConfusedReaction() {
+    void eachPersonOnAPrGetsOneReplyAndEachCommandAReaction() {
         command(13703, "stranger1");
         command(13703, "stranger1");
         command(13703, "stranger2");
 
-        verify(github, times(1)).appComment(eq(13703), any(), anyString());
-        verify(github, times(2)).appReact(anyInt(), any(), anyLong(), eq("confused"));
+        verify(github, times(1)).appComment(eq(13703), eq("@stranger1"), anyString());
+        verify(github, times(1)).appComment(eq(13703), eq("@stranger2"), anyString());
+        verify(github, times(3)).appReact(anyInt(), any(), anyLong(), eq("confused"));
+    }
+
+    @Test
+    void thePersonToldOnOnePrIsToldAgainOnTheNext() {
+        command(13706, "stranger");
+        command(13707, "stranger");
+
+        verify(github).appComment(eq(13706), any(), contains("nothing was queued"));
+        verify(github).appComment(eq(13707), any(), contains("nothing was queued"));
+    }
+
+    @Test
+    void onePersonGetsAtMostThreeRepliesADay() {
+        for (int i = 0; i < 4; i++)
+            command(13720 + i, "stranger");
+
+        verify(github, times(3)).appComment(anyInt(), any(), anyString());
+        verify(github, times(4)).appReact(anyInt(), any(), anyLong(), eq("confused"));
     }
 
     @Test

@@ -45,7 +45,8 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
  * as empty without a word, and the next save would have written the loss to disk. Each sample of that release must
  * load and save back with nothing lost; a field added since may show up in what is saved. Unknown fields fail here,
  * though the app itself ignores them. What the checker no longer acts on is forgotten on purpose, and only that: the
- * PR comments and run stories written with the user's own GitHub token, which the checker no longer writes with.
+ * PR comments and run stories written with the user's own GitHub token, which the checker no longer writes with, and
+ * the logins told once for good how to switch PR commands on, which name no PR: such a reply now goes once per PR.
  */
 class ReleaseSnapshotsTest {
     private static final String RELEASE = "/snapshots/v1.20.11/";
@@ -53,7 +54,7 @@ class ReleaseSnapshotsTest {
     /** Where each sample holds what this version forgets on purpose. */
     private static final Map<String, List<String>> FORGOTTEN = Map.of(
         "standing-visas.json", List.of("/enrollments/0/ghThreads"),
-        "pr-commands.json", List.of("/watching/13702"));
+        "pr-commands.json", List.of("/watching/13702", "/onboarded"));
 
     private static final ObjectMapper MAPPER = Jackson2ObjectMapperBuilder.json().failOnUnknownProperties(true).build();
 

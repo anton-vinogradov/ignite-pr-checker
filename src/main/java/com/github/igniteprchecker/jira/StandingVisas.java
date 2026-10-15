@@ -245,7 +245,7 @@ public class StandingVisas implements SnapshotCache {
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
         if (Boolean.TRUE.equals(change.style()) && !after.commands())
             return Optional.of(new Refusal("commands",
-                "Auto-fix checkstyle runs only from a PR command: switch on PR commands first"));
+                "Fix checkstyle before my commanded runs needs PR commands: switch them on first"));
         if (change.switchesOnGithub() && !github.writes())
             return Optional.of(Refusal.UNAVAILABLE);
         if (!after.any()) {
@@ -271,7 +271,7 @@ public class StandingVisas implements SnapshotCache {
                 jiraCred = new Credential(codec.encryptString(sessionJira), 0);
             else if (stored == null)
                 return Optional.of(unchecked ? Refusal.unchecked("JIRA") : new Refusal("jira", fresh
-                    ? "JIRA rejected the token — paste a new one" : "auto-visa needs your JIRA token"));
+                    ? "JIRA rejected the token — paste a new one" : "Visa my runs in JIRA needs your JIRA token"));
         }
         else if (Boolean.FALSE.equals(change.visa()))
             jiraCred = Credential.NONE;
@@ -315,7 +315,7 @@ public class StandingVisas implements SnapshotCache {
                         username);
 
                 return Optional.of(new Refusal("github", fresh ? "GitHub rejected the token — paste a new one"
-                    : "this option needs your GitHub token"));
+                    : "this option needs your GitHub token for commits"));
             }
         }
         else if (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
@@ -323,7 +323,7 @@ public class StandingVisas implements SnapshotCache {
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || !prev.ghLoginProven()))
-            return Optional.of(new Refusal("login", "link your GitHub account to use PR commands"));
+            return Optional.of(new Refusal("login", "PR commands need your linked GitHub account"));
 
         Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
         Credential jiraNext = jiraCred;
@@ -493,6 +493,39 @@ public class StandingVisas implements SnapshotCache {
 
     private Optional<GhActor> actorOf(String username, Enrollment e) {
         return decrypt(e.tc()).map(tcToken -> new GhActor(username, tcToken, decrypt(e.gh()).orElse(null), e.tz()));
+    }
+
+    /**
+     * Why {@link #actorByGhUser} finds nobody for the GitHub account that wrote a comment. The answer names no user:
+     * it goes into a public thread.
+     */
+    public NoActor whyNoActor(GithubClient.GhUser author) {
+        if (github.isAppAccount(author))
+            return NoActor.UNLINKED;
+
+        boolean unproven = false;
+        for (Enrollment e : enrolled.values()) {
+            GhAccount held = e.ghAccount();
+            if (held == null)
+                continue;
+            if (held.proven() && held.is(author))
+                return NoActor.TOKEN_UNREADABLE;
+            unproven |= !held.proven() && held.login().equalsIgnoreCase(author.login());
+        }
+
+        return unproven ? NoActor.UNPROVEN : NoActor.UNLINKED;
+    }
+
+    /** Why no user acts for a GitHub account; see {@link #whyNoActor}. */
+    public enum NoActor {
+        /** No user linked the account. */
+        UNLINKED,
+
+        /** An earlier version kept the account's login for a user without a proof that it is theirs. */
+        UNPROVEN,
+
+        /** The user who linked the account has a TeamCity token the checker can no longer decrypt. */
+        TOKEN_UNREADABLE
     }
 
     /** The stored token in clear; empty when there is none or the session secret has changed since. */

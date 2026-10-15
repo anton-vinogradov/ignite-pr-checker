@@ -64,7 +64,7 @@ class AutofixNeedsCommandsTest {
         assertThat(res.getStatusCode().value()).isEqualTo(412);
         assertThat(((Map<?, ?>)res.getBody()).get("need")).isEqualTo("commands");
         assertThat(((Map<?, ?>)res.getBody()).get("error"))
-            .isEqualTo("Auto-fix checkstyle runs only from a PR command: switch on PR commands first");
+            .isEqualTo("Fix checkstyle before my commanded runs needs PR commands: switch them on first");
         assertThat(standing.settings(USER).style()).isFalse();
         assertThat(standing.settings(USER).ghStored()).isFalse();
         verify(github, never()).tokenOwner(anyString());
