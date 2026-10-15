@@ -509,9 +509,11 @@ public class PrCommands implements SnapshotCache {
         reply(pr, stranger, "onboard:" + commentId, "@" + login + " nothing was queued: [Ignite PR Checker]("
             + publicUrl + ") runs commands under your own TeamCity account, and PR commands are not switched on for"
             + " your GitHub login. To switch them on, log in at " + publicUrl + " with a [TeamCity access token]("
-            + tcTokens + "), open ⚙, tick **PR commands** and prove your GitHub login with a token that has no"
-            + " scopes, which the checker forgets. Then `/run-all` here queues RunAll (`/run-all top` at the top of"
-            + " the queue), and `/top` moves it up while it waits; the checker answers from this account.");
+            + tcTokens + "), open ⚙, " + (github.linksAccounts() ? "tick **PR commands** and press **Link GitHub**."
+                : "switch on **Add my PRs' tests to a suite** with a GitHub token, which links your GitHub account,"
+                + " then tick **PR commands**.")
+            + " Then `/run-all` here queues RunAll (`/run-all top` at the top of the queue), and `/top` moves it up"
+            + " while it waits; the checker answers from this account.");
         onboarded.put(login, now);
         onboardedPrs.put(pr, now);
         log.info("{} by {}: PR commands not on, onboarding reply posted or waiting to go", cmd, login);

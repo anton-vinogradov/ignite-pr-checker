@@ -61,18 +61,14 @@ class TokenRefusalPageTest {
     }
 
     @Test
-    void provingTheLoginSendsTheBrowsersTimeZone() throws Exception {
+    void linkingGithubSendsTheBrowsersTimeZone() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            const SETTINGS = { visa: false, rerun: false, gh: false, style: false, commands: true, login: 'alice-v',
-                jiraStored: false, ghStored: false, jiraTokenRejected: false, ghTokenRejected: false,
-                tcTokenRejected: false, suites: false };
-            page.route('/api/github-login', { body: SETTINGS }, 'POST');
-            await page.load('?pr=13575');
-            page.el('ghLoginToken').value = 'ghp_noScopes';
-            await page.el('ghLoginSave').onclick();
-            report({ posts: page.fetches('/api/github-login').map(f => f.url) });
+            page.route('/api/github/link', { body: { url: 'https://github.com/login/oauth/authorize' } }, 'POST');
+            await page.load('');
+            await page.el('ghLink').onclick();
+            report({ posts: page.fetches('/api/github/link').map(f => f.url) });
             """);
 
-        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/github-login?tz=UTC\"]");
+        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/github/link?tz=UTC\"]");
     }
 }

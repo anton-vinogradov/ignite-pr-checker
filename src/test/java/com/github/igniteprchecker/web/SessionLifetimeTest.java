@@ -10,7 +10,6 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
-import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
@@ -58,7 +57,7 @@ class SessionLifetimeTest {
 
     private final JiraController tokens = new JiraController(jira, mock(TcClient.class), mock(BlockerAnalyzer.class),
         codec, mock(VisaService.class), mock(VisaSubscriptions.class), mock(StandingVisas.class),
-        mock(GithubClient.class), mock(PendingCommits.class), true);
+        mock(PendingCommits.class), true);
 
     @Test
     void aCookieInUseIsIssuedAgainBeforeTheBrowserDropsIt() throws Exception {

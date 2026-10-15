@@ -56,7 +56,7 @@ class SuiteFixSettingsTest {
 
     private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
         mock(BlockerAnalyzer.class), new SessionCodec(new SessionProperties(false, "test-secret"), mapper),
-        mock(VisaService.class), mock(VisaSubscriptions.class), standing, mock(GithubClient.class),
+        mock(VisaService.class), mock(VisaSubscriptions.class), standing,
         mock(PendingCommits.class), false);
 
     @Test

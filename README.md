@@ -28,9 +28,9 @@ each label means and what to do about it.
 - **Standing options.** In ⚙: auto re-run of failed suites, a JIRA visa or a PR comment for each of your runs, a
   checkstyle autofix, PR commands. They work while the page is closed. See
   [Standing options](docs/features.md#standing-options).
-- **PR commands.** With **PR commands** on and your GitHub login proven once with a token, a `/run-all` comment on any
-  pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a comment of its own
-  tells how the run goes, and a new one mentions you when the verdict is ready. See
+- **PR commands.** With **PR commands** on and your GitHub account linked once with **Link GitHub**, a `/run-all`
+  comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
+  comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The fix-master queue](docs/features.md#the-fix-master-queue-flakyhtml).
@@ -71,10 +71,13 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
   they rotate out: a daily backup for 7 days, a copy made before an update until 5 newer ones replace it.
-- **GitHub login.** PR commands act on the comments of the GitHub account the user proved: with a token pasted once,
-  of no scopes, which the checker asks GitHub about and forgets, or with the GitHub token kept for the commits. The
-  checker keeps the login and the account's id, and takes a comment for a command only when its author has that id.
-  The app account cannot be linked.
+- **GitHub login.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in ⚙,
+  or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no scope.
+  GitHub asks the user to let the app see their public profile and sends them back with a code. The checker trades the
+  code for a token, asks GitHub whose account it is, and revokes the token at once; it keeps the token nowhere. A link
+  counts only in the login that began it, within 10 minutes, once. The checker keeps the login and the account's id,
+  and takes a comment for a command only when its author has that id. The app account cannot be linked. **Unlink**
+  forgets the account: PR commands go off, and so do the options that commit, with the GitHub token of that account.
 - **The user's GitHub token** commits, and only that: the autofix's commit and the one adding tests to suites, to the
   branch of the user's own PR. It writes no comments, edits or reactions, and commits to `apache/ignite` only for a
   PR from a branch of `apache/ignite` itself. Best is a fine-grained token for the user's fork alone, with Contents:
@@ -122,6 +125,14 @@ prc.example.org {
 }
 ```
 
+**Link GitHub** in ⚙ needs a GitHub OAuth App. Register it under the app account: GitHub → Settings → Developer
+settings → OAuth Apps → New OAuth App. Application name: what users see on GitHub, e.g. `Ignite PR Checker`. Homepage
+URL: the `APP_PUBLIC_URL`. Authorization callback URL: the `APP_PUBLIC_URL` with `/api/github/callback` at the end,
+e.g. `https://prc.example.org/api/github/callback`. Leave Device Flow off. Then generate a client secret, put the
+client ID and the secret into `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` in the env file, and restart
+the service. Without them, or with an empty `APP_PUBLIC_URL`, ⚙ has no **Link GitHub**, and only a GitHub token for
+commits links an account.
+
 **Develop** with JDK 17:
 
 ```bash
@@ -145,6 +156,7 @@ settings by hand.
 | `SESSION_SECRET` | a random key per start; `install.sh` writes a stable one | Encrypts the session cookies and the stored tokens. Read [The cache directory](#the-cache-directory) before you change it. |
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
 | `GITHUB_TOKEN` | none | Token of the app account, which writes every comment of the checker: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix and tests to suites are off. |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | none | The client ID and a client secret of the checker's GitHub OAuth App, for **Link GitHub** in ⚙. See [Quick start](#quick-start). Without them users link a GitHub account only with a GitHub token for commits. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |

@@ -579,6 +579,7 @@ async function enterApp(username) {
     const pr = prFromUrl();
     if (pr) openPr(pr, false);
     else goHome(false);
+    await showLinkOutcome();
 }
 
 function goHome(push) {
@@ -2309,19 +2310,23 @@ function githubLocked(name, st) {
     return st.githubAvailable === false && GITHUB_OPTIONS.includes(name) && !st[name];
 }
 
-// PR commands act on the comments of the GitHub account a token proved: the saved GitHub token, or one pasted once.
-// A login an earlier version kept without a proof could be anyone's, so its commands wait for one.
+// PR commands act on the comments of the GitHub account the user linked: with Link GitHub, or with the saved GitHub
+// token. A login an earlier version kept without a proof could be anyone's, so its commands wait for a link.
 function renderLogin(st) {
     const proven = !!st.login && !st.loginUnproven;
     $('ghLoginState').textContent = proven
-        ? 'GitHub login: @' + st.login + (st.ghStored ? ', proven by your saved GitHub token.' : ', proven.') : '';
+        ? 'GitHub account: @' + st.login + (st.ghStored ? ', linked by your saved GitHub token.' : ', linked.') : '';
     $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
     $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' is not proven: an earlier version of '
         + 'the checker kept no proof that it is yours. ' + (st.commands ? 'Your PR commands do nothing'
-            : 'The verdict comments do not mention you') + ' until you prove your GitHub account below.' : '';
-    $('ghLoginProof').classList.toggle('hidden', proven);
-    $('ghLoginMsg').textContent = '';
-    $('settingsLogin').classList.toggle('hidden', !st.commands && !st.loginUnproven && pendingOption !== 'commands');
+            : 'The verdict comments do not mention you') + ' until you link your GitHub account below.' : '';
+    const linkable = !!st.githubLinkable;
+    $('ghLink').classList.toggle('hidden', proven || !linkable);
+    $('ghLinkHint').classList.toggle('hidden', proven || !linkable);
+    $('ghLinkOff').classList.toggle('hidden', proven || linkable || st.githubAvailable === false);
+    $('ghUnlink').classList.toggle('hidden', !st.login);
+    $('ghLinkMsg').textContent = '';
+    $('settingsLogin').classList.toggle('hidden', !st.commands && !st.login && pendingOption !== 'commands');
 }
 
 // A token the service refused takes its options down with it, so the panel must show the
@@ -2344,9 +2349,8 @@ async function askForToken(need, option) {
     pendingOption = option;
     if (need === 'login') {
         $('settingsLogin').classList.remove('hidden');
-        $('ghLoginProof').classList.remove('hidden');
-        $('ghLoginMsg').textContent = 'paste a token with no scopes and press Prove';
-        $('ghLoginToken').focus();
+        $('ghLinkMsg').textContent = (standingSettings || {}).githubLinkable
+            ? 'press Link GitHub: PR commands go on once GitHub confirms your account' : '';
     } else if (need === 'jira') {
         $('settingsJira').classList.remove('hidden');
         try {
@@ -2459,31 +2463,68 @@ $('settingsJiraSave').onclick = async () => {
     }
 };
 
-// Proving the login is what switches PR commands on. The token goes to the server once and stays nowhere, the input
-// field included.
-$('ghLoginSave').onclick = async () => {
-    const input = $('ghLoginToken'), m = $('ghLoginMsg');
-    const token = input.value.trim();
-    input.value = '';
-    if (!token) { m.textContent = 'paste the token first'; return; }
-    m.textContent = 'asking GitHub whose token it is…';
+// Link GitHub sends the browser to GitHub, which asks the user to let the checker see their account and sends them
+// back to the checker. The link switches PR commands on; the PR in view and the browser's time zone come back with it.
+$('ghLink').onclick = async () => {
+    const m = $('ghLinkMsg');
+    let url = '/api/github/link' + zoneParam('?');
+    if (selectedPr) url += (url.includes('?') ? '&' : '?') + 'pr=' + selectedPr;
+    m.textContent = 'opening GitHub…';
     try {
-        const r = await api('/api/github-login' + zoneParam('?'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
-        });
+        const r = await api(url, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { m.textContent = res.error || 'could not prove the login'; return; }
-        pendingOption = null;
-        renderSettings(res);
-        $('settingsMsg').textContent = 'Proven: @' + res.login + ' — PR commands are on. You may delete the token on '
-            + 'GitHub now.';
+        if (!r.ok || !res.url) { m.textContent = res.error || 'could not open GitHub — try again'; return; }
+        location.href = res.url;
     } catch (e) {
         m.textContent = 'could not reach the service — try again';
     }
 };
+
+// Unlink forgets the account, and the options that rest on it go off: PR commands, and the options that commit with
+// a token of that account.
+$('ghUnlink').onclick = async () => {
+    const before = standingSettings || {}, m = $('ghLinkMsg');
+    try {
+        const r = await api('/api/github/unlink', { method: 'POST' });
+        if (r.status === 401) return loggedOut(r);
+        const res = await r.json().catch(() => ({}));
+        if (!r.ok) { m.textContent = friendly(res.error, 'could not unlink — try again'); return; }
+        pendingOption = null;
+        renderSettings(res);
+        $('settingsMsg').textContent = 'Unlinked @' + before.login + ': PR commands are off.' + (before.ghStored
+            ? ' Your GitHub token for commits is dropped too, and the options that used it are off: it was of that'
+                + ' account.' : '');
+    } catch (e) {
+        m.textContent = 'could not reach the service — try again';
+    }
+};
+
+// How a link ended, by the ?github= the checker sends the browser back with from GitHub.
+const LINK_OUTCOMES = {
+    linked: st => 'Linked ' + (st.login ? '@' + st.login : 'your GitHub account') + ': PR commands are on.',
+    denied: () => 'Nothing was linked: you did not authorize the checker on GitHub.',
+    expired: () => 'Nothing was linked: this link is no longer valid. Press Link GitHub again.',
+    signin: () => 'Nothing was linked: the checker did not see your login when GitHub sent you back. Press Link'
+        + ' GitHub again.',
+    failed: () => 'Nothing was linked: GitHub did not confirm your account. Try again in a minute.',
+    app: () => 'Nothing was linked: that GitHub account is the checker\'s own. Sign in to GitHub as yourself and press'
+        + ' Link GitHub again.',
+    token: st => 'Nothing was linked: your GitHub token for commits is of @' + st.login + ', which stays linked.'
+        + ' Press Unlink first to link another account.',
+    unavailable: () => 'Nothing was linked: this checker has no GitHub account to answer PR commands.',
+};
+
+// After a link, ⚙ opens and says how it went, and the address loses the outcome, so a reload does not say it again.
+async function showLinkOutcome() {
+    const outcome = new URLSearchParams(location.search).get('github');
+    if (!outcome || !Object.prototype.hasOwnProperty.call(LINK_OUTCOMES, outcome)) return;
+    const pr = prFromUrl();
+    history.replaceState(pr ? { pr } : {}, '', pr ? '?pr=' + pr : location.pathname);
+    $('settingsPanel').classList.remove('hidden');
+    await loadSettings();
+    $('settingsMsg').textContent = LINK_OUTCOMES[outcome](standingSettings || {});
+}
 
 // Right after a login, point at PR commands once if they are off: few people open ⚙ on their own.
 async function offerCommands() {

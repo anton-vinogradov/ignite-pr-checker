@@ -31,14 +31,20 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
 
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
@@ -85,6 +91,84 @@ public class GithubClient implements SnapshotCache {
 
     /** The account a token belongs to, and the scopes of a classic token; null {@code scopes}: GitHub named none. */
     public record TokenOwner(GhUser user, List<String> scopes) {
+    }
+
+    /**
+     * Whether users can link their GitHub accounts through the checker's OAuth App: its client id and secret are set,
+     * and the checker has a public address for GitHub to send the user back to.
+     */
+    public boolean linksAccounts() {
+        return props.oauthClientId() != null && props.oauthClientSecret() != null && linkCallback != null;
+    }
+
+    /**
+     * Where GitHub asks the user to let the checker's OAuth App see who they are. No scope: the app gets the public
+     * profile and nothing more. No sign-up on the way. GitHub sends the user back to {@link #LINK_CALLBACK} with
+     * {@code state} and a code.
+     */
+    public URI authorizeUri(String state) {
+        return UriComponentsBuilder.fromUriString(props.webUrl() + "/login/oauth/authorize")
+            .queryParam("client_id", props.oauthClientId())
+            .queryParam("redirect_uri", linkCallback)
+            .queryParam("state", state)
+            .queryParam("allow_signup", "false")
+            .encode().build().toUri();
+    }
+
+    /**
+     * The GitHub account that let the checker's OAuth App see it, by the code GitHub sent back with the user. The code
+     * buys a token, the token names its account, and the token is revoked at once: it goes into no field, file or log.
+     * Empty when GitHub gives no token for the code: it expired, was used, or the app's settings do not match. A
+     * failed revocation is logged and changes nothing, as a token with no scope reads only what is public anyway.
+     * Throws when GitHub could not say.
+     */
+    public Optional<GhUser> oauthUser(String code) {
+        Optional<String> token = oauthToken(code);
+        if (token.isEmpty())
+            return Optional.empty();
+
+        try {
+            return ghIdentity(token.get());
+        }
+        finally {
+            revokeOauthToken(token.get());
+        }
+    }
+
+    private Optional<String> oauthToken(String code) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("client_id", props.oauthClientId());
+        form.add("client_secret", props.oauthClientSecret());
+        form.add("code", code);
+        form.add("redirect_uri", linkCallback);
+        Map<?, ?> answer = recordedAsUser("oauth", () -> http.post()
+            .uri(URI.create(props.webUrl() + "/login/oauth/access_token"))
+            .header("Accept", "application/json")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .body(form)
+            .retrieve().body(Map.class));
+        if (answer != null && answer.get("access_token") instanceof String token && !token.isBlank())
+            return Optional.of(token);
+
+        log.warn("GitHub gave no token for the code of a GitHub account link: {}",
+            answer == null ? "no answer" : answer.get("error"));
+
+        return Optional.empty();
+    }
+
+    private void revokeOauthToken(String token) {
+        try {
+            recordedAsUser("oauthRevoke", () -> http.method(HttpMethod.DELETE)
+                .uri(URI.create(props.apiUrl() + "/applications/" + props.oauthClientId() + "/token"))
+                .headers(h -> h.setBasicAuth(props.oauthClientId(), props.oauthClientSecret()))
+                .header("Accept", "application/vnd.github+json")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("access_token", token))
+                .retrieve().toBodilessEntity());
+        }
+        catch (RuntimeException e) {
+            log.warn("GitHub did not revoke the token of a GitHub account link: {}", e.toString());
+        }
     }
 
     /**
@@ -791,12 +875,25 @@ public class GithubClient implements SnapshotCache {
      */
     public static final String SELF_REPO = "anton-vinogradov/ignite-pr-checker";
 
+    /**
+     * The checker's page GitHub sends a user back to from Link GitHub. The operator registers {@code APP_PUBLIC_URL} +
+     * this as the OAuth App's callback URL.
+     */
+    public static final String LINK_CALLBACK = "/api/github/callback";
+
     private final RestClient http;
 
     /** For calls whose redirect leads to another host: it is followed by hand, without the token. */
     private final RestClient noRedirects;
 
     private final GithubProperties props;
+
+    /**
+     * Where GitHub sends a user back from the checker's OAuth App: the checker's public address and
+     * {@link #LINK_CALLBACK}. Null when the checker has no public address.
+     */
+    private final String linkCallback;
+
     private final long ttlMs;
     private final ObjectMapper mapper;
 
@@ -826,28 +923,42 @@ public class GithubClient implements SnapshotCache {
 
     private final Metrics metrics;
 
+    /** A client of the checker at {@code publicUrl}, the address users open ({@code APP_PUBLIC_URL}). */
     @Autowired
-    public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
-        this(props, mapper, metrics, RestClient.builder()
+    public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics,
+        @Value("${app.public-url:}") String publicUrl) {
+        this(props, mapper, metrics, publicUrl, RestClient.builder()
             .requestFactory(OutboundHttp.withPatch(props.readTimeout()))
             .build(), RestClient.builder()
             .requestFactory(OutboundHttp.withPatchNoRedirects(props.readTimeout()))
             .build());
     }
 
-    /** A client whose calls all go through {@code http}, which hands a redirect back as it is: a test's stub. */
-    GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http) {
-        this(props, mapper, metrics, http, http);
+    /** A client of a checker with no public address: nobody links a GitHub account through it. */
+    public GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics) {
+        this(props, mapper, metrics, "");
     }
 
-    private GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http,
-        RestClient noRedirects) {
+    /** A client whose calls all go through {@code http}, which hands a redirect back as it is: a test's stub. */
+    GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, RestClient http) {
+        this(props, mapper, metrics, "", http, http);
+    }
+
+    /** A test's stub, as above, of the checker at {@code publicUrl}. */
+    GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, String publicUrl, RestClient http) {
+        this(props, mapper, metrics, publicUrl, http, http);
+    }
+
+    private GithubClient(GithubProperties props, ObjectMapper mapper, Metrics metrics, String publicUrl,
+        RestClient http, RestClient noRedirects) {
         this.props = props;
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;
         this.metrics = metrics;
         this.http = http;
         this.noRedirects = noRedirects;
+        String base = publicUrl == null ? "" : publicUrl.strip().replaceFirst("/+$", "");
+        this.linkCallback = base.isEmpty() ? null : base + LINK_CALLBACK;
     }
 
     /**

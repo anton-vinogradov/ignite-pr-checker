@@ -48,7 +48,7 @@ class AutofixNeedsCommandsTest {
     private final StandingVisas standing = standing();
 
     private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
-        mock(BlockerAnalyzer.class), codec, mock(VisaService.class), mock(VisaSubscriptions.class), standing, github,
+        mock(BlockerAnalyzer.class), codec, mock(VisaService.class), mock(VisaSubscriptions.class), standing,
         mock(PendingCommits.class), false);
 
     @BeforeEach

@@ -57,7 +57,7 @@ class UncheckedTokenTest {
         jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
     private final JiraController controller = new JiraController(jira, mock(TcClient.class), analyzer, codec,
-        mock(VisaService.class), mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
+        mock(VisaService.class), mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false);
 
     private final SessionCodec.Session session = new SessionCodec.Session(USER, "tc", null);
 

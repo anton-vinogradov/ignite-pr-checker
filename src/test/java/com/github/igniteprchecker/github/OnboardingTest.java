@@ -109,6 +109,31 @@ class OnboardingTest {
         assertThat(PrCommands.readsAsCommand(reply.getValue())).isFalse();
     }
 
+    /** The reply asked for a GitHub token with no scopes, which ⚙ no longer takes: it links accounts through GitHub. */
+    @Test
+    void theReplyPointsAtLinkGithub() {
+        when(github.linksAccounts()).thenReturn(true);
+
+        command(13704, "stranger");
+
+        ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
+        verify(github).appComment(eq(13704), any(), reply.capture());
+        assertThat(reply.getValue()).contains("tick **PR commands** and press **Link GitHub**.")
+            .doesNotContain("no scopes");
+    }
+
+    /** A checker with no OAuth App: a GitHub token for commits is what links an account there. */
+    @Test
+    void withoutLinkGithubTheReplyNamesTheTokenForCommits() {
+        command(13705, "stranger");
+
+        ArgumentCaptor<String> reply = ArgumentCaptor.forClass(String.class);
+        verify(github).appComment(eq(13705), any(), reply.capture());
+        assertThat(reply.getValue()).contains("switch on **Add my PRs' tests to a suite** with a GitHub token, which"
+            + " links your GitHub account, then tick **PR commands**.").doesNotContain("Link GitHub");
+        assertThat(reply.getValue().split("\\s+")).hasSizeLessThan(100);
+    }
+
     @Test
     void onePrGetsOneReplyAndARepeatNoSecondConfusedReaction() {
         command(13703, "stranger1");
