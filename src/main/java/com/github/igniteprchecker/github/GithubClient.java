@@ -382,6 +382,18 @@ public class GithubClient implements SnapshotCache {
             (String)head.get("ref"), (String)head.get("sha"));
     }
 
+    /**
+     * The sha of the PR's head commit; null when GitHub names none. Unlike {@link #prHead} it holds for a PR whose
+     * fork was deleted: GitHub then gives the head no repository, but still its sha.
+     */
+    public String prHeadSha(int prNumber) {
+        java.util.Map<?, ?> pr = recorded("prHead", () -> appGet(
+            props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+        Object head = pr == null ? null : pr.get("head");
+
+        return head instanceof java.util.Map<?, ?> h ? (String)h.get("sha") : null;
+    }
+
     /** Whether a PR was merged or closed, and when: one call. */
     public PrOutcome prOutcome(int prNumber) {
         java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
@@ -1041,6 +1053,20 @@ public class GithubClient implements SnapshotCache {
         catch (Exception e) {
             return cached != null ? cached : List.of();
         }
+    }
+
+    /**
+     * The PR's head as the open-PR list last fetched it, when that was at or after {@code sinceEpochSec}; null when
+     * the PR is not on it or the list is older. Never calls GitHub.
+     */
+    public String listedHead(int prNumber, long sinceEpochSec) {
+        long listedAt = cacheTs;
+        List<PrSummary> listed = cache;
+        if (listed == null || listedAt < sinceEpochSec * 1000L)
+            return null;
+
+        return listed.stream().filter(p -> p.number() == prNumber).map(PrSummary::headSha).filter(Objects::nonNull)
+            .findFirst().orElse(null);
     }
 
     /**

@@ -99,6 +99,11 @@ public final class Caveats {
         return commits + " commit(s) pushed since this run — it tested older code";
     }
 
+    /** The caveat of a run the PR's head has since moved past by a count not known yet. */
+    public static String headMoved() {
+        return "new commits pushed since this run — it tested older code";
+    }
+
     /** Whether the run covers enough for an empty blocker list to mean something. */
     public static boolean proven(AnalysisResult r) {
         return of(r, null).isEmpty();

@@ -69,7 +69,8 @@ the visa.
 | `N suite(s) ran far fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
 | `N failed test(s) could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
-| `N commit(s) pushed since this run — it tested older code` | The PR's head has moved since the run. | Run RunAll again. |
+| `N commit(s) pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. Without a number, the PR list already saw the head move; the page gets the count a second or two later. | Run RunAll again. |
+| `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the revision the run tested, so the page does not call the verdict clean. | Reload the page in a minute. |
 
 ### Broken suite causes
 
@@ -111,6 +112,7 @@ the visa.
 | **!** | No blockers, but tests started failing on its code. | A rerun decides. |
 | **?** | No blockers found, but the run can't prove the PR clean ([caveats](#caveats)), commits were pushed since the run, or it is not known whether the run tested the PR's current head. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current head. | — |
+| **…** | Only for the PR open on the page: a clean run, and the page is still checking that it tested the PR's current head. Once the page knows, it turns into **✓** or **?**. | Wait. |
 | none | Not analysed yet. | Open the PR to analyse it. |
 | **My?** | Your TeamCity user started its latest RunAll. | — |
 
@@ -207,7 +209,10 @@ and the filtered-out noise.
   ignored tests and its longest test, and the tests that failed or ran over 60 s.
 - **No blockers 🎉** shows only for the verdict the PR list ticks: a run of the PR's current head that covered
   everything and blamed nothing on it. Otherwise the page says **No test blockers** and the red line under it lists
-  the caveats, in the same words as the PR comment and the visa.
+  the caveats, in the same words as the PR comment and the visa. The page asks GitHub whether the run tested the PR's
+  head. Until GitHub answers, a clean verdict reads **No test blockers** with
+  `Checking that this run tested the PR's latest code…` and the PR's badge in the list is **…**; after that, the badge
+  says what the page says.
 - **why?** opens the failure message and the stack trace, with a rough triage label: `⚖ assertion …`,
   `♻ environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
 - **ai** copies a prompt for a coding assistant: the PR, the suite and its run, the test, the checker's verdict with

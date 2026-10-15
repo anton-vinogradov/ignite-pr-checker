@@ -175,14 +175,15 @@ function markMine() {
         li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
 }
 
-// How a verdict with no blockers stands (Caveats.Standing): only CLEAN, where the page says "No blockers"
-// for the PR's current code, earns the check.
+// How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
+// where the page says "No blockers" for the PR's current code, earns the check.
 const STANDING_BADGES = {
     WATCH: ['watch', '!', 'no blockers, but tests started failing on this code — a re-run decides'],
     UNPROVEN: ['unproven', '?', 'no blockers found, but the run can\'t prove the PR clean (interrupted, broken '
         + 'suites, fewer tests than master, unchecked tests, or a newer run still going)'],
     OLD_CODE: ['unproven', '?', 'old code — no blockers in this run, but commits were pushed since it'],
     UNKNOWN_CODE: ['unproven', '?', 'no blockers, but it is not known whether this run tested the PR\'s current code'],
+    CHECKING: ['checking', '…', 'no blockers; the page is checking that this run tested the PR\'s current code'],
 };
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
@@ -222,6 +223,7 @@ function openPr(number, push) {
     noRunNote = '';
     lastLiveFetch = Date.now(); // the analysis below is this PR's first look
     lastResult = null;
+    syncListBadge();
     detailsCache.clear();
     resetStaleLook();
     stopRunsPoll();
@@ -446,6 +448,7 @@ function tabState() {
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
     if (!res) return null;
     if (res.live) return { kind: 'running' };
+    if (standingOf(res) === 'CHECKING') return { kind: 'unknown' };
     // Final only when /api/settling says so of this very run: without its answer, re-runs may still follow.
     if (!phase || phase.phase !== 'final' || phase.build !== res.buildId) return { kind: 'unknown' };
     const verdict = res.blockers.length > 0 ? 'blockers'
@@ -585,6 +588,7 @@ async function enterApp(username) {
 function goHome(push) {
     selectedPr = null;
     lastResult = null;
+    syncListBadge();
     runsNow = [];
     verdictDue = false;
     noRunNote = '';
@@ -1244,10 +1248,12 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     const broken = res.brokenSuites || [];
     const watch = res.watch || [];
     const hasBlockers = res.blockers.length > 0;
+    if (res.pushed && !res.live && !(pendingFor(res) && pendingOf.code === 'old')) notePending(res, res.pushed);
     // "Clean" (green, celebratory) only when nothing needs attention — no blockers, no broken
     // suites, no recently-started-failing tests. A broken/timed-out suite is a real problem,
     // so the verdict must not read as all-clear just because no individual test is a blocker.
-    renderVerdictHead(res, aheadOf(res));
+    renderVerdictHead(res);
+    syncListBadge();
     $('blockerCount').textContent = hasBlockers ? countLabel(res.blockers) : '';
     $('filteredCount').textContent = countLabel(res.filtered);
     // Suites a failed Build kept from running are told under the Build, among the broken suites.
@@ -1336,43 +1342,97 @@ function listOf(el) {
 }
 
 // Why an empty blocker list may not mean the PR is clean, as the server words it in the PR comment and the
-// visa (analysis/Caveats.java). `ahead` is the commits pushed since the analysed run, known only once
-// /api/pending answers, and the caveat about them comes from there.
-function caveatsOf(res, ahead) {
-    return (res.caveats || []).concat(ahead > 0 && pendingOf.caveat ? [pendingOf.caveat] : []);
+// visa (analysis/Caveats.java). The one about commits pushed since the analysed run comes from /api/pending, or
+// from the analysis when the server's PR list already shows them.
+function caveatsOf(res, standing) {
+    const ahead = aheadOf(res);
+    return (res.caveats || []).concat(ahead > 0 && pendingOf.caveat ? [pendingOf.caveat] : [])
+        .concat(standing === 'UNKNOWN_CODE' ? ['could not check whether the PR changed since this run'] : []);
 }
 
-// How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run of code the PR
-// has moved past since is old code.
-function standingOf(res, ahead) {
-    return res.standing === 'CLEAN' && ahead > 0 ? 'OLD_CODE' : res.standing;
+// How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run is CLEAN only once it
+// is known to have tested the PR's head, old code when the head moved since, and CHECKING until that is known.
+function standingOf(res) {
+    if (res.standing !== 'CLEAN') return res.standing;
+    return { current: 'CLEAN', old: 'OLD_CODE', unknown: 'UNKNOWN_CODE' }[codeOf(res)] || 'CHECKING';
 }
 
 // "No blockers 🎉" is earned, not automatic: only a clean standing gets it, the one that gets ✓ in the PR list.
-function renderVerdictHead(res, ahead) {
+function renderVerdictHead(res) {
     const hasBlockers = res.blockers.length > 0;
-    const caveats = caveatsOf(res, ahead);
-    const clean = standingOf(res, ahead) === 'CLEAN';
+    const standing = standingOf(res);
+    const caveats = caveatsOf(res, standing);
+    const clean = standing === 'CLEAN';
+    const checking = standing === 'CHECKING';
     $('blockersTitle').classList.toggle('clean', clean);
     $('blockersTitle').classList.toggle('neutral', !hasBlockers && !clean);
     $('blockersHead').textContent = hasBlockers ? 'Blockers'
         : clean ? 'No blockers 🎉'
         : 'No test blockers';
-    const say = !hasBlockers && caveats.length > 0;
+    const say = !hasBlockers && (caveats.length > 0 || checking);
     $('verdictCaveat').classList.toggle('hidden', !say);
+    $('verdictCaveat').classList.toggle('checking', checking);
     if (say)
-        $('verdictCaveat').textContent = 'Nothing here was blamed on this PR, but this run can\'t prove it is clean: '
-            + caveats.join('; ') + '.';
-    $('noBlockers').textContent = caveats.length
-        ? 'No test was blamed on your PR in what did run.'
-        : 'Nothing in this run looks caused by your PR — good to go.';
+        $('verdictCaveat').textContent = checking ? 'Checking that this run tested the PR\'s latest code…'
+            : 'Nothing here was blamed on this PR, but this run can\'t prove it is clean: ' + caveats.join('; ') + '.';
+    $('noBlockers').textContent = clean
+        ? 'Nothing in this run looks caused by your PR — good to go.'
+        : 'No test was blamed on your PR in what did run.';
 }
 
-// Commits pushed since the analysed build, as /api/pending last said for it; null while unknown.
-let pendingOf = { pr: 0, buildId: 0, ahead: null, caveat: null };
+// Whether the analysed run tested the PR's head, as /api/pending last said for it, or as the analysis did when the
+// server's PR list already showed the head moved: 'current', 'old', or 'unknown' when GitHub or TeamCity could not
+// say. `ahead` is the commits pushed since, 1 when their count is not known.
+let pendingOf = { pr: 0, buildId: 0, code: null, ahead: null, caveat: null };
+
+function pendingFor(res) {
+    return pendingOf.pr === res.prNumber && pendingOf.buildId === res.buildId;
+}
 
 function aheadOf(res) {
-    return !res.live && pendingOf.pr === res.prNumber && pendingOf.buildId === res.buildId ? pendingOf.ahead : null;
+    return !res.live && pendingFor(res) ? pendingOf.ahead : null;
+}
+
+function codeOf(res) {
+    return pendingFor(res) && pendingOf.code || 'checking';
+}
+
+// Commits pushed since the run, as /api/pending or the analysis tells of them, noted above the verdict. A failed
+// check leaves the commits the PR list already showed.
+function notePending(res, p) {
+    const code = p.pending ? 'old' : p.checked === false ? 'unknown' : 'current';
+    if (code === 'unknown' && pendingFor(res) && pendingOf.code === 'old') return;
+    const ahead = p.pending ? (p.ahead > 0 ? p.ahead : 1) : null; // superseded code can't be a clean verdict
+    pendingOf = { pr: res.prNumber, buildId: res.buildId, code, ahead, caveat: p.pending ? p.caveat || null : null };
+    $('pendingRow').classList.toggle('hidden', !p.pending);
+    if (!p.pending) return;
+    const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
+    $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
+}
+
+// The PR list badges a clean run by the PR's head as the server last saw it. The open PR's ✓ waits for the page's
+// check, as its verdict head does; once the page knows whether the run tested the PR's head, the badge says that.
+const HEAD_STANDINGS = ['CLEAN', 'OLD_CODE', 'UNKNOWN_CODE'];
+
+function syncListBadge() {
+    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    const page = res ? standingOf(res) : 'CHECKING';
+    for (const listed of allPrs) {
+        if (!HEAD_STANDINGS.includes(listed.standing)) continue;
+        const open = listed.number === selectedPr;
+        if (open && HEAD_STANDINGS.includes(page)) listed.known = page;
+        const known = listed.known || listed.standing;
+        showListBadge(listed, open && page === 'CHECKING' && known === 'CLEAN' ? 'CHECKING' : known);
+    }
+}
+
+function showListBadge(listed, standing) {
+    if (standing === (listed.shown || listed.standing)) return;
+    const li = findLi(listed.number);
+    const badge = li && li.querySelector('.pr-badge');
+    if (!badge) return;
+    badge.outerHTML = blockerBadge(0, standing === 'CLEAN', standing);
+    listed.shown = standing;
 }
 
 // How the PR's own new and changed test classes ran in this RunAll (PrTestRuns on the server). A new test
@@ -1511,23 +1571,18 @@ function fmtTestTime(ms) {
 async function loadPending(res) {
     if (aheadOf(res) == null) $('pendingRow').classList.add('hidden');
     if (res.live) return; // a newer run is already being folded in — not stale
+    let p = null;
     try {
         const r = await api('/api/pending?pr=' + res.prNumber + '&build=' + res.buildId);
-        if (!r.ok) return;
-        const p = await r.json().catch(() => null);
-        if (!p || res.prNumber !== selectedPr) return;
-        if (!p.pending) {
-            pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead: null, caveat: null };
-            $('pendingRow').classList.add('hidden');
-            return;
-        }
-        const ahead = p.ahead > 0 ? p.ahead : 1; // superseded code can't be a clean verdict
-        pendingOf = { pr: res.prNumber, buildId: res.buildId, ahead, caveat: p.caveat || null };
-        const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
-        $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
-        $('pendingRow').classList.remove('hidden');
-        renderVerdictHead(res, ahead);
-    } catch (e) { /* the staleness note is a bonus; never block the result */ }
+        if (r.ok) p = await r.json().catch(() => null);
+    } catch (e) { /* not known then, as when the server could not tell */ }
+    const shown = lastResult;
+    if (res.prNumber !== selectedPr || !shown || shown.prNumber !== res.prNumber || shown.buildId !== res.buildId)
+        return;
+    notePending(res, p || { pending: false, checked: false });
+    renderVerdictHead(shown);
+    syncListBadge();
+    paintTab();
 }
 
 // A background look leaves the status line alone ("Queued …" must outlive it), but a failed ↻'s
