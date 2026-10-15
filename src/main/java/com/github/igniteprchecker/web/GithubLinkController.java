@@ -19,13 +19,11 @@ import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -33,18 +31,14 @@ import org.springframework.web.bind.annotation.RestController;
  * Links a user's GitHub account through the checker's OAuth App: PR commands take a comment for the user's command only
  * when it comes from that account, and the verdict comments mention it. The page asks for a link, and the browser goes
  * to GitHub with a one-time state the checker keeps for that session. GitHub sends the browser back to
- * {@link #CALLBACK} with the state and a code. The account the code names is linked only to the session the state was
- * made for, within {@link #STATE_TTL}, once: a link begun in someone else's session, or a code of someone else's
- * account sent to this user, links nothing. Each answer of the callback is a redirect to the page, which says how it
- * went by {@code github}.
+ * {@link GithubClient#LINK_CALLBACK} with the state and a code. The account the code names is linked only to the
+ * session the state was made for, within {@link #STATE_TTL}, once: a link begun in someone else's session, or a code of
+ * someone else's account sent to this user, links nothing. Each answer of the callback is a redirect to the page, which
+ * says how it went by {@code github}.
  */
 @RestController
-@RequestMapping("/api/github")
 public class GithubLinkController {
     private static final Logger log = LoggerFactory.getLogger(GithubLinkController.class);
-
-    /** Where GitHub sends the user back: the operator registers {@code APP_PUBLIC_URL} + this with the OAuth App. */
-    public static final String CALLBACK = "/api/github/callback";
 
     /** How long a link may take at GitHub, from the click on Link GitHub to the callback. */
     static final Duration STATE_TTL = Duration.ofMinutes(10);
@@ -55,8 +49,6 @@ public class GithubLinkController {
 
     private final AuthInterceptor auth;
 
-    private final String publicUrl;
-
     private final LongSupplier clock;
 
     /** The links under way by their state, at most one per session. */
@@ -65,26 +57,23 @@ public class GithubLinkController {
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
-    public GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth,
-        @Value("${app.public-url:}") String publicUrl) {
-        this(github, standing, auth, publicUrl, System::currentTimeMillis);
+    public GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth) {
+        this(github, standing, auth, System::currentTimeMillis);
     }
 
-    GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth, String publicUrl,
-        LongSupplier clock) {
+    GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth, LongSupplier clock) {
         this.github = github;
         this.standing = standing;
         this.auth = auth;
-        this.publicUrl = publicUrl == null ? "" : publicUrl.strip().replaceFirst("/+$", "");
         this.clock = clock;
     }
 
     /**
      * Starts a link: answers with the GitHub address the page sends the browser to. {@code tz}, the browser's time
      * zone, and {@code pr}, the PR the page shows, come back with the user. A 409 when the checker has no GitHub
-     * account to answer commands from, or no OAuth App.
+     * account to answer commands from, or users cannot link accounts through it ({@link GithubClient#linksAccounts}).
      */
-    @PostMapping("/link")
+    @PostMapping("/api/github/link")
     public ResponseEntity<?> link(@RequestParam(required = false) String tz,
         @RequestParam(required = false) Integer pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
@@ -92,7 +81,7 @@ public class GithubLinkController {
         if (!github.writes())
             return ResponseEntity.status(409).body(Map.of("error", "PR commands are "
                 + StandingVisas.Refusal.UNAVAILABLE.error()));
-        if (!github.linksAccounts() || publicUrl.isEmpty())
+        if (!github.linksAccounts())
             return ResponseEntity.status(409).body(Map.of("error", "Link GitHub is not set up on this checker"));
 
         long now = clock.getAsLong();
@@ -101,7 +90,7 @@ public class GithubLinkController {
         String state = newState();
         pending.put(state, new Pending(session, tz, pr != null && pr > 0 ? pr : null, now));
 
-        return ResponseEntity.ok(Map.of("url", github.authorizeUri(state, callback()).toString()));
+        return ResponseEntity.ok(Map.of("url", github.authorizeUri(state).toString()));
     }
 
     /**
@@ -109,7 +98,7 @@ public class GithubLinkController {
      * when the user did not authorize the app. Not behind the login guard: a missing session must also end on the
      * page, which then asks to log in.
      */
-    @GetMapping("/callback")
+    @GetMapping(GithubClient.LINK_CALLBACK)
     public ResponseEntity<Void> callback(@RequestParam(required = false) String code,
         @RequestParam(required = false) String state,
         @RequestParam(required = false) String error,
@@ -132,7 +121,7 @@ public class GithubLinkController {
 
         Optional<GithubClient.GhUser> who;
         try {
-            who = github.oauthUser(code, callback());
+            who = github.oauthUser(code);
         }
         catch (RuntimeException e) {
             log.warn("GitHub could not name the account {} links: {}", session.get().username(), e.toString());
@@ -148,15 +137,11 @@ public class GithubLinkController {
     }
 
     /** Forgets the user's GitHub account; answers with the whole settings state. */
-    @PostMapping("/unlink")
+    @PostMapping("/api/github/unlink")
     public StandingVisas.Settings unlink(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         standing.unlinkGhLogin(username);
 
         return standing.settings(username);
-    }
-
-    private String callback() {
-        return publicUrl + CALLBACK;
     }
 
     /** The page, told how the link went, on the PR it showed when the link began. */

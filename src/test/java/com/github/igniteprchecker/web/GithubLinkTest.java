@@ -62,12 +62,14 @@ class GithubLinkTest {
 
     private static final String ONCE = "gho_onceOnly0123456789";
 
+    private static final GithubProperties OAUTH_APP = new GithubProperties("apache/ignite", "app-token", 300, null,
+        null, null, "Iv1.client", "client-secret");
+
     private final RestClient.Builder http = RestClient.builder();
 
     private final MockRestServiceServer gh = MockRestServiceServer.bindTo(http).build();
 
-    private final GithubClient github = StubbedGithub.over(new GithubProperties("apache/ignite", "app-token", 300,
-        null, null, null, "Iv1.client", "client-secret"), http.build());
+    private final GithubClient github = StubbedGithub.over(OAUTH_APP, "https://prc.example.org/", http.build());
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -80,8 +82,7 @@ class GithubLinkTest {
     private final AtomicLong now = new AtomicLong(1_760_000_000_000L);
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
-        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing), "https://prc.example.org/",
-        now::get);
+        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing), now::get);
 
     @Test
     void theAccountGitHubNamesIsLinkedAndItsTokenRevoked(@TempDir Path dir, CapturedOutput output) throws Exception {
@@ -254,6 +255,24 @@ class GithubLinkTest {
             .doesNotContain(ONCE);
     }
 
+    /** GitHub gave a token but failed to say whose it is: the token is revoked all the same. */
+    @Test
+    void aTokenIsRevokedWhenGithubCannotNameItsAccount() {
+        String state = state(start("alice", "tc-alice", null));
+        gh.expect(requestTo("https://github.com/login/oauth/access_token"))
+            .andRespond(withSuccess("{\"access_token\":\"" + ONCE + "\"}", MediaType.APPLICATION_JSON));
+        gh.expect(requestTo("https://api.github.com/user")).andRespond(withServerError());
+        gh.expect(requestTo("https://api.github.com/applications/Iv1.client/token"))
+            .andExpect(method(HttpMethod.DELETE)).andExpect(content().json("{\"access_token\":\"" + ONCE + "\"}"))
+            .andRespond(withStatus(HttpStatus.NO_CONTENT));
+
+        ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
+
+        gh.verify();
+        assertThat(back.getHeaders().getLocation()).hasToString("/?github=failed");
+        assertThat(standing.ghLoginOf("alice")).isNull();
+    }
+
     /** The token is revoked even when it names no account. */
     @Test
     void aTokenThatNamesNoAccountIsRevokedToo() {
@@ -272,10 +291,9 @@ class GithubLinkTest {
     @Test
     void withoutAnOAuthAppThereIsNoLink() {
         GithubClient plain = StubbedGithub.over(new GithubProperties("apache/ignite", "app-token", 300),
-            http.build());
+            "https://prc.example.org", http.build());
         GithubLinkController off = new GithubLinkController(plain, standing,
-            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing),
-            "https://prc.example.org", now::get);
+            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing), now::get);
 
         ResponseEntity<?> res = off.link(null, null, "tc-alice", "alice");
 
@@ -283,6 +301,28 @@ class GithubLinkTest {
         assertThat(res.getBody()).isEqualTo(Map.of("error", "Link GitHub is not set up on this checker"));
         assertThat(plain.linksAccounts()).isFalse();
         assertThat(github.linksAccounts()).isTrue();
+    }
+
+    /**
+     * install.sh writes APP_PUBLIC_URL empty, and an operator set up the OAuth App but not the address: GitHub has
+     * nowhere to send a user back. ⚙ offered Link GitHub, which always answered 409, and hid what links an account
+     * instead.
+     */
+    @Test
+    void withoutAPublicAddressThereIsNoLink() {
+        GithubClient nowhere = StubbedGithub.over(OAUTH_APP, " ", http.build());
+        StandingVisas standingThere = new StandingVisas(mapper, codec, mock(TcClient.class), nowhere,
+            mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
+            mock(Warmer.class), mock(PendingCommits.class));
+        GithubLinkController off = new GithubLinkController(nowhere, standingThere,
+            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standingThere), now::get);
+
+        ResponseEntity<?> res = off.link(null, null, "tc-alice", "alice");
+
+        assertThat(res.getStatusCode().value()).isEqualTo(409);
+        assertThat(nowhere.linksAccounts()).isFalse();
+        assertThat(standingThere.settings("alice").githubLinkable()).as("⚙ shows no Link GitHub").isFalse();
+        assertThat(standingThere.settings("alice").githubAvailable()).isTrue();
     }
 
     private URI start(String username, String tcToken, Integer pr) {

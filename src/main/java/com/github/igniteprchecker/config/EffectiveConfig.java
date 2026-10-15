@@ -47,8 +47,9 @@ public class EffectiveConfig {
         String publicUrl = env.getProperty("app.public-url", "");
         show("APP_PUBLIC_URL", publicUrl.isBlank() ? "empty" : publicUrl);
         if (publicUrl.isBlank())
-            problem("APP_PUBLIC_URL is empty: links this instance posts to PRs and JIRA lead nowhere — set it to the"
-                + " https address users open");
+            problem("APP_PUBLIC_URL is empty: links this instance posts to PRs and JIRA lead nowhere"
+                + (github.oauthClientId() != null && github.oauthClientSecret() != null ? ", and Link GitHub is off"
+                    : "") + " — set it to the https address users open");
 
         required("TC_BASE_URL", teamcity.baseUrl(), "no PR can be analysed");
         show("TEAMCITY_READ_TIMEOUT", duration(teamcity.readTimeout()));

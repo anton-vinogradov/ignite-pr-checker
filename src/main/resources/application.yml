@@ -59,7 +59,7 @@ github:
   token: ${GITHUB_TOKEN:}
   # The checker's GitHub OAuth App, for the Link GitHub button in ⚙: a user links their GitHub account with it, so
   # their PR comments can be their commands. Register the app with the callback URL APP_PUBLIC_URL + /api/github/callback.
-  # Both empty: no Link GitHub button, and only a GitHub token for commits links an account.
+  # Both empty, or APP_PUBLIC_URL empty: no Link GitHub button, and only a GitHub token for commits links an account.
   oauth-client-id: ${GITHUB_OAUTH_CLIENT_ID:}
   oauth-client-secret: ${GITHUB_OAUTH_CLIENT_SECRET:}
   # How long to cache the PR list. Longer = fewer GitHub calls (unauthenticated limit is 60/hour).

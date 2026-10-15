@@ -207,6 +207,22 @@ class GithubLinkPageTest {
             + " GitHub.");
     }
 
+    /**
+     * The checker answers "expired" to any state it does not hold: one older than ten minutes, one of another login,
+     * one a second click replaced, or one a restart lost. ⚙ named the first two causes, wrong after a restart.
+     */
+    @Test
+    void aLinkNoLongerValidIsSaidWithoutGuessingWhy() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: OFF }, 'GET');
+            await page.load('?pr=13575&github=expired');
+            report({ msg: page.el('settingsMsg').textContent });
+            """);
+
+        assertThat(out.get("msg").asText())
+            .isEqualTo("Nothing was linked: this link is no longer valid. Press Link GitHub again.");
+    }
+
     /** The outcome comes from the address, which anyone can write: only the checker's own words are shown. */
     @Test
     void anOutcomeTheCheckerDoesNotSendIsIgnored() throws Exception {

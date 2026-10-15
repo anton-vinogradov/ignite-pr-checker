@@ -134,7 +134,8 @@ prc.example.org {
 например `Ignite PR Checker`. Homepage URL — `APP_PUBLIC_URL`. Authorization callback URL — `APP_PUBLIC_URL` с
 `/api/github/callback` на конце, например `https://prc.example.org/api/github/callback`. Device Flow не включай. Затем
 создай client secret, впиши client ID и секрет в `GITHUB_OAUTH_CLIENT_ID` и `GITHUB_OAUTH_CLIENT_SECRET` в файле env и
-перезапусти сервис. Без них в ⚙ нет **Link GitHub**, и аккаунт привязывает только токен GitHub для коммитов.
+перезапусти сервис. Без них или с пустым `APP_PUBLIC_URL` в ⚙ нет **Link GitHub**, и аккаунт привязывает только токен
+GitHub для коммитов.
 
 **Разрабатывать** — с JDK 17:
 

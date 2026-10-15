@@ -2504,8 +2504,7 @@ $('ghUnlink').onclick = async () => {
 const LINK_OUTCOMES = {
     linked: st => 'Linked ' + (st.login ? '@' + st.login : 'your GitHub account') + ': PR commands are on.',
     denied: () => 'Nothing was linked: you did not authorize the checker on GitHub.',
-    expired: () => 'Nothing was linked: more than 10 minutes passed, or the link began in another login to the'
-        + ' checker. Press Link GitHub again.',
+    expired: () => 'Nothing was linked: this link is no longer valid. Press Link GitHub again.',
     signin: () => 'Nothing was linked: the checker did not see your login when GitHub sent you back. Press Link'
         + ' GitHub again.',
     failed: () => 'Nothing was linked: GitHub did not confirm your account. Try again in a minute.',

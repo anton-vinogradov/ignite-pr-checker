@@ -114,8 +114,8 @@ class CommitTokenTest {
         ResponseEntity<?> comment = controller.standingVisa(null, null, true, null, null, null, "tc", USER, null,
             null);
         ResponseEntity<?> rerun = controller.standingVisa(null, true, null, null, null, null, "tc", USER, null, null);
-        ResponseEntity<?> link = new GithubLinkController(github, standing, mock(AuthInterceptor.class),
-            "https://prc.example.org").link(null, null, "tc", USER);
+        ResponseEntity<?> link = new GithubLinkController(github, standing, mock(AuthInterceptor.class))
+            .link(null, null, "tc", USER);
 
         assertThat(comment.getStatusCode().value()).isEqualTo(409);
         assertThat(((Map<?, ?>)comment.getBody()).get("error")).isEqualTo("not available: this checker has no GitHub"

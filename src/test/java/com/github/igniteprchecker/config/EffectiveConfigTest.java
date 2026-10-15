@@ -177,6 +177,17 @@ class EffectiveConfigTest {
             + " their GitHub accounts with Link GitHub — set both, or neither");
     }
 
+    /** GitHub sends a user back from Link GitHub to the public address: without it the button is gone. */
+    @Test
+    void anOAuthAppWithoutThePublicUrlIsSaidToBeOff() throws IOException {
+        Map<String, Object> vars = new HashMap<>(INSTALLED);
+        vars.putAll(Map.of("GITHUB_OAUTH_CLIENT_ID", "Iv1.0123abcd", "GITHUB_OAUTH_CLIENT_SECRET", "s3cr3tOfTheApp",
+            "APP_PUBLIC_URL", ""));
+
+        assertThat(config(vars).problems()).containsExactly("APP_PUBLIC_URL is empty: links this instance posts to PRs"
+            + " and JIRA lead nowhere, and Link GitHub is off — set it to the https address users open");
+    }
+
     /**
      * Adding PRs' tests to suites picks the suite by a rule, with no model. An env file written for the release that
      * asked Claude still sets the Anthropic key and model: nothing reads them, and they are no config problem.

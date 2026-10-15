@@ -11,8 +11,13 @@ public final class StubbedGithub {
     }
 
     public static GithubClient over(GithubProperties props, RestClient http) {
+        return over(props, "", http);
+    }
+
+    /** The same, of the checker users open at {@code publicUrl}. */
+    public static GithubClient over(GithubProperties props, String publicUrl, RestClient http) {
         ObjectMapper mapper = new ObjectMapper();
 
-        return new GithubClient(props, mapper, new Metrics(mapper), http);
+        return new GithubClient(props, mapper, new Metrics(mapper), publicUrl, http);
     }
 }

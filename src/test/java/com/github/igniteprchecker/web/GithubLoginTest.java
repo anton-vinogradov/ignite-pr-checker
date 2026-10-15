@@ -2,7 +2,6 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -48,13 +47,12 @@ class GithubLoginTest {
         mock(Warmer.class), mock(PendingCommits.class));
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
-        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing), "https://prc.example.org",
-        System::currentTimeMillis);
+        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing));
 
     @BeforeEach
     void enrolled() {
         when(github.linksAccounts()).thenReturn(true);
-        when(github.authorizeUri(anyString(), anyString())).thenAnswer(inv -> UriComponentsBuilder
+        when(github.authorizeUri(anyString())).thenAnswer(inv -> UriComponentsBuilder
             .fromUriString("https://github.com/login/oauth/authorize").queryParam("state", (String)inv.getArgument(0))
             .build().toUri());
         standing.change("nsamelchev", "tc-1", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
@@ -260,7 +258,7 @@ class GithubLoginTest {
             .get("url")));
         String state = UriComponentsBuilder.fromUri(authorize).build().getQueryParams().getFirst("state");
         String code = "code-of-" + username;
-        when(github.oauthUser(eq(code), anyString())).thenReturn(Optional.of(account));
+        when(github.oauthUser(code)).thenReturn(Optional.of(account));
         MockHttpServletRequest browser = new MockHttpServletRequest();
         browser.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(username, tcToken,
             null))));

@@ -130,7 +130,8 @@ settings → OAuth Apps → New OAuth App. Application name: what users see on G
 URL: the `APP_PUBLIC_URL`. Authorization callback URL: the `APP_PUBLIC_URL` with `/api/github/callback` at the end,
 e.g. `https://prc.example.org/api/github/callback`. Leave Device Flow off. Then generate a client secret, put the
 client ID and the secret into `GITHUB_OAUTH_CLIENT_ID` and `GITHUB_OAUTH_CLIENT_SECRET` in the env file, and restart
-the service. Without them ⚙ has no **Link GitHub**, and only a GitHub token for commits links an account.
+the service. Without them, or with an empty `APP_PUBLIC_URL`, ⚙ has no **Link GitHub**, and only a GitHub token for
+commits links an account.
 
 **Develop** with JDK 17:
 

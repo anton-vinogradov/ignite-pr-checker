@@ -91,7 +91,7 @@ SESSION_COOKIE_SECURE=true
 # it, so their /run-all comments run under their own TeamCity accounts. Register it under the app account: GitHub ->
 # Settings -> Developer settings -> OAuth Apps -> New OAuth App. Homepage URL: APP_PUBLIC_URL. Authorization callback
 # URL: APP_PUBLIC_URL followed by /api/github/callback. Leave Device Flow off. Then generate a client secret. Without
-# these two, only a GitHub token for commits links an account.
+# these two, or without APP_PUBLIC_URL, only a GitHub token for commits links an account.
 #GITHUB_OAUTH_CLIENT_ID=
 #GITHUB_OAUTH_CLIENT_SECRET=
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
