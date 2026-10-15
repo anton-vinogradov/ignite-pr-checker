@@ -44,7 +44,7 @@ class PrHeadPageTest {
             page.route('/api/analyze', { body: verdict(RUN) });
             await page.load('?pr=13575');
             report({ text: page.el('freshText').textContent, html: page.el('freshText').innerHTML,
-                more: page.el('freshMore').textContent });
+                more: page.el('freshMore').textContent, moreHtml: page.el('freshMore').innerHTML });
             """;
 
         JsonNode reused = PageScript.run("index.html", PageScript.SIGNED_IN
@@ -62,6 +62,8 @@ class PrHeadPageTest {
             .contains("title=\"When the checker last computed this verdict from the run and master's history. ↻ computes "
                 + "it again.\">verdict computed 30s ago</span>");
         assertThat(reused.get("more").asText()).isEqualTo(" · 135 suites ran, 12 reused from earlier runs");
+        assertThat(reused.get("moreHtml").asText()).contains("title=\"TeamCity took the results of reused suites from "
+            + "earlier runs of the same code instead of running them again.\"");
         assertThat(Files.readString(PAGE, UTF_8)).contains("<button id=\"refreshBtn\" class=\"refresh hidden\" type=\"button\"\n"
             + "                        title=\"Compute the verdict again now\" aria-label=\"Compute the verdict again now\">↻</button>");
         assertThat(none.get("more").asText()).as("nothing reused: nothing to say").isEmpty();
@@ -150,7 +152,7 @@ class PrHeadPageTest {
             .contains("on latest commit", "⚠ old commit ac9f829", "takes latest commit at start")
             .doesNotContain("rev ");
         assertThat(out.get("html").asText())
-            .contains("title=\"This run tests the PR's latest commit\"")
+            .contains("title=\"This run tests the PR's latest commit.\"")
             .contains("title=\"Started on ac9f829. Commits were pushed after, so this run tests older code.\"")
             .contains("title=\"TeamCity picks the commit when the run starts: the PR's latest commit at that moment.\"");
     }
@@ -176,7 +178,8 @@ class PrHeadPageTest {
 
         assertThat(out.get("busy").get("text").asText()).isEqualTo("Analyzing the latest RunAll…");
         assertThat(out.get("busy").get("cls").asBoolean()).isTrue();
-        assertThat(out.get("retrying").get("text").asText()).isEqualTo("The service is busy or restarting. Retrying…");
+        assertThat(out.get("retrying").get("text").asText())
+            .isEqualTo("The service may be busy or restarting. Retrying…");
         assertThat(out.get("retrying").get("cls").asBoolean()).isTrue();
 
         JsonNode failed = out.get("failed");

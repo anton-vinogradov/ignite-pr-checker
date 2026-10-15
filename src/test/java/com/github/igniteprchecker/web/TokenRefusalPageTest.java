@@ -24,7 +24,7 @@ class TokenRefusalPageTest {
             """);
 
         assertThat(out.get("text").asText()).isEqualTo("Auto visa ⚠");
-        assertThat(out.get("state").asText()).isEqualTo("JIRA refused your token. Click to arm it again.");
+        assertThat(out.get("state").asText()).isEqualTo("JIRA refused your token. Click Auto visa to arm it again.");
         assertThat(out.get("pressed").asText()).isEqualTo("false");
         assertThat(out.get("title").asText()).isEqualTo("JIRA refused your token, so your auto visa for IGNITE-29049"
             + " was dropped with it. Click to arm it again; a new token is asked for if needed.");

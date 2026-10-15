@@ -52,6 +52,21 @@ class QueueAtTopPageTest {
         assertThat(out.get("suite").asText()).isEqualTo("Queued #503, " + NOTE);
     }
 
+    /** TeamCity answered 500 to the move: that says nothing about what the account may do. */
+    @Test
+    void aRefusalOtherThanForbiddenDoesNotBlameTheAccount() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + TRIGGERS + """
+            page.route('/api/rerun-suite', { body: { triggered: [build(503, { belowTop: true, topRefusal: 500 })] } },
+                'POST');
+            await page.load('?pr=13575');
+            await page.run('rerunSuite')('Cache', true, page.el('suiteRerun'));
+            report({ status: page.el('status').textContent });
+            """);
+
+        assertThat(out.get("status").asText())
+            .isEqualTo("Queued #503, at the end of the queue: TeamCity refused to move it to the top.");
+    }
+
     @Test
     void aBuildAtTheTopGetsNoNote() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + TRIGGERS + """

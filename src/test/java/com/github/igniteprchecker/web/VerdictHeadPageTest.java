@@ -27,7 +27,8 @@ class VerdictHeadPageTest {
 
         assertThat(out.get("head").asText()).isEqualTo("✓ No blockers");
         assertThat(out.get("clean").asBoolean()).isTrue();
-        assertThat(out.get("lines").asText()).isEqualTo("Nothing in this run looks caused by your PR. Good to go.");
+        assertThat(out.get("lines").asText())
+            .isEqualTo("Nothing in this run looks caused by your PR. You don't need to fix or rerun anything.");
         assertThat(out.get("title").asText()).startsWith("✅ no blockers");
     }
 
@@ -59,7 +60,7 @@ class VerdictHeadPageTest {
         assertThat(out.get("head").asText()).isEqualTo("No proven blockers yet");
         assertThat(out.get("clean").asBoolean()).isFalse();
         assertThat(out.get("lines").asText()).isEqualTo("1 test started failing on the code this run tested. Rerun "
-            + "their suites under Recently started failing: that decides.");
+            + "their suites under Recently started failing: the rerun shows whether these tests are blockers.");
         assertThat(out.get("title").asText()).startsWith("⚠ started failing");
     }
 
@@ -93,8 +94,8 @@ class VerdictHeadPageTest {
 
         assertThat(out.get("head").asText()).isEqualTo("No proven blockers yet");
         assertThat(out.get("lines").asText()).isEqualTo("2 tests started failing on the code this run tested. Rerun "
-            + "their suites under Recently started failing: that decides.This run also can't prove the PR is clean: it "
-            + "tested older code (see the note at the top).");
+            + "their suites under Recently started failing: the rerun shows whether these tests are blockers."
+            + "This run also can't prove the PR is clean: it tested older code (see the note at the top).");
     }
 
     /** With blockers, the caveats are said too, as the PR comment says them. */

@@ -260,7 +260,7 @@ class VerdictCardPageTest {
         assertThat(posted.get("status").asText()).isEqualTo("Visa posted to IGNITE-29049");
 
         assertThat(out.get("armed").get("note").asText()).isEqualTo("Auto visa armed: the verdict goes to IGNITE-29049 "
-            + "when the next RunAll of this PR finishes.");
+            + "the next time a RunAll of this PR finishes.");
         assertThat(out.get("armed").get("pressed").asText()).isEqualTo("true");
 
         JsonNode failed = out.get("failed");
@@ -383,7 +383,8 @@ class VerdictCardPageTest {
             + " blockers: [], standing: 'UNPROVEN', caveats: ['1 suite(s) have no reliable result (execution timeout)'] });"
             + scenario);
 
-        assertThat(watch.get("shown").toString()).isEqualTo("[\"PR #13575: 2 tests started failing. A rerun decides.\"]");
+        assertThat(watch.get("shown").toString())
+            .isEqualTo("[\"PR #13575: 2 tests started failing. A rerun shows whether they are blockers.\"]");
         assertThat(watch.get("title").asText()).isEqualTo("⚠ started failing · #13575 — Ignite PR Checker");
         assertThat(unproven.get("shown").toString())
             .isEqualTo("[\"PR #13575: no blockers found, not proven clean. Open the page to see why.\"]");

@@ -141,7 +141,7 @@ class SteadyRefreshTest {
             report({ failed, answered, analyses: page.fetches('/api/analyze').length, queued: page.el('status').textContent });
             """);
 
-        assertThat(out.get("failed").asText()).startsWith("⚠ Not recomputed: TeamCity is unreachable");
+        assertThat(out.get("failed").asText()).startsWith("⚠ Verdict not recomputed: TeamCity is unreachable");
         assertThat(out.get("answered").asText()).isEmpty();
         assertThat(out.get("analyses").asInt()).isEqualTo(3);
         assertThat(out.get("queued").asText()).as("a newer note outlives the look").startsWith("Queued 1 build");

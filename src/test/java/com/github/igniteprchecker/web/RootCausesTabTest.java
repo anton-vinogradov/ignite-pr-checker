@@ -66,7 +66,24 @@ class RootCausesTabTest {
         assertThat(out.get("text").asText())
             .contains("2 tests · no failure message — TeamCity no longer keeps the failure messages of runs from 23 Sep "
                 + "— re-run the suite to see why they fail")
-            .doesNotContain("not checked");
+            .doesNotContain("message not requested");
+    }
+
+    /** Blockers past the sample were labelled "not checked", as if nobody had judged them, and guessed to share a cause. */
+    @Test
+    void blockersPastTheSampleSayTheirMessageWasNotRequested() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + THREE + """
+            page.route('/api/causes', { body: groups({ sampled: 2 }) });
+            await page.load('?pr=13575');
+            page.run('setBlockerView')('causes');
+            await page.settle();
+            report({ text: page.el('causesView').textContent });
+            """);
+
+        assertThat(out.get("text").asText())
+            .contains("1 test · message not requested — The checker asks TeamCity for the failure messages of only 2 of "
+                + "3 blockers, taken in turn from each suite.")
+            .doesNotContain("not checked", "likely");
     }
 
     @Test

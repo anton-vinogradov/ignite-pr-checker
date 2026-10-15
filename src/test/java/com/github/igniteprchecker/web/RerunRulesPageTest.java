@@ -234,15 +234,19 @@ class RerunRulesPageTest {
 
         assertThat(page).contains("Rerun these first: the verdict above can't see their tests. A compilation error needs a "
             + "code fix instead, so it has no Rerun.")
-            .contains("Tests that did not run cannot fail. Fine if this PR removes tests. If not, compare the test list with "
-                + "master and rerun.")
+            .contains("Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If not, "
+                + "compare the test list with master and rerun.")
             .contains("Not blockers yet: there are too few runs of this code to tell a break from a flake. Rerun their suites: "
                 + "if they keep failing, they become blockers; if they pass, they drop out.")
-            .contains("These tests failed, but TeamCity errors stopped the check. Not blockers. The checker tries again by itself.")
+            .contains("These tests failed, but TeamCity errors stopped the check. They are not counted as blockers. "
+                + "The checker tries again by itself.")
             .contains("None of their failures is blamed on this PR (see Not blamed on this PR), so the results of the tests "
                 + "they ran stand. Nothing to do.")
+            .contains("title=\"These tests failed, but they fail on master too, are flaky, or passed in a later run.\"")
+            .contains("The checker does not look for blockers in a suite that timed out or crashed: its tests may have "
+                + "failed only because of that.")
             .doesNotContain("Didn't complete a reliable run", "the passes above them", "How the test classes this PR adds or "
-                + "changes ran in this RunAll.</p>", "Filtered out");
+                + "changes ran in this RunAll.</p>", "Filtered out", "mined for blockers", "hang cascade");
         assertThat(page).containsPattern("<summary>Not blamed on this PR <span id=\"filteredCount\"></span> <a class=\"help\""
             + "[^>]*>\\?</a></summary> <p class=\"muted filtered-line\">Nothing to do for this PR. Rerun only to double-check "
             + "the flaky ones. <span class=\"sect-act hidden\" id=\"filteredActs\">");

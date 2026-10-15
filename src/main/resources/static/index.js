@@ -326,7 +326,9 @@ function belowTop(triggered) {
     const all = triggered || [], below = all.filter(b => b.belowTop);
     if (!below.length) return null;
     return { partial: below.length < all.length ? below.length : 0,
-        why: `ci2 did not let your account move ${below.length === 1 ? 'it' : 'them'} to the top.` };
+        why: below[0].topRefusal === 403
+            ? `ci2 did not let your account move ${below.length === 1 ? 'it' : 'them'} to the top.`
+            : `TeamCity refused to move ${below.length === 1 ? 'it' : 'them'} to the top.` };
 }
 
 // The end of the status line: ", at the end of the queue: …" or "; 2 of them at the end of the queue: …".
@@ -470,7 +472,7 @@ async function loadRuns(number) {
     // that started before the latest push tests older code; a queued one has no commit yet (TeamCity picks it at
     // the start).
     const revTag = b => b.onHead === true
-        ? `<span class="rev-ok" title="This run tests the PR's latest commit">on latest commit</span>`
+        ? `<span class="rev-ok" title="This run tests the PR's latest commit.">on latest commit</span>`
         : b.onHead === false
             ? `<span class="rev-stale" title="Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.">⚠ old commit ${esc(b.rev)}</span>`
             : b.state === 'queued'
@@ -651,7 +653,8 @@ function notifyIfFinal(st) {
     const n = st.res.blockers.length, w = (st.res.watch || []).length;
     const head = st.verdict === 'blockers' ? `${n} blocker${n === 1 ? '' : 's'}`
         : st.verdict === 'clean' ? 'no blockers'
-        : st.verdict === 'watch' ? `${w} test${w === 1 ? '' : 's'} started failing. A rerun decides.`
+        : st.verdict === 'watch'
+            ? `${w} test${w === 1 ? '' : 's'} started failing. A rerun shows whether they are blockers.`
         : 'no blockers found, not proven clean. Open the page to see why.';
     notifyFor = null;
     try {
@@ -798,8 +801,8 @@ async function analyze(number, quiet) {
         const why = genericError(error) ? null : error;
         if (analyzeRetries < 6) {
             analyzeRetries++;
-            sayStatus(why ? `Could not analyze this PR: ${why}. Retrying…` : 'The service is busy or restarting. Retrying…',
-                { busy: true });
+            sayStatus(why ? `Could not analyze this PR: ${why}. Retrying…`
+                : 'The service may be busy or restarting. Retrying…', { busy: true });
             setTimeout(() => { if (number === selectedPr) analyze(number); }, 4000);
             return;
         }
@@ -1263,13 +1266,13 @@ async function renderCausesView() {
     apart(' silent', silent, 'no failure message', silentNote(silent, d.runStartedAt), false);
     apart(' unread', onScreen(d.unread), 'message not loaded', 'TeamCity did not answer.', true);
     const rest = lastResult.blockers.filter(t => !used.has(blockerKey(t)));
-    apart('', rest, 'not checked', `Only ${d.sampled} of ${d.total} blockers are checked, spread evenly across suites. `
-        + 'Their cause is likely one of the groups above.', false);
+    apart('', rest, 'message not requested', `The checker asks TeamCity for the failure messages of only ${d.sampled} `
+        + `of ${d.total} blockers, taken in turn from each suite.`, false);
     el.dataset.key = key;
     el.innerHTML = blocks.map((b, i) =>
         `<details class="cause${b.note ? ' cause-note' : ''}" data-sig="${esc(b.sig)}"${(kept ? kept.has(b.sig) : b.open) ? ' open' : ''}>`
         + `<summary${b.title ? ` title="${esc(b.title)}"` : ''}>${b.head}`
-        + (b.ai ? ` <button class="why ai-cause" data-i="${i}" title="Copies one prompt that asks an AI coding assistant to fix this cause in all its tests">copy AI prompt</button>` : '')
+        + (b.ai ? ` <button class="why ai-cause" data-i="${i}" title="Copies one prompt that asks an AI coding assistant to fix this cause in all its tests.">copy AI prompt</button>` : '')
         + (b.retry ? ' <button class="act retry-causes" type="button">Retry</button>' : '')
         + `</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
         || '<p class="muted">nothing to group</p>';
@@ -1326,7 +1329,7 @@ function suitesRanLabel(res) {
     if (!(res.suitesReused > 0) && !res.live) return '';
     const ran = `${res.suitesRan} suite${res.suitesRan === 1 ? '' : 's'} ran`;
     const reused = res.suitesReused > 0 ? `, ${res.suitesReused} reused from earlier runs` : '';
-    return ` · <span class="hint" title="TeamCity took these suites' results from earlier runs of the same code instead of running them again.">${ran}${reused}</span>`;
+    return ` · <span class="hint" title="TeamCity took the results of reused suites from earlier runs of the same code instead of running them again.">${ran}${reused}</span>`;
 }
 
 // Redrawn by itself every half minute, so "verdict computed …" and the run's age never freeze. ↻ stands between
@@ -1542,11 +1545,12 @@ function verdictLines(res, standing) {
     const listed = caveats.join('; ') + '.';
     if (res.blockers.length) return caveats.length ? [`This run doesn't cover the PR fully: ${listed}`] : [];
     if (standing === 'CHECKING') return ['Checking that this run tested the PR\'s latest commit…'];
-    if (standing === 'CLEAN') return ['Nothing in this run looks caused by your PR. Good to go.'];
+    if (standing === 'CLEAN')
+        return ['Nothing in this run looks caused by your PR. You don\'t need to fix or rerun anything.'];
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
         return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested. Rerun their suites under `
-            + 'Recently started failing: that decides.']
+            + 'Recently started failing: the rerun shows whether these tests are blockers.']
             .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
     }
     return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
@@ -1820,8 +1824,9 @@ async function refresh() {
             return;
         }
         // With a verdict on screen, keep it and look again quietly; with none, retry visibly.
-        failedRefresh = lastResult ? notDone('Not recomputed', error) : '';
-        sayStatus(failedRefresh || 'The service is busy or restarting. Retrying…', { err: !!failedRefresh, busy: !failedRefresh });
+        failedRefresh = lastResult ? notDone('Verdict not recomputed', error) : '';
+        sayStatus(failedRefresh || 'The service may be busy or restarting. Retrying…',
+            { err: !!failedRefresh, busy: !failedRefresh });
         setTimeout(() => { if (pr === selectedPr) analyze(pr, !!lastResult); }, 4000);
         return;
     }
@@ -2479,7 +2484,7 @@ function paintAutoVisa() {
     b.disabled = !lastIssueKey;
     b.setAttribute('aria-pressed', String(autoVisa.armed));
     b.textContent = autoVisa.armed ? 'Auto visa ✓' : refused ? 'Auto visa ⚠' : 'Auto visa';
-    state.textContent = refused ? 'JIRA refused your token. Click to arm it again.'
+    state.textContent = refused ? 'JIRA refused your token. Click Auto visa to arm it again.'
         : others ? (autoVisa.armed ? 'also armed by ' : 'armed by ') + others : '';
     b.title = autoVisa.armed ? 'Armed by you. Click to cancel it; this also removes your stored token.'
         : refused ? `JIRA refused your token, so your auto visa for ${refused} was dropped with it. Click to arm it again; `
@@ -2518,7 +2523,7 @@ async function armAutoVisa() {
         autoVisa.armed = !!res.armed;
         autoVisa.refusedFor = null;
         visaNote(autoVisa.armed
-            ? `Auto visa armed: the verdict goes to ${lastIssueKey} when the next RunAll of this PR finishes.`
+            ? `Auto visa armed: the verdict goes to ${lastIssueKey} the next time a RunAll of this PR finishes.`
             : 'Your auto visa is cancelled.');
     } finally {
         paintAutoVisa();
