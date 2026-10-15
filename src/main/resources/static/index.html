@@ -124,6 +124,7 @@
         .card.verdict.watch, .card.verdict.unproven { border-left-color: var(--warn); }
         .card.verdict.watch > h2, .card.verdict.unproven > h2 { color: var(--warn); }
         .visa-group { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
+        .visa-group.muted { color: var(--muted); }
         #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
         .verdict-lines { font-size: 0.86rem; color: var(--warn); }
         .verdict-lines p { margin: 0 0 0.3rem; }
@@ -171,10 +172,8 @@
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
         .card.blockers > h2, .card.watch > h2, .card.interrupted > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
         .card.blockers > h2 .sect-act, .card.watch > h2 .sect-act, .card.interrupted > h2 .sect-act { margin-left: auto; }
-        .card.interrupted { border-color: var(--bad); border-left: 3px solid var(--bad); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
-        .card.watch { border-left: 3px solid var(--warn); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
-        .card.watch h2 { color: var(--warn); margin: 0 0 0.3rem; }
-        .card.interrupted h2 { color: var(--bad); margin: 0 0 0.3rem; }
+        .card.watch, .card.interrupted { border-left: 3px solid var(--warn); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
+        .card.watch h2, .card.interrupted h2 { color: var(--warn); margin: 0 0 0.3rem; }
         .caveat { margin: 0 0 0.4rem; font-size: 0.86rem; color: var(--bad); }
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
@@ -526,8 +525,8 @@
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span>
                             <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them" aria-label="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them">?</a>
                             <span id="blockerTabs" class="group-by hidden"><span class="muted">Group by:</span><span class="tabs">
-                                <button id="tabSuites" class="act on" type="button" title="Group by the suite they failed in">Suites</button>
-                                <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
+                                <button id="tabSuites" class="act on" type="button" aria-pressed="true" title="Group by the suite they failed in">Suites</button>
+                                <button id="tabCauses" class="act" type="button" aria-pressed="false" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
                             </span></span>
                             <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="blockerActsNote" class="act-note hidden"></span>
                         </h2>

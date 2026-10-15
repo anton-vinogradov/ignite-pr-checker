@@ -222,8 +222,8 @@ not blamed on the PR.
 - **ai** copies a prompt for a coding assistant: the PR, the suite and its run, the test, the checker's verdict with
   its reason, the triage label, the failure output, and how to reproduce it on the commit the run tested, with steps
   for Java, .NET or C++ by suite. Everything quoted from the PR is marked as data, not instructions, and the prompt
-  asks to run the PR's code in an isolated environment. Root causes, broken suites and suites with fewer tests than
-  master have their own **ai** prompts.
+  asks to run the PR's code in an isolated environment. On the Root causes tab, **copy AI prompt** copies one prompt
+  for every test of a cause; broken suites and suites with fewer tests than master have their own **ai** prompts.
 - **The tab** shows how the run stands in its title and icon: `⏱ ~1h 05m left`, `♻️ re-run 1/2`, then
   `❌ 3 blockers`, `✅ no blockers`, `⚠ started failing` or `⚠ not proven clean`. **🔔 Notify me** sends one desktop
   notification when the verdict is final; the tab has to stay open.

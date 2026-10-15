@@ -151,6 +151,14 @@ class GlossaryTest {
             "⌛ hang — the test ran out of time");
     }
 
+    /** A cause's button on the Root causes tab reads "copy AI prompt"; the tours name it so, apart from the rows' "ai". */
+    @Test
+    void theToursNameTheCausesButtonAsThePageWritesIt() throws IOException {
+        assertThat(read(PAGE_SCRIPT)).contains(">copy AI prompt</button>");
+        for (Path tour : List.of(TOUR, TOUR_RU))
+            assertThat(read(tour)).as(tour.getFileName().toString()).contains("**copy AI prompt**");
+    }
+
     @Test
     void theThresholdsAreTheCodes() throws Exception {
         Map<String, String> table = table(section(glossary(TOUR), "Thresholds"));

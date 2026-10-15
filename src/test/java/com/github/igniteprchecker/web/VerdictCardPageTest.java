@@ -185,6 +185,52 @@ class VerdictCardPageTest {
             + "running now finishes.");
     }
 
+    /** A RunAll that starts while the page is open: the next poll of the runs repaints the switch's "when". */
+    @Test
+    void theAutoVisaFollowsTheRunsAsTheyArePolled() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            await page.load('?pr=13575');
+            """ + TICKET + """
+            const idle = page.el('autoVisaBtn').title;
+            page.route('/api/runs', { body: [{ buildId: 9100, runAll: true, state: 'running', name: 'RunAll', mine: true,
+                webUrl: 'https://ci2.example/build/9100', leftSec: 600, pct: 80 }] });
+            await page.run('loadRuns')(13575);
+            const running = page.el('autoVisaBtn').title;
+            page.route('/api/runs', { body: [] });
+            await page.run('loadRuns')(13575);
+            report({ idle, running, finished: page.el('autoVisaBtn').title });
+            """);
+
+        assertThat(out.get("idle").asText()).contains("when the next RunAll of this PR finishes");
+        assertThat(out.get("running").asText()).contains("when the RunAll that is running now finishes");
+        assertThat(out.get("finished").asText()).contains("when the next RunAll of this PR finishes");
+    }
+
+    /** The view switch says which view is on to a screen reader too, not only by its fill. */
+    @Test
+    void theViewTabsTellAScreenReaderWhichViewIsOn() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ blockers: [blocker('A.a', 'o1'), blocker('A.b', 'o2')] }) });
+            page.route('/api/causes', { body: { total: 2, sampled: 2, noMessage: [], unread: [], runStartedAt: {},
+                clusters: [{ signature: 'Partition N lost', count: 2, tests: [] }] } });
+            await page.load('?pr=13575');
+            const pressed = () => [page.el('tabSuites').getAttribute('aria-pressed'), page.el('tabCauses').getAttribute('aria-pressed')];
+            const suites = pressed();
+            page.run('setBlockerView')('causes');
+            await page.settle();
+            const causes = pressed();
+            page.run('setBlockerView')('suites');
+            report({ suites, causes, back: pressed() });
+            """);
+
+        assertThat(Files.readString(PAGE, UTF_8))
+            .contains("<button id=\"tabSuites\" class=\"act on\" type=\"button\" aria-pressed=\"true\"")
+            .contains("<button id=\"tabCauses\" class=\"act\" type=\"button\" aria-pressed=\"false\"");
+        assertThat(out.get("suites").toString()).isEqualTo("[\"true\",\"false\"]");
+        assertThat(out.get("causes").toString()).isEqualTo("[\"false\",\"true\"]");
+        assertThat(out.get("back").toString()).isEqualTo("[\"true\",\"false\"]");
+    }
+
     @Test
     void aVisaAnswersUnderTheHeadingWithACopyInTheStatusLine() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
@@ -266,6 +312,45 @@ class VerdictCardPageTest {
         assertThat(threeRuns.get("bars").asText())
             .contains("title=\"RunAll 9000, 6 Oct: 5 blockers, 1 broken suite\"", "title=\"RunAll 9001, 7 Oct: 1 blocker\"")
             .contains("style=\"--h:16px\"", "style=\"--h:4px\"");
+    }
+
+    /**
+     * PR 13575's comparison stood on PR 13461's card: the row lives in the results now, and the service, restarting,
+     * answered 502 to the new PR's delta. The row is cleared with the PR, and an answer for a verdict no longer on
+     * screen is dropped.
+     */
+    @Test
+    void theComparisonOfOnePrIsNotShownOnTheNext() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            const first = verdict();
+            const delta = { prevBuildId: 9000, latestBuildId: 9001, appeared: [{ name: 'org.apache.ignite.A.a', suite: 'Cache' }],
+                fixed: [], persisting: 33 };
+            page.route('/api/delta', { body: { delta, history: [] } });
+            await page.load('?pr=13575');
+            const shown = { text: page.el('delta').textContent, hidden: page.el('deltaRow').classList.contains('hidden') };
+            page.route('/api/analyze', { body: verdict({ prNumber: 13461, buildId: 7001, blockers: [], standing: 'CLEAN',
+                caveats: [] }) });
+            page.route('/api/delta', { status: 502, body: { error: 'Bad Gateway' } });
+            await page.run('openPr')(13461, true);
+            await page.settle();
+            const next = { text: page.el('delta').textContent, bars: page.el('trend').innerHTML,
+                hidden: page.el('deltaRow').classList.contains('hidden'), results: page.el('results').classList.contains('hidden') };
+            page.route('/api/delta', { body: { delta, history: [] } });
+            await page.run('loadDelta')(first);
+            report({ shown, next, late: { text: page.el('delta').textContent, hidden: page.el('deltaRow').classList.contains('hidden') } });
+            """);
+
+        assertThat(out.get("shown").get("text").asText()).isEqualTo("Blockers since the previous RunAll: 1 new · 33 still blocking");
+        assertThat(out.get("shown").get("hidden").asBoolean()).isFalse();
+
+        JsonNode next = out.get("next");
+        assertThat(next.get("results").asBoolean()).as("the next PR's results are on screen").isFalse();
+        assertThat(next.get("hidden").asBoolean()).as("13575's comparison shown on 13461: " + next.get("text").asText()).isTrue();
+        assertThat(next.get("text").asText()).isEmpty();
+        assertThat(next.get("bars").asText()).isEmpty();
+
+        assertThat(out.get("late").get("hidden").asBoolean()).as("a late answer for the PR that was left").isTrue();
+        assertThat(out.get("late").get("text").asText()).isEmpty();
     }
 
     /** The desktop notification tells WATCH from "not proven clean", as the tab's title does. */

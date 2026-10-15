@@ -485,6 +485,7 @@ async function loadRuns(number) {
     $('cancelMine').classList.toggle('hidden', !runs.some(b => b.mine));
     if (!$('pendingRow').classList.contains('hidden')) paintPending();
     paintPrimary();
+    paintAutoVisa();
     if (noRunNote && $('status').textContent === noRunNote) showNoRun();
 
     // When the runs we were watching have all finished, refresh the analysis to pick up their results.
@@ -1100,13 +1101,24 @@ function deltaText(d) {
     return `Blockers since the ${prev}: ` + parts.join(' · ');
 }
 
+// Is the verdict on screen the one `res` was asked for? A PR opened or a run finished while the answer was on its way.
+function stillShown(res) {
+    return lastResult && lastResult.prNumber === res.prNumber && lastResult.buildId === res.buildId;
+}
+
+function clearDelta() {
+    $('delta').innerHTML = '';
+    $('trend').innerHTML = '';
+    $('deltaRow').classList.add('hidden');
+}
+
 // The line in the verdict card that compares the blockers with the PR's previous RunAll, with the bars per run.
 async function loadDelta(res) {
     try {
         const r = await api('/api/delta?pr=' + res.prNumber);
-        if (!r.ok) return;
+        if (!r.ok || !stillShown(res)) return;
         const body = await r.json().catch(() => null);
-        if (!body) return;
+        if (!body || !stillShown(res)) return;
         const hasTrend = renderTrend(body.history);
         const d = body.delta;
         // only meaningful when the delta's latest run is the one on screen
@@ -1186,8 +1198,10 @@ async function updateCauseCount() {
 
 function setBlockerView(v) {
     blockerView = v;
-    $('tabSuites').classList.toggle('on', v === 'suites');
-    $('tabCauses').classList.toggle('on', v === 'causes');
+    for (const [id, view] of [['tabSuites', 'suites'], ['tabCauses', 'causes']]) {
+        $(id).classList.toggle('on', v === view);
+        $(id).setAttribute('aria-pressed', String(v === view));
+    }
     $('blockers').classList.toggle('hidden', v !== 'suites');
     $('causesView').classList.toggle('hidden', v !== 'causes');
     paintOneRunGroup();
@@ -1259,7 +1273,7 @@ async function renderCausesView() {
         + (b.retry ? ' <button class="act retry-causes" type="button">Retry</button>' : '')
         + `</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
         || '<p class="muted">nothing to group</p>';
-    blocks.forEach((b, i) => renderList($('causeTests' + i), b.tests, false, true));
+    blocks.forEach((b, i) => renderList($('causeTests' + i), b.tests, false, suitesOfTests(lastResult.blockers)));
     for (const b of el.querySelectorAll('.ai-cause')) {
         b.onclick = e => { e.preventDefault(); aiCausePrompt(b, blocks[+b.dataset.i]); };
     }
@@ -1424,15 +1438,15 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     renderBroken($('unstableSuites'), unstable);
     $('watchCard').classList.toggle('hidden', watch.length === 0);
     $('watchCount').textContent = watch.length ? countLabel(watch) : '';
-    renderList($('watch'), watch, true, true);
+    renderList($('watch'), watch, true, suitesOfTests(watch));
     const unverified = res.unverified || [];
     $('unverifiedCard').classList.toggle('hidden', unverified.length === 0);
     $('unverifiedCount').textContent = unverified.length ? countLabel(unverified) : '';
-    renderList($('unverified'), unverified, true, true);
+    renderList($('unverified'), unverified, true, []);
     $('blockersCard').classList.toggle('hidden', !hasBlockers);
     wireSectActs('blockerActs', suitesOfTests(res.blockers));
     renderBlockers(res.blockers);
-    renderList($('filtered'), res.filtered, true, false);
+    renderList($('filtered'), res.filtered, true, suitesOfTests(res.filtered));
     annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
     $('results').classList.remove('hidden');
     wireSectActs('brokenActs', rerunOfGroups(groups));
@@ -1450,6 +1464,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
     if (tabsOn) updateCauseCount();
     if (kept) restoreOpen(kept);
+    if (!prev || prev.buildId !== res.buildId) clearDelta(); // or the previous run's comparison stands as this run's
     loadDelta(res);
     paintPrimary();
     if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
@@ -1968,11 +1983,12 @@ function oneRun(t) {
 function renderBlockers(blockers) {
     const single = blockers.filter(oneRun);
     const allSingle = single.length > 0 && single.length === blockers.length;
-    renderList($('blockers'), allSingle ? blockers : blockers.filter(t => !oneRun(t)), true, true);
-    renderList($('oneRunBlockers'), allSingle ? [] : single, true, true);
+    renderList($('blockers'), allSingle ? blockers : blockers.filter(t => !oneRun(t)), true, suitesOfTests(blockers));
+    const suites = suitesOfTests(single);
+    // The group's pair, or the card's when they re-run the same suites: either way the pair above re-runs `suites`.
+    renderList($('oneRunBlockers'), allSingle ? [] : single, true, suites);
     $('oneRunNote').classList.toggle('hidden', !allSingle);
     $('oneRunCount').textContent = single.length && !allSingle ? countLabel(single) : '';
-    const suites = suitesOfTests(single);
     wireSectActs('oneRunActs', allSingle || sameSuites(suites, suitesOfTests(blockers)) ? [] : suites);
     paintOneRunGroup();
 }
@@ -1984,10 +2000,10 @@ function paintOneRunGroup() {
     $('oneRunGroup').classList.toggle('hidden', !mixed || blockerView !== 'suites');
 }
 
-// Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its
-// tests. Links use the Sakura-native build URL so the Tests tab + test anchor survive
-// (viewLog.html would redirect to Sakura and drop them).
-function renderList(el, tests, withReason, rerunnable) {
+// Group failed tests by the suite (CI run) they failed in: a clickable suite header with its own quiet Rerun pair,
+// unless the pair `above` the list re-runs just that suite, then its tests. Links use the Sakura-native build URL so
+// the Tests tab + test anchor survive (viewLog.html would redirect to Sakura and drop them).
+function renderList(el, tests, withReason, above) {
     const groups = new Map();
     for (const t of tests) {
         const key = t.suiteBuildId || 0;
@@ -1999,12 +2015,7 @@ function renderList(el, tests, withReason, rerunnable) {
         const runUrl = g.buildId ? `${tcBase}buildConfiguration/${encodeURIComponent(g.btId)}/${g.buildId}` : '';
         const head = esc(g.name)
             + (g.buildId ? `<a class="ext" href="${runUrl}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-        const rerunBtns = rerunnable && g.btId
-            ? `<span class="suite-runs">`
-                + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="false" title="Re-run this suite">Rerun</button>`
-                + `<button class="suite-rerun" data-suite="${esc(g.btId)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun at top</button>`
-                + `</span>`
-            : '';
+        const rerunBtns = suiteRowActs(g.btId, above);
         const rows = g.items.map(t => {
             const short = esc(shortTestName(t.name));
             // expandedTest opens the test "into itself" in this build (not the branch summary).

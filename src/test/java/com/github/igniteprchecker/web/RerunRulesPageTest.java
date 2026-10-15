@@ -72,6 +72,38 @@ class RerunRulesPageTest {
             .contains("data-suite=\"Cache2\" data-top=\"true\" title=\"Re-run this suite at the top of the queue\">Rerun at top</button>");
     }
 
+    /**
+     * The same rule in the lists of tests: with one blocker the card's pair re-runs its only suite, so the row has no
+     * pair; with two suites each row has its quiet pair; a row of Could not be checked keeps its pair, since no pair
+     * stands above it.
+     */
+    @Test
+    void aTestListsSuiteRowHasAQuietPairUnlessThePairAboveReRunsJustItsSuite() throws Exception {
+        String scenario = """
+            page.route('/api/analyze', { body: verdict(VERDICT) });
+            await page.load('?pr=13575');
+            report({ blockers: page.el('blockers').innerHTML, unverified: page.el('unverified').innerHTML,
+                sectionSuites: page.run('[...sectActs.get("blockerActs").suites]') });
+            """;
+        String unverified = "{ unverified: [Object.assign(blocker('C.c', 'o3'), { blocker: false,"
+            + " reason: 'could not verify (TeamCity error: 502)' })] }";
+        String twoSuites = "{ blockers: [blocker('A.a', 'o1'), Object.assign(blocker('B.b', 'o2'),"
+            + " { suite: 'IgniteTests24Java8_Pds', suiteBuildId: 9003, suiteName: 'PDS' })] }";
+        String quietRerun = "<button class=\"suite-rerun quiet\" type=\"button\" data-suite=\"IgniteTests24Java8_Cache\" "
+            + "data-top=\"false\" title=\"Re-run this suite\">Rerun</button>";
+
+        JsonNode one = PageScript.run("index.html", PageScript.SIGNED_IN + "const VERDICT = " + unverified + ";" + scenario);
+        JsonNode two = PageScript.run("index.html", PageScript.SIGNED_IN + "const VERDICT = " + twoSuites + ";" + scenario);
+
+        assertThat(one.get("sectionSuites").toString()).isEqualTo("[\"IgniteTests24Java8_Cache\"]");
+        assertThat(one.get("blockers").asText()).as("the card's pair re-runs this one suite").doesNotContain("suite-rerun");
+        assertThat(one.get("unverified").asText()).as("no pair stands above Could not be checked").contains(quietRerun);
+        assertThat(two.get("blockers").asText()).contains(quietRerun)
+            .contains("data-suite=\"IgniteTests24Java8_Pds\" data-top=\"true\" title=\"Re-run this suite at the top of the queue\">"
+                + "Rerun at top</button>")
+            .doesNotContain("class=\"suite-rerun\"");
+    }
+
     @Test
     void theOneFilledButtonIsTheNextStep() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PAIRS + """
