@@ -51,7 +51,7 @@ class CookieReissueTest {
         jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
     private final JiraController controller = new JiraController(jira, tc, mock(BlockerAnalyzer.class), codec,
-        mock(VisaService.class), mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
+        mock(VisaService.class), mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false);
 
     @Test
     void savingAJiraTokenDropsTheGithubTokenOfAnEarlierCookie() throws Exception {

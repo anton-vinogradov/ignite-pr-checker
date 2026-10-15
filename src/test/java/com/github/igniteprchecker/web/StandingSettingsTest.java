@@ -51,7 +51,7 @@ class StandingSettingsTest {
 
     private final JiraController controller = new JiraController(jira, mock(TcClient.class), mock(BlockerAnalyzer.class),
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), mock(VisaService.class),
-        mock(VisaSubscriptions.class), standing, github, mock(PendingCommits.class), false);
+        mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false);
 
     @BeforeEach
     void enrolledEarlierWithEverything() {

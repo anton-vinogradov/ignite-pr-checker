@@ -3,7 +3,6 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
-import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
@@ -45,13 +44,12 @@ public class JiraController {
     private final VisaService visas;
     private final VisaSubscriptions visaSubs;
     private final StandingVisas standing;
-    private final GithubClient github;
     private final PendingCommits pending;
     private final boolean cookieSecure;
 
     public JiraController(JiraClient jira, TcClient tc,
         BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
-        VisaSubscriptions visaSubs, StandingVisas standing, GithubClient github, PendingCommits pending,
+        VisaSubscriptions visaSubs, StandingVisas standing, PendingCommits pending,
         @Value("${session.cookie-secure}") boolean cookieSecure) {
         this.jira = jira;
         this.tc = tc;
@@ -60,7 +58,6 @@ public class JiraController {
         this.visas = visas;
         this.visaSubs = visaSubs;
         this.standing = standing;
-        this.github = github;
         this.pending = pending;
         this.cookieSecure = cookieSecure;
     }
@@ -146,51 +143,6 @@ public class JiraController {
     @GetMapping("/auto-visa-all")
     public StandingVisas.Settings standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         return standing.settings(username);
-    }
-
-    /** Proves a GitHub login with no time zone from the browser. */
-    public ResponseEntity<?> saveGithubLogin(TokenRequest req, String tcToken, String username) {
-        return saveGithubLogin(req, null, tcToken, username);
-    }
-
-    /**
-     * Proves the user's GitHub login with a token they paste once, and switches PR commands on. GitHub names the
-     * account the token belongs to; the checker keeps its login and id and forgets the token, which goes into no
-     * cookie, no file and no log. A login typed in by hand would let anyone take someone else's, whose /run-all
-     * would then go out under the claimant's TeamCity token. {@code tz}, the browser's time zone, goes with it.
-     * Answers with the whole settings state; a 422 when GitHub refuses the token, as a 401 is the session's own.
-     */
-    @PostMapping("/github-login")
-    public ResponseEntity<?> saveGithubLogin(@RequestBody TokenRequest req,
-        @RequestParam(required = false) String tz,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        String token = req.token() == null ? "" : req.token().strip();
-        if (token.isEmpty())
-            return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
-        if (!github.writes())
-            return ResponseEntity.status(409).body(Map.of("error", "PR commands are "
-                + StandingVisas.Refusal.UNAVAILABLE.error()));
-
-        Optional<GithubClient.GhUser> who;
-        try {
-            who = github.ghIdentity(token);
-        }
-        catch (RuntimeException e) {
-            return uncheckedToken("GitHub", e);
-        }
-        if (who.isEmpty())
-            return ResponseEntity.status(422).body(Map.of("error", "GitHub rejected the token"));
-
-        return switch (standing.linkGhLogin(username, tcToken, who.get(), tz)) {
-            case "unavailable" -> ResponseEntity.status(409).body(Map.of("error", "PR commands are "
-                + StandingVisas.Refusal.UNAVAILABLE.error()));
-            case "app" -> ResponseEntity.status(409).body(Map.of("error", "this token is of @" + who.get().login()
-                + ", the checker's own GitHub account: prove your own account with a token of it"));
-            case "token" -> ResponseEntity.status(409).body(Map.of("error", "the GitHub token the checker keeps for"
-                + " you proves @" + standing.ghLoginOf(username) + ", and that is your login"));
-            default -> ResponseEntity.ok(standing.settings(username));
-        };
     }
 
     /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */

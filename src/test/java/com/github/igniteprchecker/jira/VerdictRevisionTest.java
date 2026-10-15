@@ -124,7 +124,7 @@ class VerdictRevisionTest {
         subs.arm(PR, ISSUE, "reviewer-jira-pat", REVIEWER);
 
         subs.settle(PR, FIRST, System.currentTimeMillis());
-        new JiraController(jira, tc, analyzer, codec, visas, subs, standing, github, mock(PendingCommits.class), false)
+        new JiraController(jira, tc, analyzer, codec, visas, subs, standing, mock(PendingCommits.class), false)
             .visa(PR, ISSUE, "tc", "jira-pat");
 
         String tested = "· tested [ec2c458|https://github.com/apache/ignite/pull/13335/commits/" + TESTED + "] ·";

@@ -87,6 +87,13 @@ SESSION_COOKIE_SECURE=true
 # 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix
 # and tests to suites are off.
 #GITHUB_TOKEN=
+# The checker's GitHub OAuth App, for the Link GitHub button in the settings: users link their GitHub accounts with
+# it, so their /run-all comments run under their own TeamCity accounts. Register it under the app account: GitHub ->
+# Settings -> Developer settings -> OAuth Apps -> New OAuth App. Homepage URL: APP_PUBLIC_URL. Authorization callback
+# URL: APP_PUBLIC_URL followed by /api/github/callback. Leave Device Flow off. Then generate a client secret. Without
+# these two, only a GitHub token for commits links an account.
+#GITHUB_OAUTH_CLIENT_ID=
+#GITHUB_OAUTH_CLIENT_SECRET=
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
 # and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
 # 10 minutes and flush once per hour.
@@ -279,7 +286,8 @@ Next:
        prc.example.org {
            reverse_proxy $ADDR:${PORT:-8080}
        }
-  3. $ETC_DIR/env: APP_PUBLIC_URL=https://prc.example.org (and GITHUB_TOKEN, PRC_ADMINS if you need them).
+  3. $ETC_DIR/env: APP_PUBLIC_URL=https://prc.example.org (and GITHUB_TOKEN, GITHUB_OAUTH_CLIENT_ID,
+     GITHUB_OAUTH_CLIENT_SECRET, PRC_ADMINS if you need them).
   4. systemctl restart $SERVICE
 Then open https://prc.example.org and log in with your own TeamCity token (Profile -> Access Tokens).
 NEXT

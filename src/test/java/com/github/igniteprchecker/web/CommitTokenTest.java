@@ -50,7 +50,7 @@ class CommitTokenTest {
     private final StandingVisas standing = standing();
 
     private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
-        mock(BlockerAnalyzer.class), codec, mock(VisaService.class), mock(VisaSubscriptions.class), standing, github,
+        mock(BlockerAnalyzer.class), codec, mock(VisaService.class), mock(VisaSubscriptions.class), standing,
         mock(PendingCommits.class), false);
 
     @Test
@@ -114,14 +114,14 @@ class CommitTokenTest {
         ResponseEntity<?> comment = controller.standingVisa(null, null, true, null, null, null, "tc", USER, null,
             null);
         ResponseEntity<?> rerun = controller.standingVisa(null, true, null, null, null, null, "tc", USER, null, null);
-        ResponseEntity<?> login = controller.saveGithubLogin(new JiraController.TokenRequest("ghp_noScopes"), "tc",
-            USER);
+        ResponseEntity<?> link = new GithubLinkController(github, standing, mock(AuthInterceptor.class),
+            "https://prc.example.org").link(null, null, "tc", USER);
 
         assertThat(comment.getStatusCode().value()).isEqualTo(409);
         assertThat(((Map<?, ?>)comment.getBody()).get("error")).isEqualTo("not available: this checker has no GitHub"
             + " account to write with (GITHUB_TOKEN); its operator can add one");
         assertThat(rerun.getStatusCode().value()).as("auto re-run writes nothing to GitHub").isEqualTo(200);
-        assertThat(login.getStatusCode().value()).isEqualTo(409);
+        assertThat(link.getStatusCode().value()).isEqualTo(409);
         assertThat(standing.settings(USER)).satisfies(st -> {
             assertThat(st.githubAvailable()).isFalse();
             assertThat(st.gh()).isFalse();

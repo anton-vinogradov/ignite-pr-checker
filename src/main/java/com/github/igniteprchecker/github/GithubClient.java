@@ -33,12 +33,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
 
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
@@ -85,6 +90,81 @@ public class GithubClient implements SnapshotCache {
 
     /** The account a token belongs to, and the scopes of a classic token; null {@code scopes}: GitHub named none. */
     public record TokenOwner(GhUser user, List<String> scopes) {
+    }
+
+    /** Whether users can link their GitHub accounts through the checker's OAuth App: its client id and secret are set. */
+    public boolean linksAccounts() {
+        return props.oauthClientId() != null && props.oauthClientSecret() != null;
+    }
+
+    /**
+     * Where GitHub asks the user to let the checker's OAuth App see who they are. No scope: the app gets the public
+     * profile and nothing more. No sign-up on the way. GitHub sends the user back to {@code callback} with
+     * {@code state} and a code.
+     */
+    public URI authorizeUri(String state, String callback) {
+        return UriComponentsBuilder.fromUriString(props.webUrl() + "/login/oauth/authorize")
+            .queryParam("client_id", props.oauthClientId())
+            .queryParam("redirect_uri", callback)
+            .queryParam("state", state)
+            .queryParam("allow_signup", "false")
+            .encode().build().toUri();
+    }
+
+    /**
+     * The GitHub account that let the checker's OAuth App see it, by the code GitHub sent back with the user. The code
+     * buys a token, the token names its account, and the token is revoked at once: it goes into no field, file or log.
+     * Empty when GitHub gives no token for the code: it expired, was used, or the app's settings do not match. A
+     * failed revocation is logged and changes nothing, as a token with no scope reads only what is public anyway.
+     * Throws when GitHub could not say.
+     */
+    public Optional<GhUser> oauthUser(String code, String callback) {
+        Optional<String> token = oauthToken(code, callback);
+        if (token.isEmpty())
+            return Optional.empty();
+
+        try {
+            return ghIdentity(token.get());
+        }
+        finally {
+            revokeOauthToken(token.get());
+        }
+    }
+
+    private Optional<String> oauthToken(String code, String callback) {
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("client_id", props.oauthClientId());
+        form.add("client_secret", props.oauthClientSecret());
+        form.add("code", code);
+        form.add("redirect_uri", callback);
+        Map<?, ?> answer = recordedAsUser("oauth", () -> http.post()
+            .uri(URI.create(props.webUrl() + "/login/oauth/access_token"))
+            .header("Accept", "application/json")
+            .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+            .body(form)
+            .retrieve().body(Map.class));
+        if (answer != null && answer.get("access_token") instanceof String token && !token.isBlank())
+            return Optional.of(token);
+
+        log.warn("GitHub gave no token for the code of a GitHub account link: {}",
+            answer == null ? "no answer" : answer.get("error"));
+
+        return Optional.empty();
+    }
+
+    private void revokeOauthToken(String token) {
+        try {
+            recordedAsUser("oauthRevoke", () -> http.method(HttpMethod.DELETE)
+                .uri(URI.create(props.apiUrl() + "/applications/" + props.oauthClientId() + "/token"))
+                .headers(h -> h.setBasicAuth(props.oauthClientId(), props.oauthClientSecret()))
+                .header("Accept", "application/vnd.github+json")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("access_token", token))
+                .retrieve().toBodilessEntity());
+        }
+        catch (RuntimeException e) {
+            log.warn("GitHub did not revoke the token of a GitHub account link: {}", e.toString());
+        }
     }
 
     /**

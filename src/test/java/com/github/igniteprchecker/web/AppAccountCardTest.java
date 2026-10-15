@@ -100,7 +100,7 @@ class AppAccountCardTest {
 
         assertThat(page).contains("App (server) token · last hour <span class=\"muted\">· PRs, files, checks, comment"
             + " poll; every comment, edit &amp; reaction</span>", "Users' own PATs · last hour <span class=\"muted\">·"
-            + " token checks, fix commits</span>");
+            + " token checks, GitHub account links, fix commits</span>");
     }
 
     /** Runs {@code script} after the page's functions; whatever it passes to {@code out} comes back. */

@@ -55,6 +55,11 @@ public class EffectiveConfig {
 
         text("github.repo", "GITHUB_REPO", github.repo());
         show("GITHUB_TOKEN", secret(github.token()));
+        show("GITHUB_OAUTH_CLIENT_ID", github.oauthClientId() == null ? "not set" : github.oauthClientId());
+        show("GITHUB_OAUTH_CLIENT_SECRET", secret(github.oauthClientSecret()));
+        if ((github.oauthClientId() == null) != (github.oauthClientSecret() == null))
+            problem((github.oauthClientId() == null ? "GITHUB_OAUTH_CLIENT_ID" : "GITHUB_OAUTH_CLIENT_SECRET")
+                + " is not set: users cannot link their GitHub accounts with Link GitHub — set both, or neither");
         number("github.cache-seconds", "GITHUB_CACHE_SECONDS", github.cacheSeconds());
         show("GITHUB_READ_TIMEOUT", duration(github.readTimeout()));
         text("github.api-url", "GITHUB_API_URL", github.apiUrl());

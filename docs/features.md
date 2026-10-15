@@ -263,12 +263,14 @@ GitHub token it needs while it is on.
   yours.
 - **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
   your GitHub login, your GitHub account's id and your TeamCity token; on its own, it lends the token to no background
-  work. Proving your GitHub login switches it on: paste a GitHub token with no scopes once, and the checker asks
-  GitHub whose account it is, keeps the login and the id, and forgets the token. A GitHub token you saved for the
-  autofix or tests to suites proves it as well. A comment is your command only when it comes from that
-  account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked. A
+  work. Linking your GitHub account switches it on: press **Link GitHub**, and GitHub asks you to let the checker see
+  your public profile, then sends you back. The checker keeps the login and the id; the token GitHub gave for it is
+  revoked at once. A link counts only in the login that began it, within 10 minutes. A GitHub token you saved for the
+  autofix or tests to suites links the account as well. A comment is your command only when it comes from that
+  account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked.
+  **Unlink** forgets the account: PR commands go off, and so do the options that commit, with your GitHub token. A
   login an earlier version kept counts as proven only if your saved GitHub token names it; any other runs no command
-  until you prove it, and ⚙ says so.
+  until you link the account, and ⚙ says so.
 - **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
   changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
   your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The run's story names
@@ -326,8 +328,8 @@ GitHub token it needs while it is on.
 ## Working from the PR (commands)
 
 The whole cycle, from the start to the verdict, can happen in the pull request. Switch on **PR commands** in ⚙ and
-prove your GitHub login with a token that has no scopes; no GitHub token of yours is kept for commands. The checker
-answers from its own GitHub account, the app account.
+press **Link GitHub**; no GitHub token of yours is kept for commands. The checker answers from its own GitHub account,
+the app account.
 
 | Command | What it does |
 |---|---|
