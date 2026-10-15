@@ -2804,7 +2804,8 @@ document.querySelector('.pr-pane').addEventListener('click', e => {
     e.preventDefault();
     openPr(+link.dataset.num, true);
 });
-$('brand').addEventListener('click', e => {
+// The brand and the PRs item of the menu both lead to the start page; signed in, that needs no reload.
+for (const id of ['brand', 'navPrs']) $(id).addEventListener('click', e => {
     if ($('analyzeView').classList.contains('hidden') || !plainClick(e)) return;
     e.preventDefault();
     if (selectedPr) goHome(true);

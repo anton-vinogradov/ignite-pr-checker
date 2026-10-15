@@ -1,0 +1,120 @@
+/* The visual system all three pages share: the colours of the four themes, the top bar, and the three kinds of
+   element. A link leads to another page: text in the accent colour, underlined on hover. A button acts on this page:
+   a border, a neutral fill and the text colour. A tag only tells: a light grey fill, no border. Colour means
+   something: red is for the PR's author to fix, amber is "not sure, wait or re-run", green is clean or running,
+   blue is a link or the selected switch. Text on an accent or red fill takes --on-accent / --on-bad. */
+:root {
+    --bg: #fff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --line-strong: #c0c0c0;
+    --bad: #c0392b; --on-bad: #fff; --ok: #2e7d32; --ok-bg: #e6f4ea; --warn: #a35f00; --warn-bg: #fff3e0;
+    --accent: #1565c0; --accent-hover: #0d4ea0; --on-accent: #fff; --sel: #eef4ff;
+    --pane-bg: #fff; --card-bg: #fff; --details-bg: #f7f7f7; --input-bg: #fff; --btn-bg: #fafafa; --btn-hover: #f0f4fb;
+    --fill: rgba(128, 128, 128, 0.14); --primary-bg: #1a1a1a; --on-primary: #fff;
+    --radius: 6px; --radius-card: 10px; --radius-small: 5px; --radius-tag: 4px;
+}
+html[data-theme="dark"] {
+    --bg: #17191c; --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --line-strong: #4a4f55;
+    --bad: #ff6b5e; --on-bad: #17191c; --ok: #7fce90; --ok-bg: #1e3324; --warn: #e0a54a; --warn-bg: #33290f;
+    --accent: #6ab0ff; --accent-hover: #8cc4ff; --on-accent: #17191c; --sel: #22303f;
+    --pane-bg: #17191c; --card-bg: #17191c; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
+    --fill: rgba(154, 160, 166, 0.18); --primary-bg: #e6e6e6; --on-primary: #17191c;
+}
+html[data-theme="jetbrains"] {
+    --bg: #17191c; --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --line-strong: #4a4f55;
+    --bad: #fa6675; --on-bad: #17191c; --ok: #6aab73; --ok-bg: #1e3123; --warn: #d5b778; --warn-bg: #3d3223;
+    --accent: #6b9bfa; --accent-hover: #8ab1ff; --on-accent: #17191c; --sel: #243352;
+    --pane-bg: #1c1f23; --card-bg: #1c1f23; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
+    --fill: rgba(157, 160, 168, 0.18); --primary-bg: #dfe1e5; --on-primary: #17191c;
+    --radius: 3px; --radius-card: 4px; --radius-small: 3px; --radius-tag: 3px;
+}
+html[data-theme="terminal"] {
+    --bg: #0d1117; --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --line-strong: #8b949e;
+    --bad: #f85149; --on-bad: #0d1117; --ok: #3fb950; --ok-bg: transparent; --warn: #d29922; --warn-bg: transparent;
+    --accent: #58a6ff; --accent-hover: #79b8ff; --on-accent: #0d1117; --sel: #0d2440;
+    --pane-bg: #0d1117; --card-bg: #0d1117; --details-bg: #161b22; --input-bg: #010409; --btn-bg: transparent; --btn-hover: #161b22;
+    --fill: rgba(139, 148, 158, 0.18); --primary-bg: #238636; --on-primary: #fff;
+    --radius: 2px; --radius-card: 2px; --radius-small: 2px; --radius-tag: 2px;
+}
+
+* { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+html[data-theme="terminal"] body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.err { color: var(--bad); }
+.busy { color: var(--muted); animation: busy 1.4s ease-in-out infinite; }
+@keyframes busy { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .busy { animation: none; } }
+
+a { color: var(--accent); }
+/* A link that stands in running text or after a test name: no box, but room to hit. */
+a.ext { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; margin: 0 0.3em; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
+a.ext:hover, a.ext:focus-visible { text-decoration: underline; }
+a.help { display: inline-block; width: 1.2em; line-height: 1.2em; text-align: center; border: 1px solid var(--line); border-radius: 50%; font-size: 0.7rem; font-weight: 600; color: var(--muted); text-decoration: none; text-transform: none; letter-spacing: normal; vertical-align: middle; }
+a.help:hover, a.help:focus-visible { color: var(--accent); border-color: var(--accent); }
+
+button { font: inherit; padding: 0.4rem 0.8rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--btn-bg); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--line-strong); }
+button.primary { background: var(--primary-bg); color: var(--on-primary); border-color: var(--primary-bg); }
+button:disabled { opacity: 0.5; cursor: default; }
+input { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--input-bg); color: var(--fg); }
+.act, .why, .suite-rerun { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--btn-bg); color: var(--fg); cursor: pointer; white-space: nowrap; vertical-align: middle; }
+.act:not(:disabled):hover, .why:hover, .suite-rerun:not(:disabled):hover { background: var(--btn-hover); border-color: var(--line-strong); }
+.act:disabled, .suite-rerun:disabled { opacity: 0.5; cursor: default; }
+/* A button that only says "Log out" beside the name, or sits in a row of text: looks like a link. */
+button.linklike { padding: 0; border: none; background: none; color: var(--accent); }
+button.linklike:hover, button.linklike:focus-visible { text-decoration: underline; }
+/* The twin of a button that stands above: a quiet text button, seen but not loud. */
+button.quiet { padding: 0 0.2rem; border: none; background: none; font-size: 0.72rem; color: var(--muted); }
+button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--accent); background: none; }
+.tabs { display: inline-flex; margin-left: 0.3rem; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; vertical-align: middle; }
+.tabs .act { border: none; border-radius: 0; background: transparent; color: var(--muted); }
+.tabs .act + .act { border-left: 1px solid var(--line); }
+.tabs .act:not(.on):hover { color: var(--fg); background: var(--fill); }
+.tabs .act.on, .tabs .act.on:hover { background: var(--accent); color: var(--on-accent); }
+
+.tag, .tag-doubt, .tag-flaky { font-size: 0.7rem; padding: 0.05rem 0.45em; border-radius: var(--radius-tag); background: var(--fill); color: var(--muted); vertical-align: middle; white-space: nowrap; }
+.tag[title], .tag-doubt[title], .tag-flaky[title] { cursor: help; }
+.tag-flaky { font-weight: 600; background: var(--warn-bg); color: var(--warn); }
+
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.2rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; color: var(--fg); text-decoration: none; }
+.brand small { color: var(--muted); font-weight: 400; margin-left: 0.5rem; }
+.menu { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 1rem; font-size: 0.9rem; }
+.menu a { text-decoration: none; padding: 0.2rem 0; }
+.menu a:hover, .menu a:focus-visible, .menu a[aria-current="page"] { text-decoration: underline; text-underline-offset: 0.2em; }
+.menu a[aria-current="page"] { font-weight: 600; }
+.topbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin-left: auto; }
+/* The one accented thing in the bar: the update buttons, there only while there is something to update. */
+.update-btn { display: inline-flex; align-items: center; font: inherit; font-size: 0.85rem; color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.3rem 0.7rem; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.update-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.update-notes { font-size: 0.8rem; white-space: nowrap; }
+.star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.25rem 0.55rem; background: var(--btn-bg); }
+.star-btn:hover { border-color: var(--line-strong); }
+.star-btn:hover .star-ico { stroke: #e3b341; } /* hint gold on hover; not "already starred" */
+.star-ico { fill: none; stroke: var(--muted); stroke-width: 1.3; flex: none; }
+.star-count { color: var(--muted); }
+.star-count:empty { display: none; }
+.theme-sel { font: inherit; font-size: 0.85rem; padding: 0.2rem 0.1rem; border: none; border-radius: var(--radius); background: transparent; color: var(--fg); cursor: pointer; }
+.theme-sel:hover, .theme-sel:focus-visible { color: var(--accent); }
+.session { font-size: 0.85rem; white-space: nowrap; }
+.settings-btn { font-size: 1.15rem; line-height: 1; padding: 0.14rem 0.45rem; }
+
+/* Terminal: a button is its name in [brackets]; a link stays a link, underlined on hover. */
+html[data-theme="terminal"] .act, html[data-theme="terminal"] .why, html[data-theme="terminal"] .suite-rerun, html[data-theme="terminal"] .cancel, html[data-theme="terminal"] .mini-btn { border: none; background: transparent; padding: 0 0.05rem; }
+html[data-theme="terminal"] .act::before, html[data-theme="terminal"] .why::before, html[data-theme="terminal"] .suite-rerun::before, html[data-theme="terminal"] .cancel::before, html[data-theme="terminal"] .mini-btn::before { content: "["; color: var(--muted); }
+html[data-theme="terminal"] .act::after, html[data-theme="terminal"] .why::after, html[data-theme="terminal"] .suite-rerun::after, html[data-theme="terminal"] .cancel::after, html[data-theme="terminal"] .mini-btn::after { content: "]"; color: var(--muted); }
+html[data-theme="terminal"] .act:not(:disabled):hover, html[data-theme="terminal"] .why:hover, html[data-theme="terminal"] .suite-rerun:not(:disabled):hover, html[data-theme="terminal"] .cancel:hover, html[data-theme="terminal"] .mini-btn:hover { text-decoration: underline; background: transparent; }
+html[data-theme="terminal"] .tabs { border: none; }
+html[data-theme="terminal"] .tabs .act + .act { border-left: none; }
+/* terminal switcher idiom: inverse video for the selected tab (mc/htop style); the others stay muted */
+html[data-theme="terminal"] .tabs .act:not(.on)::before, html[data-theme="terminal"] .tabs .act:not(.on)::after { color: var(--muted); }
+html[data-theme="terminal"] .tabs .act:not(.on):hover { color: var(--fg); background: transparent; text-decoration: none; }
+html[data-theme="terminal"] .tabs .act.on, html[data-theme="terminal"] .tabs .act.on:hover { background: var(--accent); color: var(--on-accent); font-weight: 700; text-decoration: none; }
+html[data-theme="terminal"] .tabs .act.on::before, html[data-theme="terminal"] .tabs .act.on::after { color: var(--on-accent); }
+html[data-theme="terminal"] .tag-flaky { padding: 0 0.15rem; }
+
+@media (max-width: 768px) {
+    .topbar { padding: 0.5rem 0.75rem; gap: 0.4rem 0.8rem; }
+    .brand small { display: none; }
+    .topbar-right { gap: 0.4rem 0.6rem; }
+}

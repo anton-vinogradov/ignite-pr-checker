@@ -7,21 +7,11 @@
     <link rel="icon" type="image/png" href="/favicon.png">
     <meta name="theme-color" content="#1cb6ed">
     <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/common.css">
     <style>
-        :root { --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --bad: #c0392b; --accent: #1565c0; }
-        * { box-sizing: border-box; }
-        body { font-family: system-ui, sans-serif; color: var(--fg); margin: 0; background: #fff; }
-        a { color: var(--accent); }
-        .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); }
-        .brand { font-weight: 600; color: var(--fg); text-decoration: none; }
-        .brand small { color: var(--muted); font-weight: 400; margin-left: 0.4rem; }
-        .topbar-right { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; }
-        .theme-btn { font: inherit; font-size: 0.9rem; line-height: 1.2; padding: 0.22rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
-        .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.22rem 0.4rem; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; color: var(--fg); cursor: pointer; }
-        .theme-btn:hover { border-color: #c0c0c0; }
+        body { margin: 0; }
         .wrap { margin: 1.2rem auto; padding: 0 1.5rem; }
-        .muted { color: var(--muted); }
-        .section { border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; }
+        .section { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card-bg); padding: 1rem 1.1rem; }
 
         .leaderboard { display: flex; flex-direction: column; }
         .lbrow { padding: 0.4rem 0; }
@@ -32,107 +22,63 @@
         .lbsuite { color: var(--muted); }
         .lbcount { margin-left: auto; white-space: nowrap; }
         .flake { font-weight: 600; }
-        .flake.warm { color: #b26a00; }
+        .flake.warm { color: var(--warn); }
         .flake.hot { color: var(--bad); }
         .foot { color: var(--muted); font-size: 0.78rem; margin-left: 0.45rem; }
         .lbprs { font-size: 0.78rem; margin: 0.15rem 0 0 1.6rem; }
-        .lbprs a { margin-right: 0.4rem; font-size: 0.72rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: 4px; text-decoration: none; background: #eef3fb; }
+        .lbprs a { margin-right: 0.4rem; font-size: 0.72rem; font-weight: 600; padding: 0.05rem 0.45em; text-decoration: none; }
+        .lbprs a:hover { text-decoration: underline; }
         .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
         .run { width: 3px; height: 12px; border-radius: 1px; }
-        .run-p { background: #2e7d32; }
-        .run-f { background: #c0392b; }
-        .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: 4px; margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
-        .live.running { background: #e6f4ea; color: #2e7d32; }
-        .live.queued { background: #fff3e0; color: #b26a00; }
-        .pill { text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: 6px; padding: 0.25rem 0.55rem; background: #fafafa; }
-        .pill:hover { border-color: #c0c0c0; }
-        .reload-pill { color: #fff; background: var(--accent); border-color: var(--accent); cursor: pointer; }
-        a.ext { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin: 0 0.3em; border: 1px solid var(--line); background: #fafafa; color: var(--accent); text-decoration: none; vertical-align: middle; white-space: nowrap; }
-        a.ext:hover { border-color: #c0c0c0; }
-        .why { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: 5px; margin-left: 0.35rem; border: 1px solid var(--line); background: #fafafa; color: var(--accent); cursor: pointer; vertical-align: middle; }
-        .why:hover { border-color: #c0c0c0; }
-        .details { position: relative; margin: 0.3rem 0 0.1rem 1.6rem; background: #f7f7f7; border-radius: 6px; }
+        .run-p { background: var(--ok); }
+        .run-f { background: var(--bad); }
+        .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: var(--radius-tag); margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
+        .live.running { background: var(--ok-bg); color: var(--ok); }
+        .live.queued { background: var(--warn-bg); color: var(--warn); }
+        .why { margin-left: 0.35rem; }
+        .details { position: relative; margin: 0.3rem 0 0.1rem 1.6rem; background: var(--details-bg); border-radius: var(--radius); }
         .details pre { margin: 0; padding: 0.5rem 3.2rem 0.5rem 0.7rem; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
-        .details .copy { position: absolute; top: 0.3rem; right: 0.3rem; font-size: 0.68rem; padding: 0.05rem 0.4rem; border: 1px solid var(--line); border-radius: 5px; background: #fafafa; color: var(--muted); cursor: pointer; }
-        .details .copy:hover { color: var(--fg); border-color: #c0c0c0; }
-        .hidden { display: none; }
+        .details .copy { position: absolute; top: 0.3rem; right: 0.3rem; font-size: 0.68rem; padding: 0.05rem 0.4rem; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--btn-bg); color: var(--muted); cursor: pointer; }
+        .details .copy:hover { color: var(--fg); border-color: var(--line-strong); }
         .updated { font-size: 0.78rem; color: var(--muted); text-align: right; margin: 0.9rem 0 0.2rem; }
         .intro { color: var(--muted); font-size: 0.88rem; margin: 0 0 0.8rem; max-width: 60rem; }
         .group-head { font-size: 1rem; margin: 0.2rem 0 0.1rem; }
         .group-head + .group-sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 0.4rem; }
         .group-head:not(:first-child) { margin-top: 1.2rem; }
 
-        html[data-theme="dark"] {
-            --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --bad: #ff6b5e; --accent: #6ab0ff;
-            body { background: #17191c; }
-            .section { background: #1c1f23; }
-            .live.running { background: #1e3324; color: #7fce90; }
-            .live.queued { background: #33290f; color: #d99a3a; }
-            .theme-btn, .theme-sel, .why, .pill, a.ext { background: #24282d; }
-            a.ext:hover { border-color: #4a4f55; }
-            .pill:hover { border-color: #4a4f55; }
-            .lbprs a { background: #232a33; }
-            .theme-btn:hover, .why:hover { border-color: #4a4f55; }
-            .details { background: #1f2328; }
-            .flake.warm { color: #d99a3a; }
-        }
-
-        html[data-theme="jetbrains"] {
-            --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --bad: #fa6675; --accent: #548af7;
-            body { background: #17191c; }
-            .section { background: #1c1f23; border-radius: 4px; }
-            .live.running { background: #253b2a; color: #6aab73; }
-            .live.queued { background: #3d3223; color: #d5b778; }
-            .theme-btn, .theme-sel, .why, .pill, a.ext { background: #24282d; }
-            .why, a.ext { color: var(--accent); }
-            .theme-btn:hover, .why:hover, .pill:hover, a.ext:hover { border-color: #5a5d63; }
-            .lbprs a { background: #24282d; }
-            .details { background: #1f2328; }
-            .flake.warm { color: #d5b778; }
-            .theme-sel, .pill, .why, a.ext, .live, .lbprs a { border-radius: 3px; }
-        }
-
         html[data-theme="terminal"] {
-            --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --bad: #f85149; --accent: #58a6ff;
-            body { background: #0d1117; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-            .section { background: #0d1117; border-radius: 2px; }
-            .live.running { background: transparent; color: #3fb950; border: none; padding: 0 0.15rem; }
-            .live.queued { background: transparent; color: #d29922; border: none; padding: 0 0.15rem; }
-            .theme-btn, .theme-sel, .why, .pill, a.ext { background: transparent; }
-            .why, a.ext { color: var(--accent); }
-            .theme-btn:hover, .why:hover, .pill:hover, a.ext:hover { border-color: #8b949e; }
-            .lbprs a { background: transparent; border: none; padding: 0 0.1rem; }
-            .details { background: #161b22; }
-            .flake.warm { color: #d29922; }
-            .run-p { background: #3fb950; }
-            .run-f { background: #f85149; }
-            .theme-sel, .pill, .why, a.ext, .live, .lbprs a, .details { border-radius: 2px; }
-            .why, a.ext { border: none; background: transparent; padding: 0 0.05rem; }
-            .why::before, a.ext::before { content: "["; color: var(--muted); }
-            .why::after, a.ext::after { content: "]"; color: var(--muted); }
-            .why:hover, a.ext:hover { text-decoration: underline; }
+            .live { padding: 0 0.15rem; }
+            .lbprs a { padding: 0 0.1rem; }
         }
         @media (max-width: 768px) {
-            .topbar { padding: 0.5rem 0.75rem; }
-            .brand small { display: none; }
             .wrap { padding: 0 0.75rem; }
         }
     </style>
 </head>
 <body>
     <header class="topbar">
-        <a class="brand" href="/" title="Start page">Ignite PR Checker <small>flaky tests · fix-master queue</small></a>
+        <a class="brand" href="/" title="Start page">Ignite PR Checker</a>
+        <nav class="menu" aria-label="Pages">
+            <a href="/" target="_self" title="Open PRs and their verdicts">PRs</a>
+            <a href="/flaky.html" target="_self" aria-current="page" title="Tests that fail on master">Flaky tests</a>
+            <a href="/status.html" target="_self" title="Service status and metrics">Status</a>
+        </nav>
         <div class="topbar-right">
-            <button id="reloadPill" class="pill reload-pill hidden" type="button"
+            <button id="reloadPill" class="update-btn hidden" type="button"
                 title="This page's code was updated by a deploy — reload to get the new UI">UI updated — reload</button>
+            <a class="star-btn" href="https://github.com/anton-vinogradov/ignite-pr-checker"
+               target="_self" rel="noopener" title="Star this project on GitHub">
+                <svg class="star-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                    <path d="M8 12.472l-4.702 2.833 1.248-5.351L.42 6.354l5.472-.464L8 .833l2.108 5.057 5.472.464-4.126 3.6 1.248 5.351z"/>
+                </svg>
+                <span>Star</span>
+            </a>
             <select id="theme-toggle" class="theme-sel" title="Theme" aria-label="Theme">
                 <option value="light">Light</option>
                 <option value="dark">Dark</option>
                 <option value="jetbrains">JetBrains</option>
                 <option value="terminal">Terminal</option>
             </select>
-            <a class="pill" href="/status.html" target="_self">Status</a>
-            <a class="pill" href="/" target="_self">← App</a>
         </div>
     </header>
 
