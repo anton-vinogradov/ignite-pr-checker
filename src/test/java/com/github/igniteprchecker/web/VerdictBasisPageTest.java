@@ -70,13 +70,14 @@ class VerdictBasisPageTest {
             report({ shown: !page.el('oneRunGroup').classList.contains('hidden'),
                 count: page.el('oneRunCount').textContent,
                 acts: !page.el('oneRunActs').classList.contains('hidden'),
-                total: page.el('blockerCount').textContent });
+                total: page.el('verdictText').textContent });
             """);
 
         assertThat(out.get("shown").asBoolean()).isTrue();
         assertThat(out.get("count").asText()).isEqualTo("(1 suite, 1 test)");
         assertThat(out.get("acts").asBoolean()).isTrue();
-        assertThat(out.get("total").asText()).as("still counted as blockers").isEqualTo("(2 suites, 2 tests)");
+        assertThat(out.get("total").asText()).as("still counted as blockers")
+            .isEqualTo("2 blockers in 2 suites, 1 of them on 1 run");
     }
 
     @Test

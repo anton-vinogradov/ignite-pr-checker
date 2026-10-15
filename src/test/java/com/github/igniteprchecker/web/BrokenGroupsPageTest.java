@@ -26,13 +26,13 @@ class BrokenGroupsPageTest {
         assertThat(out.get("broken").asText())
             .startsWith("Build failed — nothing else ran; fix the build, then /run-all> Build")
             .contains("non-zero exit code", "145 suites that need it did not run");
-        assertThat(out.get("html").asText().split("class=\"suite-rerun\"", -1)).as("Rerun and Rerun at top of the Build")
-            .hasSize(3);
-        assertThat(out.get("html").asText()).contains("data-suite=\"" + BrokenRuns.BUILD + "\"");
+        assertThat(out.get("html").asText()).as("the section's pair re-runs the Build alone: the row has no twin")
+            .doesNotContain("suite-rerun");
+        assertThat(out.get("sectionSuites").toString()).isEqualTo("[\"" + BrokenRuns.BUILD + "\"]");
         assertThat(out.get("bannerHidden").asBoolean()).as("the 137 suites the Build kept from running").isTrue();
         assertThat(out.get("sectionRerunHidden").asBoolean()).isFalse();
-        assertThat(out.get("caveat").asText()).isEqualTo("Nothing here was blamed on this PR, but this run can't prove "
-            + "it is clean: Build failed — nothing else ran.");
+        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: Build failed — nothing "
+            + "else ran.");
     }
 
     @Test
@@ -40,7 +40,7 @@ class BrokenGroupsPageTest {
         JsonNode out = PageScript.run("index.html", page(BrokenRuns.buildFailed(true)));
 
         assertThat(out.get("broken").asText()).contains("compilation error");
-        assertThat(out.get("html").asText()).doesNotContain("class=\"suite-rerun\"");
+        assertThat(out.get("html").asText()).doesNotContain("suite-rerun");
         assertThat(out.get("sectionRerunHidden").asBoolean()).isTrue();
     }
 
@@ -51,7 +51,7 @@ class BrokenGroupsPageTest {
             new BrokenSuite(BrokenRuns.BUILD, 1L, "> Build", List.of("compilation error"), 0, 0)))));
 
         assertThat(out.get("broken").asText()).contains("> Build", "compilation error");
-        assertThat(out.get("html").asText()).doesNotContain("class=\"suite-rerun\"");
+        assertThat(out.get("html").asText()).doesNotContain("suite-rerun");
         assertThat(out.get("sectionRerunHidden").asBoolean()).isTrue();
     }
 
@@ -60,14 +60,14 @@ class BrokenGroupsPageTest {
         JsonNode out = PageScript.run("index.html", page(BrokenRuns.artifactsGlitch()));
 
         String broken = out.get("broken").asText();
-        assertThat(broken).containsSubsequence("ci2 glitch: artifacts unavailable (60 suites)", "Rerun (60)",
-            "Rerun at top (60)", "a re-run usually gets them", "60 suites", "Suite 1",
-            "non-zero exit code", "Rerun (2)", "2 suites", "PDS 5", "PDS 6",
+        assertThat(broken).containsSubsequence("ci2 glitch: artifacts unavailable (60 suites)", "Rerun 60 suites",
+            "Rerun at top", "a re-run usually gets them", "60 suites", "Suite 1",
+            "non-zero exit code", "Rerun 2 suites", "2 suites", "PDS 5", "PDS 6",
             "Cache 5", "execution timeout — ran 12 of master's 35 tests", "Basic 3");
         assertThat(broken.split("ci2 glitch: artifacts unavailable", -1)).hasSize(2);
         assertThat(out.get("html").asText()).doesNotContain("<[Apache").contains("&lt;[Apache Ignite 2.x / Tests]");
-        assertThat(out.get("caveat").asText()).endsWith("this run can't prove it is clean: 64 suite(s) have no reliable "
-            + "result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
+        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 64 suite(s) have no "
+            + "reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
     }
 
     /**
@@ -82,7 +82,7 @@ class BrokenGroupsPageTest {
         assertThat(out.get("cardHidden").asBoolean()).isFalse();
         assertThat(out.get("broken").asText()).startsWith("Build failed in this run and passed on a re-run since — 137 "
             + "suites that need it never ran; /run-all to run them");
-        assertThat(out.get("noBlockersHidden").asBoolean()).isTrue();
+        assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
     }
 
     /** A problem's text comes from the build log, which the PR's code can write to. */
@@ -106,8 +106,9 @@ class BrokenGroupsPageTest {
                 bannerHidden: page.el('interruptedBanner').classList.contains('hidden'),
                 sectionRerunHidden: page.el('brokenActs').classList.contains('hidden'),
                 cardHidden: page.el('brokenCard').classList.contains('hidden'),
-                noBlockersHidden: page.el('noBlockers').classList.contains('hidden'),
-                caveat: page.el('verdictCaveat').textContent });
+                head: page.el('verdictText').textContent,
+                sectionSuites: page.run('[...sectActs.get("brokenActs").suites]'),
+                caveat: page.el('verdictLines').textContent });
             """;
     }
 }

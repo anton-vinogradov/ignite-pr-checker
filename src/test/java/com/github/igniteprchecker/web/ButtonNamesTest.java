@@ -14,7 +14,8 @@ import org.junit.jupiter.api.Test;
 /**
  * The PR page named one pair of actions three ways: "Rerun" and "Rerun top" started a RunAll the PR may never have
  * had, "Re-run RunAll" sat next to them, and the suites had "Rerun" and "Rerun top" again. Now "Run" starts a new
- * RunAll chain, "Rerun" repeats suites that ran, and the twin that jumps the queue says "at top".
+ * RunAll chain, "Rerun" repeats suites that ran ("Rerun 6 suites" for a section), and the twin that jumps the queue
+ * says "at top".
  */
 class ButtonNamesTest {
     private static final Path STATIC = Path.of("src/main/resources/static");
@@ -29,7 +30,7 @@ class ButtonNamesTest {
             int buttons = 0;
             while (b.find()) {
                 buttons++;
-                String label = b.group(3).replaceFirst(" \\(.*\\)$", "");
+                String label = b.group(3).replaceFirst(" (\\(.*\\)|\\S+ suites?)$", "");
                 boolean top = Boolean.parseBoolean(b.group(2));
                 assertThat(label).as(file + ": " + b.group())
                     .isIn(top ? List.of("Run at top", "Rerun at top") : List.of("Run", "Rerun"));

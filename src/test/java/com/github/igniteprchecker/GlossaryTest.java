@@ -137,15 +137,26 @@ class GlossaryTest {
             " failed in this run and passed on a re-run since — ", " never ran; ", " to run them",
             "nothing else ran", " did not run; fix the build, then ");
         quoted(PAGE, "Suites that never ran", "Broken suites", "Fewer tests than master",
-            "Crashed near the end of the run", "Not confirmed: 1 run", "Recently started failing",
-            "Could not be checked", "This PR's tests", "Filtered out", "Run at top", "Run RunAll", "Cancel my runs",
-            "JIRA visa", "Auto visa", "Notify me");
-        quoted(PAGE_SCRIPT, "No blockers 🎉", "No test blockers", "1 run", "new test / no master history", "unverified",
-            "not in any suite", "flaky?", "rev ✓ head", "rev @start", "● includes an unfinished run", " from earlier runs",
-            "pushed since this run", "♻️ Auto re-run #", "♻️ Deciding on auto re-runs", "Rerun at top", "Auto visa ✓",
-            "armed: ", "Auto visa: on in ⚙", "could not check whether the PR changed since this run");
+            "Crashed near the end of the run", "Not confirmed: 1 run", "Not confirmed yet", "Recently started failing",
+            "Could not be checked", "This PR's tests", "Not blamed on this PR", "Run at top", "Run RunAll",
+            "Cancel my runs", "JIRA visa", "Post now", "Auto visa", "Notify me");
+        quoted(PAGE_SCRIPT, "On ci2 now", "✓ No blockers", "No proven blockers yet", "No blockers found — not proven clean",
+            "No blockers found", "1 run", "new test / no master history", "unverified", "not in any suite", "flaky?",
+            "on latest commit", "⚠ old commit", "takes latest commit at start", "● includes an unfinished run",
+            " reused from earlier runs", "The verdict is for older code", "♻︎ Auto re-run #",
+            "♻︎ Deciding whether to re-run", "Rerun at top", "Auto visa ✓", "armed by ", "on in your ⚙",
+            "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
+            "Blockers since the ", " dropped out", " still blocking");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "♻ environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
+    }
+
+    /** A cause's button on the Root causes tab reads "copy AI prompt"; the tours name it so, apart from the rows' "ai". */
+    @Test
+    void theToursNameTheCausesButtonAsThePageWritesIt() throws IOException {
+        assertThat(read(PAGE_SCRIPT)).contains(">copy AI prompt</button>");
+        for (Path tour : List.of(TOUR, TOUR_RU))
+            assertThat(read(tour)).as(tour.getFileName().toString()).contains("**copy AI prompt**");
     }
 
     @Test
@@ -203,13 +214,13 @@ class GlossaryTest {
     }
 
     /**
-     * "No test blockers" also heads a run with nothing blamed, no caveat and a test under Recently started failing:
-     * there is no red line then, and the row sent the reader looking for one.
+     * "No proven blockers yet" heads a run with nothing blamed and tests under Recently started failing: the row says
+     * where they are and that a rerun decides, without sending the reader to look for a caveat.
      */
     @Test
-    void noTestBlockersSaysWhatToDoWithoutARedLine() throws IOException {
+    void noProvenBlockersYetSaysWhereToLook() throws IOException {
         for (Path tour : List.of(TOUR, TOUR_RU))
-            assertThat(rowOf(glossary(tour), "**No test blockers**")).as(tour.toString())
+            assertThat(rowOf(glossary(tour), "**No proven blockers yet**")).as(tour.toString())
                 .contains("**Recently started failing**");
     }
 
@@ -236,10 +247,9 @@ class GlossaryTest {
     /** The tours quote the runs' composition as the page draws it: the tour still had the old "6 ran · 141 reused". */
     @Test
     void theToursQuoteTheRunsCompositionAsThePageDrawsIt() throws IOException {
-        String drawn = "suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs";
-        assertThat(read(PAGE_SCRIPT)).contains(drawn);
-        Pattern label = Pattern.compile(Pattern.quote("suites: ") + "\\d+" + Pattern.quote(" fresh, ") + "\\d+"
-            + Pattern.quote(" from earlier runs"));
+        assertThat(read(PAGE_SCRIPT)).contains("${res.suitesRan} suite${res.suitesRan === 1 ? '' : 's'} ran",
+            ", ${res.suitesReused} reused from earlier runs");
+        Pattern label = Pattern.compile("\\d+ suites ran, \\d+ reused from earlier runs");
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             List<String> quotes = all(CODE, read(tour)).stream()

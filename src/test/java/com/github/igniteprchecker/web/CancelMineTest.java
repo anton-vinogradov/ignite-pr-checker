@@ -63,7 +63,7 @@ class CancelMineTest {
             .doesNotContain("bob");
         assertThat(out.get("cancels")).hasSize(1);
         assertThat(out.get("cancels").get(0).asText()).isEqualTo("/api/cancel-all?pr=13575&ids=201,204");
-        assertThat(out.get("status").asText()).isEqualTo("Cancelled 2 run(s).");
+        assertThat(out.get("status").asText()).isEqualTo("Cancelled 2 runs.");
     }
 
     @Test

@@ -51,9 +51,9 @@ class PrTestsPageTest {
         assertThat(out.get("count").asText()).isEqualTo("(3 classes, 3 tests)");
         assertThat(out.get("warn").asText()).isEqualTo("⚠ 1 test ran longer than 60 s.");
         assertThat(out.get("list").asText())
-            .contains("TcpDiscoveryClientTopologyGapTestnew", "1 passed in Control Utility · longest 4 m 58 s",
+            .contains("TcpDiscoveryClientTopologyGapTestnew", "1 passed in Control Utility · slowest test 4 m 58 s",
                 "TcpDiscoveryClientTopologyGapTest.testGap4 m 58 s")
-            .contains("GridCommandHandlerTestchanged", "1 passed, 1 failed in Control Utility · longest 3 s",
+            .contains("GridCommandHandlerTestchanged", "1 passed, 1 failed in Control Utility · slowest test 3 s",
                 "GridCommandHandlerTest.testNewOptionfailedno master history")
             .doesNotContain("testCacheIdle")
             .contains("AbstractGapTestnew", "no runs in this RunAll");
@@ -125,7 +125,7 @@ class PrTestsPageTest {
 
         assertThat(out.get("asked")).extracting(JsonNode::asText).containsExactly(
             "/api/pr-tests?pr=13575&build=9001&running=true", "/api/pr-tests?pr=13575&build=9001");
-        assertThat(out.get("list").asText()).contains("1 failed in Control Utility · longest 4 m 58 s")
+        assertThat(out.get("list").asText()).contains("1 failed in Control Utility · slowest test 4 m 58 s")
             .doesNotContain("no runs");
     }
 
@@ -222,7 +222,10 @@ class PrTestsPageTest {
         assertThat(out.get("checkHidden").asBoolean()).isTrue();
     }
 
-    /** Ignite's check still going says nothing of a class: the card does not guess. */
+    /**
+     * Ignite's check still going says nothing of a class: the card does not guess. The class row says only that it
+     * did not run; the note above the list, not a line under each class, says why nobody can tell yet.
+     */
     @Test
     void whileIgnitesCheckRunsNothingIsConcluded() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
@@ -231,10 +234,25 @@ class PrTestsPageTest {
             report({ list: page.el('prTests').textContent, check: page.el('prTestsCheck').textContent });
             """);
 
-        assertThat(out.get("list").asText())
-            .contains("SslRenewalTestnewno runs in this RunAll; whether a suite runs it is not known yet")
-            .doesNotContain("base", "commit");
-        assertThat(out.get("check").asText()).isEqualTo("Ignite's abandoned-tests check is still running on 9a8b7c6.");
+        assertThat(out.get("list").asText()).contains("SslRenewalTestnewno runs in this RunAll")
+            .doesNotContain("base", "commit", "not known");
+        assertThat(out.get("check").asText()).isEqualTo("1 of 1 class did not run. Ignite's abandoned-tests check (it "
+            + "finds test classes in no suite) is still running on 9a8b7c6, so we can't tell yet why. Reload the page later.");
+    }
+
+    /** The workflow run of a push from outside the project waits for a maintainer: the note says so, as a wait. */
+    @Test
+    void aCheckAwaitingApprovalSaysSo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('UNKNOWN', {}, [],
+                'it waits for a maintainer to approve its workflow run') });
+            await page.load('?pr=13575');
+            report({ check: page.el('prTestsCheck').textContent });
+            """);
+
+        assertThat(out.get("check").asText()).isEqualTo("1 of 1 class did not run. Ignite's abandoned-tests check (it "
+            + "finds test classes in no suite) on 9a8b7c6 waits for a maintainer to approve its run, so we can't tell yet "
+            + "why. Reload the page later.");
     }
 
     /** Checkstyle failed first, so the abandoned-tests step never ran on the head. */
@@ -246,11 +264,26 @@ class PrTestsPageTest {
             report({ list: page.el('prTests').textContent, check: page.el('prTestsCheck').textContent });
             """);
 
-        assertThat(out.get("list").asText())
-            .contains("SslRenewalTestnewno runs in this RunAll; whether a suite runs it is not known")
-            .doesNotContain("not known yet");
-        assertThat(out.get("check").asText())
-            .isEqualTo("Ignite's abandoned-tests check did not run on 9a8b7c6: an earlier step of its job failed.");
+        assertThat(out.get("list").asText()).contains("SslRenewalTestnewno runs in this RunAll")
+            .doesNotContain("not known");
+        assertThat(out.get("check").asText()).isEqualTo("1 of 1 class did not run. Ignite's abandoned-tests check (it "
+            + "finds test classes in no suite) did not run on 9a8b7c6: an earlier step of its job failed. So we can't "
+            + "tell why.");
+    }
+
+    /** Every class of the PR ran: the check still going is said as before, with nothing to explain. */
+    @Test
+    void aCheckStillRunningWithEveryClassRunIsOnlyAState() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            page.route('/api/pr-tests', { body: sslTests('RUNNING', { runs: [{ testId: '1',
+                name: 'SecurityTestSuite: org.apache.ignite.internal.ssl.SslRenewalTest.testRenew', suite: 'Security',
+                suiteBuildId: 9002, suiteName: 'Security', occurrenceId: 'occ-1', status: 'SUCCESS', durationMs: 900,
+                masterRuns: null }] }) });
+            await page.load('?pr=13575');
+            report({ check: page.el('prTestsCheck').textContent });
+            """);
+
+        assertThat(out.get("check").asText()).isEqualTo("Ignite's abandoned-tests check is still running on 9a8b7c6.");
     }
 
     @Test

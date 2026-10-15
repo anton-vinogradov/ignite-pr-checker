@@ -96,27 +96,62 @@
         .title-row { flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1rem; }
         .title-row .pr-title { flex: 1 1 auto; }
         .title-row .actions { margin-left: auto; }
-        .status-row { flex-wrap: wrap; row-gap: 0.25rem; }
-        #status { flex: 1 1 auto; min-width: 0; }
-        #freshness { flex: 0 1 auto; min-width: 0; }
-        #freshText .hint, #freshText .live-tag { white-space: nowrap; }
+        #freshness { font-size: 0.85rem; }
+        #freshness .hint, #freshness .live-tag { white-space: nowrap; }
+        /* The status line stands only while it says something. */
+        .status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.6rem; font-size: 0.85rem; }
+        .status-row:not(:has(> #status:not(:empty))) { display: none; }
+        #status a { margin-left: 0; }
+        #status.err { color: var(--bad); }
         .tag-flaky { margin-left: 0.35rem; }
-        .one-run { margin-top: 0.8rem; }
-        .one-run > h3 { font-size: 0.95rem; margin: 0 0 0.2rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+        .one-run { margin-top: 0.8rem; border-top: 1px solid var(--line); padding-top: 0.6rem; }
+        .one-run > h3 { font-size: 0.85rem; font-weight: 600; color: var(--fg); margin: 0 0 0.2rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
         .one-run > h3 .sect-act { margin-left: auto; }
+        .one-run-note { margin: 0 0 0.4rem; font-size: 0.86rem; }
         .merged-note { margin: 0 0 0.8rem; font-size: 0.86rem; }
         .cause { margin: 0.35rem 0; }
-        .cause > summary { cursor: pointer; font-size: 0.82rem; padding: 0.25rem 0; }
-        .cause .sig { font-family: ui-monospace, monospace; word-break: break-all; }
-        .cause .cnt { font-weight: 700; }
-        .cause > .tests { margin-top: 0.25rem; }
-        .trend { display: inline-flex; gap: 2px; align-items: flex-end; margin-right: 0.8rem; vertical-align: middle; height: 16px; }
-        .trend a { display: block; width: 5px; border-radius: 1px 1px 0 0; background: var(--bad); }
-        .trend a.clean { background: var(--ok); }
+        .cause > summary { cursor: pointer; color: var(--fg); font-size: 0.92rem; padding: 0.25rem 0; }
+        .cause .sig { font-family: ui-monospace, monospace; font-weight: 600; word-break: break-all; }
+        .cause.cause-note .sig { font-family: inherit; font-weight: 600; }
+        .cause > .tests { margin: 0.25rem 0 0 1rem; }
+        /* The verdict card: its left stripe and heading take the colour of the verdict. */
+        .card.verdict { border-left: 3px solid var(--line-strong); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
+        .card.verdict > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.3rem; color: var(--fg); }
+        .card.verdict.blockers { border-left-color: var(--bad); }
+        .card.verdict.blockers > h2 { color: var(--bad); }
+        .card.verdict.clean { border-left-color: var(--ok); }
+        .card.verdict.clean > h2 { color: var(--ok); }
+        .card.verdict.watch, .card.verdict.unproven { border-left-color: var(--warn); }
+        .card.verdict.watch > h2, .card.verdict.unproven > h2 { color: var(--warn); }
+        .visa-group { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
+        .visa-group.muted { color: var(--muted); }
+        #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
+        .verdict-lines { font-size: 0.86rem; color: var(--warn); }
+        .verdict-lines p { margin: 0 0 0.3rem; }
+        .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
+        .delta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--muted); }
+        .trend { display: inline-flex; gap: 2px; align-items: flex-end; vertical-align: middle; height: 16px; }
+        /* The whole 16 px row of a bar is the link; the bar itself is --h tall. */
+        .trend a { display: block; width: 8px; height: 16px; background: linear-gradient(to top, var(--bad) var(--h, 4px), transparent var(--h, 4px)); }
+        .trend a.clean { background: linear-gradient(to top, var(--ok) var(--h, 4px), transparent var(--h, 4px)); }
         .delta-new { color: var(--bad); font-weight: 600; }
-        .delta-fixed { color: var(--ok); font-weight: 600; }
-        #pendingRow { align-items: center; gap: 0.6rem; }
-        .pending-note { color: var(--warn); font-weight: 600; }
+        .delta-fixed { color: var(--ok); }
+        .visa-note { margin: 0.4rem 0 0; font-size: 0.85rem; }
+        .visa-note.err { color: var(--bad); }
+        .group-by { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 400; }
+        .group-by .tabs { margin-left: 0; }
+        /* The answer to a Rerun stands under its buttons, until the next click there. */
+        .act-note { flex: 1 0 100%; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+        .act-note.err { color: var(--bad); }
+        .filtered-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
+        .filtered-line .sect-act { margin-left: 0.3rem; }
+        /* Run RunAll follows the text of the older-code line, not the far edge of the row. */
+        .pending-row { display: block; }
+        .pending-row .act { margin-left: 0.4rem; vertical-align: baseline; }
+        .pending-note { color: var(--warn); font-size: 0.9rem; }
+        .pending-note b { font-weight: 600; }
+        /* The one filled button on the page: the next step, when there is one. */
+        .act.primary, .act.primary:not(:disabled):hover { background: var(--primary-bg); color: var(--on-primary); border-color: var(--primary-bg); }
         .rev-ok, .rev-stale, .rev-queued { font-size: 0.72rem; margin-left: 0.3rem; white-space: nowrap; }
         .rev-ok { color: var(--ok); }
         .rev-stale { color: var(--warn); font-weight: 600; }
@@ -133,22 +168,13 @@
         .refresh.spin { animation: spin 0.7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .old-run { color: var(--warn); font-weight: 600; }
-        #status a { margin-left: 0.3rem; }
         .card { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card-bg); padding: 1.1rem; margin-top: 1rem; }
         .blockers h2 { color: var(--bad); margin: 0 0 0.3rem; }
-        .card.blockers > h2, .card.watch > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-        .card.blockers > h2 .sect-act, .card.watch > h2 .sect-act { margin-left: auto; }
-        /* a subtle divider before the reruns, keeping the view tabs / visa visually distinct */
-        .card.blockers > h2 .sect-act::before, .card.watch > h2 .sect-act::before {
-            content: ''; align-self: stretch; margin-right: 0.55rem; border-left: 1px solid var(--line); }
-        .card.interrupted { border-color: var(--bad); border-left: 3px solid var(--bad); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
-        .card.watch { border-left: 3px solid var(--warn); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
-        .card.watch h2 { color: var(--warn); margin: 0 0 0.3rem; }
-        .card.interrupted h2 { color: var(--bad); margin: 0 0 0.3rem; }
-        .blockers h2.clean { color: var(--ok); }
-        .blockers h2.neutral { color: var(--fg); }
+        .card.blockers > h2, .card.watch > h2, .card.interrupted > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+        .card.blockers > h2 .sect-act, .card.watch > h2 .sect-act, .card.interrupted > h2 .sect-act { margin-left: auto; }
+        .card.watch, .card.interrupted { border-left: 3px solid var(--warn); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
+        .card.watch h2, .card.interrupted h2 { color: var(--warn); margin: 0 0 0.3rem; }
         .caveat { margin: 0 0 0.4rem; font-size: 0.86rem; color: var(--bad); }
-        .caveat.checking { color: var(--muted); }
         .card h2 { font-size: 1.05rem; }
         ul.tests { list-style: none; padding: 0; margin: 0.5rem 0 0; }
         ul.tests > li { padding: 0.4rem 0; }
@@ -188,12 +214,13 @@
             .pr-link { padding: 0.35rem 0.75rem; }
             .pr-badge { border-radius: 3px; }
             .card.blockers { border-left: 3px solid var(--bad); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
-            .card.blockers:has(h2 .clean), .card.blockers:has(h2.clean) { border-left-color: var(--ok); }
         }
 
         html[data-theme="terminal"] {
             .live { padding: 0 0.15rem; }
-            #blockersHead { text-transform: uppercase; letter-spacing: 0.04em; }
+            #blockersHead, #verdictText { text-transform: uppercase; letter-spacing: 0.04em; }
+            .act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled { background: var(--accent); color: var(--on-accent); text-decoration: none; }
+            .act.primary::before, .act.primary::after, #autoVisaBtn[aria-pressed="true"]::before, #autoVisaBtn[aria-pressed="true"]::after { color: var(--on-accent); }
             .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
             .my-tag { border: none; padding: 0; }
             .my-tag::before { content: "["; color: var(--muted); }
@@ -431,68 +458,35 @@
                             <button id="notifyBtn" class="act act-sep hidden" type="button">🔔 Notify me</button>
                         </div>
                     </div>
-                    <div class="head-row status-row">
-                        <div id="status" class="muted"></div>
-                        <div id="freshness" class="muted"><button id="refreshBtn" class="refresh hidden" type="button"
-                            title="Recompute this verdict now" aria-label="Refresh now">↻</button><span id="freshText"></span></div>
-                    </div>
-                    <div id="pendingRow" class="head-row hidden">
+                    <div id="freshness" class="muted"><span id="freshText"></span><button id="refreshBtn" class="refresh hidden" type="button"
+                        title="Compute the verdict again now" aria-label="Compute the verdict again now">↻</button><span id="freshMore"></span></div>
+                    <div class="status-row"><span id="status" class="muted"></span><button id="statusRetry" class="act hidden" type="button"
+                        title="Ask the checker for the verdict again">Retry</button></div>
+                    <div id="pendingRow" class="head-row pending-row hidden">
                         <span id="pending" class="pending-note"></span>
                         <button id="pendingRerun" class="act" type="button">Run RunAll</button>
                     </div>
                     <div id="settlingRow" class="head-row hidden">
                         <span id="settling" class="pending-note"></span>
                     </div>
-                    <div id="deltaRow" class="head-row hidden">
-                        <span class="muted"><span id="trend" class="trend"></span><span id="delta"></span></span>
-                    </div>
                     <div id="runsRow" class="head-row hidden">
                         <span id="runs" class="runs muted"></span>
                         <button id="cancelMine" class="cancel hidden" type="button" title="Cancel the runs you started; other people's runs keep going">Cancel my runs</button>
-                        <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas" target="_self" rel="noopener" title="What the run chips and revision tags mean">?</a>
+                        <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas" target="_self" rel="noopener" title="What the run chips and commit tags mean" aria-label="What the run chips and commit tags mean">?</a>
                     </div>
                 </div>
 
                 <div id="results" class="hidden">
-                    <p id="mergedNote" class="merged-note hidden"></p>
-                    <div id="interruptedBanner" class="card interrupted hidden">
-                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them">?</a></h2>
-                        <p class="muted" id="interruptedText"></p>
-                        <ul id="cancelledSuites" class="tests"></ul>
-                    </div>
-                    <div id="brokenCard" class="card blockers hidden">
-                        <h2>Broken suites <span id="brokenCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed">?</a> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
-                        <p class="muted">Didn't complete a reliable run — compilation, timeout, out-of-memory, crash or infrastructure.
-                            A timed-out or crashed suite is shown here rather than mined for blockers (its failures would be hang cascade,
-                            and some tests never ran). Re-run these first: the verdict below can't trust what they would have found.</p>
-                        <ul id="brokenSuites" class="tests"></ul>
-                    </div>
-                    <div id="shrunkCard" class="card blockers hidden">
-                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
-                        <p class="muted">These suites ran noticeably fewer tests than the same suites run on master. Tests that never
-                            ran can't fail — a suite can look green while silently skipping coverage (a broken suite class, an excluded
-                            package, a run that ended early). Intentional if this PR removes tests; otherwise re-run and check.</p>
-                        <ul id="shrunkSuites" class="tests"></ul>
-                    </div>
-                    <div id="unstableCard" class="card hidden">
-                        <h2>Crashed near the end of the run <span id="unstableCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand">?</a></h2>
-                        <p class="muted">These suites hit a timeout, out-of-memory error or JVM crash, but only after running over 90% of
-                            master's tests. Every test they failed is pre-existing or flaky (see Filtered out), so the results of the
-                            tests they ran stand.</p>
-                        <ul id="unstableSuites" class="tests"></ul>
-                    </div>
-                    <div class="card blockers">
-                        <h2 id="blockersTitle"><span id="blockersHead">Blockers</span> <span id="blockerCount"></span>
-                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them">?</a>
-                            <span id="blockerTabs" class="tabs hidden">
-                                <button id="tabSuites" class="act on" type="button" title="Group by the suite they failed in">Suites</button>
-                                <button id="tabCauses" class="act" type="button" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
-                            </span>
-                            <button id="visaBtn" class="act" disabled title="Post the verdict as a comment to the JIRA ticket">JIRA visa</button>
-                            <button id="autoVisaBtn" class="act" disabled>Auto visa</button>
-                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span>
+                    <div id="verdictCard" class="card verdict">
+                        <p id="mergedNote" class="merged-note hidden"></p>
+                        <h2 id="verdictHead"><span id="verdictText"></span>
+                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="What each verdict means and what to do next" aria-label="What each verdict means and what to do next">?</a>
+                            <span id="visaGroup" class="visa-group"><span class="muted">JIRA visa:</span>
+                                <button id="visaBtn" class="act" type="button" title="Post the verdict as a comment to the JIRA ticket now">Post now</button>
+                                <button id="autoVisaBtn" class="act" type="button" aria-pressed="false">Auto visa</button>
+                                <span id="autoVisaState" class="muted"></span></span>
+                            <span id="noTicket" class="visa-group muted hidden">JIRA visa: the PR title names no IGNITE ticket.</span>
                         </h2>
-                        <p id="verdictCaveat" class="caveat hidden"></p>
                         <div id="jiraPanel" class="jira-panel hidden">
                             Posting a visa needs your JIRA Personal Access Token —
                             <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
@@ -506,40 +500,79 @@
                                 <span id="jiraMsg" class="muted"></span>
                             </span>
                         </div>
+                        <div id="verdictLines" class="verdict-lines"></div>
+                        <div id="deltaRow" class="delta hidden"><span id="delta"></span><span id="trend" class="trend"></span></div>
+                        <p id="visaNote" class="visa-note hidden"></p>
+                    </div>
+                    <div id="interruptedBanner" class="card interrupted hidden">
+                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them" aria-label="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them">?</a> <span class="sect-act hidden" id="cancelledActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="cancelledActsNote" class="act-note hidden"></span></h2>
+                        <p class="muted" id="interruptedText"></p>
+                        <ul id="cancelledSuites" class="tests"></ul>
+                    </div>
+                    <div id="brokenCard" class="card blockers hidden">
+                        <h2>Broken suites <span id="brokenCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that." aria-label="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that.">?</a> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="brokenActsNote" class="act-note hidden"></span></h2>
+                        <p class="muted">Rerun these first: the verdict above can't see their tests. A compilation error needs a code fix
+                            instead, so it has no Rerun.</p>
+                        <ul id="brokenSuites" class="tests"></ul>
+                    </div>
+                    <div id="shrunkCard" class="card watch hidden">
+                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail" aria-label="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="shrunkActsNote" class="act-note hidden"></span></h2>
+                        <p class="muted">Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If
+                            not, compare the test list with master and rerun.</p>
+                        <ul id="shrunkSuites" class="tests"></ul>
+                    </div>
+                    <div id="blockersCard" class="card blockers hidden">
+                        <h2 id="blockersTitle"><span id="blockersHead">Blockers</span>
+                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them" aria-label="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them">?</a>
+                            <span id="blockerTabs" class="group-by hidden"><span class="muted">Group by:</span><span class="tabs">
+                                <button id="tabSuites" class="act on" type="button" aria-pressed="true" title="Group by the suite they failed in">Suites</button>
+                                <button id="tabCauses" class="act" type="button" aria-pressed="false" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
+                            </span></span>
+                            <span class="sect-act hidden" id="blockerActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="blockerActsNote" class="act-note hidden"></span>
+                        </h2>
+                        <p id="oneRunNote" class="one-run-note hidden"><b>Not confirmed yet:</b> each of these failed its only run on this branch. Rerun
+                            their suites: a second failure confirms a blocker, a pass removes it.</p>
                         <ul id="blockers" class="tests"></ul>
                         <div id="oneRunGroup" class="one-run hidden">
-                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Blockers that failed the only time they ran on this branch: a re-run confirms or clears them">?</a> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span></h3>
-                            <p class="muted">Each of these failed the only time it ran on this branch. One failure is not proof: re-run
-                                their suites. A test that fails again stays a blocker, one that passes drops out.</p>
+                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Blockers that failed the only time they ran on this branch" aria-label="Blockers that failed the only time they ran on this branch">?</a> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="oneRunActsNote" class="act-note hidden"></span></h3>
+                            <p class="muted">Each failed its only run on this branch. Rerun their suites: a second failure confirms a
+                                blocker, a pass removes it.</p>
                             <ul id="oneRunBlockers" class="tests"></ul>
                         </div>
                         <div id="causesView" class="hidden"></div>
-                        <p id="noBlockers" class="muted hidden">Nothing in this run looks caused by your PR — good to go.</p>
                     </div>
                     <div id="watchCard" class="card watch hidden">
-                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the PR's current code, with too few runs of it to tell a break from a flake">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></h2>
-                        <p class="muted">Failing on the current revision, with too few runs of it to tell a real break from a
-                            flake — the passes above them ran on other code. A re-run settles it: keep failing and they become
-                            blockers, pass and they drop out.</p>
+                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake" aria-label="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="watchActsNote" class="act-note hidden"></span></h2>
+                        <p class="muted">Not blockers yet: there are too few runs of this code to tell a break from a flake. Rerun their
+                            suites: if they keep failing, they become blockers; if they pass, they drop out.</p>
                         <ul id="watch" class="tests"></ul>
                     </div>
                     <div id="unverifiedCard" class="card watch hidden">
-                        <h2>Could not be checked <span id="unverifiedCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own">?</a></h2>
-                        <p class="muted">These tests failed, but TeamCity errors kept them from being compared with master and the
-                            branch. They are not counted as blockers, and the checker tries them again on its own.</p>
+                        <h2>Could not be checked <span id="unverifiedCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own" aria-label="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own">?</a></h2>
+                        <p class="muted">These tests failed, but TeamCity errors stopped the check. They are not counted as blockers.
+                            The checker tries again by itself.</p>
                         <ul id="unverified" class="tests"></ul>
                     </div>
                     <div id="prTestsCard" class="card hidden">
-                        <h2>This PR's tests <span id="prTestsCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="How the test classes this PR adds or changes ran in this RunAll">?</a></h2>
-                        <p class="muted">How the test classes this PR adds or changes ran in this RunAll.</p>
+                        <h2>This PR's tests <span id="prTestsCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="How the test classes this PR adds or changes ran in this RunAll" aria-label="How the test classes this PR adds or changes ran in this RunAll">?</a></h2>
                         <p id="prTestsWarn" class="caveat hidden"></p>
-                        <ul id="prTests" class="tests"></ul>
                         <p id="prTestsCheck" class="muted hidden"></p>
                         <p id="prTestsNote" class="muted hidden"></p>
+                        <ul id="prTests" class="tests"></ul>
                     </div>
-                    <div class="card">
+                    <div id="unstableCard" class="card hidden">
                         <details>
-                            <summary>Filtered out <span id="filteredCount"></span> — pre-existing or flaky <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failures not blamed on the PR: they fail on master, are flaky, or passed on a re-run">?</a> <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span></summary>
+                            <summary>Crashed near the end of the run <span id="unstableCount"></span> — results stand <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand" aria-label="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand">?</a></summary>
+                            <p class="muted">None of their failures is blamed on this PR (see Not blamed on this PR), so the results of the
+                                tests they ran stand. Nothing to do.</p>
+                            <ul id="unstableSuites" class="tests"></ul>
+                        </details>
+                    </div>
+                    <div id="filteredCard" class="card">
+                        <details>
+                            <summary>Not blamed on this PR <span id="filteredCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These tests failed, but they fail on master too, are flaky, or passed in a later run." aria-label="These tests failed, but they fail on master too, are flaky, or passed in a later run.">?</a></summary>
+                            <p class="muted filtered-line">Nothing to do for this PR. Rerun only to double-check the flaky ones.
+                                <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="filteredActsNote" class="act-note hidden"></span></p>
                             <ul id="filtered" class="tests"></ul>
                         </details>
                     </div>

@@ -6,11 +6,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 
 /**
- * PR 13654 after a re-run: 23 blockers, while the header and the Root causes tab still counted the groups
- * made for the 24 before it, as the page kept them per build. Seven blockers TeamCity no longer had a message
- * for were one more "cause" with an "ai" button. And every PR with two blockers made the server fetch up to
- * 80 failure messages for the header count, whether or not anyone opened the tab. A message TeamCity did not
- * answer for is asked again, and only runs older than a week are said to have lost theirs.
+ * PR 13654 after a re-run: 23 blockers, while the Root causes tab still counted the groups made for the 24 before
+ * it, as the page kept them per build. Seven blockers TeamCity no longer had a message for were one more "cause"
+ * with a prompt button. And every PR with two blockers made the server fetch up to 80 failure messages for the
+ * count, whether or not anyone opened the tab. A message TeamCity did not answer for is asked again, and only runs
+ * older than a week are said to have lost theirs.
  */
 class RootCausesTabTest {
     /** Three blockers of PR 13575; {@code groups(over)} is the server's answer for them. */
@@ -33,18 +33,18 @@ class RootCausesTabTest {
             page.route('/api/causes', url => url.includes('cached=true') ? { status: 204 } : { body: groups() });
             await page.load('?pr=13575');
             const asked = page.fetches('/api/causes').map(f => f.url);
-            const header = page.el('blockerCount').textContent;
+            const tab = page.el('tabCauses').textContent;
             page.run('setBlockerView')('causes');
             await page.settle();
-            report({ asked, header, after: page.el('blockerCount').textContent,
+            report({ asked, tab, after: page.el('tabCauses').textContent,
                 grouped: page.fetches('/api/causes').filter(f => !f.url.includes('cached=true')).length });
             """);
 
         assertThat(out.get("asked")).hasSize(1);
         assertThat(out.get("asked").get(0).asText()).isEqualTo("/api/causes?pr=13575&cached=true");
-        assertThat(out.get("header").asText()).isEqualTo("(1 suite, 3 tests)");
+        assertThat(out.get("tab").asText()).isEqualTo("Root causes");
         assertThat(out.get("grouped").asInt()).isEqualTo(1);
-        assertThat(out.get("after").asText()).isEqualTo("(1 suite, 3 tests, 2 causes)");
+        assertThat(out.get("after").asText()).isEqualTo("Root causes (2)");
     }
 
     @Test
@@ -57,16 +57,33 @@ class RootCausesTabTest {
             page.run('setBlockerView')('causes');
             await page.settle();
             const html = page.el('causesView').innerHTML;
-            report({ header: page.el('blockerCount').textContent, ai: html.split('ai-cause').length - 1,
+            report({ tab: page.el('tabCauses').textContent, ai: html.split('ai-cause').length - 1,
                 text: page.el('causesView').textContent });
             """);
 
-        assertThat(out.get("header").asText()).isEqualTo("(1 suite, 3 tests, ≥1 cause)");
+        assertThat(out.get("tab").asText()).isEqualTo("Root causes (≥1)");
         assertThat(out.get("ai").asInt()).isEqualTo(1);
         assertThat(out.get("text").asText())
-            .contains("2× no failure message — TeamCity no longer keeps the failure messages of runs from 23 Sep — "
-                + "re-run the suite to see why they fail")
-            .doesNotContain("not sampled");
+            .contains("2 tests · no failure message — TeamCity no longer keeps the failure messages of runs from 23 Sep "
+                + "— re-run the suite to see why they fail")
+            .doesNotContain("message not requested");
+    }
+
+    /** Blockers past the sample were labelled "not checked", as if nobody had judged them, and guessed to share a cause. */
+    @Test
+    void blockersPastTheSampleSayTheirMessageWasNotRequested() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + THREE + """
+            page.route('/api/causes', { body: groups({ sampled: 2 }) });
+            await page.load('?pr=13575');
+            page.run('setBlockerView')('causes');
+            await page.settle();
+            report({ text: page.el('causesView').textContent });
+            """);
+
+        assertThat(out.get("text").asText())
+            .contains("1 test · message not requested — The checker asks TeamCity for the failure messages of only 2 of "
+                + "3 blockers, taken in turn from each suite.")
+            .doesNotContain("not checked", "likely");
     }
 
     @Test
@@ -84,10 +101,10 @@ class RootCausesTabTest {
             + "const STARTED = { 9002: Date.parse('2026-10-06T09:00:00Z') / 1000 };\n" + scenario);
         JsonNode undated = PageScript.run("index.html", PageScript.SIGNED_IN + "const STARTED = {};\n" + scenario);
 
-        assertThat(recent.get("text").asText()).contains("1× no failure message — TeamCity has no failure message for "
-            + "these runs (from 6 Oct) — re-run the suite to see why it fails");
-        assertThat(undated.get("text").asText()).contains("1× no failure message — TeamCity has no failure message for "
-            + "these runs — re-run the suite to see why it fails");
+        assertThat(recent.get("text").asText()).contains("1 test · no failure message — TeamCity has no failure message "
+            + "for these runs (from 6 Oct) — re-run the suite to see why it fails");
+        assertThat(undated.get("text").asText()).contains("1 test · no failure message — TeamCity has no failure message "
+            + "for these runs — re-run the suite to see why it fails");
     }
 
     @Test
@@ -109,8 +126,7 @@ class RootCausesTabTest {
                 grouped: page.fetches('/api/causes').filter(f => !f.url.includes('cached=true')).length });
             """);
 
-        assertThat(out.get("first").asText())
-            .contains("1× failure message not loaded — TeamCity did not answer; switch tabs to try again");
+        assertThat(out.get("first").asText()).contains("1 test · message not loaded — TeamCity did not answer. Retry");
         assertThat(out.get("grouped").asInt()).isEqualTo(2);
         assertThat(out.get("again").asText()).contains("Node left").doesNotContain("not loaded");
         assertThat(out.get("ai").asInt()).isEqualTo(3);
@@ -121,16 +137,16 @@ class RootCausesTabTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + THREE + """
             page.route('/api/causes', { body: groups() });
             await page.load('?pr=13575');
-            const before = page.el('blockerCount').textContent;
+            const before = page.el('tabCauses').textContent;
             page.route('/api/causes', { body: groups({ total: 2, sampled: 2,
                 clusters: [{ signature: 'Partition N lost', count: 1, tests: [member(b1)] }] }) });
             page.route('/api/analyze', { body: verdict({ computedAt: page.now(), blockers: [b1, b3] }) });
             await page.run('analyze')(13575, true);
             await page.settle();
-            report({ before, after: page.el('blockerCount').textContent });
+            report({ before, after: page.el('tabCauses').textContent });
             """);
 
-        assertThat(out.get("before").asText()).isEqualTo("(1 suite, 3 tests, 2 causes)");
-        assertThat(out.get("after").asText()).isEqualTo("(1 suite, 2 tests, 1 cause)");
+        assertThat(out.get("before").asText()).isEqualTo("Root causes (2)");
+        assertThat(out.get("after").asText()).isEqualTo("Root causes (1)");
     }
 }

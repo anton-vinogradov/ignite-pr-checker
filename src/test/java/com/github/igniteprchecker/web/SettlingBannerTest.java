@@ -25,8 +25,8 @@ class SettlingBannerTest {
             """);
 
         assertThat(out.get("settling").get("shown").asBoolean()).isTrue();
-        assertThat(out.get("settling").get("text").asText()).isEqualTo("♻️ Auto re-run #2 of up to 2 in progress — 3"
-            + " blocker suite(s) re-queued, settled in ~25m. The verdict below is interim: it is redone when they finish.");
+        assertThat(out.get("settling").get("text").asText()).isEqualTo("♻︎ Auto re-run #2 of up to 2: re-running 3 blocker"
+            + " suite(s), done in ~25m. The verdict below may change when they finish.");
         assertThat(out.get("settling").get("asked").asInt()).isPositive();
         assertThat(out.get("finalShown").asBoolean()).isFalse();
     }
@@ -40,7 +40,7 @@ class SettlingBannerTest {
             """);
 
         assertThat(out.get("text").asText())
-            .isEqualTo("♻️ Deciding on auto re-runs of this run's failed suites — the verdict below may still change.");
+            .isEqualTo("♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.");
     }
 
     @Test
