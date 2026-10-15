@@ -8,7 +8,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * PR 13335's page said "No blockers 🎉 … good to go" and its tab "✅ no blockers" from the cached analysis of build
+ * PR 13335's page said "No blockers … good to go" and its tab "✅ no blockers" from the cached analysis of build
  * 9398719, and only 1.6 s later, once /api/pending answered, that 33 commits were pushed since. Had /api/pending
  * failed, "good to go" would have stayed. A clean verdict now waits for the check that its run tested the PR's head,
  * says when the check failed, and says at once what the server's PR list already knows.
@@ -28,10 +28,9 @@ class HeadCheckPageTest {
             }
             return fetchNow(url, opts);
         };
-        const state = () => ({ head: page.el('blockersHead').textContent,
-            clean: page.el('blockersTitle').classList.contains('clean'),
-            caveat: page.el('verdictCaveat').classList.contains('hidden') ? null : page.el('verdictCaveat').textContent,
-            below: page.el('noBlockers').textContent,
+        const state = () => ({ head: page.el('verdictText').textContent,
+            clean: page.el('verdictCard').classList.contains('clean'),
+            lines: page.el('verdictLines').textContent,
             pushed: page.el('pendingRow').classList.contains('hidden') ? null : page.el('pending').textContent,
             title: page.run('document').title });
         const CLEAN = verdict({ blockers: [], standing: 'CLEAN', caveats: [],
@@ -43,8 +42,9 @@ class HeadCheckPageTest {
             builtRevision: CLEAN.revision, caveat: 'new commits pushed since this run — it tested older code' };
         """;
 
-    private static final String CANT_PROVE =
-        "Nothing here was blamed on this PR, but this run can't prove it is clean: ";
+    private static final String CANT_PROVE = "This run can't prove the PR is clean: ";
+
+    private static final String OLDER_CODE = "it tested older code (see the note at the top).";
 
     /**
      * {@code listed([[number, standing], …])} serves the PR list with these PRs, none with blockers, and returns, by
@@ -81,17 +81,15 @@ class HeadCheckPageTest {
             """);
 
         JsonNode before = out.get("before");
-        assertThat(before.get("head").asText()).isEqualTo("No test blockers");
+        assertThat(before.get("head").asText()).isEqualTo("No blockers found");
         assertThat(before.get("clean").asBoolean()).isFalse();
-        assertThat(before.get("caveat").asText()).isEqualTo("Checking that this run tested the PR's latest code…");
-        assertThat(before.get("below").asText()).doesNotContain("good to go");
+        assertThat(before.get("lines").asText()).isEqualTo("Checking that this run tested the PR's latest commit…");
         assertThat(before.get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
 
         JsonNode after = out.get("after");
-        assertThat(after.get("head").asText()).isEqualTo("No blockers 🎉");
+        assertThat(after.get("head").asText()).isEqualTo("✓ No blockers");
         assertThat(after.get("clean").asBoolean()).isTrue();
-        assertThat(after.get("caveat").isNull()).isTrue();
-        assertThat(after.get("below").asText()).isEqualTo("Nothing in this run looks caused by your PR — good to go.");
+        assertThat(after.get("lines").asText()).isEqualTo("Nothing in this run looks caused by your PR. Good to go.");
         assertThat(after.get("title").asText()).isEqualTo("✅ no blockers · #13575 — Ignite PR Checker");
     }
 
@@ -106,13 +104,11 @@ class HeadCheckPageTest {
             report(state());
             """);
 
-        assertThat(out.get("head").asText()).isEqualTo("No test blockers");
-        assertThat(out.get("caveat").asText())
-            .isEqualTo(CANT_PROVE + "33 commit(s) pushed since this run — it tested older code.");
-        assertThat(out.get("below").asText()).doesNotContain("good to go");
-        assertThat(out.get("pushed").asText()).isEqualTo("⚠ 33 new commits pushed since this run (1f93640 → 6573622) — "
-            + "the verdict is for the older code.");
-        assertThat(out.get("title").asText()).startsWith("⚠ no test blockers");
+        assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+        assertThat(out.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(out.get("pushed").asText()).isEqualTo("⚠ The verdict is for older code: this run tested 1f93640, and "
+            + "the PR is now at 6573622, 33 commits later.");
+        assertThat(out.get("title").asText()).startsWith("⚠ not proven clean");
     }
 
     /** GitHub or TeamCity could not say, /api/pending failed, or the request never got through. */
@@ -131,13 +127,12 @@ class HeadCheckPageTest {
                 report(state());
                 """);
 
-            assertThat(out.get("head").asText()).as(failure).isEqualTo("No test blockers");
+            assertThat(out.get("head").asText()).as(failure).isEqualTo("No blockers found — not proven clean");
             assertThat(out.get("clean").asBoolean()).as(failure).isFalse();
-            assertThat(out.get("caveat").asText()).as(failure)
+            assertThat(out.get("lines").asText()).as(failure)
                 .isEqualTo(CANT_PROVE + "could not check whether the PR changed since this run.");
-            assertThat(out.get("below").asText()).as(failure).doesNotContain("good to go");
             assertThat(out.get("pushed").isNull()).as(failure).isTrue();
-            assertThat(out.get("title").asText()).as(failure).startsWith("⚠ no test blockers");
+            assertThat(out.get("title").asText()).as(failure).startsWith("⚠ not proven clean");
         }
     }
 
@@ -155,17 +150,15 @@ class HeadCheckPageTest {
             """);
 
         JsonNode first = out.get("first");
-        assertThat(first.get("head").asText()).isEqualTo("No test blockers");
-        assertThat(first.get("caveat").asText())
-            .isEqualTo(CANT_PROVE + "new commits pushed since this run — it tested older code.");
-        assertThat(first.get("pushed").asText()).isEqualTo("⚠ new commits pushed since this run (1f93640 → 6573622) — "
-            + "the verdict is for the older code.");
-        assertThat(first.get("title").asText()).startsWith("⚠ no test blockers");
+        assertThat(first.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+        assertThat(first.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(first.get("pushed").asText()).as("the count is not known yet")
+            .isEqualTo("⚠ The verdict is for older code: this run tested 1f93640, and the PR is now at 6573622.");
+        assertThat(first.get("title").asText()).startsWith("⚠ not proven clean");
 
         JsonNode counted = out.get("counted");
-        assertThat(counted.get("caveat").asText())
-            .isEqualTo(CANT_PROVE + "33 commit(s) pushed since this run — it tested older code.");
-        assertThat(counted.get("pushed").asText()).startsWith("⚠ 33 new commits pushed since this run");
+        assertThat(counted.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(counted.get("pushed").asText()).endsWith("the PR is now at 6573622, 33 commits later.");
     }
 
     /** A failed check does not undo commits the PR list already showed. */
@@ -180,9 +173,9 @@ class HeadCheckPageTest {
             report(state());
             """);
 
-        assertThat(out.get("caveat").asText())
-            .isEqualTo(CANT_PROVE + "new commits pushed since this run — it tested older code.");
-        assertThat(out.get("pushed").asText()).startsWith("⚠ new commits pushed since this run");
+        assertThat(out.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(out.get("pushed").asText()).isEqualTo("⚠ The verdict is for older code: this run tested 1f93640, and "
+            + "the PR is now at 6573622.");
     }
 
     /** A quiet look again that brings the same run with the list's uncounted commits keeps GitHub's count. */
@@ -199,9 +192,8 @@ class HeadCheckPageTest {
             report(state());
             """);
 
-        assertThat(out.get("caveat").asText())
-            .isEqualTo(CANT_PROVE + "33 commit(s) pushed since this run — it tested older code.");
-        assertThat(out.get("pushed").asText()).startsWith("⚠ 33 new commits pushed since this run");
+        assertThat(out.get("lines").asText()).isEqualTo(CANT_PROVE + OLDER_CODE);
+        assertThat(out.get("pushed").asText()).endsWith("the PR is now at 6573622, 33 commits later.");
     }
 
     /**
@@ -236,12 +228,12 @@ class HeadCheckPageTest {
             """);
 
         JsonNode stale = out.get("stale");
-        assertThat(stale.get("head").asText()).isEqualTo("No test blockers");
-        assertThat(stale.get("caveat").asText()).isEqualTo("Checking that this run tested the PR's latest code…");
+        assertThat(stale.get("head").asText()).isEqualTo("No blockers found");
+        assertThat(stale.get("lines").asText()).isEqualTo("Checking that this run tested the PR's latest commit…");
         assertThat(stale.get("pushed").isNull()).isTrue();
 
         JsonNode current = out.get("current");
-        assertThat(current.get("head").asText()).isEqualTo("No blockers 🎉");
+        assertThat(current.get("head").asText()).isEqualTo("✓ No blockers");
         assertThat(current.get("pushed").isNull()).isTrue();
     }
 
@@ -254,7 +246,7 @@ class HeadCheckPageTest {
             report(state());
             """);
 
-        assertThat(out.get("head").asText()).isEqualTo("Blockers");
+        assertThat(out.get("head").asText()).isEqualTo("1 blocker in 1 suite");
         assertThat(out.get("title").asText()).isEqualTo("❌ 1 blocker · #13575 — Ignite PR Checker");
     }
 

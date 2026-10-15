@@ -19,8 +19,7 @@ class QueueAtTopPageTest {
         const BELOW = { belowTop: true, topRefusal: 403 };
         """;
 
-    private static final String NOTE = "at the end of the queue, not the top: TeamCity refused to move it up "
-        + "(HTTP 403); your ci2 account may not have the permission to reorder the queue.";
+    private static final String NOTE = "at the end of the queue: ci2 did not let your account move it to the top.";
 
     @Test
     void runAtTopSaysTheChainWaitsAtTheEnd() throws Exception {
@@ -31,7 +30,7 @@ class QueueAtTopPageTest {
             report({ status: page.el('status').textContent });
             """);
 
-        assertThat(out.get("status").asText()).isEqualTo("Queued 1 build(s): #501TC — " + NOTE);
+        assertThat(out.get("status").asText()).isEqualTo("Queued 1 build: #501, " + NOTE);
     }
 
     @Test
@@ -40,14 +39,17 @@ class QueueAtTopPageTest {
             page.route('/api/rerun-suites', { body: { triggered: [build(501, BELOW), build(502)] } }, 'POST');
             page.route('/api/rerun-suite', { body: { triggered: [build(503, BELOW)] } }, 'POST');
             await page.load('?pr=13575');
-            await page.run('rerunSuites')(['Cache', 'Query'], true, page.el('sectRerun'));
+            await page.run('rerunSuites')(['Cache', 'Query'], true, page.el('sectRerun'), page.el('sectNote'));
             const section = page.el('status').textContent;
             await page.run('rerunSuite')('Cache', true, page.el('suiteRerun'));
-            report({ section, suite: page.el('status').textContent });
+            report({ section, suite: page.el('status').textContent, note: page.el('sectNote').textContent,
+                noteHidden: page.el('sectNote').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("section").asText()).isEqualTo("Queued 2 suite(s): #501TC · #502TC — 1 of them " + NOTE);
-        assertThat(out.get("suite").asText()).isEqualTo("Queued #503TC — " + NOTE);
+        assertThat(out.get("section").asText()).isEqualTo("Queued #501 · #502; 1 of them " + NOTE);
+        assertThat(out.get("note").asText()).as("under the buttons").isEqualTo("1 of them queued " + NOTE);
+        assertThat(out.get("noteHidden").asBoolean()).isFalse();
+        assertThat(out.get("suite").asText()).isEqualTo("Queued #503, " + NOTE);
     }
 
     @Test
@@ -59,6 +61,6 @@ class QueueAtTopPageTest {
             report({ status: page.el('status').textContent });
             """);
 
-        assertThat(out.get("status").asText()).isEqualTo("Queued 1 build(s): #501TC");
+        assertThat(out.get("status").asText()).isEqualTo("Queued 1 build: #501.");
     }
 }

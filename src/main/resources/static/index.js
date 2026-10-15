@@ -21,6 +21,21 @@ function friendly(error, fallback) {
 function genericError(error) {
     return !error || /^(Not Found|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)$/i.test(error.trim());
 }
+// "⚠ Not queued: ci2 refused…" for the PR page, where an error starts with what did not happen; without a usable
+// answer, "⚠ Not queued. The service may be restarting. Try again in a moment."
+function notDone(what, error) {
+    return genericError(error) ? `⚠ ${what}. The service may be restarting. Try again in a moment.` : `⚠ ${what}: ${error}`;
+}
+// The status line under the run line: what the page is doing now (busy), or how the last action went; an error is
+// red. Every note goes through here, so a new one always clears the look of the last.
+function sayStatus(text, { html = false, err = false, busy = false } = {}) {
+    const el = $('status');
+    if (html) el.innerHTML = text;
+    else el.textContent = text;
+    el.classList.toggle('err', err);
+    el.classList.toggle('busy', busy);
+    $('statusRetry').classList.add('hidden');
+}
 function show(view) {
     $('loginView').classList.toggle('hidden', view !== 'login');
     $('analyzeView').classList.toggle('hidden', view !== 'analyze');
@@ -95,8 +110,8 @@ function setPrTitle(number, title, url) {
     const href = url || prUrl(number);
     $('prTitle').classList.remove('muted');
     const linked = title ? esc(title).replace(/IGNITE-\d+/g,
-        m => `${m}<a class="ext" href="${esc(jiraBase)}/browse/${m}" target="_self" rel="noopener" title="Open ${m} in JIRA">JIRA</a>`) : '';
-    $('prTitle').innerHTML = `#${number}<a class="ext" href="${href}" target="_self" rel="noopener" title="Open this PR on GitHub">GitHub</a>`
+        m => `<a href="${esc(jiraBase)}/browse/${m}" target="_self" rel="noopener" title="Open ${m} in JIRA">${m}</a>`) : '';
+    $('prTitle').innerHTML = `<a href="${esc(href)}" target="_self" rel="noopener" title="Open PR #${esc(number)} on GitHub">#${esc(number)}</a>`
         + (linked ? ' ' + linked : '');
 }
 
@@ -214,7 +229,8 @@ function openPr(number, push) {
     const li = findLi(number);
     setPrTitle(number, li ? li.dataset.title : null, li ? li.dataset.url : null);
     $('actions').classList.remove('hidden');
-    $('status').textContent = '';
+    sayStatus('');
+    $('visaNote').classList.add('hidden');
     clearFreshness();
     $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
     runsWere = 0;
@@ -239,54 +255,149 @@ function suitesOfBroken(list) { return [...new Set((list || []).map(b => b.suite
 // ahead of everybody else's builds.
 const ASK_FROM_SUITES = 5;
 
-async function rerunSuites(suites, top, btn) {
+// `note` is the line under the buttons that answers the click; the status line gets a copy.
+async function rerunSuites(suites, top, btn, note) {
     if (!selectedPr || !suites.length) return;
     const pr = selectedPr;
     if (suites.length >= ASK_FROM_SUITES && !confirm(`Re-run ${suites.length} suites of PR #${pr} `
         + (top ? 'at the top of the ci2 queue, ahead of everyone else\'s builds?' : 'at the end of the ci2 queue?')))
         return;
     btn.disabled = true;
-    $('status').textContent = 'Queuing ' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + '…';
+    sayStatus('Queuing ' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + '…', { busy: true });
     try {
         const r = await api('/api/rerun-suites?pr=' + pr + '&top=' + top
             + '&suites=' + encodeURIComponent(suites.join(',')), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
-        const links = (res.triggered || [])
-            .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
-        $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' suite(s): ' + links
-            + belowTopNote(res.triggered);
+        if (!r.ok) {
+            answerRerun(note, notDone('Not queued', res.error), true);
+            sayStatus(notDone('Not queued', res.error), { err: true });
+            return;
+        }
+        showQueued(res.triggered);
+        answerRerun(note, belowTopLine(res.triggered), false);
+        sayStatus(queuedLine(res.triggered) + belowTopTail(res.triggered), { html: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
     }
 }
 
-// TeamCity queues a build before it moves it to the top, and ci2 lets only some accounts reorder the queue: a refused
-// move leaves the build queued at the end, and the server marks it so.
-function belowTopNote(triggered) {
-    const all = triggered || [], below = all.filter(b => b.belowTop);
-    if (!below.length) return '';
-    const status = below[0].topRefusal;
-    return ` — ${below.length === all.length ? '' : below.length + ' of them '}at the end of the queue, not the top: `
-        + `TeamCity refused to move ${below.length === 1 ? 'it' : 'them'} up (HTTP ${esc(status)})`
-        + (status === 403 ? '; your ci2 account may not have the permission to reorder the queue' : '') + '.';
+// What a click on Rerun answered, under its buttons until the next click there; nothing hides the line.
+function answerRerun(note, text, err) {
+    if (!note) return;
+    note.textContent = text;
+    note.classList.toggle('err', !!err);
+    note.classList.toggle('hidden', !text);
 }
 
-// Wires a section's Rerun / Rerun at top buttons to re-run that section's distinct suites, saying how
-// many; hides the control when the section has no suites.
+// The line under a suite row's own Rerun buttons, made at the first answer; a stand-in where the row is not in the page.
+function rowNote(btn) {
+    const head = btn.closest ? btn.closest('.suite-head') : null;
+    if (!head) return document.createElement('div');
+    const next = head.nextElementSibling;
+    if (next && next.classList.contains('act-note')) return next;
+    const note = document.createElement('div');
+    note.className = 'act-note hidden';
+    head.insertAdjacentElement('afterend', note);
+    return note;
+}
+
+// The queued chip appears at the suite from the answer itself, not at the next poll of the runs.
+function showQueued(triggered, suite) {
+    for (const b of triggered || []) {
+        const btId = b.btId || suite;
+        if (!btId || !b.buildId || lastRuns.some(x => x.buildId === b.buildId)) continue;
+        lastRuns.push({ buildId: b.buildId, btId, state: 'queued', webUrl: b.webUrl, pct: -1 });
+    }
+    annotateSuiteChips();
+}
+
+// "Queued #501 · #502": each build a link.
+function queuedLine(triggered) {
+    const links = (triggered || []).map(b =>
+        `<a href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">#${esc(b.buildId)}</a>`);
+    return links.length ? 'Queued ' + links.join(' · ') : 'Queued';
+}
+
+// TeamCity queues a build before it moves it to the top, and ci2 lets only some accounts reorder the queue: a refused
+// move leaves the build queued at the end, and the server marks it so.
+function belowTop(triggered) {
+    const all = triggered || [], below = all.filter(b => b.belowTop);
+    if (!below.length) return null;
+    return { partial: below.length < all.length ? below.length : 0,
+        why: `ci2 did not let your account move ${below.length === 1 ? 'it' : 'them'} to the top.` };
+}
+
+// The end of the status line: ", at the end of the queue: …" or "; 2 of them at the end of the queue: …".
+function belowTopTail(triggered) {
+    const b = belowTop(triggered);
+    if (!b) return '.';
+    return b.partial ? `; ${b.partial} of them at the end of the queue: ${b.why}` : `, at the end of the queue: ${b.why}`;
+}
+
+// The line under the buttons, when the builds did not get to the top.
+function belowTopLine(triggered) {
+    const b = belowTop(triggered);
+    if (!b) return '';
+    return b.partial ? `${b.partial} of them queued at the end of the queue: ${b.why}` : `Queued at the end of the queue: ${b.why}`;
+}
+
+// What each section's Rerun pair re-runs, and its Rerun button, by the pair's container id: paintPrimary picks the
+// next step among them.
+const sectActs = new Map();
+
+// Wires a section's "Rerun N suites" / "Rerun at top" to re-run that section's distinct suites; hides the pair when
+// the section has no suites. The answer goes under the pair, into the element whose id is the container's + "Note".
 function wireSectActs(containerId, suites) {
     const c = $(containerId);
     if (!c) return;
     c.classList.toggle('hidden', !suites.length);
     const n = suites.length;
+    const note = $(containerId + 'Note');
+    let rerun = null;
     for (const b of c.querySelectorAll('button')) {
         const top = b.dataset.top === 'true';
-        b.textContent = `${top ? 'Rerun at top' : 'Rerun'} (${n})`;
+        b.classList.remove('primary');
+        b.textContent = top ? 'Rerun at top' : `Rerun ${n} suite${n === 1 ? '' : 's'}`;
         b.title = `Re-run the ${n} suite${n === 1 ? '' : 's'} of this section${top ? ', at the top of the queue' : ''}`;
-        b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, top, b); };
+        b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, top, b, note); };
+        if (!top) rerun = b;
     }
+    sectActs.set(containerId, { suites, rerun });
+}
+
+function sameSuites(a, b) {
+    return a.length === b.length && a.every(s => b.includes(s));
+}
+
+// A suite row's own Rerun pair: quiet text buttons, the twins of the pair above them. Left out when the nearest pair
+// above re-runs exactly this one suite.
+function suiteRowActs(suite, above) {
+    if (!suite || (above && above.length === 1 && above[0] === suite)) return '';
+    return `<span class="suite-runs"><button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="false" title="Re-run this suite">Rerun</button>`
+        + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun at top</button></span>`;
+}
+
+// The one filled button, the next step. None while auto re-runs go, a RunAll of the PR is queued or running, or the
+// suites that step would re-run are already queued: then the next step is to wait. Else Run RunAll when the verdict is
+// for older code; else the pair of Broken suites or of Suites that never ran; else the pair of the blockers on one
+// run, or the card's own when they are all of its blockers.
+function paintPrimary() {
+    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    $('pendingRerun').classList.remove('primary');
+    for (const s of sectActs.values()) if (s.rerun) s.rerun.classList.remove('primary');
+    if (!res) return;
+    const settling = phaseNow && phaseNow.pr === selectedPr && phaseNow.phase === 'settling';
+    if (settling || runsNow.some(b => b.runAll)) return;
+    if (codeOf(res) === 'old') { $('pendingRerun').classList.add('primary'); return; }
+    const withSuites = ids => ids.map(id => sectActs.get(id)).find(s => s && s.suites.length);
+    const sect = withSuites(['brokenActs', 'cancelledActs'])
+        || ((res.blockers || []).some(oneRun) ? withSuites(['oneRunActs', 'blockerActs']) : null);
+    if (!sect || !sect.rerun) return;
+    const queued = new Set(lastRuns.map(b => b.btId));
+    if (sect.suites.every(s => queued.has(s))) return;
+    sect.rerun.classList.add('primary');
 }
 
 // One poll loop for the open PR: often while its runs go, rarely when nothing runs. A hidden tab asks only
@@ -355,23 +466,25 @@ async function loadRuns(number) {
         const t = trackerById.get(b.buildId);
         if (t && t.leftSec != null && t.leftSec > (b.leftSec ?? -1)) b.leftSec = t.leftSec;
     }
-    // Same visual language as the suite rows: the name is a plain link, the state is a .live chip.
-    // Revision transparency: a running build started before the latest push tests older
-    // code; a queued one has no revision yet (TeamCity resolves it at start = head then).
+    // Same visual language as the suite rows: the name is a plain link, the state is a .live chip. A running build
+    // that started before the latest push tests older code; a queued one has no commit yet (TeamCity picks it at
+    // the start).
     const revTag = b => b.onHead === true
-        ? `<span class="rev-ok" title="Running on the PR's current head revision">rev ✓ head</span>`
+        ? `<span class="rev-ok" title="This run tests the PR's latest commit">on latest commit</span>`
         : b.onHead === false
-            ? `<span class="rev-stale" title="Started on ${esc(b.rev)} — commits were pushed after; this run tests older code">⚠ rev ${esc(b.rev)}</span>`
+            ? `<span class="rev-stale" title="Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.">⚠ old commit ${esc(b.rev)}</span>`
             : b.state === 'queued'
-                ? `<span class="rev-queued" title="The revision is resolved when the build starts — it will pick up the head of that moment">rev @start</span>`
+                ? `<span class="rev-queued" title="TeamCity picks the commit when the run starts: the PR's latest commit at that moment.">takes latest commit at start</span>`
                 : '';
     const byTag = b => b.mine ? ''
         : `<span class="run-by" title="Started by ${esc(b.by || 'someone else')} — Cancel my runs leaves it alone">by ${esc(b.by || 'someone else')}</span>`;
     $('runs').innerHTML = runs.length
-        ? 'runs: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec > 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
+        ? 'On ci2 now: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec > 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
         : '';
     $('runsRow').classList.toggle('hidden', runs.length === 0);
     $('cancelMine').classList.toggle('hidden', !runs.some(b => b.mine));
+    if (!$('pendingRow').classList.contains('hidden')) paintPending();
+    paintPrimary();
     if (noRunNote && $('status').textContent === noRunNote) showNoRun();
 
     // When the runs we were watching have all finished, refresh the analysis to pick up their results.
@@ -423,6 +536,7 @@ async function loadSettling(number) {
     $('settlingRow').classList.toggle('hidden', !text);
     $('settling').textContent = text;
     phaseNow = phase ? { ...phase, pr: number, build: res.buildId } : null;
+    paintPrimary();
     paintTab();
     // A hidden tab whose poll found nothing to wait for may learn only now that re-runs settle the verdict.
     if (!pollTimer && waitingForFinal()) schedulePoll();
@@ -434,7 +548,7 @@ let phaseNow = null; // /api/settling's last answer, with the PR and build it wa
 const BASE_TITLE = document.title || 'Ignite PR Checker';
 const BASE_ICON = '/favicon.png';
 const TAB_COLORS = {
-    running: '#1cb6ed', settling: '#e3a008', blockers: '#d73a49', clean: '#2da44e', other: '#8b949e' };
+    running: '#1cb6ed', settling: '#e3a008', blockers: '#d73a49', clean: '#2da44e', watch: '#e3a008', other: '#8b949e' };
 
 function tabState() {
     if (!selectedPr || $('analyzeView').classList.contains('hidden')) return null;
@@ -451,8 +565,7 @@ function tabState() {
     if (standingOf(res) === 'CHECKING') return { kind: 'unknown' };
     // Final only when /api/settling says so of this very run: without its answer, re-runs may still follow.
     if (!phase || phase.phase !== 'final' || phase.build !== res.buildId) return { kind: 'unknown' };
-    const verdict = res.blockers.length > 0 ? 'blockers'
-        : $('blockersTitle').classList.contains('clean') ? 'clean' : 'other';
+    const verdict = res.blockers.length > 0 ? 'blockers' : { CLEAN: 'clean', WATCH: 'watch' }[standingOf(res)] || 'other';
     return { kind: 'final', verdict, res };
 }
 
@@ -481,7 +594,8 @@ function paintTab() {
         color = TAB_COLORS[st.verdict];
         const n = st.res.blockers.length;
         title = (st.verdict === 'blockers' ? `❌ ${n} blocker${n === 1 ? '' : 's'}`
-            : st.verdict === 'clean' ? '✅ no blockers' : '⚠ no test blockers') + pr;
+            : st.verdict === 'clean' ? '✅ no blockers'
+            : st.verdict === 'watch' ? '⚠ started failing' : '⚠ not proven clean') + pr;
     }
     else if (selectedPr && !$('analyzeView').classList.contains('hidden'))
         title = '#' + selectedPr + ' — Ignite PR Checker';
@@ -533,9 +647,11 @@ function notifyIfFinal(st) {
     if (!notifyFor || notifyFor.pr !== selectedPr || !st || st.kind !== 'final'
         || st.res.buildId < notifyFor.build)
         return;
-    const n = st.res.blockers.length;
+    const n = st.res.blockers.length, w = (st.res.watch || []).length;
     const head = st.verdict === 'blockers' ? `${n} blocker${n === 1 ? '' : 's'}`
-        : st.verdict === 'clean' ? 'no blockers' : 'no test blockers, see the caveats';
+        : st.verdict === 'clean' ? 'no blockers'
+        : st.verdict === 'watch' ? `${w} test${w === 1 ? '' : 's'} started failing. A rerun decides.`
+        : 'no blockers found, not proven clean. Open the page to see why.';
     notifyFor = null;
     try {
         const note = new Notification(`PR #${selectedPr}: ${head}`, {
@@ -547,11 +663,10 @@ function notifyIfFinal(st) {
 // What /api/settling says, in words; empty unless re-runs still settle the verdict.
 function settlingText(phase) {
     if (!phase || phase.phase !== 'settling') return '';
-    if (!phase.wave)
-        return '♻️ Deciding on auto re-runs of this run\'s failed suites — the verdict below may still change.';
+    if (!phase.wave) return '♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.';
     const left = phase.etaEpochSec ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
-    return `♻️ Auto re-run #${phase.wave} of up to ${phase.of} in progress — ${phase.what} re-queued`
-        + (left ? `, settled in ${left}` : '') + '. The verdict below is interim: it is redone when they finish.';
+    return `♻︎ Auto re-run #${phase.wave} of up to ${phase.of}: re-running ${phase.what}` + (left ? `, done in ${left}` : '')
+        + '. The verdict below may change when they finish.';
 }
 
 // A PR with nothing to analyse yet: say whether a RunAll is already on its way rather than offer
@@ -564,7 +679,7 @@ function showNoRun() {
             ? 'RunAll is running for this PR — its first results show up here shortly.'
             : 'RunAll is queued for this PR' + (chain.startSec >= 0 ? ', starts ' + fmtLeft(chain.startSec) : '')
                 + ' — the verdict shows up here once it starts.';
-    $('status').textContent = noRunNote;
+    sayStatus(noRunNote);
 }
 
 function prFromUrl() {
@@ -600,9 +715,10 @@ function goHome(push) {
     $('prTitle').classList.add('muted');
     $('prTitle').textContent = 'Pick a PR on the left, or type its number in the filter.';
     $('actions').classList.add('hidden');
-    $('status').textContent = '';
+    sayStatus('');
     clearFreshness();
-    for (const id of ['results', 'runsRow', 'pendingRow', 'deltaRow']) $(id).classList.add('hidden');
+    for (const id of ['results', 'runsRow', 'pendingRow', 'settlingRow']) $(id).classList.add('hidden');
+    paintPrimary();
     syncPane();
     $('prFilter').focus();
 }
@@ -681,12 +797,14 @@ async function analyze(number, quiet) {
         const why = genericError(error) ? null : error;
         if (analyzeRetries < 6) {
             analyzeRetries++;
-            $('status').textContent = (why || 'service is busy or restarting') + ' — retrying…';
+            sayStatus(why ? `Could not analyze this PR: ${why}. Retrying…` : 'The service is busy or restarting. Retrying…',
+                { busy: true });
             setTimeout(() => { if (number === selectedPr) analyze(number); }, 4000);
             return;
         }
-        $('status').textContent = (why || 'analysis failed (' + (r ? 'HTTP ' + r.status : 'network') + ')')
-            + ' — reload or press ↻';
+        sayStatus(`Could not analyze this PR${why ? ': ' + why : ' (' + (r ? 'HTTP ' + r.status : 'network error') + ')'}.`,
+            { err: true });
+        $('statusRetry').classList.remove('hidden');
         return;
     }
     analyzeRetries = 0;
@@ -709,10 +827,9 @@ async function analyze(number, quiet) {
 // cold analysis of a fresh run takes a while, and a silent spinner reads as "broken". The first
 // viewer fills the cache for everyone.
 function startAnalyzing(number) {
-    $('status').textContent = 'Analyzing… (walking the RunAll chain)';
+    sayStatus('Analyzing the latest RunAll…', { busy: true });
     clearFreshness();
     $('results').classList.add('hidden');
-    $('deltaRow').classList.add('hidden'); // it lives outside #results — clear the previous PR's delta
     $('pendingRow').classList.add('hidden');
     $('settlingRow').classList.add('hidden');
     return setInterval(async () => {
@@ -721,8 +838,8 @@ function startAnalyzing(number) {
             if (!pr.ok || number !== selectedPr) return;
             const p = await pr.json().catch(() => null);
             if (p && p.total > 0 && $('results').classList.contains('hidden'))
-                $('status').textContent = `Analyzing a fresh run — ${p.done}/${p.total} failed tests classified… `
-                    + '(first view of a new run computes it for everyone)';
+                sayStatus(`Analyzing a new run: ${p.done} of ${p.total} failed tests checked. `
+                    + 'Only the first view of a new run waits for this.', { busy: true });
         } catch (e) { /* progress is decoration */ }
     }, 2500);
 }
@@ -749,16 +866,13 @@ function renderBroken(el, suites) {
     wireSuiteAi(el);
 }
 
-// One broken suite: its name, TeamCity link, "ai" and live chips, Rerun buttons unless `rerun` is false, and what
-// TeamCity reported.
-function brokenRow(s, rerun = true) {
+// One broken suite: its name, TeamCity link, "ai" and live chips, its own Rerun pair unless `rerun` is false or the
+// pair `above` it re-runs just this suite, and what TeamCity reported.
+function brokenRow(s, rerun = true, above = []) {
     const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
     const head = esc(s.suiteName || s.suite)
         + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-    const btns = s.suite && rerun
-        ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-            + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun at top</button></span>`
-        : '';
+    const btns = rerun ? suiteRowActs(s.suite, above) : '';
     // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
     // "tests disappeared" and hides the timeout that emptied the suite.
     const short = s.tests && s.baseline && s.tests < s.baseline
@@ -776,15 +890,17 @@ function renderBrokenGroups(el, groups, buildId) {
     const kept = el.dataset.build === String(buildId)
         ? new Set([...el.querySelectorAll('details[open]')].map(d => d.dataset.key)) : new Set();
     el.dataset.build = buildId;
-    el.innerHTML = groups.map((g, i) => brokenGroupHtml(g, i, kept)).join('');
+    const sectionRerun = rerunOfGroups(groups);
+    el.innerHTML = groups.map((g, i) => brokenGroupHtml(g, i, kept, sectionRerun)).join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
     for (const b of el.querySelectorAll('.group-rerun'))
-        b.onclick = () => rerunSuites(groups[+b.dataset.g].rerun, b.dataset.top === 'true', b);
+        b.onclick = () => rerunSuites(groups[+b.dataset.g].rerun, b.dataset.top === 'true', b, rowNote(b));
     wireSuiteAi(el);
 }
 
-function brokenGroupHtml(g, i, kept) {
+// A group's own Rerun pair stands only when it re-runs other suites than the section's pair, `sectionRerun`.
+function brokenGroupHtml(g, i, kept, sectionRerun) {
     const suites = g.suites || [];
     const neverRan = g.cancelled || [];
     const key = g.kind + '|' + g.title;
@@ -797,22 +913,25 @@ function brokenGroupHtml(g, i, kept) {
         const n = victims.length;
         const summary = `${n} suite${n === 1 ? '' : 's'}` + (g.root ? ` that need${n === 1 ? 's' : ''} it did not run` : '');
         return `<li class="broken-group"><div class="root-title">${esc(g.title)}</div>`
-            + (g.root ? `<ul class="tests">${brokenRow(g.root, (g.rerun || []).length > 0)}</ul>` : '')
+            + (g.root ? `<ul class="tests">${brokenRow(g.root, (g.rerun || []).length > 0, sectionRerun)}</ul>` : '')
             + (n ? fold(summary, names(victims)) : '')
             + '</li>';
     }
-    const rerun = s => (g.rerun || []).includes(s.suite);
-    if (suites.length === 1) return brokenRow(suites[0], rerun(suites[0]));
-    const n = (g.rerun || []).length;
-    const btns = n
-        ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="Re-run the ${n} suites of this group">Rerun (${n})</button>`
-            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="Re-run the ${n} suites of this group, at the top of the queue">Rerun at top (${n})</button></span>`
+    const rerunSet = g.rerun || [];
+    const rerun = s => rerunSet.includes(s.suite);
+    if (suites.length === 1) return brokenRow(suites[0], rerun(suites[0]), sectionRerun);
+    const n = rerunSet.length;
+    const own = n > 0 && !sameSuites(rerunSet, sectionRerun);
+    const btns = own
+        ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="Re-run the ${n} suites of this group">Rerun ${n} suites</button>`
+            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="Re-run the ${n} suites of this group, at the top of the queue">Rerun at top</button></span>`
         : '';
+    const above = own ? rerunSet : sectionRerun;
     const why = g.kind === 'ARTIFACTS'
         ? '<div class="reason">ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.</div>'
         : '';
     return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(g.title)}</span>${btns}</div>${why}`
-        + fold(`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s))).join('')}</ul>`) + '</li>';
+        + fold(`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s), above)).join('')}</ul>`) + '</li>';
 }
 
 // What the broken groups re-run between them, each suite once: never the suites a failed Build kept from running.
@@ -833,14 +952,13 @@ function groupsOf(res) {
 function renderCancelled(el, suites, buildId) {
     const kept = el.dataset.build === String(buildId)
         ? new Set([...el.querySelectorAll('details[open]')].map(d => d.dataset.who)) : new Set();
-    const rows = suites.filter(s => !s.cancelledBy).map(s => {
+    const own = suites.filter(s => !s.cancelledBy);
+    const above = suitesOfBroken(own);
+    const rows = own.map(s => {
         const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
         const head = esc(s.suiteName || s.suite)
             + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-        const btns = s.suite
-            ? `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-                + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun at top</button></span>`
-            : '';
+        const btns = suiteRowActs(s.suite, above);
         return `<li><div class="suite-head"><span class="suite-name">${head}`
             + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
             + `<div class="reason">cancelled${s.byTeamCity ? ' by TeamCity' : ''}${s.reason ? ': ' + esc(s.reason) : ''}</div></li>`;
@@ -855,16 +973,17 @@ function renderCancelled(el, suites, buildId) {
     el.innerHTML = rows.join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
+    wireSectActs('cancelledActs', above);
 }
 
 // Suites that ran far fewer tests than master — each with its counts and a re-run button.
 function renderShrunk(el, suites) {
+    const above = suitesOfBroken(suites);
     el.innerHTML = suites.map(s => {
         const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
         const head = esc(s.suiteName || s.suite)
             + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-        const btns = `<span class="suite-runs"><button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="false">Rerun</button>`
-            + `<button class="suite-rerun" data-suite="${esc(s.suite)}" data-top="true">Rerun at top</button></span>`;
+        const btns = suiteRowActs(s.suite, above);
         return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'shrunk')}`
             + `<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
             + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
@@ -945,24 +1064,43 @@ async function aiSuitePrompt(btn) {
     await copyText(prompt, btn, 'ai');
 }
 
-// Blocker-count trend: one bar per RunAll build (oldest → newest), red while blockers remain.
+// Blockers per RunAll build, oldest to newest: one bar each, red while blockers remain, from three runs on.
 function renderTrend(history) {
     const el = $('trend');
-    if (!history || history.length < 2) { el.innerHTML = ''; return false; }
-    if (history.every(h => h.blockers === 0)) { el.innerHTML = ''; return false; }
+    if (!history || history.length < 3 || history.every(h => h.blockers === 0)) { el.innerHTML = ''; return false; }
     const max = Math.max(1, ...history.map(h => h.blockers));
     el.innerHTML = history.map(h => {
-        const hpx = Math.max(2, Math.round(14 * h.blockers / max));
+        const hpx = Math.max(4, Math.round(16 * h.blockers / max));
         const clean = h.blockers === 0 && h.brokenSuites === 0;
-        const tip = `build ${h.buildId}: ${h.blockers} blocker${h.blockers === 1 ? '' : 's'}`
-            + (h.brokenSuites ? ` · ${h.brokenSuites} broken suite(s)` : '');
+        const day = h.at > 0 ? ', ' + fmtDay(h.at).replace(/ \d\d:\d\d$/, '') : '';
+        const tip = `RunAll ${h.buildId}${day}: ${h.blockers} blocker${h.blockers === 1 ? '' : 's'}`
+            + (h.brokenSuites ? `, ${h.brokenSuites} broken suite${h.brokenSuites === 1 ? '' : 's'}` : '');
         const href = tcBase ? `${tcBase}build/${h.buildId}` : '#';
-        return `<a class="${clean ? 'clean' : ''}" style="height:${hpx}px" href="${href}" target="_self" rel="noopener" title="${tip}"></a>`;
+        return `<a class="${clean ? 'clean' : ''}" style="--h:${hpx}px" href="${href}" target="_self" rel="noopener" title="${esc(tip)}"></a>`;
     }).join('');
     return true;
 }
 
-// "What changed since my previous run": trend sparkline + (+new / -fixed / persisting).
+// "Blockers since the previous RunAll: 2 new · 412 dropped out · 33 still blocking"; nothing when all three are zero.
+function deltaText(d) {
+    // Per suite since #226: "dropped out" on Clang reads wrong next to the same name still failing on Linux unless
+    // the tooltip says which suite each entry is.
+    const names = list => list.map(t => shortTestName(t.name) + ' — ' + (t.suiteName || t.suite)).slice(0, 12).join('\n');
+    const parts = [];
+    if (d.appeared.length) parts.push(`<span class="delta-new" title="${esc(names(d.appeared))}">${d.appeared.length} new</span>`);
+    else if (d.fixed.length || d.persisting) parts.push('no new');
+    if (d.fixed.length)
+        parts.push(`<span class="delta-fixed" title="${esc('No longer blockers: passed, moved to another list, or did not run.\n'
+            + names(d.fixed))}">${d.fixed.length} dropped out</span>`);
+    if (d.persisting) parts.push(`${d.persisting} still blocking`);
+    if (!parts.length) return '';
+    const prev = tcBase
+        ? `<a href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous RunAll build in TeamCity">previous RunAll</a>`
+        : 'previous RunAll';
+    return `Blockers since the ${prev}: ` + parts.join(' · ');
+}
+
+// The line in the verdict card that compares the blockers with the PR's previous RunAll, with the bars per run.
 async function loadDelta(res) {
     try {
         const r = await api('/api/delta?pr=' + res.prNumber);
@@ -971,26 +1109,10 @@ async function loadDelta(res) {
         if (!body) return;
         const hasTrend = renderTrend(body.history);
         const d = body.delta;
-        let hasDelta = false;
         // only meaningful when the delta's latest run is the one on screen
-        if (d && d.latestBuildId === res.buildId && d.prevBuildId) {
-            // Per suite since #226: "fixed" on Clang reads wrong next to the same name still failing on
-            // Linux unless the tooltip says which suite each entry is.
-            const names = list => list.map(t => shortTestName(t.name) + ' — ' + (t.suiteName || t.suite))
-                .slice(0, 12).join('\n');
-            const prevLink = 'previous run' + (tcBase
-                ? `<a class="ext" href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous run in TeamCity">TC</a>` : '');
-            const parts = [];
-            parts.push(d.appeared.length ? `<span class="delta-new" title="${esc(names(d.appeared))}">+${d.appeared.length} new</span>` : 'no new');
-            parts.push(d.fixed.length ? `<span class="delta-fixed" title="${esc(names(d.fixed))}">−${d.fixed.length} fixed</span>` : 'none fixed');
-            parts.push(`${d.persisting} persisting`);
-            $('delta').innerHTML = `vs ${prevLink}: ` + parts.join(' · ');
-            hasDelta = true;
-        }
-        else {
-            $('delta').innerHTML = '';
-        }
-        $('deltaRow').classList.toggle('hidden', !hasTrend && !hasDelta);
+        const text = d && d.latestBuildId === res.buildId && d.prevBuildId ? deltaText(d) : '';
+        $('delta').innerHTML = text ? text + (hasTrend ? ' · per RunAll:' : '') : hasTrend ? 'Blockers per RunAll:' : '';
+        $('deltaRow').classList.toggle('hidden', !hasTrend && !text);
     } catch (e) { /* the delta line is a bonus; never block the result */ }
 }
 
@@ -1048,8 +1170,8 @@ function visibleCauses(d) {
     return (d.clusters || []).filter(c => (c.tests || []).some(m => onScreen.has(m.testId + '@' + (m.suite || ''))));
 }
 
-// Appends the root-cause count to the "(N suites, M tests)" header once the blockers are grouped;
-// "≥" while some blockers have no message in the groups (not sampled, none in TeamCity, unreadable).
+// Puts the root-cause count into the "Root causes" tab once the blockers are grouped; "≥" while some blockers have no
+// message in the groups (not sampled, none in TeamCity, unreadable).
 async function updateCauseCount() {
     const key = causesKey(lastResult);
     try {
@@ -1058,9 +1180,8 @@ async function updateCauseCount() {
         const n = visibleCauses(d).length;
         if (!n) return;
         const approx = d.sampled < d.total || (d.noMessage || []).length || (d.unread || []).length ? '≥' : '';
-        $('blockerCount').textContent = countLabel(lastResult.blockers)
-            .replace(/\)$/, `, ${approx}${n} cause${n === 1 ? '' : 's'})`);
-    } catch (e) { /* the count is a bonus; the header stays without it */ }
+        $('tabCauses').textContent = `Root causes (${approx}${n})`;
+    } catch (e) { /* the count is a bonus; the tab stays without it */ }
 }
 
 function setBlockerView(v) {
@@ -1081,11 +1202,13 @@ async function renderCausesView() {
     const key = causesKey(lastResult);
     let d = causesCache.key === key ? causesCache.data : null;
     if (!d) {
-        el.innerHTML = '<p class="muted">grouping by failure message…</p>';
+        el.innerHTML = '<p class="busy">Grouping by failure message…</p>';
         try {
             d = await causesData();
         } catch (e) {
-            el.innerHTML = '<p class="muted">could not group causes — the service may be busy or restarting; switch tabs to retry</p>';
+            el.innerHTML = '<p class="err">Could not group the failures. The service may be busy. '
+                + '<button class="act retry-causes" type="button">Retry</button></p>';
+            wireRetryCauses(el);
             return;
         }
         if (!lastResult || causesKey(lastResult) !== key) return; // superseded
@@ -1103,39 +1226,51 @@ async function renderCausesView() {
         for (const t of tests) used.add(blockerKey(t));
         return tests;
     };
+    const count = tests => `<span class="cnt">${tests.length} test${tests.length === 1 ? '' : 's'}</span>`;
     const blocks = [];
     for (const c of d.clusters) {
         const tests = onScreen(c.tests);
         if (!tests.length) continue;
-        const suites = new Set(tests.map(t => t.suiteBuildId));
+        const suites = [...new Set(tests.map(t => t.suiteName || t.suite))];
         blocks.push({
-            sig: c.signature, ai: true,
-            head: `<span class="cnt">${tests.length}×</span> <span class="sig">${esc(c.signature)}</span>`
-                + ` <span class="muted">— ${suites.size} suite${suites.size > 1 ? 's' : ''}</span>`,
+            sig: c.signature, ai: true, note: false, title: suites.join(', '),
+            head: `${count(tests)} · <span class="sig">${esc(c.signature)}</span>`
+                + (suites.length > 1 ? ` · ${suites.length} suites` : ''),
             tests, open: blocks.length === 0
         });
     }
-    const apart = (sig, tests, what, why) => {
+    // The groups that are not a cause: a message TeamCity lost, did not answer for, or was not asked for.
+    const apart = (sig, tests, what, why, retry) => {
         if (tests.length)
-            blocks.push({ sig, ai: false, tests, open: false,
-                head: `<span class="cnt">${tests.length}×</span> <span class="sig">${what}</span> <span class="muted">— ${esc(why)}</span>` });
+            blocks.push({ sig, ai: false, note: true, retry, tests, open: false,
+                head: `${count(tests)} · <span class="sig">${what}</span> — ${esc(why)}` });
     };
     const silent = onScreen(d.noMessage);
-    apart(' silent', silent, 'no failure message', silentNote(silent, d.runStartedAt));
-    apart(' unread', onScreen(d.unread), 'failure message not loaded', 'TeamCity did not answer; switch tabs to try again');
+    apart(' silent', silent, 'no failure message', silentNote(silent, d.runStartedAt), false);
+    apart(' unread', onScreen(d.unread), 'message not loaded', 'TeamCity did not answer.', true);
     const rest = lastResult.blockers.filter(t => !used.has(blockerKey(t)));
-    apart('', rest, 'not sampled', `messages were fetched for ${d.sampled} of ${d.total} blockers, a few from each suite`);
+    apart('', rest, 'not checked', `Only ${d.sampled} of ${d.total} blockers are checked, spread evenly across suites. `
+        + 'Their cause is likely one of the groups above.', false);
     el.dataset.key = key;
     el.innerHTML = blocks.map((b, i) =>
-        `<details class="cause" data-sig="${esc(b.sig)}"${(kept ? kept.has(b.sig) : b.open) ? ' open' : ''}><summary>${b.head}`
-        + (b.ai ? ` <button class="why ai-cause" data-i="${i}" title="Copy an AI-ready fix prompt for this whole root cause">ai</button>` : '')
+        `<details class="cause${b.note ? ' cause-note' : ''}" data-sig="${esc(b.sig)}"${(kept ? kept.has(b.sig) : b.open) ? ' open' : ''}>`
+        + `<summary${b.title ? ` title="${esc(b.title)}"` : ''}>${b.head}`
+        + (b.ai ? ` <button class="why ai-cause" data-i="${i}" title="Copies one prompt that asks an AI coding assistant to fix this cause in all its tests">copy AI prompt</button>` : '')
+        + (b.retry ? ' <button class="act retry-causes" type="button">Retry</button>' : '')
         + `</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
         || '<p class="muted">nothing to group</p>';
     blocks.forEach((b, i) => renderList($('causeTests' + i), b.tests, false, true));
     for (const b of el.querySelectorAll('.ai-cause')) {
         b.onclick = e => { e.preventDefault(); aiCausePrompt(b, blocks[+b.dataset.i]); };
     }
+    wireRetryCauses(el);
     annotateSuiteChips();
+}
+
+// Retry asks the server for the groups again: the ones with a message TeamCity did not answer for are not kept.
+function wireRetryCauses(el) {
+    for (const b of el.querySelectorAll('.retry-causes'))
+        b.onclick = e => { e.preventDefault(); e.stopPropagation(); renderCausesView(); };
 }
 
 // TeamCity drops the failure messages of old runs; a re-run of the suite brings the message back.
@@ -1160,9 +1295,9 @@ function runWhen(res) {
     const what = res.finishedAt ? 'finished' : 'started';
     const old = Date.now() - at > OLD_RUN_DAYS * 86400000;
     const tip = [runCost(res), `${what} ${new Date(at).toLocaleString()}`,
-        old ? 'over a week old: master and this PR have likely moved on — a fresh RunAll tells more' : '']
+        old ? 'Over a week old: master and this PR have likely changed. A new RunAll tells more.' : '']
         .filter(Boolean).join(' · ');
-    return ` · <span class="hint${old ? ' old-run' : ''}" title="${esc(tip)}">run ${what} ${fmtDay(at)}, ${ago(at)}</span>`;
+    return ` · <span class="hint${old ? ' old-run' : ''}" title="${esc(tip)}">${what} ${fmtDay(at)} (${ago(at)})</span>`;
 }
 
 // What the analysed run cost: how long it ran, and how long it sat in the queue first.
@@ -1172,21 +1307,28 @@ function runCost(res) {
     return `ran ${fmtSpent(res.finishedAt - res.startedAt)}` + (waited ? ` after ${waited} in the agent queue` : '');
 }
 
-// Redrawn by itself every half minute, so "analysed …" and the run's age never freeze.
+// "135 suites ran, 12 reused from earlier runs": said when TeamCity reused some, or while the run still goes.
+function suitesRanLabel(res) {
+    if (!(res.suitesReused > 0) && !res.live) return '';
+    const ran = `${res.suitesRan} suite${res.suitesRan === 1 ? '' : 's'} ran`;
+    const reused = res.suitesReused > 0 ? `, ${res.suitesReused} reused from earlier runs` : '';
+    return ` · <span class="hint" title="TeamCity took these suites' results from earlier runs of the same code instead of running them again.">${ran}${reused}</span>`;
+}
+
+// Redrawn by itself every half minute, so "verdict computed …" and the run's age never freeze. ↻ stands between
+// "verdict computed" and the rest of the line.
 function renderFreshness(res) {
-    const buildLabel = 'build ' + res.buildId + (tcBase
-        ? `<a class="ext" href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '')
-        + runWhen(res);
-    // Reuse transparency: how much of the chain actually ran vs was substituted with earlier results.
-    const comp = (res.suitesRan || res.suitesReused)
-        ? ` · <span class="hint" title="Of this chain's suites, ${res.suitesRan} actually ran in this build and ${res.suitesReused} reused results from earlier runs (TeamCity substitutes suitable builds for unchanged revisions)">suites: ${res.suitesRan} fresh, ${res.suitesReused} from earlier runs</span>`
-        : '';
+    const build = `RunAll build ${esc(res.buildId)}`;
+    const buildLabel = tcBase
+        ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this RunAll build in TeamCity">${build}</a>` : build;
     const liveTag = res.live
         ? ' · ' + (res.liveBuildId && tcBase
             ? `<a class="live-tag" href="${tcBase}build/${res.liveBuildId}" target="_self" rel="noopener" title="Includes results from a RunAll that is still running — click to open that run in TeamCity">● includes an unfinished run</a>`
             : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
         : '';
-    $('freshText').innerHTML = buildLabel + ' · <span class="hint" title="When this verdict was computed from this run">analysed ' + esc(ago(res.computedAt)) + '</span>' + comp + liveTag;
+    $('freshText').innerHTML = buildLabel + runWhen(res) + ' · <span class="hint" title="When the checker last computed '
+        + 'this verdict from the run and master\'s history. ↻ computes it again.">verdict computed ' + esc(ago(res.computedAt)) + '</span>';
+    $('freshMore').innerHTML = suitesRanLabel(res) + liveTag;
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
 
@@ -1202,6 +1344,7 @@ function renderMerged(res) {
 
 function clearFreshness() {
     $('freshText').textContent = '';
+    $('freshMore').textContent = '';
     $('refreshBtn').classList.add('hidden');
 }
 
@@ -1241,7 +1384,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     const kept = prev ? openState() : null;
     lastResult = res;
     noRunNote = '';
-    if (!quiet || !prev) $('status').textContent = ''; // a first verdict replaces "no run yet"
+    if (!quiet || !prev) sayStatus(''); // a first verdict replaces "no run yet"
     renderFreshness(res);
     renderMerged(res);
     lookAgainIfStale(res);
@@ -1249,12 +1392,8 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     const watch = res.watch || [];
     const hasBlockers = res.blockers.length > 0;
     if (res.pushed && !res.live && !(pendingFor(res) && pendingOf.code === 'old')) notePending(res, res.pushed);
-    // "Clean" (green, celebratory) only when nothing needs attention — no blockers, no broken
-    // suites, no recently-started-failing tests. A broken/timed-out suite is a real problem,
-    // so the verdict must not read as all-clear just because no individual test is a blocker.
     renderVerdictHead(res);
     syncListBadge();
-    $('blockerCount').textContent = hasBlockers ? countLabel(res.blockers) : '';
     $('filteredCount').textContent = countLabel(res.filtered);
     // Suites a failed Build kept from running are told under the Build, among the broken suites.
     const cancelledOwn = (res.cancelledSuites || []).filter(c => !c.failedUpstream);
@@ -1262,13 +1401,12 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     const interrupted = !!res.interrupted && notRun > 0;
     $('interruptedBanner').classList.toggle('hidden', !interrupted);
     if (interrupted) {
-        const buildLink = tcBase
-            ? ` <a class="ext" href="${esc(tcBase + 'build/' + res.buildId)}" target="_self" rel="noopener" title="Open the interrupted RunAll build in TeamCity">TC</a>`
-            : '';
+        const build = tcBase
+            ? `<a href="${esc(tcBase + 'build/' + res.buildId)}" target="_self" rel="noopener" title="Open this RunAll build in TeamCity">this RunAll</a>`
+            : 'this RunAll';
         const one = notRun === 1;
-        $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of this RunAll${buildLink} `
-            + `${one ? 'was' : 'were'} cancelled and never ran. The verdict below is <b>partial</b>: it says nothing about them. `
-            + `A finished re-run of a suite takes it off this list.`;
+        $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of ${build} ${one ? 'was' : 'were'} cancelled `
+            + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}. A finished rerun takes a suite off this list.`;
     }
     renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
     // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
@@ -1291,31 +1429,29 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     $('unverifiedCard').classList.toggle('hidden', unverified.length === 0);
     $('unverifiedCount').textContent = unverified.length ? countLabel(unverified) : '';
     renderList($('unverified'), unverified, true, true);
+    $('blockersCard').classList.toggle('hidden', !hasBlockers);
+    wireSectActs('blockerActs', suitesOfTests(res.blockers));
     renderBlockers(res.blockers);
     renderList($('filtered'), res.filtered, true, false);
     annotateSuiteChips(); // re-rendering the lists dropped any live queued/running chips
-    $('noBlockers').classList.toggle('hidden', res.blockers.length > 0 || groups.length > 0 || watch.length > 0
-        || shrunk.length > 0 || unverified.length > 0);
     $('results').classList.remove('hidden');
     wireSectActs('brokenActs', rerunOfGroups(groups));
     wireSectActs('shrunkActs', suitesOfBroken(shrunk));
-    wireSectActs('blockerActs', suitesOfTests(res.blockers));
     wireSectActs('watchActs', suitesOfTests(watch));
     wireSectActs('filteredActs', suitesOfTests(res.filtered));
-    $('visaBtn').disabled = !lastIssueKey;
-    $('autoVisaBtn').disabled = !lastIssueKey;
-    paintAutoVisa();
+    paintVisaGroup();
     loadAutoVisa(selectedPr);
-    $('visaBtn').title = lastIssueKey
-        ? `Post the verdict as a comment to ${lastIssueKey}`
-        : 'The PR title has no IGNITE-XXXXX ticket to post to';
     const tabsOn = res.blockers.length >= 2;
     $('blockerTabs').classList.toggle('hidden', !tabsOn);
-    if (causesCache.key !== causesKey(res)) causesCache = { key: causesKey(res), data: null };
+    if (causesCache.key !== causesKey(res)) {
+        causesCache = { key: causesKey(res), data: null };
+        $('tabCauses').textContent = 'Root causes';
+    }
     setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
     if (tabsOn) updateCauseCount();
     if (kept) restoreOpen(kept);
     loadDelta(res);
+    paintPrimary();
     if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
     if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPrTests(res);
     if (!prev || prev.buildId !== res.buildId || force) loadSettling(res.prNumber);
@@ -1346,7 +1482,7 @@ function listOf(el) {
 // from the analysis when the server's PR list already shows them.
 function caveatsOf(res, standing) {
     const ahead = aheadOf(res);
-    return (res.caveats || []).concat(ahead > 0 && pendingOf.caveat ? [pendingOf.caveat] : [])
+    return (res.caveats || []).concat(ahead > 0 ? ['it tested older code (see the note at the top)'] : [])
         .concat(standing === 'UNKNOWN_CODE' ? ['could not check whether the PR changed since this run'] : []);
 }
 
@@ -1357,33 +1493,54 @@ function standingOf(res) {
     return { current: 'CLEAN', old: 'OLD_CODE', unknown: 'UNKNOWN_CODE' }[codeOf(res)] || 'CHECKING';
 }
 
-// "No blockers 🎉" is earned, not automatic: only a clean standing gets it, the one that gets ✓ in the PR list.
+// The verdict card's heading and the lines under it, by the standing: the words of the PR comment and the visa.
+// "✓ No blockers" is earned, not automatic: only a clean standing gets it, the one that gets ✓ in the PR list.
 function renderVerdictHead(res) {
-    const hasBlockers = res.blockers.length > 0;
     const standing = standingOf(res);
+    const kind = res.blockers.length ? 'blockers' : standing === 'CLEAN' ? 'clean' : standing === 'CHECKING' ? 'checking'
+        : standing === 'WATCH' ? 'watch' : 'unproven';
+    for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven']) $('verdictCard').classList.toggle(k, k === kind);
+    $('verdictText').textContent = verdictTitle(res, standing);
+    $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p>${esc(line)}</p>`).join('');
+}
+
+function verdictTitle(res, standing) {
+    const n = res.blockers.length;
+    if (n) {
+        const suites = suitesOfTests(res.blockers).length || new Set(res.blockers.map(t => t.suiteBuildId)).size;
+        return `${n} blocker${n === 1 ? '' : 's'} in ${suites} suite${suites === 1 ? '' : 's'}` + onOneRun(res.blockers);
+    }
+    return standing === 'CLEAN' ? '✓ No blockers'
+        : standing === 'WATCH' ? 'No proven blockers yet'
+        : standing === 'CHECKING' ? 'No blockers found'
+        : 'No blockers found — not proven clean';
+}
+
+// ", all on 1 run" / ", 31 of them on 1 run", as the visa says it: such a blocker is not proven yet.
+function onOneRun(blockers) {
+    const k = blockers.filter(oneRun).length;
+    return k === 0 ? '' : k === blockers.length ? ', all on 1 run' : `, ${k} of them on 1 run`;
+}
+
+function verdictLines(res, standing) {
     const caveats = caveatsOf(res, standing);
-    const clean = standing === 'CLEAN';
-    const checking = standing === 'CHECKING';
-    $('blockersTitle').classList.toggle('clean', clean);
-    $('blockersTitle').classList.toggle('neutral', !hasBlockers && !clean);
-    $('blockersHead').textContent = hasBlockers ? 'Blockers'
-        : clean ? 'No blockers 🎉'
-        : 'No test blockers';
-    const say = !hasBlockers && (caveats.length > 0 || checking);
-    $('verdictCaveat').classList.toggle('hidden', !say);
-    $('verdictCaveat').classList.toggle('checking', checking);
-    if (say)
-        $('verdictCaveat').textContent = checking ? 'Checking that this run tested the PR\'s latest code…'
-            : 'Nothing here was blamed on this PR, but this run can\'t prove it is clean: ' + caveats.join('; ') + '.';
-    $('noBlockers').textContent = clean
-        ? 'Nothing in this run looks caused by your PR — good to go.'
-        : 'No test was blamed on your PR in what did run.';
+    const listed = caveats.join('; ') + '.';
+    if (res.blockers.length) return caveats.length ? [`This run doesn't cover the PR fully: ${listed}`] : [];
+    if (standing === 'CHECKING') return ['Checking that this run tested the PR\'s latest commit…'];
+    if (standing === 'CLEAN') return ['Nothing in this run looks caused by your PR. Good to go.'];
+    if (standing === 'WATCH') {
+        const n = (res.watch || []).length;
+        return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested. Rerun their suites under `
+            + 'Recently started failing: that decides.']
+            .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
+    }
+    return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
 }
 
 // Whether the analysed run tested the PR's head, as /api/pending last said for it, or as the analysis did when the
 // server's PR list already showed the head moved: 'current', 'old', or 'unknown' when GitHub or TeamCity could not
-// say. `ahead` is the commits pushed since, 1 when their count is not known.
-let pendingOf = { pr: 0, buildId: 0, code: null, ahead: null, caveat: null };
+// say. `ahead` is the commits pushed since, 1 when their count is not known; `pushed` is the answer itself.
+let pendingOf = { pr: 0, buildId: 0, code: null, ahead: null, pushed: null };
 
 function pendingFor(res) {
     return pendingOf.pr === res.prNumber && pendingOf.buildId === res.buildId;
@@ -1403,11 +1560,23 @@ function notePending(res, p) {
     const code = p.pending ? 'old' : p.checked === false ? 'unknown' : 'current';
     if (code === 'unknown' && pendingFor(res) && pendingOf.code === 'old') return;
     const ahead = p.pending ? (p.ahead > 0 ? p.ahead : 1) : null; // superseded code can't be a clean verdict
-    pendingOf = { pr: res.prNumber, buildId: res.buildId, code, ahead, caveat: p.pending ? p.caveat || null : null };
+    pendingOf = { pr: res.prNumber, buildId: res.buildId, code, ahead, pushed: p.pending ? p : null };
     $('pendingRow').classList.toggle('hidden', !p.pending);
-    if (!p.pending) return;
-    const n = p.ahead > 0 ? `${p.ahead} new commit${p.ahead === 1 ? '' : 's'}` : 'new commits';
-    $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
+    paintPending();
+}
+
+// The line about older code. While a RunAll of the PR is queued or running, the line says so instead of offering
+// Run RunAll: the next step is to wait.
+function paintPending() {
+    const p = pendingOf.pushed;
+    if (!p || $('pendingRow').classList.contains('hidden')) return;
+    const chain = runsNow.find(b => b.runAll);
+    const now = p.rewritten ? `the PR branch was rebased or force-pushed to ${esc(p.headSha)}`
+        : `the PR is now at ${esc(p.headSha)}` + (p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later` : '');
+    $('pending').innerHTML = `<b>⚠ The verdict is for older code:</b> this run tested ${esc(p.builtSha)}, and ${now}.`
+        + (chain ? ` A new RunAll is ${chain.state === 'running' ? 'running' : 'queued'}.` : '');
+    $('pendingRerun').classList.toggle('hidden', !!chain);
+    paintPrimary();
 }
 
 // The PR list badges a clean run by the PR's head as the server last saw it. The open PR's ✓ waits for the page's
@@ -1474,7 +1643,8 @@ function renderPrTests(t, res) {
     $('prTestsWarn').innerHTML = warns.join(' ');
     $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check)).join('')
         + elsewhere.map(notInSuiteElsewhere).join('');
-    const said = suiteCheckNote(check);
+    const untold = chainRunning(res) || checkTold(check) ? 0 : classes.filter(c => !c.runs.length && !c.notInSuite).length;
+    const said = suiteCheckNote(check, untold, classes.length);
     $('prTestsCheck').classList.toggle('hidden', !said);
     $('prTestsCheck').textContent = said;
     $('prTestsNote').classList.toggle('hidden', !t.note);
@@ -1497,13 +1667,29 @@ function notInSuiteWarn(n, check) {
         + ` (${suiteCheckName(check)} on ${esc(shortSha(check.sha))}).`;
 }
 
-// What Ignite's check of the head could not say, and why; nothing when it passed or named classes.
-function suiteCheckNote(check) {
-    if (!check || check.state === 'PASSED' || check.state === 'FAILED') return '';
+// Ignite's check of the head said which classes are in a suite: it passed, or it named the ones in none.
+function checkTold(check) {
+    return !!check && (check.state === 'PASSED' || check.state === 'FAILED');
+}
+
+// What Ignite's check of the head could not say, and why; nothing when it told. With `untold` classes of `total`
+// that did not run, the note leads with them: without the check, nobody can say why they did not run.
+function suiteCheckNote(check, untold, total) {
+    if (checkTold(check) || !check) return '';
     const on = check.sha ? ' on ' + shortSha(check.sha) : '';
-    if (check.state === 'RUNNING') return `Ignite's abandoned-tests check is still running${on}.`;
-    if (check.state === 'SKIPPED') return `Ignite's abandoned-tests check did not run${on}: ${check.reason}.`;
-    return `Ignite's abandoned-tests check could not be read${on}: ${check.reason || 'GitHub did not say'}.`;
+    const reason = check.reason || 'GitHub did not say';
+    if (!untold) {
+        if (check.state === 'RUNNING') return `Ignite's abandoned-tests check is still running${on}.`;
+        if (check.state === 'SKIPPED') return `Ignite's abandoned-tests check did not run${on}: ${check.reason}.`;
+        return `Ignite's abandoned-tests check could not be read${on}: ${reason}.`;
+    }
+    const lead = `${untold} of ${total} class${total === 1 ? '' : 'es'} did not run. `;
+    const name = 'Ignite\'s abandoned-tests check (it finds test classes in no suite)';
+    if (check.state === 'RUNNING') return `${lead}${name} is still running${on}, so we can't tell yet why. Reload the page later.`;
+    if (check.state === 'SKIPPED') return `${lead}${name} did not run${on}: ${check.reason}. So we can't tell why.`;
+    if (/approve/.test(check.reason || ''))
+        return `${lead}${name}${on} waits for a maintainer to approve its run, so we can't tell yet why. Reload the page later.`;
+    return `${lead}Could not read ${name}${on}: ${reason}. So we can't tell why.`;
 }
 
 function shortSha(sha) {
@@ -1530,7 +1716,7 @@ function prTestClass(c, res, check) {
     const suites = [...new Set(c.runs.map(r => r.suiteName || r.suite).filter(Boolean))];
     const longest = Math.max(...c.runs.map(r => r.durationMs));
     const summary = parts.join(', ') + (suites.length ? ' in ' + suites.join(', ') : '')
-        + ` · longest ${fmtTestTime(longest)}`;
+        + ` · slowest test ${fmtTestTime(longest)}`;
     // A new test that passed has no master history by nature: only a failure makes that worth saying.
     const flagged = c.runs.filter(r => r.status === 'FAILURE' || r.durationMs > SLOW_TEST_MS);
     const rows = flagged.map(r => `<li><div class="tname">${esc(shortTestName(r.name))}`
@@ -1548,13 +1734,11 @@ const NO_RUNS_AT_RUN = {
     PASSED_CHECK: 'no runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class',
 };
 
-// Why a class did not run, as far as Ignite's checks and the files changed since the run tell it.
+// Why a class did not run, as far as Ignite's checks and the files changed since the run tell it. Without the check's
+// word, the card's note above the list says why nobody can tell.
 function noRunsOf(c, res, check) {
     if (chainRunning(res)) return 'no runs yet: this RunAll is still going';
-    if (c.notInSuite) return 'no runs in this RunAll';
-    const state = check ? check.state : 'UNKNOWN';
-    if (state === 'RUNNING') return 'no runs in this RunAll; whether a suite runs it is not known yet';
-    if (state !== 'PASSED' && state !== 'FAILED') return 'no runs in this RunAll; whether a suite runs it is not known';
+    if (c.notInSuite || !checkTold(check)) return 'no runs in this RunAll';
     return NO_RUNS_AT_RUN[c.atRun] || 'no runs in this RunAll: its suite did not run or broke, it is a base or '
         + '@Ignore class, or it came into a suite after this run';
 }
@@ -1621,8 +1805,8 @@ async function refresh() {
             return;
         }
         // With a verdict on screen, keep it and look again quietly; with none, retry visibly.
-        failedRefresh = lastResult ? friendly(error, 'refresh failed') : '';
-        $('status').textContent = failedRefresh || 'service is busy or restarting — retrying…';
+        failedRefresh = lastResult ? notDone('Not recomputed', error) : '';
+        sayStatus(failedRefresh || 'The service is busy or restarting. Retrying…', { err: !!failedRefresh, busy: !failedRefresh });
         setTimeout(() => { if (pr === selectedPr) analyze(pr, !!lastResult); }, 4000);
         return;
     }
@@ -1636,7 +1820,7 @@ async function refresh() {
 async function freshRuns(pr) {
     if (await loadRuns(pr)) return true;
     if (pr === selectedPr && $('loginView').classList.contains('hidden'))
-        $('status').textContent = 'Could not check the runs of this PR — try again in a moment.';
+        sayStatus('⚠ Could not check the runs of this PR. Try again in a moment.', { err: true });
     return false;
 }
 
@@ -1651,20 +1835,19 @@ async function doTrigger(act, top, btn) {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.runAll && b.mine);
         if (!confirm(runAllQuestion(pr, atTop, mine))) return;
-        $('status').textContent = mine.length ? 'Replacing your RunAll…' : 'Queuing RunAll…';
+        sayStatus(mine.length ? 'Replacing your RunAll…' : 'Queuing RunAll…', { busy: true });
         const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : ''),
             { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
-            $('status').textContent = friendly(res.error, 'trigger failed');
+            sayStatus(notDone('Not queued', res.error), { err: true });
             if (res.replaced) loadRuns(pr);
             return;
         }
-        const links = (res.triggered || [])
-            .map(b => `#${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`).join(' · ');
-        $('status').innerHTML = 'Queued ' + (res.triggered || []).length + ' build(s): ' + links
-            + (res.replaced ? ' — cancelled your previous RunAll' : '') + belowTopNote(res.triggered);
+        const n = (res.triggered || []).length;
+        sayStatus(`Queued ${n} build${n === 1 ? '' : 's'}: ` + queuedLine(res.triggered).replace(/^Queued ?/, '')
+            + belowTopTail(res.triggered) + (res.replaced ? ' Your previous RunAll was cancelled.' : ''), { html: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -1693,14 +1876,15 @@ async function cancelMine() {
     try {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.mine);
-        if (!mine.length) { $('status').textContent = 'None of your runs of this PR is still going.'; return; }
+        if (!mine.length) { sayStatus('None of your runs of this PR is still going.'); return; }
         if (!confirm(cancelQuestion(pr, mine))) return;
-        $('status').textContent = 'Cancelling your runs…';
+        sayStatus('Cancelling your runs…', { busy: true });
         const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { $('status').textContent = friendly(res.error, 'cancel failed'); return; }
-        $('status').textContent = 'Cancelled ' + (res.cancelled || 0) + ' run(s).';
+        if (!r.ok) { sayStatus(notDone('Not cancelled', res.error), { err: true }); return; }
+        const n = res.cancelled || 0;
+        sayStatus(`Cancelled ${n} run${n === 1 ? '' : 's'}.`);
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -1714,10 +1898,11 @@ function cancelQuestion(pr, mine) {
         + (theirs ? `\n\nRuns started by other people (${theirs}) keep going.` : '');
 }
 
-// Re-run a single suite (buildType) for the current PR.
+// Re-run a single suite (buildType) for the current PR; the answer goes under the suite's row.
 async function rerunSuite(suite, top, btn) {
     if (!selectedPr) return;
     const pr = selectedPr;
+    const note = rowNote(btn);
     btn.disabled = true;
     const orig = btn.textContent;
     btn.textContent = '…';
@@ -1725,12 +1910,14 @@ async function rerunSuite(suite, top, btn) {
         const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=' + top, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { $('status').textContent = friendly(res.error, 'rerun failed'); return; }
-        const b = (res.triggered || [])[0];
-        $('status').innerHTML = b
-            ? `Queued #${esc(b.buildId)}<a class="ext" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">TC</a>`
-                + belowTopNote(res.triggered)
-            : 'Queued.';
+        if (!r.ok) {
+            answerRerun(note, notDone('Not queued', res.error), true);
+            sayStatus(notDone('Not queued', res.error), { err: true });
+            return;
+        }
+        showQueued(res.triggered, suite);
+        answerRerun(note, belowTopLine(res.triggered), false);
+        sayStatus(queuedLine(res.triggered) + belowTopTail(res.triggered), { html: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -1775,19 +1962,26 @@ function oneRun(t) {
     return (t.doubts || []).includes('ONE_RUN');
 }
 
-// A blocker that failed once is listed apart, with its suites to re-run: one failure can still be a flake.
+// A blocker that failed once is not confirmed: one failure can still be a flake. When every blocker is such, one line
+// says so above the list, in both views; among confirmed ones they are listed apart under "Not confirmed: 1 run",
+// with their own Rerun pair unless it would re-run the same suites as the card's.
 function renderBlockers(blockers) {
     const single = blockers.filter(oneRun);
-    renderList($('blockers'), blockers.filter(t => !oneRun(t)), true, true);
-    renderList($('oneRunBlockers'), single, true, true);
-    $('oneRunCount').textContent = single.length ? countLabel(single) : '';
-    wireSectActs('oneRunActs', suitesOfTests(single));
+    const allSingle = single.length > 0 && single.length === blockers.length;
+    renderList($('blockers'), allSingle ? blockers : blockers.filter(t => !oneRun(t)), true, true);
+    renderList($('oneRunBlockers'), allSingle ? [] : single, true, true);
+    $('oneRunNote').classList.toggle('hidden', !allSingle);
+    $('oneRunCount').textContent = single.length && !allSingle ? countLabel(single) : '';
+    const suites = suitesOfTests(single);
+    wireSectActs('oneRunActs', allSingle || sameSuites(suites, suitesOfTests(blockers)) ? [] : suites);
     paintOneRunGroup();
 }
 
 function paintOneRunGroup() {
-    const any = !!lastResult && (lastResult.blockers || []).some(oneRun);
-    $('oneRunGroup').classList.toggle('hidden', !any || blockerView !== 'suites');
+    const blockers = lastResult ? lastResult.blockers || [] : [];
+    const single = blockers.filter(oneRun).length;
+    const mixed = single > 0 && single < blockers.length;
+    $('oneRunGroup').classList.toggle('hidden', !mixed || blockerView !== 'suites');
 }
 
 // Group failed tests by the suite (CI run) they failed in: a clickable suite header, then its
@@ -2141,6 +2335,11 @@ $('updateBtn').onclick = e => { e.preventDefault(); doUpdate(); };
 for (const b of document.querySelectorAll('#actions .act[data-act]'))
     b.onclick = () => doTrigger(b.dataset.act, b.dataset.top, b);
 $('pendingRerun').onclick = () => doTrigger('trigger', false, $('pendingRerun'));
+$('statusRetry').onclick = () => {
+    if (!selectedPr) return;
+    analyzeRetries = 0;
+    analyze(selectedPr);
+};
 
 // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
 // session, the button opens a hint with a deep link to the JIRA profile page to create one.
@@ -2166,17 +2365,38 @@ async function postVisa() {
     if (!confirm(`Post the verdict as a comment to ${lastIssueKey} in ASF JIRA?`)) return;
     const btn = $('visaBtn');
     btn.disabled = true;
-    $('status').textContent = 'Posting the visa…';
+    sayStatus('Posting the visa…', { busy: true });
     try {
         const r = await api(`/api/jira-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (r.status === 412) { $('status').textContent = ''; return askJiraTokenAgain('visa', res.error); }
-        if (!r.ok) { $('status').textContent = friendly(res.error, 'visa failed'); return; }
-        $('status').innerHTML = `Visa posted to ${esc(lastIssueKey)}<a class="ext" href="${res.url}" target="_self" rel="noopener" title="Open the comment in JIRA">JIRA</a>`;
+        if (r.status === 412) { sayStatus(''); return askJiraTokenAgain('visa', res.error); }
+        if (!r.ok) { visaNote(notDone('Visa not posted', res.error), { err: true }); return; }
+        visaNote(`Visa posted to <a href="${esc(res.url)}" target="_self" rel="noopener" title="Open the comment in JIRA">${esc(lastIssueKey)}</a>`,
+            { html: true });
     } finally {
         btn.disabled = false;
     }
+}
+
+// The answer to a visa button, under the verdict's lines, with a copy in the status line.
+function visaNote(text, { html = false, err = false } = {}) {
+    const n = $('visaNote');
+    if (html) n.innerHTML = text;
+    else n.textContent = text;
+    n.classList.toggle('err', err);
+    n.classList.remove('hidden');
+    sayStatus(text, { html, err });
+}
+
+// The group at the right of the verdict heading: "JIRA visa: Post now · Auto visa", or one line when the PR title
+// names no ticket to post to.
+function paintVisaGroup() {
+    $('visaGroup').classList.toggle('hidden', !lastIssueKey);
+    $('noTicket').classList.toggle('hidden', !!lastIssueKey);
+    $('visaBtn').disabled = !lastIssueKey;
+    $('visaBtn').title = `Post the verdict as a comment to ${lastIssueKey || 'the JIRA ticket'} now`;
+    paintAutoVisa();
 }
 
 // A 412: the session has no JIRA token, or JIRA rejected it. The panel asks for one and says which.
@@ -2225,13 +2445,16 @@ async function saveJiraToken() {
 // Each user arms and cancels their own; a standing auto-visa that posts this run's verdict makes it moot.
 let autoVisa = { armed: false, others: [], standingBy: null, refusedFor: null };
 
+// Auto visa is a switch: filled while armed by you, with the others' state as a label beside it.
 function paintAutoVisa() {
-    const b = $('autoVisaBtn');
+    const b = $('autoVisaBtn'), state = $('autoVisaState');
     const owner = autoVisa.standingBy;
     if (owner && !autoVisa.armed) {
         const mine = owner.toLowerCase() === (myUsername || '').trim().toLowerCase();
         b.disabled = true;
-        b.textContent = mine ? 'Auto visa: on in ⚙' : `Auto visa: on in ${owner}'s ⚙`;
+        b.textContent = 'Auto visa';
+        b.setAttribute('aria-pressed', 'true');
+        state.textContent = mine ? 'on in your ⚙' : `on in ${owner}'s ⚙`;
         b.title = mine
             ? 'Your standing auto-visa (⚙) posts the verdict of this run — nothing to arm here.'
             : `The standing auto-visa of ${owner}, who started this run, posts its verdict — nothing to arm here.`;
@@ -2239,18 +2462,18 @@ function paintAutoVisa() {
     }
     const others = autoVisa.others.join(', ');
     const refused = !autoVisa.armed && autoVisa.refusedFor;
+    const chain = runsNow.find(r => r.runAll);
+    const when = chain && chain.state === 'running' ? 'when the RunAll that is running now finishes'
+        : 'when the next RunAll of this PR finishes';
     b.disabled = !lastIssueKey;
-    b.textContent = (autoVisa.armed ? 'Auto visa ✓' : refused ? 'Auto visa ⚠' : 'Auto visa')
-        + (others ? ` · armed: ${others}` : '');
-    b.title = !lastIssueKey
-        ? 'The PR title has no IGNITE-XXXXX ticket to post to'
-        : refused
-            ? `JIRA rejected your token, so your auto visa for ${refused} was dropped with it. Click to arm it again; a new token is asked for if needed.`
-        : autoVisa.armed
-            ? `Armed by you: the verdict will be posted to ${lastIssueKey} when the current run finishes — click to cancel yours (removes your stored token)`
-            : others
-                ? `Armed by ${others}: the verdict goes to ${lastIssueKey} when the run finishes, once.`
-                : `Post the verdict to ${lastIssueKey} automatically when the run finishes. Your JIRA token is stored encrypted until the visa is posted, then removed.`;
+    b.setAttribute('aria-pressed', String(autoVisa.armed));
+    b.textContent = autoVisa.armed ? 'Auto visa ✓' : refused ? 'Auto visa ⚠' : 'Auto visa';
+    state.textContent = refused ? 'JIRA refused your token. Click to arm it again.'
+        : others ? (autoVisa.armed ? 'also armed by ' : 'armed by ') + others : '';
+    b.title = autoVisa.armed ? 'Armed by you. Click to cancel it; this also removes your stored token.'
+        : refused ? `JIRA refused your token, so your auto visa for ${refused} was dropped with it. Click to arm it again; `
+            + 'a new token is asked for if needed.'
+        : `Post the verdict to ${lastIssueKey} once, ${when}. Your JIRA token is kept encrypted until then.`;
 }
 
 async function loadAutoVisa(pr) {
@@ -2277,12 +2500,15 @@ async function armAutoVisa() {
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
         if (r.status === 412) return askJiraTokenAgain('auto', res.error);
-        if (!r.ok) { $('status').textContent = friendly(res.error, 'auto-visa failed'); return; }
+        if (!r.ok) {
+            visaNote(notDone(autoVisa.armed ? 'Auto visa not cancelled' : 'Auto visa not armed', res.error), { err: true });
+            return;
+        }
         autoVisa.armed = !!res.armed;
         autoVisa.refusedFor = null;
-        $('status').textContent = autoVisa.armed
-            ? `Auto visa armed — the verdict will land in ${lastIssueKey} when the run finishes.`
-            : 'Your auto visa is cancelled.';
+        visaNote(autoVisa.armed
+            ? `Auto visa armed: the verdict goes to ${lastIssueKey} when the next RunAll of this PR finishes.`
+            : 'Your auto visa is cancelled.');
     } finally {
         paintAutoVisa();
     }

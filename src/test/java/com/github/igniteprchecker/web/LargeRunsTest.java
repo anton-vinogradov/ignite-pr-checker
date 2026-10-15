@@ -52,8 +52,8 @@ class LargeRunsTest {
                 label: page.el('runAllLabel').textContent });
             """);
 
-        assertThat(out.get("rerun").asText()).isEqualTo("Rerun (6)");
-        assertThat(out.get("top").asText()).isEqualTo("Rerun at top (6)");
+        assertThat(out.get("rerun").asText()).isEqualTo("Rerun 6 suites");
+        assertThat(out.get("top").asText()).isEqualTo("Rerun at top");
         assertThat(out.get("title").asText()).isEqualTo("Re-run the 6 suites of this section, at the top of the queue");
         assertThat(out.get("label").asText()).isEqualTo("RunAll (~150 suites):");
     }
@@ -152,8 +152,8 @@ class LargeRunsTest {
                 cancel: !page.el('cancelMine').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("status").asText()).isEqualTo("Your previous RunAll was cancelled, but queuing the new "
-            + "one failed: ci2 refused the request (403).");
+        assertThat(out.get("status").asText()).isEqualTo("⚠ Not queued: Your previous RunAll was cancelled, but "
+            + "queuing the new one failed: ci2 refused the request (403).");
         assertThat(out.get("runs").asText()).as("the cancelled chain is off the runs row").isEmpty();
         assertThat(out.get("cancel").asBoolean()).isFalse();
     }
@@ -218,7 +218,7 @@ class LargeRunsTest {
             report({ status: page.el('status').textContent, runs: page.fetches('/api/runs').length });
             """);
 
-        assertThat(out.get("status").asText()).isEqualTo("Queued 1 build(s): #301TC");
+        assertThat(out.get("status").asText()).isEqualTo("Queued 1 build: #301.");
         assertThat(out.get("runs").asInt()).as("load, before the question, after queueing, next poll").isEqualTo(4);
     }
 }

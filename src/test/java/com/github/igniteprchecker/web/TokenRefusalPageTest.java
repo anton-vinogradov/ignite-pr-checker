@@ -19,11 +19,14 @@ class TokenRefusalPageTest {
             page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
             page.run('loadAutoVisa')(13575);
             await page.settle();
-            report({ text: page.el('autoVisaBtn').textContent, title: page.el('autoVisaBtn').title });
+            report({ text: page.el('autoVisaBtn').textContent, title: page.el('autoVisaBtn').title,
+                state: page.el('autoVisaState').textContent, pressed: page.el('autoVisaBtn').getAttribute('aria-pressed') });
             """);
 
         assertThat(out.get("text").asText()).isEqualTo("Auto visa ⚠");
-        assertThat(out.get("title").asText()).isEqualTo("JIRA rejected your token, so your auto visa for IGNITE-29049"
+        assertThat(out.get("state").asText()).isEqualTo("JIRA refused your token. Click to arm it again.");
+        assertThat(out.get("pressed").asText()).isEqualTo("false");
+        assertThat(out.get("title").asText()).isEqualTo("JIRA refused your token, so your auto visa for IGNITE-29049"
             + " was dropped with it. Click to arm it again; a new token is asked for if needed.");
     }
 

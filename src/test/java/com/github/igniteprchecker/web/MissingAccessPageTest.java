@@ -322,7 +322,7 @@ class MissingAccessPageTest {
             report({ status: page.el('status').textContent });
             """.replace("QUEUE_FORBIDDEN", ApiExceptionHandler.QUEUE_FORBIDDEN));
 
-        assertThat(out.get("status").asText()).isEqualTo(ApiExceptionHandler.QUEUE_FORBIDDEN)
+        assertThat(out.get("status").asText()).isEqualTo("⚠ Not queued: " + ApiExceptionHandler.QUEUE_FORBIDDEN)
             .contains("your ci2 account may not run builds here");
     }
 }
