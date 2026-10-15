@@ -115,7 +115,7 @@ class SettingsGroupsTest {
     void savedTokensAndALinkedAccountAreSaid() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { visa: true, jiraStored: true,
-                commands: true, login: 'alice-v', suites: true, ghStored: true,
+                commands: true, login: 'alice-v', suites: true, ghStored: true, ghTokenKind: 'classic',
                 ghTokenNote: 'Your saved token is a classic one: it can push to every public repository.' }) }, 'GET');
             await page.load('?pr=13575');
             """ + STATES);
@@ -125,6 +125,18 @@ class SettingsGroupsTest {
         assertThat(out.get("account").asText()).isEqualTo("@alice-v, linked by your GitHub token for commits");
         assertThat(out.get("token").asText()).isEqualTo("saved, classic");
         assertThat(out.get("tokenBtn").asText()).isEqualTo("Replace");
+    }
+
+    /** ⚙ named the kind of a saved token only when it was classic: a fine-grained one read as just "saved". */
+    @Test
+    void aFineGrainedTokenIsNamed() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { commands: true, login: 'alice-v',
+                suites: true, ghStored: true, ghTokenKind: 'fine-grained' }) }, 'GET');
+            await page.load('?pr=13575');
+            """ + STATES);
+
+        assertThat(out.get("token").asText()).isEqualTo("saved, fine-grained");
     }
 
     /** Each refusal shows in its group with what to do, and the form to do it with is open. */

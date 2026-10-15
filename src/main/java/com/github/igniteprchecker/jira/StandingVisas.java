@@ -389,7 +389,7 @@ public class StandingVisas implements SnapshotCache {
         boolean linkable = github.writes() && github.linksAccounts();
         if (e == null) {
             return new Settings(false, false, false, false, false, null, false, false, false, false, false, false,
-                false, github.writes(), app, appPushes, null, linkable);
+                false, github.writes(), app, appPushes, null, linkable, null);
         }
 
         Options o = e.options();
@@ -397,7 +397,8 @@ public class StandingVisas implements SnapshotCache {
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
             e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven(), github.writes(), app,
-            appPushes, e.gh().token() == null ? null : e.gh().note(), linkable);
+            appPushes, e.gh().token() == null ? null : e.gh().note(), linkable,
+            decrypt(e.gh()).map(CommitTokens::kind).orElse(null));
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -438,11 +439,12 @@ public class StandingVisas implements SnapshotCache {
      * write to GitHub may go on; {@code appPushes}: whether that account may push to the repo, null while GitHub has
      * not said. {@code ghTokenNote}: what the user should know of the GitHub token the server holds.
      * {@code githubLinkable}: the user can link their GitHub account with the checker's OAuth App.
+     * {@code ghTokenKind}: what kind of token the server holds, {@link CommitTokens#kind}; null when none.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
         boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
-        Boolean appPushes, String ghTokenNote, boolean githubLinkable) {
+        Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind) {
         /**
          * The settings of a user whose login, if any, is proven, on a checker with a GitHub account and no OAuth App to
          * link one with.
@@ -451,7 +453,7 @@ public class StandingVisas implements SnapshotCache {
             boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
             boolean tcTokenRejected, boolean suites) {
             this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
-                tcTokenRejected, suites, false, true, null, null, null, false);
+                tcTokenRejected, suites, false, true, null, null, null, false, null);
         }
 
         /** The settings of a user who does not add tests to suites. */

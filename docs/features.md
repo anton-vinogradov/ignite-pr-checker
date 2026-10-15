@@ -304,7 +304,8 @@ runs no command, and verdict comments do not mention it, until you link the acco
 
 ### GitHub token for commits
 
-The state reads not saved, saved or rejected; a classic token also gets a note on what it can push to.
+The state reads not saved, saved with the token's kind (fine-grained or classic), or rejected; a classic token also
+gets a note on what it can push to.
 
 - **The token** only commits, to the branch of your own PR: it writes no comments, and it commits to
   `apache/ignite` only for a PR from a branch there. Best is a fine-grained token for your fork alone, with Contents:

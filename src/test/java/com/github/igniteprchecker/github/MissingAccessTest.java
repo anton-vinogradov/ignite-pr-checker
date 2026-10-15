@@ -29,6 +29,7 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcResponseException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -36,6 +37,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 
 /**
  * A /run-all from an account whose login an earlier version kept without a proof, or whose stored TeamCity token the
@@ -51,6 +54,8 @@ class MissingAccessTest {
 
     private final TcClient tc = mock(TcClient.class);
 
+    private final StyleFixService styleFix = mock(StyleFixService.class);
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
@@ -60,8 +65,7 @@ class MissingAccessTest {
         mock(PendingCommits.class));
 
     private final PrCommands commands = new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class),
-        mock(StyleFixService.class), mock(SuiteBaseline.class), "https://checker.example",
-        new TeamcityProperties("https://ci2.example/"));
+        styleFix, mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"));
 
     private long nextComment = 1;
 
@@ -79,6 +83,8 @@ class MissingAccessTest {
             new SessionCodec(new SessionProperties(false, "old-secret"), mapper).encryptString("tc-nsamelchev")));
         enrollments.add(enrollment("kirill", "kirill-gh", true).put("tcToken", codec.encryptString("tc-kirill"))
             .put("tcRejectedAt", 1760000000000L));
+        enrollments.add(enrollment("alice", "alice-v", true).put("tcToken", codec.encryptString("tc-alice"))
+            .put("ghToken", codec.encryptString("github_pat_alice")).put("styleFix", true));
         Path file = dir.resolve("standing-visas.json");
         mapper.writeValue(file.toFile(), snapshot);
         standing.loadFrom(file);
@@ -133,6 +139,34 @@ class MissingAccessTest {
 
         verify(github, times(1)).appComment(eq(PR), eq("avinogradov"), anyString());
         verify(github, times(2)).appReact(anyInt(), any(), anyLong(), eq("confused"));
+    }
+
+    /** ci2 answered 403 to queuing her RunAll: its firewall does that to valid calls, and so does a missing right. */
+    @Test
+    void aRunAllCi2RefusesSaysTheAccountMayNotRunBuilds() {
+        when(tc.triggerRunAll("tc-avinogradov", PR, false)).thenThrow(new TcResponseException(
+            HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", null, null, null)));
+
+        command("anton-vinogradov", "/run-all");
+
+        assertThat(reply()).isEqualTo("@anton-vinogradov 🚀 _Nothing was queued: ci2 answered HTTP 403. Your ci2 account"
+            + " may not run builds here, or ci2's firewall blocked the request: try again in a few minutes._");
+    }
+
+    /**
+     * GitHub, at its rate limit, answered 403 when the checkstyle fix read alice-v's PR before queuing: ci2 and her
+     * ci2 account had no part in it.
+     */
+    @Test
+    void aGithub403BeforeQueuingBlamesNoCi2Account() {
+        when(styleFix.fixForCommand(eq(PR), any(), eq("alice-v"))).thenThrow(
+            HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", null, null, null));
+
+        command("alice-v", "/run-all");
+
+        verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
+        assertThat(reply()).isEqualTo("@alice-v 🚀 _Nothing was queued: the request failed with HTTP 403. Try again in"
+            + " a few minutes._");
     }
 
     /** The reply goes into a public thread under the checker's name: whatever the comment says stays out of it. */

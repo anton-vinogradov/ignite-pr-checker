@@ -119,6 +119,57 @@ class MissingAccessPageTest {
         assertThat(out.get("state").asText()).isEqualTo("saved");
     }
 
+    /** She pasted the token, then switched on the autofix before PR commands: nothing went, so the token stays. */
+    @Test
+    void aPastedTokenSurvivesTheRefusedAutofixSwitch() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('ghTokenBtn').onclick();
+            page.el('settingsGhToken').value = 'github_pat_fork';
+            page.el('styleFixToggle').checked = true;
+            await page.el('styleFixToggle').onchange();
+            await page.settle();
+            report({ field: page.el('settingsGhToken').value, msg: page.el('settingsMsg').textContent,
+                posts: posts().length });
+            """);
+
+        assertThat(out.get("msg").asText())
+            .isEqualTo("Fix checkstyle before my commanded runs needs PR commands: switch them on first.");
+        assertThat(out.get("posts").asInt()).isZero();
+        assertThat(out.get("field").asText()).isEqualTo("github_pat_fork");
+    }
+
+    /**
+     * She pressed Replace while the autofix ran, switched PR commands off, which took the autofix with them, and saved
+     * the new token: the autofix cannot go on, so the token stays in the field.
+     */
+    @Test
+    void aTokenSavedForTheAutofixWithoutCommandsStays() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { style: true, commands: true,
+                ghStored: true, login: 'alice-v' }) }, 'GET');
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { login: 'alice-v' }) }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('ghTokenBtn').onclick();
+            page.el('commandsToggle').checked = false;
+            await page.el('commandsToggle').onchange();
+            await page.settle();
+            page.el('settingsGhToken').value = 'github_pat_new';
+            await page.el('settingsGhSave').onclick();
+            await page.settle();
+            report({ field: page.el('settingsGhToken').value, msg: page.el('settingsGhMsg').textContent,
+                posts: posts().map(p => p.url) });
+            """);
+
+        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?commands=false&tz=UTC\"]");
+        assertThat(out.get("msg").asText())
+            .isEqualTo("Fix checkstyle before my commanded runs needs PR commands: switch them on first.");
+        assertThat(out.get("field").asText()).isEqualTo("github_pat_new");
+    }
+
     /** The server keeps only a token a switch brought: Replace sends the new one with the option it runs. */
     @Test
     void aReplacedGithubTokenGoesWithTheOptionThatRuns() throws Exception {
@@ -159,6 +210,84 @@ class MissingAccessPageTest {
 
         assertThat(out.get("saved").asInt()).isEqualTo(1);
         assertThat(out.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?visa=true&tz=UTC\"]");
+    }
+
+    /** She pressed Replace, then switched the visa off: the token she saves after that does not switch it back on. */
+    @Test
+    void aVisaSwitchedOffDuringReplaceStaysOff() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { visa: true, jiraStored: true }) },
+                'GET');
+            page.route('/api/auto-visa-all', { body: SETTINGS }, 'POST');
+            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('jiraTokenBtn').onclick();
+            page.el('standingVisaToggle').checked = false;
+            await page.el('standingVisaToggle').onchange();
+            await page.settle();
+            page.el('settingsJiraToken').value = 'jira-pat-new';
+            await page.el('settingsJiraSave').onclick();
+            await page.settle();
+            report({ posts: posts().map(p => p.url), visa: page.el('standingVisaToggle').checked,
+                msg: page.el('settingsMsg').textContent });
+            """);
+
+        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?visa=false&tz=UTC\"]");
+        assertThat(out.get("visa").asBoolean()).isFalse();
+        assertThat(out.get("msg").asText()).isEqualTo("JIRA token saved: switch on Visa my runs in JIRA to use it.");
+    }
+
+    /** The same for a GitHub token: Replace, then the option that ran on it off, then Save. */
+    @Test
+    void aCommitOptionSwitchedOffDuringReplaceStaysOff() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { suites: true, ghStored: true,
+                login: 'alice-v' }) }, 'GET');
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { login: 'alice-v' }) }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('ghTokenBtn').onclick();
+            page.el('suiteFixToggle').checked = false;
+            await page.el('suiteFixToggle').onchange();
+            await page.settle();
+            page.el('settingsGhToken').value = 'github_pat_new';
+            await page.el('settingsGhSave').onclick();
+            await page.settle();
+            report({ posts: posts().map(p => p.url), suites: page.el('suiteFixToggle').checked,
+                msg: page.el('settingsGhMsg').textContent });
+            """);
+
+        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?suites=false&tz=UTC\"]");
+        assertThat(out.get("suites").asBoolean()).isFalse();
+        assertThat(out.get("msg").asText())
+            .isEqualTo("switch on the option below that should use it: the token goes with that switch");
+    }
+
+    /** JIRA refused the token she saved here after the server had taken it: ⚙ says so when she opens it again. */
+    @Test
+    void aTokenJiraRejectsAfterItWasReplacedShowsRejected() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
+            page.route('/api/auto-visa-all', { body: ON }, 'GET');
+            page.route('/api/auto-visa-all', { body: ON }, 'POST');
+            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('jiraTokenBtn').onclick();
+            page.el('settingsJiraToken').value = 'jira-pat-new';
+            await page.el('settingsJiraSave').onclick();
+            await page.settle();
+            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { jiraTokenRejected: true }) },
+                'GET');
+            await page.el('settingsBtn').onclick();
+            """ + OPEN + """
+            report({ state: page.el('jiraState').textContent,
+                gone: !page.el('jiraTokenGone').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("state").asText()).isEqualTo("rejected");
+        assertThat(out.get("gone").asBoolean()).isTrue();
     }
 
     /** Her options pause on a token TeamCity refuses: Log in again ends this browser's session, and the form asks. */

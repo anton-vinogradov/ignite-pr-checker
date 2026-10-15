@@ -9,6 +9,7 @@ import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -326,9 +327,12 @@ public class PrCommands implements SnapshotCache {
             + ". Try again in a few minutes";
     }
 
-    /** Why queuing RunAll failed: a 403 is ci2 refusing the account as often as its firewall refusing the request. */
+    /**
+     * Why queuing RunAll failed. A 403 from ci2 is ci2 refusing the account as often as its firewall refusing the
+     * request; a 403 from GitHub, to the checkstyle fix that reads the PR first, says nothing of the ci2 account.
+     */
     private static String queueFailure(Throwable e) {
-        return e instanceof RestClientResponseException rest && rest.getStatusCode().value() == 403
+        return e instanceof TcResponseException ci2 && ci2.getStatusCode().value() == 403
             ? "ci2 answered HTTP 403. Your ci2 account may not run builds here, or ci2's firewall blocked the request:"
                 + " try again in a few minutes"
             : failure(e);

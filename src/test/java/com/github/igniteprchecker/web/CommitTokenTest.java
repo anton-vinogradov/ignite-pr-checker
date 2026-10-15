@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -93,6 +95,7 @@ class CommitTokenTest {
             + " private ones as well; public_repo is enough");
         assertThat(restarted.settings(USER).ghTokenNote()).isEqualTo(standing.settings(USER).ghTokenNote());
         assertThat(restarted.settings(USER).ghStored()).isTrue();
+        assertThat(restarted.settings(USER).ghTokenKind()).isEqualTo("classic");
     }
 
     @Test
@@ -103,7 +106,32 @@ class CommitTokenTest {
 
         assertThat(standing.settings(USER).ghStored()).isTrue();
         assertThat(standing.settings(USER).ghTokenNote()).isNull();
+        assertThat(standing.settings(USER).ghTokenKind()).isEqualTo("fine-grained");
         assertThat(standing.actor(USER)).hasValueSatisfying(a -> assertThat(a.ghToken()).isEqualTo("github_pat_fork"));
+    }
+
+    /**
+     * A token saved before the checker kept notes on tokens has no note, and ⚙ said only "saved" of it, fine-grained
+     * or classic: its prefix tells which.
+     */
+    @Test
+    void aTokenSavedBeforeNotesIsNamedByItsKind(@TempDir Path dir) throws Exception {
+        ObjectNode snapshot = mapper.createObjectNode();
+        ArrayNode enrollments = snapshot.putArray("enrollments");
+        enrollments.add(enrollment(USER, "ghp_old"));
+        enrollments.add(enrollment("nsamelchev", "github_pat_old"));
+        Path file = dir.resolve("standing-visas.json");
+        mapper.writeValue(file.toFile(), snapshot);
+
+        standing.loadFrom(file);
+
+        assertThat(standing.settings(USER)).satisfies(st -> {
+            assertThat(st.ghStored()).isTrue();
+            assertThat(st.ghTokenNote()).isNull();
+            assertThat(st.ghTokenKind()).isEqualTo("classic");
+        });
+        assertThat(standing.settings("nsamelchev").ghTokenKind()).isEqualTo("fine-grained");
+        assertThat(standing.settings("nobody").ghTokenKind()).isNull();
     }
 
     /** No GITHUB_TOKEN: nothing could post the comment, react to a command or tell the run. */
@@ -150,6 +178,19 @@ class CommitTokenTest {
         when(github.ghIdentity(token)).thenReturn(Optional.of(GhUsers.of("anton-vinogradov")));
         when(github.tokenOwner(token)).thenReturn(Optional.of(new GithubClient.TokenOwner(
             GhUsers.of("anton-vinogradov"), scopes == null ? null : List.of(scopes))));
+    }
+
+    /** An enrollment as an earlier version wrote it: tests added to suites with a GitHub token, and no note on it. */
+    private ObjectNode enrollment(String username, String ghToken) {
+        ObjectNode e = mapper.createObjectNode();
+        e.put("username", username);
+        e.put("tcToken", codec.encryptString("tc-" + username));
+        e.put("ghToken", codec.encryptString(ghToken));
+        e.put("ghLogin", username + "-gh");
+        e.put("enabledAt", 1760000000000L);
+        e.put("suiteFix", true);
+
+        return e;
     }
 
     private StandingVisas standing() {

@@ -2257,7 +2257,7 @@ const GITHUB_OPTIONS = ['gh', 'style', 'commands', 'suites'];
 const COMMIT_OPTIONS = ['style', 'suites'];
 let standingSettings = null; // the server's last answer
 let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
-let jiraPasted = false; // a JIRA token was saved on this page since the server last refused one
+let jiraPasted = false; // a JIRA token was saved on this page, and the server has neither refused nor taken it since
 
 $('settingsBtn').onclick = () => {
     const p = $('settingsPanel');
@@ -2285,6 +2285,7 @@ async function loadSettings() {
 
 function renderSettings(st) {
     standingSettings = st;
+    if (st.jiraStored) jiraPasted = false;
     for (const [name, id] of Object.entries(OPTION_TOGGLES)) {
         $(id).checked = !!st[name];
         $(id).disabled = false;
@@ -2303,7 +2304,7 @@ function renderAccess(st) {
         : hasJira ? 'saved' : 'not saved';
     $('jiraState').textContent = jira;
     $('jiraTokenBtn').textContent = jira === 'saved' ? 'Replace' : 'Save';
-    $('ghTokenState').textContent = st.ghStored ? (st.ghTokenNote ? 'saved, classic' : 'saved')
+    $('ghTokenState').textContent = st.ghStored ? 'saved' + (st.ghTokenKind ? ', ' + st.ghTokenKind : '')
         : st.ghTokenRejected ? 'rejected' : 'not saved';
     $('ghTokenBtn').textContent = st.ghStored ? 'Replace' : 'Save';
 }
@@ -2364,12 +2365,13 @@ function tokenAvailable(need) {
 }
 
 // A switch that lacks what it needs says so in one sentence where that is given: the token's form, opened, or Link
-// GitHub. Without Link GitHub, ⚙ already says what links an account.
+// GitHub.
 async function askForToken(need, option, why) {
     pendingOption = option;
-    if (need === 'login') {
-        $('ghLinkMsg').textContent = (standingSettings || {}).githubLinkable
-            ? 'press Link GitHub: PR commands go on once GitHub confirms your account' : '';
+    if (need === 'login' && !(standingSettings || {}).githubLinkable) {
+        askForLinkingToken();
+    } else if (need === 'login') {
+        $('ghLinkMsg').textContent = 'press Link GitHub: PR commands go on once GitHub confirms your account';
     } else if (need === 'jira') {
         await openJiraForm();
         $('settingsJiraMsg').textContent = why || OPTION_NAMES[option] + ' needs your JIRA token: paste it here and'
@@ -2379,6 +2381,15 @@ async function askForToken(need, option, why) {
         $('settingsGhMsg').textContent = why || OPTION_NAMES[option] + ' needs your GitHub token for commits: paste'
             + ' it here and press Save.';
     }
+}
+
+// Without Link GitHub, a GitHub token for commits links the account. It goes with the switch of an option that
+// commits: PR commands take no token.
+function askForLinkingToken() {
+    pendingOption = null;
+    openGhForm();
+    $('settingsGhMsg').textContent = 'PR commands need your linked GitHub account: paste a GitHub token for commits'
+        + ' here and switch on Add my PR\'s tests that no suite runs, which links it.';
 }
 
 async function openJiraForm() {
@@ -2426,10 +2437,12 @@ const ALL_OFF = 'All off — the server no longer keeps tokens for your options;
 // The checkstyle fix runs only from a PR command, so it goes on only with PR commands and off with them.
 const AUTOFIX_NEEDS_COMMANDS = 'Fix checkstyle before my commanded runs needs PR commands: switch them on first.';
 
-// A GitHub token goes with the switch it is pasted for, in the request's body: no cookie carries it.
+// A GitHub token goes with the switch it is pasted for, in the request's body: no cookie carries it. It leaves the
+// form's field only when the switch goes to the server, so a switch refused here keeps it there.
 async function setOption(name, on, githubToken) {
     const toggle = $(OPTION_TOGGLES[name]), msg = $('settingsMsg');
     msg.textContent = '';
+    if (!on && pendingOption === name) pendingOption = null;
     if (name === 'style' && on && !(standingSettings || {}).commands) {
         toggle.checked = false;
         msg.textContent = AUTOFIX_NEEDS_COMMANDS;
@@ -2443,6 +2456,7 @@ async function setOption(name, on, githubToken) {
         return askForToken(need, name);
     }
     toggle.disabled = true;
+    if (githubToken) $('settingsGhToken').value = '';
     try {
         const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), githubToken
             ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ githubToken }) }
@@ -2487,7 +2501,6 @@ async function setOption(name, on, githubToken) {
 for (const [name, id] of Object.entries(OPTION_TOGGLES)) {
     $(id).onchange = () => {
         const pasted = $(id).checked && COMMIT_OPTIONS.includes(name) ? $('settingsGhToken').value.trim() : '';
-        if (pasted) $('settingsGhToken').value = '';
         setOption(name, $(id).checked, pasted || undefined);
     };
 }
@@ -2615,7 +2628,6 @@ $('settingsGhSave').onclick = async () => {
         m.textContent = 'switch on the option below that should use it: the token goes with that switch';
         return;
     }
-    input.value = '';
     m.textContent = 'asking GitHub about the token…';
     pendingOption = null;
     $(OPTION_TOGGLES[option]).checked = true;
