@@ -1044,6 +1044,20 @@ public class GithubClient implements SnapshotCache {
     }
 
     /**
+     * The PR's head as the open-PR list last fetched it, when that was at or after {@code sinceEpochSec}; null when
+     * the PR is not on it or the list is older. Never calls GitHub.
+     */
+    public String listedHead(int prNumber, long sinceEpochSec) {
+        long listedAt = cacheTs;
+        List<PrSummary> listed = cache;
+        if (listed == null || listedAt < sinceEpochSec * 1000L)
+            return null;
+
+        return listed.stream().filter(p -> p.number() == prNumber).map(PrSummary::headSha).filter(Objects::nonNull)
+            .findFirst().orElse(null);
+    }
+
+    /**
      * The GitHub account the checker writes as, the one {@code GITHUB_TOKEN} belongs to: every comment, edit and
      * reaction of the checker in the repo comes from it. Checked once the service is up and every 6 hours; while
      * GitHub could not say, asked again at most every 10 minutes.

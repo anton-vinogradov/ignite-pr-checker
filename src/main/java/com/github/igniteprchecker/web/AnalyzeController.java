@@ -6,6 +6,7 @@ import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,18 +68,28 @@ public class AnalyzeController {
      * Whether the PR head has moved since the analysed build — the verdict would then describe older
      * code. Always fresh (the head can change any time), and cheap: one TeamCity + one GitHub call. The
      * build may be any run, a single suite's too: the "ai" prompts ask it about the run they quote.
+     * {@code checked} is false when TeamCity or GitHub could not tell.
      */
     @GetMapping("/pending")
     public Map<String, Object> pending(@RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        PendingCommits.Ahead ahead = pending.since(token, pr, build);
-        if (ahead == null)
-            return Map.of("pending", false);
+        PendingCommits.Ahead ahead;
+        try {
+            ahead = pending.movedSince(token, pr, build);
+        }
+        catch (RuntimeException e) {
+            return Map.of("pending", false, "checked", false);
+        }
 
-        Map<String, Object> out = new java.util.HashMap<>();
+        return ahead == null ? Map.of("pending", false, "checked", true)
+            : answer(ahead, Caveats.pushedSince(Math.max(ahead.commits(), 1)));
+    }
+
+    private static Map<String, Object> answer(PendingCommits.Ahead ahead, String caveat) {
+        Map<String, Object> out = new HashMap<>();
         out.put("pending", true);
         out.put("ahead", ahead.commits());
-        out.put("caveat", Caveats.pushedSince(Math.max(ahead.commits(), 1)));
+        out.put("caveat", caveat);
         out.put("builtSha", ahead.builtShort());
         out.put("headSha", ahead.headShort());
         out.put("builtRevision", ahead.builtRevision());
@@ -87,8 +98,8 @@ public class AnalyzeController {
         return out;
     }
 
-    private static ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {
-        return result.<ResponseEntity<?>>map(r -> ResponseEntity.ok(Served.of(r)))
+    private ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {
+        return result.<ResponseEntity<?>>map(r -> ResponseEntity.ok(Served.of(r, pending.listedPast(r))))
             .orElseGet(() -> ResponseEntity.status(404)
                 .body(Map.of("error", "no RunAll build found for PR " + pr)));
     }
@@ -96,11 +107,18 @@ public class AnalyzeController {
     /**
      * The analysis as the page gets it: with how its verdict stands and the caveats behind that, as the server words
      * them, so the page's head says what the PR list, the visa and the PR comment say. Commits pushed since the run
-     * come with /api/pending.
+     * come with /api/pending; {@code pushed} is its answer ahead of time when the PR list already shows the head past
+     * the run, the way the list badges it, and null otherwise.
      */
-    public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats) {
+    public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats,
+        Map<String, Object> pushed) {
         static Served of(AnalysisResult r) {
-            return new Served(r, Caveats.standing(r, null), Caveats.of(r, null));
+            return of(r, null);
+        }
+
+        static Served of(AnalysisResult r, PendingCommits.Ahead listed) {
+            return new Served(r, Caveats.standing(r, null), Caveats.of(r, null),
+                listed == null ? null : answer(listed, Caveats.headMoved()));
         }
     }
 }

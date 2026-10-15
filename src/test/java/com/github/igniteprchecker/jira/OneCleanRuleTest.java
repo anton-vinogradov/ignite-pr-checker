@@ -90,7 +90,7 @@ class OneCleanRuleTest {
     void commitsPushedSinceTheRunComeInTheServersWords() {
         AnalysisResult r = verdict(13636, List.of(), List.of(), List.of());
         PendingCommits pending = mock(PendingCommits.class);
-        when(pending.since("t", 13636, r.buildId()))
+        when(pending.movedSince("t", 13636, r.buildId()))
             .thenReturn(new PendingCommits.Ahead(28, "0a1b2c3", "5be1c0d", OLDER, false),
                 new PendingCommits.Ahead(-1, "0a1b2c3", "5be1c0d", OLDER, false));
         AnalyzeController served = new AnalyzeController(mock(BlockerAnalyzer.class), mock(RunDeltaStore.class),

@@ -129,7 +129,8 @@ class GlossaryTest {
             " suite(s) have no reliable result (", " suite(s) ran far fewer tests than the same suites on master",
             " failed test(s) could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail",
-            " commit(s) pushed since this run — it tested older code");
+            " commit(s) pushed since this run — it tested older code",
+            "new commits pushed since this run — it tested older code");
         quoted(MAIN.resolve("analysis/ChainCollector.java"), "compilation error", "execution timeout",
             "non-zero exit code", "JVM crash / out of memory", "failed dependency", "failed without running tests");
         quoted(MAIN.resolve("analysis/model/BrokenGroup.java"), "ci2 glitch: artifacts unavailable (",
@@ -142,7 +143,7 @@ class GlossaryTest {
         quoted(PAGE_SCRIPT, "No blockers 🎉", "No test blockers", "1 run", "new test / no master history", "unverified",
             "not in any suite", "flaky?", "rev ✓ head", "rev @start", "● includes an unfinished run", " from earlier runs",
             "pushed since this run", "♻️ Auto re-run #", "♻️ Deciding on auto re-runs", "Rerun at top", "Auto visa ✓",
-            "armed: ", "Auto visa: on in ⚙");
+            "armed: ", "Auto visa: on in ⚙", "could not check whether the PR changed since this run");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "♻ environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
     }
