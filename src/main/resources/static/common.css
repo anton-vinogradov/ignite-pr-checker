@@ -6,7 +6,7 @@
 :root {
     --bg: #fff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2; --line-strong: #c0c0c0;
     --bad: #c0392b; --on-bad: #fff; --ok: #2e7d32; --ok-bg: #e6f4ea; --warn: #a35f00; --warn-bg: #fff3e0;
-    --accent: #1565c0; --accent-hover: #0d4ea0; --on-accent: #fff; --sel: #eef4ff;
+    --accent: #1565c0; --accent-hover: #0d4ea0; --on-accent: #fff; --sel: #eef4ff; --row-hover: #f7f7f7;
     --pane-bg: #fff; --card-bg: #fff; --details-bg: #f7f7f7; --input-bg: #fff; --btn-bg: #fafafa; --btn-hover: #f0f4fb;
     --fill: rgba(128, 128, 128, 0.14); --primary-bg: #1a1a1a; --on-primary: #fff;
     --radius: 6px; --radius-card: 10px; --radius-small: 5px; --radius-tag: 4px;
@@ -14,14 +14,14 @@
 html[data-theme="dark"] {
     --bg: #17191c; --fg: #e6e6e6; --muted: #9aa0a6; --line: #34383d; --line-strong: #4a4f55;
     --bad: #ff6b5e; --on-bad: #17191c; --ok: #7fce90; --ok-bg: #1e3324; --warn: #e0a54a; --warn-bg: #33290f;
-    --accent: #6ab0ff; --accent-hover: #8cc4ff; --on-accent: #17191c; --sel: #22303f;
+    --accent: #6ab0ff; --accent-hover: #8cc4ff; --on-accent: #17191c; --sel: #22303f; --row-hover: #1f2328;
     --pane-bg: #17191c; --card-bg: #17191c; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
     --fill: rgba(154, 160, 166, 0.18); --primary-bg: #e6e6e6; --on-primary: #17191c;
 }
 html[data-theme="jetbrains"] {
     --bg: #17191c; --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --line-strong: #4a4f55;
     --bad: #fa6675; --on-bad: #17191c; --ok: #6aab73; --ok-bg: #1e3123; --warn: #d5b778; --warn-bg: #3d3223;
-    --accent: #6b9bfa; --accent-hover: #8ab1ff; --on-accent: #17191c; --sel: #243352;
+    --accent: #6b9bfa; --accent-hover: #8ab1ff; --on-accent: #17191c; --sel: #1f2b45; --row-hover: #1f2328;
     --pane-bg: #1c1f23; --card-bg: #1c1f23; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
     --fill: rgba(157, 160, 168, 0.18); --primary-bg: #dfe1e5; --on-primary: #17191c;
     --radius: 3px; --radius-card: 4px; --radius-small: 3px; --radius-tag: 3px;
@@ -29,7 +29,7 @@ html[data-theme="jetbrains"] {
 html[data-theme="terminal"] {
     --bg: #0d1117; --fg: #c9d1d9; --muted: #8b949e; --line: #30363d; --line-strong: #8b949e;
     --bad: #f85149; --on-bad: #0d1117; --ok: #3fb950; --ok-bg: transparent; --warn: #d29922; --warn-bg: transparent;
-    --accent: #58a6ff; --accent-hover: #79b8ff; --on-accent: #0d1117; --sel: #0d2440;
+    --accent: #58a6ff; --accent-hover: #79b8ff; --on-accent: #0d1117; --sel: #0d2440; --row-hover: #161b22;
     --pane-bg: #0d1117; --card-bg: #0d1117; --details-bg: #161b22; --input-bg: #010409; --btn-bg: transparent; --btn-hover: #161b22;
     --fill: rgba(139, 148, 158, 0.18); --primary-bg: #238636; --on-primary: #fff;
     --radius: 2px; --radius-card: 2px; --radius-small: 2px; --radius-tag: 2px;

@@ -16,6 +16,7 @@
         .mini-btn.danger { color: var(--bad); border-color: var(--bad); }
         .tabs-row { margin-bottom: 1rem; }
         .mini-btn.tab.on, html[data-theme="terminal"] .mini-btn.tab.on:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+        html[data-theme="terminal"] .mini-btn.tab.on::before, html[data-theme="terminal"] .mini-btn.tab.on::after { color: var(--on-accent); }
         #usersView { display: none; }
         body.users-mode .wrap > *:not(.tabs-row):not(#usersView):not(#err) { display: none; }
         body.users-mode #usersView { display: block; }

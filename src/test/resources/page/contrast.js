@@ -4,9 +4,10 @@
 //
 // The stylesheets the page links (in its own directory) come first, then its <style>, as the browser reads them.
 // Every selector of every rule describes an element to check: ".tabs .act.on" is a selected tab inside .tabs,
-// "button:hover" a hovered button. Each such element is also checked hovered. For each of them the rules are
-// cascaded as a browser would (specificity, then order; a theme's rules carry its html[data-theme] prefix), the
-// text colour is inherited down the chain, and the background is composited from the page's down to the element's.
+// "button:hover" a hovered button. Each such element is also checked hovered, and with its ::before and ::after
+// when they hold text (the Terminal brackets). For each of them the rules are cascaded as a browser would
+// (specificity, then order; a theme's rules carry its html[data-theme] prefix), the text colour is inherited down
+// the chain, and the background is composited from the page's down to the element's.
 'use strict';
 
 const fs = require('fs');
@@ -24,14 +25,18 @@ const TAG_OF = { button: ['act', 'why', 'suite-rerun', 'mini-btn', 'linklike', '
     'pane-toggle', 'pane-expand', 'settings-btn', 'theme-sel'],
     a: ['ext', 'help', 'live-tag', 'brand', 'star-btn', 'live', 'pr-link', 'update-notes', 'pr-open-any', 'update-btn'] };
 
-// Text that sits on a fill no rule of its own names: the PR number on the selected row, the copy button on the
-// failure panel, links and muted text inside a card or the login note.
-const INSIDE = ['.pr-list li.sel .pr-num', '.pr-list li.sel .pr-ttl', '.pr-list li.sel .pr-link', '.pr-list li.sel .my-tag',
-    '.pr-list li.sel .pr-badge.ok', '.pr-list li.sel .pr-badge.watch', '.pr-list li:hover .pr-num', '.pr-list li:hover .pr-ttl',
-    '.login-pr p', '.login-pr .muted', '.login-pr a', '.details pre', '.details .copy', '.details .copy:hover',
-    '.jira-panel .muted', '.jira-panel a', '.pane-head a.help', '.pane-head .pr-legend', '.card .muted', '.card a',
-    '.card .reason', '.card a.ext', '.card .tag-doubt', '.card .tag-flaky', '.card .live.queued', '.card .live.running',
-    '.section .catname', '.section .muted', '.section a', '.section .lbprs a', '.section .flake.warm', '.section .lbsuite'];
+// Text that sits on a fill no rule of its own names: the badges on the selected or hovered row of the PR list, the
+// copy button on the failure panel, links and muted text inside a card or the login note. Each fill is paired with
+// every rule of the page whose selector starts with one of its contents, so a new badge is checked on both rows.
+const INSIDE = {
+    '.pr-list li.sel, .pr-list li:hover': ['.pr-link', '.pr-open-any', '.pr-num', '.pr-ttl', '.pr-badge', '.my-tag'],
+    '.login-pr': ['p', '.muted', 'a'],
+    '.details': ['pre', '.copy'],
+    '.jira-panel': ['.muted', 'a'],
+    '.pane-head': ['a.help', '.pr-legend'],
+    '.card': ['.muted', 'a', '.reason', '.tag-doubt', '.tag-flaky', '.live'],
+    '.section': ['.catname', '.muted', 'a', '.lbprs a', '.flake', '.lbsuite'],
+};
 
 const pagePath = process.argv[2];
 const html = fs.readFileSync(pagePath, 'utf8');
@@ -113,7 +118,7 @@ function parseCompound(text) {
         else if (t[0] === '#') { c.id = t.slice(1); c.specificity += 100; }
         else if (t[0] === '.') { c.classes.push(t.slice(1)); c.specificity += 10; }
         else if (t[0] === '[') { c.attrs[m[1]] = m[2] === undefined ? null : m[2]; c.specificity += 10; }
-        else if (t.startsWith('::')) { c.pseudoElement = true; }
+        else if (t.startsWith('::')) { c.pseudo = t.slice(2); }
         else if (t[0] === ':') {
             const name = t.slice(1).replace(/\(.*$/, '');
             if (name === 'not') { const inner = parseCompound(m[3]); c.nots.push(inner); c.specificity += inner.specificity; }
@@ -125,6 +130,8 @@ function parseCompound(text) {
     return c;
 }
 
+// A pseudo-element is read as a child of its element: "a::before" is the compound "a" and then the compound of the
+// ::before box, which only a ::before rule matches.
 function parseSelector(text) {
     const parts = text.replace(/\s*>\s*/g, ' > ').trim().split(/\s+/);
     const compounds = [];
@@ -135,11 +142,20 @@ function parseSelector(text) {
         c.child = child;
         child = false;
         compounds.push(c);
+        if (c.pseudo) {
+            compounds.push(pseudoCompound(c.pseudo));
+            delete c.pseudo;
+        }
     }
     return compounds;
 }
 
+function pseudoCompound(name) {
+    return { tag: null, id: null, classes: [], attrs: {}, states: [], nots: [], specificity: 1, pseudo: name, child: true };
+}
+
 function compoundMatches(c, el) {
+    if ((c.pseudo || null) !== (el.pseudo || null)) return false;
     if (c.tag && c.tag !== el.tag) return false;
     if (c.id && c.id !== el.id) return false;
     if (!c.classes.every(k => el.classes.includes(k))) return false;
@@ -219,7 +235,6 @@ function cascade(rules, theme, chain, at, tokens) {
     for (const r of rules) {
         if (r.theme && r.theme !== theme) continue;
         const compounds = r.compounds;
-        if (compounds.some(c => c.pseudoElement)) continue;
         if (matches(compounds, chain, at)) hits.push({ r, spec: compounds.reduce((s, c) => s + c.specificity, 0) });
     }
     hits.sort((x, y) => x.spec - y.spec || x.r.order - y.r.order);
@@ -230,9 +245,14 @@ function cascade(rules, theme, chain, at, tokens) {
 }
 
 function describe(chain) {
-    return chain.slice(2).map(el => (el.tag || '') + (el.id ? '#' + el.id : '') + el.classes.map(c => '.' + c).join('')
-        + Object.entries(el.attrs).map(([k, v]) => v === null ? `[${k}]` : `[${k}="${v}"]`).join('')
-        + el.states.map(s => ':' + s).join('')).join(' ');
+    let text = '';
+    for (const el of chain.slice(2)) {
+        if (el.pseudo) { text += '::' + el.pseudo; continue; }
+        text += (text ? ' ' : '') + (el.tag || '') + (el.id ? '#' + el.id : '') + el.classes.map(c => '.' + c).join('')
+            + Object.entries(el.attrs).map(([k, v]) => v === null ? `[${k}]` : `[${k}="${v}"]`).join('')
+            + el.states.map(s => ':' + s).join('');
+    }
+    return text;
 }
 
 const { rules, tokens, themes } = flatten(sheets);
@@ -244,15 +264,28 @@ function tagOf(classes) {
     return null;
 }
 
-// Every selector names an element to check, read as a chain under html > body.
+// The INSIDE pairs: each fill with every selector of the page that starts with one of the fill's contents.
+function compositesOf(rulesOfPage) {
+    const own = [...new Set(rulesOfPage.map(r => r.selector.replace(THEME, '').trim()))];
+    const composites = [];
+    for (const [fills, contents] of Object.entries(INSIDE))
+        for (const fill of fills.split(',').map(s => s.trim()))
+            for (const s of own)
+                if (contents.some(c => s.startsWith(c) && !/[\w-]/.test(s.charAt(c.length))))
+                    composites.push(fill + ' ' + s);
+    return composites;
+}
+
+// Every selector names an element to check, read as a chain under html > body; "a::before" names the element a.
 function elementsOf(rulesOfPage) {
     const seen = new Map();
     const selectors = rulesOfPage.map(r => ({ selector: r.selector, compounds: r.compounds }))
-        .concat(INSIDE.map(s => ({ selector: s, compounds: parseSelector(s) })));
+        .concat(compositesOf(rulesOfPage).map(s => ({ selector: s, compounds: parseSelector(s) })));
     for (const r of selectors) {
-        if (/::|[+~]|:has\(/.test(r.selector)) continue;
-        if (NO_TEXT.includes(r.selector.replace(THEME, '').trim())) continue;
-        let compounds = r.compounds.map(c => ({ tag: c.tag || tagOf(c.classes), id: c.id, classes: [...c.classes], attrs: { ...c.attrs }, states: [...c.states] }));
+        if (/[+~]|:has\(/.test(r.selector)) continue;
+        if (NO_TEXT.includes(r.selector.replace(THEME, '').replace(/::[\w-]+/g, '').trim())) continue;
+        let compounds = r.compounds.filter(c => !c.pseudo)
+            .map(c => ({ tag: c.tag || tagOf(c.classes), id: c.id, classes: [...c.classes], attrs: { ...c.attrs }, states: [...c.states] }));
         if (compounds[0].tag === 'html') compounds = compounds.slice(1);
         if (!compounds.length || compounds.some(c => c.tag === null && !c.id && !c.classes.length && !Object.keys(c.attrs).length)) continue;
         if (compounds[0].tag === 'body') compounds = compounds.slice(1);
@@ -269,26 +302,55 @@ function elementsOf(rulesOfPage) {
     return [...seen.values()];
 }
 
+// The element's own background over its parents', and its text colour, inherited unless set.
+function paint(style, bg, color) {
+    const own = style['background-color'] ?? (style.background !== undefined ? backgroundColor(style.background) : null);
+    const ownColor = typeof own === 'string' ? parseColor(own) : own;
+    if (ownColor && ownColor.a > 0) bg = over(ownColor, bg);
+    if (style.color && style.color !== 'inherit') { const c = parseColor(style.color); if (c) color = over(c, bg); }
+    return { bg, color };
+}
+
+function dimmed(style) {
+    return style.opacity !== undefined && +style.opacity < 1;
+}
+
+// A ::before or ::after shows text only with a content of its own that is not empty.
+function hasText(content) {
+    const v = (content ?? '').trim();
+    return v !== '' && v !== 'none' && v !== 'normal' && !/^(['"])\1$/.test(v);
+}
+
 const failures = [];
 let pairs = 0;
+
+function check(theme, chain, color, bg) {
+    if (!color) return;
+    pairs++;
+    const r = ratio(color, bg);
+    if (r < MIN_RATIO || process.env.CONTRAST_ALL)
+        failures.push({ theme, element: describe(chain), color: hex(color), background: hex(bg), ratio: Math.round(r * 100) / 100 });
+}
+
 for (const theme of themes) {
     const t = tokens[theme];
     for (const chain of elementsOf(rules)) {
         chain[0].attrs['data-theme'] = theme;
-        let bg = { r: 255, g: 255, b: 255, a: 1 }, color = null, dimmed = false;
+        let bg = { r: 255, g: 255, b: 255, a: 1 }, color = null, faded = false;
         for (let at = 0; at < chain.length; at++) {
             const style = cascade(rules, theme, chain, at, t);
-            if (style.opacity !== undefined && +style.opacity < 1) dimmed = true;
-            const own = style['background-color'] ?? (style.background !== undefined ? backgroundColor(style.background) : null);
-            const ownColor = typeof own === 'string' ? parseColor(own) : own;
-            if (ownColor && ownColor.a > 0) bg = over(ownColor, bg);
-            if (style.color && style.color !== 'inherit') { const c = parseColor(style.color); if (c) color = over(c, bg); }
+            faded ||= dimmed(style);
+            ({ bg, color } = paint(style, bg, color));
         }
-        if (dimmed || !color) continue;
-        pairs++;
-        const r = ratio(color, bg);
-        if (r < MIN_RATIO || process.env.CONTRAST_ALL)
-            failures.push({ theme, element: describe(chain), color: hex(color), background: hex(bg), ratio: Math.round(r * 100) / 100 });
+        if (faded) continue;
+        check(theme, chain, color, bg);
+        for (const name of ['before', 'after']) {
+            const box = [...chain, { tag: null, id: null, classes: [], attrs: {}, states: [], pseudo: name }];
+            const style = cascade(rules, theme, box, chain.length, t);
+            if (!hasText(style.content) || dimmed(style)) continue;
+            const painted = paint(style, bg, color);
+            check(theme, box, painted.color, painted.bg);
+        }
     }
 }
 if (process.env.CONTRAST_ALL) failures.sort((a, b) => a.ratio - b.ratio);

@@ -19,8 +19,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * The dark themes put white text on their light-blue accent: 2.3:1 on the selected tab and the update button, 2.8:1
  * on the red blocker count; the light theme's amber was 4.2:1 on white and 3.9:1 on its own tint; and a hover rule
- * of higher specificity took the selected tab's fill away under its white label, 1.1:1. {@code page/contrast.js}
- * cascades every page's own CSS as a browser would, in each theme, and reports text under 4.5:1 on its background.
+ * of higher specificity took the selected tab's fill away under its white label, 1.1:1. The badges of the PR list
+ * stood at 4.3:1 on the selected and the hovered row, and the Terminal brackets of the selected status tab at 1.2:1
+ * on its fill, pairs no rule names. {@code page/contrast.js} cascades every page's own CSS as a browser would, in
+ * each theme, pairs each fill with what it holds, and reports text under 4.5:1 on its background.
  */
 class PageContrastTest {
     private static final Path SCRIPT = Path.of("src/test/resources/page/contrast.js");
@@ -63,6 +65,39 @@ class PageContrastTest {
                 failures.add(f.get("theme").asText() + " " + f.get("element").asText() + " " + f.get("ratio").asText());
             assertThat(failures).containsExactlyInAnyOrder("light .tabs button.act.on:hover 1.1",
                 "dark .tabs button.act.on 2.27");
+        }
+        finally {
+            Files.deleteIfExists(page);
+        }
+    }
+
+    /**
+     * A badge's rule names no row and a bracket's rule names no tab: the check pairs a fill with what it holds, and
+     * reads a {@code ::before} with text as a child of its element; one with empty content has nothing to check.
+     */
+    @Test
+    void theCheckSeesABadgeOnTheHoveredRowAndTheBracketOnTheFilledTab() throws Exception {
+        Path page = Files.createTempFile("page", ".html");
+        try {
+            Files.writeString(page, """
+                <html><head><style>
+                :root { --fg: #1a1a1a; --muted: #666; }
+                body { color: var(--fg); background: #fff; }
+                .pr-list li:hover { background: #ededed; }
+                .pr-badge.watch { color: #a35f00; }
+                .mini-btn.tab.on { background: #58a6ff; color: #0d1117; }
+                .mini-btn::before { content: "["; color: var(--muted); }
+                .mini-btn::after { content: ''; color: var(--muted); }
+                </style></head><body></body></html>
+                """);
+            JsonNode out = run(page);
+
+            List<String> failures = new ArrayList<>();
+            for (JsonNode f : out.get("failures"))
+                failures.add(f.get("theme").asText() + " " + f.get("element").asText() + " " + f.get("ratio").asText());
+            assertThat(failures).containsExactlyInAnyOrder("light .pr-list li:hover .pr-badge.watch 4.28",
+                "light .pr-list li:hover .pr-badge.watch:hover 4.28", "light button.mini-btn.tab.on::before 2.27",
+                "light button.mini-btn.tab.on:hover::before 2.27");
         }
         finally {
             Files.deleteIfExists(page);

@@ -123,7 +123,8 @@ class TopBarPageTest {
         assertThat(rule(css, ".update-btn")).contains("background: var(--accent)", "color: var(--on-accent)");
         for (String theme : List.of(":root", "html[data-theme=\"dark\"]", "html[data-theme=\"jetbrains\"]",
             "html[data-theme=\"terminal\"]"))
-            assertThat(rule(css, theme)).as(theme).contains("--on-accent:", "--on-bad:", "--ok:", "--warn:");
+            assertThat(rule(css, theme)).as(theme).contains("--on-accent:", "--on-bad:", "--ok:", "--warn:",
+                "--row-hover:");
     }
 
     private static String read(String page) throws IOException {
