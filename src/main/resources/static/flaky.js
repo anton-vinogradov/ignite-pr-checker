@@ -30,7 +30,7 @@ function groupCount(shown, size) {
 
 // One test in one suite: `rank` in its group, `i` its place in the list the buttons look it up in.
 function flakyRow(b, rank, i, reruns) {
-    const short = esc(shortTestName(b.name));
+    const short = `<span title="${esc(b.name)}">${esc(shortTestName(b.name))}</span>`;
     const enc = occ => `&expandedTest=${encodeURIComponent(occ).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
     const mf = b.masterFailures || [];
     const onMaster = tcBase && mf.length;

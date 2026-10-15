@@ -43,10 +43,15 @@ function unsignedTestId(id) {
     try { return (BigInt(id) & 0xFFFFFFFFFFFFFFFFn).toString(); } catch (e) { return id; }
 }
 
+// The work directory of a TeamCity agent inside a test's parameters ("/opt/teamcity/work/425d7af4e9aa99d9/", a
+// Windows one too): the same on every row, and the server cuts it from the causes' titles with the same pattern
+// (CauseClusters.AGENT_WORK_DIR). Stops at brackets, commas and spaces, so only the path goes, not the parameter.
+const AGENT_WORK_DIR = /[^\s()\[\],]*?[\\/]work[\\/][0-9a-f]{8,}[\\/]/g;
+
 // Show only "Class.method[params]" (or just "Class" for a class-level failure): drop the
 // package/namespace (Java lower-case OR .NET PascalCase), keeping dots inside (...)/[...] intact.
 function shortTestName(name) {
-    let s = name.includes(': ') ? name.slice(name.indexOf(': ') + 2) : name;
+    let s = (name.includes(': ') ? name.slice(name.indexOf(': ') + 2) : name).replace(AGENT_WORK_DIR, '');
     const noMethod = s.endsWith('.'); // class-level failure, e.g. "pkg.SomeTest."
     let depth = 0, seg = '', segs = [];
     for (const ch of s) {
@@ -67,12 +72,16 @@ function fenced(text) {
     return fence + '\n' + text + '\n' + fence;
 }
 
-// The .NET and C++ suites run NUnit and Boost tests, not JUnit ones: each gets the tool its suite runs it with.
-const LANGUAGE = { java: 'Java', dotnet: '.NET, C#', cpp: 'C++' };
+// The .NET, C++, Python and Node.js suites run NUnit, Boost, pytest and the Node.js client's tests, not JUnit ones:
+// each gets the tool its suite runs it with.
+const LANGUAGE = { java: 'Java', dotnet: '.NET, C#', cpp: 'C++', python: 'Python', nodejs: 'Node.js' };
 
+// By the suite's id or the test's name: a pytest name reads "test_module.test_function".
 function platformOf(suite, name) {
     if (/PlatformNet/i.test(suite || '') || /^Apache\.Ignite\./.test(name || '')) return 'dotnet';
     if (/Platform(CPP|CCMake)|Odbc/i.test(suite || '') || /^Ignite(Core|ThinClient|Odbc)Test: /.test(name || '')) return 'cpp';
+    if (/Python/i.test(suite || '') || /^test_\w+\.test_\w+/.test(name || '')) return 'python';
+    if (/Node\.?js/i.test(suite || '')) return 'nodejs';
     return 'java';
 }
 
@@ -106,10 +115,10 @@ async function copyText(text, btn, idle, flashMs = 1800) {
     setTimeout(() => { btn.textContent = idle; }, flashMs);
 }
 
-// The failure output as the server sent it, without the label shown above it.
-async function copyDetails(btn) {
+// The failure output as the server sent it, without the label shown above it; `idle` is the button's own label.
+async function copyDetails(btn, idle = 'copy') {
     const pre = btn.closest('.details').querySelector('pre');
-    await copyText(pre.dataset.raw || pre.textContent, btn, 'copy', 1500);
+    await copyText(pre.dataset.raw || pre.textContent, btn, idle, 1500);
 }
 
 // A long-lived tab can't hot-swap its own code: when a deploy changes this page, offer a reload.
