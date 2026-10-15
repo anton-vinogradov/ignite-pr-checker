@@ -504,9 +504,23 @@ public class StandingVisas implements SnapshotCache {
         if (username == null)
             return;
 
-        // The options that need this token go off with it. Leaving them checked would promise
-        // work the checker can no longer do — the point of the switch is that it means something.
-        boolean dropped = changed(username, e -> e.gh().token() == null ? e
+        dropGhTokenIf(username, e -> e.gh().token() != null);
+    }
+
+    /**
+     * Forgets the GitHub token {@code asked} that GitHub refused when asked whose it is, as after a refused commit, if
+     * an option that commits still has it. A token saved since stays, and one no option needs goes without a note in ⚙.
+     */
+    private void dropRefusedGhToken(String username, String asked) {
+        dropGhTokenIf(username, cur -> asked.equals(cur.gh().token()) && cur.options().needsGh());
+    }
+
+    /**
+     * Forgets the user's GitHub token when {@code refused} holds for their enrollment, and switches off the options
+     * that commit with it. Leaving them on would promise work the checker can no longer do.
+     */
+    private void dropGhTokenIf(String username, java.util.function.Predicate<Enrollment> refused) {
+        boolean dropped = changed(username, e -> !refused.test(e) ? e
             : e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh()));
         if (dropped)
             log.warn("GitHub token of {} was rejected by GitHub: dropped, the checkstyle autofix and tests to suites "
@@ -1057,21 +1071,28 @@ public class StandingVisas implements SnapshotCache {
                 + " PR comments", username);
     }
 
-    /** False when GitHub could not say whose the token is, and the login is to be asked about again. */
+    /**
+     * False when GitHub could not say whose the token is, and the login is to be asked about again. A token GitHub
+     * refuses goes, as after a refused commit.
+     */
     private boolean backfillLogin(String username, Enrollment e) {
         if (e.gh().token() == null)
             return true;
 
-        GithubClient.GhUser login;
+        Optional<String> token = decrypt(e.gh());
+        Optional<GithubClient.GhUser> named;
         try {
-            login = decrypt(e.gh()).flatMap(github::ghIdentity)
-                .filter(l -> !heldByAnother(l, username) && !github.isAppAccount(l)).orElse(null);
+            named = token.flatMap(github::ghIdentity);
         }
         catch (RuntimeException ex) {
             log.info("GitHub login of {} not backfilled this time: {}", username, ex.toString());
 
             return false;
         }
+        if (token.isPresent() && named.isEmpty())
+            dropRefusedGhToken(username, e.gh().token());
+        GithubClient.GhUser login = named.filter(l -> !heldByAnother(l, username) && !github.isAppAccount(l))
+            .orElse(null);
         if (login == null)
             return true;
 
@@ -1087,13 +1108,15 @@ public class StandingVisas implements SnapshotCache {
      * A login an earlier version kept next to the user's GitHub token is proven only if that token names it: v1.27.0
      * could also keep a login typed in by hand there, next to a token of another account, and that login's owner would
      * then command under this user's TeamCity token. GitHub's answer gives the account's id. A token GitHub refuses,
-     * or one gone since, proves nothing. False when GitHub could not say, and the token is to be asked again.
+     * or one gone since, proves nothing; a refused one goes, as after a refused commit. False when GitHub could not
+     * say, and the token is to be asked again.
      */
     private boolean askToken(String username, Enrollment e) {
         GhAccount held = e.ghAccount();
+        Optional<String> token = decrypt(e.gh());
         Optional<GithubClient.GhUser> named;
         try {
-            named = decrypt(e.gh()).flatMap(github::ghIdentity);
+            named = token.flatMap(github::ghIdentity);
         }
         catch (RuntimeException ex) {
             log.info("GitHub login {} of {} not checked with the GitHub token this time: {}", held.login(), username,
@@ -1105,6 +1128,8 @@ public class StandingVisas implements SnapshotCache {
         GhAccount next = named.filter(n -> n.login().equalsIgnoreCase(held.login()) && !github.isAppAccount(n))
             .map(GhAccount::of).orElse(GhAccount.unproven(held.login()));
         enrolled.computeIfPresent(username, (k, cur) -> held.equals(cur.ghAccount()) ? cur.withGhAccount(next) : cur);
+        if (token.isPresent() && named.isEmpty())
+            dropRefusedGhToken(username, e.gh().token());
         if (next.proven())
             log.info("GitHub login {} of {} proven by the GitHub token, id {}", next.login(), username, next.id());
         else
@@ -2770,7 +2795,8 @@ public class StandingVisas implements SnapshotCache {
          * the mention in the verdict comment take only a proven login. One stored without a token could have been
          * typed in by hand. Before the checker's account wrote the PR comments, the user's GitHub token did: a token
          * kept for nothing else goes, once asked, and the verdict comments it posted are no longer the checker's to
-         * edit.
+         * edit. A token kept to commit next to a login it did not prove is asked again: v1.28.0 kept it when GitHub
+         * refused it, and the options that commit stayed on with it.
          */
         Enrollment enrollment() {
             Handled h = Handled.empty();
@@ -2807,12 +2833,13 @@ public class StandingVisas implements SnapshotCache {
                 log.info("checkstyle autofix of {} is off: it runs only from a PR command, and PR commands are off{}",
                     username, ghUnneeded ? "; the GitHub token, which nothing else needs, is dropped" : "");
 
-            boolean ask = ghToken != null && ghLogin != null && ghLoginProven == null;
+            boolean ask = ghToken != null && ghLogin != null
+                && (ghLoginProven == null || !ghLoginProven && options.needsGh());
             boolean ghKept = ghToken != null && (options.needsGh() || ask);
             if (ghToken != null && !ghKept && !ghUnneeded)
                 log.info("GitHub token of {} dropped: no option of theirs commits, and the checker's account posts"
                     + " their PR comments", username);
-            GhAccount account = ghLogin == null ? null : ghLoginProven != null
+            GhAccount account = ghLogin == null ? null : ghLoginProven != null && !ask
                 ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ask);
 
             return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
