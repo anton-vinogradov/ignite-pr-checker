@@ -34,7 +34,7 @@ public class PendingCommits {
     public Ahead movedSince(String tcToken, int pr, long buildId) {
         String built = tc.buildRevision(tcToken, buildId)
             .orElseThrow(() -> new IllegalStateException("TeamCity gave no revision of build " + buildId));
-        String head = github.prHead(pr).headSha();
+        String head = github.prHeadSha(pr);
         if (head == null)
             throw new IllegalStateException("GitHub gave no head of PR " + pr);
         if (built.equals(head))

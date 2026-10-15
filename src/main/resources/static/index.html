@@ -104,6 +104,7 @@
         .pr-badge.unproven { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
         .pr-badge.ok { background: #e6f4ea; color: #2e7d32; }
         .pr-badge.watch { background: transparent; color: #b26a00; border: 1px solid #b26a00; }
+        .pr-badge.checking { background: transparent; color: var(--muted); border: 1px solid var(--muted); }
         html[data-theme="dark"] .pr-badge.watch, html[data-theme="jetbrains"] .pr-badge.watch, html[data-theme="terminal"] .pr-badge.watch { color: #d99a3a; border-color: #d99a3a; }
 
         .result-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 1.25rem 1.5rem; }
@@ -547,6 +548,7 @@
                         <span class="pr-badge ok" title="A clean run of the PR's current head">✓</span> clean ·
                         <span class="pr-badge watch" title="No blockers, but tests started failing on its code: a re-run decides">!</span> watch ·
                         <span class="pr-badge unproven" title="No blockers found, but the run can't prove the PR clean">?</span> not proven ·
+                        <span class="pr-badge checking" title="No blockers; the open PR's page is checking that the run tested its current head">…</span> checking ·
                         <span class="pr-badge bad" title="This many blockers">2</span> blockers ·
                         <span class="my-tag" title="You started its latest RunAll">My?</span> your run
                         <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="What each badge means, in the verdict glossary">?</a>

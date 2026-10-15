@@ -3,6 +3,8 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -37,10 +39,34 @@ class HeadCheckPageTest {
         const AHEAD = { pending: true, ahead: 33, builtSha: '1f93640', headSha: '6573622', rewritten: false,
             builtRevision: '1f93640c2b7a9e5d4f3a1b0c9d8e7f6a5b4c3d2e',
             caveat: '33 commit(s) pushed since this run — it tested older code' };
+        const LIST_MOVED = { pending: true, ahead: -1, builtSha: '1f93640', headSha: '6573622', rewritten: false,
+            builtRevision: CLEAN.revision, caveat: 'new commits pushed since this run — it tested older code' };
         """;
 
     private static final String CANT_PROVE =
         "Nothing here was blamed on this PR, but this run can't prove it is clean: ";
+
+    /**
+     * {@code listed([[number, standing], …])} serves the PR list with these PRs, none with blockers, and returns, by
+     * PR, every badge the page draws in its place after the list's own.
+     */
+    private static final String LIST = """
+        function listed(prs) {
+            const badges = {};
+            page.el('prList').children = prs.map(([num]) => {
+                const li = page.el('li-' + num);
+                Object.assign(li.dataset, { num: String(num), title: 'PR ' + num, url: 'u' });
+                const drawn = badges[num] = [];
+                const badge = {};
+                Object.defineProperty(badge, 'outerHTML', { set: html => drawn.push(html) });
+                li.querySelector = sel => (sel === '.pr-badge' ? badge : null);
+                return li;
+            });
+            page.route('/api/prs', { body: prs.map(([num, standing]) => ({ number: num, title: 'PR ' + num, url: 'u',
+                triggeredBy: 'alice', blockers: 0, proven: standing === 'CLEAN', standing })) });
+            return badges;
+        }
+        """;
 
     @Test
     void aCleanVerdictWaitsForTheHeadCheck() throws Exception {
@@ -119,9 +145,7 @@ class HeadCheckPageTest {
     @Test
     void anAnalysisThatKnowsTheHeadMovedSaysOldCodeAtOnce() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
-            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { pushed: { pending: true, ahead: -1,
-                builtSha: '1f93640', headSha: '6573622', rewritten: false, builtRevision: CLEAN.revision,
-                caveat: 'new commits pushed since this run — it tested older code' } }) });
+            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { pushed: LIST_MOVED }) });
             page.route('/api/pending', { body: AHEAD });
             await page.load('?pr=13575');
             const first = state();
@@ -148,9 +172,7 @@ class HeadCheckPageTest {
     @Test
     void aFailedCheckKeepsTheCommitsTheListShowed() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
-            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { pushed: { pending: true, ahead: -1,
-                builtSha: '1f93640', headSha: '6573622', rewritten: false, builtRevision: CLEAN.revision,
-                caveat: 'new commits pushed since this run — it tested older code' } }) });
+            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { pushed: LIST_MOVED }) });
             pendingFails = true;
             await page.load('?pr=13575');
             answerPending();
@@ -161,6 +183,66 @@ class HeadCheckPageTest {
         assertThat(out.get("caveat").asText())
             .isEqualTo(CANT_PROVE + "new commits pushed since this run — it tested older code.");
         assertThat(out.get("pushed").asText()).startsWith("⚠ new commits pushed since this run");
+    }
+
+    /** A quiet look again that brings the same run with the list's uncounted commits keeps GitHub's count. */
+    @Test
+    void aRedrawOfTheSameRunKeepsTheCount() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
+            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { pushed: LIST_MOVED }) });
+            page.route('/api/pending', { body: AHEAD });
+            await page.load('?pr=13575');
+            answerPending();
+            await page.settle();
+            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { pushed: LIST_MOVED, suitesRan: 11 }) });
+            await page.run('analyze')(13575, true);
+            report(state());
+            """);
+
+        assertThat(out.get("caveat").asText())
+            .isEqualTo(CANT_PROVE + "33 commit(s) pushed since this run — it tested older code.");
+        assertThat(out.get("pushed").asText()).startsWith("⚠ 33 new commits pushed since this run");
+    }
+
+    /**
+     * GitHub answered for build 9001 only after a newer run, 9002, was on the page: the answer is about code the page
+     * no longer shows, so it says nothing of 9002.
+     */
+    @Test
+    void anAnswerForARunNoLongerShownChangesNothing() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
+            let answerOld, answerNew;
+            const oldAnswered = new Promise(r => { answerOld = r; });
+            const newAnswered = new Promise(r => { answerNew = r; });
+            const heldFetch = g.fetch;
+            g.fetch = async (url, opts) => {
+                const u = String(url);
+                if (u.startsWith('/api/pending')) await (u.includes('build=9001') ? oldAnswered : newAnswered);
+                return heldFetch(url, opts);
+            };
+            answerPending();
+            page.route('/api/analyze', { body: CLEAN });
+            page.route('/api/pending', url => ({ body: url.includes('build=9001') ? AHEAD
+                : { pending: false, checked: true } }));
+            await page.load('?pr=13575');
+            page.route('/api/analyze', { body: Object.assign({}, CLEAN, { buildId: 9002 }) });
+            await page.run('analyze')(13575, true);
+            answerOld();
+            await page.settle();
+            const stale = state();
+            answerNew();
+            await page.settle();
+            report({ stale, current: state() });
+            """);
+
+        JsonNode stale = out.get("stale");
+        assertThat(stale.get("head").asText()).isEqualTo("No test blockers");
+        assertThat(stale.get("caveat").asText()).isEqualTo("Checking that this run tested the PR's latest code…");
+        assertThat(stale.get("pushed").isNull()).isTrue();
+
+        JsonNode current = out.get("current");
+        assertThat(current.get("head").asText()).isEqualTo("No blockers 🎉");
+        assertThat(current.get("pushed").isNull()).isTrue();
     }
 
     /** Blockers need no head check to be told: they show, in the tab too, as before. */
@@ -178,40 +260,66 @@ class HeadCheckPageTest {
 
     /**
      * The PR list loaded with a ✓ for the open PR from a head it had fetched before the latest push, or with a "?"
-     * from a head older than the run's: once the page knows, the list badges the PR as the page heads it. A badge for
-     * anything but the head, such as a newer run still going, stays the list's.
+     * from a head older than the run's. The ✓ waits for the page's check, as the verdict head does; once the page
+     * knows, the list badges the PR as the page heads it. A badge for anything but the head, such as a newer run still
+     * going, stays the list's.
      */
     @Test
     void theListBadgesTheOpenPrAsThePageHeadsIt() throws Exception {
         String scenario = """
-            const li = page.el('li-13575');
-            Object.assign(li.dataset, { num: '13575', title: 'IGNITE-29049 Move MDC to JUnit', url: 'u' });
-            const badge = page.el('badge-13575');
-            li.querySelector = sel => (sel === '.pr-badge' ? badge : null);
-            page.el('prList').children = [li];
-            page.route('/api/prs', { body: [{ number: 13575, title: 'IGNITE-29049 Move MDC to JUnit', url: 'u',
-                triggeredBy: 'alice', blockers: 0, proven: LISTED === 'CLEAN', standing: LISTED }] });
+            const badges = listed([[13575, LISTED]]);
             page.route('/api/analyze', { body: ANALYSED });
             await page.load('?pr=13575');
-            const before = badge.outerHTML || null;
+            const before = badges[13575].slice();
             answerPending();
             await page.settle();
-            report({ before, after: badge.outerHTML || null });
+            report({ before, after: badges[13575] });
             """;
 
-        JsonNode old = PageScript.run("index.html", PageScript.SIGNED_IN + HELD
+        JsonNode old = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + LIST
             + "const LISTED = 'CLEAN', ANALYSED = CLEAN; page.route('/api/pending', { body: AHEAD });" + scenario);
-        JsonNode current = PageScript.run("index.html", PageScript.SIGNED_IN + HELD
+        JsonNode current = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + LIST
             + "const LISTED = 'OLD_CODE', ANALYSED = CLEAN;"
             + "page.route('/api/pending', { body: { pending: false, checked: true } });" + scenario);
-        JsonNode live = PageScript.run("index.html", PageScript.SIGNED_IN + HELD
+        JsonNode live = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + LIST
             + "const LISTED = 'CLEAN', ANALYSED = verdict({ blockers: [], standing: 'UNPROVEN', live: true,"
             + "caveats: ['a newer run is still going — its unfinished suites can still fail'] });" + scenario);
 
-        assertThat(old.get("before").isNull()).as("nothing is known while the check runs").isTrue();
-        assertThat(old.get("after").asText()).contains("pr-badge unproven", ">?<", "old code");
-        assertThat(current.get("before").isNull()).isTrue();
-        assertThat(current.get("after").asText()).contains("pr-badge ok", ">✓<");
-        assertThat(live.get("after").isNull()).isTrue();
+        assertThat(marks(old.get("before"))).as("no ✓ while the check runs").containsExactly("…");
+        assertThat(marks(old.get("after"))).containsExactly("…", "?");
+        assertThat(old.get("after").get(1).asText()).contains("pr-badge unproven", "old code");
+        assertThat(marks(current.get("before"))).isEmpty();
+        assertThat(marks(current.get("after"))).containsExactly("✓");
+        assertThat(marks(live.get("after"))).containsExactly("…", "✓");
+    }
+
+    /** The reader opened another PR, then went home, before GitHub answered: each left PR gets the list's badge back. */
+    @Test
+    void aPrLeftMidCheckGetsTheListsBadgeBack() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + LIST + """
+            const badges = listed([[13575, 'CLEAN'], [13576, 'CLEAN']]);
+            page.route('/api/analyze', url => ({ body: Object.assign({}, CLEAN,
+                { prNumber: +/pr=(\\d+)/.exec(url)[1] }) }));
+            await page.load('?pr=13575');
+            await page.run('openPr')(13576, true);
+            await page.settle();
+            const switched = { 13575: badges[13575].slice(), 13576: badges[13576].slice() };
+            page.run('goHome')(true);
+            answerPending();
+            await page.settle();
+            report({ switched, home: badges });
+            """);
+
+        assertThat(marks(out.get("switched").get("13575"))).containsExactly("…", "✓");
+        assertThat(marks(out.get("switched").get("13576"))).containsExactly("…");
+        assertThat(marks(out.get("home").get("13575"))).containsExactly("…", "✓");
+        assertThat(marks(out.get("home").get("13576"))).containsExactly("…", "✓");
+    }
+
+    /** The marks of the badges drawn, as the reader sees them. */
+    private static List<String> marks(JsonNode drawn) {
+        List<String> marks = new ArrayList<>();
+        drawn.forEach(html -> marks.add(html.asText().replaceAll("<[^>]*>", "")));
+        return marks;
     }
 }

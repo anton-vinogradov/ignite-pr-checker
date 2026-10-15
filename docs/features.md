@@ -112,6 +112,7 @@ the visa.
 | **!** | No blockers, but tests started failing on its code. | A rerun decides. |
 | **?** | No blockers found, but the run can't prove the PR clean ([caveats](#caveats)), commits were pushed since the run, or it is not known whether the run tested the PR's current head. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current head. | — |
+| **…** | Only for the PR open on the page: a clean run, and the page is still checking that it tested the PR's current head. Once the page knows, it turns into **✓** or **?**. | Wait. |
 | none | Not analysed yet. | Open the PR to analyse it. |
 | **My?** | Your TeamCity user started its latest RunAll. | — |
 
@@ -210,7 +211,8 @@ and the filtered-out noise.
   everything and blamed nothing on it. Otherwise the page says **No test blockers** and the red line under it lists
   the caveats, in the same words as the PR comment and the visa. The page asks GitHub whether the run tested the PR's
   head. Until GitHub answers, a clean verdict reads **No test blockers** with
-  `Checking that this run tested the PR's latest code…`; after that, the PR's badge in the list says what the page says.
+  `Checking that this run tested the PR's latest code…` and the PR's badge in the list is **…**; after that, the badge
+  says what the page says.
 - **why?** opens the failure message and the stack trace, with a rough triage label: `⚖ assertion …`,
   `♻ environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
 - **ai** copies a prompt for a coding assistant: the PR, the suite and its run, the test, the checker's verdict with

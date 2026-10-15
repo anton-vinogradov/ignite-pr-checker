@@ -175,14 +175,15 @@ function markMine() {
         li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
 }
 
-// How a verdict with no blockers stands (Caveats.Standing): only CLEAN, where the page says "No blockers"
-// for the PR's current code, earns the check.
+// How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
+// where the page says "No blockers" for the PR's current code, earns the check.
 const STANDING_BADGES = {
     WATCH: ['watch', '!', 'no blockers, but tests started failing on this code — a re-run decides'],
     UNPROVEN: ['unproven', '?', 'no blockers found, but the run can\'t prove the PR clean (interrupted, broken '
         + 'suites, fewer tests than master, unchecked tests, or a newer run still going)'],
     OLD_CODE: ['unproven', '?', 'old code — no blockers in this run, but commits were pushed since it'],
     UNKNOWN_CODE: ['unproven', '?', 'no blockers, but it is not known whether this run tested the PR\'s current code'],
+    CHECKING: ['checking', '…', 'no blockers; the page is checking that this run tested the PR\'s current code'],
 };
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
@@ -222,6 +223,7 @@ function openPr(number, push) {
     noRunNote = '';
     lastLiveFetch = Date.now(); // the analysis below is this PR's first look
     lastResult = null;
+    syncListBadge();
     detailsCache.clear();
     resetStaleLook();
     stopRunsPoll();
@@ -586,6 +588,7 @@ async function enterApp(username) {
 function goHome(push) {
     selectedPr = null;
     lastResult = null;
+    syncListBadge();
     runsNow = [];
     verdictDue = false;
     noRunNote = '';
@@ -1250,7 +1253,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     // suites, no recently-started-failing tests. A broken/timed-out suite is a real problem,
     // so the verdict must not read as all-clear just because no individual test is a blocker.
     renderVerdictHead(res);
-    syncListBadge(res);
+    syncListBadge();
     $('blockerCount').textContent = hasBlockers ? countLabel(res.blockers) : '';
     $('filteredCount').textContent = countLabel(res.filtered);
     // Suites a failed Build kept from running are told under the Build, among the broken suites.
@@ -1407,21 +1410,29 @@ function notePending(res, p) {
     $('pending').textContent = `⚠ ${n} pushed since this run (${p.builtSha} → ${p.headSha}) — the verdict is for the older code.`;
 }
 
-// The PR list badges a clean run by the PR's head as the server last saw it. Once the page knows whether the open
-// PR's run tested its head, the badge says what the page says.
+// The PR list badges a clean run by the PR's head as the server last saw it. The open PR's ✓ waits for the page's
+// check, as its verdict head does; once the page knows whether the run tested the PR's head, the badge says that.
 const HEAD_STANDINGS = ['CLEAN', 'OLD_CODE', 'UNKNOWN_CODE'];
 
-function syncListBadge(res) {
-    const listed = allPrs.find(p => p.number === res.prNumber);
-    const standing = standingOf(res);
-    if (!listed || !HEAD_STANDINGS.includes(listed.standing) || !HEAD_STANDINGS.includes(standing)
-        || standing === listed.standing)
-        return;
-    const li = findLi(res.prNumber);
+function syncListBadge() {
+    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    const page = res ? standingOf(res) : 'CHECKING';
+    for (const listed of allPrs) {
+        if (!HEAD_STANDINGS.includes(listed.standing)) continue;
+        const open = listed.number === selectedPr;
+        if (open && HEAD_STANDINGS.includes(page)) listed.known = page;
+        const known = listed.known || listed.standing;
+        showListBadge(listed, open && page === 'CHECKING' && known === 'CLEAN' ? 'CHECKING' : known);
+    }
+}
+
+function showListBadge(listed, standing) {
+    if (standing === (listed.shown || listed.standing)) return;
+    const li = findLi(listed.number);
     const badge = li && li.querySelector('.pr-badge');
     if (!badge) return;
     badge.outerHTML = blockerBadge(0, standing === 'CLEAN', standing);
-    listed.standing = standing;
+    listed.shown = standing;
 }
 
 // How the PR's own new and changed test classes ran in this RunAll (PrTestRuns on the server). A new test
@@ -1570,7 +1581,7 @@ async function loadPending(res) {
         return;
     notePending(res, p || { pending: false, checked: false });
     renderVerdictHead(shown);
-    syncListBadge(shown);
+    syncListBadge();
     paintTab();
 }
 

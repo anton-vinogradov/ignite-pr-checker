@@ -103,6 +103,18 @@ class ListedHeadTest {
             .containsEntry("checked", true);
     }
 
+    /** The author deleted the fork: GitHub names no head repository, but still the head's sha. */
+    @Test
+    void pendingSaysTheRunTestedTheHeadOfADeletedFork() {
+        when(tc.buildRevision("t", BUILD)).thenReturn(Optional.of(BUILT));
+        server.expect(requestTo("https://api.github.com/repos/apache/ignite/pulls/13335")).andRespond(withSuccess(
+            "{\"user\":{\"login\":\"alice\"},\"head\":{\"ref\":\"ignite-28867\",\"sha\":\"" + BUILT + "\","
+                + "\"repo\":null}}", MediaType.APPLICATION_JSON));
+
+        assertThat(controller.pending(13335, BUILD, "t")).containsEntry("pending", false)
+            .containsEntry("checked", true);
+    }
+
     @Test
     void pendingSaysWhenGithubCouldNotTell() {
         when(tc.buildRevision("t", BUILD)).thenReturn(Optional.of(BUILT));
