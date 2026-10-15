@@ -439,9 +439,9 @@ from its own GitHub account, the app account.
 
 ## Everything else
 
-- **The top bar**: the same menu on every page, **PRs**, **Flaky tests** and **Status**, with the page you are on
-  underlined; the theme selector; and, on the PR page once you are logged in, your name with **Log out** beside it and
-  ⚙ in the corner.
+- **The top bar**: every page has the same menu with **PRs**, **Flaky tests** and **Status**. The page you are on is
+  underlined. The theme selector is on every page too. Once you are logged in, the bar on the PR page also shows your
+  name with **Log out** beside it, and ⚙ in the corner. ⚙ opens the **Standing options** panel.
 - **Update**: when a newer release is out, those who may operate the service see **Update to vX.Y.Z** in the top bar,
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is

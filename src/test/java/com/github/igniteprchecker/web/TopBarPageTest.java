@@ -70,7 +70,7 @@ class TopBarPageTest {
 
     @Test
     void theHealthDotStandsByTheStatusItem() throws IOException {
-        assertThat(read("status.html")).contains("aria-current=\"page\" title=\"Service status and metrics\">Status"
+        assertThat(read("status.html")).contains("aria-current=\"page\" title=\"Shows the service status and metrics.\">Status"
             + "<span id=\"healthDot\" class=\"hdot\" title=\"health\"></span></a>");
         assertThat(read("index.html")).doesNotContain("healthDot");
         assertThat(read("flaky.html")).doesNotContain("healthDot");
@@ -83,7 +83,7 @@ class TopBarPageTest {
 
         assertThat(bar.replaceAll("\\s+", " ")).contains("<span id=\"session\" class=\"session muted hidden\">"
             + "<span id=\"username\"></span> · <button id=\"logout\" class=\"linklike\" type=\"button\" "
-            + "title=\"End your login here and in every other browser\">Log out</button></span>");
+            + "title=\"Logs you out here and in every other browser.\">Log out</button></span>");
         assertThat(bar.substring(bar.lastIndexOf("<button"))).startsWith("<button id=\"settingsBtn\"");
         assertThat(read("flaky.html")).doesNotContain("id=\"session\"", "settingsBtn");
         assertThat(read("status.html")).doesNotContain("id=\"session\"", "settingsBtn");
