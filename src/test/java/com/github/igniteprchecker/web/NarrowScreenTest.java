@@ -8,8 +8,6 @@ import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * The pages had no responsive layout at all: the top bar never wrapped, the freshness line was
@@ -76,10 +74,10 @@ class NarrowScreenTest {
         assertThat(rule(css, ".runs .run-item")).doesNotContain("nowrap").contains("flex-wrap: wrap");
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"index.html", "flaky.html", "status.html"})
-    void topBarWraps(String page) throws Exception {
-        String css = Files.readString(Path.of("src/main/resources/static", page));
+    /** One top bar for the three pages, in the stylesheet they share. */
+    @Test
+    void topBarWraps() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/common.css"));
 
         assertThat(rule(css, ".topbar")).contains("flex-wrap: wrap");
         assertThat(rule(css, ".topbar-right")).contains("flex-wrap: wrap");
