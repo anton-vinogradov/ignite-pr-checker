@@ -150,7 +150,7 @@ class OwnRunsTest {
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.replaced").value(1))
             .andExpect(jsonPath("$.error").value("Your previous RunAll was cancelled, but queuing the new one "
-                + "failed: " + ApiExceptionHandler.FORBIDDEN));
+                + "failed: " + ApiExceptionHandler.QUEUE_FORBIDDEN));
 
         assertThat(writes).containsExactly("POST /app/rest/builds/id:201", "POST /app/rest/buildQueue");
     }

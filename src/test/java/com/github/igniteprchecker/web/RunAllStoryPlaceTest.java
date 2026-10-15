@@ -23,9 +23,10 @@ class RunAllStoryPlaceTest {
             .replaceAll("\\s+", " ");
 
         assertThat(caption).doesNotContain("the command comment then narrates the run")
-            .doesNotContain("written into my command comment")
-            .contains("the checker's account answers: 🚀 = accepted, 😕 = refused, and a comment of its own tells the"
-                + " run. When the verdict is in, a new comment mentions me, and the story goes.");
+            .doesNotContain("written into my command comment");
+        assertThat(collapsed("docs/features.md")).contains("🚀 means accepted, 😕 refused. Then a comment of the app"
+            + " account, which mentions you, tells the story of the run")
+            .contains("When the verdict is in, a new comment mentions you");
     }
 
     @Test

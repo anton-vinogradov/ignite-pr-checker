@@ -125,7 +125,7 @@ class QueueAtTopTest {
 
         asAlice(post("/api/trigger").param("top", "true"))
             .andExpect(status().isBadGateway())
-            .andExpect(jsonPath("$.error").value(ApiExceptionHandler.FORBIDDEN));
+            .andExpect(jsonPath("$.error").value(ApiExceptionHandler.QUEUE_FORBIDDEN));
     }
 
     @Test

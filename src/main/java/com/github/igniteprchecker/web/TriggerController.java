@@ -8,6 +8,7 @@ import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
+import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Map;
@@ -224,6 +225,12 @@ public class TriggerController {
             m.put("topRefusal", e.status());
 
             return m;
+        }
+        catch (TcResponseException e) {
+            if (e.getStatusCode().value() == 403)
+                throw new QueueRefusedException(e);
+
+            throw e;
         }
     }
 

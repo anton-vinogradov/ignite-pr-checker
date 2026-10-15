@@ -95,7 +95,7 @@ the visa.
 | `flaky?` | The test failed and then passed on the same code. | Look for a race or a timing problem. |
 | `1 run` | Only one failure on this branch backs the verdict. | **Rerun** the suite: it confirms or clears it. |
 | `new test / no master history` | Master has no runs of the test on this JDK to compare with: a new test, or one master does not run. | Make sure the test is stable. |
-| `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PRs' tests to a suite** in ⚙. |
+| `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PR's tests that no suite runs** in ⚙. |
 | `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
 | `⚖ assertion — likely a real logic failure` (in **why?**) | A failed check. | Fix the code. |
 | `♻ environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
@@ -134,7 +134,7 @@ the visa.
 | **JIRA visa** | Posts the verdict to the IGNITE ticket the PR title names, now. | — |
 | **Auto visa** | Posts the verdict of the current run to the ticket when it finishes, once. `Auto visa ✓`: armed by you; `armed: bob`: armed by others, who get one visa between them. | — |
 | **Auto visa: on in ⚙** | The standing auto-visa of whoever started the run will post it: nothing to arm. | — |
-| **Auto-visa all my runs** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
+| **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
 
 ### Thresholds
 
@@ -244,10 +244,18 @@ and the filtered-out noise.
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
 `/run-all` comment, or in TeamCity. An option does not reach back: runs that finished before it was switched on are
-left alone. While any of them is on, the server stores your TeamCity token, encrypted, and each also stores the JIRA or
+left alone. ⚙ puts the options in four groups, by what they need, and each group starts with the state of that
+access. While any of them is on, the server stores your TeamCity token, encrypted, and each also stores the JIRA or
 GitHub token it needs while it is on.
 
-- **Auto re-run failed suites on my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
+When you switch on an option without what it needs, ⚙ says what is missing in one sentence and opens the form or
+shows the button that gives it.
+
+### TeamCity login
+
+Your login is all these two options need.
+
+- **Re-run failed suites of my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
   suites, and also the suites TeamCity cancelled by itself, not those a person cancelled. A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
@@ -255,57 +263,82 @@ GitHub token it needs while it is on.
   systemic. If ci2 does not let your account reorder its queue, the re-runs go to its end. Your own identical re-runs
   still in the queue are cancelled first; someone else's stay. A failed Build is re-run alone; suites that failed to
   compile, and the suites a failed Build kept from running, are never re-run.
-- **Auto-visa all my runs** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
+- **Post my runs' verdicts in the PR**: the checker's GitHub account posts the verdict as a comment, once per run,
+  after the re-runs settle, and mentions you when your GitHub account is linked. Needs no GitHub token of yours.
+
+When TeamCity refuses the token your options use, they pause, and ⚙ shows **Log in again**. Log in with a fresh
+token: the options resume on it. Nobody else's options stop.
+
+### JIRA token
+
+The state reads not saved, saved or rejected. Create the token in your ASF JIRA profile. It acts with all the rights
+of your JIRA account (ASF JIRA has no token scopes), so give it an expiry, say 90 days. It goes into your session
+cookie, encrypted, and the server stores it encrypted while the option below is on.
+
+- **Visa my runs in JIRA** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
-  newer RunAll of the PR is going, and none that repeats the last visa for the same revision. Needs your JIRA token.
-- **Comment my runs' verdicts on the GitHub PR**: the checker's GitHub account posts the same verdict as a comment,
-  once per run, after the re-runs settle, and mentions you when your GitHub login is proven. Needs no GitHub token of
-  yours.
+  newer RunAll of the PR is going, and none that repeats the last visa for the same revision.
+
+When JIRA refuses the stored token itself, the checker drops it and switches the visa off; ⚙ says so. A rate limit,
+an outage or a ticket you may not comment on keeps the token, and the visa is tried again at the next sweeps. A visa a
+refused token held back goes out once you save a fresh token and switch the option back on, unless a newer RunAll
+replaced the run.
+
+### GitHub account
+
+The state reads not linked, the login, or not proven.
+
+- **Link GitHub** links your account: GitHub asks you to let the checker see your public profile, then sends you
+  back. The checker keeps the login and the account's id; the token GitHub gave for it is revoked at once. A link
+  counts only in the login that began it, within 10 minutes. Linking switches on **PR commands**. A GitHub token for
+  commits links the account as well, and on a checker whose operator did not set up **Link GitHub** it is the only way.
+  The checker's own account cannot be linked.
+- **Unlink** forgets the account: **PR commands** go off, and so do the options that commit, with your GitHub token.
 - **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
   your GitHub login, your GitHub account's id and your TeamCity token; on its own, it lends the token to no background
-  work. Linking your GitHub account switches it on: press **Link GitHub**, and GitHub asks you to let the checker see
-  your public profile, then sends you back. The checker keeps the login and the id; the token GitHub gave for it is
-  revoked at once. A link counts only in the login that began it, within 10 minutes. A GitHub token you saved for the
-  autofix or tests to suites links the account as well. A comment is your command only when it comes from that
-  account, by its id, so a login you give up is no one else's way in; the checker's own account cannot be linked.
-  **Unlink** forgets the account: PR commands go off, and so do the options that commit, with your GitHub token. A
-  login an earlier version kept counts as proven only if your saved GitHub token names it; any other runs no command
-  until you link the account, and ⚙ says so.
-- **Auto-fix checkstyle on my runs**: when you command a run on your own PR, the mechanically fixable violations in its
-  changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as one commit from
-  your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The run's story names
-  the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping). It uses your
-  GitHub token, which the checker keeps only for such commits, and works on a PR with up to 50 changed Java files; a file over 400 KB, or
-  past 5 MB in all, is not checked. It never touches anyone else's PR and never force-pushes. It runs only from a
-  command, so it switches on only with **PR commands** on and goes off with them.
-- **Add my PRs' tests to a suite**: when Ignite's own abandoned-tests check on the head of your PR finds test classes of
-  the PR in no test suite, each goes next to the class of its module nearest to it: a class of the same package first,
-  else one of the longest package in common, then the longest start of the name in common; when several suites list a
-  class as near, the one with more such classes wins. One commit from your account lists the new class in that class's
-  suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a package near the
-  new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A comment of the
-  checker's account in the PR says what went where and why, then what Ignite's check says of the commit. It uses your
-  GitHub token, as the autofix does.
-- **Your GitHub token** only commits, to the branch of your own PR: it writes no comments, and it commits to
+  work. A comment is your command only when it comes from the linked account, by its id, so a login you give up is no
+  one else's way in.
+
+A login an earlier version kept counts as proven only if your saved GitHub token names it. Any other is not proven: it
+runs no command, and verdict comments do not mention it, until you link the account.
+
+### GitHub token for commits
+
+The state reads not saved, saved with the token's kind (fine-grained or classic), or rejected; a classic token also
+gets a note on what it can push to.
+
+- **The token** only commits, to the branch of your own PR: it writes no comments, and it commits to
   `apache/ignite` only for a PR from a branch there. Best is a fine-grained token for your fork alone, with Contents:
   read and write. It cannot reach a PR from a branch of
   `apache/ignite` itself or from someone else's fork; those need a classic token with `public_repo`, which pushes to
   every public repository you can push to, `apache/ignite` too if you are a committer. A classic token with `admin:*`,
   `delete_repo` or `workflow` is refused, one with `repo` is taken with a warning. The page sends the token with the
-  switch, and no cookie keeps it.
-- **A token that stops working.** When GitHub or JIRA refuses a stored token itself, the checker drops it and switches
-  off the options that need it; the panel says which token to replace. A rate limit, an outage or a ticket you may not
-  comment on keeps the token, and the visa is tried again at the next sweeps. A visa a refused token held back goes out
-  once you save a fresh token and switch auto-visa back on, unless a newer RunAll replaced the run. A PR comment GitHub
-  did not take from the checker's account goes at the next sweeps; what that account is refused never touches your
-  token. When TeamCity refuses yours, your options pause until you log in with a fresh token; nobody
-  else's stop.
+  switch, and no cookie keeps it. Give it an expiry, say 90 days.
+- **Fix checkstyle before my commanded runs**: when you command a run on your own PR, the mechanically fixable
+  violations in its changed files (imports, whitespace, modifier order…) are fixed and pushed before the run starts, as
+  one commit from your account titled `Checkstyle autofix by Ignite PR Checker (requested via PR command)`. The run's
+  story names the commit, reminds you to `git pull`, and lists what is left for a human (javadoc, naming, wrapping).
+  It uses your GitHub token, which the checker keeps only for such commits, and works on a PR with up to 50 changed
+  Java files; a file over 400 KB, or past 5 MB in all, is not checked. It never touches anyone else's PR and never
+  force-pushes. It runs only from a command, so it switches on only with **PR commands** on and goes off with them.
+- **Add my PR's tests that no suite runs**: when Ignite's own abandoned-tests check on the head of your PR finds test
+  classes of the PR in no test suite, each goes next to the class of its module nearest to it: a class of the same
+  package first, else one of the longest package in common, then the longest start of the name in common; when several
+  suites list a class as near, the one with more such classes wins. One commit from your account lists the new class in
+  that class's suite, on a copy of its line, with an import if needed. A module with no suite listing a class of a
+  package near the new one gets no commit, and the comment says so. Once per head commit, on your own PRs only. A
+  comment of the checker's account in the PR says what went where and why, then what Ignite's check says of the
+  commit. It uses your GitHub token, as the autofix does.
+
+When GitHub refuses the stored token itself, the checker drops it and switches off both options; ⚙ says so. A PR
+comment GitHub did not take from the checker's account goes at the next sweeps; what that account is refused never
+touches your token.
 
 ## Visas and PR comments
 
 - **JIRA visa**, over the blockers, posts the verdict to the IGNITE ticket now. **Auto visa** posts the verdict of the
   run under way to the ticket when it finishes, once. Each user arms their own, and several users armed on one ticket
-  get one visa between them. When the run's starter has **Auto-visa all my runs** on, the button reads
+  get one visa between them. When the run's starter has **Visa my runs in JIRA** on, the button reads
   **Auto visa: on in ⚙**.
 - The JIRA token for these buttons rides in your session cookie; Auto visa also has the server store it, encrypted,
   until the visa is posted. If JIRA refuses the token, your Auto visa is dropped with it, and the button reads
@@ -320,16 +353,16 @@ GitHub token it needs while it is on.
 - Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
   tested revision and the **Next:** line come after it.
 - The PR comment comes from the checker's account and opens with a mention of the run's starter when their GitHub
-  login is proven, so GitHub tells them. When the PR title names no IGNITE ticket and auto-visa is on, it says why no
-  visa came.
+  login is proven, so GitHub tells them. When the PR title names no IGNITE ticket and the visa option is on, it says
+  why no visa came.
 - Once a newer RunAll of the PR has finished, each older verdict comment in the PR gets a last line saying it is
   superseded and where the newer verdict is.
 
 ## Working from the PR (commands)
 
-The whole cycle, from the start to the verdict, can happen in the pull request. Switch on **PR commands** in ⚙ and
-press **Link GitHub**; no GitHub token of yours is kept for commands. The checker answers from its own GitHub account,
-the app account.
+The whole cycle, from the start to the verdict, can happen in the pull request. In ⚙, press **Link GitHub** under
+GitHub account: that switches on **PR commands**, and no GitHub token of yours is kept for them. The checker answers
+from its own GitHub account, the app account.
 
 | Command | What it does |
 |---|---|
@@ -344,16 +377,20 @@ the app account.
   every change, and in UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or
   more; GitHub tells nobody of an edit.
 - After the chain finishes, the story shows the re-run waves (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`).
-  When the verdict is in, a new comment mentions you: the verdict comment, when **Comment my runs' verdicts on the
-  GitHub PR** is on, else one saying the verdict is ready, with a link to it. The autofix's note moves into that
+  When the verdict is in, a new comment mentions you: the verdict comment, when **Post my runs' verdicts in the PR**
+  is on, else one saying the verdict is ready, with a link to it. The autofix's note moves into that
   comment, and the story's comment is deleted, so the run leaves one comment of the checker in the PR.
 - A command that is not the first word ("Please /run-all") gets 😕 and a reply with a hint saying how to write it. A
-  refused `/top` or a `/run-all` that failed is answered why, in words.
+  `/run-all` that failed is answered why, in words.
 - A new `/run-all` supersedes your previous one: your queued or running chain on the PR and its re-runs are cancelled
   first, nobody else's. The old story ends with `🛑 Superseded by a newer /run-all`, and the ack says what was
   cancelled.
-- A command from someone whose PR commands are off gets 😕 and a short reply from the app account on how to switch
-  them on: once per person, once per PR, at most 5 replies a day.
+- A command that cannot run gets 😕 and a short reply from the app account that says what is missing and what to
+  press in ⚙: a GitHub account nobody linked, **PR commands** off, a stored TeamCity token that no longer works, a
+  login an earlier version kept without proof. A `/top` with no waiting run of your command, or one ci2 does not let your
+  account move, is answered the same way. The same reply goes once per person and PR, at most 3 replies a day to one
+  person and 5 a day to all the accounts nobody linked; a repeat gets only the 😕. A reply quotes nothing of the
+  comment.
 - When GitHub makes the app account wait, or its writes reach 40 an hour to one PR or 60 for one user, reactions,
   replies and story edits go later, not lost; a reaction or a reply that waited a day goes no more.
 

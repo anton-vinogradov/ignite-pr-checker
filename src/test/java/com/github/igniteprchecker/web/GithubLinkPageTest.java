@@ -41,16 +41,16 @@ class GithubLinkPageTest {
                 warning: page.el('ghLoginUnproven').textContent,
                 link: !page.el('ghLink').classList.contains('hidden'),
                 unlink: !page.el('ghUnlink').classList.contains('hidden'),
-                hint: !page.el('ghLinkHint').classList.contains('hidden') });
+                state: page.el('ghLoginState').textContent });
             """);
 
         assertThat(out.get("shown").asBoolean()).isTrue();
         assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 is not proven: an earlier version of the"
-            + " checker kept no proof that it is yours. Your PR commands do nothing until you link your GitHub account"
-            + " below.");
+            + " checker kept it without proof that it is yours. Your PR commands do nothing until you press Link"
+            + " GitHub.");
         assertThat(out.get("link").asBoolean()).isTrue();
         assertThat(out.get("unlink").asBoolean()).isTrue();
-        assertThat(out.get("hint").asBoolean()).isTrue();
+        assertThat(out.get("state").asText()).isEqualTo("@Vladsz83, not proven");
     }
 
     /** Without PR commands an unproven login costs the mention in the verdict comment, not commands. */
@@ -64,8 +64,8 @@ class GithubLinkPageTest {
             """);
 
         assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 is not proven: an earlier version of the"
-            + " checker kept no proof that it is yours. The verdict comments do not mention you until you link your"
-            + " GitHub account below.");
+            + " checker kept it without proof that it is yours. The verdict comments do not mention you until you"
+            + " press Link GitHub.");
     }
 
     @Test
@@ -79,7 +79,7 @@ class GithubLinkPageTest {
             """);
 
         assertThat(out.get("warning").asText()).startsWith("⚠ @oleg-vlsk is not proven:").doesNotContain("typed");
-        assertThat(out.get("state").asText()).isEmpty();
+        assertThat(out.get("state").asText()).isEqualTo("@oleg-vlsk, not proven");
     }
 
     @Test
@@ -93,7 +93,7 @@ class GithubLinkPageTest {
                 unlink: !page.el('ghUnlink').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("state").asText()).isEqualTo("GitHub account: @alice-v, linked.");
+        assertThat(out.get("state").asText()).isEqualTo("@alice-v");
         assertThat(out.get("link").asBoolean()).isFalse();
         assertThat(out.get("unlink").asBoolean()).isTrue();
     }
@@ -237,7 +237,10 @@ class GithubLinkPageTest {
         assertThat(out.get("msg").asText()).isEmpty();
     }
 
-    /** No OAuth App on this checker: no Link GitHub, and ⚙ says what links an account instead. */
+    /**
+     * No OAuth App on this checker: no Link GitHub, and PR commands switched on with no account linked said nothing.
+     * The GitHub token form opens with what links an account, and the token goes with the switch it names.
+     */
     @Test
     void withoutAnOAuthAppTheTokenForCommitsIsNamed() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
@@ -247,15 +250,48 @@ class GithubLinkPageTest {
             page.el('commandsToggle').checked = true;
             await page.el('commandsToggle').onchange();
             await page.settle();
-            report({ link: !page.el('ghLink').classList.contains('hidden'),
-                hint: !page.el('ghLinkHint').classList.contains('hidden'),
-                off: !page.el('ghLinkOff').classList.contains('hidden'), msg: page.el('ghLinkMsg').textContent });
+            const told = { link: !page.el('ghLink').classList.contains('hidden'),
+                off: !page.el('ghLinkOff').classList.contains('hidden'), msg: page.el('settingsGhMsg').textContent,
+                form: !page.el('settingsGh').classList.contains('hidden'),
+                focused: page.run('document.activeElement.id'), checked: page.el('commandsToggle').checked };
+            page.el('settingsGhToken').value = 'github_pat_fork';
+            page.el('suiteFixToggle').checked = true;
+            await page.el('suiteFixToggle').onchange();
+            await page.settle();
+            report(Object.assign(told, { posts: page.fetches('/api/auto-visa-all?').map(f => ({ url: f.url,
+                body: f.body || null })) }));
             """);
 
         assertThat(out.get("link").asBoolean()).isFalse();
-        assertThat(out.get("hint").asBoolean()).isFalse();
         assertThat(out.get("off").asBoolean()).isTrue();
-        assertThat(out.get("msg").asText()).isEmpty();
+        assertThat(out.get("msg").asText()).isEqualTo("PR commands need your linked GitHub account: paste a GitHub"
+            + " token for commits here and switch on Add my PR's tests that no suite runs, which links it.");
+        assertThat(out.get("form").asBoolean()).isTrue();
+        assertThat(out.get("focused").asText()).isEqualTo("settingsGhToken");
+        assertThat(out.get("checked").asBoolean()).isFalse();
+        assertThat(out.get("posts").toString()).isEqualTo("[{\"url\":\"/api/auto-visa-all?suites=true&tz=UTC\","
+            + "\"body\":\"{\\\"githubToken\\\":\\\"github_pat_fork\\\"}\"}]");
+    }
+
+    /** Without Link GitHub, a token saved after PR commands asked for an account does not go with PR commands. */
+    @Test
+    void withoutAnOAuthAppATokenIsNotSentWithPrCommands() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: Object.assign({}, OFF, { githubLinkable: false }) }, 'GET');
+            await page.load('?pr=13575');
+            """ + OPEN_SETTINGS + """
+            page.el('commandsToggle').checked = true;
+            await page.el('commandsToggle').onchange();
+            await page.settle();
+            page.el('settingsGhToken').value = 'github_pat_fork';
+            await page.el('settingsGhSave').onclick();
+            await page.settle();
+            report({ posts: page.fetches('/api/auto-visa-all?').length, msg: page.el('settingsGhMsg').textContent });
+            """);
+
+        assertThat(out.get("posts").asInt()).isZero();
+        assertThat(out.get("msg").asText())
+            .isEqualTo("switch on the option below that should use it: the token goes with that switch");
     }
 
     @Test
@@ -275,6 +311,6 @@ class GithubLinkPageTest {
         assertThat(out.get("msg").asText()).isEqualTo("Unlinked @alice-v: PR commands are off. Your GitHub token for"
             + " commits is dropped too, and the options that used it are off: it was of that account.");
         assertThat(out.get("commands").asBoolean()).isFalse();
-        assertThat(out.get("state").asText()).isEmpty();
+        assertThat(out.get("state").asText()).isEqualTo("not linked");
     }
 }

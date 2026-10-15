@@ -21,20 +21,24 @@ import org.junit.jupiter.api.Test;
 class TokenTextsTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
+    /** The note stands in the group of the GitHub token for commits, over the two options that commit with it. */
     @Test
     void aRefusedGithubTokenNamesTheOptionsItTakes() throws IOException {
         assertThat(collapsed(PAGE)).doesNotContain("the two options")
-            .contains("the options that commit with it (the checkstyle autofix, tests to suites) were switched off");
+            .contains("GitHub rejected your saved token, so the options that commit with it went off");
+        assertThat(SettingsGroupsTest.group("groupGhToken")).contains("id=\"ghTokenGone\"", "id=\"styleFixToggle\"",
+            "id=\"suiteFixToggle\"");
         assertThat(collapsed(Path.of("src/main/java/com/github/igniteprchecker/jira/StandingVisas.java")))
             .doesNotContain("The two options that need this token");
     }
 
+    /** ⚙ says it by the group each option stands in; the tour says it in words. */
     @Test
     void theGithubOptionsSayWhoseTokenTheyUse() throws IOException {
-        assertThat(collapsed(PAGE)).doesNotContain("same GitHub token as the option")
-            .contains("Uses my GitHub token, which the checker keeps only to commit with;")
-            .contains("Uses my GitHub token, as the autofix does.")
-            .contains("Needs no GitHub token of mine.");
+        assertThat(collapsed(PAGE)).doesNotContain("same GitHub token as the option");
+        assertThat(SettingsGroupsTest.group("groupGhToken")).contains("<b>GitHub token for commits</b>",
+            "id=\"styleFixToggle\"", "id=\"suiteFixToggle\"");
+        assertThat(SettingsGroupsTest.group("groupTc")).contains("id=\"ghCommentToggle\"");
         assertThat(collapsed(Path.of("docs/features.md"))).doesNotContain("the same GitHub token")
             .contains("It uses your GitHub token, which the checker keeps only for such commits")
             .contains("Needs no GitHub token of yours.");
@@ -116,11 +120,10 @@ class TokenTextsTest {
 
     @Test
     void theTokenHintsAdviseAnExpiry() throws IOException {
-        String page = collapsed(PAGE);
-        assertThat(page).contains("Give it an expiry, say 90 days: when it expires, the options that use it switch "
-            + "off with a note here; paste a new one and switch them back on.")
-            .contains("It acts with all the rights of your JIRA account (ASF JIRA has no token scopes), so give it an "
-                + "expiry, say 90 days: when it expires, auto-visa switches off with a note here");
+        String jira = SettingsGroupsTest.group("groupJira").replaceAll("\\s+", " ");
+        String gh = SettingsGroupsTest.group("groupGhToken").replaceAll("\\s+", " ");
+        assertThat(jira).contains("that expires in 90 days: it has all the rights of your JIRA account.");
+        assertThat(gh).contains("with Contents: Read and write, that expires in 90 days.");
         assertThat(collapsed(Path.of("README.md"))).contains("Give it and the GitHub token an expiry, say 90 days.");
         assertThat(collapsed(Path.of("README.ru.md"))).contains("стоит задать срок, например 90 дней");
     }

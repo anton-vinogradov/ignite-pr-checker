@@ -101,6 +101,7 @@ class TeamCityRefusalTest {
             .andExpect(jsonPath("$.tokenRejected").value(true));
     }
 
+    /** A 403 to Run is the account's missing right to run builds as often as ci2's firewall: the answer says both. */
     @Test
     void firewallRefusalExplainsItselfAndKeepsTheSession() throws Exception {
         answers.put("POST /app/rest/buildQueue", 403);
@@ -109,6 +110,29 @@ class TeamCityRefusalTest {
             .requestAttr(AuthInterceptor.USER_ATTR, USER))
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.tokenRejected").doesNotExist())
+            .andExpect(jsonPath("$.error").value(ApiExceptionHandler.QUEUE_FORBIDDEN));
+        assertThat(ApiExceptionHandler.QUEUE_FORBIDDEN).contains("your ci2 account may not run builds here")
+            .contains("firewall");
+    }
+
+    @Test
+    void aRerunCi2RefusesSaysTheAccountMayNotRunBuilds() throws Exception {
+        answers.put("POST /app/rest/buildQueue", 403);
+
+        mvc.perform(post("/api/rerun-suite").param("pr", "13575").param("suite", "IgniteTests24Java8_Cache")
+            .requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN).requestAttr(AuthInterceptor.USER_ATTR, USER))
+            .andExpect(status().isBadGateway())
+            .andExpect(jsonPath("$.error").value(ApiExceptionHandler.QUEUE_FORBIDDEN));
+    }
+
+    /** Cancel my runs refused is no build refused to run: its answer stays the general one. */
+    @Test
+    void aCancelCi2RefusesKeepsTheGeneralAnswer() throws Exception {
+        answers.put("GET /app/rest/builds", 403);
+
+        mvc.perform(post("/api/cancel-all").param("pr", "13575").requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER))
+            .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.error").value(ApiExceptionHandler.FORBIDDEN));
     }
 

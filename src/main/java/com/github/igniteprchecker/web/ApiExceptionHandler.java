@@ -27,6 +27,9 @@ public class ApiExceptionHandler {
         + "so try again in a minute; if Run, Rerun or Cancel my runs keeps failing, your ci2 account may lack the "
         + "rights for it";
 
+    static final String QUEUE_FORBIDDEN = "ci2 refused to queue it (403): your ci2 account may not run builds here. "
+        + "If it can, try again in a minute: ci2's firewall sometimes blocks valid requests";
+
     static final String PREVIOUS_RUNALL_CANCELLED =
         "Your previous RunAll was cancelled, but queuing the new one failed";
 
@@ -63,8 +66,8 @@ public class ApiExceptionHandler {
 
         log.warn("TeamCity answered {} to {} {}", status, req.getMethod(), req.getRequestURI());
 
-        return ResponseEntity.status(502).body(Map.of("error", status == 403 ? FORBIDDEN
-            : "TeamCity answered " + status + " — try again in a moment"));
+        return ResponseEntity.status(502).body(Map.of("error", e instanceof QueueRefusedException ? QUEUE_FORBIDDEN
+            : status == 403 ? FORBIDDEN : "TeamCity answered " + status + " — try again in a moment"));
     }
 
     /** Why queuing failed, as it would be answered alone, led by the news that the previous chain is gone. */

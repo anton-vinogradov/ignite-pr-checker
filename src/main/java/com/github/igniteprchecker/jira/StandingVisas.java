@@ -245,7 +245,7 @@ public class StandingVisas implements SnapshotCache {
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
         if (Boolean.TRUE.equals(change.style()) && !after.commands())
             return Optional.of(new Refusal("commands",
-                "Auto-fix checkstyle runs only from a PR command: switch on PR commands first"));
+                "Fix checkstyle before my commanded runs needs PR commands: switch them on first"));
         if (change.switchesOnGithub() && !github.writes())
             return Optional.of(Refusal.UNAVAILABLE);
         if (!after.any()) {
@@ -271,7 +271,7 @@ public class StandingVisas implements SnapshotCache {
                 jiraCred = new Credential(codec.encryptString(sessionJira), 0);
             else if (stored == null)
                 return Optional.of(unchecked ? Refusal.unchecked("JIRA") : new Refusal("jira", fresh
-                    ? "JIRA rejected the token — paste a new one" : "auto-visa needs your JIRA token"));
+                    ? "JIRA rejected the token — paste a new one" : "Visa my runs in JIRA needs your JIRA token"));
         }
         else if (Boolean.FALSE.equals(change.visa()))
             jiraCred = Credential.NONE;
@@ -315,7 +315,7 @@ public class StandingVisas implements SnapshotCache {
                         username);
 
                 return Optional.of(new Refusal("github", fresh ? "GitHub rejected the token — paste a new one"
-                    : "this option needs your GitHub token"));
+                    : "this option needs your GitHub token for commits"));
             }
         }
         else if (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
@@ -323,7 +323,7 @@ public class StandingVisas implements SnapshotCache {
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || !prev.ghLoginProven()))
-            return Optional.of(new Refusal("login", "link your GitHub account to use PR commands"));
+            return Optional.of(new Refusal("login", "PR commands need your linked GitHub account"));
 
         Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
         Credential jiraNext = jiraCred;
@@ -389,7 +389,7 @@ public class StandingVisas implements SnapshotCache {
         boolean linkable = github.writes() && github.linksAccounts();
         if (e == null) {
             return new Settings(false, false, false, false, false, null, false, false, false, false, false, false,
-                false, github.writes(), app, appPushes, null, linkable);
+                false, github.writes(), app, appPushes, null, linkable, null);
         }
 
         Options o = e.options();
@@ -397,7 +397,8 @@ public class StandingVisas implements SnapshotCache {
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
             e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven(), github.writes(), app,
-            appPushes, e.gh().token() == null ? null : e.gh().note(), linkable);
+            appPushes, e.gh().token() == null ? null : e.gh().note(), linkable,
+            decrypt(e.gh()).map(CommitTokens::kind).orElse(null));
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -438,11 +439,12 @@ public class StandingVisas implements SnapshotCache {
      * write to GitHub may go on; {@code appPushes}: whether that account may push to the repo, null while GitHub has
      * not said. {@code ghTokenNote}: what the user should know of the GitHub token the server holds.
      * {@code githubLinkable}: the user can link their GitHub account with the checker's OAuth App.
+     * {@code ghTokenKind}: what kind of token the server holds, {@link CommitTokens#kind}; null when none.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
         boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
-        Boolean appPushes, String ghTokenNote, boolean githubLinkable) {
+        Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind) {
         /**
          * The settings of a user whose login, if any, is proven, on a checker with a GitHub account and no OAuth App to
          * link one with.
@@ -451,7 +453,7 @@ public class StandingVisas implements SnapshotCache {
             boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
             boolean tcTokenRejected, boolean suites) {
             this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
-                tcTokenRejected, suites, false, true, null, null, null, false);
+                tcTokenRejected, suites, false, true, null, null, null, false, null);
         }
 
         /** The settings of a user who does not add tests to suites. */
@@ -493,6 +495,39 @@ public class StandingVisas implements SnapshotCache {
 
     private Optional<GhActor> actorOf(String username, Enrollment e) {
         return decrypt(e.tc()).map(tcToken -> new GhActor(username, tcToken, decrypt(e.gh()).orElse(null), e.tz()));
+    }
+
+    /**
+     * Why {@link #actorByGhUser} finds nobody for the GitHub account that wrote a comment. The answer names no user:
+     * it goes into a public thread.
+     */
+    public NoActor whyNoActor(GithubClient.GhUser author) {
+        if (github.isAppAccount(author))
+            return NoActor.UNLINKED;
+
+        boolean unproven = false;
+        for (Enrollment e : enrolled.values()) {
+            GhAccount held = e.ghAccount();
+            if (held == null)
+                continue;
+            if (held.proven() && held.is(author))
+                return NoActor.TOKEN_UNREADABLE;
+            unproven |= !held.proven() && held.login().equalsIgnoreCase(author.login());
+        }
+
+        return unproven ? NoActor.UNPROVEN : NoActor.UNLINKED;
+    }
+
+    /** Why no user acts for a GitHub account; see {@link #whyNoActor}. */
+    public enum NoActor {
+        /** No user linked the account. */
+        UNLINKED,
+
+        /** An earlier version kept the account's login for a user without a proof that it is theirs. */
+        UNPROVEN,
+
+        /** The user who linked the account has a TeamCity token the checker can no longer decrypt. */
+        TOKEN_UNREADABLE
     }
 
     /** The stored token in clear; empty when there is none or the session secret has changed since. */

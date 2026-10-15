@@ -53,6 +53,11 @@ public final class CommitTokens {
             + " only.";
     }
 
+    /** What kind of token it is, as ⚙ names it: "fine-grained", or "classic" for any other GitHub token. */
+    public static String kind(String token) {
+        return token.startsWith(FINE_GRAINED) ? "fine-grained" : "classic";
+    }
+
     private static boolean fineGrained(String token, List<String> scopes) {
         return scopes == null || token.startsWith(FINE_GRAINED);
     }

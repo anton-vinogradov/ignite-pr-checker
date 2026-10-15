@@ -27,13 +27,14 @@ class AutofixNeedsCommandsPageTest {
             await page.el('styleFixToggle').onchange();
             await page.settle();
             report({ posts: page.fetches('/api/auto-visa-all?').length, checked: page.el('styleFixToggle').checked,
-                msg: page.el('settingsMsg').textContent });
+                msg: page.el('settingsMsg').textContent, focused: page.run('document.activeElement.id') });
             """);
 
         assertThat(out.get("posts").asInt()).isZero();
         assertThat(out.get("checked").asBoolean()).isFalse();
+        assertThat(out.get("focused").asText()).as("the switch it needs").isEqualTo("commandsToggle");
         assertThat(out.get("msg").asText())
-            .isEqualTo("Auto-fix checkstyle runs only from a PR command: switch on PR commands first.");
+            .isEqualTo("Fix checkstyle before my commanded runs needs PR commands: switch them on first.");
     }
 
     @Test
@@ -52,7 +53,7 @@ class AutofixNeedsCommandsPageTest {
             """);
 
         assertThat(out.get("style").asBoolean()).isFalse();
-        assertThat(out.get("msg").asText()).isEqualTo("On: GitHub comment. Auto-fix checkstyle went off with PR "
-            + "commands: it runs only from a command.");
+        assertThat(out.get("msg").asText()).isEqualTo("On: GitHub comment. Fix checkstyle before my commanded runs "
+            + "went off with PR commands.");
     }
 }

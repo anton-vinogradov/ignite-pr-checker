@@ -25,8 +25,10 @@ each label means and what to do about it.
 - **Runs.** Run RunAll or rerun suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
-- **Standing options.** In ⚙: auto re-run of failed suites, a JIRA visa or a PR comment for each of your runs, a
-  checkstyle autofix, PR commands. They work while the page is closed. See
+- **Standing options.** ⚙ groups them by what they need. Auto re-run of failed suites and a PR comment for each of
+  your runs need only your TeamCity login. A JIRA visa needs a JIRA token, PR commands need your linked GitHub
+  account, and a checkstyle fix and tests added to suites need a GitHub token for commits. The options work while the
+  page is closed. When something is missing, ⚙ and the PR replies say what to do. See
   [Standing options](docs/features.md#standing-options).
 - **PR commands.** With **PR commands** on and your GitHub account linked once with **Link GitHub**, a `/run-all`
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
@@ -71,8 +73,9 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
   they rotate out: a daily backup for 7 days, a copy made before an update until 5 newer ones replace it.
-- **GitHub login.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in ⚙,
-  or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no scope.
+- **GitHub account.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in
+  ⚙, or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no
+  scope.
   GitHub asks the user to let the app see their public profile and sends them back with a code. The checker trades the
   code for a token, asks GitHub whose account it is, and revokes the token at once; it keeps the token nowhere. A link
   counts only in the login that began it, within 10 minutes, once. The checker keeps the login and the account's id,

@@ -213,17 +213,21 @@ class GlossaryTest {
     }
 
     /**
-     * Auto-visa all my runs posts nothing for a PR whose title names no ticket, waits while a newer RunAll of the PR
+     * Visa my runs in JIRA posts nothing for a PR whose title names no ticket, waits while a newer RunAll of the PR
      * goes, and skips a visa that repeats the last one of the same revision; the row said every RunAll gets its visa.
+     * ⚙ keeps to one line per option, and its link leads to the tour, which says it.
      */
     @Test
     void theAutoVisaRowSaysWhenNoVisaGoesOut() throws IOException {
         String[] exceptions = {"no key, no visa", "No visa while a newer RunAll of the PR is going",
             "none that repeats the last one"};
 
-        assertThat(read(PAGE)).as("the option's own label").contains(exceptions);
-        assertThat(rowOf(glossary(TOUR), "**Auto-visa all my runs** (⚙)")).contains(exceptions);
-        assertThat(rowOf(glossary(TOUR_RU), "**Auto-visa all my runs** (⚙)"))
+        assertThat(read(TOUR).replaceAll("\\s+", " ")).as("the tour's section on the option")
+            .contains("no key, no visa", "No visa goes out while a newer RunAll of the PR is going",
+                "none that repeats the last visa");
+        assertThat(read(PAGE)).contains(TOUR_URL + "standing-options");
+        assertThat(rowOf(glossary(TOUR), "**Visa my runs in JIRA** (⚙)")).contains(exceptions);
+        assertThat(rowOf(glossary(TOUR_RU), "**Visa my runs in JIRA** (⚙)"))
             .contains("нет ключа — нет визы", "Пока идёт более новый RunAll этого PR, визы нет",
                 "не повторяет прошлую визу той же ревизии");
     }

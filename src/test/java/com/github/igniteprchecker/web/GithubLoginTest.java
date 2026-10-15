@@ -66,7 +66,7 @@ class GithubLoginTest {
         assertThat(link("newcomer", "tc-3", GhUsers.of("Newcomer"))).isEqualTo("linked");
 
         assertThat(standing.settings("newcomer")).isEqualTo(new StandingVisas.Settings(false, false, false, false,
-            true, "Newcomer", false, false, false, false, false, false, false, true, null, null, null, true));
+            true, "Newcomer", false, false, false, false, false, false, false, true, null, null, null, true, null));
         assertThat(standing.actorByGhUser(GhUsers.of("Newcomer")))
             .hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("tc-3"));
     }
