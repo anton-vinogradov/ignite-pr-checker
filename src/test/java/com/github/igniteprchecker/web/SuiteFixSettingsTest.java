@@ -139,7 +139,10 @@ class SuiteFixSettingsTest {
         String label = html.substring(html.indexOf("id=\"suiteFixToggle\""), html.indexOf("</label>",
             html.indexOf("id=\"suiteFixToggle\""))).replaceAll("\\s+", " ");
 
-        assertThat(label).contains("next to the class of its module nearest to it (by package, then by name)")
+        assertThat(label).contains("into the suite of the nearest class in its module").doesNotContain("Claude",
+            "Anthropic");
+        assertThat(Files.readString(Path.of("docs/features.md"), StandardCharsets.UTF_8).replaceAll("\\s+", " "))
+            .contains("each goes next to the class of its module nearest to it: a class of the same package first")
             .doesNotContain("Claude", "Anthropic");
     }
 }

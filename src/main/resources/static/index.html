@@ -37,7 +37,12 @@
         .settings-panel { max-width: 820px; margin: 0.6rem 1rem 0 auto; padding: 0.9rem 1.1rem; font-size: 0.85rem; }
         .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; }
         .settings-row input { margin: 0.2rem 0 0 0; width: 16px; height: 16px; flex: none; }
-        #settingsMsg:not(:empty), #settingsGh, #settingsJira, #settingsLogin { margin-left: calc(16px + 0.6rem); }
+        .settings-group + .settings-group { border-top: 1px solid var(--line); margin-top: 0.7rem; padding-top: 0.7rem; }
+        .settings-access { margin: 0 0 0.4rem; }
+        .settings-group .caveat, .settings-group > .muted, .settings-form { margin: 0 0 0.4rem; }
+        .settings-form .row { margin-top: 0.3rem; }
+        .settings-group .settings-row + .settings-row { margin-top: 0.4rem; }
+        .settings-foot { margin: 0.8rem 0 0; }
         #settingsMsg:not(:empty) { margin-top: 0.5rem; }
 
         #logout { font-size: 0.85rem; padding: 0.25rem 0.55rem; } /* match the Status/Star pills */
@@ -388,131 +393,88 @@
     </header>
 
     <div id="settingsPanel" class="card settings-panel hidden">
-        <p id="tcTokenGone" class="caveat hidden" style="margin-top: 0">⚠ TeamCity no longer accepts the token your
-            options run on, so they are paused. Log out and log in with a fresh TeamCity token — they resume on their own.</p>
-        <label class="settings-row">
-            <input id="standingVisaToggle" type="checkbox">
-            <span><b>Auto-visa all my runs</b> — when any RunAll I triggered finishes, post the verdict to the
-                IGNITE ticket the PR title names (an IGNITE-NNNN key; no key, no visa) automatically, once per run;
-                with auto re-run also on, the visa waits until the re-runs settle and carries the final verdict.
-                No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same
-                revision.<br>
-                <span class="muted">Requires your JIRA Personal Access Token; your TeamCity and JIRA tokens are
-                stored encrypted at rest while this is on.</span>
-                <span id="visaSaved" class="muted hidden"><br>Runs on your saved JIRA token.</span></span>
-        </label>
-        <label class="settings-row" style="margin-top: 0.5rem">
-            <input id="autoRerunToggle" type="checkbox">
-            <span><b>Auto re-run failed suites on my runs</b> — on every RunAll I trigger (here, with
-                <code>/run-all</code> or in TeamCity), re-run the suites the verdict blames: blockers, watch items
-                and broken suites (timeout, crash, compilation). A suite that fails while the chain is still
-                running is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes,
-                the suites still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the
-                first; up to 10 suites go to the top of the queue, more go to the tail so they don't push everyone
-                else back. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
-                systemic. If ci2 does not let my account reorder its queue, the re-runs go to its end. My
-                identical re-runs still in the queue are cancelled first; other people's stay. The visa and the PR
-                comment wait for the re-runs and come out once, with the final verdict; meanwhile the PR page and
-                the <code>/run-all</code> comment show the waves.<br>
-                <span class="muted">Works on its own, on any PR — no JIRA ticket needed; your TeamCity token is
-                stored encrypted at rest while this is on.</span></span>
-        </label>
-        <label class="settings-row" style="margin-top: 0.5rem">
-            <input id="ghCommentToggle" type="checkbox">
-            <span><b>Comment my runs' verdicts on the GitHub PR</b> — when a RunAll I triggered finishes, the
-                checker's account<span id="ghCommentApp"></span> posts the verdict as a comment on the pull request, once per run (with auto re-run on, once the re-runs settle), and mentions me when my
-                GitHub login is proven.<br>
-                <span class="muted">Needs no GitHub token of mine.</span></span>
-        </label>
-        <label class="settings-row" style="margin-top: 0.5rem">
-            <input id="commandsToggle" type="checkbox">
-            <span><b>PR commands</b> — comment on any pull request: <code>/run-all</code> (or <code>/runall</code>)
-                queues the whole RunAll chain under my TeamCity account, <code>/run-all top</code> queues it at the
-                top, <code>/top</code> moves the run my command started to the top while it still waits; the top
-                needs a ci2 account that may reorder the queue. Picked up within a minute; the checker's account
-                answers: 🚀 = accepted, 😕 = refused, and a comment of its own tells the run. When the verdict is in,
-                a new comment mentions me, and the story goes.<br>
-                <span class="muted">Needs my GitHub account, linked once with Link GitHub; stores only its login and
-                id, and my TeamCity token (encrypted).</span></span>
-        </label>
-        <div id="settingsLogin" class="hidden" style="margin-top: 0.4rem">
-            <span id="ghLoginState" class="muted"></span>
-            <p id="ghLoginUnproven" class="caveat hidden"></p>
-            <p id="ghLinkHint" class="hidden" style="margin: 0.4rem 0 0">Link GitHub takes you to GitHub, which asks
-                you to let the checker see your public profile. The checker keeps only your login and account id.</p>
-            <p id="ghLinkOff" class="muted hidden" style="margin: 0.4rem 0 0">This checker has no Link GitHub: its
-                operator has not set it up. A GitHub token for commits links your account as well: switch on
-                <b>Add my PRs' tests to a suite</b> with one, then PR commands.</p>
-            <span class="row" style="margin-top: 0.4rem">
-                <button id="ghLink" class="act hidden" type="button">Link GitHub</button>
+        <section id="groupTc" class="settings-group">
+            <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span></p>
+            <p id="tcTokenGone" class="caveat hidden">⚠ TeamCity no longer accepts the token your options use, so they
+                are paused: log in again with a fresh token.
+                <button id="tcRelogin" class="act" type="button">Log in again</button></p>
+            <label class="settings-row">
+                <input id="autoRerunToggle" type="checkbox">
+                <span><b>Re-run failed suites of my runs</b> — re-runs the suites the verdict blames, in each RunAll
+                    you start.</span>
+            </label>
+            <label class="settings-row">
+                <input id="ghCommentToggle" type="checkbox">
+                <span><b>Post my runs' verdicts in the PR</b> — the checker's account<span id="ghCommentApp"></span>
+                    posts the verdict of each RunAll you start as a PR comment.</span>
+            </label>
+        </section>
+        <section id="groupJira" class="settings-group">
+            <p class="settings-access"><b>JIRA token</b>: <span id="jiraState">not saved</span>
+                <button id="jiraTokenBtn" class="act" type="button">Save</button></p>
+            <p id="jiraTokenGone" class="caveat hidden">⚠ JIRA rejected your saved token, so Visa my runs in JIRA went
+                off: save a new token and switch it on again.</p>
+            <div id="settingsJira" class="settings-form hidden">
+                <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">Create a token in your ASF JIRA profile</a>
+                that expires in 90 days: it has all the rights of your JIRA account.
+                <span class="row">
+                    <input id="settingsJiraToken" type="password" placeholder="JIRA token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
+                    <button id="settingsJiraSave" class="act" type="button">Save</button>
+                    <span id="settingsJiraMsg" class="muted"></span>
+                </span>
+            </div>
+            <label class="settings-row">
+                <input id="standingVisaToggle" type="checkbox">
+                <span><b>Visa my runs in JIRA</b> — posts the verdict of each RunAll you start to the IGNITE ticket
+                    the PR title names.</span>
+            </label>
+        </section>
+        <section id="settingsLogin" class="settings-group">
+            <p class="settings-access"><b>GitHub account</b>: <span id="ghLoginState">not linked</span>
+                <button id="ghLink" class="act hidden" type="button" title="Opens GitHub, which asks you to let the checker see your public profile">Link GitHub</button>
                 <button id="ghUnlink" class="act hidden" type="button">Unlink</button>
-                <span id="ghLinkMsg" class="muted"></span>
-            </span>
-        </div>
-        <label class="settings-row" style="margin-top: 0.5rem">
-            <input id="styleFixToggle" type="checkbox">
-            <span><b>Auto-fix checkstyle on my runs</b> — when I command a run on my own PR and the changed
-                files violate checkstyle, fix what is mechanically fixable (imports, whitespace, modifier
-                order…) and push the fix commit from my account before the run starts. Works only with PR commands
-                on, and goes off with them. <i>Yes, I trust the robots with my whitespace.</i> 🤖<br>
-                <span class="muted">Uses my GitHub token, which the checker keeps only to commit with;
-                javadoc/naming/wrapping still need a human — you'll be told what remains.</span>
-                <span id="styleSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
-        </label>
-        <label class="settings-row" style="margin-top: 0.5rem">
-            <input id="suiteFixToggle" type="checkbox">
-            <span><b>Add my PRs' tests to a suite</b> — when Ignite's abandoned-tests check on the head of my own PR
-                finds test classes of the PR in no test suite, so CI never runs them, list each next to the class of
-                its module nearest to it (by package, then by name), in that class's suite, in one commit from my
-                account. Once per head commit. A comment of the checker's account in the PR says what went where and
-                why, then what Ignite's check says of the commit.<br>
-                <span class="muted">Uses my GitHub token, as the autofix does.</span>
-                <span id="suitesSaved" class="muted hidden"><br>Runs on your saved GitHub token.</span></span>
-        </label>
-        <div id="settingsGh" class="hidden" style="margin-top: 0.5rem">
-            A GitHub token that may push to your PR's branch is needed, for these commits only: the checker writes in
-            PRs from its own account. Best is a
-            <a href="https://github.com/settings/personal-access-tokens/new" target="_self" rel="noopener">fine-grained token</a>:
-            resource owner — you; repository access — only select repositories, your fork of ignite; permissions —
-            Contents: read and write (Metadata: read comes with it). A fine-grained token cannot reach a PR from a
-            branch of apache/ignite itself or from someone else's fork; for those, a
-            <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">classic token with the public_repo scope</a>
-            — which pushes to every public repository you can push to, apache/ignite too if you are a committer. A
-            classic one with <code>repo</code> is taken with a warning; with <code>admin:*</code>,
-            <code>delete_repo</code> or <code>workflow</code> it is refused. Paste it here: it goes with the switch to
-            the server, which stores it encrypted while an option that commits is on, and into no cookie. Give it an
-            expiry, say 90 days: when it expires, the options that use it switch off with a note here; paste a new one
-            and switch them back on.
-            <span class="row" style="margin-top: 0.4rem">
-                <input id="settingsGhToken" type="password" placeholder="GitHub personal access token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
-                <button id="settingsGhSave" class="act" type="button">Save</button>
-                <span id="settingsGhMsg" class="muted"></span>
-            </span>
-            <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so it was dropped and
-                the options that commit with it (the checkstyle autofix, tests to suites) were switched off. Paste a
-                fresh one above and switch them back on.</p>
-        </div>
-        <div id="settingsJira" class="hidden" style="margin-top: 0.5rem">
-            A JIRA Personal Access Token is needed —
-            <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-            then paste it here. It goes into your session cookie, encrypted, and the server stores it encrypted
-            while auto-visa is on. It acts with all the rights of your JIRA account (ASF JIRA has no token scopes), so
-            give it an expiry, say 90 days: when it expires, auto-visa switches off with a note here, and once you
-            paste a new one and switch it back on, the visas held back meanwhile go out, for runs no newer RunAll
-            replaced.
-            <span class="row" style="margin-top: 0.4rem">
-                <input id="settingsJiraToken" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
-                <button id="settingsJiraSave" class="act" type="button">Save</button>
-                <span id="settingsJiraMsg" class="muted"></span>
-            </span>
-            <p id="jiraTokenGone" class="caveat hidden">⚠ JIRA rejected your saved token, so it was dropped and
-                auto-visa was switched off. Paste a fresh one above and switch it back on: the visas it could not
-                post then go out, for runs no newer RunAll replaced.</p>
-        </div>
-        <p id="ghTokenNote" class="muted hidden"></p>
-        <p id="githubOff" class="caveat hidden">Not available: this checker has no GitHub account to write with
-            (<code>GITHUB_TOKEN</code>), so the PR comment, PR commands, the checkstyle autofix and tests to suites
-            are off. Its operator can add one.</p>
+                <span id="ghLinkMsg" class="muted"></span></p>
+            <p id="ghLoginUnproven" class="caveat hidden"></p>
+            <p id="ghLinkOff" class="muted hidden">This checker has no Link GitHub: switch on Add my PR's tests that no
+                suite runs with a GitHub token for commits, which links your account.</p>
+            <label class="settings-row">
+                <input id="commandsToggle" type="checkbox">
+                <span><b>PR commands</b> — <code>/run-all</code> in a PR comment queues RunAll under your ci2 account,
+                    <code>/run-all top</code> queues it at the top, <code>/top</code> moves it there.</span>
+            </label>
+        </section>
+        <section id="groupGhToken" class="settings-group">
+            <p class="settings-access"><b>GitHub token for commits</b>: <span id="ghTokenState">not saved</span>
+                <button id="ghTokenBtn" class="act" type="button">Save</button></p>
+            <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so the options that commit
+                with it went off: save a new token and switch them on again.</p>
+            <p id="ghTokenNote" class="muted hidden"></p>
+            <div id="settingsGh" class="settings-form hidden">
+                Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_self" rel="noopener">fine-grained token</a>
+                for your fork of ignite with Contents: Read and write, that expires in 90 days. A PR from another
+                repository needs a <a href="https://github.com/settings/tokens/new?scopes=public_repo&description=Ignite%20PR%20Checker" target="_self" rel="noopener">classic token</a>
+                with public_repo.
+                <span class="row">
+                    <input id="settingsGhToken" type="password" placeholder="GitHub token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
+                    <button id="settingsGhSave" class="act" type="button">Save</button>
+                    <span id="settingsGhMsg" class="muted"></span>
+                </span>
+            </div>
+            <label class="settings-row">
+                <input id="styleFixToggle" type="checkbox">
+                <span><b>Fix checkstyle before my commanded runs</b> — needs PR commands; on your own PR, pushes a
+                    commit that fixes what it can before the run starts.</span>
+            </label>
+            <label class="settings-row">
+                <input id="suiteFixToggle" type="checkbox">
+                <span><b>Add my PR's tests that no suite runs</b> — puts each such test class into the suite of the
+                    nearest class in its module, in one commit to your PR.</span>
+            </label>
+        </section>
+        <p id="githubOff" class="caveat hidden">This checker has no GitHub account (<code>GITHUB_TOKEN</code>), so the
+            options that write to GitHub are off: its operator can add one.</p>
+        <p class="muted settings-foot">The server stores these tokens encrypted, and only while an option that needs
+            them is on. <a href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#standing-options" target="_self" rel="noopener">How these work</a></p>
         <div id="settingsMsg" class="muted"></div>
     </div>
 
@@ -673,7 +635,7 @@
                             Posting a visa needs your JIRA Personal Access Token —
                             <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
                             then paste it here. <span id="jiraKept">It goes into your session cookie, encrypted.
-                            While Auto-visa all my runs is on in ⚙, your next change there also stores it on the
+                            While Visa my runs in JIRA is on in ⚙, your next change there also stores it on the
                             server.</span>
                             <span class="row" style="margin-top: 0.4rem">
                                 <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />

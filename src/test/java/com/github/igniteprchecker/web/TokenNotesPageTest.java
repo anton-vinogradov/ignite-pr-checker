@@ -43,14 +43,20 @@ class TokenNotesPageTest {
                 + "включена");
     }
 
-    /** The PATs pasted in ⚙ are for the options, which store them; the GitHub one rides in no cookie. */
+    /**
+     * The PATs pasted in ⚙ are for the options, which store them; the GitHub one rides in no cookie. ⚙ says the first
+     * in one line, and the tour says where each token goes.
+     */
     @Test
     void theSettingsPanelsSayTheOptionsStoreTheirTokens() throws IOException {
-        assertThat(textOf("settingsJira")).contains("It goes into your session cookie, encrypted, and the server "
-            + "stores it encrypted while auto-visa is on.");
-        assertThat(textOf("settingsGh")).contains("it goes with the switch to the server, which stores it "
-            + "encrypted while an option that commits is on, and into no cookie.");
-        assertThat(Files.readString(PAGE, UTF_8)).doesNotContain("never stored server-side");
+        assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " ")).contains("The server stores these tokens "
+            + "encrypted, and only while an option that needs them is on.").doesNotContain("never stored server-side");
+        assertThat(collapsed("docs/features.md")).contains("It goes into your session cookie, encrypted, and the "
+            + "server stores it encrypted while the option below is on.")
+            .contains("The page sends the token with the switch, and no cookie keeps it.");
+        assertThat(collapsed("docs/features.ru.md")).contains("Он ложится в cookie твоей сессии, зашифрованным, а "
+            + "сервер хранит его зашифрованным, пока включена опция ниже.")
+            .contains("Страница отправляет токен вместе с переключателем, и ни одна cookie его не хранит.");
     }
 
     @Test
@@ -66,8 +72,8 @@ class TokenNotesPageTest {
                 shown: !page.el('jiraPanel').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("visa").asText()).isEqualTo("It goes into your session cookie, encrypted. While Auto-visa "
-            + "all my runs is on in ⚙, your next change there also stores it on the server.");
+        assertThat(out.get("visa").asText()).isEqualTo("It goes into your session cookie, encrypted. While Visa my "
+            + "runs in JIRA is on in ⚙, your next change there also stores it on the server.");
         assertThat(out.get("auto").asText()).isEqualTo("It goes into your session cookie, encrypted, and the server "
             + "stores it encrypted until this visa is posted.");
         assertThat(out.get("shown").asBoolean()).isTrue();

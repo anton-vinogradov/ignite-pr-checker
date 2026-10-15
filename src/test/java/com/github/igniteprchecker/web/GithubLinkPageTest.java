@@ -41,16 +41,16 @@ class GithubLinkPageTest {
                 warning: page.el('ghLoginUnproven').textContent,
                 link: !page.el('ghLink').classList.contains('hidden'),
                 unlink: !page.el('ghUnlink').classList.contains('hidden'),
-                hint: !page.el('ghLinkHint').classList.contains('hidden') });
+                state: page.el('ghLoginState').textContent });
             """);
 
         assertThat(out.get("shown").asBoolean()).isTrue();
         assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 is not proven: an earlier version of the"
-            + " checker kept no proof that it is yours. Your PR commands do nothing until you link your GitHub account"
-            + " below.");
+            + " checker kept it without proof that it is yours. Your PR commands do nothing until you press Link"
+            + " GitHub.");
         assertThat(out.get("link").asBoolean()).isTrue();
         assertThat(out.get("unlink").asBoolean()).isTrue();
-        assertThat(out.get("hint").asBoolean()).isTrue();
+        assertThat(out.get("state").asText()).isEqualTo("@Vladsz83, not proven");
     }
 
     /** Without PR commands an unproven login costs the mention in the verdict comment, not commands. */
@@ -64,8 +64,8 @@ class GithubLinkPageTest {
             """);
 
         assertThat(out.get("warning").asText()).isEqualTo("⚠ @Vladsz83 is not proven: an earlier version of the"
-            + " checker kept no proof that it is yours. The verdict comments do not mention you until you link your"
-            + " GitHub account below.");
+            + " checker kept it without proof that it is yours. The verdict comments do not mention you until you"
+            + " press Link GitHub.");
     }
 
     @Test
@@ -79,7 +79,7 @@ class GithubLinkPageTest {
             """);
 
         assertThat(out.get("warning").asText()).startsWith("⚠ @oleg-vlsk is not proven:").doesNotContain("typed");
-        assertThat(out.get("state").asText()).isEmpty();
+        assertThat(out.get("state").asText()).isEqualTo("@oleg-vlsk, not proven");
     }
 
     @Test
@@ -93,7 +93,7 @@ class GithubLinkPageTest {
                 unlink: !page.el('ghUnlink').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("state").asText()).isEqualTo("GitHub account: @alice-v, linked.");
+        assertThat(out.get("state").asText()).isEqualTo("@alice-v");
         assertThat(out.get("link").asBoolean()).isFalse();
         assertThat(out.get("unlink").asBoolean()).isTrue();
     }
@@ -248,12 +248,10 @@ class GithubLinkPageTest {
             await page.el('commandsToggle').onchange();
             await page.settle();
             report({ link: !page.el('ghLink').classList.contains('hidden'),
-                hint: !page.el('ghLinkHint').classList.contains('hidden'),
                 off: !page.el('ghLinkOff').classList.contains('hidden'), msg: page.el('ghLinkMsg').textContent });
             """);
 
         assertThat(out.get("link").asBoolean()).isFalse();
-        assertThat(out.get("hint").asBoolean()).isFalse();
         assertThat(out.get("off").asBoolean()).isTrue();
         assertThat(out.get("msg").asText()).isEmpty();
     }
@@ -275,6 +273,6 @@ class GithubLinkPageTest {
         assertThat(out.get("msg").asText()).isEqualTo("Unlinked @alice-v: PR commands are off. Your GitHub token for"
             + " commits is dropped too, and the options that used it are off: it was of that account.");
         assertThat(out.get("commands").asBoolean()).isFalse();
-        assertThat(out.get("state").asText()).isEmpty();
+        assertThat(out.get("state").asText()).isEqualTo("not linked");
     }
 }
