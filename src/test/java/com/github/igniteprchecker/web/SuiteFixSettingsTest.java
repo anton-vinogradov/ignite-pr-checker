@@ -104,9 +104,9 @@ class SuiteFixSettingsTest {
 
         assertThat(cards.get("idle").asText()).contains("Tests added to suites");
         assertThat(cards.get("idle").asText().replaceAll("<[^>]+>", ""))
-            .contains("0 commits · 0 users with it on · sweep never");
+            .contains("0 commits · 0 users with the option on · sweep never");
         assertThat(cards.get("busy").asText().replaceAll("<[^>]+>", ""))
-            .contains("3 commits · 2 users with it on · sweep 2m ago");
+            .contains("3 commits · 2 users with the option on · sweep 2m ago");
         assertThat(cards.get("old").asText()).isEmpty();
     }
 

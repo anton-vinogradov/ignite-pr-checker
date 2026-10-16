@@ -76,8 +76,8 @@ class FlakyBoardPageTest {
             "TxTest.testCommit", "12 in a rowof 100 runs", "—");
         assertThat(board).doesNotContain("open PR", "/100 on master", "PR in 14 days", "recent master runs");
         assertThat(out.get("html").asText()).doesNotContain("class=\"strip\"", "class=\"lbprs\"");
-        assertThat(out.get("intro").asText()).isEqualTo("Tests that fail on master, so they also fail in PRs that did "
-            + "not break them. 2 tests muted on TeamCity are not shown.");
+        assertThat(out.get("intro").asText()).isEqualTo("This board shows tests that fail on master, so they also fail "
+            + "in PRs that did not break them. 2 tests muted on TeamCity are not shown.");
     }
 
     /**
@@ -91,29 +91,29 @@ class FlakyBoardPageTest {
             """);
 
         assertThat(out.get("html").asText())
-            .contains("<span class=\"lbcol\" title=\"Failed 3 of the last 100 master runs\"><span class=\"flake \">3%"
-                + "</span><small>3 of 100 runs</small></span>")
-            .contains("<span class=\"lbcol\" title=\"Failed the last 12 of 100 master runs\"><span class=\"flake\">12 in a "
-                + "row</span><small>of 100 runs</small></span>")
-            .contains("<span class=\"lbcol lbcol-prs\" title=\"Failed in these PRs in the last 14 days: #13583, #13655, "
-                + "#13660\">3<small>PRs, last 14 days</small></span>")
-            .contains("<span class=\"lbcol lbcol-prs\" title=\"Failed in no PR in the last 14 days\"><span class=\"prs-none\">—"
-                + "</span><small>no PRs, last 14 days</small></span>");
+            .contains("<span class=\"lbcol\" title=\"This test failed 3 of the last 100 master runs.\"><span "
+                + "class=\"flake \">3%</span><small>3 of 100 runs</small></span>")
+            .contains("<span class=\"lbcol\" title=\"This test failed the last 12 of 100 master runs.\"><span "
+                + "class=\"flake\">12 in a row</span><small>of 100 runs</small></span>")
+            .contains("<span class=\"lbcol lbcol-prs\" title=\"This test failed in these PRs in the last 14 days: "
+                + "#13583, #13655, #13660.\">3<small>PRs, last 14 days</small></span>")
+            .contains("<span class=\"lbcol lbcol-prs\" title=\"This test did not fail in any PR in the last 14 days.\">"
+                + "<span class=\"prs-none\">—</span><small>no PRs, last 14 days</small></span>");
     }
 
     /**
-     * The row's TC opens the newest failed master run; the other failed master runs are in the panel, so a board of
+     * The row's TC opens the newest failed master run; the older failed master runs are in the panel, so a board of
      * 40 rows no longer shows 200 chips. A row with one failed master run has no such line.
      */
     @Test
-    void theOtherFailedMasterRunsAreInTheFailurePanel() throws Exception {
+    void theOlderFailedMasterRunsAreInTheFailurePanel() throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD + """
             report({ html: page.el('flaky').innerHTML });
             """);
 
         String html = out.get("html").asText();
-        assertThat(html).containsOnlyOnce("Other failed master runs: ")
-            .contains("<p>Other failed master runs: <a href=\"https://ci2.example/buildConfiguration/IgniteTests24Java8_Cache"
+        assertThat(html).containsOnlyOnce("Older failed master runs: ")
+            .contains("<p>Older failed master runs: <a href=\"https://ci2.example/buildConfiguration/IgniteTests24Java8_Cache"
                 + "/9380100?buildTab=tests&amp;expandedTest=occ-m2#testNameId104\" target=\"_self\" rel=\"noopener\" "
                 + "title=\"Open this failed master run in TeamCity.\">#9380100</a></p>")
             .doesNotContain(">#9380300</a>")
@@ -121,6 +121,25 @@ class FlakyBoardPageTest {
                 + "title=\"Open the latest master failure in TeamCity.\">TC</a>");
         assertThat(html.split("<div class=\"details hidden\">")).as("a panel per row with a message").hasSize(4);
         assertThat(html.split("<p>Failure message, from its latest failure in a PR:</p><pre></pre>")).hasSize(4);
+    }
+
+    /**
+     * The board's toggle said "Show the failure message and stack trace.", as on the PR page, but its panel also holds
+     * the older failed master runs, and a test with no failure in a PR has only those. Both titles name the runs.
+     */
+    @Test
+    void theToggleNamesTheMasterRunsToo() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD + PANEL + """
+            await page.run('toggleDetails')(btn, recent);
+            const opened = btn.title;
+            await page.run('toggleDetails')(btn, recent);
+            report({ opened, closed: btn.title, label: btn.textContent });
+            """);
+
+        assertThat(out.get("opened").asText()).isEqualTo("Hide the older failed master runs and the failure message.");
+        assertThat(out.get("closed").asText()).isEqualTo("Show this test's older failed master runs and the failure "
+            + "message from its latest failure in a PR, if there are any.");
+        assertThat(out.get("label").asText()).isEqualTo("failure ▸");
     }
 
     /** A test with no failure message and one master run has nothing to open: the prompt button is on its row. */
@@ -142,9 +161,24 @@ class FlakyBoardPageTest {
             + "AI coding assistant to make this flaky test stable.\">copy AI prompt</button>")
             .doesNotContain("why toggle", "class=\"details");
         assertThat(html).containsOnlyOnce("<button class=\"why toggle\" type=\"button\" data-i=\"0\" aria-expanded=\"false\" "
-            + "title=\"Show the failure message and stack trace.\">failure ▸</button>");
+            + "title=\"Show this test's older failed master runs and the failure message from its latest failure in a "
+            + "PR, if there are any.\">failure ▸</button>");
         assertThat(out.get("intro").asText()).endsWith(" Tests muted on TeamCity are not shown.");
         assertThat(out.get("one").asText()).endsWith(" 1 test muted on TeamCity is not shown.");
+    }
+
+    /**
+     * The intro before the first load was a fragment written as a sentence, and the "?" after it said what it explains
+     * but not that it leaves the board for the docs on GitHub.
+     */
+    @Test
+    void theIntroInTheMarkupIsASentenceAndTheHelpLinkSaysWhereItLeads() throws IOException {
+        String html = Files.readString(PAGE, UTF_8).replaceAll("\\s+", " ");
+
+        assertThat(html).contains("<span id=\"intro\">This board shows tests that fail on master, so they also fail in "
+                + "PRs that did not break them. Tests muted on TeamCity are not shown.</span>")
+            .contains("features.md#the-flaky-board-flakyhtml\" target=\"_self\" rel=\"noopener\" "
+                + "title=\"Opens the docs on GitHub that explain how this board works.\"");
     }
 
     /** A board of 40 rows a group says how many tests the group has when it holds more. */
@@ -168,8 +202,8 @@ class FlakyBoardPageTest {
             report({ board: page.el('flaky').textContent });
             """);
 
-        assertThat(out.get("board").asText()).isEqualTo("No tests failing on master recorded yet. The list fills as PRs "
-            + "get analysed (this needs an active login to warm the cache). Check back shortly.");
+        assertThat(out.get("board").asText()).isEqualTo("No tests failing on master recorded yet. The list fills as "
+            + "the checker analyses PRs, and that needs an active login. Check back shortly.");
     }
 
     @Test
@@ -238,8 +272,8 @@ class FlakyBoardPageTest {
             report({ shown: pre.textContent, loaded: pre.dataset.loaded || null, prompt: copied[0] });
             """);
 
-        assertThat(out.get("shown").asText()).isEqualTo("Log in on the main page to see the failure message. The AI "
-            + "prompt works without it, but has no failure message.");
+        assertThat(out.get("shown").asText()).isEqualTo("Log in on the main page to see the failure message. Without a "
+            + "login, the AI prompt still works, but it has no failure message.");
         assertThat(out.get("loaded").isNull()).as("loads again after a login").isTrue();
         assertThat(out.get("prompt").asText()).startsWith("Find the commit that broke a test on Apache Ignite master")
             .doesNotContain("Failure output");

@@ -405,7 +405,8 @@
                 flaky on master. Start a RunAll or rerun just the blockers, right from here.</p>
             <p id="loginTokenNote" class="login-note muted">Log in with your own TeamCity (ci2) access token. There is no
                 shared account: TeamCity records the runs you start or cancel here as yours. For about an hour after your
-                last request, the server also uses your token to read TeamCity for everyone's PRs.</p>
+                last request, the server keeps your token in memory. It uses the token only to read from TeamCity, to
+                check open PRs for everyone.</p>
             <div class="row">
                 <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
                 <button id="loginBtn" class="primary">Log in</button>
@@ -416,12 +417,10 @@
                 <summary>What the checker does with your token</summary>
                 <ul>
                     <li>Your browser keeps it in an encrypted session cookie.</li>
-                    <li>For about an hour after your last request, the server also keeps it in memory. It uses it only to
-                        read from TeamCity, to check open PRs for everyone.</li>
                     <li>After login, the ⚙ menu has options that work while this page is closed. While one is on, the
                         server stores the token encrypted, until you turn them all off. Copies stay in server backups
                         until the backups are replaced. With any option other than PR commands on, the server also
-                        keeps doing those reads.</li>
+                        keeps using the token to read from TeamCity, to check open PRs for everyone.</li>
                     <li>Your login ends when you log out (in every browser at once) or after 400 days without use.</li>
                 </ul>
             </details>
@@ -448,7 +447,7 @@
             <button id="paneExpand" class="pane-expand" type="button" title="Show PR list" aria-label="Show PR list">›</button>
             <aside class="pr-pane">
                 <div class="pane-head">Open PRs <span id="prCount"></span>
-                    <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="What each badge means, in the verdict glossary" aria-label="What each badge means, in the verdict glossary">?</a>
+                    <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="Opens the verdict glossary on GitHub. It says what each badge means." aria-label="Opens the verdict glossary on GitHub. It says what each badge means.">?</a>
                     <button id="paneCollapse" class="pane-toggle" type="button" title="Collapse panel" aria-label="Collapse panel">‹</button>
                     <input id="prFilter" type="search" placeholder="Filter, or a PR number" autocomplete="off" spellcheck="false"
                         aria-label="Filter the open PRs, or open any PR by number" title="Filter by number or title; Enter opens the first match (press / to jump here)">
@@ -456,11 +455,11 @@
                         <summary>What the badges mean</summary>
                         <ul>
                             <li><span class="pr-badge ok" title="A clean run of the PR's current code.">✓</span><span>clean — a run of the PR's current code blamed nothing on it</span></li>
-                            <li><span class="pr-badge watch" title="No blockers yet, but some tests started failing on the PR's latest code. A rerun decides.">!</span><span>started failing — no blockers yet, but tests started failing on its code; a rerun decides</span></li>
-                            <li><span class="pr-badge unproven" title="No blockers found, but the run can't prove the PR clean: it was interrupted, suites broke or ran fewer tests, tests were not checked, or a newer run is still going.">?</span><span>not proven clean — no blockers found, but the run can't prove the PR clean</span></li>
+                            <li><span class="pr-badge watch" title="No blockers yet, but some tests started failing on the PR's latest code. A rerun shows whether they are blockers.">!</span><span>started failing — no blockers yet, but tests started failing on its code; a rerun shows whether they are blockers</span></li>
+                            <li><span class="pr-badge unproven" title="No blockers found, but the run can't prove the PR clean: it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still going.">?</span><span>not proven clean — no blockers found, but the run can't prove the PR clean</span></li>
                             <li id="legendChecking" class="hidden"><span class="pr-badge checking" title="No blockers found. The page is checking that this run tested the PR's latest commit.">…</span><span>checking — only for the PR open on the page: checking that the run tested its latest commit</span></li>
                             <li><span class="pr-badge bad" title="2 blockers">2</span><span>blockers — tests the PR most likely broke</span></li>
-                            <li><span class="my-tag" title="You started its latest RunAll (the PR may be someone else's)">my run</span><span>my run — you started its latest RunAll</span></li>
+                            <li><span class="my-tag" title="You started its latest RunAll. The PR may be someone else's.">my run</span><span>my run — you started its latest RunAll</span></li>
                             <li><span></span><span>no badge — no verdict yet</span></li>
                         </ul>
                     </details>

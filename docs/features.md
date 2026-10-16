@@ -111,7 +111,7 @@ and the visa.
 |---|---|---|
 | red number | Blockers in the PR's latest analysed RunAll. | Open the PR. |
 | **!** | No blockers yet, but tests started failing on the PR's latest code. | A rerun shows whether these tests are blockers. |
-| **?** | No blockers found, but the run can't prove the PR clean ([caveats](#caveats)): it was interrupted, suites broke or ran fewer tests, tests were not checked, or a newer run is still going; or commits were pushed after the run; or it is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
+| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
@@ -159,8 +159,8 @@ and the visa.
 ## Finding your PR
 
 - The left pane lists the 50 most recently updated open PRs of the repo, the latest first. A row has the PR's number,
-  its ticket key and a badge with its last known verdict ([badges](#badges-in-the-pr-list)); the fold **What the badges
-  mean** under the filter explains the badges and stays open until you pick a PR. **my run** marks the PRs whose latest
+  its ticket key and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges
+  mean** under the filter explains the badges. It stays open until you pick a PR. **my run** marks the PRs whose latest
   RunAll you started.
 - The filter (**Filter, or a PR number**) narrows the list by number or title. A number that is not in the list is
   offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/` jumps to it
@@ -432,10 +432,10 @@ from its own GitHub account, the app account.
 - A test that runs in several suites gets a row per suite, with that suite's fail rate and its failed master runs.
 - Tests muted on TeamCity are left out, and the intro says how many.
 - The tally survives restarts; a test drops off 14 days after it was last seen failing.
-- Anyone can read the board. **failure ▸** opens the test's other failed master runs and the failure message from its
-  latest failure in a PR; the message needs a login. **copy AI prompt**, in that panel or on the row when there is
-  nothing to open, copies a prompt to make a flaky test stable, or to find the commit that broke a broken one; it works
-  without a login. A suite being re-run shows its chip: the PR, the state and the estimate.
+- Anyone can read the board. **failure ▸** opens a panel with the test's older failed master runs and the failure
+  message from its latest failure in a PR. The message needs a login. **copy AI prompt** copies a prompt to make a flaky
+  test stable, or to find the commit that broke a broken one. It works without a login. The button is in that panel, or
+  on the row when there is no panel. A suite being re-run shows its chip: the PR, the state and the estimate.
 
 ## The status page (`/status.html`)
 

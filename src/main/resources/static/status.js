@@ -149,7 +149,7 @@ function configRows(d) {
 function suiteFixCard(f, ago) {
     if (!f) return '';
     return card('Tests added to suites', f.pushed ?? 0,
-        `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with it on · sweep ${ago(f.lastSweepAt)}`);
+        `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with the option on · sweep ${ago(f.lastSweepAt)}`);
 }
 
 function lastCycleCard(a) {
@@ -175,8 +175,8 @@ function healthTitle(d, problems) {
 }
 
 // The whole heap now; the old generation's peak since the start is what -Xmx has to hold.
-const HEAP_TITLE = 'Whole heap in use now. Old-gen peak: the most the old generation has held since start. Size -Xmx '
-    + 'from it.';
+const HEAP_TITLE = 'The first number is the whole heap in use now. Old-gen peak is the most the old generation has held '
+    + 'since the server started. Set -Xmx large enough to hold this peak.';
 
 function render(d) {
     const tc = d.teamcity, gh = d.github, j = d.jvm;

@@ -276,10 +276,11 @@ class StatusPageTest {
         assertThat(out.get("cards").asText())
             .contains("Auto visas armed1 2 posted · last 3m ago")
             .contains("Standing options7 users with an option on · 5 JIRA visas posted · sweep 2m ago (9.2s)")
-            .contains("Tests added to suites2 commits · 1 user with it on · sweep 2m ago")
+            .contains("Tests added to suites2 commits · 1 user with the option on · sweep 2m ago")
             .doesNotContain("Standing visas", "Auto-visa armed", "Suite fixes");
-        assertThat(out.get("system").asText()).contains("<div class=\"card\" title=\"Whole heap in use now. Old-gen peak: "
-            + "the most the old generation has held since start. Size -Xmx from it.\"><div class=\"k\">Heap</div>"
+        assertThat(out.get("system").asText()).contains("<div class=\"card\" title=\"The first number is the whole "
+            + "heap in use now. Old-gen peak is the most the old generation has held since the server started. Set "
+            + "-Xmx large enough to hold this peak.\"><div class=\"k\">Heap</div>"
             + "<div class=\"v ok\">120 <small><span class=\"seg\">/ 512 MB</span> · <span class=\"seg\">old-gen peak 28 MB"
             + "</span></small></div></div>");
         assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " "))

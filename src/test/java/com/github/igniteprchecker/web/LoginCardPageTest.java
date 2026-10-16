@@ -46,24 +46,25 @@ class LoginCardPageTest {
     void theOneLineOverTheFieldSaysTheServerReadsForEveryone() throws IOException {
         assertThat(textOf("<p id=\"loginTokenNote\"")).isEqualTo("Log in with your own TeamCity (ci2) access token. "
             + "There is no shared account: TeamCity records the runs you start or cancel here as yours. For about an "
-            + "hour after your last request, the server also uses your token to read TeamCity for everyone's PRs.");
+            + "hour after your last request, the server keeps your token in memory. It uses the token only to read "
+            + "from TeamCity, to check open PRs for everyone.");
     }
 
+    /** The fold said again what the line over the field says: that the server reads TeamCity with the token. */
     @Test
     void theFoldHoldsTheOtherFactsAboutTheToken() throws IOException {
         String fold = card().substring(card().indexOf("<details id=\"loginTokenMore\""));
         fold = fold.substring(0, fold.indexOf("</details>"));
 
         assertThat(fold).contains("<summary>What the checker does with your token</summary>");
-        assertThat(fold.split("<li>")).hasSize(5);
+        assertThat(fold.split("<li>")).hasSize(4);
         assertThat(fold.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " "))
             .contains("Your browser keeps it in an encrypted session cookie.")
-            .contains("For about an hour after your last request, the server also keeps it in memory. It uses it only "
-                + "to read from TeamCity, to check open PRs for everyone.")
+            .doesNotContain("For about an hour", "in memory")
             .contains("After login, the ⚙ menu has options that work while this page is closed. While one is on, the "
                 + "server stores the token encrypted, until you turn them all off. Copies stay in server backups until "
-                + "the backups are replaced. With any option other than PR commands on, the server also keeps doing "
-                + "those reads.")
+                + "the backups are replaced. With any option other than PR commands on, the server also keeps using "
+                + "the token to read from TeamCity, to check open PRs for everyone.")
             .contains("Your login ends when you log out (in every browser at once) or after 400 days without use.");
     }
 

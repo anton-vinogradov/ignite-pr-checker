@@ -10,8 +10,8 @@ let lastJson = ''; // only re-render on change, so an open failure panel isn't w
 function render(list, reruns, sizes = {}) {
     const el = $('flaky');
     if (!list || !list.length) {
-        el.innerHTML = '<div class="muted">No tests failing on master recorded yet. The list fills as PRs get analysed '
-            + '(this needs an active login to warm the cache). Check back shortly.</div>';
+        el.innerHTML = '<div class="muted">No tests failing on master recorded yet. The list fills as the checker '
+            + 'analyses PRs, and that needs an active login. Check back shortly.</div>';
         return;
     }
     const flaky = list.filter(b => !b.broken);
@@ -55,13 +55,14 @@ function flakyRow(b, rank, i, reruns) {
     const ai = `<button class="why ai" type="button" data-i="${i}" title="${aiTitle}">${AI_PROMPT}</button>`;
     const panel = failurePanel(b, mf.slice(1), ai);
     const toggle = panel
-        ? `<button class="why toggle" type="button" data-i="${i}" aria-expanded="false" title="${FAILURE_CLOSED[1]}">${FAILURE_CLOSED[0]}</button>`
+        ? `<button class="why toggle" type="button" data-i="${i}" aria-expanded="false" title="${BOARD_FAILURE_CLOSED[1]}">${BOARD_FAILURE_CLOSED[0]}</button>`
         : ai;
     // A live re-run of this suite launched through the tool (running preferred over queued).
     const rr = (reruns || []).find(x => x.buildTypeId === b.suite);
     const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${esc(rr.webUrl)}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + esc(rr.pct) + '% complete' : ''}">#${esc(rr.pr)} · ${esc(rr.state)}${chipEta(rr)}</a>` : '';
-    const prsTitle = b.prCount ? `Failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}`
-        : `Failed in no PR in the last ${prDays} days`;
+    const prsTitle = b.prCount
+        ? `This test failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}.`
+        : `This test did not fail in any PR in the last ${prDays} days.`;
     // On a phone the column headings are gone, so the cell says what it counts; wide, the heading says it.
     const prsCell = b.prCount ? `${b.prCount}<small>PRs, last ${prDays} days</small>`
         : `<span class="prs-none">—</span><small>no PRs, last ${prDays} days</small>`;
@@ -79,16 +80,21 @@ function flakyRow(b, rank, i, reruns) {
 // The "Master fail rate" column: a flaky test's rate in colour and its sample under it; a broken test's streak.
 function rateCell(b) {
     if (b.broken) {
-        return `<span class="lbcol" title="Failed the last ${b.failStreak} of ${b.masterRuns} master runs">`
+        return `<span class="lbcol" title="This test failed the last ${b.failStreak} of ${b.masterRuns} master runs.">`
             + `<span class="flake">${b.failStreak} in a row</span><small>of ${b.masterRuns} runs</small></span>`;
     }
     const pct = b.masterRuns ? Math.round(100 * b.masterFails / b.masterRuns) : 0;
     const hot = pct >= 30 ? 'hot' : pct >= 10 ? 'warm' : '';
-    return `<span class="lbcol" title="Failed ${b.masterFails} of the last ${b.masterRuns} master runs">`
+    return `<span class="lbcol" title="This test failed ${b.masterFails} of the last ${b.masterRuns} master runs.">`
         + `<span class="flake ${hot}">${pct}%</span><small>${b.masterFails} of ${b.masterRuns} runs</small></span>`;
 }
 
-// The panel under a row: the test's other failed master runs (the newest is the row's TC link), the failure message
+// The board's panel also holds the test's older failed master runs, so its toggle names them, unlike the PR page's.
+const BOARD_FAILURE_CLOSED = [FAILURE_CLOSED[0], 'Show this test\'s older failed master runs and the failure message '
+    + 'from its latest failure in a PR, if there are any.'];
+const BOARD_FAILURE_OPEN = [FAILURE_OPEN[0], 'Hide the older failed master runs and the failure message.'];
+
+// The panel under a row: the test's older failed master runs (the newest is the row's TC link), the failure message
 // from its latest failure in a PR, and the copy buttons. Nothing to show in it means no panel: the prompt button
 // stands in the row instead.
 function failurePanel(b, otherRuns, ai) {
@@ -97,7 +103,7 @@ function failurePanel(b, otherRuns, ai) {
     const copy = b.occurrenceId
         ? '<button class="why copy" type="button" disabled title="Copy the failure message.">copy failure</button>' : '';
     return `<div class="details hidden"><div class="details-acts">${copy}${ai}</div>`
-        + (runs.length ? `<p>Other failed master runs: ${runs.join(' · ')}</p>` : '')
+        + (runs.length ? `<p>Older failed master runs: ${runs.join(' · ')}</p>` : '')
         + (b.occurrenceId ? '<p>Failure message, from its latest failure in a PR:</p><pre></pre>' : '')
         + '</div>';
 }
@@ -184,7 +190,7 @@ async function toggleDetails(btn, b) {
     if (!box) return;
     const open = box.classList.contains('hidden');
     box.classList.toggle('hidden', !open);
-    paintFailureToggle(btn, open);
+    paintFailureToggle(btn, open, BOARD_FAILURE_CLOSED, BOARD_FAILURE_OPEN);
     if (open) await loadFailure(box, b);
 }
 
@@ -197,8 +203,8 @@ async function loadFailure(box, b) {
     try {
         const r = await fetch('/api/test-details?occ=' + encodeURIComponent(b.occurrenceId), { cache: 'no-store' });
         if (r.status === 401) {
-            pre.textContent = 'Log in on the main page to see the failure message. The AI prompt works without it, but '
-                + 'has no failure message.';
+            pre.textContent = 'Log in on the main page to see the failure message. Without a login, the AI prompt still '
+                + 'works, but it has no failure message.';
             return;
         }
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -240,8 +246,8 @@ async function tick() {
 
 // How many muted tests the board leaves out right now.
 function renderIntro(muted) {
-    $('intro').textContent = 'Tests that fail on master, so they also fail in PRs that did not break them. '
-        + (muted === 1 ? '1 test muted on TeamCity is not shown.'
+    $('intro').textContent = 'This board shows tests that fail on master, so they also fail in PRs that did not '
+        + 'break them. ' + (muted === 1 ? '1 test muted on TeamCity is not shown.'
             : muted ? `${muted} tests muted on TeamCity are not shown.` : 'Tests muted on TeamCity are not shown.');
 }
 

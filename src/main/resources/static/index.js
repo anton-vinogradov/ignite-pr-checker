@@ -156,7 +156,7 @@ async function loadPrs() {
 const TITLE_KEY = /^(IGNITE-\d+)[\s:.,\-–]*/;
 
 // The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
-const MY_RUN_TITLE = 'You started its latest RunAll (the PR may be someone else\'s)';
+const MY_RUN_TITLE = 'You started its latest RunAll. The PR may be someone else\'s.';
 
 // A row of the list: the number, the ticket key, the badge and your tag on the first line, the title without the key
 // under them. The link's title and data-title keep the whole title: the head and the visa take the key from there.
@@ -209,9 +209,11 @@ function markMine() {
 // where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats
 // these titles word for word.
 const STANDING_BADGES = {
-    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the PR\'s latest code. A rerun decides.'],
+    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the PR\'s latest code. A rerun shows '
+        + 'whether they are blockers.'],
     UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
-        + 'broke or ran fewer tests, tests were not checked, or a newer run is still going.'],
+        + 'broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still '
+        + 'going.'],
     OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.'],
     UNKNOWN_CODE: ['unproven', '?', 'No blockers found, but it is not known whether this run tested the PR\'s latest '
         + 'commit.'],

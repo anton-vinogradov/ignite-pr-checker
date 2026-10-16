@@ -65,8 +65,8 @@ class PrListPageTest {
         String html = out.get("html").asText();
         assertThat(html)
             .contains("<span class=\"pr-num\">#13575</span><span class=\"pr-key\">IGNITE-29049</span><span class=\"pr-badge "
-                + "bad\" title=\"1 blocker\">1</span><span class=\"my-tag\" title=\"You started its latest RunAll (the PR "
-                + "may be someone else's)\">my run</span>")
+                + "bad\" title=\"1 blocker\">1</span><span class=\"my-tag\" title=\"You started its latest RunAll. The PR "
+                + "may be someone else's.\">my run</span>")
             .contains("<span class=\"pr-ttl\">Move MDC to JUnit</span>")
             .contains("data-title=\"IGNITE-29049: Move MDC to JUnit\"")
             .contains("title=\"IGNITE-29049: Move MDC to JUnit\"")
@@ -130,8 +130,14 @@ class PrListPageTest {
             .contains("<span class=\"pr-badge checking\" title=\"" + out.get("checking").asText() + "\">…</span>")
             .contains("<span class=\"pr-badge ok\" title=\"" + out.get("clean").asText() + "\">✓</span>")
             .contains("<span class=\"pr-badge bad\" title=\"2 blockers\">2</span>")
-            .contains("<span class=\"my-tag\" title=\"" + out.get("mine").asText() + "\">my run</span>");
-        assertThat(out.get("unproven").asText()).startsWith("No blockers found, but the run can't prove the PR clean: ");
+            .contains("<span class=\"my-tag\" title=\"" + out.get("mine").asText() + "\">my run</span>")
+            .contains("<span>started failing — no blockers yet, but tests started failing on its code; a rerun shows "
+                + "whether they are blockers</span>");
+        assertThat(out.get("watch").asText()).isEqualTo("No blockers yet, but some tests started failing on the PR's "
+            + "latest code. A rerun shows whether they are blockers.");
+        assertThat(out.get("unproven").asText()).isEqualTo("No blockers found, but the run can't prove the PR clean: "
+            + "it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be "
+            + "checked, or a newer run is still going.");
         assertThat(out.get("one").asText()).isEqualTo("<span class=\"pr-badge bad\" title=\"1 blocker\">1</span>");
         assertThat(out.get("many").asText()).isEqualTo("<span class=\"pr-badge bad\" title=\"33 blockers\">33</span>");
         assertThat(out.get("old").asText())
@@ -139,6 +145,13 @@ class PrListPageTest {
                 + "run.\">?</span>");
         assertThat(out.get("proven").asText())
             .isEqualTo("<span class=\"pr-badge ok\" title=\"A clean run of the PR&#39;s current code.\">✓</span>");
+    }
+
+    /** The "?" by the heading said what it explains but not that it leaves the page for the docs on GitHub. */
+    @Test
+    void theHelpLinkSaysItOpensTheGlossaryOnGitHub() throws IOException {
+        assertThat(Files.readString(PAGE, UTF_8)).contains("features.md#badges-in-the-pr-list\" target=\"_self\" "
+            + "rel=\"noopener\" title=\"Opens the verdict glossary on GitHub. It says what each badge means.\"");
     }
 
     /** "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a test. */

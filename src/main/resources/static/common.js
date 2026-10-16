@@ -104,8 +104,8 @@ const FAILURE_CLOSED = ['failure ▸', 'Show the failure message and stack trace
 const FAILURE_OPEN = ['failure ▾', 'Hide the failure message.'];
 
 // The toggle of a failure panel reads as the panel stands.
-function paintFailureToggle(btn, open) {
-    const [label, title] = open ? FAILURE_OPEN : FAILURE_CLOSED;
+function paintFailureToggle(btn, open, closed = FAILURE_CLOSED, opened = FAILURE_OPEN) {
+    const [label, title] = open ? opened : closed;
     btn.setAttribute('aria-expanded', String(open));
     btn.textContent = label;
     btn.title = title;
