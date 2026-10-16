@@ -94,8 +94,8 @@ public class ServiceHealth {
         long sweepAgo = now - (clocks.lastSweepAt() > 0 ? clocks.lastSweepAt() : clocks.startedAt());
         if (sweepAgo > SWEEP_LATE.toMillis()) {
             problems.add(Problem.error(clocks.lastSweepAt() > 0
-                ? "standing-visa sweep last started " + minutes(sweepAgo) + " ago"
-                : "standing-visa sweep has not run in the " + minutes(sweepAgo) + " since the start"));
+                ? "standing sweep last started " + minutes(sweepAgo) + " ago"
+                : "standing sweep has not run in the " + minutes(sweepAgo) + " since the start"));
         }
 
         long pollAgo = now - (clocks.lastPollAt() > 0 ? clocks.lastPollAt() : clocks.startedAt());

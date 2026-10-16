@@ -219,7 +219,7 @@ public class BlockerAnalyzer {
         analysedBuild.put(prNumber, r.buildId());
     }
 
-    /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "My?" flag in the PR list. */
+    /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "my run" tag in the PR list. */
     public String triggeredBy(int prNumber) {
         return chains.triggeredBy(prNumber);
     }

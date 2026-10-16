@@ -15,8 +15,7 @@
         .mini-btn { font-size: 0.8rem; padding: 0.2rem 0.55rem; border-radius: var(--radius-small); }
         .mini-btn.danger { color: var(--bad); border-color: var(--bad); }
         .tabs-row { margin-bottom: 1rem; }
-        .mini-btn.tab.on, html[data-theme="terminal"] .mini-btn.tab.on:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-        html[data-theme="terminal"] .mini-btn.tab.on::before, html[data-theme="terminal"] .mini-btn.tab.on::after { color: var(--on-accent); }
+        .tabs-row .tabs { margin-left: 0; }
         #usersView { display: none; }
         body.users-mode .wrap > *:not(.tabs-row):not(#usersView):not(#err) { display: none; }
         body.users-mode #usersView { display: block; }
@@ -29,6 +28,9 @@
         .card .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
         .card .v { font-size: 1.35rem; font-weight: 600; margin-top: 0.15rem; }
         .card .v small { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+        /* A label breaks only between its " · " chunks, so a number keeps its unit. */
+        .card .v small .seg { display: inline-block; max-width: 100%; }
+        .card[title] { cursor: help; }
         .card .v.ok { color: var(--ok); }
         .card .v.warn { color: var(--warn); }
         .card .v.bad { color: var(--bad); }
@@ -40,7 +42,8 @@
         .chart-title { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.2rem 0.5rem; }
         .cat-legend { text-align: right; }
         canvas { width: 100%; height: 200px; display: block; }
-        .legend span { font-size: 0.78rem; margin-left: 0.8rem; }
+        /* A legend item stays on one line, its square with its name. */
+        .legend > span { font-size: 0.78rem; margin-left: 0.8rem; white-space: nowrap; }
         .dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 0.25rem; vertical-align: middle; }
         .rate-bad { color: var(--bad); }
         .bystatus { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
@@ -105,10 +108,10 @@
     </header>
 
     <div class="wrap">
-        <div class="tabs-row">
-            <button id="tabStatus" class="mini-btn tab on" type="button">Status</button>
-            <button id="tabUsers" class="mini-btn tab" type="button">Users</button>
-        </div>
+        <div class="tabs-row"><span class="tabs">
+            <button id="tabStatus" class="act on" type="button" aria-pressed="true" title="Shows the service: system, caches, watchers, calls, logs and settings.">Status</button>
+            <button id="tabUsers" class="act" type="button" aria-pressed="false" title="Shows who uses the service and when they were last here.">Users</button>
+        </span></div>
         <div id="err" class="muted"></div>
         <div id="problems" class="problems"></div>
 
@@ -141,7 +144,9 @@
         
         <div class="cards" id="warmerCards"></div>
 
-        <h2>TC watcher <span class="muted" style="font-weight:400;font-size:0.8rem">· tracks queued/running builds every 20s; finish = eager re-analysis + auto-visas</span></h2>
+        <h2>TC watcher <span class="muted" style="font-weight:400;font-size:0.8rem">· checks the RunAlls and suite re-runs of PRs
+            every 20 s. When one ends, it recomputes the verdict at once and starts what waits for it: re-runs, visas, PR
+            comments.</span></h2>
         <div class="cards" id="watcherCards"></div>
 
         <h2>TeamCity</h2>

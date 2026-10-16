@@ -15,43 +15,46 @@
 
         .leaderboard { display: flex; flex-direction: column; }
         .lbrow { padding: 0.4rem 0; }
-        .lbhead { display: flex; align-items: baseline; gap: 0.5rem; }
+        .lbhead { display: flex; align-items: center; gap: 0.5rem; }
         .lbrank { color: var(--muted); font-variant-numeric: tabular-nums; }
-        .lbname { font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; display: inline-flex; align-items: center; flex-wrap: wrap; column-gap: 0.35rem; row-gap: 0.1rem; }
-        .lbname a.ext, .lbname .why, .lbname .strip, .lbname .live { margin: 0; }
+        .lbname { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, monospace; font-size: 0.85rem; word-break: break-all; display: inline-flex; align-items: center; flex-wrap: wrap; column-gap: 0.35rem; row-gap: 0.1rem; }
+        .lbname a.ext, .lbname .why, .lbname .live { margin: 0; }
         .lbsuite { color: var(--muted); }
-        .lbcount { margin-left: auto; white-space: nowrap; }
+        /* The two columns on the right, under their headings: as wide in every row as in the heading. */
+        .group-row { display: flex; align-items: baseline; gap: 0.5rem; }
+        .group-row .group-head { flex: 1 1 auto; }
+        .lbcol { flex: none; width: 8.5rem; display: inline-flex; flex-direction: column; align-items: flex-end; text-align: right; line-height: 1.25; }
+        .lbcol-prs { width: 7.5rem; justify-content: center; }
+        .lbcol-head { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.3; }
+        .lbcol small { font-size: 0.72rem; color: var(--muted); }
+        .lbcol[title] { cursor: help; }
         .flake { font-weight: 600; }
         .flake.warm { color: var(--warn); }
         .flake.hot { color: var(--bad); }
-        .foot { color: var(--muted); font-size: 0.78rem; margin-left: 0.45rem; }
-        .lbprs { font-size: 0.78rem; margin: 0.15rem 0 0 1.6rem; }
-        .lbprs a { margin-right: 0.4rem; font-size: 0.72rem; font-weight: 600; padding: 0.05rem 0.45em; text-decoration: none; }
-        .lbprs a:hover { text-decoration: underline; }
-        .strip { display: inline-flex; gap: 1px; margin-left: 0.5rem; vertical-align: middle; }
-        .run { width: 3px; height: 12px; border-radius: 1px; }
-        .run-p { background: var(--ok); }
-        .run-f { background: var(--bad); }
         .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: var(--radius-tag); margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
         .live.running { background: var(--ok-bg); color: var(--ok); }
         .live.queued { background: var(--warn-bg); color: var(--warn); }
-        .why { margin-left: 0.35rem; }
-        .details { position: relative; margin: 0.3rem 0 0.1rem 1.6rem; background: var(--details-bg); border-radius: var(--radius); }
-        .details pre { margin: 0; padding: 0.5rem 3.2rem 0.5rem 0.7rem; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
-        .details .copy { position: absolute; top: 0.3rem; right: 0.3rem; font-size: 0.68rem; padding: 0.05rem 0.4rem; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--btn-bg); color: var(--muted); cursor: pointer; }
-        .details .copy:hover { color: var(--fg); border-color: var(--line-strong); }
+        .details { margin: 0.3rem 0 0.1rem 1.6rem; background: var(--details-bg); border-radius: var(--radius); }
+        .details-acts { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0.7rem 0; }
+        .details p { margin: 0.35rem 0 0; padding: 0 0.7rem; font-size: 0.78rem; color: var(--muted); }
+        .details p a { margin: 0; }
+        .details pre { margin: 0; padding: 0.3rem 0.7rem 0.5rem; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+        .details pre .why { margin-left: 0.3rem; }
         .updated { font-size: 0.78rem; color: var(--muted); text-align: right; margin: 0.9rem 0 0.2rem; }
         .intro { color: var(--muted); font-size: 0.88rem; margin: 0 0 0.8rem; max-width: 60rem; }
         .group-head { font-size: 1rem; margin: 0.2rem 0 0.1rem; }
-        .group-head + .group-sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 0.4rem; }
-        .group-head:not(:first-child) { margin-top: 1.2rem; }
+        .group-sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 0.4rem; }
+        .group-row:not(:first-child) { margin-top: 1.2rem; }
 
         html[data-theme="terminal"] {
             .live { padding: 0 0.15rem; }
-            .lbprs a { padding: 0 0.1rem; }
         }
         @media (max-width: 768px) {
             .wrap { padding: 0 0.75rem; }
+            .lbhead, .group-row { flex-wrap: wrap; }
+            .lbcol { width: auto; flex-direction: row; gap: 0.35rem; align-items: baseline; }
+            .lbcol-head { display: none; }
+            .details { margin-left: 0; }
         }
     </style>
 </head>
@@ -84,9 +87,9 @@
 
     <div class="wrap">
         <div id="err" class="muted"></div>
-        <p id="intro" class="intro">Tests that fail on master, so they also fail in pull requests that did not break them.
-            Flaky tests come first, then the tests that failed each of their latest master runs (10 or more in a row, or
-            every run when a test has fewer): find the commit that broke them. Muted tests are left out.</p>
+        <p class="intro"><span id="intro">Tests that fail on master, so they also fail in PRs that did not break them. Tests
+            muted on TeamCity are not shown.</span>
+            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#the-flaky-board-flakyhtml" target="_self" rel="noopener" title="How this board works" aria-label="How this board works">?</a></p>
         <div class="section"><div id="flaky" class="leaderboard"></div></div>
         <div class="updated" id="updated"></div>
     </div>

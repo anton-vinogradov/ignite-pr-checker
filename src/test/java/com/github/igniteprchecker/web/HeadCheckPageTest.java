@@ -280,7 +280,7 @@ class HeadCheckPageTest {
 
         assertThat(marks(old.get("before"))).as("no ✓ while the check runs").containsExactly("…");
         assertThat(marks(old.get("after"))).containsExactly("…", "?");
-        assertThat(old.get("after").get(1).asText()).contains("pr-badge unproven", "old code");
+        assertThat(old.get("after").get(1).asText()).contains("pr-badge unproven", "commits were pushed after this run");
         assertThat(marks(current.get("before"))).isEmpty();
         assertThat(marks(current.get("after"))).containsExactly("✓");
         assertThat(marks(live.get("after"))).containsExactly("…", "✓");

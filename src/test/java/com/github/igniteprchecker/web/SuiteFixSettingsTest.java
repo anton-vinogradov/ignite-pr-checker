@@ -102,9 +102,11 @@ class SuiteFixSettingsTest {
                 old: suiteFixCard(undefined, ago) });
             """, "card", "suiteFixCard");
 
-        assertThat(cards.get("idle").asText()).contains("Suite fixes", ">0 <small>commits · 0 users · sweep never"
-            + "</small>");
-        assertThat(cards.get("busy").asText()).contains(">3 <small>commits · 2 users · sweep 2m ago</small>");
+        assertThat(cards.get("idle").asText()).contains("Tests added to suites");
+        assertThat(cards.get("idle").asText().replaceAll("<[^>]+>", ""))
+            .contains("0 commits · 0 users with it on · sweep never");
+        assertThat(cards.get("busy").asText().replaceAll("<[^>]+>", ""))
+            .contains("3 commits · 2 users with it on · sweep 2m ago");
         assertThat(cards.get("old").asText()).isEmpty();
     }
 

@@ -68,10 +68,10 @@ class PrListBadgeTest {
             """);
 
         String list = out.get("list").asText();
-        assertThat(list).contains("<span class=\"pr-badge watch\" title=\"no blockers, but tests started failing on "
-            + "this code — a re-run decides\">!</span>");
-        assertThat(list).contains("<span class=\"pr-badge unproven\" title=\"old code — no blockers in this run, but "
-            + "commits were pushed since it\">?</span>");
+        assertThat(list).contains("<span class=\"pr-badge watch\" title=\"No blockers yet, but some tests started "
+            + "failing on the PR&#39;s latest code. A rerun decides.\">!</span>");
+        assertThat(list).contains("<span class=\"pr-badge unproven\" title=\"No blockers found, but commits were pushed "
+            + "after this run.\">?</span>");
         assertThat(list.split("pr-badge ok", -1)).as("one tick only").hasSize(2);
     }
 

@@ -124,6 +124,6 @@ class StatusHealthTest {
         assertThat(out.get("health")).isEqualTo("error");
         assertThat(out.get("logHealth")).isEqualTo("ok");
         assertThat((List<Object>) out.get("healthProblems"))
-            .containsExactly(new ServiceHealth.Problem("error", "standing-visa sweep last started 40 min ago"));
+            .containsExactly(new ServiceHealth.Problem("error", "standing sweep last started 40 min ago"));
     }
 }
