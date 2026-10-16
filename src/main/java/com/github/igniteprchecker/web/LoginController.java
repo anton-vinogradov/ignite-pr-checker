@@ -31,6 +31,10 @@ import org.springframework.web.client.RestClientResponseException;
 @RestController
 @RequestMapping("/api")
 public class LoginController {
+    /** What a logout tells a user whose options go on without them. */
+    static final String OPTIONS_GO_ON = "You are logged out. Your options in ⚙ stay on and keep using your TeamCity "
+        + "token, which the server stores for them: to stop that, log in and switch them off.";
+
     private final UserDirectory users;
 
     private final TcClient tc;
@@ -149,18 +153,22 @@ public class LoginController {
      * the user issued until now ends, copies of this cookie included. The page asks for this browser only when
      * TeamCity has refused the session's token: that ends no other session, which may run on another token. A cookie
      * the guard would refuse ends nothing, or a copy a logout already ended could end each later login of its user.
+     * The session's token leaves the warming pool at once, unless the user's standing options lend it there; when
+     * options of theirs work on a stored token, {@code note} says so.
      */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@RequestParam(defaultValue = "true") boolean everywhere,
+    public ResponseEntity<Map<String, String>> logout(@RequestParam(defaultValue = "true") boolean everywhere,
         @CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
-        if (everywhere) {
-            codec.decode(cookie).filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s))
-                .ifPresent(s -> users.endSessions(s.username()));
-        }
+        Optional<SessionCodec.Session> live = codec.decode(cookie)
+            .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
+        if (everywhere)
+            live.ifPresent(s -> users.endSessions(s.username()));
+        live.filter(s -> !standing.lendsTcToken(s.username(), s.token())).ifPresent(s -> warmer.forget(s.token()));
+        boolean optionsGoOn = live.filter(s -> standing.keepsTcToken(s.username())).isPresent();
 
-        return ResponseEntity.noContent()
+        return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, SessionCookies.cleared(props.cookieSecure()).toString())
-            .build();
+            .body(optionsGoOn ? Map.of("note", OPTIONS_GO_ON) : Map.of());
     }
 
     @GetMapping("/me")

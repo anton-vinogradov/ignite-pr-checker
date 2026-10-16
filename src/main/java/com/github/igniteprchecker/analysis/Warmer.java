@@ -307,6 +307,14 @@ public class Warmer {
         return tokens.size();
     }
 
+    /**
+     * Drops the token of a user who logged out from the pool at once, rather than an hour after their last request.
+     * It is not marked refused: the standing options may lend the same token again.
+     */
+    public void forget(String token) {
+        tokens.forget(token);
+    }
+
     /** Whether TeamCity answered 401 for this token and no login has proven it valid since. */
     public boolean tokenRevoked(String token) {
         return tokens.revoked(token);

@@ -783,10 +783,14 @@ async function login() {
     }
 }
 
+// Options keep working after a logout; the server says so when the user has some, or the logout would look like it
+// stopped them.
 async function logout() {
     stopRunsPoll();
-    await api('/api/logout', { method: 'POST' });
+    const r = await api('/api/logout', { method: 'POST' });
+    const { note } = r.ok ? await r.json().catch(() => ({})) : {};
     signedOut();
+    if (note) $('loginErr').textContent = note;
 }
 
 let analyzeRetries = 0;

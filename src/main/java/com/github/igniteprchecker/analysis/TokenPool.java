@@ -79,6 +79,15 @@ final class TokenPool {
         return wasEmpty;
     }
 
+    /**
+     * Drops a token its user took back by logging out. Not a refusal: the next offer of the same token, from the
+     * standing options or a later login, counts at once.
+     */
+    void forget(String token) {
+        if (token != null)
+            lastSeen.remove(token);
+    }
+
     /** Drop a token TeamCity rejected (revoked/expired) so it isn't tried again while it cools down. */
     void remove(String token) {
         remove(token, false);

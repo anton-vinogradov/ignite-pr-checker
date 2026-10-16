@@ -21,6 +21,23 @@ class TokenPoolTest {
         assertThat(pool.size()).isEqualTo(2);
     }
 
+    /**
+     * A logout takes the token out of the pool. Through remove(), as a refusal, the same token lent again by the
+     * user's standing options would have stayed out for an hour.
+     */
+    @Test
+    void aForgottenTokenComesBackWithItsNextOffer() {
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
+        pool.offer("a", false);
+
+        pool.forget("a");
+
+        assertThat(pool.size()).isZero();
+        assertThat(pool.revoked("a")).isFalse();
+        assertThat(pool.offer("a", false)).isTrue();
+        assertThat(pool.size()).isEqualTo(1);
+    }
+
     @Test
     void nextCyclesThroughAllTokens() {
         TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));

@@ -604,6 +604,20 @@ public class StandingVisas implements SnapshotCache {
                 username);
     }
 
+    /** Whether the user's options lend this TeamCity token to the background reads; see {@link #backgroundToken}. */
+    public boolean lendsTcToken(String username, String token) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && backgroundToken(e).filter(t -> t.equals(token)).isPresent();
+    }
+
+    /** Whether options of the user are on and act with a TeamCity token the server stores, one TeamCity accepts. */
+    public boolean keepsTcToken(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && !e.tc().rejected() && e.tc().token() != null;
+    }
+
     /** When TeamCity refused the user's stored token; 0 when it has not. */
     public long tcRejectedAt(String username) {
         Enrollment e = enrolled.get(username);

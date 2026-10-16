@@ -51,7 +51,7 @@ class SessionLifetimeTest {
     private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, mock(StandingVisas.class));
 
     private final LoginController login = new LoginController(null, codec, new SessionProperties(true, "test-secret"),
-        warmer, users, null, new AdminActions(new AdminProperties(List.of()), mapper), null);
+        warmer, users, null, new AdminActions(new AdminProperties(List.of()), mapper), mock(StandingVisas.class));
 
     private final JiraClient jira = mock(JiraClient.class);
 
@@ -127,7 +127,7 @@ class SessionLifetimeTest {
         String copy = cookie("alice", before + 1000);
         String bobs = cookie("bob", before);
 
-        ResponseEntity<Void> out = login.logout(true, here);
+        ResponseEntity<?> out = login.logout(true, here);
 
         assertThat(HttpCookie.parse(out.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getMaxAge()).isZero();
         assertThat(guard(copy).getStatus()).isEqualTo(401);

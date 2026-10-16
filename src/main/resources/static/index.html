@@ -404,9 +404,9 @@
             <p class="login-intro">See which tests your Apache Ignite PR actually broke, not the ones already failing or
                 flaky on master. Start a RunAll or rerun just the blockers, right from here.</p>
             <p id="loginTokenNote" class="login-note muted">Log in with your own TeamCity (ci2) access token. There is no
-                shared account: TeamCity records the runs you start or cancel here as yours. For about an hour after your
-                last request, the server keeps your token in memory. It uses the token only to read from TeamCity, to
-                check open PRs for everyone.</p>
+                shared account: TeamCity records the runs you start or cancel here as yours. Until you log out, but no
+                longer than about an hour after your last request, the server keeps your token in memory. It uses the
+                token only to read from TeamCity, to check open PRs for everyone.</p>
             <div class="row">
                 <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
                 <button id="loginBtn" class="primary">Log in</button>

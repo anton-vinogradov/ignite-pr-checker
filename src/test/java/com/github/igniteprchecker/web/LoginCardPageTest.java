@@ -45,9 +45,9 @@ class LoginCardPageTest {
     @Test
     void theOneLineOverTheFieldSaysTheServerReadsForEveryone() throws IOException {
         assertThat(textOf("<p id=\"loginTokenNote\"")).isEqualTo("Log in with your own TeamCity (ci2) access token. "
-            + "There is no shared account: TeamCity records the runs you start or cancel here as yours. For about an "
-            + "hour after your last request, the server keeps your token in memory. It uses the token only to read "
-            + "from TeamCity, to check open PRs for everyone.");
+            + "There is no shared account: TeamCity records the runs you start or cancel here as yours. Until you log "
+            + "out, but no longer than about an hour after your last request, the server keeps your token in memory. "
+            + "It uses the token only to read from TeamCity, to check open PRs for everyone.");
     }
 
     /** The fold said again what the line over the field says: that the server reads TeamCity with the token. */
