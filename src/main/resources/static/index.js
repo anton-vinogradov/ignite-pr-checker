@@ -784,13 +784,13 @@ async function login() {
 }
 
 // Options keep working after a logout; the server says so when the user has some, or the logout would look like it
-// stopped them.
+// stopped them. A token TeamCity refuses ends no other session, and the user is told why.
 async function logout() {
     stopRunsPoll();
     const r = await api('/api/logout', { method: 'POST' });
-    const { note } = r.ok ? await r.json().catch(() => ({})) : {};
+    const { note, error } = await r.json().catch(() => ({}));
     signedOut();
-    if (note) $('loginErr').textContent = note;
+    if (note || error) $('loginErr').textContent = note || error;
 }
 
 let analyzeRetries = 0;

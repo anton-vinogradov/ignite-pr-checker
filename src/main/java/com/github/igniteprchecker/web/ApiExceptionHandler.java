@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
@@ -41,8 +42,11 @@ public class ApiExceptionHandler {
 
     private final TcClient tc;
 
-    public ApiExceptionHandler(TcClient tc) {
+    private final Warmer warmer;
+
+    public ApiExceptionHandler(TcClient tc, Warmer warmer) {
         this.tc = tc;
+        this.warmer = warmer;
     }
 
     @ExceptionHandler(ResourceAccessException.class)
@@ -55,14 +59,14 @@ public class ApiExceptionHandler {
 
     /**
      * A 401 means the user's own token only when TeamCity refuses it outright: a request can join an
-     * analysis started under someone else's pooled token. A 403 is ci2's firewall as often as missing
-     * rights, so it never logs anyone out.
+     * analysis started under someone else's pooled token. Then the token's sessions are refused from now on. A 403 is
+     * ci2's firewall as often as missing rights, so it never logs anyone out.
      */
     @ExceptionHandler(TcResponseException.class)
     public ResponseEntity<Map<String, Object>> teamCityRefused(TcResponseException e, HttpServletRequest req) {
         int status = e.getStatusCode().value();
         if (status == 401 && req.getAttribute(AuthInterceptor.TOKEN_ATTR) instanceof String token
-            && tc.tokenRejected(token)) {
+            && LiveTokenGuard.refusedNow(tc, warmer, token)) {
             log.info("TeamCity rejected the token of {}", req.getAttribute(AuthInterceptor.USER_ATTR));
 
             return ResponseEntity.status(401).body(Map.of("error", TOKEN_REJECTED, "tokenRejected", true));

@@ -22,6 +22,19 @@ class LogoutNotePageTest {
         assertThat(out.get("message").asText()).isEqualTo(LoginController.OPTIONS_GO_ON);
     }
 
+    /** A logout everywhere on a token TeamCity refuses ends no other session; the user is told why. */
+    @Test
+    void aLogoutOnARefusedTokenSaysWhy() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/logout', { status: 401, body: { error: ERROR, tokenRejected: true } });
+            await page.load('?pr=13575');
+            await page.el('logout').onclick();
+            report({ message: page.el('loginErr').textContent });
+            """.replace("ERROR", new ObjectMapper().writeValueAsString(ApiExceptionHandler.TOKEN_REJECTED)));
+
+        assertThat(out.get("message").asText()).isEqualTo(ApiExceptionHandler.TOKEN_REJECTED);
+    }
+
     @Test
     void aLogoutWithoutOptionsSaysNothing() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """

@@ -69,7 +69,7 @@ class TokensOutOfLogsTest {
                 new AdminActions(new AdminProperties(null), mapper), standing),
             new JiraController(jira, tc, mock(BlockerAnalyzer.class), codec, mock(VisaService.class),
                 mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false))
-        .setControllerAdvice(new ApiExceptionHandler(tc), new TokenFormat())
+        .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)), new TokenFormat())
         .build();
 
     @Test

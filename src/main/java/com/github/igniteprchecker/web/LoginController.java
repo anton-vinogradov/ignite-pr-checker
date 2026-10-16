@@ -153,21 +153,28 @@ public class LoginController {
      * the user issued until now ends, copies of this cookie included. The page asks for this browser only when
      * TeamCity has refused the session's token: that ends no other session, which may run on another token. A cookie
      * the guard would refuse ends nothing, or a copy a logout already ended could end each later login of its user.
-     * The session's token leaves the warming pool at once, unless the user's standing options lend it there; when
+     * Before ending every session, TeamCity is asked whether this session's token still works: a session on a token
+     * TeamCity refuses ends no other, and the answer says the token was refused, as {@link LiveTokenGuard} does. The
+     * session's token leaves the warming pool at once, unless the user's standing options lend it there; when
      * options of theirs work on a stored token, {@code note} says so.
      */
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, String>> logout(@RequestParam(defaultValue = "true") boolean everywhere,
+    public ResponseEntity<Map<String, Object>> logout(@RequestParam(defaultValue = "true") boolean everywhere,
         @CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
+        String cleared = SessionCookies.cleared(props.cookieSecure()).toString();
         Optional<SessionCodec.Session> live = codec.decode(cookie)
             .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
+        if (everywhere && live.filter(s -> LiveTokenGuard.refusedNow(tc, warmer, s.token())).isPresent()) {
+            return ResponseEntity.status(401).header(HttpHeaders.SET_COOKIE, cleared)
+                .body(Map.of("error", ApiExceptionHandler.TOKEN_REJECTED, "tokenRejected", true));
+        }
+
         if (everywhere)
             live.ifPresent(s -> users.endSessions(s.username()));
         live.filter(s -> !standing.lendsTcToken(s.username(), s.token())).ifPresent(s -> warmer.forget(s.token()));
         boolean optionsGoOn = live.filter(s -> standing.keepsTcToken(s.username())).isPresent();
 
-        return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, SessionCookies.cleared(props.cookieSecure()).toString())
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cleared)
             .body(optionsGoOn ? Map.of("note", OPTIONS_GO_ON) : Map.of());
     }
 

@@ -471,8 +471,10 @@ from its own GitHub account, the app account.
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form. **Log out** ends your login in every browser, copies of its cookie included, and takes your token out of
-  the warming pool unless a standing option keeps it there; a login left unused for 400 days ends too.
+  login form. Before **Link GitHub**, **Unlink**, a switch in ⚙, **Log out** and the operator's buttons, the checker
+  asks TeamCity whether your token still works; with a revoked token the action does not happen. **Log out** ends
+  your login in every browser, copies of its cookie included, and takes your token out of the warming pool unless a
+  standing option keeps it there; a login left unused for 400 days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

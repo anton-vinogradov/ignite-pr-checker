@@ -50,8 +50,9 @@ class SessionLifetimeTest {
 
     private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, mock(StandingVisas.class));
 
-    private final LoginController login = new LoginController(null, codec, new SessionProperties(true, "test-secret"),
-        warmer, users, null, new AdminActions(new AdminProperties(List.of()), mapper), mock(StandingVisas.class));
+    private final LoginController login = new LoginController(mock(TcClient.class), codec,
+        new SessionProperties(true, "test-secret"), warmer, users, null,
+        new AdminActions(new AdminProperties(List.of()), mapper), mock(StandingVisas.class));
 
     private final JiraClient jira = mock(JiraClient.class);
 

@@ -51,7 +51,7 @@ class LogoutTokenPoolTest {
     void theTokenOfAUserWithoutOptionsLeavesThePool() {
         warmer.offerToken("alice-tc");
 
-        ResponseEntity<Map<String, String>> out = logout("alice", "alice-tc");
+        ResponseEntity<Map<String, Object>> out = logout("alice", "alice-tc");
 
         assertThat(warmer.pooledTokens()).isZero();
         assertThat(warmer.tokenRevoked("alice-tc")).isFalse();
@@ -63,7 +63,7 @@ class LogoutTokenPoolTest {
         standing.change("bob", "bob-tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
         warmer.offerToken("bob-tc");
 
-        ResponseEntity<Map<String, String>> out = logout("bob", "bob-tc");
+        ResponseEntity<Map<String, Object>> out = logout("bob", "bob-tc");
 
         assertThat(warmer.borrowToken()).isEqualTo("bob-tc");
         assertThat(out.getBody()).containsEntry("note", LoginController.OPTIONS_GO_ON);
@@ -76,13 +76,13 @@ class LogoutTokenPoolTest {
         standing.linkGhLogin("carol", "carol-tc", new GithubClient.GhUser("carol-gh", 4242));
         warmer.offerToken("carol-tc");
 
-        ResponseEntity<Map<String, String>> out = logout("carol", "carol-tc");
+        ResponseEntity<Map<String, Object>> out = logout("carol", "carol-tc");
 
         assertThat(warmer.pooledTokens()).isZero();
         assertThat(out.getBody()).containsEntry("note", LoginController.OPTIONS_GO_ON);
     }
 
-    private ResponseEntity<Map<String, String>> logout(String user, String token) {
+    private ResponseEntity<Map<String, Object>> logout(String user, String token) {
         return login.logout(true, codec.encode(new SessionCodec.Session(user, token, null)));
     }
 }

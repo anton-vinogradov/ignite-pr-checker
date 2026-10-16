@@ -315,6 +315,14 @@ public class Warmer {
         tokens.forget(token);
     }
 
+    /**
+     * Records that TeamCity refused this token itself (401) when a user's request or action used it: it leaves the pool,
+     * and its sessions are refused until a login proves it valid again.
+     */
+    public void revoke(String token) {
+        tokens.remove(token, true);
+    }
+
     /** Whether TeamCity answered 401 for this token and no login has proven it valid since. */
     public boolean tokenRevoked(String token) {
         return tokens.revoked(token);

@@ -105,7 +105,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
     }
 
-    private static void refuse(HttpServletResponse resp, String json) throws IOException {
+    static void refuse(HttpServletResponse resp, String json) throws IOException {
         resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         resp.setContentType("application/json");
         resp.setCharacterEncoding("UTF-8");
