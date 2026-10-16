@@ -1947,7 +1947,7 @@ async function rerunSuite(suite, top, btn) {
 }
 
 // "(N suites, M tests)" — how many suites are affected and how many tests failed; suites are counted by suite id, as
-// the Rerun buttons and the visa count them, so a suite that ran twice is one.
+// the Rerun buttons count them, so a suite that ran twice is one.
 function countLabel(list) {
     const suites = new Set(list.map(suiteKey)).size;
     const n = list.length;
@@ -2044,14 +2044,15 @@ function renderList(el, tests, withReason, above, oneRunSaid = false) {
         const head = esc(g.name)
             + (newest ? `<a class="ext" href="${newest}" target="_self" rel="noopener" title="Open the newest run of this suite in TeamCity.">TC</a>` : '');
         const byReason = withReason ? reasonGroups(g.items, oneRunSaid) : [['', g.items]];
-        const shared = byReason.length === 1 && byReason[0][0] ? `<div class="reason">${esc(byReason[0][0])}</div>` : '';
+        const shared = byReason.length === 1 && byReason[0][0] ? `<li class="reason-head">${esc(byReason[0][0])}</li>` : '';
         const rows = byReason.map(([reason, items]) => {
             const own = byReason.length > 1 && items.length === 1 ? reason : '';
-            const subhead = byReason.length > 1 && items.length > 1 ? `<li class="reason-head">${items.length} tests: ${esc(reason)}</li>` : '';
-            return subhead + items.map(t => testRow(t, g.btId, withReason, own, oneRunSaid)).join('');
+            const grouped = byReason.length > 1 && items.length > 1;
+            const subhead = grouped ? `<li class="reason-head">${items.length} tests: ${esc(reason)}</li>` : '';
+            return subhead + items.map(t => testRow(t, g.btId, withReason, own, oneRunSaid, grouped)).join('');
         }).join('');
         return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${suiteRowActs(g.btId, above)}</div>`
-            + `${shared}<ul class="suite-tests">${rows}</ul></li>`;
+            + `<ul class="suite-tests">${shared}${rows}</ul></li>`;
     }).join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
@@ -2086,7 +2087,8 @@ function runUrlOf(btId, buildId) {
 // One test: its name as plain text, the full one in its title, then one column of strip, tags, TC link and
 // "failure ▸", or "copy AI prompt" when TeamCity kept no failure message to open. `own` is the reason written under
 // this row alone; when the row does not show its whole reason, the row's title holds it, and data-verdict always does.
-function testRow(t, btId, withReason, own, oneRunSaid) {
+// A `grouped` row stands under a "N tests: reason" line, one step in.
+function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
     const runUrl = runUrlOf(btId, t.suiteBuildId);
     // expandedTest opens the test "into itself" in this build (not the branch summary).
     // occurrenceId is already the full "build:(id:..),id:.." locator; TeamCity's router
@@ -2117,7 +2119,7 @@ function testRow(t, btId, withReason, own, oneRunSaid) {
             + `<button class="why copy" type="button" title="Copy the failure message.">copy failure</button>${ai}</div><pre></pre></div>`
         : '';
     const title = withReason && own !== (t.reason || '') ? ` title="${esc(t.reason)}"` : '';
-    return `<li class="test-row"${title}><span class="tname" title="${esc(t.name)}">${esc(shortTestName(t.name))}</span>`
+    return `<li class="test-row${grouped ? ' grouped' : ''}"${title}><span class="tname" title="${esc(t.name)}">${esc(shortTestName(t.name))}</span>`
         + `<span class="tacts">${runStrip(t.branchRuns, t.codeRuns, oneRunSaid ? 2 : 1)}${flaky}${doubtTags(t, oneRunSaid ? 'ONE_RUN' : null)}${tc}${toggle || ai}</span>`
         + (own ? `<div class="reason">${esc(own)}</div>` : '') + panel + '</li>';
 }

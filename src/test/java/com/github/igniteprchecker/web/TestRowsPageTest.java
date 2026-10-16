@@ -66,18 +66,19 @@ class TestRowsPageTest {
             """);
 
         JsonNode several = out.get("several");
-        assertThat(several.get("html").asText()).as("the bigger group first, the lone test's reason under it")
+        assertThat(several.get("html").asText()).as("the bigger group first, its rows one step in, the lone test's reason under it")
             .containsSubsequence("<li class=\"reason-head\">2 tests: not seen failing in 78 master run(s) on JDK 17; failed "
-                + "all 3 runs on this branch</li>", ">B.b</span>", ">C.c</span>", ">A.a</span>",
-                "<div class=\"reason\">not seen failing in only 4 master run(s) on JDK 17; failed all 3 runs on this "
-                + "branch</div>")
+                + "all 3 runs on this branch</li>", "<li class=\"test-row grouped\" title=\"not seen failing in 78", ">B.b</span>",
+                "<li class=\"test-row grouped\" title=\"not seen failing in 78", ">C.c</span>", "<li class=\"test-row\"><span",
+                ">A.a</span>", "<div class=\"reason\">not seen failing in only 4 master run(s) on JDK 17; failed all 3 runs on "
+                + "this branch</div>")
             .doesNotContain("1 tests:");
         assertThat(several.get("text").asText().split("not seen failing in 78 master")).as("said once").hasSize(2);
         JsonNode one = out.get("one");
-        assertThat(one.get("html").asText())
-            .containsSubsequence("</div><div class=\"reason\">not seen failing in 78 master run(s) on JDK 17; "
-                + "failed all 3 runs on this branch</div><ul class=\"suite-tests\">", ">A.a</span>", ">B.b</span>")
-            .doesNotContain("reason-head", "tests:");
+        assertThat(one.get("html").asText()).as("the shared reason is the first line of the list, at the rows' step")
+            .containsSubsequence("</div><ul class=\"suite-tests\"><li class=\"reason-head\">not seen failing in 78 master run(s) on "
+                + "JDK 17; failed all 3 runs on this branch</li><li class=\"test-row\" title=", ">A.a</span>", ">B.b</span>")
+            .doesNotContain("tests:", "grouped", "<div class=\"reason\">");
         assertThat(one.get("text").asText().split("not seen failing in 78 master")).as("said once").hasSize(2);
     }
 
@@ -112,7 +113,8 @@ class TestRowsPageTest {
             .doesNotContain(">1 run</span>", "class=\"strip\"", "failed the only run on this branch</div>");
         assertThat(out.get("mixed").get("watch").asText()).contains(">1 run</span>", "class=\"strip\"");
         assertThat(out.get("all").asText()).as("every blocker on one run: the line above the list says it")
-            .contains("<div class=\"reason\">no master history on JDK 17 (can&#39;t prove pre-existing)</div><ul")
+            .contains("<ul class=\"suite-tests\"><li class=\"reason-head\">no master history on JDK 17 (can&#39;t prove "
+                + "pre-existing)</li>")
             .doesNotContain(">1 run</span>", "class=\"strip\"");
         assertThat(out.get("allText").asText()).doesNotContain("failed the only run on this branch");
     }
@@ -220,17 +222,44 @@ class TestRowsPageTest {
         assertThat(out.get("java").asText()).isEqualTo("SomeTest.testX[param=1]");
     }
 
-    /** The tests of a suite share one grid, so their strips, tags and buttons stand in one column; a phone wraps. */
+    /**
+     * The tests of a suite share one grid, so their strips, tags and buttons stand in one column that the names and
+     * the buttons alone size: a reason line or an open failure panel, which span both columns, must not move it. The
+     * rows under a "N tests" line stand one step in; a phone wraps.
+     */
     @Test
     void theRowsOfASuiteAlignTheirActionsInOneColumn() throws Exception {
         String css = Files.readString(PAGE);
 
         assertThat(rule(css, "ul.suite-tests")).contains("display: grid", "grid-template-columns: minmax(0, max-content) auto");
         assertThat(rule(css, "ul.suite-tests > li.test-row")).contains("grid-template-columns: subgrid");
-        assertThat(rule(css, "ul.suite-tests > li.test-row:hover")).contains("background: var(--row-hover)");
+        assertThat(rule(css, "ul.suite-tests > li.reason-head, ul.suite-tests > li.test-row > .reason, "
+            + "ul.suite-tests > li.test-row > .details")).contains("grid-column: 1 / -1", "contain: inline-size");
+        assertThat(rule(css, "ul.suite-tests > li.test-row.grouped")).contains("padding-left: 2rem");
+        assertThat(rule(css, "ul.suite-tests > li.test-row:hover")).contains("background: var(--fill)");
         String narrow = css.substring(css.indexOf("@media (max-width: 768px)"));
         assertThat(rule(narrow, "ul.suite-tests")).contains("display: block");
         assertThat(rule(narrow, "ul.suite-tests > li.test-row")).contains("display: flex", "flex-wrap: wrap");
+    }
+
+    /** The panel's copy button goes back to its own label after the flash, not to the flaky board's "copy". */
+    @Test
+    void theCopyFailureButtonReadsCopyFailureAgainAfterTheFlash() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            const copy = page.el('copy'), pre = page.el('pre');
+            pre.textContent = 'java.lang.AssertionError: expected:<1> but was:<2>';
+            copy.closest = () => ({ querySelector: () => pre });
+            page.el('blockers').querySelectorAll = sel => sel === '.details .copy' ? [copy] : [];
+            await page.load('?pr=13575');
+            copy.onclick();
+            await page.settle();
+            const flashed = copy.textContent;
+            await page.tick(1600);
+            report({ flashed, idle: copy.textContent });
+            """);
+
+        assertThat(out.get("flashed").asText()).isEqualTo("copied");
+        assertThat(out.get("idle").asText()).isEqualTo("copy failure");
     }
 
     private static String rule(String css, String selector) {

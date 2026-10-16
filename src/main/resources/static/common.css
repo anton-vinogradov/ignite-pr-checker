@@ -21,7 +21,7 @@ html[data-theme="dark"] {
 html[data-theme="jetbrains"] {
     --bg: #17191c; --fg: #dfe1e5; --muted: #9da0a8; --line: #34383d; --line-strong: #4a4f55;
     --bad: #fa6675; --on-bad: #17191c; --ok: #6aab73; --ok-bg: #1e3123; --warn: #d5b778; --warn-bg: #3d3223;
-    --accent: #6b9bfa; --accent-hover: #8ab1ff; --on-accent: #17191c; --sel: #1f2b45; --row-hover: #1f2328;
+    --accent: #6e9ffb; --accent-hover: #8ab1ff; --on-accent: #17191c; --sel: #1f2b45; --row-hover: #1f2328;
     --pane-bg: #1c1f23; --card-bg: #1c1f23; --details-bg: #1f2328; --input-bg: #1f2328; --btn-bg: #24282d; --btn-hover: #2b333d;
     --fill: rgba(157, 160, 168, 0.18); --primary-bg: #dfe1e5; --on-primary: #17191c;
     --radius: 3px; --radius-card: 4px; --radius-small: 3px; --radius-tag: 3px;

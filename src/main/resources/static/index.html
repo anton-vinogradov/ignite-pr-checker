@@ -191,7 +191,7 @@
         .details-acts { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0.7rem 0; }
         .details pre { margin: 0; padding: 0.4rem 0.7rem 0.5rem; font-size: 0.72rem; line-height: 1.4; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
         .reason, .reason-head { color: var(--muted); font-size: 0.78rem; }
-        .reason-head { margin-top: 0.3rem; }
+        ul.suite-tests > li.test-row + li.reason-head { margin-top: 0.3rem; }
         .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.5rem; }
         .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; display: flex; align-items: center; flex-wrap: wrap; column-gap: 0.35rem; row-gap: 0.1rem; }
         .suite-name a.ext { margin: 0; }
@@ -207,11 +207,15 @@
         /* The tests of a suite share one grid: their strips, tags and buttons stand in one column, after the longest name. */
         ul.suite-tests { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, max-content) auto; }
         ul.suite-tests > li { grid-column: 1 / -1; padding: 0.12rem 0 0.12rem 1rem; }
+        /* The rows under a "N tests: reason" line stand one step in from it, as the rows stand in from the suite's name. */
+        ul.suite-tests > li.test-row.grouped { padding-left: 2rem; }
         ul.suite-tests > li.test-row { display: grid; grid-template-columns: subgrid; align-items: center; column-gap: 0.5rem; border-radius: var(--radius-small); }
-        ul.suite-tests > li.test-row:hover { background: var(--row-hover); }
+        ul.suite-tests > li.test-row:hover { background: var(--fill); }
         /* A tag's translucent fill over the hovered row would leave its muted text under 4.5:1 in the dark themes. */
         ul.suite-tests > li.test-row:hover .tag-doubt { background: var(--card-bg); }
-        ul.suite-tests > li.test-row > .reason, ul.suite-tests > li.test-row > .details { grid-column: 1 / -1; }
+        /* A line that spans both columns would add half of its excess width to the name column, and an open failure
+           panel would move every row's buttons: the names and the buttons alone size the columns. */
+        ul.suite-tests > li.reason-head, ul.suite-tests > li.test-row > .reason, ul.suite-tests > li.test-row > .details { grid-column: 1 / -1; contain: inline-size; }
         details summary { cursor: pointer; color: var(--muted); }
         .root-title { font-weight: 600; font-size: 0.92rem; color: var(--bad); margin-bottom: 0.2rem; }
         .broken-group > details { margin-top: 0.15rem; }

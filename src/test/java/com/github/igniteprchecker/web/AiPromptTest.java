@@ -258,6 +258,23 @@ class AiPromptTest {
             .doesNotContain("JDK 17; run the single test", "pytest");
     }
 
+    /** The Python suite's TeamCity id was never seen in the checker's data: a pytest name alone marks the test Python. */
+    @Test
+    void aPytestNameMarksTheTestPythonWhenTheSuiteIdDoesNot() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            const py = Object.assign(blocker('x', 'occ-py'), { suite: 'IgniteTests24Java8_ThinClient',
+                suiteName: 'Thin client', name: 'test_binary.test_sql_read_as_binary' });
+            page.route('/api/analyze', { body: verdict({ blockers: [py] }) });
+            await page.load('?pr=13575');
+            report({ prompt: await aiOf('blockers') });
+            """);
+
+        assertThat(out.get("prompt").asText())
+            .startsWith("Fix a failing test in Apache Ignite (Python).")
+            .contains("(one test: pytest -k test_sql_read_as_binary).")
+            .doesNotContain("JDK 17; run the single test");
+    }
+
     /** The buttons read "copy AI prompt"; after "copied" each went back to "ai", the cause's one too. */
     @Test
     void theButtonsReadCopyAiPromptAgainAfterTheFlash() throws Exception {
