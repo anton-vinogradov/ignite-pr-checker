@@ -62,12 +62,15 @@ function flakyRow(b, rank, i, reruns) {
     const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${esc(rr.webUrl)}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + esc(rr.pct) + '% complete' : ''}">#${esc(rr.pr)} · ${esc(rr.state)}${chipEta(rr)}</a>` : '';
     const prsTitle = b.prCount ? `Failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}`
         : `Failed in no PR in the last ${prDays} days`;
+    // On a phone the column headings are gone, so the cell says what it counts; wide, the heading says it.
+    const prsCell = b.prCount ? `${b.prCount}<small>PRs, last ${prDays} days</small>`
+        : `<span class="prs-none">—</span><small>no PRs, last ${prDays} days</small>`;
     return `<div class="lbrow">
             <div class="lbhead">
                 <span class="lbrank">${rank + 1}.</span>
                 <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${toggle}${live}</span>
                 ${rateCell(b)}
-                <span class="lbcol lbcol-prs" title="${esc(prsTitle)}">${b.prCount || '—'}</span>
+                <span class="lbcol lbcol-prs" title="${esc(prsTitle)}">${prsCell}</span>
             </div>
             ${panel}
         </div>`;
@@ -91,7 +94,8 @@ function rateCell(b) {
 function failurePanel(b, otherRuns, ai) {
     if (!b.occurrenceId && !otherRuns.length) return '';
     const runs = otherRuns.map(f => `<a href="${esc(masterRunUrl(b, f))}" target="_self" rel="noopener" title="Open this failed master run in TeamCity.">#${esc(f.buildId)}</a>`);
-    const copy = b.occurrenceId ? '<button class="why copy" type="button" title="Copy the failure message.">copy failure</button>' : '';
+    const copy = b.occurrenceId
+        ? '<button class="why copy" type="button" disabled title="Copy the failure message.">copy failure</button>' : '';
     return `<div class="details hidden"><div class="details-acts">${copy}${ai}</div>`
         + (runs.length ? `<p>Other failed master runs: ${runs.join(' · ')}</p>` : '')
         + (b.occurrenceId ? '<p>Failure message, from its latest failure in a PR:</p><pre></pre>' : '')
@@ -185,7 +189,7 @@ async function toggleDetails(btn, b) {
 }
 
 // The failure message needs a login; without one the panel says so and offers the prompt. A failed load leaves a
-// Retry, and loads again on the next opening.
+// Retry, and loads again on the next opening. "copy failure" works once there is a message to copy.
 async function loadFailure(box, b) {
     const pre = box.querySelector('pre');
     if (!pre || pre.dataset.loaded) return;
@@ -205,11 +209,11 @@ async function loadFailure(box, b) {
             ? (label ? label + '\n\n' : '') + details
             : '(no failure message available)';
         pre.dataset.loaded = '1';
+        box.querySelector('.copy').disabled = false;
     } catch (e) {
         pre.innerHTML = '<span class="err">Could not load the failure message.</span>'
             + '<button class="why retry" type="button" title="Load the failure message again.">Retry</button>';
-        const retry = pre.querySelector && pre.querySelector('.retry');
-        if (retry) retry.onclick = () => loadFailure(box, b);
+        pre.querySelector('.retry').onclick = () => loadFailure(box, b);
     }
 }
 

@@ -55,7 +55,9 @@ class PrListPageTest {
                 { number: 13600, title: 'Fix a typo in the README', url: 'https://github.com/apache/ignite/pull/13600',
                     triggeredBy: null, blockers: 0, proven: true, standing: 'CLEAN' },
                 { number: 13601, title: 'IGNITE-29100', url: 'https://github.com/apache/ignite/pull/13601',
-                    triggeredBy: null, blockers: null }] });
+                    triggeredBy: null, blockers: null },
+                { number: 13602, title: 'IGNITE-29101, IGNITE-29102: Two tickets', url: 'https://github.com/apache/ignite/pull/13602',
+                    triggeredBy: null, blockers: 0, proven: true }] });
             await page.load('');
             report({ html: page.el('prList').innerHTML });
             """);
@@ -72,7 +74,40 @@ class PrListPageTest {
             .contains("<span class=\"pr-ttl\">Fix a typo in the README</span>")
             .contains("<span class=\"pr-num\">#13601</span><span class=\"pr-key\">IGNITE-29100</span><span class=\"my-tag\"")
             .contains("<span class=\"pr-ttl\">IGNITE-29100</span>")
-            .doesNotContain("My?", "blocker(s)");
+            .contains("<span class=\"pr-num\">#13602</span><span class=\"pr-key\">IGNITE-29101</span>")
+            .contains("<span class=\"pr-ttl\">IGNITE-29102: Two tickets</span>")
+            .doesNotContain("My?", "blocker(s)", "<span class=\"pr-ttl\">, IGNITE");
+    }
+
+    /**
+     * The fold follows a PR opening and closing, and nothing else: the legend you opened by hand while a PR was open
+     * stays open when the list pane hides and shows again, and the one you folded on the start screen stays folded
+     * when the phone turns and the 768 px breakpoint fires.
+     */
+    @Test
+    void theFoldYouChoseStaysWhileThePaneCollapsesOrTheScreenTurns() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            await page.load('');
+            const legend = page.el('prLegend');
+            page.run('openPr')(13575, true);
+            await page.settle();
+            const folded = legend.open;
+            legend.open = true;
+            page.run('setPaneCollapsed')(true);
+            page.run('setPaneCollapsed')(false);
+            const keptOpen = legend.open;
+            page.run('goHome')(true);
+            await page.settle();
+            const unfolded = legend.open;
+            legend.open = false;
+            page.run('syncPane')();
+            report({ folded, keptOpen, unfolded, keptFolded: legend.open });
+            """);
+
+        assertThat(out.get("folded").asBoolean()).isFalse();
+        assertThat(out.get("keptOpen").asBoolean()).isTrue();
+        assertThat(out.get("unfolded").asBoolean()).isTrue();
+        assertThat(out.get("keptFolded").asBoolean()).isFalse();
     }
 
     /** The legend's badges carry the rows' own tooltips, word for word, and a count reads "1 blocker" or "33 blockers". */

@@ -153,7 +153,7 @@ async function loadPrs() {
 }
 
 // The ticket key a PR title starts with, and what follows it.
-const TITLE_KEY = /^(IGNITE-\d+)[\s:.\-–]*/;
+const TITLE_KEY = /^(IGNITE-\d+)[\s:.,\-–]*/;
 
 // The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
 const MY_RUN_TITLE = 'You started its latest RunAll (the PR may be someone else\'s)';
@@ -3108,6 +3108,9 @@ wireThemeToggle();
 // persists; on a narrow one the list covers the result, so it folds away whenever a PR opens.
 const narrowScreen = matchMedia('(max-width: 768px)');
 let narrowListOpen = false;
+// Whether the legend was last folded for an open PR: the fold follows a PR opening and closing, not the pane's
+// collapse or the screen's width, so what you open or fold by hand stays.
+let legendFoldedForPr = null;
 
 function syncPane() {
     const split = $('analyzeView');
@@ -3118,7 +3121,10 @@ function syncPane() {
     split.classList.toggle('home', !hasPr);
     $('paneCollapse').classList.toggle('hidden', !hasPr);
     // The legend is open where a PR is picked and folded once one is; the "…" badge exists only for the open PR.
-    $('prLegend').open = !hasPr;
+    if (hasPr !== legendFoldedForPr) {
+        $('prLegend').open = !hasPr;
+        legendFoldedForPr = hasPr;
+    }
     $('legendChecking').classList.toggle('hidden', !hasPr);
 }
 function setPaneCollapsed(collapsed) {

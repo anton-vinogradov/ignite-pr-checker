@@ -24,7 +24,8 @@
         .group-row { display: flex; align-items: baseline; gap: 0.5rem; }
         .group-row .group-head { flex: 1 1 auto; }
         .lbcol { flex: none; width: 8.5rem; display: inline-flex; flex-direction: column; align-items: flex-end; text-align: right; line-height: 1.25; }
-        .lbcol-prs { width: 7.5rem; justify-content: center; }
+        .lbcol-prs { justify-content: center; }
+        .lbcol-prs small { display: none; }
         .lbcol-head { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.3; }
         .lbcol small { font-size: 0.72rem; color: var(--muted); }
         .lbcol[title] { cursor: help; }
@@ -54,6 +55,8 @@
             .lbhead, .group-row { flex-wrap: wrap; }
             .lbcol { width: auto; flex-direction: row; gap: 0.35rem; align-items: baseline; }
             .lbcol-head { display: none; }
+            .lbcol-prs small { display: inline; }
+            .lbcol-prs .prs-none { display: none; }
             .details { margin-left: 0; }
         }
     </style>

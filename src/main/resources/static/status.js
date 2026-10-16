@@ -365,13 +365,15 @@ const TC_CATEGORIES = ['baseline', 'branchFailures', 'branchMoves', 'branchRuns'
     'whoami'];
 
 // Hues a golden angle apart, so neighbours in the list are far apart on the wheel; two lightnesses tell near hues apart.
+// The lightnesses follow the theme: dark bars on the light card, light bars on a dark one, every hue at 3:1 or more.
 function catColor(name) {
     let i = TC_CATEGORIES.indexOf(name);
     if (i < 0) {
         i = TC_CATEGORIES.length;
         for (const ch of String(name)) i = (i * 31 + ch.charCodeAt(0)) % 997;
     }
-    return `hsl(${Math.round(i * 137.508) % 360}, 60%, ${i % 2 ? 52 : 40}%)`;
+    const onLight = document.documentElement.getAttribute('data-theme') === 'light';
+    return `hsl(${Math.round(i * 137.508) % 360}, 60%, ${(onLight ? 28 : 58) + (i % 2 ? 10 : 0)}%)`;
 }
 
 // Stacked per-minute bars: each minute split into category-coloured segments (last hour).
@@ -428,10 +430,11 @@ async function tick() {
     }
 }
 
-window.addEventListener('resize', () => {
+function redrawChart() {
     if (!last) return;
     drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
-});
+}
+window.addEventListener('resize', redrawChart);
 // Users tab: active (last 15 min) vs everyone seen. The endpoint is auth-guarded, so
 // anonymous viewers get a hint instead of names.
 const ACTIVE_MS = 15 * 60 * 1000;
@@ -519,6 +522,7 @@ $('flushBtn').addEventListener('click', async () => {
 });
 
 wireThemeToggle();
+$('theme-toggle').addEventListener('change', redrawChart);
 
 tick();
 setInterval(tick, 5000);

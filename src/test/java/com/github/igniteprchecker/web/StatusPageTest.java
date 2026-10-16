@@ -9,10 +9,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -31,6 +34,10 @@ class StatusPageTest {
     private static final Path SCRIPT = Path.of("src/main/resources/static/status.js");
 
     private static final Path TC_CLIENT = Path.of("src/main/java/com/github/igniteprchecker/tc/TcClient.java");
+
+    private static final Path COMMON_CSS = Path.of("src/main/resources/static/common.css");
+
+    private static final Pattern HSL = Pattern.compile("hsl\\((\\d+), (\\d+)%, (\\d+)%\\)");
 
     private static final String[] FUNCTIONS = {"card", "agoShort", "logTime", "renderLog", "healthProblems",
         "healthTitle", "persistenceCard", "versionCard", "configRows"};
@@ -199,6 +206,44 @@ class StatusPageTest {
         assertThat(Files.readString(SCRIPT, UTF_8)).doesNotContain("CAT_COLORS");
     }
 
+    /**
+     * One lightness for every theme left the yellow-green bars at 1.8:1 on the white card and the blue ones at 1.9:1 on
+     * the dark cards. Every category's bar holds 3:1 (WCAG 1.4.11, graphics) against the card of each theme, and the
+     * chart is drawn again when the theme changes.
+     */
+    @Test
+    void everyCategorysBarStandsOutFromTheCardInEveryTheme() throws Exception {
+        Map<String, String> cardBg = cardBackgrounds();
+        JsonNode out = PageScript.run("status.html", STATUS + """
+            status.teamcity.perMinuteByCategory = { history: [1], baseline: [2] };
+            await page.load('');
+            const cats = page.run('TC_CATEGORIES');
+            const byTheme = {};
+            for (const t of %s) {
+                page.run('document').documentElement.setAttribute('data-theme', t);
+                byTheme[t] = cats.map(c => page.run('catColor')(c));
+            }
+            const toggle = page.el('theme-toggle');
+            toggle.value = 'terminal';
+            for (const fn of toggle.listeners.change) fn();
+            report({ cats, byTheme, legend: page.el('stackLegend').innerHTML });
+            """.formatted(cardBg.keySet().stream().map(t -> "'" + t + "'").collect(Collectors.joining(", ", "[", "]"))));
+
+        List<String> cats = new ArrayList<>();
+        out.get("cats").forEach(c -> cats.add(c.asText()));
+        for (Map.Entry<String, String> theme : cardBg.entrySet()) {
+            JsonNode colours = out.get("byTheme").get(theme.getKey());
+            assertThat(colours).hasSize(cats.size());
+            for (int i = 0; i < cats.size(); i++) {
+                assertThat(contrast(colours.get(i).asText(), theme.getValue()))
+                    .as(cats.get(i) + " " + colours.get(i).asText() + " on the " + theme.getKey() + " card")
+                    .isGreaterThanOrEqualTo(3.0);
+            }
+        }
+        assertThat(out.get("legend").asText()).contains("<span><span class=\"dot\" style=\"background:"
+            + out.get("byTheme").get("terminal").get(cats.indexOf("history")).asText() + "\"></span>history</span>");
+    }
+
     /** A label breaks only between its " · " chunks, so a number keeps its unit; a legend item keeps its square. */
     @Test
     void aCardLabelBreaksOnlyBetweenItsChunks() throws Exception {
@@ -253,5 +298,49 @@ class StatusPageTest {
         Matcher m = Pattern.compile("(?m)^\\s*" + Pattern.quote(selector) + " \\{([^}]*)}").matcher(css);
         assertThat(m.find()).as(selector).isTrue();
         return m.group(1);
+    }
+
+    /** The card's background of each theme, from the shared stylesheet: "light" for {@code :root}. */
+    private static Map<String, String> cardBackgrounds() throws IOException {
+        Map<String, String> bg = new LinkedHashMap<>();
+        Matcher m = Pattern.compile("(?:(:root)|html\\[data-theme=\"(\\w+)\"]) \\{[^}]*?--card-bg: (#[0-9a-fA-F]{3,6})")
+            .matcher(Files.readString(COMMON_CSS, UTF_8));
+        while (m.find())
+            bg.put(m.group(1) != null ? "light" : m.group(2), m.group(3));
+        assertThat(bg).containsKeys("light", "dark", "jetbrains", "terminal");
+        return bg;
+    }
+
+    /** The WCAG contrast ratio of an {@code hsl(h, s%, l%)} colour on a {@code #rgb} or {@code #rrggbb} one. */
+    private static double contrast(String hsl, String hex) {
+        Matcher m = HSL.matcher(hsl);
+        assertThat(m.matches()).as(hsl).isTrue();
+        double a = luminance(hslToRgb(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)) / 100.0,
+            Integer.parseInt(m.group(3)) / 100.0));
+        String six = hex.length() == 4 ? hex.replaceAll("([0-9a-fA-F])", "$1$1") : hex;
+        double b = luminance(new double[] {Integer.parseInt(six.substring(1, 3), 16) / 255.0,
+            Integer.parseInt(six.substring(3, 5), 16) / 255.0, Integer.parseInt(six.substring(5, 7), 16) / 255.0});
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
+
+    private static double[] hslToRgb(int h, double s, double l) {
+        double a = s * Math.min(l, 1 - l);
+        double[] rgb = new double[3];
+        int[] n = {0, 8, 4};
+        for (int c = 0; c < 3; c++) {
+            double k = (n[c] + h / 30.0) % 12;
+            rgb[c] = l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
+        }
+        return rgb;
+    }
+
+    private static double luminance(double[] rgb) {
+        double[] w = {0.2126, 0.7152, 0.0722};
+        double sum = 0;
+        for (int c = 0; c < 3; c++) {
+            double v = rgb[c];
+            sum += w[c] * (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+        }
+        return sum;
     }
 }

@@ -92,7 +92,7 @@ class GlossaryTest {
             assertThat(anchors).as(link).contains(link.substring(TOUR_URL.length()));
         }
         assertThat(links).as("the cards, the PR list, the runs row, the flaky board and the PR comment")
-            .hasSizeGreaterThanOrEqualTo(14);
+            .contains(TOUR_URL + "the-flaky-board-flakyhtml").hasSizeGreaterThanOrEqualTo(15);
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             Matcher local = LOCAL_LINK.matcher(read(tour));

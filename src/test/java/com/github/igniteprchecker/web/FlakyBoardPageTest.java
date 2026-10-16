@@ -47,13 +47,16 @@ class FlakyBoardPageTest {
         await page.load('');
         """;
 
-    /** A row's toggle, panel and message box, wired as the page wires them. */
+    /** A row's toggle, panel, message box and buttons, wired as the page wires them; the copy button starts disabled. */
     private static final String PANEL = """
         const btn = page.el('why'), row = page.el('row'), box = page.el('box'), pre = page.el('pre');
+        const copyBtn = page.el('copy'), retryBtn = page.el('retry');
+        copyBtn.disabled = true;
         btn.closest = () => row;
         row.querySelector = () => box;
         box.classList.add('hidden');
-        box.querySelector = () => pre;
+        box.querySelector = sel => sel === 'pre' ? pre : copyBtn;
+        pre.querySelector = () => retryBtn;
         """;
 
     @Test
@@ -77,7 +80,10 @@ class FlakyBoardPageTest {
             + "not break them. 2 tests muted on TeamCity are not shown.");
     }
 
-    /** The columns say how often a test fails and in how many PRs; the details are in their tooltips. */
+    /**
+     * The columns say how often a test fails and in how many PRs; the details are in their tooltips. The PRs cell
+     * carries its own label for the phone, where the column headings are gone.
+     */
     @Test
     void theColumnsCarryTheDetailsInTheirTooltips() throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD + """
@@ -90,8 +96,9 @@ class FlakyBoardPageTest {
             .contains("<span class=\"lbcol\" title=\"Failed the last 12 of 100 master runs\"><span class=\"flake\">12 in a "
                 + "row</span><small>of 100 runs</small></span>")
             .contains("<span class=\"lbcol lbcol-prs\" title=\"Failed in these PRs in the last 14 days: #13583, #13655, "
-                + "#13660\">3</span>")
-            .contains("<span class=\"lbcol lbcol-prs\" title=\"Failed in no PR in the last 14 days\">—</span>");
+                + "#13660\">3<small>PRs, last 14 days</small></span>")
+            .contains("<span class=\"lbcol lbcol-prs\" title=\"Failed in no PR in the last 14 days\"><span class=\"prs-none\">—"
+                + "</span><small>no PRs, last 14 days</small></span>");
     }
 
     /**
@@ -246,7 +253,7 @@ class FlakyBoardPageTest {
             await page.run('toggleDetails')(btn, recent);
             const failed = pre.innerHTML;
             page.route('/api/test-details', { body: { kind: 'assertion', details: 'java.lang.AssertionError: boom' } });
-            await page.run('loadFailure')(box, recent);
+            await retryBtn.onclick();
             report({ failed, shown: pre.textContent });
             """);
 
@@ -255,15 +262,43 @@ class FlakyBoardPageTest {
         assertThat(out.get("shown").asText()).contains("java.lang.AssertionError: boom");
     }
 
-    /** The columns are as wide in every row as in their headings, and wrap under the name on a phone. */
+    /**
+     * "copy failure" copied the hint about logging in, or "loading…", and said "copied". It works once the message is
+     * there: disabled when the panel is drawn and without a login, enabled when the message arrives.
+     */
+    @Test
+    void theCopyButtonWaitsForTheMessage() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD + PANEL + """
+            page.route('/api/test-details', { status: 401, body: { error: 'Unauthorized' } });
+            await page.run('toggleDetails')(btn, nearReader);
+            const withoutLogin = copyBtn.disabled;
+            page.route('/api/test-details', { body: { kind: 'assertion', details: 'java.lang.AssertionError: IGNITE-627' } });
+            await page.run('loadFailure')(box, nearReader);
+            report({ html: page.el('flaky').innerHTML, withoutLogin, loaded: copyBtn.disabled });
+            """);
+
+        assertThat(out.get("html").asText()).contains("<div class=\"details-acts\"><button class=\"why copy\" type=\"button\" "
+            + "disabled title=\"Copy the failure message.\">copy failure</button>");
+        assertThat(out.get("withoutLogin").asBoolean()).isTrue();
+        assertThat(out.get("loaded").asBoolean()).isFalse();
+    }
+
+    /**
+     * The columns are as wide in every row as in their headings (the same width both, so "PRS, LAST 14 DAYS" holds one
+     * line in the Terminal theme's monospace), and wrap under the name on a phone, where the headings are gone and the
+     * PRs cell shows its own label instead of a bare number or dash.
+     */
     @Test
     void theColumnsLineUpUnderTheirHeadingsAndWrapOnAPhone() throws IOException {
         String css = Files.readString(PAGE, UTF_8);
 
         assertThat(rule(css, ".lbcol")).contains("flex: none", "width: 8.5rem");
-        assertThat(rule(css, ".lbcol-prs")).contains("width: 7.5rem");
+        assertThat(rule(css, ".lbcol-prs")).contains("justify-content: center").doesNotContain("width");
+        assertThat(rule(css, ".lbcol-prs small")).contains("display: none");
         assertThat(css.substring(css.indexOf("@media (max-width: 768px)")))
-            .contains(".lbhead, .group-row { flex-wrap: wrap; }").contains(".lbcol { width: auto;");
+            .contains(".lbhead, .group-row { flex-wrap: wrap; }").contains(".lbcol { width: auto;")
+            .contains(".lbcol-head { display: none; }").contains(".lbcol-prs small { display: inline; }")
+            .contains(".lbcol-prs .prs-none { display: none; }");
         assertThat(css).contains("<span id=\"intro\">").contains("features.md#the-flaky-board-flakyhtml")
             .doesNotContain("fix-master");
     }

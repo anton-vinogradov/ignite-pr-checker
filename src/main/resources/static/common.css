@@ -58,7 +58,7 @@ button.primary { background: var(--primary-bg); color: var(--on-primary); border
 button:disabled { opacity: 0.5; cursor: default; }
 input { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--input-bg); color: var(--fg); }
 .act, .why, .suite-rerun { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--btn-bg); color: var(--fg); cursor: pointer; white-space: nowrap; vertical-align: middle; }
-.act:not(:disabled):hover, .why:hover, .suite-rerun:not(:disabled):hover { background: var(--btn-hover); border-color: var(--line-strong); }
+.act:not(:disabled):hover, .why:not(:disabled):hover, .suite-rerun:not(:disabled):hover { background: var(--btn-hover); border-color: var(--line-strong); }
 .act:disabled, .suite-rerun:disabled { opacity: 0.5; cursor: default; }
 /* A button that only says "Log out" beside the name, or sits in a row of text: looks like a link. */
 button.linklike { padding: 0; border: none; background: none; color: var(--accent); }
@@ -103,7 +103,7 @@ button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--acc
 html[data-theme="terminal"] .act, html[data-theme="terminal"] .why, html[data-theme="terminal"] .suite-rerun, html[data-theme="terminal"] .cancel, html[data-theme="terminal"] .mini-btn { border: none; background: transparent; padding: 0 0.05rem; }
 html[data-theme="terminal"] .act::before, html[data-theme="terminal"] .why::before, html[data-theme="terminal"] .suite-rerun::before, html[data-theme="terminal"] .cancel::before, html[data-theme="terminal"] .mini-btn::before { content: "["; color: var(--muted); }
 html[data-theme="terminal"] .act::after, html[data-theme="terminal"] .why::after, html[data-theme="terminal"] .suite-rerun::after, html[data-theme="terminal"] .cancel::after, html[data-theme="terminal"] .mini-btn::after { content: "]"; color: var(--muted); }
-html[data-theme="terminal"] .act:not(:disabled):hover, html[data-theme="terminal"] .why:hover, html[data-theme="terminal"] .suite-rerun:not(:disabled):hover, html[data-theme="terminal"] .cancel:hover, html[data-theme="terminal"] .mini-btn:hover { text-decoration: underline; background: transparent; }
+html[data-theme="terminal"] .act:not(:disabled):hover, html[data-theme="terminal"] .why:not(:disabled):hover, html[data-theme="terminal"] .suite-rerun:not(:disabled):hover, html[data-theme="terminal"] .cancel:hover, html[data-theme="terminal"] .mini-btn:hover { text-decoration: underline; background: transparent; }
 html[data-theme="terminal"] .tabs { border: none; }
 html[data-theme="terminal"] .tabs .act + .act { border-left: none; }
 /* terminal switcher idiom: inverse video for the selected tab (mc/htop style); the others stay muted */
