@@ -42,7 +42,7 @@ class SessionLifetimeTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private final SessionCodec codec = new SessionCodec(new SessionProperties(true, "test-secret"), mapper);
+    private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
 
     private final UserDirectory users = new UserDirectory(mapper);
 
@@ -51,7 +51,7 @@ class SessionLifetimeTest {
     private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, mock(StandingVisas.class));
 
     private final LoginController login = new LoginController(mock(TcClient.class), codec,
-        new SessionProperties(true, "test-secret"), warmer, users, null,
+        new SessionProperties(false, "test-secret"), warmer, users, null,
         new AdminActions(new AdminProperties(List.of()), mapper), mock(StandingVisas.class));
 
     private final JiraClient jira = mock(JiraClient.class);
@@ -113,12 +113,13 @@ class SessionLifetimeTest {
     void theLoginCookieAsksForWhatBrowsersKeep() {
         String cookie = codec.encode(new SessionCodec.Session("alice", "alice-tc", null));
 
-        ResponseEntity<?> me = login.me(codec.encryptString("{\"username\":\"alice\",\"token\":\"alice-tc\"}"));
+        ResponseEntity<?> me = login.me(request(codec.encryptString(
+            "{\"username\":\"alice\",\"token\":\"alice-tc\"}")));
 
         assertThat(me.getStatusCode().value()).isEqualTo(200);
         assertThat(HttpCookie.parse(me.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getMaxAge())
             .isEqualTo(Duration.ofDays(400).toSeconds());
-        assertThat(login.me(cookie).getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
+        assertThat(login.me(request(cookie)).getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
     }
 
     @Test
@@ -128,14 +129,14 @@ class SessionLifetimeTest {
         String copy = cookie("alice", before + 1000);
         String bobs = cookie("bob", before);
 
-        ResponseEntity<?> out = login.logout(true, here);
+        ResponseEntity<?> out = login.logout(true, request(here));
 
         assertThat(HttpCookie.parse(out.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getMaxAge()).isZero();
         assertThat(guard(copy).getStatus()).isEqualTo(401);
         assertThat(guard(copy).getContentAsString()).contains("\"sessionEnded\":true")
             .contains(AuthInterceptor.ENDED);
-        assertThat(login.me(copy).getStatusCode().value()).isEqualTo(401);
-        assertThat(((Map<?, ?>)login.me(copy).getBody()).get("sessionEnded")).isEqualTo(true);
+        assertThat(login.me(request(copy)).getStatusCode().value()).isEqualTo(401);
+        assertThat(((Map<?, ?>)login.me(request(copy)).getBody()).get("sessionEnded")).isEqualTo(true);
         assertThat(guard(bobs).getStatus()).isEqualTo(200);
         assertThat(guard(cookie("alice", System.currentTimeMillis() + 1000)).getStatus())
             .as("a login after the logout").isEqualTo(200);
@@ -145,7 +146,7 @@ class SessionLifetimeTest {
     @Test
     void aLogoutOutlivesARestart(@TempDir Path dir) throws Exception {
         String copy = cookie("alice", System.currentTimeMillis() - DAY);
-        login.logout(true, copy);
+        login.logout(true, request(copy));
         Path file = dir.resolve(users.fileName());
         users.saveTo(file);
 
@@ -181,11 +182,11 @@ class SessionLifetimeTest {
     @Test
     void aCopyALogoutEndedEndsNoLaterLogin() throws Exception {
         String copy = cookie("alice", System.currentTimeMillis() - DAY);
-        login.logout(true, copy);
+        login.logout(true, request(copy));
         Thread.sleep(5); // alice logs in again a moment later
         String later = codec.encode(new SessionCodec.Session("alice", "alice-tc", null));
 
-        login.logout(true, copy);
+        login.logout(true, request(copy));
 
         assertThat(guard(copy).getStatus()).isEqualTo(401);
         assertThat(guard(later).getStatus()).isEqualTo(200);
@@ -197,7 +198,7 @@ class SessionLifetimeTest {
         when(warmer.tokenRevoked("alice-old-tc")).thenReturn(true);
         String live = cookie("alice", "alice-new-tc", System.currentTimeMillis() - DAY);
 
-        login.logout(true, cookie("alice", "alice-old-tc", System.currentTimeMillis() - DAY));
+        login.logout(true, request(cookie("alice", "alice-old-tc", System.currentTimeMillis() - DAY)));
 
         assertThat(guard(live).getStatus()).isEqualTo(200);
     }
@@ -207,7 +208,7 @@ class SessionLifetimeTest {
     void aLogoutOfThisBrowserOnlyEndsNothingElse() throws Exception {
         String other = cookie("alice", System.currentTimeMillis() - DAY);
 
-        login.logout(false, cookie("alice", System.currentTimeMillis() - DAY));
+        login.logout(false, request(cookie("alice", System.currentTimeMillis() - DAY)));
 
         assertThat(guard(other).getStatus()).isEqualTo(200);
     }
@@ -239,7 +240,7 @@ class SessionLifetimeTest {
 
     /** What GitHub or JIRA answers a moment after alice logged out with her cookie. */
     private Optional<String> answerAfterLogout(String cookie, String who) throws InterruptedException {
-        login.logout(true, cookie);
+        login.logout(true, request(cookie));
         Thread.sleep(5);
 
         return Optional.of(who);
@@ -249,7 +250,7 @@ class SessionLifetimeTest {
         assertThat(saved.getStatusCode().value()).isEqualTo(200);
         String issued = HttpCookie.parse(saved.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getValue();
         assertThat(guard(issued).getStatus()).isEqualTo(401);
-        assertThat(login.me(issued).getStatusCode().value()).isEqualTo(401);
+        assertThat(login.me(request(issued)).getStatusCode().value()).isEqualTo(401);
     }
 
     /** The request the guard let through. */

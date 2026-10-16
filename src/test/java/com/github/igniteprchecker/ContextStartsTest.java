@@ -16,7 +16,10 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -89,6 +92,19 @@ class ContextStartsTest {
                 assertThat(js.getHeaders().getContentType()).as(script).hasToString("text/javascript");
             }
         }
+    }
+
+    /** A page of another site cannot change anything: the filter that refuses its requests is in place. */
+    @Test
+    void aPostFromAnotherSiteIsRefused() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Sec-Fetch-Site", "cross-site");
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<String> res = http.exchange("/api/login", HttpMethod.POST,
+            new HttpEntity<>("{\"token\":\"FAKEtokenFAKEtoken0123456789\"}", headers), String.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(403);
     }
 
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */

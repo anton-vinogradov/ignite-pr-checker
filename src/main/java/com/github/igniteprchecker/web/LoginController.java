@@ -13,7 +13,6 @@ import java.util.Optional;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
@@ -117,7 +116,7 @@ public class LoginController {
         standing.tcTokenAccepted(username.get(), token);
 
         return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(session, issuedAt)).toString())
+            .header(HttpHeaders.SET_COOKIE, cookies(http, sessionCookie(codec.encode(session, issuedAt))))
             .body(new UserResponse(username.get(), session.jiraToken() != null, admin.mayAdminister(username.get())));
     }
 
@@ -127,8 +126,7 @@ public class LoginController {
      * new cookie says it was issued before this check, so a logout the check misses ends it too.
      */
     private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
-        return AuthInterceptor.cookie(http).flatMap(codec::decode)
-            .filter(s -> username.equals(s.username()) && !users.ended(s))
+        return carried(http).filter(s -> username.equals(s.username()) && !users.ended(s))
             .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token, null));
     }
 
@@ -160,9 +158,9 @@ public class LoginController {
      */
     @PostMapping("/logout")
     public ResponseEntity<Map<String, Object>> logout(@RequestParam(defaultValue = "true") boolean everywhere,
-        @CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
-        String cleared = SessionCookies.cleared(props.cookieSecure()).toString();
-        Optional<SessionCodec.Session> live = codec.decode(cookie)
+        HttpServletRequest http) {
+        String[] cleared = cookies(http, SessionCookies.cleared(props.cookieSecure()));
+        Optional<SessionCodec.Session> live = carried(http)
             .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
         if (everywhere && live.filter(s -> LiveTokenGuard.refusedNow(tc, warmer, s.token())).isPresent()) {
             return ResponseEntity.status(401).header(HttpHeaders.SET_COOKIE, cleared)
@@ -178,13 +176,17 @@ public class LoginController {
             .body(optionsGoOn ? Map.of("note", OPTIONS_GO_ON) : Map.of());
     }
 
+    /**
+     * Who the session is, for the page as it opens. A cookie old enough, or under the name earlier versions gave it, is
+     * issued again, as the login guard does.
+     */
     @GetMapping("/me")
-    public ResponseEntity<?> me(@CookieValue(value = AuthInterceptor.COOKIE, required = false) String cookie) {
-        Optional<SessionCodec.Session> session = codec.decode(cookie);
-        if (session.isEmpty())
+    public ResponseEntity<?> me(HttpServletRequest http) {
+        Optional<SessionCookies.Carried> carried = SessionCookies.carried(http, codec, props.cookieSecure());
+        if (carried.isEmpty())
             return ResponseEntity.status(401).build();
 
-        SessionCodec.Session s = session.get();
+        SessionCodec.Session s = carried.get().session();
         if (warmer.tokenRevoked(s.token()))
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED, "tokenRejected", true));
         long checkedAt = System.currentTimeMillis();
@@ -193,10 +195,23 @@ public class LoginController {
 
         warmer.offerToken(s.token());
         ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
-        if (SessionCookies.due(s, checkedAt))
-            ok.header(HttpHeaders.SET_COOKIE, sessionCookie(codec.encode(s, checkedAt)).toString());
+        if (carried.get().earlier() || SessionCookies.due(s, checkedAt))
+            ok.header(HttpHeaders.SET_COOKIE, cookies(http, sessionCookie(codec.encode(s, checkedAt))));
+        else if (SessionCookies.earlierLeft(http, props.cookieSecure()))
+            ok.header(HttpHeaders.SET_COOKIE, SessionCookies.clearedEarlier().toString());
 
         return ok.body(new UserResponse(s.username(), s.jiraToken() != null, admin.mayAdminister(s.username())));
+    }
+
+    private Optional<SessionCodec.Session> carried(HttpServletRequest http) {
+        return SessionCookies.carried(http, codec, props.cookieSecure()).map(SessionCookies.Carried::session);
+    }
+
+    /** The cookie to set, and the removal of one under the name earlier versions gave it, if the browser has one. */
+    private String[] cookies(HttpServletRequest http, ResponseCookie cookie) {
+        return SessionCookies.earlierLeft(http, props.cookieSecure())
+            ? new String[] {cookie.toString(), SessionCookies.clearedEarlier().toString()}
+            : new String[] {cookie.toString()};
     }
 
     private ResponseCookie sessionCookie(String value) {

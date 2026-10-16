@@ -134,7 +134,11 @@ class RevokedTokenActionsTest {
         when(tc.tokenRejected("revoked-tc")).thenReturn(true);
         String other = codec.encode(new SessionCodec.Session(USER, "new-tc", null), System.currentTimeMillis() - 1000);
 
-        var out = login.logout(true, codec.encode(new SessionCodec.Session(USER, "revoked-tc", null)));
+        MockHttpServletRequest browser = new MockHttpServletRequest();
+        browser.setCookies(new Cookie(AuthInterceptor.COOKIE,
+            codec.encode(new SessionCodec.Session(USER, "revoked-tc", null))));
+
+        var out = login.logout(true, browser);
 
         assertThat(out.getStatusCode().value()).isEqualTo(401);
         assertThat(out.getBody()).containsEntry("tokenRejected", true);

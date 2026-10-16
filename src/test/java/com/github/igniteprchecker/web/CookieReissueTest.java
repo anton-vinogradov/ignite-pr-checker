@@ -103,7 +103,7 @@ class CookieReissueTest {
             standing);
         MockHttpServletRequest other = carrying(new SessionCodec.Session(USER, "old-tc", "jira-pat"));
 
-        login.logout(true, codec.encode(new SessionCodec.Session(USER, "old-tc", null)));
+        login.logout(true, carrying(new SessionCodec.Session(USER, "old-tc", null)));
         SessionCodec.Session after = session(login.login(new LoginController.LoginRequest("fresh-tc"), other));
 
         assertThat(after).isEqualTo(new SessionCodec.Session(USER, "fresh-tc", null));

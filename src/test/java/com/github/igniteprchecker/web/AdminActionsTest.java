@@ -18,6 +18,7 @@ import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.update.UpdateService;
+import jakarta.servlet.http.Cookie;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -101,8 +102,16 @@ class AdminActionsTest {
 
         assertThat(toldAdmin(login.login(token("stranger-token"), new MockHttpServletRequest()))).isFalse();
         assertThat(toldAdmin(login.login(token("operator-token"), new MockHttpServletRequest()))).isTrue();
-        assertThat(toldAdmin(login.me(codec.encode("stranger", "stranger-token")))).isFalse();
-        assertThat(toldAdmin(login.me(codec.encode("AVinogradov", "operator-token")))).isTrue();
+        assertThat(toldAdmin(login.me(overHttps(codec.encode("stranger", "stranger-token"))))).isFalse();
+        assertThat(toldAdmin(login.me(overHttps(codec.encode("AVinogradov", "operator-token"))))).isTrue();
+    }
+
+    /** A request from a browser that keeps the session cookie a checker behind HTTPS sets. */
+    private static MockHttpServletRequest overHttps(String cookie) {
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setCookies(new Cookie(SessionCookies.HOST_COOKIE, cookie));
+
+        return req;
     }
 
     private static LoginController.LoginRequest token(String token) {

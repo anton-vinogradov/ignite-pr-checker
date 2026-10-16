@@ -3,11 +3,11 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
@@ -19,12 +19,14 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * otherwise a revoked token would keep working here for good. The refusal carries {@code tokenRejected}, as
  * {@link ApiExceptionHandler}'s does, so the page can tell it from a missing session and say why it logs out. A
  * session issued before its user logged out is refused with {@code sessionEnded}. A cookie older than
- * {@link SessionCookies#RENEW_AFTER} is issued again with the answer, so the browser keeps a login in use.
+ * {@link SessionCookies#RENEW_AFTER} is issued again with the answer, so the browser keeps a login in use, and so is
+ * one under the name earlier versions gave it over HTTPS, under the new name.
  */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
     private final UserDirectory users;
 
+    /** The session cookie's name over plain HTTP, and over HTTPS before {@link SessionCookies#HOST_COOKIE}. */
     public static final String COOKIE = "IPRC_SESSION";
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
@@ -46,20 +48,27 @@ public class AuthInterceptor implements HandlerInterceptor {
     private final SessionCodec codec;
     private final Warmer warmer;
     private final StandingVisas standing;
+    private final boolean cookieSecure;
 
-    @Value("${session.cookie-secure:false}")
-    private boolean cookieSecure;
-
-    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing) {
+    @Autowired
+    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing,
+        @Value("${session.cookie-secure:false}") boolean cookieSecure) {
         this.users = users;
         this.codec = codec;
         this.warmer = warmer;
         this.standing = standing;
+        this.cookieSecure = cookieSecure;
+    }
+
+    /** The guard of a local run, whose cookie goes over plain HTTP. */
+    AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing) {
+        this(codec, warmer, users, standing, false);
     }
 
     @Override
     public boolean preHandle(HttpServletRequest req, HttpServletResponse resp, Object handler) throws Exception {
-        Optional<SessionCodec.Session> session = cookie(req).flatMap(codec::decode);
+        Optional<SessionCookies.Carried> carried = SessionCookies.carried(req, codec, cookieSecure);
+        Optional<SessionCodec.Session> session = carried.map(SessionCookies.Carried::session);
         if (session.isEmpty()) {
             resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "login required");
 
@@ -78,7 +87,7 @@ public class AuthInterceptor implements HandlerInterceptor {
             return false;
         }
 
-        renewIfDue(session.get(), checkedAt, resp);
+        reissue(carried.get(), checkedAt, req, resp);
         req.setAttribute(SESSION_ATTR, session.get());
         req.setAttribute(CHECKED_AT_ATTR, checkedAt);
         req.setAttribute(TOKEN_ATTR, session.get().token());
@@ -94,15 +103,22 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     /** The session of a request to a public endpoint, if it carries one that would pass this guard. */
     public Optional<SessionCodec.Session> signedIn(HttpServletRequest req) {
-        return cookie(req).flatMap(codec::decode).filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
+        return SessionCookies.carried(req, codec, cookieSecure).map(SessionCookies.Carried::session)
+            .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
     }
 
-    /** Issues the session's cookie again when it is old enough; see {@link SessionCookies}. */
-    private void renewIfDue(SessionCodec.Session session, long checkedAt, HttpServletResponse resp) {
-        if (SessionCookies.due(session, checkedAt)) {
+    /**
+     * Issues the session's cookie again when it is old enough or came under the name earlier versions gave it, and
+     * removes a cookie under that name; see {@link SessionCookies}.
+     */
+    private void reissue(SessionCookies.Carried carried, long checkedAt, HttpServletRequest req,
+        HttpServletResponse resp) {
+        if (carried.earlier() || SessionCookies.due(carried.session(), checkedAt)) {
             resp.addHeader(HttpHeaders.SET_COOKIE,
-                SessionCookies.issued(codec.encode(session, checkedAt), cookieSecure).toString());
+                SessionCookies.issued(codec.encode(carried.session(), checkedAt), cookieSecure).toString());
         }
+        if (SessionCookies.earlierLeft(req, cookieSecure))
+            resp.addHeader(HttpHeaders.SET_COOKIE, SessionCookies.clearedEarlier().toString());
     }
 
     static void refuse(HttpServletResponse resp, String json) throws IOException {
@@ -110,17 +126,5 @@ public class AuthInterceptor implements HandlerInterceptor {
         resp.setContentType("application/json");
         resp.setCharacterEncoding("UTF-8");
         resp.getWriter().write(json);
-    }
-
-    static Optional<String> cookie(HttpServletRequest req) {
-        if (req.getCookies() == null)
-            return Optional.empty();
-
-        for (Cookie c : req.getCookies()) {
-            if (COOKIE.equals(c.getName()))
-                return Optional.of(c.getValue());
-        }
-
-        return Optional.empty();
     }
 }

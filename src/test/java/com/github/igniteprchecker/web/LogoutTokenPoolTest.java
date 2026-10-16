@@ -18,10 +18,12 @@ import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
+import jakarta.servlet.http.Cookie;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
  * After Log out the user's TeamCity token stayed in the pool the background reads borrow from, and went on reading
@@ -83,6 +85,9 @@ class LogoutTokenPoolTest {
     }
 
     private ResponseEntity<Map<String, Object>> logout(String user, String token) {
-        return login.logout(true, codec.encode(new SessionCodec.Session(user, token, null)));
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(user, token, null))));
+
+        return login.logout(true, req);
     }
 }

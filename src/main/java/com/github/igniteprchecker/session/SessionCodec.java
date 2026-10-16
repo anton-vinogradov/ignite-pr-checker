@@ -63,7 +63,7 @@ public class SessionCodec {
     public String encode(Session session, long issuedAt) {
         try {
             byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(),
-                session.jiraToken(), issuedAt));
+                session.jiraToken(), issuedAt, Payload.NAMED_BY_CONNECTION));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -119,6 +119,18 @@ public class SessionCodec {
 
     /** Decrypts a cookie value; empty if missing or tampered. */
     public Optional<Session> decode(String cookie) {
+        return payload(cookie).map(Payload::session);
+    }
+
+    /**
+     * Decrypts a cookie value an earlier version issued, before cookies over HTTPS were named {@code __Host-}; empty
+     * for one this version issued. A copy of a newer cookie under the old name comes from someone who set it there.
+     */
+    public Optional<Session> decodeEarlier(String cookie) {
+        return payload(cookie).filter(p -> p.v() == null).map(Payload::session);
+    }
+
+    private Optional<Payload> payload(String cookie) {
         if (cookie == null || cookie.isBlank())
             return Optional.empty();
 
@@ -129,9 +141,8 @@ public class SessionCodec {
 
             Cipher cipher = Cipher.getInstance(TRANSFORM);
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
-            Payload p = mapper.readValue(cipher.doFinal(ct), Payload.class);
 
-            return Optional.of(new Session(p.username(), p.token(), p.jiraToken(), p.iat() == null ? 0 : p.iat()));
+            return Optional.of(mapper.readValue(cipher.doFinal(ct), Payload.class));
         }
         catch (Exception e) {
             return Optional.empty();
@@ -188,14 +199,22 @@ public class SessionCodec {
     /**
      * Old cookies also carried an {@code exp}, ignored now that sessions don't time out, and a {@code ghToken}, which
      * the checker no longer takes from a cookie: it goes at the cookie's next issue. {@code iat}, when the cookie was
-     * issued, is absent from the cookies of earlier versions.
+     * issued, is absent from the cookies of earlier versions. {@code v} is the cookie's format, absent from the cookies
+     * issued before cookies over HTTPS were named {@code __Host-}.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Payload(String username, String token, String jiraToken, Long iat) {
+    private record Payload(String username, String token, String jiraToken, Long iat, Integer v) {
+        /** The format of a cookie whose name says how it was sent: {@code __Host-} over HTTPS. */
+        static final int NAMED_BY_CONNECTION = 2;
+
+        Session session() {
+            return new Session(username, token, jiraToken, iat == null ? 0 : iat);
+        }
+
         @Override
         public String toString() {
             return "Payload[username=" + username + ", token=" + Secrets.masked(token) + ", jiraToken="
-                + Secrets.masked(jiraToken) + ", iat=" + iat + "]";
+                + Secrets.masked(jiraToken) + ", iat=" + iat + ", v=" + v + "]";
         }
     }
 }
