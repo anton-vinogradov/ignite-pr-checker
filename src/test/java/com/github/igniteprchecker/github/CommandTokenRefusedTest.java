@@ -75,6 +75,7 @@ class CommandTokenRefusedTest {
         commands.poll();
 
         verify(github, times(1)).appComment(eq(PR), any(), contains("TeamCity no longer accepts the token"));
+        verify(github, never()).appComment(eq(PR), any(), contains("can no longer read the TeamCity token"));
         verify(github, times(2)).appReact(anyInt(), any(), anyLong(), eq("confused"));
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
     }

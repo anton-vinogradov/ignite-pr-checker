@@ -68,9 +68,9 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
 - **Users** log in with their own ci2 access token. It travels encrypted (AES-GCM) in an HttpOnly session cookie, and
   the runs a user starts or cancels on the page go under their account. Until the user logs out, but no longer than
   about an hour after their last request, the server also holds the token in memory and uses it only to read from
-  TeamCity, to pre-analyse open PRs for everyone. Memory reaches the disk when the host moves it to swap, unless the
-  swap is encrypted. A login lasts until the user logs out, which ends it in every browser, or leaves it unused for
-  400 days.
+  TeamCity, to pre-analyse open PRs for everyone; a standing option other than PR commands alone keeps it there while
+  the option is on. Memory reaches the disk when the host moves it to swap, unless the swap is encrypted. A login
+  lasts until the user logs out, which ends it in every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
