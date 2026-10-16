@@ -455,9 +455,9 @@ from its own GitHub account, the app account.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
   in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
-  classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes beyond `public_repo`,
-  and an account that can push to the repo or to the checker's own, where its releases come from, turn it amber. What
-  GitHub does not say is shown as unknown, not as fine.
+  classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
+  beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
+  turn it amber. What GitHub does not say is shown as unknown, not as fine.
 - Signed-in viewers also see what the check found, the log messages, the settings in effect, and who restarted or
   flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get
   **Restart service**, **Flush caches** and the list on the **Users** tab.

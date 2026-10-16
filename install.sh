@@ -199,7 +199,8 @@ fi
 # The operator may name an older release on the command line; the service may not ask for one.
 if [ "$strict" = false ]; then
     running="$(running_release)"
-    [ -n "$running" ] || fail "the jar that runs is not one update.sh installed: install v$version with update.sh as root"
+    [ -n "$running" ] \
+        || fail "the jar that runs is not one update.sh installed: install v$version with update.sh as root"
     newer "$version" "$running" || fail "v$version is not newer than v$running, which runs now"
 fi
 
@@ -325,9 +326,14 @@ if [ -z "$(setting APP_PUBLIC_URL)" ]; then
 Next:
   1. DNS: point a name, e.g. prc.example.org, at this host.
   2. HTTPS: serve it through a proxy, e.g. in the Caddyfile:
+       {
+           admin unix//run/caddy/admin.sock
+       }
        prc.example.org {
            reverse_proxy $ADDR:${PORT:-8080}
        }
+     The admin line moves Caddy's admin API off port 2019, where any local process could reconfigure the proxy. Give
+     the socket its directory: "systemctl edit caddy", add RuntimeDirectory=caddy under [Service], restart Caddy.
   3. $ETC_DIR/env: APP_PUBLIC_URL=https://prc.example.org (and GITHUB_TOKEN, GITHUB_OAUTH_CLIENT_ID,
      GITHUB_OAUTH_CLIENT_SECRET, PRC_ADMINS if you need them).
   4. systemctl restart $SERVICE

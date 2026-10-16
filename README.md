@@ -68,7 +68,9 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
 - **Users** log in with their own ci2 access token. It travels encrypted (AES-GCM) in an HttpOnly session cookie, and
   the runs a user starts or cancels on the page go under their account. Until the user logs out, but no longer than
   about an hour after their last request, the server also holds the token in memory and uses it only to read from
-  TeamCity, to pre-analyse open PRs for everyone. A login lasts until the user logs out, which ends it in every browser, or leaves it unused for 400 days.
+  TeamCity, to pre-analyse open PRs for everyone. Memory reaches the disk when the host moves it to swap, unless the
+  swap is encrypted. A login lasts until the user logs out, which ends it in every browser, or leaves it unused for
+  400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
@@ -101,8 +103,9 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   so do the writes past 40 an hour to one PR or 60 for one user; the status page shows writes that wait or that GitHub
   refuses. Without the token the options that write to GitHub are off. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
   what it found: whose token it is, whether it can write to the repo (a fine-grained token cannot, nor a classic one
-  without `public_repo`), when it expires (a warning 14 days ahead, and one for a token that never expires), and whether the account can push to the repo or to
-  the checker's own, where its releases come from. What GitHub does not say shows as unknown.
+  without `public_repo`), when it expires (a warning 14 days ahead, and one for a token that never expires), and
+  whether the account can push to the repo or to the checker's own, where its releases come from. What GitHub does not
+  say shows as unknown.
 
 There is no shared JIRA account: visas go out under the JIRA token of the user they are for.
 
@@ -123,10 +126,23 @@ Then point a DNS name at the host, serve the service through an HTTPS proxy, set
 its login form. A minimal `Caddyfile`, which also compresses the large JSON answers:
 
 ```
+{
+	admin unix//run/caddy/admin.sock
+}
+
 prc.example.org {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8080
 }
+```
+
+The `admin` line moves Caddy's admin API off port 2019, which every local process can reach, so a hole in the checker
+cannot reconfigure the proxy in front of it. The socket's directory comes from a drop-in for Caddy's unit:
+
+```bash
+sudo mkdir -p /etc/systemd/system/caddy.service.d
+printf '[Service]\nRuntimeDirectory=caddy\n' | sudo tee /etc/systemd/system/caddy.service.d/admin-socket.conf
+sudo systemctl daemon-reload && sudo systemctl restart caddy
 ```
 
 **Link GitHub** in ⚙ needs a GitHub OAuth App. Register it under the app account: GitHub → Settings → Developer
@@ -259,6 +275,9 @@ systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decry
 read that directory. For more heap, set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the
 heap with the peak of its old generation, and the process's resident memory with its peak.
 
+The JVM's memory holds decrypted tokens too, and the host may move it to swap. Encrypt the swap with a random key at
+each boot, or the tokens can stay in the swap file.
+
 ### The cache directory
 
 `/opt/ignite-pr-checker/cache` (`PRC_CACHE_DIR`) belongs to `prc`, mode 700:
@@ -287,6 +306,20 @@ for their owner: when a run of a user with auto re-run, auto-visa or the PR comm
 their options, the linked GitHub login included, if it cannot read their TeamCity token, or their JIRA token while
 auto-visa is on. A user stores a fresh TeamCity token by logging in again, and a fresh JIRA or GitHub token by
 switching auto-visa, the autofix or tests to suites off and on with the new token. Change the secret only if it leaked, and ask the users to do both before their next run finishes.
+
+### If a secret leaked
+
+Act on any sign that someone could read the service's secrets: a stranger on the host, a copy of the env file, a heap
+dump or the swap file in other hands. Whoever has `SESSION_SECRET` decrypts every stored token, the backups' too, and
+can make a session cookie for any user.
+
+1. Replace `SESSION_SECRET`, `GITHUB_TOKEN` and `GITHUB_OAUTH_CLIENT_SECRET` in the env file and restart the service
+   once. Revoke the old app token and the old client secret on GitHub. Restart Caddy too: it then runs the `Caddyfile`
+   again, not a configuration someone pushed through its admin API.
+2. Ask every user in `users.json` to make new TeamCity, JIRA and GitHub tokens and to revoke the old ones in ci2, JIRA
+   and GitHub. Changing the secret logs everyone out; the section above says what it does to the stored tokens.
+3. If you like, delete `cache/backups/` and the `*.before-*` files: they hold the old tokens under the old secret.
+   Without them there is nothing to roll the state back to.
 
 ### Who may restart, update and flush
 
