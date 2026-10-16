@@ -97,6 +97,20 @@ function kindLabel(kind, failedRuns) {
         : '♻ environment/timing — a re-run may pass';
 }
 
+// The labels the failure lists of the PR page and the flaky board share: the prompt copy, and the toggle of a
+// failure panel while it is closed and while it is open ([label, title]).
+const AI_PROMPT = 'copy AI prompt';
+const FAILURE_CLOSED = ['failure ▸', 'Show the failure message and stack trace.'];
+const FAILURE_OPEN = ['failure ▾', 'Hide the failure message.'];
+
+// The toggle of a failure panel reads as the panel stands.
+function paintFailureToggle(btn, open, closed = FAILURE_CLOSED, opened = FAILURE_OPEN) {
+    const [label, title] = open ? opened : closed;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = label;
+    btn.title = title;
+}
+
 // Clipboard write with the legacy fallback (no async-clipboard permission); flashes the button label.
 async function copyText(text, btn, idle, flashMs = 1800) {
     let ok = false;

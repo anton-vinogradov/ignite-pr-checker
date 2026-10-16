@@ -29,14 +29,14 @@ const TAG_OF = { button: ['act', 'why', 'suite-rerun', 'mini-btn', 'linklike', '
 // copy button on the failure panel, links and muted text inside a card or the login note. Each fill is paired with
 // every rule of the page whose selector starts with one of its contents, so a new badge is checked on both rows.
 const INSIDE = {
-    '.pr-list li.sel, .pr-list li:hover': ['.pr-link', '.pr-open-any', '.pr-num', '.pr-ttl', '.pr-badge', '.my-tag'],
+    '.pr-list li.sel, .pr-list li:hover': ['.pr-link', '.pr-open-any', '.pr-num', '.pr-key', '.pr-ttl', '.pr-badge', '.my-tag'],
     '.login-pr': ['p', '.muted', 'a'],
     '.details': ['pre', '.copy'],
     '.jira-panel': ['.muted', 'a'],
     '.pane-head': ['a.help', '.pr-legend'],
     '.card': ['.muted', 'a', '.reason', '.reason-head', '.tag-doubt', '.tag-flaky', '.live'],
     'ul.suite-tests > li.test-row:hover': ['.tname', '.tacts', '.reason', '.tag-doubt', '.tag-flaky', 'a.ext', '.why'],
-    '.section': ['.catname', '.muted', 'a', '.lbprs a', '.flake', '.lbsuite'],
+    '.section': ['.catname', '.muted', 'a', '.flake', '.lbsuite', '.lbrank', '.lbcol', '.group-sub', '.details p'],
 };
 
 const pagePath = process.argv[2];

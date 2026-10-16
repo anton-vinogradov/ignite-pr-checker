@@ -10,9 +10,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Serves a single failed test's details (message/stack trace, cut to size) for the inline "why?" expander
- * and the "ai" prompts, with {@code kind}: "hang", "assertion", "environment", or "" when the message and
- * stack trace show none of them.
+ * Serves a single failed test's details (message/stack trace, cut to size) for the failure panel of a test row
+ * on the PR page and the flaky board, and for the AI prompts, with {@code kind}: "hang", "assertion",
+ * "environment", or "" when the message and stack trace show none of them.
  */
 @RestController
 @RequestMapping("/api")

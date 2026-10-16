@@ -19,17 +19,22 @@ import org.junit.jupiter.api.Test;
 class TokenNotesPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
+    /**
+     * The one line over the field says the server reads TeamCity with the token for everyone; the fold under the field
+     * says where else the token goes.
+     */
     @Test
     void theLoginCardSaysTheServerHoldsTheToken() throws IOException {
         String note = textOf("loginTokenNote");
+        String fold = textOf("loginTokenMore");
 
         assertThat(note).doesNotContain("never on the server")
-            .contains("The token is kept encrypted in your session cookie. For about an hour after your last request "
-                + "the server also holds it in memory and uses it only to read from TeamCity, to pre-analyse open PRs "
-                + "for everyone.")
-            .contains("Turn on an option in ⚙ and the server stores the token encrypted until you turn the options "
-                + "off; copies stay in the server's backups until they rotate out. With any option other than PR "
-                + "commands on, it also keeps doing those reads.");
+            .contains("For about an hour after your last request, the server keeps your token in memory. It uses the "
+                + "token only to read from TeamCity, to check open PRs for everyone.");
+        assertThat(fold).contains("Your browser keeps it in an encrypted session cookie.")
+            .contains("While one is on, the server stores the token encrypted, until you turn them all off. Copies "
+                + "stay in server backups until the backups are replaced. With any option other than PR commands on, "
+                + "the server also keeps using the token to read from TeamCity, to check open PRs for everyone.");
         assertThat(new WarmProperties(null, null, null, null).tokenTtlMinutes()).as("about an hour").isEqualTo(60);
     }
 

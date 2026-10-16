@@ -57,7 +57,7 @@ class ServiceHealthTest {
         assertThat(assess(new ServiceHealth.Clocks(c.startedAt(), ago(Duration.ofMinutes(26)), c.lastPollAt(),
             c.warming(), c.warmStartedAt(), c.warmTried(), c.warmFailed(), c.pooledTokens(), c.enrolled())))
             .isEqualTo(new ServiceHealth.Report("error", "ok",
-                List.of(new ServiceHealth.Problem("error", "standing-visa sweep last started 26 min ago"))));
+                List.of(new ServiceHealth.Problem("error", "standing sweep last started 26 min ago"))));
     }
 
     @Test
@@ -134,7 +134,7 @@ class ServiceHealthTest {
 
         assertThat(assess(fresh).health()).isEqualTo("ok");
         assertThat(assess(stuck).problems()).extracting(ServiceHealth.Problem::text).containsExactly(
-            "standing-visa sweep has not run in the 30 min since the start",
+            "standing sweep has not run in the 30 min since the start",
             "PR command poll has not run in the 30 min since the start");
     }
 

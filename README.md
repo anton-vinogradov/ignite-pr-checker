@@ -35,7 +35,7 @@ each label means and what to do about it.
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
-  [The fix-master queue](docs/features.md#the-fix-master-queue-flakyhtml).
+  [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
   <https://ignite-pr-checker.is-a.dev/status.html>.
 

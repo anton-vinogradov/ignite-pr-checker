@@ -8,8 +8,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Failure output of test occurrences, fetched from TeamCity once and kept cut to size (see
- * {@link FailureOutput#trim}). An occurrence's output never changes, yet "why?", "ai", the root-cause
- * groups and a cause's "ai" each fetched it again, up to 700 KB a time, to read a few lines.
+ * {@link FailureOutput#trim}). An occurrence's output never changes, yet the failure panel of a test row, its AI
+ * prompt, the root-cause groups and a cause's AI prompt each fetched it again, up to 700 KB a time, to read a few
+ * lines.
  */
 @Component
 public class FailureDetails {

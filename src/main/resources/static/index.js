@@ -5,7 +5,7 @@ let jiraBase = 'https://issues.apache.org/jira'; // from /api/config, as the vis
 let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
 let selectedPr = null;
 let lastResult = null; // the currently rendered analysis (drives the root-cause view)
-let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("My?")
+let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("my run")
 let canAdmin = false; // may update the service: the operator, or anyone when no operator is named
 let allPrs = []; // last-loaded open-PR list, for the list filter
 let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
@@ -146,15 +146,30 @@ async function loadPrs() {
     $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
     allPrs = prs;
     // Links, so a PR opens in a new tab or from the keyboard; a plain click stays in the page.
-    $('prList').innerHTML = prs.map(p => `
-        <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(p.title)}">
-            <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(p.title)}">
-            <span class="pr-num">#${esc(p.number)}</span>${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="its latest RunAll was triggered by you">My?</span>
-            <span class="pr-ttl">${esc(p.title)}</span></a>
-        </li>`).join('');
+    $('prList').innerHTML = prs.map(prRow).join('');
     for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
     markMine();
     applyPrFilter();
+}
+
+// The ticket key a PR title starts with, and what follows it.
+const TITLE_KEY = /^(IGNITE-\d+)[\s:.,\-–]*/;
+
+// The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
+const MY_RUN_TITLE = 'You started its latest RunAll. The PR may be someone else\'s.';
+
+// A row of the list: the number, the ticket key, the badge and your tag on the first line, the title without the key
+// under them. The link's title and data-title keep the whole title: the head and the visa take the key from there.
+function prRow(p) {
+    const title = p.title || '';
+    const key = title.match(TITLE_KEY);
+    const rest = key ? title.slice(key[0].length) : '';
+    return `
+        <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
+            <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(title)}">
+            <span class="pr-num">#${esc(p.number)}</span>${key ? `<span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${MY_RUN_TITLE}">my run</span>
+            <span class="pr-ttl">${esc(rest || title)}</span></a>
+        </li>`;
 }
 
 // What the list filter keeps — by number or title — and the number to open when it is not among
@@ -191,15 +206,20 @@ function markMine() {
 }
 
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
-// where the page says "No blockers" for the PR's current code, earns the check.
+// where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats
+// these titles word for word.
 const STANDING_BADGES = {
-    WATCH: ['watch', '!', 'no blockers, but tests started failing on this code — a re-run decides'],
-    UNPROVEN: ['unproven', '?', 'no blockers found, but the run can\'t prove the PR clean (interrupted, broken '
-        + 'suites, fewer tests than master, unchecked tests, or a newer run still going)'],
-    OLD_CODE: ['unproven', '?', 'old code — no blockers in this run, but commits were pushed since it'],
-    UNKNOWN_CODE: ['unproven', '?', 'no blockers, but it is not known whether this run tested the PR\'s current code'],
-    CHECKING: ['checking', '…', 'no blockers; the page is checking that this run tested the PR\'s current code'],
+    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the PR\'s latest code. A rerun shows '
+        + 'whether they are blockers.'],
+    UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
+        + 'broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still '
+        + 'going.'],
+    OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.'],
+    UNKNOWN_CODE: ['unproven', '?', 'No blockers found, but it is not known whether this run tested the PR\'s latest '
+        + 'commit.'],
+    CHECKING: ['checking', '…', 'No blockers found. The page is checking that this run tested the PR\'s latest commit.'],
 };
+const CLEAN_BADGE_TITLE = 'A clean run of the PR\'s current code.';
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
 // "!" for tests that started failing, a question mark when nothing was blamed but the run couldn't prove
@@ -207,13 +227,13 @@ const STANDING_BADGES = {
 function blockerBadge(n, proven, standing) {
     if (n == null) return '';
     if (n > 0)
-        return `<span class="pr-badge bad" title="${n} blocker(s)">${n}</span>`;
+        return `<span class="pr-badge bad" title="${n} blocker${n === 1 ? '' : 's'}">${n}</span>`;
     const badge = STANDING_BADGES[standing];
     if (badge)
         return `<span class="pr-badge ${badge[0]}" title="${esc(badge[2])}">${badge[1]}</span>`;
     return proven === false
-        ? `<span class="pr-badge unproven" title="no blockers found, but the run didn't cover the PR (interrupted, broken suites, or fewer tests than master)">?</span>`
-        : `<span class="pr-badge ok" title="no blockers">✓</span>`;
+        ? `<span class="pr-badge unproven" title="${esc(STANDING_BADGES.UNPROVEN[2])}">?</span>`
+        : `<span class="pr-badge ok" title="${esc(CLEAN_BADGE_TITLE)}">✓</span>`;
 }
 
 function findLi(number) {
@@ -2015,12 +2035,6 @@ function paintOneRunGroup() {
     $('oneRunGroup').classList.toggle('hidden', !mixed || blockerView !== 'suites');
 }
 
-const AI_PROMPT = 'copy AI prompt';
-
-// The row's button that opens and closes its failure panel: the label and the title while closed, and while open.
-const FAILURE_CLOSED = ['failure ▸', 'Show the failure message and stack trace.'];
-const FAILURE_OPEN = ['failure ▾', 'Hide the failure message.'];
-
 // What every reason in the "Not confirmed: 1 run" list ends with: its heading says it once for all of them.
 const ONE_RUN_TAIL = '; failed the only run on this branch';
 
@@ -2323,11 +2337,7 @@ async function openDetails(box) {
 function paintToggle(box, open) {
     const row = box.closest('li');
     const btn = row && row.querySelector('.why.toggle');
-    if (!btn) return;
-    const [label, title] = open ? FAILURE_OPEN : FAILURE_CLOSED;
-    btn.setAttribute('aria-expanded', String(open));
-    btn.textContent = label;
-    btn.title = title;
+    if (btn) paintFailureToggle(btn, open);
 }
 
 // A test occurrence's failure message never changes, so each is fetched from TeamCity once per
@@ -3100,6 +3110,9 @@ wireThemeToggle();
 // persists; on a narrow one the list covers the result, so it folds away whenever a PR opens.
 const narrowScreen = matchMedia('(max-width: 768px)');
 let narrowListOpen = false;
+// Whether the legend was last folded for an open PR: the fold follows a PR opening and closing, not the pane's
+// collapse or the screen's width, so what you open or fold by hand stays.
+let legendFoldedForPr = null;
 
 function syncPane() {
     const split = $('analyzeView');
@@ -3109,6 +3122,12 @@ function syncPane() {
     split.classList.toggle('collapsed', hasPr && (narrowScreen.matches ? !narrowListOpen : saved));
     split.classList.toggle('home', !hasPr);
     $('paneCollapse').classList.toggle('hidden', !hasPr);
+    // The legend is open where a PR is picked and folded once one is; the "…" badge exists only for the open PR.
+    if (hasPr !== legendFoldedForPr) {
+        $('prLegend').open = !hasPr;
+        legendFoldedForPr = hasPr;
+    }
+    $('legendChecking').classList.toggle('hidden', !hasPr);
 }
 function setPaneCollapsed(collapsed) {
     if (narrowScreen.matches)

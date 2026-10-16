@@ -219,7 +219,7 @@ public class BlockerAnalyzer {
         analysedBuild.put(prNumber, r.buildId());
     }
 
-    /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "My?" flag in the PR list. */
+    /** The TeamCity user who triggered a PR's latest RunAll, if known — backs the "my run" tag in the PR list. */
     public String triggeredBy(int prNumber) {
         return chains.triggeredBy(prNumber);
     }
@@ -773,7 +773,7 @@ public class BlockerAnalyzer {
         // A failure only stands if it still stands in the last finished run: if that run passed, it
         // clears the failure. The revision is not compared here — a pass on the same code makes the
         // failure a flake, a pass on newer code means the branch fixed it; either way it no longer stands.
-        // It stays anchored to its latest failure: "why?" on a passing run showed a log with nothing in it.
+        // It stays anchored to its latest failure: the failure panel of a passing run showed a log with nothing in it.
         if (lastRun != null && "SUCCESS".equals(lastRun.status())) {
             return verdict(t, lastFailure(runs), false, false,
                 "not failing in the last finished run (passed on re-run)", branchRuns, 0);

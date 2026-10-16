@@ -28,8 +28,9 @@ class AppAccountCardTest {
         String card = run("out(appAccountCard({ state: 'ok', login: 'ignite-pr-checker', canPush: false, checks: "
             + FINE + " }));").asText();
 
-        assertThat(card).contains("App account", "@ignite-pr-checker", "class=\"v ok\"",
-            "classic token, scopes: public_repo · does not expire · cannot push to apache/ignite");
+        assertThat(card).contains("App account", "@ignite-pr-checker", "class=\"v ok\"");
+        assertThat(card.replaceAll("<[^>]+>", ""))
+            .contains("classic token, scopes: public_repo · does not expire · cannot push to apache/ignite");
     }
 
     @Test

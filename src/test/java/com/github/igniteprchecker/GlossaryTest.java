@@ -37,6 +37,8 @@ class GlossaryTest {
 
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
+    private static final Path FLAKY_PAGE = Path.of("src/main/resources/static/flaky.html");
+
     private static final Path PAGE_SCRIPT = Path.of("src/main/resources/static/index.js");
 
     private static final Path COMMON_SCRIPT = Path.of("src/main/resources/static/common.js");
@@ -77,9 +79,11 @@ class GlossaryTest {
     @Test
     void everyLinkIntoTheTourLandsOnAHeading() throws IOException {
         List<String> links = new ArrayList<>();
-        Matcher help = HELP_LINK.matcher(read(PAGE));
-        while (help.find())
-            links.add(help.group(1));
+        for (Path page : List.of(PAGE, FLAKY_PAGE)) {
+            Matcher help = HELP_LINK.matcher(read(page));
+            while (help.find())
+                links.add(help.group(1));
+        }
         links.add(VisaService.GLOSSARY);
 
         Set<String> anchors = anchors(read(TOUR));
@@ -87,8 +91,8 @@ class GlossaryTest {
             assertThat(link).startsWith(TOUR_URL);
             assertThat(anchors).as(link).contains(link.substring(TOUR_URL.length()));
         }
-        assertThat(links).as("the cards, the PR list's legend, the runs row and the PR comment")
-            .hasSizeGreaterThanOrEqualTo(13);
+        assertThat(links).as("the cards, the PR list, the runs row, the flaky board and the PR comment")
+            .contains(TOUR_URL + "the-flaky-board-flakyhtml").hasSizeGreaterThanOrEqualTo(15);
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             Matcher local = LOCAL_LINK.matcher(read(tour));
@@ -100,7 +104,7 @@ class GlossaryTest {
     /** The legend under the PR list's filter shows each badge the list can show, as the list draws it. */
     @Test
     void thePrListLegendShowsEveryBadge() throws IOException {
-        String legend = between(read(PAGE), "<p id=\"prLegend\"", "</p>");
+        String legend = between(read(PAGE), "<details id=\"prLegend\"", "</details>");
         Map<String, String> badges = new LinkedHashMap<>(Map.of("ok", "✓", "bad", "2"));
         Matcher standing = Pattern.compile("\\[\\s*'(\\w+)',\\s*'(.)',").matcher(between(read(PAGE_SCRIPT),
             "const STANDING_BADGES", "};"));
@@ -110,7 +114,7 @@ class GlossaryTest {
         assertThat(badges).containsKeys("watch", "unproven");
         badges.forEach((cls, mark) -> assertThat(legend)
             .containsPattern("<span class=\"pr-badge " + cls + "\"[^>]*>" + Pattern.quote(mark) + "</span>"));
-        assertThat(legend).contains("<span class=\"my-tag\"").contains("My?</span>");
+        assertThat(legend).contains("<span class=\"my-tag\"").contains("my run</span>");
     }
 
     @Test

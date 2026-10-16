@@ -11,8 +11,11 @@ function fmtDur(s) {
     return `${s}s`;
 }
 
-function card(k, v, sub, cls) {
-    return `<div class="card"><div class="k">${k}</div><div class="v ${cls || ''}">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+// `sub` breaks only between its " · " chunks; `title` explains the card on hover.
+function card(k, v, sub, cls, title) {
+    const chunks = String(sub || '').split(' · ').map(c => `<span class="seg">${c}</span>`).join(' · ');
+    return `<div class="card"${title ? ` title="${esc(title)}"` : ''}><div class="k">${k}</div>`
+        + `<div class="v ${cls || ''}">${v}${sub ? ` <small>${chunks}</small>` : ''}</div></div>`;
 }
 
 // Traffic-light severity for higher-is-worse values: below warnAt = ok, below badAt = warn, else bad.
@@ -145,8 +148,8 @@ function configRows(d) {
 
 function suiteFixCard(f, ago) {
     if (!f) return '';
-    return card('Suite fixes', f.pushed ?? 0,
-        `commits · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} · sweep ${ago(f.lastSweepAt)}`);
+    return card('Tests added to suites', f.pushed ?? 0,
+        `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with the option on · sweep ${ago(f.lastSweepAt)}`);
 }
 
 function lastCycleCard(a) {
@@ -171,6 +174,10 @@ function healthTitle(d, problems) {
     return reasons.length ? reasons.join('; ') : 'healthy';
 }
 
+// The whole heap now; the old generation's peak since the start is what -Xmx has to hold.
+const HEAP_TITLE = 'The first number is the whole heap in use now. Old-gen peak is the most the old generation has held '
+    + 'since the server started. Set -Xmx large enough to hold this peak.';
+
 function render(d) {
     const tc = d.teamcity, gh = d.github, j = d.jvm;
     const t = tc.lastHour, g = gh.lastHour;
@@ -190,7 +197,7 @@ function render(d) {
             `on ${j.cpus} cpu`,
             j.loadAverage >= 0 ? sev(j.loadAverage / j.cpus, 0.7, 1.001) : ''),
         card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB` + (j.heapPeakMb > 0 ? ` · old-gen peak ${j.heapPeakMb} MB` : ''),
-            j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : ''),
+            j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : '', HEAP_TITLE),
         card('Process memory', j.rssMb >= 0 ? j.rssMb : '—', j.rssMb >= 0
             ? `MB resident · peak ${j.rssPeakMb}` + (j.hostMemMb > 0 ? ` · host ${j.hostMemMb} MB` : '') : 'not measured here'),
         card('Threads', j.threads, `· ${j.cpus} cpu`),
@@ -213,10 +220,11 @@ function render(d) {
         card('Last refresh', agoW(w.lastRefreshAt), w.lastRefreshMs ? w.lastRefreshMs + 'ms' : '',
             w.lastRefreshAt && Date.now() - w.lastRefreshAt < 60000 ? 'ok' : w.lastRefreshAt ? 'warn' : ''),
         card('Chain finishes', w.chainFinishes ?? 0, 'since start'),
-        card('Auto-visa armed', w.autoVisaArmed ?? 0,
+        card('Auto visas armed', w.autoVisaArmed ?? 0,
             `${w.autoVisaPosted ?? 0} posted${w.autoVisaLastPostedAt ? ' · last ' + agoW(w.autoVisaLastPostedAt) : ''}`),
-        card('Standing visas', w.standingEnrolled ?? 0,
-            `users · ${w.standingPosted ?? 0} posted · sweep ${agoW(w.standingLastSweepAt)}${w.standingLastSweepMs ? ' (' + w.standingLastSweepMs + 'ms)' : ''}`),
+        card('Standing options', w.standingEnrolled ?? 0,
+            `users with an option on · ${w.standingPosted ?? 0} JIRA visa${w.standingPosted === 1 ? '' : 's'} posted`
+            + ` · sweep ${agoW(w.standingLastSweepAt)}${w.standingLastSweepMs ? ' (' + secs(w.standingLastSweepMs) + ')' : ''}`),
         card('PR commands', w.prCommands ?? 0,
             `/run-all handled · poll ${agoW(w.prCommandsLastPollAt)}`),
         suiteFixCard(w.suiteFix, agoW),
@@ -349,8 +357,24 @@ function renderCats(el, byCategory) {
     }).join('');
 }
 
-const CAT_COLORS =['#1565c0', '#2e7d32', '#c0392b', '#e0a000', '#6a1b9a', '#00838f',
-    '#8d6e63', '#ad1457', '#7cb342', '#f4511e', '#0277bd', '#9e9d24'];
+// The categories TcClient records its calls under. A category's colour follows its name, so it keeps the colour from
+// hour to hour whatever else is on the chart; a name not listed here still gets one of its own.
+const TC_CATEGORIES = ['baseline', 'branchFailures', 'branchMoves', 'branchRuns', 'buildState', 'cancel', 'chainEta',
+    'deps', 'details', 'failedTests', 'findBuild', 'finishedChains', 'history', 'masterFail', 'otherBranchRuns',
+    'prRuns', 'prTests', 'queueTop', 'recentChains', 'revision', 'runningChains', 'suiteRun', 'trigger', 'userBuilds',
+    'whoami'];
+
+// Hues a golden angle apart, so neighbours in the list are far apart on the wheel; two lightnesses tell near hues apart.
+// The lightnesses follow the theme: dark bars on the light card, light bars on a dark one, every hue at 3:1 or more.
+function catColor(name) {
+    let i = TC_CATEGORIES.indexOf(name);
+    if (i < 0) {
+        i = TC_CATEGORIES.length;
+        for (const ch of String(name)) i = (i * 31 + ch.charCodeAt(0)) % 997;
+    }
+    const onLight = document.documentElement.getAttribute('data-theme') === 'light';
+    return `hsl(${Math.round(i * 137.508) % 360}, 60%, ${(onLight ? 28 : 58) + (i % 2 ? 10 : 0)}%)`;
+}
 
 // Stacked per-minute bars: each minute split into category-coloured segments (last hour).
 function drawStacked(canvas, legendEl, byCat) {
@@ -378,18 +402,17 @@ function drawStacked(canvas, legendEl, byCat) {
     const bw = cw / N;
     for (let i = 0; i < N; i++) {
         let yTop = pad.t + ch;
-        cats.forEach((c, ci) => {
+        cats.forEach(c => {
             const v = (byCat[c] || [])[i] || 0;
             if (!v) return;
             const h = ch * v / max;
-            ctx.fillStyle = CAT_COLORS[ci % CAT_COLORS.length];
+            ctx.fillStyle = catColor(c);
             ctx.fillRect(pad.l + i * bw + 0.5, yTop - h, Math.max(1, bw - 1), h);
             yTop -= h;
         });
     }
     ctx.fillStyle = '#999'; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
-    legendEl.innerHTML = cats.map((c, ci) =>
-        `<span><span class="dot" style="background:${CAT_COLORS[ci % CAT_COLORS.length]}"></span>${c}</span>`).join('');
+    legendEl.innerHTML = cats.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('');
 }
 
 let last = null;
@@ -407,10 +430,11 @@ async function tick() {
     }
 }
 
-window.addEventListener('resize', () => {
+function redrawChart() {
     if (!last) return;
     drawStacked($('tcStack'), $('stackLegend'), last.teamcity.perMinuteByCategory || {});
-});
+}
+window.addEventListener('resize', redrawChart);
 // Users tab: active (last 15 min) vs everyone seen. The endpoint is auth-guarded, so
 // anonymous viewers get a hint instead of names.
 const ACTIVE_MS = 15 * 60 * 1000;
@@ -446,6 +470,8 @@ function setStatusTab(users) {
     document.body.classList.toggle('users-mode', users);
     $('tabStatus').classList.toggle('on', !users);
     $('tabUsers').classList.toggle('on', users);
+    $('tabStatus').setAttribute('aria-pressed', String(!users));
+    $('tabUsers').setAttribute('aria-pressed', String(users));
     if (usersTimer) { clearInterval(usersTimer); usersTimer = null; }
     if (users) { loadUsers(); usersTimer = setInterval(loadUsers, 15000); }
 }
@@ -496,6 +522,7 @@ $('flushBtn').addEventListener('click', async () => {
 });
 
 wireThemeToggle();
+$('theme-toggle').addEventListener('change', redrawChart);
 
 tick();
 setInterval(tick, 5000);
