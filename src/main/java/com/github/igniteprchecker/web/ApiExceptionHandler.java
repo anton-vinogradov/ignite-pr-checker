@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.web;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
@@ -9,6 +10,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
@@ -32,6 +34,8 @@ public class ApiExceptionHandler {
 
     static final String PREVIOUS_RUNALL_CANCELLED =
         "Your previous RunAll was cancelled, but queuing the new one failed";
+
+    static final String BAD_JSON = "bad JSON";
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
@@ -68,6 +72,26 @@ public class ApiExceptionHandler {
 
         return ResponseEntity.status(502).body(Map.of("error", e instanceof QueueRefusedException ? QUEUE_FORBIDDEN
             : status == 403 ? FORBIDDEN : "TeamCity answered " + status + " — try again in a moment"));
+    }
+
+    /**
+     * A request body that is not the JSON asked for. Jackson's message quotes the body, a token typed without quotes
+     * included, so the log gets where the body broke and nothing of it. At INFO: a malformed body that anyone can send
+     * to /api/login must not turn the service's health amber.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> unreadableBody(HttpMessageNotReadableException e,
+        HttpServletRequest req) {
+        log.info("Unreadable body of {} {}{}", req.getMethod(), req.getRequestURI(), whereBroken(e));
+
+        return ResponseEntity.badRequest().body(Map.of("error", BAD_JSON));
+    }
+
+    private static String whereBroken(HttpMessageNotReadableException e) {
+        if (!(e.getCause() instanceof JsonProcessingException json) || json.getLocation() == null)
+            return "";
+
+        return " at line " + json.getLocation().getLineNr() + ", column " + json.getLocation().getColumnNr();
     }
 
     /** Why queuing failed, as it would be answered alone, led by the news that the previous chain is gone. */

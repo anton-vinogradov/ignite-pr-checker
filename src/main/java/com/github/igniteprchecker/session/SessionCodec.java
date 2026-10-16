@@ -2,6 +2,7 @@ package com.github.igniteprchecker.session;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -176,6 +177,12 @@ public class SessionCodec {
         public Session withJiraToken(String jira) {
             return new Session(username, token, jira, issuedAt);
         }
+
+        @Override
+        public String toString() {
+            return "Session[username=" + username + ", token=" + Secrets.masked(token) + ", jiraToken="
+                + Secrets.masked(jiraToken) + ", issuedAt=" + issuedAt + "]";
+        }
     }
 
     /**
@@ -185,5 +192,10 @@ public class SessionCodec {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Payload(String username, String token, String jiraToken, Long iat) {
+        @Override
+        public String toString() {
+            return "Payload[username=" + username + ", token=" + Secrets.masked(token) + ", jiraToken="
+                + Secrets.masked(jiraToken) + ", iat=" + iat + "]";
+        }
     }
 }

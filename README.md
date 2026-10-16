@@ -248,6 +248,10 @@ The service's own log keeps 30 days, a file a day. The status page keeps the rec
 restarts and lists at the top what is wrong now: a background job that stopped, a state file it could not read, a
 setting out of range.
 
+Some loggers write tokens at DEBUG or TRACE: Spring's, with the text of a request body the service could not read and
+the arguments of a request's handler, and httpclient's, with the headers of GitHub calls. `application.yml` keeps
+those at INFO, whatever level the env file sets for their package.
+
 ### Memory
 
 The JVM gets `-Xmx512m`. A JVM out of memory writes a heap dump to `/opt/ignite-pr-checker/dumps/` and exits, and

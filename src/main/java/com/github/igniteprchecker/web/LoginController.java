@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -52,7 +53,12 @@ public class LoginController {
         this.standing = standing;
     }
 
-    public record LoginRequest(String token) {
+    /** The TeamCity token the user pasted into the login form. */
+    public record LoginRequest(String token) implements CarriesToken {
+        @Override
+        public String toString() {
+            return "LoginRequest[token=" + Secrets.masked(token) + "]";
+        }
     }
 
     /** Everyone who has used the tool (names + activity): for the operator, or anyone logged in if none is named. */

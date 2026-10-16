@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.github.CommitTokens;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
@@ -2630,6 +2631,11 @@ public class StandingVisas implements SnapshotCache {
 
     /** An enrolled user resolved from a GitHub login, tokens decrypted and ready to act with. */
     public record GhActor(String username, String tcToken, String ghToken, String tz) {
+        @Override
+        public String toString() {
+            return "GhActor[username=" + username + ", tcToken=" + Secrets.masked(tcToken) + ", ghToken="
+                + Secrets.masked(ghToken) + ", tz=" + tz + "]";
+        }
     }
 
     /**

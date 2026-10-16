@@ -17,6 +17,14 @@ logging:
       max-history: 30
       # A logging loop must not fill the disk.
       total-size-cap: 500MB
+  level:
+    # At DEBUG or TRACE these print tokens: the text of a request body the checker could not read, the arguments a
+    # request's handler gets, and the headers and bytes of the GitHub calls. They stay at INFO whatever level their
+    # package or root gets.
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
+    org.springframework.web.method.HandlerMethod: INFO
+    org.apache.hc.client5.http.headers: INFO
+    org.apache.hc.client5.http.wire: INFO
 
 spring:
   servlet:
