@@ -12,6 +12,8 @@ import com.github.igniteprchecker.github.GithubClient;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -45,6 +47,7 @@ class UpdateScriptTest {
         script = InstallScript.updateSh(app);
         Files.createDirectories(app.resolve("update"));
         Files.writeString(app.resolve("app.jar"), OLD);
+        Files.writeString(app.resolve("installed-jars"), sha256(OLD) + " 1.21.0\n");
 
         stub("curl", """
             out=""; url=""
@@ -220,6 +223,65 @@ class UpdateScriptTest {
         assertThat(asked()).isEmpty();
         assertThat(failed()).startsWith("?\t").endsWith("\tthe request does not name a release\n")
             .doesNotContain("evil");
+    }
+
+    /**
+     * update/ belongs to the service account, and update.sh installed any release named there: a hole in the service
+     * could roll it back to an older release with known holes.
+     */
+    @Test
+    void theServiceCannotAskForAnOlderOrTheSameRelease() throws Exception {
+        release("1.20.9", "jar of v1.20.9", sha256("jar of v1.20.9"));
+        release("1.21.0", "jar of v1.21.0", sha256("jar of v1.21.0"));
+
+        for (String older : List.of("1.20.9", "1.21.0")) {
+            Files.writeString(app.resolve("update/requested"), older);
+
+            assertThat(run()).isZero();
+
+            assertThat(app.resolve("app.jar")).hasContent(OLD);
+            assertThat(app.resolve("update/requested")).doesNotExist();
+            assertThat(failed()).startsWith(older + "\t")
+                .endsWith("\tv" + older + " is not newer than v1.21.0, which runs now\n");
+        }
+        assertThat(asked()).isEmpty();
+
+        assertThat(run("1.20.9")).as("the operator rolls back by naming the release").isZero();
+        assertThat(app.resolve("app.jar")).hasContent("jar of v1.20.9");
+    }
+
+    /** Which release runs is known by the jar's sha256: a rollback to app.jar.prev and a deploy.sh build count. */
+    @Test
+    void theRunningReleaseIsTheOneItsJarWasInstalledAs() throws Exception {
+        release("1.21.1", "jar of v1.21.1", sha256("jar of v1.21.1"));
+        assertThat(run("1.21.1")).isZero();
+        Files.copy(app.resolve("app.jar.prev"), app.resolve("app.jar"), StandardCopyOption.REPLACE_EXISTING);
+        Files.writeString(app.resolve("update/requested"), "1.21.1");
+
+        assertThat(run()).isZero();
+        assertThat(app.resolve("app.jar")).hasContent("jar of v1.21.1");
+
+        Files.writeString(app.resolve("app.jar"), "a local build");
+        Files.writeString(app.resolve("installed-jars"), sha256("a local build") + " 1.21.1-3-gabc1234-dirty\n",
+            StandardOpenOption.APPEND);
+        Files.writeString(app.resolve("update/requested"), "1.21.1");
+
+        assertThat(run()).isZero();
+        assertThat(app.resolve("app.jar")).hasContent("a local build");
+        assertThat(failed()).endsWith("\tv1.21.1 is not newer than v1.21.1, which runs now\n");
+    }
+
+    @Test
+    void aJarNoScriptInstalledTakesNoRequest() throws Exception {
+        release("1.21.1", "jar of v1.21.1", sha256("jar of v1.21.1"));
+        Files.writeString(app.resolve("app.jar"), "copied by hand");
+        Files.writeString(app.resolve("update/requested"), "1.21.1");
+
+        assertThat(run()).isZero();
+
+        assertThat(app.resolve("app.jar")).hasContent("copied by hand");
+        assertThat(failed()).endsWith("\tthe jar that runs is not one update.sh installed: install v1.21.1 with "
+            + "update.sh as root\n");
     }
 
     @Test

@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +78,8 @@ class DeployScriptTest {
         stub("systemctl", "echo \"$*\" >> \"" + server + "/systemctl\"\n"
             + "if [ \"$1\" = restart ]; then touch \"" + server + "/restarted\"; fi");
         stub("sleep", ":");
+        if (new ProcessBuilder("bash", "-c", "command -v sha256sum").start().waitFor() != 0)
+            stub("sha256sum", "exec shasum -a 256 \"$@\"");
     }
 
     private Result deploy(String... args) throws Exception {
@@ -113,6 +117,16 @@ class DeployScriptTest {
         assertThat(server.resolve("app.jar.new")).doesNotExist();
         assertThat(server.resolve("update-failed")).doesNotExist();
         assertThat(server.resolve("systemctl")).hasContent("restart ignite-pr-checker");
+    }
+
+    /** update.sh takes a release the service asks for only when it is newer than the one that runs. */
+    @Test
+    void theDeployedBuildIsRecordedForUpdateSh() throws Exception {
+        assertThat(deploy().exit()).isZero();
+
+        assertThat(server.resolve("installed-jars")).hasContent(
+            HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest("new jar".getBytes(UTF_8)))
+                + " 1.21.0-1-gabc1234");
     }
 
     @Test

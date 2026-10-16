@@ -208,6 +208,9 @@ to its release notes, or to the list of releases when it is not the next patch r
 service. Before the start, systemd runs `update.sh` as root, which:
 
 - downloads exactly the release the button offered;
+- installs it only if it is newer than the release that runs, so a hole in the service cannot roll it back to an
+  older release. It knows which release runs by the jar's sha256, which `update.sh` and `deploy.sh` record in
+  `installed-jars`; a jar copied by hand takes no update from the page;
 - installs it only if its sha256 equals the digest GitHub lists for the release's `ignite-pr-checker.jar`;
 - keeps the jar it replaces as `app.jar.prev`, unless it is the same jar;
 - on a failure keeps the current jar and writes the reason to `/opt/ignite-pr-checker/update-failed`. The button then
