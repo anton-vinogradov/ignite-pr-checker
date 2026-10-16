@@ -265,7 +265,7 @@ heap with the peak of its old generation, and the process's resident memory with
 
 | File | What it holds |
 |---|---|
-| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
+| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; of a TeamCity token TeamCity refused, only its SHA-256, to know it again), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
 | `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted), and those JIRA refused the token of, without it. |
 | `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply, the reactions and replies GitHub has not taken yet. |
 | `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |
