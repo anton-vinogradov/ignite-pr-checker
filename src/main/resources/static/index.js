@@ -870,8 +870,8 @@ function renderBroken(el, suites) {
     wireSuiteAi(el);
 }
 
-// One broken suite: its name, TeamCity link, "ai" and live chips, its own Rerun pair unless `rerun` is false or the
-// pair `above` it re-runs just this suite, and what TeamCity reported.
+// One broken suite: its name, TeamCity link, "copy AI prompt" and live chips, its own Rerun pair unless `rerun` is
+// false or the pair `above` it re-runs just this suite, and what TeamCity reported.
 function brokenRow(s, rerun = true, above = []) {
     const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
     const head = esc(s.suiteName || s.suite)
@@ -997,15 +997,16 @@ function renderShrunk(el, suites) {
     wireSuiteAi(el);
 }
 
-// "ai" on a suite-level problem: a suite that produced no reliable result, or one that ran far
+// "copy AI prompt" on a suite-level problem: a suite that produced no reliable result, or one that ran far
 // fewer tests than master. These never reach a single test's stacktrace, so the prompt points
 // at the run, what TeamCity said about it, and how to tell a PR breakage from a master one.
 function suiteAiBtn(s, kind) {
+    const why = kind === 'broken' ? 'has no reliable result' : 'ran fewer tests than on master';
     return ` <button class="why ai-suite" data-kind="${kind}" data-suite="${esc(s.suite || '')}"`
         + ` data-suitename="${esc(s.suiteName || s.suite || '')}" data-buildid="${s.suiteBuildId || 0}"`
         + ` data-problems="${esc((s.problems || []).join(' · '))}" data-tests="${s.tests || 0}"`
         + ` data-baseline="${s.baseline || 0}" data-drop="${s.dropPct || 0}"`
-        + ` title="Copy an AI-ready prompt with the full context of this suite problem">ai</button>`;
+        + ` title="Copies a prompt for an AI coding assistant to find why this suite ${why}.">${AI_PROMPT}</button>`;
 }
 
 function wireSuiteAi(el) {
@@ -1065,7 +1066,7 @@ async function aiSuitePrompt(btn) {
             '5. Remember tests that never ran cannot fail: a green suite here means nothing until the count is back.',
         ],
     });
-    await copyText(prompt, btn, 'ai');
+    await copyText(prompt, btn, AI_PROMPT);
 }
 
 // Blockers per RunAll build, oldest to newest: one bar each, red while blockers remain, from three runs on.
@@ -1945,36 +1946,45 @@ async function rerunSuite(suite, top, btn) {
     }
 }
 
-// "(N suites, M tests)" — how many suites are affected and how many tests failed.
+// "(N suites, M tests)" — how many suites are affected and how many tests failed; suites are counted by suite id, as
+// the Rerun buttons count them, so a suite that ran twice is one.
 function countLabel(list) {
-    const suites = new Set(list.map(t => t.suiteBuildId || 0)).size;
+    const suites = new Set(list.map(suiteKey)).size;
     const n = list.length;
     return `(${suites} suite${suites === 1 ? '' : 's'}, ${n} test${n === 1 ? '' : 's'})`;
 }
 
-// tcbot-style pass/fail history of the test's finished runs on the PR branch (oldest → newest).
-// Runs made before the current revision are dimmed: the verdict rests only on the trailing
-// `codeRuns` runs of the code under review — a pass on older code proves nothing about it.
-function runStrip(runs, codeRuns) {
-    if (!runs) return '';
+function suiteKey(t) {
+    return t.suite || t.suiteBuildId || 0;
+}
+
+// tcbot-style pass/fail history of the test's finished runs on the PR branch (oldest → newest). Runs made before
+// the current revision are dimmed. Nothing under `atLeast` bars: a strip of one bar says no more than the "1 run"
+// heading over the list it stands in.
+function runStrip(runs, codeRuns, atLeast = 1) {
+    if (!runs || runs.length < atLeast) return '';
+    const n = runs.length;
     const failed = [...runs].filter(c => c === 'F').length;
-    const older = codeRuns > 0 && codeRuns < runs.length ? runs.length - codeRuns : 0;
+    const older = codeRuns > 0 && codeRuns < n ? n - codeRuns : 0;
     const bars = [...runs].map((c, i) =>
         `<span class="run run-${c === 'F' ? 'f' : 'p'}${i < older ? ' run-old' : ''}"></span>`).join('');
-    return `<span class="strip" title="${runs.length} branch run(s), ${failed} failed (oldest→newest)`
-        + (older ? ` — the first ${older} ran on other code and don't count` : '') + `">${bars}</span>`;
+    const title = `${n} run${n === 1 ? '' : 's'} on this PR's branch, ${failed} failed` + (n > 1 ? ' (oldest → newest).' : '.')
+        + (!older ? '' : codeRuns === 1 ? ' The bright bar is the newest run. No other run tested the same code.'
+            : ` The bright bars are the last ${codeRuns} runs, all on the same code as the newest run.`);
+    return `<span class="strip" title="${esc(title)}">${bars}</span>`;
 }
 
 // What a blocker or watch verdict rests on short of proof (TestVerdict.Doubt on the server).
 const DOUBTS = {
-    ONE_RUN: ['1 run', 'Only one failure on this branch backs it: a re-run of its suite confirms or clears it'],
+    ONE_RUN: ['1 run', 'The test ran once on this code and failed. A rerun of its suite confirms or clears the test\'s verdict.'],
     NO_MASTER_HISTORY: ['new test / no master history',
         'Master has no runs of this test on this JDK to compare with: a new test, or one master does not run'],
     UNCHECKED: ['unverified', 'A TeamCity error kept part of the check from being made; the checker tries again'],
 };
 
-function doubtTags(t) {
-    return (t.doubts || []).filter(d => DOUBTS[d])
+// The test's tags; `said` is the doubt the heading over the list already states, left out.
+function doubtTags(t, said) {
+    return (t.doubts || []).filter(d => DOUBTS[d] && d !== said)
         .map(d => `<span class="tag-doubt" title="${esc(DOUBTS[d][1])}">${esc(DOUBTS[d][0])}</span>`).join('');
 }
 
@@ -1988,10 +1998,10 @@ function oneRun(t) {
 function renderBlockers(blockers) {
     const single = blockers.filter(oneRun);
     const allSingle = single.length > 0 && single.length === blockers.length;
-    renderList($('blockers'), allSingle ? blockers : blockers.filter(t => !oneRun(t)), true, suitesOfTests(blockers));
+    renderList($('blockers'), allSingle ? blockers : blockers.filter(t => !oneRun(t)), true, suitesOfTests(blockers), allSingle);
     const suites = suitesOfTests(single);
     // The group's pair, or the card's when they re-run the same suites: either way the pair above re-runs `suites`.
-    renderList($('oneRunBlockers'), allSingle ? [] : single, true, suites);
+    renderList($('oneRunBlockers'), allSingle ? [] : single, true, suites, true);
     $('oneRunNote').classList.toggle('hidden', !allSingle);
     $('oneRunCount').textContent = single.length && !allSingle ? countLabel(single) : '';
     wireSectActs('oneRunActs', allSingle || sameSuites(suites, suitesOfTests(blockers)) ? [] : suites);
@@ -2005,65 +2015,116 @@ function paintOneRunGroup() {
     $('oneRunGroup').classList.toggle('hidden', !mixed || blockerView !== 'suites');
 }
 
-// Group failed tests by the suite (CI run) they failed in: a clickable suite header with its own quiet Rerun pair,
-// unless the pair `above` the list re-runs just that suite, then its tests. Links use the Sakura-native build URL so
+const AI_PROMPT = 'copy AI prompt';
+
+// The row's button that opens and closes its failure panel: the label and the title while closed, and while open.
+const FAILURE_CLOSED = ['failure ▸', 'Show the failure message and stack trace.'];
+const FAILURE_OPEN = ['failure ▾', 'Hide the failure message.'];
+
+// What every reason in the "Not confirmed: 1 run" list ends with: its heading says it once for all of them.
+const ONE_RUN_TAIL = '; failed the only run on this branch';
+
+// Failed tests grouped by suite: a header that links the suite's newest run, with its live chip and its own quiet
+// Rerun pair unless the pair `above` the list re-runs just that suite; a reason once above the tests that share it;
+// then the rows. `oneRunSaid`: the heading over the list already says every test failed its only run, so the rows
+// leave out the "1 run" tag, a strip of one bar and that tail of the reason. Links use the Sakura-native build URL so
 // the Tests tab + test anchor survive (viewLog.html would redirect to Sakura and drop them).
-function renderList(el, tests, withReason, above) {
+function renderList(el, tests, withReason, above, oneRunSaid = false) {
     const groups = new Map();
     for (const t of tests) {
-        const key = t.suiteBuildId || 0;
+        const key = suiteKey(t);
         if (!groups.has(key))
-            groups.set(key, { name: t.suiteName || t.suite, buildId: t.suiteBuildId || 0, btId: t.suite, items: [] });
-        groups.get(key).items.push(t);
+            groups.set(key, { name: t.suiteName || t.suite, buildId: 0, btId: t.suite, items: [] });
+        const g = groups.get(key);
+        g.buildId = Math.max(g.buildId, t.suiteBuildId || 0);
+        g.items.push(t);
     }
     el.innerHTML = [...groups.values()].map(g => {
-        const runUrl = g.buildId ? `${tcBase}buildConfiguration/${encodeURIComponent(g.btId)}/${g.buildId}` : '';
+        const newest = runUrlOf(g.btId, g.buildId);
         const head = esc(g.name)
-            + (g.buildId ? `<a class="ext" href="${runUrl}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
-        const rerunBtns = suiteRowActs(g.btId, above);
-        const rows = g.items.map(t => {
-            const short = esc(shortTestName(t.name));
-            // expandedTest opens the test "into itself" in this build (not the branch summary).
-            // occurrenceId is already the full "build:(id:..),id:.." locator; TeamCity's router
-            // needs the parens percent-encoded too, which encodeURIComponent leaves intact.
-            const expanded = t.occurrenceId
-                ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
-                : '';
-            const link = short + (g.buildId
-                ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity">TC</a>` : '');
-            const why = t.occurrenceId
-                ? ` <button class="why" data-occ="${esc(t.occurrenceId)}" title="Show the failure message">why?</button>`
-                : '';
-            const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
-                : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this revision to tell a break from a flake'
-                : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
-            const ai = ` <button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
-                + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
-                + ` data-buildid="${t.suiteBuildId || 0}" data-strip="${esc(t.branchRuns || '')}"`
-                + ` data-verdict="${esc(verdict)}" data-samecode="${esc(sameCodeRuns(t))}"`
-                + ` title="Copy an AI-ready fix prompt with the full context">ai</button>`;
-            // A fail->pass transition means it flapped — but only when both runs were on the
-            // SAME revision. Across a push those are two different programs, not a flap.
-            const sameCode = t.codeRuns > 0 ? (t.branchRuns || '').slice(-t.codeRuns) : (t.branchRuns || '');
-            const flaky = /FP/.test(sameCode)
-                ? `<span class="tag-flaky" title="passed and failed across this branch's runs on the same code">flaky?</span>` : '';
-            return `<li><div class="tname">${link}${runStrip(t.branchRuns, t.codeRuns)}${flaky}${doubtTags(t)}${why}${ai}</div>`
-                + `${withReason ? `<div class="reason">${esc(t.reason)}</div>` : ''}`
-                + `<div class="details hidden" data-occ="${esc(t.occurrenceId || '')}" data-samecode="${esc(sameCodeRuns(t))}"><button class="copy" type="button" title="Copy the failure message">copy</button><pre></pre></div></li>`;
+            + (newest ? `<a class="ext" href="${newest}" target="_self" rel="noopener" title="Open the newest run of this suite in TeamCity.">TC</a>` : '');
+        const byReason = withReason ? reasonGroups(g.items, oneRunSaid) : [['', g.items]];
+        const shared = byReason.length === 1 && byReason[0][0] ? `<li class="reason-head">${esc(byReason[0][0])}</li>` : '';
+        const rows = byReason.map(([reason, items]) => {
+            const own = byReason.length > 1 && items.length === 1 ? reason : '';
+            const grouped = byReason.length > 1 && items.length > 1;
+            const subhead = grouped ? `<li class="reason-head">${items.length} tests: ${esc(reason)}</li>` : '';
+            return subhead + items.map(t => testRow(t, g.btId, withReason, own, oneRunSaid, grouped)).join('');
         }).join('');
-        return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${rerunBtns}</div><ul class="suite-tests">${rows}</ul></li>`;
+        return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${suiteRowActs(g.btId, above)}</div>`
+            + `<ul class="suite-tests">${shared}${rows}</ul></li>`;
     }).join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
-    for (const b of el.querySelectorAll('.why:not(.ai)'))
+    for (const b of el.querySelectorAll('.why.toggle'))
         b.onclick = () => toggleDetails(b);
     for (const b of el.querySelectorAll('.why.ai'))
         b.onclick = () => aiFixPrompt(b);
     for (const b of el.querySelectorAll('.details .copy'))
-        b.onclick = () => copyDetails(b);
+        b.onclick = () => copyDetails(b, 'copy failure');
 }
 
-// "ai": assemble EVERYTHING a coding assistant needs to fix this failure — the PR, the suite,
+// The reasons of `tests` as their rows show them, each with its tests, the biggest group first.
+function reasonGroups(tests, oneRunSaid) {
+    const groups = new Map();
+    for (const t of tests) {
+        const reason = shownReason(t, oneRunSaid);
+        if (!groups.has(reason)) groups.set(reason, []);
+        groups.get(reason).push(t);
+    }
+    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+}
+
+function shownReason(t, oneRunSaid) {
+    const reason = t.reason || '';
+    return oneRunSaid && reason.endsWith(ONE_RUN_TAIL) ? reason.slice(0, -ONE_RUN_TAIL.length) : reason;
+}
+
+function runUrlOf(btId, buildId) {
+    return btId && buildId ? `${tcBase}buildConfiguration/${encodeURIComponent(btId)}/${buildId}` : '';
+}
+
+// One test: its name as plain text, the full one in its title, then one column of strip, tags, TC link and
+// "failure ▸", or "copy AI prompt" when TeamCity kept no failure message to open. `own` is the reason written under
+// this row alone; when the row does not show its whole reason, the row's title holds it, and data-verdict always does.
+// A `grouped` row stands under a "N tests: reason" line, one step in.
+function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
+    const runUrl = runUrlOf(btId, t.suiteBuildId);
+    // expandedTest opens the test "into itself" in this build (not the branch summary).
+    // occurrenceId is already the full "build:(id:..),id:.." locator; TeamCity's router
+    // needs the parens percent-encoded too, which encodeURIComponent leaves intact.
+    const expanded = t.occurrenceId
+        ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
+        : '';
+    const tc = runUrl
+        ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
+    const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
+        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this revision to tell a break from a flake'
+        : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
+    const ai = `<button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
+        + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
+        + ` data-buildid="${t.suiteBuildId || 0}" data-strip="${esc(t.branchRuns || '')}"`
+        + ` data-verdict="${esc(verdict)}" data-samecode="${esc(sameCodeRuns(t))}"`
+        + ` title="Copies a prompt that asks an AI coding assistant to fix this test.">${AI_PROMPT}</button>`;
+    // A fail->pass transition means it flapped — but only when both runs were on the
+    // SAME revision. Across a push those are two different programs, not a flap.
+    const sameCode = t.codeRuns > 0 ? (t.branchRuns || '').slice(-t.codeRuns) : (t.branchRuns || '');
+    const flaky = /FP/.test(sameCode)
+        ? `<span class="tag-flaky" title="passed and failed across this branch's runs on the same code">flaky?</span>` : '';
+    const toggle = t.occurrenceId
+        ? `<button class="why toggle" data-occ="${esc(t.occurrenceId)}" aria-expanded="false" title="${FAILURE_CLOSED[1]}">${FAILURE_CLOSED[0]}</button>`
+        : '';
+    const panel = t.occurrenceId
+        ? `<div class="details hidden" data-occ="${esc(t.occurrenceId)}" data-samecode="${esc(sameCodeRuns(t))}"><div class="details-acts">`
+            + `<button class="why copy" type="button" title="Copy the failure message.">copy failure</button>${ai}</div><pre></pre></div>`
+        : '';
+    const title = withReason && own !== (t.reason || '') ? ` title="${esc(t.reason)}"` : '';
+    return `<li class="test-row${grouped ? ' grouped' : ''}"${title}><span class="tname" title="${esc(t.name)}">${esc(shortTestName(t.name))}</span>`
+        + `<span class="tacts">${runStrip(t.branchRuns, t.codeRuns, oneRunSaid ? 2 : 1)}${flaky}${doubtTags(t, oneRunSaid ? 'ONE_RUN' : null)}${tc}${toggle || ai}</span>`
+        + (own ? `<div class="reason">${esc(own)}</div>` : '') + panel + '</li>';
+}
+
+// "copy AI prompt" on a test: assemble EVERYTHING a coding assistant needs to fix this failure — the PR, the suite,
 // the checker's verdict with run history, the failure output, and concrete repro steps — and
 // put it on the clipboard as one paste-ready prompt.
 async function aiFixPrompt(btn) {
@@ -2094,10 +2155,10 @@ async function aiFixPrompt(btn) {
             '4. Fix accordingly (production code fix preferred over weakening the test), keep the Apache Ignite code style, and re-run the test to verify it passes.',
         ],
     });
-    await copyText(prompt, btn, 'ai');
+    await copyText(prompt, btn, AI_PROMPT);
 }
 
-// "ai" on a root cause: one prompt covering the whole cluster — the shared failure signature,
+// "copy AI prompt" on a root cause: one prompt covering the whole cluster — the shared failure signature,
 // every affected suite/test, and one exemplar failure output.
 async function aiCausePrompt(btn, block) {
     btn.textContent = '…';
@@ -2129,7 +2190,7 @@ async function aiCausePrompt(btn, block) {
             '4. Re-run a few of the affected tests from different suites to verify the whole group is fixed.',
         ],
     });
-    await copyText(prompt, btn, 'ai');
+    await copyText(prompt, btn, AI_PROMPT);
 }
 
 // Everything quoted from the PR and its run may carry text written to steer the assistant.
@@ -2210,6 +2271,14 @@ function reproduceStep(platform, name) {
                 ? `ctest -V -R ${binary} (one case: --run_test=${suite}/${testCase}).`
                 : 'ctest -V -R IgniteCoreTest, IgniteThinClientTest or IgniteOdbcTest, whichever the suite runs.');
     }
+    if (platform === 'python' || platform === 'nodejs') {
+        const client = platform === 'python' ? 'Python thin client, repository apache/ignite-python-thin-client'
+            : 'Node.js thin client, repository apache/ignite-nodejs-thin-client';
+        const test = platform === 'python' && name ? shortTestName(name).replace(/\(.*$/, '').split('.').pop() : '';
+        return `This suite runs the tests of the ${client}. Build the Java modules of the fetched code (./mvnw clean `
+            + 'install -DskipTests), then run those tests against a node built from them, as that repository\'s README '
+            + 'describes' + (test ? ` (one test: pytest -k ${test}).` : '.');
+    }
     return 'Locate the test class and reproduce the failure locally (JDK 17; run the single test via your build tooling or IDE).';
 }
 
@@ -2217,17 +2286,23 @@ const SHRINK_CAUSES = {
     java: 'a test class dropped from the JUnit suite class (@Suite.SuiteClasses in the *TestSuite of this module), a class renamed/moved without updating that list, an @Ignore or assumeTrue that now short-circuits, a failure in @BeforeClass/suite setup that skips the rest, or a run that ended early (check the build log tail).',
     dotnet: 'a test fixture or test removed or renamed, a new [Ignore], [Explicit] or [Category] that keeps tests out, a failure in [OneTimeSetUp] that skips the fixture, or a run that ended early (check the build log tail).',
     cpp: 'a test case removed or renamed, a test source dropped from the CMakeLists.txt of the test project, a test case disabled with boost::unit_test::disabled(), a failure in a suite fixture that skips the rest, or a run that ended early (check the build log tail).',
+    python: 'a test module or function removed or renamed, a new skip mark, a failing fixture that skips the rest, or a run that ended early (check the build log tail).',
+    nodejs: 'a test file or case removed or renamed, a test marked skipped, a failing setup hook that skips the rest, or a run that ended early (check the build log tail).',
 };
 
 function toggleDetails(btn) {
     const box = btn.closest('li').querySelector('.details');
     if (!box) return;
     if (box.classList.contains('hidden')) openDetails(box);
-    else box.classList.add('hidden');
+    else {
+        box.classList.add('hidden');
+        paintToggle(box, false);
+    }
 }
 
 async function openDetails(box) {
     box.classList.remove('hidden');
+    paintToggle(box, true);
     const pre = box.querySelector('pre');
     if (pre.dataset.loaded) return;
     pre.textContent = 'loading…';
@@ -2244,8 +2319,19 @@ async function openDetails(box) {
     }
 }
 
+// The row's "failure ▸" says whether its panel is open: a redraw that reopens the panel paints it too.
+function paintToggle(box, open) {
+    const row = box.closest('li');
+    const btn = row && row.querySelector('.why.toggle');
+    if (!btn) return;
+    const [label, title] = open ? FAILURE_OPEN : FAILURE_CLOSED;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = label;
+    btn.title = title;
+}
+
 // A test occurrence's failure message never changes, so each is fetched from TeamCity once per
-// page: reopening it, a redraw that reopens it, or an "ai" prompt reuses the first answer.
+// page: reopening it, a redraw that reopens it, or an AI prompt reuses the first answer.
 const detailsCache = new Map();
 const NO_FAILURE = { details: '', kind: '' };
 

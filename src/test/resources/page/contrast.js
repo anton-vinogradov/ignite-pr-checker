@@ -34,7 +34,8 @@ const INSIDE = {
     '.details': ['pre', '.copy'],
     '.jira-panel': ['.muted', 'a'],
     '.pane-head': ['a.help', '.pr-legend'],
-    '.card': ['.muted', 'a', '.reason', '.tag-doubt', '.tag-flaky', '.live'],
+    '.card': ['.muted', 'a', '.reason', '.reason-head', '.tag-doubt', '.tag-flaky', '.live'],
+    'ul.suite-tests > li.test-row:hover': ['.tname', '.tacts', '.reason', '.tag-doubt', '.tag-flaky', 'a.ext', '.why'],
     '.section': ['.catname', '.muted', 'a', '.lbprs a', '.flake', '.lbsuite'],
 };
 

@@ -44,8 +44,9 @@ class VerdictBasisPageTest {
             .contains("not seen failing in 85 master run(s) on JDK 17; failed all 3 runs on this branch")
             .doesNotContain("testCacheIdle")
             .doesNotContain("1 run");
-        assertThat(out.get("oneRun").asText())
-            .contains("testCacheIdle", "failed the only run on this branch", "1 run", "new test / no master history");
+        assertThat(out.get("oneRun").asText()).as("the heading says 1 run for every test there")
+            .contains("testCacheIdle", "no master history on JDK 17 (can't prove pre-existing)", "new test / no master history")
+            .doesNotContain("failed the only run on this branch", "1 run");
         assertThat(out.get("watch").asText()).contains("first failure on revision 5be1c0d", "1 run");
     }
 
@@ -57,10 +58,10 @@ class VerdictBasisPageTest {
             report({ watch: page.el('watch').innerHTML, oneRun: page.el('oneRunBlockers').innerHTML });
             """);
 
-        String tag = "title=\"Only one failure on this branch backs it: a re-run of its suite confirms or clears "
-            + "it\">1 run</span>";
+        String tag = "title=\"The test ran once on this code and failed. A rerun of its suite confirms or clears the test&#39;s verdict.\">"
+            + "1 run</span>";
         assertThat(out.get("watch").asText()).contains(tag).doesNotContain("the only time it ran");
-        assertThat(out.get("oneRun").asText()).contains(tag);
+        assertThat(out.get("oneRun").asText()).as("Not confirmed: 1 run says it once").doesNotContain(tag);
     }
 
     @Test

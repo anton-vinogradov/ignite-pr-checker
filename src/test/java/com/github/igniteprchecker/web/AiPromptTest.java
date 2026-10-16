@@ -215,6 +215,91 @@ class AiPromptTest {
                 + "modules/platforms/dotnet/DEVNOTES.txt describes");
     }
 
+    /**
+     * PR 13692's 33 blockers were Python and Node.js thin-client tests, and every prompt told the assistant to find
+     * the test class and run it on JDK 17 in an IDE; the suite with fewer tests than master got "undefined" causes.
+     */
+    @Test
+    void pythonAndNodeJsTestsAreNotToldToUseAJavaIde() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            const py = Object.assign(blocker('x', 'occ-py'), { suite: 'IgniteTests24Java8_ThinClientPython',
+                suiteName: 'Thin client: Python', name: 'test_binary.test_sql_read_as_binary' });
+            const node = Object.assign(blocker('x', 'occ-node'), { suite: 'IgniteTests24Java8_ThinClientNodeJs',
+                suiteName: 'Thin client: Node.js', name: 'SqlExample' });
+            page.route('/api/analyze', { body: verdict({ blockers: [py],
+                shrunkSuites: [{ suite: 'IgniteTests24Java8_ThinClientPython', suiteBuildId: 9401,
+                    suiteName: 'Thin client: Python', tests: 40, baseline: 120, dropPct: 66 }] }) });
+            await page.load('?pr=13575');
+            const python = await aiOf('blockers');
+            const shrunk = await suiteAiOf('shrunkSuites');
+            page.route('/api/analyze', { body: verdict({ blockers: [node], buildId: 9100 }) });
+            await page.run('analyze')(13575, true);
+            await page.settle();
+            report({ python, shrunk, node: await aiOf('blockers') });
+            """);
+
+        String pythonTests = "This suite runs the tests of the Python thin client, repository "
+            + "apache/ignite-python-thin-client. Build the Java modules of the fetched code (./mvnw clean install "
+            + "-DskipTests), then run those tests against a node built from them, as that repository's README describes";
+        assertThat(out.get("python").asText())
+            .startsWith("Fix a failing test in Apache Ignite (Python).")
+            .contains("2. " + pythonTests + " (one test: pytest -k test_sql_read_as_binary).")
+            .doesNotContain("JDK 17; run the single test");
+        assertThat(out.get("shrunk").asText())
+            .startsWith("Find out why an Apache Ignite test suite (Python tests) ran far fewer tests than it does on master.")
+            .contains("2. Work through the usual causes: a test module or function removed or renamed, a new skip mark, "
+                + "a failing fixture that skips the rest, or a run that ended early (check the build log tail).")
+            .doesNotContain("undefined", "@Suite.SuiteClasses");
+        assertThat(out.get("node").asText())
+            .startsWith("Fix a failing test in Apache Ignite (Node.js).")
+            .contains("2. This suite runs the tests of the Node.js thin client, repository apache/ignite-nodejs-thin-client. "
+                + "Build the Java modules of the fetched code (./mvnw clean install -DskipTests), then run those tests "
+                + "against a node built from them, as that repository's README describes.")
+            .doesNotContain("JDK 17; run the single test", "pytest");
+    }
+
+    /** The Python suite's TeamCity id was never seen in the checker's data: a pytest name alone marks the test Python. */
+    @Test
+    void aPytestNameMarksTheTestPythonWhenTheSuiteIdDoesNot() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            const py = Object.assign(blocker('x', 'occ-py'), { suite: 'IgniteTests24Java8_ThinClient',
+                suiteName: 'Thin client', name: 'test_binary.test_sql_read_as_binary' });
+            page.route('/api/analyze', { body: verdict({ blockers: [py] }) });
+            await page.load('?pr=13575');
+            report({ prompt: await aiOf('blockers') });
+            """);
+
+        assertThat(out.get("prompt").asText())
+            .startsWith("Fix a failing test in Apache Ignite (Python).")
+            .contains("(one test: pytest -k test_sql_read_as_binary).")
+            .doesNotContain("JDK 17; run the single test");
+    }
+
+    /** The buttons read "copy AI prompt"; after "copied" each went back to "ai", the cause's one too. */
+    @Test
+    void theButtonsReadCopyAiPromptAgainAfterTheFlash() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            page.route('/api/analyze', { body: verdict({ brokenSuites: [{ suite: 'IgniteTests24Java8_Cache',
+                suiteBuildId: 9400, suiteName: 'Cache', problems: ['Execution timeout'], tests: 0, baseline: 0 }] }) });
+            await page.load('?pr=13575');
+            await aiOf('blockers');
+            await suiteAiOf('brokenSuites');
+            const causeAi = page.el('ai-cause');
+            causeAi.closest = () => ({ querySelector: () => ({ textContent: 'boom' }) });
+            await page.run('aiCausePrompt')(causeAi, { tests: [blocker('A.a', 'occ-1')] });
+            await page.settle();
+            const flashed = [page.el('ai-button'), page.el('ai-suite-brokenSuites'), causeAi].map(b => b.textContent);
+            await page.tick(2000);
+            report({ flashed, idle: [page.el('ai-button'), page.el('ai-suite-brokenSuites'), causeAi].map(b => b.textContent),
+                label: page.el('brokenSuites').innerHTML });
+            """);
+
+        assertThat(out.get("flashed").toString()).isEqualTo("[\"copied\",\"copied\",\"copied\"]");
+        assertThat(out.get("idle").toString()).isEqualTo("[\"copy AI prompt\",\"copy AI prompt\",\"copy AI prompt\"]");
+        assertThat(out.get("label").asText()).contains("title=\"Copies a prompt for an AI coding assistant to find why "
+            + "this suite has no reliable result.\">copy AI prompt</button>");
+    }
+
     @Test
     void textFromThePrIsFencedAsData() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
