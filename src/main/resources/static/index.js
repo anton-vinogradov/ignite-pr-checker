@@ -1969,14 +1969,14 @@ function runStrip(runs, codeRuns, atLeast = 1) {
     const bars = [...runs].map((c, i) =>
         `<span class="run run-${c === 'F' ? 'f' : 'p'}${i < older ? ' run-old' : ''}"></span>`).join('');
     const title = `${n} run${n === 1 ? '' : 's'} on this PR's branch, ${failed} failed` + (n > 1 ? ' (oldest → newest).' : '.')
-        + (!older ? '' : codeRuns === 1 ? ' The bright bar is the newest run, the only run of its code.'
-            : ` Bright bars: the last ${codeRuns} runs, all on the code of the newest run.`);
+        + (!older ? '' : codeRuns === 1 ? ' The bright bar is the newest run. No other run tested the same code.'
+            : ` The bright bars are the last ${codeRuns} runs, all on the same code as the newest run.`);
     return `<span class="strip" title="${esc(title)}">${bars}</span>`;
 }
 
 // What a blocker or watch verdict rests on short of proof (TestVerdict.Doubt on the server).
 const DOUBTS = {
-    ONE_RUN: ['1 run', 'Only one run of this code, and it failed. A rerun of its suite confirms or clears it.'],
+    ONE_RUN: ['1 run', 'The test ran once on this code and failed. A rerun of its suite confirms or clears the test\'s verdict.'],
     NO_MASTER_HISTORY: ['new test / no master history',
         'Master has no runs of this test on this JDK to compare with: a new test, or one master does not run'],
     UNCHECKED: ['unverified', 'A TeamCity error kept part of the check from being made; the checker tries again'],

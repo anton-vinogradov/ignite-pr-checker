@@ -15,8 +15,8 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 
 | Card or heading | What it means | What to do |
 |---|---|---|
-| **Blockers** | Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them. Each suite is judged on its own. The line under a test, or above the tests of a suite that share it, says why ([reasons](#reasons-under-a-test)). | Open **failure ▸** or **TC**, fix the code, push, run RunAll again. |
-| **Not confirmed: 1 run** | Blockers that failed the only time they ran on this branch. They still count as blockers: in the count, the PR list badge, the visa and the comment. The heading says it for every test there, so their lines leave out `failed the only run on this branch`, the `1 run` tag and a strip of one bar. If every blocker failed its only run on this branch, the line **Not confirmed yet** above the Blockers list says so, and this group is not shown. | **Rerun** their suites. A second failure confirms the blocker, a pass drops it. |
+| **Blockers** | Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them. Each suite is judged on its own. The line under a test says why ([reasons](#reasons-under-a-test)). When tests of a suite have the same reason, the line stands once above them. | Open **failure ▸** or **TC**, fix the code, push, run RunAll again. |
+| **Not confirmed: 1 run** | Blockers that failed the only time they ran on this branch. They still count as blockers: in the count, the PR list badge, the visa and the comment. The heading says that each of these tests failed its only run on this branch. So their rows leave out `failed the only run on this branch`, the `1 run` tag and a strip of one bar. If every blocker failed its only run on this branch, the line **Not confirmed yet** above the Blockers list says so, and this group is not shown. | **Rerun** their suites. A second failure confirms the blocker, a pass drops it. |
 | **Recently started failing** | Tests failing on the PR's current code, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
 | **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
 | **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Rerun them first: the verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
@@ -44,7 +44,7 @@ run where the test was ignored does not count as a run.
 | `fails F/R on master at TEST_SCALE_FACTOR=1.0, but f/r on other PR branches at 0.1` | Master fails the test in at least half its runs, but only at a scale factor this PR did not run at. Other PRs, run like this one, seldom fail it, and this PR's failures in a row are too many for their rate. | Treat it as a blocker. |
 | `…; fails F/R in K other PRs` (on a blocker) | It fails in 3 or more other PRs too, but this PR's failures in a row are too many to be that flakiness. | Treat it as a blocker. |
 | `failed all N runs on this branch`, `failed the last N of M runs on this branch` | The last 3 finished runs of the suite on the branch failed the test, or all of them when there were fewer. A blocker. | Fix the code. |
-| `failed the only run on this branch` | The test ran once on the branch and failed. A blocker that is not confirmed yet: the heading over it says so, and the line under the test leaves this part out. | **Rerun** the suite to confirm it. |
+| `failed the only run on this branch` | The test ran once on the branch and failed. A blocker that is not confirmed yet. The line under the test leaves this part out, because **Not confirmed: 1 run** or **Not confirmed yet** above the test already says so. | **Rerun** the suite to confirm it. |
 | `failed all N runs on revision abc1234` | Every run of the PR's current code failed the test, and there were at least 2. A blocker. | Fix the code. |
 | `first failure on revision abc1234 — watch (nothing has passed on this code; …)` | The current code ran once and failed; the earlier runs were on older code. To watch. | **Rerun** the suite. |
 | `started failing in the last N of M runs on revision abc1234 — watch (an earlier run on the same code passed)` | At least 2 failures in a row on the current code, after a pass on the same code. To watch. | **Rerun** the suite. |
@@ -93,9 +93,9 @@ and the visa.
 
 | Tag | What it means | What to do |
 |---|---|---|
-| strip of bars | The finished runs of the test in its suite on the branch, oldest to newest: red failed, green passed. Dimmed bars ran on older code; the bright ones ran on the code of the newest run. A strip of one bar is left out under **Not confirmed: 1 run** and **Not confirmed yet**, whose headings say it. | — |
+| strip of bars | The finished runs of the test in its suite on the branch, oldest to newest: red failed, green passed. Dimmed bars ran on older code; the bright ones ran on the code of the newest run. Under **Not confirmed: 1 run** and **Not confirmed yet**, the page leaves out a strip of one bar: these already say that each test there failed its only run on this branch. | — |
 | `flaky?` | The test failed and then passed on the same code. | Look for a race or a timing problem. |
-| `1 run` | Only one run of this code, and it failed. Left out under **Not confirmed: 1 run** and **Not confirmed yet**, whose headings say it. | **Rerun** the suite: it confirms or clears it. |
+| `1 run` | The test ran once on this code and failed. The tag is not shown under **Not confirmed: 1 run** and **Not confirmed yet**. Both say that each test there failed its only run on this branch. | **Rerun** the suite: it confirms or clears it. |
 | `new test / no master history` | Master has no runs of the test on this JDK to compare with: a new test, or one master does not run. | Make sure the test is stable. |
 | `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PR's tests that no suite runs** in ⚙. |
 | `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
@@ -103,7 +103,7 @@ and the visa.
 | `♻ environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
 | `♻ environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
 | `⌛ hang — the test ran out of time; …` | The test hung. The test's thread from the thread dump is shown. | See where that thread waits. |
-| **failure ▸** / **copy failure** / **copy AI prompt** | Opens the failure message and the stack trace; copies that message; copies a fix prompt for a coding assistant. Without a failure message to open, **copy AI prompt** stands on the row itself. | — |
+| **failure ▸** / **copy failure** / **copy AI prompt** | **failure ▸** opens a panel with the failure message and the stack trace. In the panel, **copy failure** copies the message and **copy AI prompt** copies a fix prompt for a coding assistant. If there is no failure message to open, **copy AI prompt** is on the row itself. | — |
 
 ### Badges in the PR list
 
@@ -199,11 +199,12 @@ not blamed on the PR.
 - **The same code, the same JDK.** Every run is matched to the revision it built: a pass on older code does not clear
   a failure, and such runs are dimmed in the test's strip. Master runs are counted only on the JDK of the PR's run. A
   run where the test was ignored is not a run, and a failure TeamCity muted is never listed.
-- **Grouped by suite.** The lists of tests group the rows by suite: the suite's **TC** opens its newest run, a row's
-  **TC** the run the test failed in. A reason shared by the tests of a suite stands once above them; with several
-  reasons, each group of tests gets its line, the biggest first, and a lone test keeps its reason under itself. The
-  test name is plain text, `Class.method` with the parameters, with the full name in its tooltip; the work directory
-  of a TeamCity agent inside the parameters is cut.
+- **Grouped by suite.** The lists of tests group the rows by suite. The suite's **TC** opens its newest run, and a row's
+  **TC** opens the run the test failed in. If all tests of a suite share one reason, the list shows it once above them.
+  If they have several reasons, each reason shared by two or more tests gets its own line above those tests. The
+  biggest group comes first. If a reason belongs to one test only, it stands on a line under that test. The test name
+  is plain text, `Class.method` with the parameters, with the full name in its tooltip. The name leaves out the work
+  directory of a TeamCity agent inside the parameters.
 - **The strip** next to a test shows its finished runs in that suite on the branch, oldest to newest. A pass after a
   failure on the same code earns the `flaky?` tag.
 - **Broken suites** are grouped by cause. A failed Build comes first, with the suites that need it and did not run.
@@ -225,12 +226,13 @@ not blamed on the PR.
 - **failure ▸** opens the failure message and the stack trace, with a rough triage label: `⚖ assertion …`,
   `♻ environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
   **copy failure** in the open panel copies the message.
-- **copy AI prompt** in the open panel, or on the row when TeamCity kept no failure message, copies a prompt for a
-  coding assistant: the PR, the suite and its run, the test, the checker's verdict with its reason, the triage label,
-  the failure output, and how to reproduce it on the commit the run tested, with steps for Java, .NET, C++, Python or
-  Node.js by suite. Everything quoted from the PR is marked as data, not instructions, and the prompt asks to run the
-  PR's code in an isolated environment. On the Root causes tab, **copy AI prompt** copies one prompt that covers all
-  tests of a cause; broken suites and suites with fewer tests than master have their own **copy AI prompt**.
+- **copy AI prompt** copies a prompt for a coding assistant. The button is in the open panel, or on the row when
+  TeamCity kept no failure message. The prompt includes the PR, the suite and its run, the test, the checker's verdict
+  with its reason, the triage label and the failure output. It also says how to reproduce the failure on the commit the
+  run tested, with steps for Java, .NET, C++, Python or Node.js by suite. Everything quoted from the PR is marked as
+  data, not instructions, and the prompt asks to run the PR's code in an isolated environment. On the Root causes tab,
+  **copy AI prompt** copies one prompt that covers all tests of a cause; broken suites and suites with fewer tests than
+  master have their own **copy AI prompt**.
 - **The tab** shows how the run stands in its title and icon: `⏱ ~1h 05m left`, `♻️ re-run 1/2`, then
   `❌ 3 blockers`, `✅ no blockers`, `⚠ started failing` or `⚠ not proven clean`. **🔔 Notify me** sends one desktop
   notification when the verdict is final; the tab has to stay open.

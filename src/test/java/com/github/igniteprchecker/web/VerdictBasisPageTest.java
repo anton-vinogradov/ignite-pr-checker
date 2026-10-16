@@ -58,7 +58,7 @@ class VerdictBasisPageTest {
             report({ watch: page.el('watch').innerHTML, oneRun: page.el('oneRunBlockers').innerHTML });
             """);
 
-        String tag = "title=\"Only one run of this code, and it failed. A rerun of its suite confirms or clears it.\">"
+        String tag = "title=\"The test ran once on this code and failed. A rerun of its suite confirms or clears the test&#39;s verdict.\">"
             + "1 run</span>";
         assertThat(out.get("watch").asText()).contains(tag).doesNotContain("the only time it ran");
         assertThat(out.get("oneRun").asText()).as("Not confirmed: 1 run says it once").doesNotContain(tag);
