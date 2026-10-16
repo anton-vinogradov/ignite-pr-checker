@@ -47,7 +47,13 @@ public class CauseClusters {
     private static final Pattern EXCEPTION_PREFIX =
         Pattern.compile("^(?:class\\s+)?(?:[A-Za-z_$][\\w$]*\\.)+([A-Z][\\w$]*)\\s*(?::\\s*(.*))?$");
 
-    private static final Pattern AGENT_WORK_DIR = Pattern.compile("\\S*?[\\\\/]work[\\\\/][0-9a-f]{8,}[\\\\/]");
+    /**
+     * A TeamCity agent's work directory, {@code /opt/teamcity/work/425d7af4e9aa99d9/} or {@code C:\TeamCity\work\…\},
+     * in a failure message or a test's name: cut from both, by the same rule the page's {@code shortTestName} applies,
+     * so a test reads the same in the list, in its cause and in the PR comment. It stops at brackets and commas, which
+     * close a parameter around a path.
+     */
+    public static final Pattern AGENT_WORK_DIR = Pattern.compile("[^\\s()\\[\\],]*?[\\\\/]work[\\\\/][0-9a-f]{8,}[\\\\/]");
 
     /** Messages that fit failures of any cause; the failing line of the test tells such failures apart. */
     private static final Pattern GENERIC = Pattern.compile("(?i)null|[\\w$]*(?:Error|Exception|Failure)"

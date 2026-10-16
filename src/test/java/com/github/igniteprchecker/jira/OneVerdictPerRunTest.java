@@ -101,8 +101,8 @@ class OneVerdictPerRunTest {
         standing.sweep();
         standing.sweep();
 
-        verify(github, times(1)).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave(s): #1 — 1"
-            + " blocker suite(s)."));
+        verify(github, times(1)).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave: #1 — 1"
+            + " suite with blockers."));
         verify(jira, times(1)).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains("*No blockers*"));
         verify(github, never()).appEdit(anyInt(), any(), anyLong(), anyString());
     }
@@ -172,9 +172,9 @@ class OneVerdictPerRunTest {
 
         ArgumentCaptor<String> visa = ArgumentCaptor.forClass(String.class);
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), visa.capture());
-        assertThat(visa.getValue()).contains("2 commit(s) pushed since this run")
-            .contains("_Tested revision {{9f1c2e7}}; the PR head is now {{41b0d3a}}._");
-        verify(github).appComment(eq(PR), any(), contains("_Tested revision `9f1c2e7`; the PR head is now"
+        assertThat(visa.getValue()).contains("2 commits pushed since this run")
+            .contains("_Tested commit {{9f1c2e7}}; the PR head is now {{41b0d3a}}._");
+        verify(github).appComment(eq(PR), any(), contains("_Tested commit `9f1c2e7`; the PR head is now"
             + " `41b0d3a`._"));
     }
 
@@ -195,7 +195,7 @@ class OneVerdictPerRunTest {
 
     private static TestVerdict blocker(String suite) {
         return new TestVerdict(9389011L, suite + "Test.test", suite, 9389011L, suite, "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(long buildId, TestVerdict... blockers) {

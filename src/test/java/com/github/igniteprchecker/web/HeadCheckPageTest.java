@@ -37,7 +37,7 @@ class HeadCheckPageTest {
             revision: '1f93640c2b7a9e5d4f3a1b0c9d8e7f6a5b4c3d2e' });
         const AHEAD = { pending: true, ahead: 33, builtSha: '1f93640', headSha: '6573622', rewritten: false,
             builtRevision: '1f93640c2b7a9e5d4f3a1b0c9d8e7f6a5b4c3d2e',
-            caveat: '33 commit(s) pushed since this run — it tested older code' };
+            caveat: '33 commits pushed since this run — it tested older code' };
         const LIST_MOVED = { pending: true, ahead: -1, builtSha: '1f93640', headSha: '6573622', rewritten: false,
             builtRevision: CLEAN.revision, caveat: 'new commits pushed since this run — it tested older code' };
         """;

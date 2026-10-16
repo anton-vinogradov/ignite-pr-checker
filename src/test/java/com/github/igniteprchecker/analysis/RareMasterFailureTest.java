@@ -128,8 +128,8 @@ class RareMasterFailureTest {
 
         assertThat(r.blockers()).isEmpty();
         assertThat(only(r.watch()).reason()).as("master's failure stays in sight").isEqualTo("rare on master: fails "
-            + "1/100, passed the last 21; started failing in the last 2 of 4 runs on revision " + HEAD + " — watch (an "
-            + "earlier run on the same code passed)");
+            + "1/100, passed the last 21; failed the last 2 of 4 runs on commit " + HEAD + ", after a pass on the same "
+            + "commit");
     }
 
     /** A pass in the last finished run clears the failure before master is even asked about. */

@@ -32,7 +32,7 @@ class ReadableTestListTest {
         String md = visas.composeMarkdown(PR, result(blockers), null);
         String wiki = visas.compose(PR, result(blockers), null);
 
-        assertThat(md).contains("❌ **489 blocker(s) in 1 suite(s):**\n- Queries 1 · `IgniteCacheReplicatedQuerySelfTest`"
+        assertThat(md).contains("❌ **489 blockers in 1 suite:**\n- Queries 1 · `IgniteCacheReplicatedQuerySelfTest`"
                 + " — 489 tests: `test0`, `test1`, `test2` and 486 more · [TC](https://ci2.example/buildConfiguration/"
                 + "IgniteTests24Java8_Queries1/9500001?buildTab=tests)")
             .doesNotContain("org.apache.ignite", "IgniteQueryTestSuite", "479 more");
@@ -78,7 +78,7 @@ class ReadableTestListTest {
         assertThat(md).startsWith("**[Ignite PR Checker]")
             .contains("- Cache 0 · `Test0` — 2 tests: `testIt`, `testOther`")
             .contains("- Cache 4 · `Test4.testIt`")
-            .contains("<details><summary>2 more test(s) in 2 class(es)</summary>\n\n- Cache 5 · `Test5.testIt`")
+            .contains("<details><summary>2 more tests in 2 classes</summary>\n\n- Cache 5 · `Test5.testIt`")
             .contains("- Cache 6 · `Test6.testIt` — failed 3 of 3 runs of this code · [TC](https://ci2.example/"
                 + "buildConfiguration/IgniteTests24Java8_Cache6/9600006?buildTab=tests#testNameId6)\n\n</details>\n\n"
                 + "<sub>What each label means");
@@ -108,7 +108,7 @@ class ReadableTestListTest {
         String md = visas.composeMarkdown(PR, result(blockers), null);
 
         assertThat(md).contains("- Cache 49 · `Test49.testIt`").doesNotContain("Test50")
-            .contains("- … and 10 more test(s) in 10 class(es) on [the checker's page]"
+            .contains("- … and 10 more tests in 10 classes on [the checker's page]"
                 + "(https://checker.example/?pr=13583)\n\n</details>\n");
     }
 
@@ -136,9 +136,9 @@ class ReadableTestListTest {
         String md = visas.composeMarkdown(PR, r, null);
 
         assertThat(md.length()).isLessThan(60_000);
-        assertThat(md).contains("❌ **239 blocker(s) in 80 suite(s):**\n- Cache 3 · `GridCacheNearMultiNodeSelfTest0x0`"
+        assertThat(md).contains("❌ **239 blockers in 1 suite:**\n- Cache 3 · `GridCacheNearMultiNodeSelfTest0x0`"
             + " — 4 tests")
-            .contains("more test(s) in", "on [the checker's page](https://checker.example/?pr=13583)");
+            .contains("more tests in", "on [the checker's page](https://checker.example/?pr=13583)");
     }
 
     @Test
@@ -149,7 +149,7 @@ class ReadableTestListTest {
 
         assertThat(visas.compose(PR, result(blockers), null)).contains("- Cache 9 · {{Test9.testIt}}")
             .doesNotContain("Test10")
-            .contains("… and 2 more test(s) in 2 class(es) on [the checker's page|https://checker.example/?pr=13583]");
+            .contains("… and 2 more tests in 2 classes on [the checker's page|https://checker.example/?pr=13583]");
     }
 
     /** IGNITE-28877: "[sqlTxMode=NONE]" inside {{…}} was read as a link and shown as a red error. */
@@ -162,6 +162,28 @@ class ReadableTestListTest {
             .contains("{{SqlTxTest.testInsert\\[sqlTxMode=NONE, by=\\{x\\}\\\\y\\]}}");
     }
 
+    /**
+     * TeamCity names the Python suite's tests with the agent's work directory, so one test read differently in each
+     * agent's run and the path ate the comment's room; a Windows agent's tests the same. The comment and the visa
+     * cut the directory by the page's rule, and the name reads as the page's row does.
+     */
+    @Test
+    void theAgentsWorkDirectoryIsCutFromTheName() {
+        TestVerdict linux = verdict(1, "test_examples.test_examples(/opt/teamcity/work/425d7af4e9aa99d9/ignite-python-"
+            + "thin-client/tests/__/examples/read_binary_py)", "IgniteTests24Java8_ThinClientPython", 9500004L,
+            "Thin client: Python");
+        TestVerdict windows = verdict(2, "org.apache.ignite.odbc.OdbcTest.testQuery(C:\\TeamCity\\work\\1f2e3d4c5b6a7980"
+            + "\\modules\\x.cpp)", "IgniteTests24Java8_PlatformCppWindows", 9500005L, "Platform C++ (Windows)");
+
+        String md = visas.composeMarkdown(PR, result(List.of(linux, windows)), null);
+
+        assertThat(md)
+            .contains("- Thin client: Python · `test_examples.test_examples(ignite-python-thin-client/tests/__/examples/"
+                + "read_binary_py)`")
+            .contains("- Platform C++ (Windows) · `OdbcTest.testQuery(modules\\x.cpp)`")
+            .doesNotContain("/opt/teamcity/work", "C:\\TeamCity");
+    }
+
     @Test
     void aNameCannotPutAMentionIntoTheVisa() {
         TestVerdict t = verdict(1, "org.apache.ignite.EvilTest.test[~admin]", "IgniteTests24Java8_Sql", 9500003L, "SQL");
@@ -172,7 +194,7 @@ class ReadableTestListTest {
 
     private static TestVerdict verdict(long id, String name, String suite, long suiteBuildId, String suiteName) {
         return new TestVerdict(id, name, suite, suiteBuildId, suiteName, null, true, false,
-            "not seen failing in 120 master run(s); failed the last 3 of 3 runs on this branch", "FFF", 3);
+            "not seen failing in 120 master runs; failed the last 3 of 3 runs on this branch", "FFF", 3);
     }
 
     private static AnalysisResult result(List<TestVerdict> blockers) {

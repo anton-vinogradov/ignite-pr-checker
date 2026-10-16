@@ -805,7 +805,7 @@ public class BlockerAnalyzer {
             reason = h.runs() == 0
                 ? "no master history" + onJdk + " (can't prove pre-existing)"
                 : "not seen failing in " + (!onJdk.isEmpty() && h.runs() < FEW_MASTER_RUNS ? "only " : "") + h.runs()
-                    + " master run(s)" + onJdk;
+                    + " master run" + (h.runs() == 1 ? "" : "s") + onJdk;
         }
         else if (outweighsMaster(h, streak))
             reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last "
@@ -827,8 +827,7 @@ public class BlockerAnalyzer {
         // nothing re-runs a pre-existing failure, and testRestoreSnapshotProgress would never get there.
         if (scaleOnlyBar != null && v.blocker() && !outweighs(scaleOnlyBar.fails(), scaleOnlyBar.runs(), streak)) {
             return verdict(t, lastRun, false, true,
-                v.reason() + " — watch (too few failures on this code yet to outweigh other PRs)", branchRuns,
-                code.length());
+                v.reason() + "; too few failures on this code yet to outweigh other PRs", branchRuns, code.length());
         }
         if (!v.blocker() && !v.watch())
             return v;
@@ -874,23 +873,23 @@ public class BlockerAnalyzer {
 
         // Every run of THIS code failed, and more than one ran: reproduced, not chance.
         if (len >= 2 && streak == len)
-            return verdict(t, lastRun, true, false, reason + "; " + failedRuns(streak, len, onRevision(head))
+            return verdict(t, lastRun, true, false, reason + "; " + failedRuns(streak, len, onCommit(head))
                 + notes(discounted(older, head)), branchRuns, len);
 
         // One run of this code, and it failed. The passes are from older code, so this is not a flake
         // — but one run is not proof either. Watch it and let the auto re-run settle it: a green re-run
         // trips the "last finished run" gate above, a red one makes the gate above this one fire.
         if (len == 1 && older > 0)
-            return verdict(t, lastRun, false, true, because + "first failure" + onRevision(head) + " — watch"
-                + notes("nothing has passed on this code", discounted(older, head)), branchRuns, len);
+            return verdict(t, lastRun, false, true, because
+                + (head == null ? "failed the latest run" : "failed the only run" + onCommit(head)) + "; "
+                + discounted(older, head), branchRuns, len);
 
         if (streak >= 2)
-            return verdict(t, lastRun, false, true,
-                because + "started failing in the last " + streak + " of " + len + " runs" + onRevision(head)
-                    + " — watch" + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
+            return verdict(t, lastRun, false, true, because + failedRuns(streak, len, onCommit(head)) + afterAPass(head)
+                + (older > 0 ? "; " + discounted(older, head) : ""), branchRuns, len);
 
         return verdict(t, lastRun, false, false, because + "flaky on branch: failed only the latest of " + len
-            + " runs" + onRevision(head) + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
+            + " runs" + onCommit(head) + notes(passedEarlier(head), discounted(older, head)), branchRuns, len);
     }
 
     /**
@@ -1001,8 +1000,15 @@ public class BlockerAnalyzer {
     /** What the earlier pass in the window does — and does not — prove. */
     private static String passedEarlier(String head) {
         return head == null
-            ? "passed just before, but TeamCity gave no revisions to prove that was the same code"
+            ? "passed just before, but TeamCity gave no commits to prove that was the same code"
             : "an earlier run on the same code passed";
+    }
+
+    /** The same after a test to watch: {@code ", after a pass on the same commit"}. */
+    private static String afterAPass(String head) {
+        return head == null
+            ? ", after a pass; TeamCity gave no commits to prove that was the same code"
+            : ", after a pass on the same commit";
     }
 
     /** Why the runs outside the window were left out of it. */
@@ -1010,9 +1016,10 @@ public class BlockerAnalyzer {
         if (older <= 0)
             return "";
 
-        String runs = "the " + older + " earlier branch run" + (older == 1 ? "" : "s");
+        String runs = "the " + older + " earlier run" + (older == 1 ? "" : "s");
 
-        return head == null ? runs + " could not be placed on a revision" : runs + " ran on other code";
+        return head == null ? runs + " could not be placed on a commit"
+            : runs + (older == 1 ? " was" : " were") + " on other code";
     }
 
     /** Length of the trailing run of consecutive failures in a P/F strip (oldest → newest). */
@@ -1087,12 +1094,12 @@ public class BlockerAnalyzer {
         return "failed the last " + streak + " of " + len + " runs" + where;
     }
 
-    /** {@code " on revision 3fdf446"}, or "" when TeamCity gave us no revision to name. */
-    private static String onRevision(String head) {
+    /** {@code " on commit 3fdf446"}, or "" when TeamCity gave us no revision to name. */
+    private static String onCommit(String head) {
         if (head == null)
             return "";
 
-        return " on revision " + (head.length() > 7 ? head.substring(0, 7) : head);
+        return " on commit " + (head.length() > 7 ? head.substring(0, 7) : head);
     }
 
     /** Short root-cause message of a failure, for the "could not verify" reason (bounded length). */

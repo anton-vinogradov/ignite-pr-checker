@@ -93,13 +93,13 @@ class DocFactsTest {
             .contains("битые сьюты, а ещё сьюты, которые TeamCity отменил сам, но не те, что отменил человек.");
     }
 
-    /** The settle line, the tested revision and Next: are appended after the verdict's glossary footer. */
+    /** The settle line, the tested commit and Next: are appended after the verdict's glossary footer. */
     @Test
     void theTourDoesNotSayTheGlossaryLinkEndsTheVerdict() throws IOException {
         assertThat(collapsed(TOUR)).doesNotContain("Every verdict ends with a link")
-            .contains("the lines about the tested revision and the **Next:** line come after it.");
+            .contains("the lines about the tested commit and the **Next:** line come after it.");
         assertThat(collapsed(TOUR_RU)).doesNotContain("Каждый вердикт кончается ссылкой")
-            .contains("строки о проверенной ревизии и строка **Next:** идут после неё.");
+            .contains("строки о проверенном коммите и строка **Next:** идут после неё.");
     }
 
     /** An anonymous status page gets what the check of the app token found as levels only, without the texts. */

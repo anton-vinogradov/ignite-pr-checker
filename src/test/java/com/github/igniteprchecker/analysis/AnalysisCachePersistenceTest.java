@@ -148,7 +148,7 @@ class AnalysisCachePersistenceTest {
             List.of(), List.of(), List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0));
         first.saveTo(file);
 
-        ObjectNode old = ((ObjectNode) mapper.readTree(file.toFile())).retain("results", "rules");
+        ObjectNode old = ((ObjectNode) mapper.readTree(file.toFile())).retain("results", "rules", "texts");
         old.set("history", mapper.readTree("[{\"key\":5272433775095107011,\"value\":{\"runs\":100,\"fails\":9},"
             + "\"expiresAt\":" + (System.currentTimeMillis() + 60_000) + "}]"));
         mapper.writeValue(file.toFile(), old);
@@ -181,6 +181,31 @@ class AnalysisCachePersistenceTest {
 
         assertThat(reloaded.historyCount()).isZero();
         assertThat(reloaded.peekResult(9391879L)).as("a verdict made by the previous rules").isEmpty();
+    }
+
+    /**
+     * A deploy that changes the words of the reasons and caveats, and not the rules, drops the cached results, so
+     * the page shows no earlier words, while master history stays and the rules do not move: a rules bump would
+     * also drop every PR's history of blocker deltas.
+     */
+    @Test
+    void resultsSavedInEarlierWordsAreDroppedWhileHistoryStays(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("analysis.json");
+        AnalysisCache first = new AnalysisCache(props(), mapper);
+        first.putResult(100L, new AnalysisResult(13335, 100L, "pull/13335/head", System.currentTimeMillis(),
+            List.of(), List.of(), List.of(), List.of(), List.of(), 0, 0, false, 0, false, 0, 0, 0, 0, 0));
+        first.history(7L, "SuiteX", () -> MASTER_JDK21_BREAK);
+        first.saveTo(file);
+        ObjectNode fromBeforeTheWordsWereVersioned = (ObjectNode)mapper.readTree(file.toFile());
+        fromBeforeTheWordsWereVersioned.remove("texts");
+        mapper.writeValue(file.toFile(), fromBeforeTheWordsWereVersioned);
+
+        AnalysisCache reloaded = new AnalysisCache(props(), mapper);
+        reloaded.loadFrom(file);
+
+        assertThat(reloaded.peekResult(100L)).as("a verdict in the words of an earlier release").isEmpty();
+        assertThat(reloaded.historyOf(7L, "SuiteX")).isPresent();
+        assertThat(fromBeforeTheWordsWereVersioned.get("rules").asInt()).isEqualTo(TestVerdict.RULES);
     }
 
     @Test

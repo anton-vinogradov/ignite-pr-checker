@@ -353,7 +353,7 @@ class SweepFreshnessTest {
 
         TestVerdict blocker() {
             return new TestVerdict(testId, test, id, buildId, name, "o" + testId, true, false,
-                "not seen failing in 100 master run(s); failed the only run on this branch", "F", 1);
+                "not seen failing in 100 master runs; failed the only run on this branch", "F", 1);
         }
     }
 }

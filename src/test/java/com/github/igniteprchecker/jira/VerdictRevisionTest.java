@@ -279,7 +279,7 @@ class VerdictRevisionTest {
 
     private static AnalysisResult verdict(long buildId) {
         TestVerdict blocker = new TestVerdict(9389011L, "org.apache.ignite.CacheTest.testPut", "Cache1", 9389011L,
-            "Cache 1", "o1", true, false, "not seen failing in 100 master run(s)", "FF", 2);
+            "Cache 1", "o1", true, false, "not seen failing in 100 master runs", "FF", 2);
 
         return new AnalysisResult(PR, buildId, "pull/13335/head", System.currentTimeMillis(), List.of(blocker),
             List.of(), List.of(), List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 1, 0);

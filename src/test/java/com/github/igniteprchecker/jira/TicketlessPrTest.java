@@ -134,7 +134,7 @@ class TicketlessPrTest {
 
     private static TestVerdict blocker() {
         return new TestVerdict(9401011L, "Cache1Test.test", "Cache1", 9401011L, "Cache 1", "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... blockers) {

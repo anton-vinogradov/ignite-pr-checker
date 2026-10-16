@@ -133,10 +133,10 @@ class IncompleteVerdictHoldTest {
         String md = visas.composeMarkdown(PR, r, null);
         String wiki = visas.compose(PR, r, null);
 
-        assertThat(md).doesNotContain("✅", "blocker(s) in")
-            .contains("1 failed test(s) could not be checked", "- Cache 2 · `GridCacheTest.testPut` · [TC]");
-        assertThat(wiki).doesNotContain("(/)", "blocker(s) in")
-            .contains("1 failed test(s) could not be checked", "- Cache 2 · {{GridCacheTest.testPut}} · [TC|");
+        assertThat(md).doesNotContain("✅", "blocker in", "blockers in")
+            .contains("1 failed test could not be checked", "- Cache 2 · `GridCacheTest.testPut` · [TC]");
+        assertThat(wiki).doesNotContain("(/)", "blocker in", "blockers in")
+            .contains("1 failed test could not be checked", "- Cache 2 · {{GridCacheTest.testPut}} · [TC|");
     }
 
     /** A user with auto re-run on, and the sweep finding their finished RunAll with this verdict. */
@@ -162,7 +162,7 @@ class IncompleteVerdictHoldTest {
 
     private AnalysisResult incomplete(long since) {
         TestVerdict blocker = new TestVerdict(2L, "GridCacheTest.testGet", CACHE1, 9391901L, "Cache 1", "o2", true,
-            false, "not seen failing in 100 master run(s); failed the only run on this branch", "F", 1);
+            false, "not seen failing in 100 master runs; failed the only run on this branch", "F", 1);
 
         return new AnalysisResult(PR, RUN_ALL, "pull/13654/head", now, List.of(blocker), List.of(), List.of(),
             List.of(), List.of(), 140, 0, false, 0, false, 0, 0, 0, now / 1000 - 3600, now / 1000 - 60, List.of(),

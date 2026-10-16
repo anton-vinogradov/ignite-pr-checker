@@ -265,7 +265,7 @@ class SweepAsksWhatFinishedTest {
 
     private static TestVerdict blocker() {
         return new TestVerdict(9389011L, "Cache1Test.test", "Cache1", 9389011L, "Cache1", "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(long buildId, TestVerdict... blockers) {

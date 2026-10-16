@@ -80,7 +80,7 @@ class ChainWavesTest {
 
         assertThat(standing.waveStatus(PR, OLDER)).hasValueSatisfying(w -> {
             assertThat(w.wave()).isEqualTo(1);
-            assertThat(w.what()).isEqualTo("1 blocker suite(s)");
+            assertThat(w.what()).isEqualTo("1 suite with blockers");
         });
         assertThat(standing.waveStatus(PR, NEWER)).hasValueSatisfying(
             w -> assertThat(w.what()).isEqualTo("1 suite that failed mid-run"));
@@ -124,7 +124,7 @@ class ChainWavesTest {
 
     private void failMidRun(long chain, String suite, long suiteBuildId) {
         TestVerdict failed = new TestVerdict(suiteBuildId, suite + "Test.test", suite, suiteBuildId, suite, "o2", true,
-            false, "not seen failing in 100 master run(s)", "F", 1);
+            false, "not seen failing in 100 master runs", "F", 1);
         when(analyzer.analyze("tc", PR)).thenReturn(Optional.of(verdict(chain, false, failed)));
 
         standing.earlyRerun(new RerunTracker.SuiteFailedMidRun(PR, chain, suite, suiteBuildId, suite));
@@ -132,7 +132,7 @@ class ChainWavesTest {
 
     private static TestVerdict blocker(String suite, long suiteBuildId) {
         return new TestVerdict(suiteBuildId, suite + "Test.test", suite, suiteBuildId, suite, "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(long buildId, boolean newerGoing, TestVerdict... blockers) {

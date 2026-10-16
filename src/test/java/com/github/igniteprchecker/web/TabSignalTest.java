@@ -41,7 +41,7 @@ class TabSignalTest {
         """;
 
     /** /api/settling of RunAll 9100: its first wave of re-runs goes. */
-    private static final String SETTLING = "{ phase: 'settling', wave: 1, of: 2, what: '1 blocker suite(s)' }";
+    private static final String SETTLING = "{ phase: 'settling', wave: 1, of: 2, what: '1 suite with blockers' }";
 
     /** A route that holds /api/{@code path} back until {@code release()} is called. */
     private static final String HELD = """
@@ -58,7 +58,7 @@ class TabSignalTest {
             await page.load('?pr=13575');
             const running = { title: page.run('document').title, icon: %1$s };
             page.route('/api/runs', { body: [] });
-            page.route('/api/settling', { body: { phase: 'settling', wave: 2, of: 2, what: '3 blocker suite(s)',
+            page.route('/api/settling', { body: { phase: 'settling', wave: 2, of: 2, what: '3 suites with blockers',
                 etaEpochSec: Math.floor(page.now() / 1000) + 25 * 60 } });
             await page.tick(15000);
             const settling = { title: page.run('document').title, icon: %1$s };
@@ -121,7 +121,7 @@ class TabSignalTest {
             const armed = page.el('notifyBtn').textContent;
             %s
             page.route('/api/settling', url => ({ body: url.includes('build=9100')
-                ? { phase: 'settling', wave: 1, of: 2, what: '1 blocker suite(s)' } : { phase: 'final', wave: 0, of: 2 } }));
+                ? { phase: 'settling', wave: 1, of: 2, what: '1 suite with blockers' } : { phase: 'final', wave: 0, of: 2 } }));
             await page.tick(15000);
             const whileSettling = shown.length;
             page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2 } });

@@ -96,7 +96,7 @@ class OptionSwitchedMidSettleTest {
         when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(verdict()));
         standing.sweep();
 
-        verify(github).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave(s)"));
+        verify(github).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave:"));
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
         assertThat(standing.buildHandled(USER, PR, RUN_ALL)).isTrue();
     }
@@ -132,7 +132,7 @@ class OptionSwitchedMidSettleTest {
 
     private static TestVerdict blocker() {
         return new TestVerdict(9389011L, "Cache1Test.test", "Cache1", 9389011L, "Cache 1", "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... blockers) {

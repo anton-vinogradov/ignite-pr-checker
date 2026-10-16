@@ -25,7 +25,7 @@ class TestRowsPageTest {
     private static final String TESTS = """
         const test = (name, occ, over) => Object.assign(blocker(name, occ), over);
         const PY_PATH = '/opt/teamcity/work/425d7af4e9aa99d9/ignite-python-thin-client/tests/__/examples/read_binary_py';
-        const SHARED = 'not seen failing in 78 master run(s) on JDK 17; failed all 3 runs on this branch';
+        const SHARED = 'not seen failing in 78 master runs on JDK 17; failed all 3 runs on this branch';
         """;
 
     @Test
@@ -53,7 +53,7 @@ class TestRowsPageTest {
     @Test
     void aReasonSharedByTheTestsOfASuiteIsWrittenOnceAboveThem() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + TESTS + """
-            const other = 'not seen failing in only 4 master run(s) on JDK 17; failed all 3 runs on this branch';
+            const other = 'not seen failing in only 4 master runs on JDK 17; failed all 3 runs on this branch';
             page.route('/api/analyze', { body: verdict({ blockers: [test('A.a', 'o1', { reason: other }),
                 test('B.b', 'o2', { reason: SHARED }), test('C.c', 'o3', { reason: SHARED })] }) });
             await page.load('?pr=13575');
@@ -67,16 +67,16 @@ class TestRowsPageTest {
 
         JsonNode several = out.get("several");
         assertThat(several.get("html").asText()).as("the bigger group first, its rows one step in, the lone test's reason under it")
-            .containsSubsequence("<li class=\"reason-head\">2 tests: not seen failing in 78 master run(s) on JDK 17; failed "
+            .containsSubsequence("<li class=\"reason-head\">2 tests: not seen failing in 78 master runs on JDK 17; failed "
                 + "all 3 runs on this branch</li>", "<li class=\"test-row grouped\" title=\"not seen failing in 78", ">B.b</span>",
                 "<li class=\"test-row grouped\" title=\"not seen failing in 78", ">C.c</span>", "<li class=\"test-row\"><span",
-                ">A.a</span>", "<div class=\"reason\">not seen failing in only 4 master run(s) on JDK 17; failed all 3 runs on "
+                ">A.a</span>", "<div class=\"reason\">not seen failing in only 4 master runs on JDK 17; failed all 3 runs on "
                 + "this branch</div>")
             .doesNotContain("1 tests:");
         assertThat(several.get("text").asText().split("not seen failing in 78 master")).as("said once").hasSize(2);
         JsonNode one = out.get("one");
         assertThat(one.get("html").asText()).as("the shared reason is the first line of the list, at the rows' step")
-            .containsSubsequence("</div><ul class=\"suite-tests\"><li class=\"reason-head\">not seen failing in 78 master run(s) on "
+            .containsSubsequence("</div><ul class=\"suite-tests\"><li class=\"reason-head\">not seen failing in 78 master runs on "
                 + "JDK 17; failed all 3 runs on this branch</li><li class=\"test-row\" title=", ">A.a</span>", ">B.b</span>")
             .doesNotContain("tests:", "grouped", "<div class=\"reason\">");
         assertThat(one.get("text").asText().split("not seen failing in 78 master")).as("said once").hasSize(2);
@@ -90,10 +90,10 @@ class TestRowsPageTest {
                 doubts: ['ONE_RUN'], reason: 'no master history on JDK 17 (can\\'t prove pre-existing); failed the only '
                 + 'run on this branch' }, over));
             page.route('/api/analyze', { body: verdict({ blockers: [test('A.a', 'o1', { reason: SHARED }),
-                once('B.b', 'o2'), once('C.c', 'o3', { reason: 'not seen failing in 78 master run(s) on JDK 17; failed '
+                once('B.b', 'o2'), once('C.c', 'o3', { reason: 'not seen failing in 78 master runs on JDK 17; failed '
                 + 'the only run on this branch' })],
                 watch: [once('D.d', 'o4', { blocker: false, watch: true, branchRuns: 'PPF',
-                    reason: 'first failure on revision 5be1c0d — watch (nothing has passed on this code)' })] }) });
+                    reason: 'failed the only run on commit 5be1c0d; the 2 earlier runs were on other code' })] }) });
             await page.load('?pr=13575');
             const mixed = { oneRun: page.el('oneRunBlockers').innerHTML, watch: page.el('watch').innerHTML };
             page.route('/api/analyze', { body: verdict({ buildId: 9100, blockers: [once('B.b', 'o2'), once('C.c', 'o3')] }) });
@@ -107,7 +107,7 @@ class TestRowsPageTest {
             .contains("<li class=\"test-row\" title=\"no master history on JDK 17 (can&#39;t prove pre-existing); failed the "
                 + "only run on this branch\">")
             .contains("<div class=\"reason\">no master history on JDK 17 (can&#39;t prove pre-existing)</div>")
-            .contains("<div class=\"reason\">not seen failing in 78 master run(s) on JDK 17</div>")
+            .contains("<div class=\"reason\">not seen failing in 78 master runs on JDK 17</div>")
             .contains("data-verdict=\"BLOCKER — no master history on JDK 17 (can&#39;t prove pre-existing); failed the "
                 + "only run on this branch\"")
             .doesNotContain(">1 run</span>", "class=\"strip\"", "failed the only run on this branch</div>");

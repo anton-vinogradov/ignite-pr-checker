@@ -14,7 +14,7 @@ class SettlingBannerTest {
     @Test
     void aVerdictReRunsStillSettleSaysItIsInterim() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/settling', { body: { phase: 'settling', wave: 2, of: 2, what: '3 blocker suite(s)',
+            page.route('/api/settling', { body: { phase: 'settling', wave: 2, of: 2, what: '3 suites with blockers',
                 etaEpochSec: Math.floor(page.now() / 1000) + 25 * 60 } });
             await page.load('?pr=13575');
             const settling = { shown: !page.el('settlingRow').classList.contains('hidden'),
@@ -25,8 +25,8 @@ class SettlingBannerTest {
             """);
 
         assertThat(out.get("settling").get("shown").asBoolean()).isTrue();
-        assertThat(out.get("settling").get("text").asText()).isEqualTo("♻︎ Auto re-run #2 of up to 2: re-running 3 blocker"
-            + " suite(s), done in ~25m. The verdict below may change when they finish.");
+        assertThat(out.get("settling").get("text").asText()).isEqualTo("♻︎ Auto re-run #2 of up to 2: re-running 3 suites with"
+            + " blockers, done in ~25m. The verdict below may change when they finish.");
         assertThat(out.get("settling").get("asked").asInt()).isPositive();
         assertThat(out.get("finalShown").asBoolean()).isFalse();
     }

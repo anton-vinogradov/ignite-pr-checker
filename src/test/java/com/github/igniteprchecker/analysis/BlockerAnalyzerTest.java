@@ -115,8 +115,8 @@ class BlockerAnalyzerTest {
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
         assertThat(r.filtered()).isEmpty();
-        assertThat(only(r.watch()).reason()).isEqualTo("first failure on revision 3fdf446 — watch (nothing has "
-            + "passed on this code; the 1 earlier branch run ran on other code)");
+        assertThat(only(r.watch()).reason())
+            .isEqualTo("failed the only run on commit 3fdf446; the 1 earlier run was on other code");
         assertThat(only(r.watch()).codeRuns()).isEqualTo(1); // only the last bar is evidence
     }
 
@@ -132,7 +132,7 @@ class BlockerAnalyzerTest {
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
         assertThat(r.watch()).isEmpty();
-        assertThat(only(r.blockers()).reason()).contains("failed all 2 runs on revision 3fdf446");
+        assertThat(only(r.blockers()).reason()).contains("failed all 2 runs on commit 3fdf446");
     }
 
     /** A pass on the very same revision is real evidence of a flake, and still filters the test out. */
@@ -149,7 +149,7 @@ class BlockerAnalyzerTest {
         assertThat(r.blockers()).isEmpty();
         assertThat(r.watch()).isEmpty();
         assertThat(only(r.filtered()).reason()).isEqualTo("flaky on branch: failed only the latest of 2 runs on "
-            + "revision 3fdf446 (an earlier run on the same code passed; the 1 earlier branch run ran on other code)");
+            + "commit 3fdf446 (an earlier run on the same code passed; the 1 earlier run was on other code)");
     }
 
     /** Failing on the old revision AND on the new one is a steady break; the narrower window must not lose it. */
@@ -176,7 +176,7 @@ class BlockerAnalyzerTest {
 
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
-        assertThat(only(r.watch()).reason()).contains("first failure on revision 3fdf446");
+        assertThat(only(r.watch()).reason()).contains("failed the only run on commit 3fdf446");
     }
 
     /**
@@ -205,7 +205,7 @@ class BlockerAnalyzerTest {
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
         assertThat(only(r.filtered()).reason()).isEqualTo("flaky on branch: failed only the latest of 4 runs "
-            + "(passed just before, but TeamCity gave no revisions to prove that was the same code)");
+            + "(passed just before, but TeamCity gave no commits to prove that was the same code)");
     }
 
     /**
@@ -239,13 +239,13 @@ class BlockerAnalyzerTest {
         TestVerdict v = verdict(analyzer.analyze(TOK, 42).orElseThrow(), 1L);
 
         assertThat(v.branchRuns()).isEqualTo("PF");
-        assertThat(v.reason()).isEqualTo("flaky on branch: failed only the latest of 2 runs on revision 3fdf446 "
+        assertThat(v.reason()).isEqualTo("flaky on branch: failed only the latest of 2 runs on commit 3fdf446 "
             + "(an earlier run on the same code passed)");
     }
 
     /**
      * Master history lists ignored runs (UNKNOWN) as well. The test did not run there, so they are no
-     * master runs of it: counted, three real runs read "not seen failing in 100 master run(s)".
+     * master runs of it: counted, three real runs read "not seen failing in 100 master runs".
      */
     @Test
     void ignoredMasterRunsAreNotCountedAsMasterRuns() {
@@ -256,7 +256,7 @@ class BlockerAnalyzerTest {
 
         TestVerdict v = verdict(analyzer.analyze(TOK, 42).orElseThrow(), 1L);
 
-        assertThat(v.reason()).isEqualTo("not seen failing in 3 master run(s); failed the only run on this branch");
+        assertThat(v.reason()).isEqualTo("not seen failing in 3 master runs; failed the only run on this branch");
         assertThat(v.blocker()).isTrue();
     }
 
@@ -327,7 +327,7 @@ class BlockerAnalyzerTest {
 
         TestVerdict v = verdict(analyzer.analyze(TOK, 13335).orElseThrow(), RECONNECT);
 
-        assertThat(v.reason()).isEqualTo("not seen failing in 34 master run(s); failed the only run on this branch");
+        assertThat(v.reason()).isEqualTo("not seen failing in 34 master runs; failed the only run on this branch");
         assertThat(v.blocker()).isTrue();
     }
 
@@ -345,7 +345,7 @@ class BlockerAnalyzerTest {
         TestVerdict linux = verdict(analyzer.analyze(TOK, 13336).orElseThrow(), RECONNECT);
 
         assertThat(clang.reason()).isEqualTo("pre-existing: fails 7/33 on master");
-        assertThat(linux.reason()).isEqualTo("not seen failing in 34 master run(s); failed the only run on this branch");
+        assertThat(linux.reason()).isEqualTo("not seen failing in 34 master runs; failed the only run on this branch");
     }
 
     @Test

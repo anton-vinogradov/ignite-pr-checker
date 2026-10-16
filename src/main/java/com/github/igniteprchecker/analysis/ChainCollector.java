@@ -20,6 +20,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -377,6 +379,10 @@ public class ChainCollector {
      * (timeout/hang cascades, tests that never got to run) — surface the suite, not the noise. */
     private static final Set<String> UNSTABLE_PROBLEMS = Set.of("TC_EXECUTION_TIMEOUT", "TC_OOME", "TC_JVM_CRASH");
 
+    /** TeamCity's problem about a run with fewer tests than one it chose to compare with. */
+    private static final Pattern TESTS_COUNT_PROBLEM =
+        Pattern.compile("Number of tests (\\d+) is \\d+% less than (\\d+) in build .*");
+
     /**
      * Whether a run got through master's tests for its suite. Unlike {@link #isFullRun} this needs a count
      * to compare with, however small the suite: it decides whether the failures of a suite that crashed
@@ -425,15 +431,29 @@ public class ChainCollector {
 
     private static BrokenSuite brokenSuite(TcModel.Build dep, String suiteName, List<TcModel.ProblemOccurrence> problems,
         Map<String, Integer> masterCounts) {
-        List<String> descriptions = problems.stream().map(ChainCollector::describeProblem).distinct().toList();
         List<String> types = problems.stream().map(TcModel.ProblemOccurrence::type).filter(Objects::nonNull)
             .distinct().toList();
         int tests = dep.testOccurrences() == null ? 0 : dep.testOccurrences().count();
-        Integer master = masterCounts.get(dep.buildTypeId());
+        int master = masterCounts.getOrDefault(dep.buildTypeId(), 0);
+        List<String> descriptions = problems.stream().map(ChainCollector::describeProblem).distinct().toList();
+        // TeamCity's own count of the shortfall says what "ran 33 of master's 67 tests" says: once, under the cause.
+        String ran = BrokenSuite.ran(tests, master);
+        List<String> causes = ran == null ? descriptions
+            : descriptions.stream().filter(d -> !saysTheShortfall(d, tests, master)).toList();
+        List<String> said = !causes.isEmpty() ? causes
+            : descriptions.isEmpty() ? List.of("failed without running tests") : List.of(ran);
 
-        return new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName,
-            descriptions.isEmpty() ? List.of("failed without running tests") : descriptions,
-            tests, master == null ? 0 : master, types, failedUpstream(dep));
+        return new BrokenSuite(dep.buildTypeId(), dep.id(), suiteName, said, tests, master, types, failedUpstream(dep));
+    }
+
+    /**
+     * Whether a problem is TeamCity's "Number of tests 33 is 51% less than 67 in build #1141" about the same counts
+     * the suite's shortfall names. With other counts it stays: TeamCity compared with a run of its own choosing.
+     */
+    private static boolean saysTheShortfall(String problem, int tests, int master) {
+        Matcher m = TESTS_COUNT_PROBLEM.matcher(problem);
+
+        return m.matches() && Integer.parseInt(m.group(1)) == tests && Integer.parseInt(m.group(2)) == master;
     }
 
     /** Human wording for a TeamCity problem type, falling back to its details/raw type. */

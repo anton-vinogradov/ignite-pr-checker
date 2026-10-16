@@ -71,7 +71,7 @@ class OtherPrBranchesTest {
 
         assertThat(r.blockers()).isEmpty();
         assertThat(only(r.filtered()).reason()).isEqualTo("flaky on other PR branches: fails 14/112 in 13 other PRs; "
-            + "not seen failing in 101 master run(s) on JDK 17");
+            + "not seen failing in 101 master runs on JDK 17");
     }
 
     /** The PR's own runs are its evidence, never its baseline: 13614's failures are not "another PR". */
@@ -81,7 +81,7 @@ class OtherPrBranchesTest {
         when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(98, 13614, 13614, 13653, 13554));
 
         assertThat(only(analyzer.analyze(TOK, 13614).orElseThrow().blockers()).reason())
-            .isEqualTo("not seen failing in 101 master run(s) on JDK 17; failed the only run on this branch");
+            .isEqualTo("not seen failing in 101 master runs on JDK 17; failed the only run on this branch");
     }
 
     /** Runs under other conditions than the PR's own are not compared: here three PRs ran at scale 1.0. */
@@ -104,7 +104,7 @@ class OtherPrBranchesTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("not seen failing in 101 master run(s) on JDK 17; fails 3/200 in 3 other PRs; "
+        assertThat(v.reason()).isEqualTo("not seen failing in 101 master runs on JDK 17; fails 3/200 in 3 other PRs; "
             + "failed all 3 runs on this branch");
     }
 
@@ -121,7 +121,7 @@ class OtherPrBranchesTest {
         failing(PR, "FFFFF", master(101, 0, "1.0"));
         TestVerdict v = only(analyzer.forceRefresh(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("not seen failing in 101 master run(s) on JDK 17; fails 14/112 in 13 other "
+        assertThat(v.reason()).isEqualTo("not seen failing in 101 master runs on JDK 17; fails 14/112 in 13 other "
             + "PRs; failed all 5 runs on this branch");
     }
 
@@ -151,7 +151,7 @@ class OtherPrBranchesTest {
             assertThat(r.blockers()).isEmpty();
             assertThat(only(r.watch()).reason()).isEqualTo("fails 101/101 on master at TEST_SCALE_FACTOR=1.0, but 1/95 "
                 + "on other PR branches at 0.1; failed " + (branchRuns.length() == 1 ? "the only run" : "all 2 runs")
-                + " on this branch — watch (too few failures on this code yet to outweigh other PRs)");
+                + " on this branch; too few failures on this code yet to outweigh other PRs");
         }
     }
 
@@ -162,8 +162,8 @@ class OtherPrBranchesTest {
         when(tc.otherBranchRuns(TOK, TEST, SNAPSHOTS)).thenReturn(onOtherPrs(95));
 
         assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().watch()).reason()).isEqualTo("fails 101/101 on master "
-            + "at TEST_SCALE_FACTOR=1.0, but 0/95 on other PR branches at 0.1; failed the only run on this branch — "
-            + "watch (too few failures on this code yet to outweigh other PRs)");
+            + "at TEST_SCALE_FACTOR=1.0, but 0/95 on other PR branches at 0.1; failed the only run on this branch; too "
+            + "few failures on this code yet to outweigh other PRs");
     }
 
     /** Master fails it under the PR's own scale factor too: that is a plain pre-existing failure. */
@@ -237,7 +237,7 @@ class OtherPrBranchesTest {
         AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
 
         assertThat(only(r.blockers()).reason())
-            .isEqualTo("not seen failing in 101 master run(s) on JDK 17; failed the only run on this branch");
+            .isEqualTo("not seen failing in 101 master runs on JDK 17; failed the only run on this branch");
         assertThat(r.incompleteSince()).isPositive();
     }
 

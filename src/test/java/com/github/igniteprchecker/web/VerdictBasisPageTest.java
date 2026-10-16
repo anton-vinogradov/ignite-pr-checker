@@ -18,7 +18,7 @@ class VerdictBasisPageTest {
         }
         page.route('/api/analyze', { body: verdict({
             blockers: [
-                test('ClientReconnectTest.testReconnect', 'occ-1', { reason: 'not seen failing in 85 master run(s) on '
+                test('ClientReconnectTest.testReconnect', 'occ-1', { reason: 'not seen failing in 85 master runs on '
                     + 'JDK 17; failed all 3 runs on this branch', doubts: [] }),
                 test('GridCommandHandlerTest.testCacheIdle', 'occ-2', { suite: 'IgniteTests24Java8_ControlUtility',
                     suiteBuildId: 9003, suiteName: 'Control Utility', branchRuns: 'F', codeRuns: 1,
@@ -27,7 +27,7 @@ class VerdictBasisPageTest {
                     doubts: ['ONE_RUN', 'NO_MASTER_HISTORY'] }),
             ],
             watch: [test('TxRecoveryTest.testRecovery', 'occ-3', { blocker: false, watch: true, branchRuns: 'PPF',
-                codeRuns: 1, reason: 'first failure on revision 5be1c0d — watch (nothing has passed on this code)',
+                codeRuns: 1, reason: 'failed the only run on commit 5be1c0d; the 2 earlier runs were on other code',
                 doubts: ['ONE_RUN'] })],
         }) });
         """;
@@ -41,13 +41,13 @@ class VerdictBasisPageTest {
             """);
 
         assertThat(out.get("blockers").asText())
-            .contains("not seen failing in 85 master run(s) on JDK 17; failed all 3 runs on this branch")
+            .contains("not seen failing in 85 master runs on JDK 17; failed all 3 runs on this branch")
             .doesNotContain("testCacheIdle")
             .doesNotContain("1 run");
         assertThat(out.get("oneRun").asText()).as("the heading says 1 run for every test there")
             .contains("testCacheIdle", "no master history on JDK 17 (can't prove pre-existing)", "new test / no master history")
             .doesNotContain("failed the only run on this branch", "1 run");
-        assertThat(out.get("watch").asText()).contains("first failure on revision 5be1c0d", "1 run");
+        assertThat(out.get("watch").asText()).contains("failed the only run on commit 5be1c0d", "1 run");
     }
 
     /** A watch from a first failure on new code ran on the branch before: two passes on older code here. */

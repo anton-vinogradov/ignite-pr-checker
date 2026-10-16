@@ -119,22 +119,20 @@ class GlossaryTest {
 
     @Test
     void theGlossaryQuotesWhatTheCodeWrites() throws IOException {
-        quoted(MAIN.resolve("analysis/BlockerAnalyzer.java"), "not seen failing in ", "only ", " master run(s)",
+        quoted(MAIN.resolve("analysis/BlockerAnalyzer.java"), "not seen failing in ", "only ", " master run",
             "no master history", "(can't prove pre-existing)", "rare on master: fails ", ", passed the last ",
-            " on master at ", " on other PR branches at ", " other PRs", "failed the only run", "failed all ",
-            "failed the last ", " on this branch", " on revision ", "first failure", " — watch",
-            "nothing has passed on this code", "started failing in the last ", "an earlier run on the same code passed",
-            " — watch (too few failures on this code yet to outweigh other PRs)", "pre-existing: fails ",
-            "flaky on other PR branches: ", "flaky on branch: failed only the latest of ",
+            " on master at ", " on other PR branches at ", " other PRs", "failed the only run", "failed the latest run",
+            "failed all ", "failed the last ", " on this branch", " on commit ", ", after a pass on the same commit",
+            "after a pass; TeamCity gave no commits to prove that was the same code",
+            "an earlier run on the same code passed", "; too few failures on this code yet to outweigh other PRs",
+            "pre-existing: fails ", "flaky on other PR branches: ", "flaky on branch: failed only the latest of ",
             "not failing in the last finished run (passed on re-run)", "could not verify (TeamCity error: ",
-            " ran on other code", " could not be placed on a revision",
-            "passed just before, but TeamCity gave no revisions to prove that was the same code");
-        quoted(MAIN.resolve("analysis/Caveats.java"), "the RunAll was interrupted — ", " suite(s) never ran",
-            " suite(s) have no reliable result (", " suite(s) ran far fewer tests than the same suites on master",
-            " failed test(s) could not be checked (TeamCity errors)",
+            " on other code", " could not be placed on a commit",
+            "passed just before, but TeamCity gave no commits to prove that was the same code");
+        quoted(MAIN.resolve("analysis/Caveats.java"), "the RunAll was interrupted — ", " never ran",
+            " no reliable result (", " ran far fewer tests than the same ", " could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail",
-            " commit(s) pushed since this run — it tested older code",
-            "new commits pushed since this run — it tested older code");
+            " pushed since this run — it tested older code", "new commits pushed since this run — it tested older code");
         quoted(MAIN.resolve("analysis/ChainCollector.java"), "compilation error", "execution timeout",
             "non-zero exit code", "JVM crash / out of memory", "failed dependency", "failed without running tests");
         quoted(MAIN.resolve("analysis/model/BrokenGroup.java"), "ci2 glitch: artifacts unavailable (",
@@ -257,7 +255,7 @@ class GlossaryTest {
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             List<String> quotes = all(CODE, read(tour)).stream()
-                .filter(code -> code.contains("reused") || code.contains("earlier runs")).toList();
+                .filter(code -> code.contains("reused") || code.endsWith("from earlier runs")).toList();
             assertThat(quotes).as(tour + ": the glossary and the tour").hasSizeGreaterThanOrEqualTo(2)
                 .allMatch(code -> label.matcher(code).matches());
         }

@@ -2007,9 +2007,9 @@ public class StandingVisas implements SnapshotCache {
             String.join(";", Caveats.keyOf(r)));
     }
 
-    /** "Tested revision abc1234; the PR head is now def5678." with the revisions wrapped in the markup's code marks. */
+    /** "Tested commit abc1234; the PR head is now def5678." with the commits wrapped in the markup's code marks. */
     private static String revisions(PendingCommits.Ahead ahead, String open, String close) {
-        return "Tested revision " + open + ahead.builtShort() + close + "; the PR head is now " + open
+        return "Tested commit " + open + ahead.builtShort() + close + "; the PR head is now " + open
             + ahead.headShort() + close + ".";
     }
 
@@ -2755,7 +2755,8 @@ public class StandingVisas implements SnapshotCache {
         if (history == null || history.isEmpty())
             return null;
 
-        StringBuilder b = new StringBuilder("♻️ Settled after ").append(history.size()).append(" auto re-run wave(s):");
+        StringBuilder b = new StringBuilder("♻️ Settled after ").append(history.size()).append(" auto re-run wave")
+            .append(history.size() == 1 ? ":" : "s:");
         for (int i = 0; i < history.size(); i++)
             b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
 
@@ -2799,19 +2800,35 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 1 watch + 3 broken + 4 cancelled suite(s)"}. */
+    /**
+     * The suites a wave re-runs, by why: {@code "3 suites (2 with blockers, 1 broken)"}, or by the one reason when
+     * there is one, {@code "2 suites with blockers"}, {@code "1 suite to watch"}, {@code "3 broken suites"},
+     * {@code "4 cancelled suites"}.
+     */
     private static String suitesLabel(int blockers, int watch, int broken, int cancelled) {
         List<String> parts = new ArrayList<>();
         if (blockers > 0)
-            parts.add(blockers + " blocker");
+            parts.add(blockers + " with blockers");
         if (watch > 0)
-            parts.add(watch + " watch");
+            parts.add(watch + " to watch");
         if (broken > 0)
             parts.add(broken + " broken");
         if (cancelled > 0)
             parts.add(cancelled + " cancelled");
+        int n = blockers + watch + broken + cancelled;
+        String suites = n + (n == 1 ? " suite" : " suites");
+        if (parts.size() > 1)
+            return suites + " (" + String.join(", ", parts) + ")";
+        if (blockers > 0)
+            return suites + " with blockers";
+        if (watch > 0)
+            return suites + " to watch";
+        if (broken > 0)
+            return n + " broken" + (n == 1 ? " suite" : " suites");
+        if (cancelled > 0)
+            return n + " cancelled" + (n == 1 ? " suite" : " suites");
 
-        return parts.isEmpty() ? "0 suite(s)" : String.join(" + ", parts) + " suite(s)";
+        return suites;
     }
 
     /** Queue-aware settle estimate for the PR's live re-runs, from the tracker; null when unknown. */

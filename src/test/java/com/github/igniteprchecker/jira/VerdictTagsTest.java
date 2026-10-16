@@ -29,15 +29,15 @@ class VerdictTagsTest {
         String md = visas.composeMarkdown(PR, r, null);
         String wiki = visas.compose(PR, r, null);
 
-        assertThat(md).contains("❌ **1 blocker(s) in 1 suite(s), all on 1 run:**\n"
+        assertThat(md).contains("❌ **1 blocker in 1 suite, all on 1 run:**\n"
             + "- Control Utility · `GridCommandHandlerTest.testCacheIdle` — 1 run; new test / no master history · [TC]")
-            .endsWith("\n\n<sub>**1 run**: only one failure on this branch backs it: a re-run of its suite confirms or "
+            .endsWith("\n\n<sub>**1 run**: the test ran once on this code and failed; a rerun of its suite confirms or "
                 + "clears it · **new test / no master history**: master has no runs of the test on this JDK to compare "
                 + "with: a new test, or one master does not run.</sub>\n\n<sub>What each label means and what to do: "
                 + "[verdict glossary](" + VisaService.GLOSSARY + ").</sub>");
-        assertThat(wiki).contains("(x) *1 blocker(s) in 1 suite(s), all on 1 run:*\n"
+        assertThat(wiki).contains("(x) *1 blocker in 1 suite, all on 1 run:*\n"
             + "- Control Utility · {{GridCommandHandlerTest.testCacheIdle}} — 1 run; new test / no master history · [TC|")
-            .endsWith("\n\n_1 run: only one failure on this branch backs it: a re-run of its suite confirms or clears it"
+            .endsWith("\n\n_1 run: the test ran once on this code and failed; a rerun of its suite confirms or clears it"
                 + " · new test / no master history: master has no runs of the test on this JDK to compare with: a new "
                 + "test, or one master does not run._\n\n_What each label means and what to do: [verdict glossary|"
                 + VisaService.GLOSSARY + "]._");
@@ -51,7 +51,7 @@ class VerdictTagsTest {
             test("GridCommandHandlerTest.testBaseline", true, "FFF", 3)), List.of());
 
         assertThat(visas.composeMarkdown(PR, r, null))
-            .contains("❌ **3 blocker(s) in 1 suite(s), 2 of them on 1 run:**\n- Control Utility · "
+            .contains("❌ **3 blockers in 1 suite, 2 of them on 1 run:**\n- Control Utility · "
                 + "`GridCommandHandlerTest` — 3 tests (1 run: 2 of 3): `testCacheIdle`, `testState`, `testBaseline`");
         assertThat(visas.compose(PR, r, null))
             .contains("- Control Utility · {{GridCommandHandlerTest}} — 3 tests (1 run: 2 of 3): {{testCacheIdle}}");
@@ -66,7 +66,7 @@ class VerdictTagsTest {
         String md = visas.composeMarkdown(PR, r, null);
 
         assertThat(md).contains("- Control Utility · `TxRecoveryTest.testRecovery` — 1 run; unverified · [TC]")
-            .endsWith("<sub>**1 run**: only one failure on this branch backs it: a re-run of its suite confirms or "
+            .endsWith("<sub>**1 run**: the test ran once on this code and failed; a rerun of its suite confirms or "
                 + "clears it · **unverified**: a TeamCity error kept the check of other PRs' runs of the test from "
                 + "being made.</sub>\n\n<sub>What each label means and what to do: [verdict glossary]("
                 + VisaService.GLOSSARY + ").</sub>");
@@ -78,7 +78,7 @@ class VerdictTagsTest {
 
         String md = visas.composeMarkdown(PR, r, null);
 
-        assertThat(md).contains("❌ **1 blocker(s) in 1 suite(s):**\n"
+        assertThat(md).contains("❌ **1 blocker in 1 suite:**\n"
             + "- Control Utility · `GridCommandHandlerTest.testBaseline` — failed 3 of 3 runs of this code · [TC]")
             .doesNotContain("<sub>**");
     }

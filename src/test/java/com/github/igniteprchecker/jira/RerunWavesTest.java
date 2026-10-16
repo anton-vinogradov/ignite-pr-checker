@@ -16,6 +16,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
@@ -123,9 +124,30 @@ class RerunWavesTest {
 
         assertThat(standing.waveStatus(PR, RUN_ALL)).hasValueSatisfying(w -> {
             assertThat(w.wave()).isEqualTo(2);
-            assertThat(w.what()).isEqualTo("3 blocker suite(s)");
+            assertThat(w.what()).isEqualTo("3 suites with blockers");
         });
         assertThat(standing.phase(PR, RUN_ALL).wave()).isEqualTo(2);
+    }
+
+    /** A wave of two suites with blockers and one hung suite names each reason once, as the page's line does. */
+    @Test
+    void aWaveOfSeveralReasonsNamesEachOnce() {
+        options(true);
+        AnalysisResult mixed = new AnalysisResult(PR, RUN_ALL, "pull/13335/head", System.currentTimeMillis(),
+            List.of(blocker("Cache1", 9389011L), blocker("Cache2", 9389012L)), List.of(), List.of(),
+            List.of(new BrokenSuite("Queries5", 9389013L, "Queries 5", List.of("execution timeout"), 12, 35,
+                List.of("TC_EXECUTION_TIMEOUT"), null)),
+            List.of(), 140, 1, false, 0, false, 0, 0, 0, 0, 0);
+        when(analyzer.analyze("tc", PR)).thenReturn(Optional.of(mixed));
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(mixed));
+        finished();
+
+        standing.sweep();
+
+        assertThat(standing.waveStatus(PR, RUN_ALL)).hasValueSatisfying(w -> {
+            assertThat(w.wave()).isEqualTo(1);
+            assertThat(w.what()).isEqualTo("3 suites (2 with blockers, 1 broken)");
+        });
     }
 
     /** A chain was mid-run during the upgrade: its waves were kept one per suite. */
@@ -192,7 +214,7 @@ class RerunWavesTest {
 
     private static TestVerdict blocker(String suite, long suiteBuildId) {
         return new TestVerdict(suiteBuildId, suite + "Test.test", suite, suiteBuildId, suite.replaceAll("(\\d)", " $1"),
-            "o" + suiteBuildId, true, false, "not seen failing in 100 master run(s)", "F", 1);
+            "o" + suiteBuildId, true, false, "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... blockers) {

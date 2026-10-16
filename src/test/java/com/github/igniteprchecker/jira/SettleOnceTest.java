@@ -82,7 +82,7 @@ class SettleOnceTest {
 
             return Optional.of(new AnalysisResult(PR, CHAIN, "pull/13335/head", System.currentTimeMillis(),
                 List.of(new TestVerdict(9389011L, "Cache1Test.test", "Cache1", 9389011L, "Cache 1", "o1", true, false,
-                    "not seen failing in 100 master run(s)", "F", 1)), List.of(), List.of(), List.of(), List.of(), 140,
+                    "not seen failing in 100 master runs", "F", 1)), List.of(), List.of(), List.of(), List.of(), 140,
                 1, false, 0, false, 0, 0, 0, 1, 0));
         });
 

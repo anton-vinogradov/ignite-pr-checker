@@ -898,9 +898,10 @@ function brokenRow(s, rerun = true, above = []) {
         + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
     const btns = rerun ? suiteRowActs(s.suite, above) : '';
     // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
-    // "tests disappeared" and hides the timeout that emptied the suite.
-    const short = s.tests && s.baseline && s.tests < s.baseline
-        ? ` — ran ${s.tests} of master's ${s.baseline} tests` : '';
+    // "tests disappeared" and hides the timeout that emptied the suite. When the count was all
+    // TeamCity reported, the server makes it the suite's one problem, and it is not said twice.
+    const ran = s.tests && s.baseline && s.tests < s.baseline ? `ran ${s.tests} of master's ${s.baseline} tests` : '';
+    const short = ran && !(s.problems || []).includes(ran) ? ` — ${ran}` : '';
     return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
         + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
         + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
@@ -2113,7 +2114,7 @@ function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
     const tc = runUrl
         ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
     const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
-        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this revision to tell a break from a flake'
+        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this commit to tell a break from a flake'
         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
     const ai = `<button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
         + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
@@ -2191,7 +2192,7 @@ async function aiCausePrompt(btn, block) {
         tested,
         lines: [
             `- Shared failure signature: ${sig ? sig.textContent : '(see failure output below)'}`,
-            `- ${tests.length} failing test(s) across ${suites.length} suite(s): ${suites.join(', ')}`,
+            `- ${tests.length} failing test${tests.length === 1 ? '' : 's'} across ${suites.length} suite${suites.length === 1 ? '' : 's'}: ${suites.join(', ')}`,
             ...tests.slice(0, 20).map(t => `  - ${t.name}`),
             tests.length > 20 ? `  - … and ${tests.length - 20} more` : null,
         ],

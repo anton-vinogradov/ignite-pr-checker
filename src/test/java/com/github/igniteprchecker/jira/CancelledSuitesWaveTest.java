@@ -94,7 +94,7 @@ class CancelledSuitesWaveTest {
         assertThat(suites.getAllValues()).containsExactlyInAnyOrder("IgniteTests24Java8_Cache1",
             "IgniteTests24Java8_Cache2");
         assertThat(standing.waveStatus(PR, RUN_ALL)).get().extracting(StandingVisas.WaveStatus::what)
-            .isEqualTo("2 cancelled suite(s)");
+            .isEqualTo("2 cancelled suites");
     }
 
     /** Restores the user, auto re-run on, from a snapshot taken a day before the run. */
