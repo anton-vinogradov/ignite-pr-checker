@@ -124,7 +124,7 @@ public class SuiteFixService implements SnapshotCache {
     private long forgottenAt;
 
     /** The users the last sweep acted for. */
-    private volatile int users;
+    private volatile int acting;
 
     /** Off in the dev profile, so a local run never acts on PRs next to the production instance. */
     @Value("${automation.enabled:true}")
@@ -150,10 +150,14 @@ public class SuiteFixService implements SnapshotCache {
         this.clock = clock;
     }
 
-    /** What the status page shows: for how many users, how many commits, the last sweep. */
+    /**
+     * What the status page shows: how many users have the option on, for how many of them the last sweep acted, how
+     * many commits, the last sweep.
+     */
     public Map<String, Object> stats() {
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("users", users);
+        out.put("users", standing.suiteFixOnCount());
+        out.put("acting", acting);
         out.put("attempts", attempts.size());
         out.put("pushed", pushes.get());
         out.put("lastSweepAt", lastSweepAt);
@@ -180,7 +184,7 @@ public class SuiteFixService implements SnapshotCache {
     void sweep() {
         long started = clock.getAsLong();
         Map<String, StandingVisas.GhActor> fixers = standing.suiteFixers();
-        users = fixers.size();
+        acting = fixers.size();
         postUnposted();
         fixers.forEach((login, actor) -> {
             List<Integer> prs;

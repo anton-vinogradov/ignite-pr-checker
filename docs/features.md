@@ -455,6 +455,9 @@ from its own GitHub account, the app account.
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
   in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
+- The **Tests added to suites** card counts the users who have that option on. If the last sweep skipped some of
+  them, the card turns amber and says how many are paused. A user is skipped when TeamCity or GitHub refuses their
+  token, or a GitHub account or token is missing.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
   classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
   beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
