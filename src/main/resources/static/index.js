@@ -225,8 +225,9 @@ function markMine() {
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
 // where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats
 // these titles word for word, and its words name the badge to a screen reader, which would read the bare mark.
+// WATCH comes before the check of the code, so a "!" may stand on a run of older code.
 const STANDING_BADGES = {
-    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the PR\'s latest code. A rerun shows '
+    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A rerun shows '
         + 'whether they are blockers.', 'started failing'],
     UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
         + 'broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still '
@@ -238,6 +239,10 @@ const STANDING_BADGES = {
         'checking'],
 };
 const CLEAN_BADGE_TITLE = 'A clean run of the PR\'s current code.';
+
+// The legend has one "?" for the three standings that draw it, so its title names all three.
+const UNPROVEN_LEGEND_TITLE = 'No blockers found, but the PR is not proven clean. The run can\'t prove it, commits were '
+    + 'pushed after the run, or it is not known whether the run tested the PR\'s latest commit.';
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
 // "!" for tests that started failing, a question mark when nothing was blamed but the run couldn't prove
