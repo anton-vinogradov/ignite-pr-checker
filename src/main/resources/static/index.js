@@ -231,8 +231,9 @@ function markMine() {
 }
 
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
-// where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats
-// these titles word for word, and its words name the badge to a screen reader, which would read the bare mark.
+// where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats the
+// "!" and "…" titles word for word; its one "?" stands for three of them and has UNPROVEN_LEGEND_TITLE. The fourth
+// item names the badge to a screen reader, which would read the bare mark.
 // WATCH comes before the check of the code, so a "!" may stand on a run of older code.
 const STANDING_BADGES = {
     WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A rerun shows '

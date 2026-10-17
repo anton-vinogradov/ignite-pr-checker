@@ -253,20 +253,24 @@ class GlossaryTest {
     /**
      * The page names its cards Recently started failing and Not blamed on this PR, and the comment and the visa say
      * "commit". The glossary's reasons ended in "To watch." and "Filtered out.", and the tours and the READMEs said
-     * "filtered-out noise" and "revision". Only the row on a merged PR's old words quotes "revision".
+     * "filtered-out noise", "tests to watch" and "revision". Only the row on a merged PR's old words quotes "revision".
+     * The flaky board's tour said the checker "filters out" its tests; the READMEs' first lines keep the verb for what
+     * the checker does with the failures that master and other PRs explain.
      */
     @Test
     void theDocsUseThePagesNames() throws IOException {
         for (Path doc : List.of(TOUR, README)) {
             String text = withoutMergedRow(read(doc));
-            assertThat(text).as(doc.toString())
-                .doesNotContain("Filtered out", "filtered out", "filtered-out", "To watch.", "revision");
+            assertThat(text).as(doc.toString()).doesNotContain("Filtered out", "filtered out", "filtered-out",
+                "To watch.", "tests to watch", "revision");
         }
         for (Path doc : List.of(TOUR_RU, README_RU)) {
             String text = withoutMergedRow(read(doc));
             assertThat(text).as(doc.toString())
-                .doesNotContain("В отсеве", "Под наблюдением.", "отфильтрован", "ревизи");
+                .doesNotContain("В отсеве", "Под наблюдением.", "под наблюдением", "отфильтрован", "ревизи");
         }
+        assertThat(read(TOUR)).doesNotContain("filters out");
+        assertThat(read(TOUR_RU)).doesNotContain("отфильтровыва");
         assertThat(rowOf(glossary(TOUR), "`pre-existing: fails F/R on master`"))
             .contains("Listed under **Not blamed on this PR**.");
         assertThat(rowOf(glossary(TOUR), "`failed the latest run; TeamCity gave no commit for it, so the N earlier "

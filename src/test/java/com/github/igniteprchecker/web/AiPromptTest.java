@@ -349,11 +349,11 @@ class AiPromptTest {
     }
 
     /**
-     * The prompt of a test that started failing said "too few runs of this revision", where the page and the comment
-     * say "commit", and the prompt of a cause said "1 failing test(s) across 1 suite(s)".
+     * The prompt of a test that started failing said "too few runs of this revision", where the page, the comment and
+     * the visa say "this code", and the prompt of a cause said "1 failing test(s) across 1 suite(s)".
      */
     @Test
-    void thePromptsSayCommitsAndCountInPlainNumbers() throws Exception {
+    void thePromptsSayTheCodeAndCountInPlainNumbers() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
             const started = Object.assign(blocker('CacheTest.testPut', 'occ-2'), { blocker: false, watch: true,
                 reason: 'failed the only run on commit abc1234; the 1 earlier run was on other code', branchRuns: 'PF',

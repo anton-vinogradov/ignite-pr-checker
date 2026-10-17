@@ -178,8 +178,8 @@ and the visa.
 
 The page answers one question: which tests did this PR break? The verdict card answers it first, in the words of the
 PR comment and the visa. The [cards](#cards-on-the-pr-page) under it go from what makes the run unreliable (suites that
-never ran, broken suites, fewer tests than master) to the blockers, the tests to watch, the PR's own tests, and what was
-not blamed on the PR.
+never ran, broken suites, fewer tests than master) to the blockers, the tests that recently started failing, the PR's
+own tests, and what was not blamed on the PR.
 
 - **The head** names the PR, its number a link to GitHub and its IGNITE ticket a link to JIRA, and has the RunAll
   buttons. The line under it names the RunAll build with its TeamCity link, when the run finished and when the verdict
@@ -285,8 +285,9 @@ shows the button that gives it.
 
 Your login is all these two options need.
 
-- **Re-run failed suites of my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
-  suites, and also the suites TeamCity cancelled by itself, not those a person cancelled. A suite that fails while the
+- **Re-run failed suites of my runs** re-runs the suites the verdict blames: blockers, tests that recently started
+  failing and broken suites, and also the suites TeamCity cancelled by itself, not those a person cancelled.
+  A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
   top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
@@ -375,7 +376,8 @@ touches your token.
   **Auto visa ⚠** until you arm it again.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
-- The lists of blockers, tests to watch and unchecked tests are grouped by suite and class, the biggest group first.
+- The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the
+  biggest group first.
   Each line has the test's tags (`1 run`, `new test / no master history`, `unverified`) and a TC link, and a line
   under the lists explains the tags. The PR comment shows 5 groups and folds the rest; the visa shows 10.
 - Test names and the reasons TeamCity gives for a broken suite can have links, web addresses, mentions, images and

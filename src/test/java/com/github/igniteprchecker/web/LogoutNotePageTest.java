@@ -47,6 +47,39 @@ class LogoutNotePageTest {
         assertThat(out.get("muted").asBoolean()).isFalse();
     }
 
+    /**
+     * A logout in another browser ends this session: the page's next request gets a 401, and the login form says why.
+     * The note is muted, since nothing failed here.
+     */
+    @Test
+    void aSessionALogoutEndedLeavesAMutedNote() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/me', { status: 401, body: { sessionEnded: true, error: ENDED } });
+            await page.load('?pr=13575');
+            report(LINE);
+            """.replace("ENDED", new ObjectMapper().writeValueAsString(AuthInterceptor.ENDED))
+            .replace("LINE", LINE));
+
+        assertThat(out.get("message").asText()).isEqualTo(AuthInterceptor.ENDED);
+        assertThat(out.get("red").asBoolean()).isFalse();
+        assertThat(out.get("muted").asBoolean()).isTrue();
+    }
+
+    /** TeamCity refused the token while the page analysed a PR: the form says so in red, as a failed login. */
+    @Test
+    void aTokenTeamCityRefusedIsAnError() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { status: 401, body: { tokenRejected: true, error: REJECTED } });
+            await page.load('?pr=13575');
+            report(LINE);
+            """.replace("REJECTED", new ObjectMapper().writeValueAsString(ApiExceptionHandler.TOKEN_REJECTED))
+            .replace("LINE", LINE));
+
+        assertThat(out.get("message").asText()).isEqualTo(ApiExceptionHandler.TOKEN_REJECTED);
+        assertThat(out.get("red").asBoolean()).isTrue();
+        assertThat(out.get("muted").asBoolean()).isFalse();
+    }
+
     @Test
     void aLogoutWithoutOptionsSaysNothing() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
