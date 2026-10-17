@@ -33,7 +33,7 @@ import org.springframework.web.client.RestClientResponseException;
 public class LoginController {
     /** What a logout tells a user whose options go on without them. */
     static final String OPTIONS_GO_ON = "You are logged out. Your options in ⚙ stay on and keep using your TeamCity "
-        + "token, which the server stores for them: to stop that, log in and switch them off.";
+        + "token, which the server stores for them. To stop that, log in and switch them off.";
 
     /** What a logout everywhere tells a user whose session's token TeamCity refused. */
     static final String OTHERS_STAY_IN = "TeamCity refused this browser's token, so only this browser is logged out: "

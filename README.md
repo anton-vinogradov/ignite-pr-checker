@@ -67,10 +67,11 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
 
 - **Users** log in with their own ci2 access token. It travels encrypted (AES-GCM) in an HttpOnly session cookie, and
   the runs a user starts or cancels on the page go under their account. Until the user logs out, but no longer than
-  about an hour after their last request, the server also holds the token in memory and uses it only to read from
-  TeamCity, to pre-analyse open PRs for everyone; a standing option other than PR commands alone keeps it there while
-  the option is on. Memory reaches the disk when the host moves it to swap, unless the swap is encrypted. A login
-  lasts until the user logs out, which ends it in every browser, or leaves it unused for 400 days.
+  about an hour after their last request, the server also holds the token in memory. It uses the token only to read
+  from TeamCity, to pre-analyse open PRs for everyone. Any standing option keeps the token there while the option is
+  on, unless PR commands is the only option on. When the host moves the server's memory to swap, the token goes to the
+  disk with it, in plain text unless the swap is encrypted. A login lasts until the user logs out, which ends it in
+  every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
@@ -136,8 +137,9 @@ prc.example.org {
 }
 ```
 
-The `admin` line moves Caddy's admin API off port 2019, which every local process can reach, so a hole in the checker
-cannot reconfigure the proxy in front of it. The socket's directory comes from a drop-in for Caddy's unit:
+The `admin` line moves Caddy's admin API off port 2019, which every local process can reach. So someone who uses a
+vulnerability in the checker cannot reconfigure the proxy in front of it. These commands add a systemd drop-in to
+Caddy's unit, so systemd creates the socket's directory when Caddy starts:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/caddy.service.d
@@ -224,9 +226,10 @@ to its release notes, or to the list of releases when it is not the next patch r
 service. Before the start, systemd runs `update.sh` as root, which:
 
 - downloads exactly the release the button offered;
-- installs it only if it is newer than the release that runs, so a hole in the service cannot roll it back to an
-  older release. It knows which release runs by the jar's sha256, which `update.sh` and `deploy.sh` record in
-  `installed-jars`; a jar copied by hand takes no update from the page;
+- installs it only if it is newer than the release that runs, so someone who uses a vulnerability in the service
+  cannot roll the service back to an older release. `update.sh` finds the running release by the jar's sha256. On
+  install, `update.sh` and `deploy.sh` record the jar's sha256 and its release number in `installed-jars`. If the jar
+  was copied by hand, an update from the page fails;
 - installs it only if its sha256 equals the digest GitHub lists for the release's `ignite-pr-checker.jar`;
 - keeps the jar it replaces as `app.jar.prev`, unless it is the same jar;
 - on a failure keeps the current jar and writes the reason to `/opt/ignite-pr-checker/update-failed`. The button then
@@ -264,10 +267,13 @@ The service's own log keeps 30 days, a file a day. The status page keeps the rec
 restarts and lists at the top what is wrong now: a background job that stopped, a state file it could not read, a
 setting out of range.
 
-Some loggers write tokens at DEBUG or TRACE: Spring's, with the text of a request body the service could not read and
-the arguments of a request's handler; httpclient's, with the headers of GitHub calls; the JDK's `HttpURLConnection`,
-with the headers of TeamCity and JIRA calls; and Tomcat's, with each request as it comes in and the session cookie.
-`application.yml` keeps those at INFO, whatever level the env file sets for their package or for root.
+`application.yml` keeps the loggers below at INFO, whatever level the env file sets for their package or for root. At
+DEBUG or TRACE they write tokens:
+
+- Spring's: the text of a request body the service could not read, and the arguments of a request's handler
+- httpclient's: the headers of GitHub calls
+- the JDK's `HttpURLConnection`: the headers of TeamCity and JIRA calls
+- Tomcat's: each request as it comes in, and the session cookie
 
 ### Memory
 
@@ -285,7 +291,7 @@ each boot, or the tokens can stay in the swap file.
 
 | File | What it holds |
 |---|---|
-| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; of a TeamCity token TeamCity refused, only its SHA-256, to know it again), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
+| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; for a TeamCity token that TeamCity refused, only its SHA-256, to recognize that token again), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
 | `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted), and those JIRA refused the token of, without it. |
 | `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply, the reactions and replies GitHub has not taken yet. |
 | `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |
@@ -318,9 +324,10 @@ can make a session cookie for any user.
    once. Revoke the old app token and the old client secret on GitHub. Restart Caddy too: it then runs the `Caddyfile`
    again, not a configuration someone pushed through its admin API.
 2. Ask every user in `users.json` to make new TeamCity, JIRA and GitHub tokens and to revoke the old ones in ci2, JIRA
-   and GitHub. Changing the secret logs everyone out; the section above says what it does to the stored tokens.
-3. If you like, delete `cache/backups/` and the `*.before-*` files: they hold the old tokens under the old secret.
-   Without them there is nothing to roll the state back to.
+   and GitHub. Changing the secret logs everyone out; [The cache directory](#the-cache-directory) says what it does to
+   the stored tokens.
+3. If you like, delete `cache/backups/` and the `*.before-*` files: they hold the old tokens, encrypted with the old
+   `SESSION_SECRET`. Without them there is nothing to roll the state back to.
 
 ### Who may restart, update and flush
 

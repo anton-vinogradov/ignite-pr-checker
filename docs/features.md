@@ -473,9 +473,9 @@ from its own GitHub account, the app account.
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
   login form. Before **Link GitHub**, **Unlink**, a switch in ⚙ and the operator's buttons, the checker asks TeamCity
   whether your token still works; with a revoked token the action does not happen. **Log out** ends your login in
-  every browser, copies of its cookie included, and takes the TeamCity tokens of those logins out of the warming pool,
-  except one a standing option keeps there. It asks TeamCity first too: with a revoked token, only this browser is
-  logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
+  every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
+  logins, except one that a standing option keeps in use. Log out asks TeamCity first too: with a revoked token, only
+  this browser is logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

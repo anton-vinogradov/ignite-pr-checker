@@ -21,8 +21,8 @@ public class TokenFormat extends RequestBodyAdviceAdapter {
     /** Letters, digits and the signs of base64 and of TeamCity's dotted tokens, at a token's length. */
     static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9._~+/=-]{20,512}");
 
-    static final String NOT_A_TOKEN = "This is not a token: a token is 20 to 512 letters, digits and the characters "
-        + ". _ ~ + / = -, with no spaces or line breaks";
+    static final String NOT_A_TOKEN = "This is not a token: a token has 20 to 512 characters, only letters, digits "
+        + "and . _ ~ + / = - (no spaces or line breaks)";
 
     @Override
     public boolean supports(MethodParameter parameter, Type targetType,
