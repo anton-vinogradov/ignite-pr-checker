@@ -21,8 +21,12 @@ final class Markup {
     private static final Pattern MARKDOWN = Pattern.compile("[\\\\`*\\[\\]<>!&~]|(?<!\\p{Alnum})_|_(?!\\p{Alnum})"
         + "|^[#+-]|(?<=^\\d{1,9})[.)]");
 
-    /** What GitHub or JIRA makes a link of by itself: a mention, an e-mail address, an issue number, a web address. */
-    private static final Pattern LINKED = Pattern.compile("@(?=\\p{Alnum})|#(?=\\d)|:(?=//)|(?i:www)(?=\\.)");
+    /**
+     * What GitHub or JIRA makes a link of by itself: a mention, an e-mail address, an issue number ({@code #123} or
+     * {@code GH-123}), a web address.
+     */
+    private static final Pattern LINKED = Pattern.compile("@(?=\\p{Alnum})|#(?=\\d)|(?i:\\bgh-)(?=\\d)|:(?=//)"
+        + "|(?i:www)(?=\\.)");
 
     /** Put after what {@link #LINKED} finds, it keeps GitHub and JIRA from making the link, and shows nothing. */
     private static final String WORD_JOINER = "\u2060";

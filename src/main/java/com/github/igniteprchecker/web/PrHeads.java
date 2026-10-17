@@ -59,7 +59,7 @@ public class PrHeads {
             if (k != null && now - k.at() < KEEP_MS)
                 return k.sha();
         }
-        if (!spare(now))
+        if (!spare())
             return null;
 
         String sha;
@@ -79,10 +79,11 @@ public class PrHeads {
     }
 
     /** Whether the token has calls to spare for the page: GitHub said nothing else since its hour began. */
-    private boolean spare(long now) {
+    public boolean spare() {
         GithubClient.Quota q = github.appQuota();
 
-        return q == null || now / 1000 >= q.resetEpochSec() || q.remaining() >= q.limit() / RESERVE_SHARE;
+        return q == null || nowMs.getAsLong() / 1000 >= q.resetEpochSec()
+            || q.remaining() >= q.limit() / RESERVE_SHARE;
     }
 
     /** A head GitHub named at {@code at}, epoch milliseconds. */

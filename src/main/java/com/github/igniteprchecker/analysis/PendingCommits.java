@@ -5,6 +5,7 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.tc.TcClient;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntFunction;
 import org.springframework.stereotype.Component;
 
@@ -43,7 +44,10 @@ public class PendingCommits {
         }
     }
 
-    /** The head's distance from the analysed run, null when the run tested the head; throws when nobody can tell. */
+    /**
+     * The head's distance from the analysed run, null when the run tested the head; throws when nobody can tell.
+     * GitHub is asked however few calls the token has left: the page leaves the last ones for this.
+     */
     public Ahead movedSince(String tcToken, int pr, long buildId) {
         String built = tc.buildRevision(tcToken, buildId)
             .orElseThrow(() -> new IllegalStateException("TeamCity gave no revision of build " + buildId));
@@ -51,40 +55,48 @@ public class PendingCommits {
         if (head == null)
             throw new IllegalStateException("GitHub gave no head of PR " + pr);
 
-        return between(built, head);
+        return between(built, head, () -> true);
     }
 
     /**
      * The same for the page, which may name any build and any PR: a build of another branch than the PR's gets no
-     * answer, and the PR's head comes from {@code heads}, null when it cannot name one. Throws when nobody can tell.
+     * answer, and the PR's head comes from {@code heads}, null when it cannot name one. GitHub is asked to compare a
+     * new pair of commits only while {@code spare} says the checker's token has calls to spare. Throws when nobody can
+     * tell.
      */
-    public Ahead movedSince(String tcToken, int pr, long buildId, IntFunction<String> heads) {
+    public Ahead movedSince(String tcToken, int pr, long buildId, IntFunction<String> heads, BooleanSupplier spare) {
         String built = tc.prBuildRevision(tcToken, pr, buildId).orElseThrow(
             () -> new IllegalStateException("TeamCity gave no revision of build " + buildId + " of PR " + pr));
         String head = heads.apply(pr);
         if (head == null)
             throw new IllegalStateException("no head of PR " + pr);
 
-        return between(built, head);
+        return between(built, head, spare);
     }
 
-    private Ahead between(String built, String head) {
+    private Ahead between(String built, String head, BooleanSupplier spare) {
         if (built.equals(head))
             return null;
 
-        GithubClient.Ahead ahead = compare(built, head);
+        GithubClient.Ahead ahead = compare(built, head, spare);
 
         return new Ahead(ahead.ahead(), shortSha(built), ahead.headShort(), built, ahead.rewritten());
     }
 
-    /** GitHub's comparison of the two commits; one that failed to count is asked again next time. */
-    private GithubClient.Ahead compare(String built, String head) {
+    /**
+     * GitHub's comparison of the two commits; one that failed to count is asked again next time. Throws when GitHub
+     * has not compared the pair yet and {@code spare} says not to ask it.
+     */
+    private GithubClient.Ahead compare(String built, String head, BooleanSupplier spare) {
         Pair pair = new Pair(built, head);
         synchronized (compared) {
             GithubClient.Ahead known = compared.get(pair);
             if (known != null)
                 return known;
         }
+        if (!spare.getAsBoolean())
+            throw new IllegalStateException("GitHub not asked to compare " + built + " with " + head);
+
         GithubClient.Ahead ahead = github.compareAhead(built, head);
         if (ahead.ahead() >= 0) {
             synchronized (compared) {

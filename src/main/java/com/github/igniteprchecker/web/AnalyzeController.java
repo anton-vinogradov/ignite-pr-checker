@@ -77,7 +77,7 @@ public class AnalyzeController {
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         PendingCommits.Ahead ahead;
         try {
-            ahead = pending.movedSince(token, pr, build, heads::of);
+            ahead = pending.movedSince(token, pr, build, heads::of, heads::spare);
         }
         catch (RuntimeException e) {
             return Map.of("pending", false, "checked", false);

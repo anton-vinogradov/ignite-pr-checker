@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.analysis.model.Upstream;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.List;
 import org.commonmark.parser.Parser;
@@ -85,6 +86,39 @@ class TeamCityTextTest {
 
         assertThat(html(md)).doesNotContain("<h1>").contains("Cache 1: timeout # Fixed  &lt;h1&gt;Clean&lt;/h1&gt;");
         assertThat(wiki).contains("- Cache 1: timeout h1. Fixed").doesNotContain("\nh1. Fixed");
+    }
+
+    /** GitHub links "GH-1178" to PR 1178 of apache/ignite, the same as "#1178". */
+    @Test
+    void aGhNumberFromTeamCityLinksNoPr() {
+        String md = visas.composeMarkdown(PR, result(List.of(), List.of(broken("Cache 1", "execution timeout in build "
+            + "GH-1178, gh-1179"))), null);
+
+        assertThat(md).contains("- Cache 1: execution timeout in build GH-" + WJ + "1178, gh-" + WJ + "1179\n");
+    }
+
+    /**
+     * The Build failed with TeamCity's text, and the suites that need it did not run: the PR comment and the visa
+     * name the Build's problem and the suites it kept from running under its title.
+     */
+    @Test
+    void aFailedRunOthersNeedIsTextUnderItsTitle() {
+        BrokenSuite build = new BrokenSuite("IgniteTests24Java8_BuildApacheIgnite", 9500020L, "Build", List.of(TRAP),
+            0, 0, List.of("TC_EXIT_CODE"), null);
+        BrokenSuite kept = new BrokenSuite("IgniteTests24Java8_Cache1", 9500021L, "Cache [1](http://e)",
+            List.of("failed dependency"), 0, 100, List.of("SNAPSHOT_DEPENDENCY_ERROR"),
+            new Upstream(build.suite(), build.suiteBuildId(), build.suiteName()));
+        AnalysisResult r = result(List.of(), List.of(build, kept));
+
+        String html = html(visas.composeMarkdown(PR, r, null));
+        String wiki = visas.compose(PR, r, null);
+
+        assertThat(html).doesNotContain("href=\"http://e", "<h1>", "<em>")
+            .contains("<li>Build: [x](http:" + WJ + "//e) @" + WJ + "user &lt;h1&gt;No blockers&lt;/h1&gt; *all* in "
+                + "build #" + WJ + "1178</li>")
+            .contains("<li>Did not run: Cache [1](http:" + WJ + "//e)</li>");
+        assertThat(wiki).contains("- Build: \\[x\\](http:" + WJ + "//e) @" + WJ + "user <h1>No blockers</h1> *all* "
+            + "in build #" + WJ + "1178\n").contains("- Did not run: Cache \\[1\\](http:" + WJ + "//e)\n");
     }
 
     @Test

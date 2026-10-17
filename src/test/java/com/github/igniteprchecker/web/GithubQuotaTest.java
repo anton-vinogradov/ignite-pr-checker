@@ -57,6 +57,9 @@ class GithubQuotaTest {
 
     private static final String HEAD = "6573622e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a";
 
+    /** A head pushed over {@link #HEAD}. */
+    private static final String PUSHED = "a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9";
+
     private static final String HEAD_URL = "https://api.github.com/repos/apache/ignite/pulls/" + PR;
 
     private static final String COMPARE_URL = "https://api.github.com/repos/apache/ignite/compare/" + BUILT + "..."
@@ -156,13 +159,30 @@ class GithubQuotaTest {
     /** The open-PR list, fetched seconds ago, already names the head. */
     @Test
     void aFreshPrListNamesTheHead(@TempDir Path dir) throws IOException {
-        Path file = dir.resolve("github.json");
-        Files.writeString(file, "{\"prs\":[{\"number\":" + PR + ",\"title\":\"IGNITE-28867 Reload SSL certificates\","
-            + "\"url\":\"https://github.com/apache/ignite/pull/" + PR + "\",\"headSha\":\"" + BUILT + "\"}],"
-            + "\"cacheTs\":" + (now - 5_000) + "}");
-        client.loadFrom(file);
+        listHead(dir, BUILT);
 
         assertThat(analyze.pending(PR, RUN_ALL, "t")).containsEntry("pending", false).containsEntry("checked", true);
+        github.verify();
+    }
+
+    /**
+     * The open-PR list, fetched seconds ago, names a head past the run. In the last fifth of the hour the page gets
+     * the comparison GitHub already made, and no new one.
+     */
+    @Test
+    void theLastFifthOfTheHourComparesNoNewPair(@TempDir Path dir) throws IOException {
+        github.expect(once(), requestTo(COMPARE_URL)).andRespond(withSuccess("{\"status\":\"ahead\",\"ahead_by\":33}",
+            MediaType.APPLICATION_JSON));
+        github.expect(once(), requestTo("https://api.github.com/repos/apache/ignite/pulls/13000"))
+            .andRespond(head(HEAD).headers(quota(999, now / 1000 + 600)));
+        listHead(dir, HEAD);
+
+        assertThat(analyze.pending(PR, RUN_ALL, "t")).containsEntry("ahead", 33);
+        client.prHeadSha(13000);
+        assertThat(analyze.pending(PR, RUN_ALL, "t")).containsEntry("ahead", 33);
+
+        listHead(dir, PUSHED);
+        assertThat(analyze.pending(PR, RUN_ALL, "t")).containsEntry("pending", false).containsEntry("checked", false);
         github.verify();
     }
 
@@ -215,6 +235,15 @@ class GithubQuotaTest {
 
     private List<Map<String, Object>> runs(int pr) {
         return runs.runs(pr, "t", "alice");
+    }
+
+    /** Loads an open-PR list fetched 5 seconds ago, where the PR's head is {@code sha}. */
+    private void listHead(Path dir, String sha) throws IOException {
+        Path file = dir.resolve("github.json");
+        Files.writeString(file, "{\"prs\":[{\"number\":" + PR + ",\"title\":\"IGNITE-28867 Reload SSL certificates\","
+            + "\"url\":\"https://github.com/apache/ignite/pull/" + PR + "\",\"headSha\":\"" + sha + "\"}],"
+            + "\"cacheTs\":" + (now - 5_000) + "}");
+        client.loadFrom(file);
     }
 
     private static DefaultResponseCreator head(String sha) {
