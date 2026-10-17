@@ -10,9 +10,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
-    /** What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, restart, update, flush. */
+    /**
+     * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, a JIRA visa now or armed,
+     * restart, update, flush.
+     */
     static final String[] LIVE_TOKEN_ACTIONS = {"/api/github/link", "/api/github/unlink", "/api/auto-visa-all",
-        "/api/restart", "/api/update", "/api/flush-caches"};
+        "/api/jira-visa", "/api/auto-visa", "/api/restart", "/api/update", "/api/flush-caches"};
 
     private final AuthInterceptor auth;
 
