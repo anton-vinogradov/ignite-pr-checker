@@ -867,7 +867,7 @@ public class StandingVisas implements SnapshotCache {
         if (r == null || r.pr() != pr)
             return Optional.empty();
 
-        return Optional.of(new WaveStatus(r.wave(), r.what(), activeEtaEpoch(pr)));
+        return Optional.of(new WaveStatus(r.wave(), inPresentWords(r.what()), activeEtaEpoch(pr)));
     }
 
     /**
@@ -881,7 +881,7 @@ public class StandingVisas implements SnapshotCache {
 
         Retry r = waves.get(buildId);
         if (r != null && r.pr() == pr)
-            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, r.what(), activeEtaEpoch(pr));
+            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, inPresentWords(r.what()), activeEtaEpoch(pr));
         if (Long.valueOf(buildId).equals(deciding.get(pr)))
             return new Phase(Phase.SETTLING, 0, MAX_RERUNS, null, null);
 
@@ -2757,8 +2757,10 @@ public class StandingVisas implements SnapshotCache {
 
         StringBuilder b = new StringBuilder("♻️ Settled after ").append(history.size()).append(" auto re-run wave")
             .append(history.size() == 1 ? ":" : "s:");
-        for (int i = 0; i < history.size(); i++)
-            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
+        for (int i = 0; i < history.size(); i++) {
+            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ")
+                .append(inPresentWords(history.get(i)));
+        }
 
         return b.append(".").toString();
     }
@@ -2829,6 +2831,29 @@ public class StandingVisas implements SnapshotCache {
             return n + " cancelled" + (n == 1 ? " suite" : " suites");
 
         return suites;
+    }
+
+    /** A wave's label as releases before this one wrote it: "2 blocker + 1 broken suite(s)", "0 suite(s)". */
+    private static final Pattern EARLIER_LABEL = Pattern.compile(
+        "(?:0|\\d+ (?:blocker|watch|broken|cancelled)(?: \\+ \\d+ (?:blocker|watch|broken|cancelled))*) suite\\(s\\)");
+
+    private static final Pattern EARLIER_LABEL_PART = Pattern.compile("(\\d+) (blocker|watch|broken|cancelled)");
+
+    /**
+     * A wave's label in this release's words. The snapshot keeps each label as the release that queued the wave
+     * wrote it, so a wave queued before a deploy is said after it in the earlier words otherwise.
+     */
+    private static String inPresentWords(String label) {
+        if (label == null || !EARLIER_LABEL.matcher(label).matches())
+            return label;
+
+        Map<String, Integer> counts = new HashMap<>();
+        Matcher m = EARLIER_LABEL_PART.matcher(label);
+        while (m.find())
+            counts.merge(m.group(2), Integer.parseInt(m.group(1)), Integer::sum);
+
+        return suitesLabel(counts.getOrDefault("blocker", 0), counts.getOrDefault("watch", 0),
+            counts.getOrDefault("broken", 0), counts.getOrDefault("cancelled", 0));
     }
 
     /** Queue-aware settle estimate for the PR's live re-runs, from the tracker; null when unknown. */

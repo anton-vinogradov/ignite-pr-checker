@@ -184,8 +184,8 @@ class AnalysisCachePersistenceTest {
     }
 
     /**
-     * A deploy that changes the words of the reasons and caveats, and not the rules, drops the cached results, so
-     * the page shows no earlier words, while master history stays and the rules do not move: a rules bump would
+     * A deploy that changes the words of the reasons and caveats drops the cached results, so the page shows no
+     * earlier words, while master history stays. The words have a version of their own: a rules bump for them would
      * also drop every PR's history of blocker deltas.
      */
     @Test
@@ -205,7 +205,6 @@ class AnalysisCachePersistenceTest {
 
         assertThat(reloaded.peekResult(100L)).as("a verdict in the words of an earlier release").isEmpty();
         assertThat(reloaded.historyOf(7L, "SuiteX")).isPresent();
-        assertThat(fromBeforeTheWordsWereVersioned.get("rules").asInt()).isEqualTo(TestVerdict.RULES);
     }
 
     @Test

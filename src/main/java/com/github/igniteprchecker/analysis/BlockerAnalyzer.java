@@ -1011,15 +1011,20 @@ public class BlockerAnalyzer {
             : ", after a pass on the same commit";
     }
 
-    /** Why the runs outside the window were left out of it. */
+    /**
+     * Why the runs outside the window were left out of it. Without a commit of the latest run it follows the words
+     * that name that run: "failed the latest run; TeamCity gave no commit for it, so the 2 earlier runs do not count".
+     */
     private static String discounted(int older, String head) {
         if (older <= 0)
             return "";
 
         String runs = "the " + older + " earlier run" + (older == 1 ? "" : "s");
 
-        return head == null ? runs + " could not be placed on a commit"
-            : runs + (older == 1 ? " was" : " were") + " on other code";
+        if (head == null)
+            return "TeamCity gave no commit for it, so " + runs + (older == 1 ? " does" : " do") + " not count";
+
+        return runs + (older == 1 ? " was" : " were") + " on other code";
     }
 
     /** Length of the trailing run of consecutive failures in a P/F strip (oldest → newest). */

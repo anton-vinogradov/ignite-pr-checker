@@ -292,13 +292,13 @@ public class VisaService {
 
     /**
      * "Cache 1 (ran 33 of master's 67 tests)": a suite among others broken the same way, with its own shortfall, as
-     * the group's cause gives none.
+     * the group's cause gives none; when the cause is that very shortfall, the name alone.
      */
-    private static String nameAmongOthers(BrokenSuite s) {
+    private static String nameAmongOthers(BrokenGroup g, BrokenSuite s) {
         String name = BrokenGroup.nameOf(s.suiteName(), s.suite());
-        String ran = s.shortfall();
+        String ran = BrokenSuite.ran(s.tests(), s.baseline());
 
-        return ran == null ? name : name + " (" + ran + ")";
+        return ran == null || ran.equals(g.title()) ? name : name + " (" + ran + ")";
     }
 
     /**
@@ -322,7 +322,7 @@ public class VisaService {
             case UPSTREAM, ARTIFACTS -> g.title() + ": " + names(suites);
             case PROBLEM -> suites.size() == 1 ? suiteLine(g.suites().get(0))
                 : g.title() + " (" + suites.size() + " suites): "
-                    + names(g.suites().stream().map(VisaService::nameAmongOthers).toList());
+                    + names(g.suites().stream().map(s -> nameAmongOthers(g, s)).toList());
         };
     }
 

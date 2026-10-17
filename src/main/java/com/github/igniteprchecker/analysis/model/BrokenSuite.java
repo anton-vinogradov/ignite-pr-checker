@@ -52,9 +52,14 @@ public record BrokenSuite(String suite, long suiteBuildId, String suiteName, Lis
      * is not known, or that is all its problems say (see {@link #ran}).
      */
     public String shortfall() {
+        return onlyShortfall() ? null : ran(tests, baseline);
+    }
+
+    /** Whether its one problem is its shortfall: TeamCity named nothing but its own count of the tests. */
+    public boolean onlyShortfall() {
         String ran = ran(tests, baseline);
 
-        return ran == null || problems != null && problems.equals(List.of(ran)) ? null : ran;
+        return ran != null && problems != null && problems.equals(List.of(ran));
     }
 
     /**

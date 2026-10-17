@@ -193,7 +193,8 @@ class BlockerAnalyzerTest {
         AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
 
         assertThat(r.filtered()).isEmpty();
-        assertThat(only(r.watch()).reason()).doesNotContain("passed on the same code");
+        assertThat(only(r.watch()).reason())
+            .isEqualTo("failed the latest run; TeamCity gave no commit for it, so the 1 earlier run does not count");
     }
 
     /** No revisions anywhere: keep the old whole-strip merge, but never claim runs were on the same code. */
@@ -206,6 +207,22 @@ class BlockerAnalyzerTest {
 
         assertThat(only(r.filtered()).reason()).isEqualTo("flaky on branch: failed only the latest of 4 runs "
             + "(passed just before, but TeamCity gave no commits to prove that was the same code)");
+    }
+
+    /**
+     * No revisions anywhere, and the test failed twice after a pass: the reason may not call the pass one on the same
+     * code, as nothing proves it.
+     */
+    @Test
+    void failuresAfterAPassWithoutRevisionsDoNotClaimTheSameCode() {
+        singleFailure(1L);
+        when(tc.prBranchRuns(TOK, 42, 1L, "CalciteSql2"))
+            .thenReturn(concat(repeat("SUCCESS", 1), repeat("FAILURE", 2)));
+
+        AnalysisResult r = analyzer.analyze(TOK, 42).orElseThrow();
+
+        assertThat(only(r.watch()).reason()).isEqualTo("failed the last 2 of 3 runs, after a pass; TeamCity gave no "
+            + "commits to prove that was the same code");
     }
 
     /**

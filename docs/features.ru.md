@@ -45,7 +45,8 @@
 | `failed all N runs on this branch`, `failed the last N of M runs on this branch` | Последние 3 завершённых прогона сьюты на ветке уронили тест, или все прогоны, если их меньше. Блокер. | Исправь код. |
 | `failed the only run on this branch` | Тест прогнали на ветке один раз, и он упал. Блокер, ещё не подтверждённый. В строке под тестом этой части причины нет: заголовок **Not confirmed: 1 run** или строка **Not confirmed yet** над списком уже говорит об этом. | Нажми **Rerun** у сьюты, чтобы подтвердить. |
 | `failed all N runs on commit abc1234` | Все прогоны текущего кода PR уронили тест, и их было минимум 2. Блокер. | Исправь код. |
-| `failed the only run on commit abc1234; the N earlier runs were on other code`, `failed the latest run; the N earlier runs could not be placed on a commit` | Текущий код прогнали один раз, и тест упал; прежние прогоны шли на старом коде или на коде, для которого TeamCity не назвал коммит. Под наблюдением. | Нажми **Rerun** у сьюты. |
+| `failed the only run on commit abc1234; the N earlier runs were on other code` | Текущий код прогнали один раз, и тест упал; прежние прогоны шли на старом коде. Под наблюдением. | Нажми **Rerun** у сьюты. |
+| `failed the latest run; TeamCity gave no commit for it, so the N earlier runs do not count` | Последний прогон упал, и TeamCity не назвал для него коммит. Прежние прогоны могли идти на другом коде, поэтому считается только последний. Под наблюдением. | Нажми **Rerun** у сьюты. |
 | `failed the last N of M runs on commit abc1234, after a pass on the same commit` | Минимум 2 падения подряд на текущем коде после прохода на том же коде. Под наблюдением. | Нажми **Rerun** у сьюты. |
 | `…; too few failures on this code yet to outweigh other PRs` | Случай с масштабом выше, но падений пока мало, чтобы перевесить частоту в других PR. Под наблюдением. | Нажми **Rerun** у сьюты. |
 | `pre-existing: fails F/R on master` | Тест падает и на master. В отсеве. | Для PR — ничего. |
@@ -54,7 +55,7 @@
 | `not failing in the last finished run (passed on re-run)` | Последний завершённый прогон теста на ветке прошёл. В отсеве. | Ничего. |
 | `could not verify (TeamCity error: …)` | Проверку оборвала ошибка TeamCity. Тест в карточке **Could not be checked**. | Ничего: проверка повторится. |
 | `the N earlier runs were on other code` | Прогоны на старом коммите не считаются; в полоске они бледные. | — |
-| `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code`, `the N earlier runs could not be placed on a commit` | TeamCity не назвал коммит части прогонов, и сравнить их не удалось. | — |
+| `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code` | TeamCity не назвал коммит ни для одного прогона теста на ветке, поэтому тест мог пройти на другом коде. | — |
 | прежние слова: `revision`, `run(s)`, `— watch` | Смерженный PR хранит вердикт на момент мержа в словах того выпуска, который его посчитал. | — |
 
 ### Оговорки
@@ -85,7 +86,7 @@
 | `ci2 glitch: artifacts unavailable (N suites)` | ci2 не отдал этим сьютам артефакты нужного им прогона, хотя тот прошёл. | Перезапусти: обычно со второго раза артефакты доходят. |
 | `Build failed — N suites that need it did not run; fix the build, then /run-all` | Упал шаг сборки, и сьюты, которым он нужен, не запускались. `nothing else ran` — если в цепочке больше ничего и не было. | Почини сборку, запушь, `/run-all` или **Run**. |
 | `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | Сборка теперь проходит, но у сьют, которым она нужна, нет результата. | `/run-all` или **Run**. |
-| `— ran 33 of master's 67 tests` (после причины), `ran 33 of master's 67 tests` (отдельно) | Сколько тестов битая сьюта успела прогнать. Недобор объясняется причиной, а не пропажей тестов. Если единственной проблемой от TeamCity был его собственный подсчёт этого недобора, строка говорит только, сколько сьюта успела прогнать. Подсчёт TeamCity с другими числами остаётся: он сравнивал с прогоном на свой выбор. | — |
+| `— ran 33 of master's 67 tests` (после причины), `ran 33 of master's 67 tests` (отдельно), `ran fewer tests than on master` (группа) | Сколько тестов битая сьюта успела прогнать. Недобор объясняется причиной, а не пропажей тестов. Если единственной проблемой от TeamCity был его собственный подсчёт этого недобора, строка говорит только, сколько сьюта успела прогнать. Несколько таких сьют, каждая со своим недобором, стоят под общей строкой `ran fewer tests than on master`, и у каждой сьюты остаются её числа. Подсчёт TeamCity с другими числами остаётся: он сравнивал с прогоном на свой выбор. | — |
 | что угодно другое | Первая строка текста проблемы от самого TeamCity. | Открой **TC**. |
 
 ### Метки у теста

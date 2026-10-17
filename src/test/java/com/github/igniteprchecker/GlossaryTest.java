@@ -127,7 +127,7 @@ class GlossaryTest {
             "an earlier run on the same code passed", "; too few failures on this code yet to outweigh other PRs",
             "pre-existing: fails ", "flaky on other PR branches: ", "flaky on branch: failed only the latest of ",
             "not failing in the last finished run (passed on re-run)", "could not verify (TeamCity error: ",
-            " on other code", " could not be placed on a commit",
+            " on other code", "TeamCity gave no commit for it, so ", " not count",
             "passed just before, but TeamCity gave no commits to prove that was the same code");
         quoted(MAIN.resolve("analysis/Caveats.java"), "the RunAll was interrupted — ", " never ran",
             " no reliable result (", " ran far fewer tests than the same ", " could not be checked (TeamCity errors)",
@@ -137,7 +137,7 @@ class GlossaryTest {
             "non-zero exit code", "JVM crash / out of memory", "failed dependency", "failed without running tests");
         quoted(MAIN.resolve("analysis/model/BrokenGroup.java"), "ci2 glitch: artifacts unavailable (",
             " failed in this run and passed on a re-run since — ", " never ran; ", " to run them",
-            "nothing else ran", " did not run; fix the build, then ");
+            "nothing else ran", " did not run; fix the build, then ", "ran fewer tests than on master");
         quoted(PAGE, "Suites that never ran", "Broken suites", "Fewer tests than master",
             "Crashed near the end of the run", "Not confirmed: 1 run", "Not confirmed yet", "Recently started failing",
             "Could not be checked", "This PR's tests", "Not blamed on this PR", "Run at top", "Run RunAll",

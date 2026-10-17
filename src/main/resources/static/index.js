@@ -1043,6 +1043,9 @@ async function aiSuitePrompt(btn) {
     // The configuration page lists this suite's runs on every branch — master included.
     const cfgUrl = tcBase && suite ? `${tcBase}buildConfiguration/${encodeURIComponent(suite)}` : '';
     const broken = btn.dataset.kind === 'broken';
+    const { tests, baseline } = btn.dataset;
+    // When TeamCity's count of the shortfall was all it reported, the server put the count in its own words.
+    const countOnly = btn.dataset.problems === `ran ${tests} of master's ${baseline} tests`;
     const platform = platformOf(suite, '');
     btn.textContent = '…';
     const tested = await testedRun(selectedPr, +btn.dataset.buildid);
@@ -1058,9 +1061,11 @@ async function aiSuitePrompt(btn) {
         tested,
         lines: broken ? [
             `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run (needs a ci2 login): ' + runUrl : ''}`,
-            `- What TeamCity reported: ${btn.dataset.problems || 'no reliable run'}`,
-            +btn.dataset.tests && +btn.dataset.baseline
-                ? `- It ran ${btn.dataset.tests} tests where master runs ${btn.dataset.baseline} — it died partway through, so the missing tests are a symptom, not the problem`
+            countOnly
+                ? `- What TeamCity reported: only that it ran ${tests} tests where master runs ${baseline}`
+                : `- What TeamCity reported: ${btn.dataset.problems || 'no reliable run'}`,
+            +tests && +baseline && !countOnly
+                ? `- It ran ${tests} tests where master runs ${baseline} — it died partway through, so the missing tests are a symptom, not the problem`
                 : null,
             seen.length
                 ? `- Tests of this suite the checker saw failing (${seen.length}): ${seen.slice(0, 8).join(', ')}${seen.length > 8 ? ', …' : ''}`

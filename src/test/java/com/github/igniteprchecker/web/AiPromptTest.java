@@ -275,6 +275,67 @@ class AiPromptTest {
             .doesNotContain("JDK 17; run the single test");
     }
 
+    /**
+     * TeamCity failed Machine Learning only for running 12 of master's 35 tests. The prompt gave the checker's words
+     * as TeamCity's ("What TeamCity reported: ran 12 of master's 35 tests") and then said the count again as a
+     * symptom. A suite that timed out keeps both lines: the timeout is what TeamCity reported, the count its symptom.
+     */
+    @Test
+    void aSuiteFailedOnlyForItsTestCountSaysTheCountOnce() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            page.route('/api/analyze', { body: verdict({ brokenSuites: [{ suite: 'IgniteTests24Java8_Ml',
+                suiteBuildId: 9400, suiteName: 'Machine Learning', problems: ["ran 12 of master's 35 tests"], tests: 12,
+                baseline: 35 }] }) });
+            await page.load('?pr=13575');
+            const countOnly = await suiteAiOf('brokenSuites');
+            page.route('/api/analyze', { body: verdict({ buildId: 9100, brokenSuites: [{ suite: 'IgniteTests24Java8_Ml',
+                suiteBuildId: 9400, suiteName: 'Machine Learning', problems: ['execution timeout'], tests: 12,
+                baseline: 35 }] }) });
+            await page.run('analyze')(13575, true);
+            await page.settle();
+            report({ countOnly, timeout: await suiteAiOf('brokenSuites') });
+            """);
+
+        assertThat(out.get("countOnly").asText())
+            .contains("- What TeamCity reported: only that it ran 12 tests where master runs 35\n")
+            .doesNotContain("master's 35", "It ran 12");
+        assertThat(out.get("timeout").asText())
+            .contains("- What TeamCity reported: execution timeout\n"
+                + "- It ran 12 tests where master runs 35 — it died partway through, so the missing tests are a "
+                + "symptom, not the problem\n");
+    }
+
+    /**
+     * The prompt of a test that started failing said "too few runs of this revision", where the page and the comment
+     * say "commit", and the prompt of a cause said "1 failing test(s) across 1 suite(s)".
+     */
+    @Test
+    void thePromptsSayCommitsAndCountInPlainNumbers() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            const started = Object.assign(blocker('CacheTest.testPut', 'occ-2'), { blocker: false, watch: true,
+                reason: 'failed the only run on commit abc1234; the 1 earlier run was on other code', branchRuns: 'PF',
+                codeRuns: 1 });
+            page.route('/api/analyze', { body: verdict({ blockers: [], watch: [started] }) });
+            await page.load('?pr=13575');
+            const watch = await aiOf('watch');
+            const causeAi = page.el('ai-cause');
+            causeAi.closest = () => ({ querySelector: () => ({ textContent: 'boom' }) });
+            await page.run('aiCausePrompt')(causeAi, { tests: [blocker('A.a', 'occ-1')] });
+            await page.settle();
+            const one = copied[copied.length - 1];
+            const basic = Object.assign(blocker('B.b', 'occ-3'), { suite: 'IgniteTests24Java8_Basic1',
+                suiteName: 'Basic 1' });
+            await page.run('aiCausePrompt')(causeAi, { tests: [blocker('A.a', 'occ-1'), basic] });
+            await page.settle();
+            report({ watch, one, two: copied[copied.length - 1] });
+            """);
+
+        assertThat(out.get("watch").asText()).contains("- Ignite PR Checker verdict: RECENTLY STARTED FAILING — too "
+            + "few runs of this commit to tell a break from a flake\n");
+        assertThat(out.get("one").asText()).contains("- 1 failing test across 1 suite: Cache\n");
+        assertThat(out.get("two").asText()).contains("- 2 failing tests across 2 suites: Cache, Basic 1\n");
+    }
+
     /** The buttons read "copy AI prompt"; after "copied" each went back to "ai", the cause's one too. */
     @Test
     void theButtonsReadCopyAiPromptAgainAfterTheFlash() throws Exception {

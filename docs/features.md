@@ -46,7 +46,8 @@ run where the test was ignored does not count as a run.
 | `failed all N runs on this branch`, `failed the last N of M runs on this branch` | The last 3 finished runs of the suite on the branch failed the test, or all of them when there were fewer. A blocker. | Fix the code. |
 | `failed the only run on this branch` | The test ran once on the branch and failed. A blocker that is not confirmed yet. The line under the test leaves this part out, because **Not confirmed: 1 run** or **Not confirmed yet** above the test already says so. | **Rerun** the suite to confirm it. |
 | `failed all N runs on commit abc1234` | Every run of the PR's current code failed the test, and there were at least 2. A blocker. | Fix the code. |
-| `failed the only run on commit abc1234; the N earlier runs were on other code`, `failed the latest run; the N earlier runs could not be placed on a commit` | The current code ran once and failed; the earlier runs were on older code, or on code TeamCity gave no commit for. To watch. | **Rerun** the suite. |
+| `failed the only run on commit abc1234; the N earlier runs were on other code` | The current code ran once and failed; the earlier runs were on older code. To watch. | **Rerun** the suite. |
+| `failed the latest run; TeamCity gave no commit for it, so the N earlier runs do not count` | The latest run failed, and TeamCity gave no commit for it. The earlier runs may have tested other code, so only the latest run counts. To watch. | **Rerun** the suite. |
 | `failed the last N of M runs on commit abc1234, after a pass on the same commit` | At least 2 failures in a row on the current code, after a pass on the same code. To watch. | **Rerun** the suite. |
 | `…; too few failures on this code yet to outweigh other PRs` | The scale factor case above, without enough failures yet to beat the other PRs' rate. To watch. | **Rerun** the suite. |
 | `pre-existing: fails F/R on master` | Master fails the test too. Filtered out. | Nothing for the PR. |
@@ -55,7 +56,7 @@ run where the test was ignored does not count as a run.
 | `not failing in the last finished run (passed on re-run)` | The newest finished run of the test on the branch passed. Filtered out. | Nothing. |
 | `could not verify (TeamCity error: …)` | A TeamCity error stopped the check. Listed under **Could not be checked**. | Nothing: it is tried again. |
 | `the N earlier runs were on other code` | Runs on an older commit don't count; they are dimmed in the strip. | — |
-| `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code`, `the N earlier runs could not be placed on a commit` | TeamCity gave no commit for some runs, so they could not be compared. | — |
+| `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code` | TeamCity gave no commit for any run of the test on the branch, so the pass may have been on other code. | — |
 | the earlier words: `revision`, `run(s)`, `— watch` | A merged PR keeps the verdict it had at the merge, in the words of the release that computed it. | — |
 
 ### Caveats
@@ -87,7 +88,7 @@ and the visa.
 | `ci2 glitch: artifacts unavailable (N suites)` | ci2 could not hand these suites the artifacts of a run they need, though that run passed. | Rerun: a re-run usually gets them. |
 | `Build failed — N suites that need it did not run; fix the build, then /run-all` | The build step failed, and the suites that need it never ran. `nothing else ran` when that was the whole chain. | Fix the build, push, `/run-all` or **Run**. |
 | `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | The build passes now, but the suites that need it have no result. | `/run-all` or **Run**. |
-| `— ran 33 of master's 67 tests` (after a cause), `ran 33 of master's 67 tests` (alone) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. When TeamCity's only problem was its own count of this shortfall, the line says how far the suite got and nothing else. TeamCity's count with other numbers stays: it compared with a run of its own choosing. | — |
+| `— ran 33 of master's 67 tests` (after a cause), `ran 33 of master's 67 tests` (alone), `ran fewer tests than on master` (a group) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. When TeamCity's only problem was its own count of this shortfall, the line says how far the suite got and nothing else. Several such suites, each short by its own count, share the line `ran fewer tests than on master`, and each suite keeps its own count. TeamCity's count with other numbers stays: it compared with a run of its own choosing. | — |
 | anything else | The first line of TeamCity's own problem text. | Open **TC**. |
 
 ### Tags next to a test
