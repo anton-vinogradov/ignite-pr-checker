@@ -49,6 +49,54 @@ class SpokenAnswersPageTest {
         assertThat(out.get("status").isNull()).as("the status line stays quiet: it also shows progress").isTrue();
     }
 
+    /** The Rerun of one suite row: a refusal and a queued build are both read out, and the focus comes back. */
+    @Test
+    void aRerunOfOneSuiteIsReadOutAndTheFocusComesBack() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + BUTTONS + """
+            page.route('/api/rerun-suite', { status: 403, body: { error: 'ci2 refused: no permission' } }, 'POST');
+            await page.load('?pr=13575');
+            const btn = focused('rowRerun');
+            const press = async () => {
+                await page.run('rerunSuite')('IgniteTests24Java8_Cache', false, btn);
+                await page.tick(16);
+                return { answer: answer(), back: doc.activeElement === btn };
+            };
+            const refused = await press();
+            page.route('/api/rerun-suite', { body: { triggered: [{ buildId: 777,
+                webUrl: 'https://ci2.example/build/777' }] } }, 'POST');
+            report({ refused, queued: await press() });
+            """);
+
+        assertThat(out.at("/refused/answer").asText()).isEqualTo("⚠ Not queued: ci2 refused: no permission");
+        assertThat(out.at("/queued/answer").asText()).isEqualTo("Queued #777.");
+        assertThat(out.at("/refused/back").asBoolean()).as("the focus is back after a refusal").isTrue();
+        assertThat(out.at("/queued/back").asBoolean()).as("the focus is back after a queued build").isTrue();
+    }
+
+    /**
+     * Run and Cancel my runs ask ci2 for the PR's runs first. The answer that the runs could not be checked, and that
+     * none of the user's runs is still going, are read out too.
+     */
+    @Test
+    void anAnswerBeforeTheRequestIsReadOutToo() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + BUTTONS + """
+            page.route('/api/runs', { status: 503, body: {} });
+            await page.load('?pr=13575');
+            await page.run('doTrigger')('trigger', 'false', focused('runBtn'));
+            await page.tick(16);
+            const unchecked = answer();
+            page.route('/api/runs', { body: [] });
+            focused('cancelMine');
+            await page.run('cancelMine')();
+            await page.tick(16);
+            report({ unchecked, none: answer() });
+            """);
+
+        assertThat(out.get("unchecked").asText())
+            .isEqualTo("⚠ Could not check the runs of this PR. Try again in a moment.");
+        assertThat(out.get("none").asText()).isEqualTo("None of your runs of this PR is still going.");
+    }
+
     @Test
     void runCancelAndTheVisaButtonsAreReadOutToo() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + BUTTONS + """
@@ -99,6 +147,23 @@ class SpokenAnswersPageTest {
             """);
 
         assertThat(out.get("msg").asText()).isEqualTo("cleared 3 result(s), 1 history entry");
+        assertThat(out.get("back").asBoolean()).isTrue();
+    }
+
+    @Test
+    void aRefusedRestartGivesTheFocusBack() throws Exception {
+        JsonNode out = PageScript.run("status.html", BUTTONS + """
+            page.el('tcStack').getContext = () => new Proxy({}, { get: () => () => {} });
+            page.route('/api/status', { status: 503, body: {} });
+            page.route('/api/restart', { status: 403, body: { error: 'Only an admin can restart the service.' } },
+                'POST');
+            await page.load('');
+            const btn = focused('restartBtn');
+            await btn.listeners.click[0]();
+            report({ msg: page.el('restartMsg').textContent, back: doc.activeElement === btn });
+            """);
+
+        assertThat(out.get("msg").asText()).isEqualTo("Only an admin can restart the service.");
         assertThat(out.get("back").asBoolean()).isTrue();
     }
 }

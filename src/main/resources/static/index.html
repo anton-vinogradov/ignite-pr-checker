@@ -137,7 +137,8 @@
         .verdict-lines p { margin: 0 0 0.3rem; }
         .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
         .delta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--muted); }
-        .trend { display: inline-flex; flex-wrap: wrap; align-items: flex-end; vertical-align: middle; }
+        /* On a phone the bars wrap. Without the gap a bar would touch the one above it and read as one taller bar. */
+        .trend { display: inline-flex; flex-wrap: wrap; row-gap: 4px; align-items: flex-end; vertical-align: middle; }
         /* The link is a column 24 px wide and 16 px tall, big enough to hit on a touch screen; the bar is its middle 8 px, --h tall. */
         .trend a { display: block; width: 24px; height: 16px; padding: 0 8px; background-clip: content-box; background-image: linear-gradient(to top, var(--bad) var(--h, 4px), transparent var(--h, 4px)); }
         .trend a.clean { background-image: linear-gradient(to top, var(--ok) var(--h, 4px), transparent var(--h, 4px)); }

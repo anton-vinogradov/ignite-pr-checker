@@ -77,8 +77,10 @@
 
         @media (max-width: 768px) {
             .wrap { padding: 0 0.75rem; }
-            /* The logger goes under the time and level, so the message has the rest of the row. */
-            .logrow { grid-template-columns: auto auto 1fr; }
+            /* The logger takes a line of its own under the message, so the message gets the logger's column. The
+               lines of one entry stand closer than two entries, so the logger reads as part of its own entry. */
+            .loglist { gap: 0.6rem; }
+            .logrow { grid-template-columns: 62px 46px 1fr; row-gap: 0.1rem; }
             .loglogger { grid-column: 1 / -1; grid-row: 2; }
         }
     </style>

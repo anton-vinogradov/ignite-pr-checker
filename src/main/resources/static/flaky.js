@@ -4,7 +4,7 @@ let tcBase = '';
 let githubRepo = 'apache/ignite';
 let prDays = 14; // how far back a row's PR count goes; the server says
 let lastJson = ''; // the list as last drawn: the poll draws it again only when it changed
-const failureTexts = new Map(); // occurrenceId → the answer of /api/test-details, so a redrawn panel needs no new request
+const failureTexts = new Map(); // occurrenceId → the request for /api/test-details, so a redrawn panel needs no new one
 const chipsShown = new WeakMap(); // a run chip's slot → the chip drawn in it
 
 // The flaky tests first, then those broken on master: the server sends them in that order, each ranked and cut
@@ -120,16 +120,29 @@ function rateCell(b) {
 }
 
 // The chip of a live re-run of each row's suite launched through the tool, drawn in its slot on every poll: its times
-// change on every poll, and drawing the whole board again would close the open panels and drop the focus. A slot is
-// written only when its chip changed.
+// change on every poll, and drawing the whole board again would close the open panels and drop the focus. A chip
+// already drawn is changed in place, since a link written anew loses the keyboard focus.
 function paintLiveChips(reruns) {
     for (const slot of $('flaky').querySelectorAll('.lb-live')) {
         const rr = (reruns || []).find(x => x.buildTypeId === slot.dataset.suite);
-        const chip = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${esc(rr.webUrl)}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + esc(rr.pct) + '% complete' : ''}">#${esc(rr.pr)} · ${esc(rr.state)}${chipEta(rr)}</a>` : '';
-        if (chipsShown.get(slot) === chip) continue;
-        chipsShown.set(slot, chip);
-        slot.innerHTML = chip;
+        const chip = rr ? liveChip(rr) : null;
+        const key = JSON.stringify(chip);
+        if (chipsShown.get(slot) === key) continue;
+        chipsShown.set(slot, key);
+        const shown = slot.querySelector('a.live');
+        if (chip && shown) Object.assign(shown, chip);
+        else slot.innerHTML = chip ? `<a class="${chip.className}" href="${esc(chip.href)}" target="_self" rel="noopener" title="${esc(chip.title)}">${esc(chip.textContent)}</a>` : '';
     }
+}
+
+// The chip of a suite's live re-run: the properties of its link.
+function liveChip(rr) {
+    return {
+        className: 'live ' + (rr.state === 'running' ? 'running' : 'queued'),
+        href: rr.webUrl ?? '',
+        title: 'This suite\'s re-run on TeamCity' + (rr.pct != null && rr.pct >= 0 ? ' · ' + rr.pct + '% complete' : ''),
+        textContent: `#${rr.pr} · ${rr.state}${chipEta(rr)}`,
+    };
 }
 
 // The board's panel also holds the test's older failed master runs, so its toggle names them, unlike the PR page's.
@@ -242,24 +255,35 @@ async function toggleDetails(btn, b) {
 async function loadFailure(box, b) {
     const pre = box.querySelector('pre');
     if (!pre || pre.dataset.loaded) return;
-    if (failureTexts.has(b.occurrenceId)) { showFailure(box, b, failureTexts.get(b.occurrenceId)); return; }
     pre.textContent = 'loading…';
     try {
-        const r = await fetch('/api/test-details?occ=' + encodeURIComponent(b.occurrenceId), { cache: 'no-store' });
-        if (r.status === 401) {
+        const answer = await failureText(b.occurrenceId);
+        if (!answer) {
             pre.textContent = 'Log in on the main page to see the failure message. Without a login, the AI prompt still '
                 + 'works, but it has no failure message.';
             return;
         }
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const answer = await r.json().catch(() => ({ details: '' }));
-        if (b.occurrenceId) failureTexts.set(b.occurrenceId, answer);
         showFailure(box, b, answer);
     } catch (e) {
         pre.innerHTML = '<span class="err">Could not load the failure message.</span>'
             + '<button class="why retry" type="button" title="Load the failure message again.">Retry</button>';
         pre.querySelector('.retry').onclick = () => loadFailure(box, b);
     }
+}
+
+// The answer of /api/test-details for an occurrence, or null without a login. A panel drawn again while the request
+// runs waits for the same request. A refused or failed request is not kept, so the next opening asks again.
+function failureText(occ) {
+    if (!failureTexts.has(occ)) {
+        const asked = fetch('/api/test-details?occ=' + encodeURIComponent(occ), { cache: 'no-store' }).then(r => {
+            if (r.status === 401) return null;
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json().catch(() => ({ details: '' }));
+        });
+        failureTexts.set(occ, asked);
+        asked.then(answer => answer || failureTexts.delete(occ), () => failureTexts.delete(occ));
+    }
+    return failureTexts.get(occ);
 }
 
 function showFailure(box, b, { details, kind }) {

@@ -54,6 +54,51 @@ class FlakyBoardPageTest {
         page.el('flaky').querySelectorAll = sel => sel === '.lb-live' ? [slot] : [];
         """;
 
+    /**
+     * The link the browser makes from the chip's markup in the slot. Writing the slot again replaces the link, and the
+     * focus the link had falls to the page.
+     */
+    private static final String CHIP = """
+        const doc = page.run('document'), chip = page.el('chip');
+        const writeSlot = Object.getOwnPropertyDescriptor(slot, 'innerHTML').set;
+        Object.defineProperty(slot, 'innerHTML', { get() { return this._html; }, set(v) {
+            writeSlot.call(this, v);
+            if (doc.activeElement === chip) doc.activeElement = doc.body;
+        } });
+        slot.querySelector = sel => sel === 'a.live' && slot.innerHTML ? chip : null;
+        """;
+
+    /**
+     * One row of RebalanceTest before the board is drawn again and after: its key, toggle, panel and message box, as
+     * the page finds them. The board holds the old copy until its markup is written, and the fresh copy after.
+     * {@code newList()} makes the next poll bring a list that differs in that test's master failures.
+     */
+    private static final String REDRAWN = """
+        const doc = page.run('document'), board = page.el('flaky');
+        function row(n) {
+            const r = page.el('row' + n), box = page.el('box' + n), toggle = page.el('toggle' + n);
+            const pre = page.el('pre' + n), copy = page.el('copy' + n);
+            r.dataset.key = '102@IgniteTests24Java8_Cache';
+            toggle.dataset.i = '0';
+            toggle.classList.add('why', 'toggle');
+            toggle.closest = () => r;
+            box.classList.add('details', 'hidden');
+            box.querySelector = sel => sel === 'pre' ? pre : copy;
+            r.querySelector = sel => sel === '.details' ? box : sel === '.why.toggle' ? toggle : null;
+            return { r, box, toggle, pre };
+        }
+        const old = row(1), fresh = row(2);
+        board.querySelectorAll = sel => sel === '.lbrow' ? [old.r] : [];
+        board.contains = el => el === old.toggle;
+        const write = Object.getOwnPropertyDescriptor(board, 'innerHTML').set;
+        Object.defineProperty(board, 'innerHTML', { get() { return this._html; }, set(v) {
+            write.call(this, v);
+            this.querySelectorAll = sel => sel === '.lbrow' ? [fresh.r] : [];
+        } });
+        const newList = () => page.route('/api/top-flaky', { body: { tracked: 5, muted: 2, prDays: 14,
+            tests: [Object.assign({}, rebalance, { masterFails: 4 }), nearReader, recent] } });
+        """;
+
     /** A row's toggle, panel, message box and buttons, wired as the page wires them; the copy button starts disabled. */
     private static final String PANEL = """
         const btn = page.el('why'), row = page.el('row'), box = page.el('box'), pre = page.el('pre');
@@ -286,33 +331,11 @@ class FlakyBoardPageTest {
      */
     @Test
     void aNewListKeepsTheOpenPanelAndTheFocus() throws Exception {
-        JsonNode out = PageScript.run("flaky.html", BOARD + """
-            const doc = page.run('document'), board = page.el('flaky');
-            function row(n) {
-                const r = page.el('row' + n), box = page.el('box' + n), toggle = page.el('toggle' + n);
-                const pre = page.el('pre' + n), copy = page.el('copy' + n);
-                r.dataset.key = '102@IgniteTests24Java8_Cache';
-                toggle.dataset.i = '0';
-                toggle.classList.add('why', 'toggle');
-                toggle.closest = () => r;
-                box.classList.add('details', 'hidden');
-                box.querySelector = sel => sel === 'pre' ? pre : copy;
-                r.querySelector = sel => sel === '.details' ? box : sel === '.why.toggle' ? toggle : null;
-                return { r, box, toggle, pre };
-            }
-            const old = row(1), fresh = row(2);
-            board.querySelectorAll = sel => sel === '.lbrow' ? [old.r] : [];
-            board.contains = el => el === old.toggle;
+        JsonNode out = PageScript.run("flaky.html", BOARD + REDRAWN + """
             await page.run('toggleDetails')(old.toggle, rebalance);
             old.toggle.focus();
             const asked = page.fetches('/api/test-details').length;
-            const write = Object.getOwnPropertyDescriptor(board, 'innerHTML').set;
-            Object.defineProperty(board, 'innerHTML', { get() { return this._html; }, set(v) {
-                write.call(this, v);
-                this.querySelectorAll = sel => sel === '.lbrow' ? [fresh.r] : [];
-            } });
-            page.route('/api/top-flaky', { body: { tracked: 5, muted: 2, prDays: 14,
-                tests: [Object.assign({}, rebalance, { masterFails: 4 }), nearReader, recent] } });
+            newList();
             await page.tick(15000);
             report({ open: !fresh.box.classList.contains('hidden'), expanded: fresh.toggle.getAttribute('aria-expanded'),
                 shown: fresh.pre.textContent, focused: doc.activeElement === fresh.toggle,
@@ -324,6 +347,56 @@ class FlakyBoardPageTest {
         assertThat(out.get("shown").asText()).contains("java.lang.AssertionError: IGNITE-627");
         assertThat(out.get("focused").asBoolean()).isTrue();
         assertThat(out.get("asked").asInt()).as("no new request for the message").isZero();
+    }
+
+    /**
+     * On a slow ci2 the list can change while the failure message still loads. The board drawn again opened the panel
+     * again, and the panel sent a second request for the same message to ci2. It waits for the first request.
+     */
+    @Test
+    void aPanelDrawnAgainWhileItsMessageLoadsSendsNoSecondRequest() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD + REDRAWN + """
+            let answer;
+            page.route('/api/test-details', () => new Promise(done => { answer = () => done({ body: {
+                kind: 'assertion', details: 'java.lang.AssertionError: IGNITE-627' } }); }));
+            page.run('toggleDetails')(old.toggle, rebalance);
+            await page.settle();
+            const loading = old.pre.textContent;
+            newList();
+            await page.tick(15000);
+            answer();
+            await page.settle();
+            report({ loading, asked: page.fetches('/api/test-details').length, shown: fresh.pre.textContent });
+            """);
+
+        assertThat(out.get("loading").asText()).isEqualTo("loading…");
+        assertThat(out.get("asked").asInt()).as("one request for the message").isOne();
+        assertThat(out.get("shown").asText()).contains("java.lang.AssertionError: IGNITE-627");
+    }
+
+    /**
+     * A running re-run's chip changes on almost every poll: its time in the text, its share done in the title. The
+     * slot was written anew each time, and a chip that had the keyboard focus lost it to the page. The chip is changed
+     * in place.
+     */
+    @Test
+    void aFocusedReRunChipKeepsTheFocus() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD.replace("page.route('/api/reruns', { body: [] });", """
+            let polls = 0;
+            page.route('/api/reruns', () => ({ body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13999,
+                webUrl: 'https://ci2.example/build/9500', state: 'running', pct: 40 + polls, leftSec: -1,
+                startSec: -1, waitedSec: -1, elapsedSec: 120 + 60 * polls++ }] }));
+            """).replace("await page.load('');", SLOT + CHIP + "await page.load('');") + """
+            chip.focus();
+            await page.tick(15000);
+            report({ focused: doc.activeElement === chip, text: chip.textContent, title: chip.title,
+                writes: slot.htmlWrites });
+            """);
+
+        assertThat(out.get("focused").asBoolean()).as("the chip keeps the focus").isTrue();
+        assertThat(out.get("text").asText()).isEqualTo("#13999 · running 3m");
+        assertThat(out.get("title").asText()).isEqualTo("This suite's re-run on TeamCity · 41% complete");
+        assertThat(out.get("writes").asInt()).as("the slot is written once").isOne();
     }
 
     @Test

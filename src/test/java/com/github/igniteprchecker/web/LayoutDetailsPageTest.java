@@ -50,21 +50,31 @@ class LayoutDetailsPageTest {
         assertThat(rule(read("index.html"), ".suite-live")).contains("flex-wrap: wrap");
     }
 
-    /** On a phone the logger goes under the time and level, and the message takes the rest of the row. */
+    /**
+     * On a phone the logger goes on a line of its own under the message, and the message takes the logger's column.
+     * The logger stood 8 px under its message and 4.8 px over the next entry, so it read as that entry's heading. The
+     * lines of one entry stand closer together than two entries do. With columns as wide as their content, a WARN
+     * message started 8 px left of an ERROR one; the time and level columns have fixed widths.
+     */
     @Test
     void aLogMessageTakesTheRowOnAPhone() throws IOException {
         String narrow = narrow(read("status.html"));
 
-        assertThat(rule(narrow, ".logrow")).contains("grid-template-columns: auto auto 1fr");
+        assertThat(rule(narrow, ".logrow")).contains("grid-template-columns: 62px 46px 1fr", "row-gap: 0.1rem");
+        assertThat(rule(narrow, ".loglist")).contains("gap: 0.6rem");
         assertThat(rule(narrow, ".loglogger")).contains("grid-column: 1 / -1", "grid-row: 2");
     }
 
-    /** A bar is a column 24 px wide with the 8 px bar in its middle; 30 of them wrap rather than run off a phone. */
+    /**
+     * A bar is a column 24 px wide with the 8 px bar in its middle; 30 of them wrap rather than run off a phone. The
+     * wrapped rows stood with no gap, so a full bar touched the bar above it and the two read as one taller bar.
+     */
     @Test
     void aPerRunAllBarIsATargetOf24Px() throws IOException {
         String css = read("index.html");
 
-        assertThat(rule(css, ".trend")).contains("flex-wrap: wrap").doesNotContain("gap: 2px", "height: 16px");
+        assertThat(rule(css, ".trend")).contains("flex-wrap: wrap", "row-gap: 4px")
+            .doesNotContain("gap: 2px", "height: 16px");
         assertThat(rule(css, ".trend a")).contains("width: 24px", "padding: 0 8px", "background-clip: content-box");
         assertThat(rule(css, ".trend a.clean")).contains("background-image:").doesNotContain("background:");
     }
