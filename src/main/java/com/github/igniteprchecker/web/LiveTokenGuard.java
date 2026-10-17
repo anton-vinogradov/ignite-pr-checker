@@ -11,12 +11,13 @@ import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
  * Asks TeamCity whether the session's token still works before an action that changes whom the checker acts for or
- * what the service does: linking or unlinking a GitHub account, switching standing options, restarting, updating or
- * flushing the service. The login guard knows a token is revoked only once a call under it failed, so a copied
- * cookie, or one whose token was revoked in TeamCity a moment ago, passes it. A GitHub account linked through such a
- * cookie would run /run-all under its owner's TeamCity account even after the owner logged out. A 401 refuses the
- * action and, from then on, the token's sessions, as {@link ApiExceptionHandler} does. A firewall 403 or an outage
- * lets the action through. The actions are rare, so one call each costs little.
+ * what the service does: linking or unlinking a GitHub account, switching standing options, posting a JIRA visa or
+ * arming one, which stores the JIRA token on the server, restarting, updating or flushing the service. The login
+ * guard knows a token is revoked only once a call under it failed, so a copied cookie, or one whose token was revoked
+ * in TeamCity a moment ago, passes it. A GitHub account linked through such a cookie would run /run-all under its
+ * owner's TeamCity account even after the owner logged out. A 401 refuses the action and, from then on, the token's
+ * sessions, as {@link ApiExceptionHandler} does. A firewall 403 or an outage lets the action through. The actions are
+ * rare, so one call each costs little.
  */
 @Component
 public class LiveTokenGuard implements HandlerInterceptor {

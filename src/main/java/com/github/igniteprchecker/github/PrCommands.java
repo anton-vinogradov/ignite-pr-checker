@@ -235,6 +235,12 @@ public class PrCommands implements SnapshotCache {
 
             return;
         }
+        if (edited(c)) {
+            lacking(pr, c, actor.get().username(), cmd, "edited", lead(cmd)
+                + ": the comment was edited. Post the command in a new comment.");
+
+            return;
+        }
         if (standing.tcTokenRejected(actor.get().username())) {
             tcTokenRefused(pr, c, actor.get(), cmd);
 
@@ -344,7 +350,7 @@ public class PrCommands implements SnapshotCache {
      */
     private void hint(GithubClient.IssueComment c, int pr) {
         long now = System.currentTimeMillis();
-        if (hinted.containsKey(c.id()) || writtenBefore(c, now - COMMAND_MAX_AGE_MS))
+        if (hinted.containsKey(c.id()) || writtenBefore(c, now - COMMAND_MAX_AGE_MS) || edited(c))
             return;
 
         Optional<StandingVisas.GhActor> actor = standing.actorByGhUser(c.user());
@@ -370,6 +376,22 @@ public class PrCommands implements SnapshotCache {
 
         try {
             return Instant.parse(c.createdAt()).toEpochMilli() < epochMs;
+        }
+        catch (java.time.format.DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether someone edited the comment after it was written. Anyone with write access may edit another's comment,
+     * so an edit that turns it into a command must not run under its author's account.
+     */
+    private static boolean edited(GithubClient.IssueComment c) {
+        if (c.createdAt() == null || c.updatedAt() == null)
+            return false;
+
+        try {
+            return Instant.parse(c.updatedAt()).isAfter(Instant.parse(c.createdAt()));
         }
         catch (java.time.format.DateTimeParseException e) {
             return false;

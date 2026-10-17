@@ -110,6 +110,27 @@ class SuiteFixSettingsTest {
         assertThat(cards.get("old").asText()).isEmpty();
     }
 
+    /** The card said nothing of the users with the option on whom the last sweep did not act for. */
+    @Test
+    void theStatusCardSaysHowManyArePaused() throws Exception {
+        JsonNode cards = PageFunctions.run("status.js", """
+            const ago = ms => ms ? '2m ago' : 'never';
+            out({ paused: suiteFixCard({ users: 3, acting: 2, pushed: 1, lastSweepAt: 1 }, ago),
+                acting: suiteFixCard({ users: 2, acting: 2, pushed: 1, lastSweepAt: 1 }, ago),
+                starting: suiteFixCard({ users: 1, acting: 0, pushed: 0, lastSweepAt: 0 }, ago) });
+            """, "card", "suiteFixCard");
+
+        assertThat(cards.get("paused").asText()).contains("class=\"v warn\"",
+            "title=\"The last sweep did not act for one user with the option on. The reason is one of these:"
+                + " TeamCity or GitHub refuses their token, a GitHub account or token is missing, or they switched the"
+                + " option on after the sweep.\"");
+        assertThat(cards.get("paused").asText().replaceAll("<[^>]+>", ""))
+            .contains("1 commit · 3 users with the option on · 1 paused · sweep 2m ago");
+        assertThat(cards.get("acting").asText()).doesNotContain("paused", "warn", "title=");
+        assertThat(cards.get("starting").asText().replaceAll("<[^>]+>", ""))
+            .contains("0 commits · 1 user with the option on · sweep never").doesNotContain("paused");
+    }
+
     @Test
     void theSwitchPostsItsOwnFlagOnly() throws Exception {
         JsonNode page = PageScript.run("index.html", PageScript.SIGNED_IN + """

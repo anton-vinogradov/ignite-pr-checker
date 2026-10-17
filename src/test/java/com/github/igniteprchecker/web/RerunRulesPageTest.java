@@ -162,6 +162,53 @@ class RerunRulesPageTest {
     }
 
     /**
+     * When /api/pending finds that the run tested the PR's head after all, the older-code line goes. The fill moves from
+     * its Run RunAll to the next step, here the pair of the blockers on one run.
+     */
+    @Test
+    void theFillMovesOnWhenTheOlderCodeLineGoes() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PAIRS + """
+            page.route('/api/pending', { body: { pending: true, ahead: 2, builtSha: 'ac9f829', headSha: '5ae5733',
+                rewritten: false } });
+            page.route('/api/analyze', { body: verdict({ blockers: [once('A.a', 'o1', 'Python'), blocker('B.b', 'o2')] }) });
+            await page.load('?pr=13575');
+            const olderCode = primary();
+            page.route('/api/pending', { body: { pending: false, checked: true } });
+            await page.run('loadPending')(page.run('lastResult'));
+            report({ olderCode, line: !page.el('pendingRow').classList.contains('hidden'), current: primary() });
+            """);
+
+        assertThat(out.get("olderCode").toString()).isEqualTo("[\"pendingRerun\"]");
+        assertThat(out.get("line").asBoolean()).isFalse();
+        assertThat(out.get("current").toString()).isEqualTo("[\"oneRunActs\"]");
+    }
+
+    /**
+     * PR 13692 was merged, and its page filled Run RunAll for its older code: a RunAll of about 147 suites on ci2 that
+     * would not change the verdict kept at the merge. A merged PR fills no button.
+     */
+    @Test
+    void aMergedPrFillsNoButton() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PAIRS + """
+            const mergedAt = Math.floor(page.now() / 1000) - 86400;
+            page.route('/api/pending', { body: { pending: true, ahead: 2, builtSha: 'ac9f829', headSha: '5ae5733',
+                rewritten: false } });
+            page.route('/api/analyze', { body: verdict({ mergedAt }) });
+            await page.load('?pr=13575');
+            const olderCode = primary();
+            page.route('/api/pending', { body: { pending: false, checked: true } });
+            page.route('/api/analyze', { body: verdict({ mergedAt, computedAt: page.now() + 1,
+                blockers: [once('A.a', 'o1', 'Python'), blocker('B.b', 'o2')] }) });
+            await page.run('analyze')(13575);
+            await page.run('loadPending')(page.run('lastResult'));
+            report({ olderCode, notConfirmed: primary() });
+            """);
+
+        assertThat(out.get("olderCode").toString()).isEqualTo("[]");
+        assertThat(out.get("notConfirmed").toString()).isEqualTo("[]");
+    }
+
+    /**
      * A group that is the whole section has no pair of its own; one that is part of it keeps its pair, and a suite that
      * is its own group keeps its row's pair, since the section's pair re-runs more than it.
      */
@@ -236,8 +283,9 @@ class RerunRulesPageTest {
             + "code fix instead, so it has no Rerun.")
             .contains("Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If not, "
                 + "compare the test list with master and rerun.")
-            .contains("Not blockers yet: there are too few runs of this code to tell a break from a flake. Rerun their suites: "
-                + "if they keep failing, they become blockers; if they pass, they drop out.")
+            .contains("Not blockers yet: there are too few runs of this code to tell a break from a flake. <span "
+                + "class=\"rerun-advice\">Rerun their suites: if they keep failing, they become blockers; if they pass, they "
+                + "drop out.</span>")
             .contains("These tests failed, but TeamCity errors stopped the check. They are not counted as blockers. "
                 + "The checker tries again by itself.")
             .contains("None of their failures is blamed on this PR (see Not blamed on this PR), so the results of the tests "

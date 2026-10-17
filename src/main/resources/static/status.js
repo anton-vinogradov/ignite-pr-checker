@@ -146,10 +146,17 @@ function configRows(d) {
         `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(v)}</span></div>`).join('');
 }
 
+// Paused: users with the option on whom the last sweep did not act for. Before the first sweep nobody counts as paused.
 function suiteFixCard(f, ago) {
     if (!f) return '';
+    const paused = f.lastSweepAt && f.acting != null ? Math.max(0, (f.users ?? 0) - f.acting) : 0;
     return card('Tests added to suites', f.pushed ?? 0,
-        `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with the option on · sweep ${ago(f.lastSweepAt)}`);
+        `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with the option on`
+        + (paused ? ` · ${paused} paused` : '') + ` · sweep ${ago(f.lastSweepAt)}`,
+        paused ? 'warn' : '',
+        paused ? `The last sweep did not act for ${paused === 1 ? 'one user' : paused + ' users'} with the option on.`
+            + ' The reason is one of these: TeamCity or GitHub refuses their token, a GitHub account or token is'
+            + ' missing, or they switched the option on after the sweep.' : '');
 }
 
 function lastCycleCard(a) {

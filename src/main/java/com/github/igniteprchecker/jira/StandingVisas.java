@@ -2281,6 +2281,14 @@ public class StandingVisas implements SnapshotCache {
         return enrolled.size();
     }
 
+    /**
+     * How many users have the option that adds their PRs' tests to suites on, whether or not a sweep can act for them.
+     * Decrypts no token: the public status page asks every few seconds.
+     */
+    public int suiteFixOnCount() {
+        return (int)enrolled.values().stream().filter(e -> e.options().suiteFix()).count();
+    }
+
     public int postedCount() {
         return postedTotal.get();
     }

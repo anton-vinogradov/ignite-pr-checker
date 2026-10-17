@@ -131,12 +131,12 @@ and the visa.
 | `● includes an unfinished run` | The verdict folds in the finished suites of a RunAll that is still running. It never reads green. | Wait for the run. |
 | `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs on unchanged revisions. Shown when some were reused, or while the run still goes. | — |
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
-| `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. | **Run RunAll**. |
+| `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
-| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
+| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
-| **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. With no ticket in the title, the group is one line saying so. | — |
+| **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. The key may be in any case. With no ticket in the title, the group is one line saying so. For a PR that is not in the left pane, the group or the line appears once the page gets the PR's title. | — |
 | **Auto visa** | Posts the verdict to the ticket once, the next time a RunAll of the PR finishes. Filled while armed by you (`Auto visa ✓`); `armed by bob` beside it: armed by others, who get one visa between them. | — |
 | `on in your ⚙`, `on in bob's ⚙` | Beside **Auto visa**, shown as on: the standing auto-visa of whoever started the run will post it, so there is nothing to arm. | — |
 | **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
@@ -187,7 +187,8 @@ not blamed on the PR.
   When TeamCity reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
 - **Lines under the head** say when the verdict is for older code, when auto re-runs still settle it, and what is on
   ci2 now. A merged PR's verdict card says that this is the verdict as it stood at the merge: it is kept and not
-  recomputed, since master's history now holds the PR's own runs.
+  recomputed, since master's history now holds the PR's own runs. New runs do not change it, so no button is filled
+  and no line says that a re-run would change it.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
@@ -232,7 +233,7 @@ not blamed on the PR.
 - **copy AI prompt** copies a prompt for a coding assistant. The button is in the open panel, or on the row when
   TeamCity kept no failure message. The prompt includes the PR, the suite and its run, the test, the checker's verdict
   with its reason, the triage label and the failure output. It also says how to reproduce the failure on the commit the
-  run tested, with steps for Java, .NET, C++, Python or Node.js by suite. Everything quoted from the PR is marked as
+  run tested, with steps for Java, .NET, C++, Python, Node.js or PHP by suite. Everything quoted from the PR is marked as
   data, not instructions, and the prompt asks to run the PR's code in an isolated environment. On the Root causes tab,
   **copy AI prompt** copies one prompt that covers all tests of a cause; broken suites and suites with fewer tests than
   master have their own **copy AI prompt**.
@@ -252,7 +253,8 @@ not blamed on the PR.
   chain at the end, and the page says so.
 - **Rerun** and **Rerun at top** re-run one suite, every suite of a section or a group of broken suites. Each suite
   row has its own pair of small text buttons. A section's button says how many suites it re-runs. A pair that would
-  re-run what the pair above it re-runs is left out, and one button is filled as the next step. From 5 suites on they
+  re-run what the pair above it re-runs is left out, and one button is filled as the next step, except on a merged
+  PR. From 5 suites on they
   ask first. Your own identical re-run still in the queue is replaced; someone else's stays. At the top works as for
   Run. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top.
   The queued chip appears on the suite at once.
@@ -398,7 +400,8 @@ from its own GitHub account, the app account.
 | `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits; the run's story says so. |
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
-  A comment written more than an hour ago is not run, even if it is edited later.
+  A comment written more than an hour ago is not run. An edited comment is not run either: anyone with write access
+  may edit your comment. The checker answers 😕 and asks you to post the command in a new comment.
 - 🚀 means accepted, 😕 refused. Then a comment of the app account, which mentions you, tells the story of the run:
   the queued build, then `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with
   every change, and in UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or
@@ -454,6 +457,10 @@ from its own GitHub account, the app account.
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
   in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
+- The **Tests added to suites** card counts the users who have **Add my PR's tests that no suite runs** on. If the
+  last sweep did not act for some of them, the card turns amber and says how many are paused. A user is paused when
+  TeamCity or GitHub refuses their token, or a GitHub account or token is missing. A user who switched the option on
+  after the last sweep also counts as paused until the next sweep. Without a `GITHUB_TOKEN`, all of them are paused.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
   classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
   beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
@@ -471,9 +478,9 @@ from its own GitHub account, the app account.
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form. Before **Link GitHub**, **Unlink**, a switch in ⚙ and the operator's buttons, the checker asks TeamCity
-  whether your token still works; with a revoked token the action does not happen. **Log out** ends your login in
-  every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
+  login form. The checker asks TeamCity whether your token still works before these actions: **Link GitHub**,
+  **Unlink**, a switch in ⚙, the operator's buttons, the visa button **Post now**, and arming **Auto visa**. With a
+  revoked token, the action does not happen. **Log out** ends your login in every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
   logins, except one that a standing option keeps in use. Log out asks TeamCity first too: with a revoked token, only
   this browser is logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The

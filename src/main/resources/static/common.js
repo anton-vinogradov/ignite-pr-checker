@@ -73,16 +73,18 @@ function fenced(text) {
     return fence + '\n' + text + '\n' + fence;
 }
 
-// The .NET, C++, Python and Node.js suites run NUnit, Boost, pytest and the Node.js client's tests, not JUnit ones:
-// each gets the tool its suite runs it with.
-const LANGUAGE = { java: 'Java', dotnet: '.NET, C#', cpp: 'C++', python: 'Python', nodejs: 'Node.js' };
+// The .NET, C++, Python, Node.js and PHP suites run NUnit, Boost, pytest, the Node.js client's tests and PHPUnit, not
+// JUnit ones: each gets the tool its suite runs it with.
+const LANGUAGE = { java: 'Java', dotnet: '.NET, C#', cpp: 'C++', python: 'Python', nodejs: 'Node.js', php: 'PHP' };
 
-// By the suite's id or the test's name: a pytest name reads "test_module.test_function".
+// By the suite's id or the test's name: a pytest name reads "test_module.test_function", a PHPUnit one
+// "tests: Apache\Ignite\Tests\CacheTestCase: testCreateCache".
 function platformOf(suite, name) {
     if (/PlatformNet/i.test(suite || '') || /^Apache\.Ignite\./.test(name || '')) return 'dotnet';
     if (/Platform(CPP|CCMake)|Odbc/i.test(suite || '') || /^Ignite(Core|ThinClient|Odbc)Test: /.test(name || '')) return 'cpp';
     if (/Python/i.test(suite || '') || /^test_\w+\.test_\w+/.test(name || '')) return 'python';
     if (/Node\.?js/i.test(suite || '')) return 'nodejs';
+    if (/Php/i.test(suite || '') || /^tests: Apache\\Ignite\\Tests\\/.test(name || '')) return 'php';
     return 'java';
 }
 

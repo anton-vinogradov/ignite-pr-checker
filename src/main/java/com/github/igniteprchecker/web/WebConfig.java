@@ -10,9 +10,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
-    /** What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, restart, update, flush. */
+    /**
+     * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, a JIRA visa now or armed,
+     * restart, update, flush.
+     */
     static final String[] LIVE_TOKEN_ACTIONS = {"/api/github/link", "/api/github/unlink", "/api/auto-visa-all",
-        "/api/restart", "/api/update", "/api/flush-caches"};
+        "/api/jira-visa", "/api/auto-visa", "/api/restart", "/api/update", "/api/flush-caches"};
 
     private final AuthInterceptor auth;
 
@@ -30,7 +33,7 @@ public class WebConfig implements WebMvcConfigurer {
                 "/api/rerun-suite", "/api/rerun-suites", "/api/runs", "/api/cancel-all", "/api/update", "/api/restart", "/api/users", "/api/jira-token", "/api/github-token", "/api/github/link", "/api/github/unlink", "/api/jira-visa", "/api/auto-visa", "/api/auto-visa-cancel", "/api/auto-visa-all", "/api/test-details",
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling");
-        registry.addInterceptor(auth).addPathPatterns("/api/pr-tests");
+        registry.addInterceptor(auth).addPathPatterns("/api/pr-tests", "/api/pr-title");
         registry.addInterceptor(live).addPathPatterns(LIVE_TOKEN_ACTIONS);
     }
 }

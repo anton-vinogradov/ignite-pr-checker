@@ -104,13 +104,20 @@ function fmtDay(ms) {
 
 let shownTitle = null; // what setPrTitle last drew, to redraw once /api/config names the hosts
 
+// An IGNITE ticket key in a PR title, in any case: the rule the server finds the ticket of a visa by.
+const ISSUE_KEY = /\bIGNITE-\d{4,}\b/i;
+
+// `title` is null while the page does not know it: then the PR's ticket is not known either (lastIssueKey null), which
+// is not the same as a title that names none ('').
 function setPrTitle(number, title, url) {
     shownTitle = [number, title, url];
-    lastIssueKey = (title && (title.match(/IGNITE-\d+/) || [])[0]) || '';
+    lastIssueKey = title == null ? null : ((title.match(ISSUE_KEY) || [''])[0]).toUpperCase();
     const href = url || prUrl(number);
     $('prTitle').classList.remove('muted');
-    const linked = title ? esc(title).replace(/IGNITE-\d+/g,
-        m => `<a href="${esc(jiraBase)}/browse/${m}" target="_self" rel="noopener" title="Open ${m} in JIRA">${m}</a>`) : '';
+    const linked = title ? esc(title).replace(new RegExp(ISSUE_KEY.source, 'gi'), m => {
+        const key = m.toUpperCase();
+        return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="Open ${key} in JIRA">${m}</a>`;
+    }) : '';
     $('prTitle').innerHTML = `<a href="${esc(href)}" target="_self" rel="noopener" title="Open PR #${esc(number)} on GitHub">#${esc(number)}</a>`
         + (linked ? ' ' + linked : '');
 }
@@ -248,9 +255,13 @@ function openPr(number, push) {
     for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
     const li = findLi(number);
     setPrTitle(number, li ? li.dataset.title : null, li ? li.dataset.url : null);
+    if (!li) loadPrTitle(number);
     $('actions').classList.remove('hidden');
     sayStatus('');
     $('visaNote').classList.add('hidden');
+    hideRerunAnswers();
+    lastRuns = [];
+    autoVisa = noAutoVisa();
     clearFreshness();
     $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
     runsWere = 0;
@@ -266,6 +277,25 @@ function openPr(number, push) {
     if (push) history.pushState({ pr: number }, '', '?pr=' + number);
     analyze(number);
     loadRuns(number);
+}
+
+// A PR off the open list (merged, closed, or past the 50 the list holds) gets its title from the server: the head names
+// its ticket, and the visa group knows where to post. An answer for a PR no longer open on the page is dropped.
+async function loadPrTitle(number) {
+    try {
+        const r = await api('/api/pr-title?pr=' + number);
+        if (!r.ok) return;
+        const { title } = await r.json();
+        if (number !== selectedPr || typeof title !== 'string') return;
+        setPrTitle(number, title, null);
+        paintVisaGroup();
+    } catch (e) { /* the head keeps the number alone, and the visa group stays hidden */ }
+}
+
+// The answers to Rerun under the buttons belong to the PR they were given on.
+function hideRerunAnswers() {
+    for (const id of sectActs.keys()) answerRerun($(id + 'Note'), '', false);
+    for (const note of document.querySelectorAll('.act-note')) note.classList.add('hidden');
 }
 
 function suitesOfTests(list) { return [...new Set((list || []).map(t => t.suite).filter(Boolean))]; }
@@ -288,6 +318,7 @@ async function rerunSuites(suites, top, btn, note) {
         const r = await api('/api/rerun-suites?pr=' + pr + '&top=' + top
             + '&suites=' + encodeURIComponent(suites.join(',')), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             answerRerun(note, notDone('Not queued', res.error), true);
@@ -303,7 +334,7 @@ async function rerunSuites(suites, top, btn, note) {
     }
 }
 
-// What a click on Rerun answered, under its buttons until the next click there; nothing hides the line.
+// What a click on Rerun answered, under its buttons until the next click there or until another PR opens.
 function answerRerun(note, text, err) {
     if (!note) return;
     note.textContent = text;
@@ -401,15 +432,15 @@ function suiteRowActs(suite, above) {
         + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun at top</button></span>`;
 }
 
-// The one filled button, the next step. None while auto re-runs go, a RunAll of the PR is queued or running, or the
-// suites that step would re-run are already queued: then the next step is to wait. Else Run RunAll when the verdict is
-// for older code; else the pair of Broken suites or of Suites that never ran; else the pair of the blockers on one
-// run, or the card's own when they are all of its blockers.
+// The one filled button, the next step. None on a merged PR, whose verdict no run changes, and none while auto re-runs
+// go, a RunAll of the PR is queued or running, or the suites that step would re-run are already queued: then the next
+// step is to wait. Else Run RunAll when the verdict is for older code; else the pair of Broken suites or of Suites that
+// never ran; else the pair of the blockers on one run, or the card's own when they are all of its blockers.
 function paintPrimary() {
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
     $('pendingRerun').classList.remove('primary');
     for (const s of sectActs.values()) if (s.rerun) s.rerun.classList.remove('primary');
-    if (!res) return;
+    if (!res || res.mergedAt) return;
     const settling = phaseNow && phaseNow.pr === selectedPr && phaseNow.phase === 'settling';
     if (settling || runsNow.some(b => b.runAll)) return;
     if (codeOf(res) === 'old') { $('pendingRerun').classList.add('primary'); return; }
@@ -478,6 +509,7 @@ async function loadRuns(number) {
     // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
     // so suite chips light up individually while the chain grinds through them.
     const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
+    if (number !== selectedPr) return false;
     lastRuns = runs.concat(rr.filter(x => x.pr === number)
         .map(x => ({ buildId: x.buildId, btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct,
             leftSec: x.leftSec, startSec: x.startSec, waitedSec: x.waitedSec, elapsedSec: x.elapsedSec })));
@@ -1375,19 +1407,22 @@ function renderFreshness(res) {
             : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
         : '';
     $('freshText').innerHTML = buildLabel + runWhen(res) + ' · <span class="hint" title="When the checker last computed '
-        + 'this verdict from the run and master\'s history. ↻ computes it again.">verdict computed ' + esc(ago(res.computedAt)) + '</span>';
+        + 'this verdict from the run and master\'s history.' + (res.mergedAt ? '' : ' ↻ computes it again.')
+        + '">verdict computed ' + esc(ago(res.computedAt)) + '</span>';
     $('freshMore').innerHTML = suitesRanLabel(res) + liveTag;
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
-// no refresh for it.
+// no refresh for it, and the cards do not ask for re-runs that would change nothing.
 function renderMerged(res) {
     const merged = !!res.mergedAt;
     $('mergedNote').classList.toggle('hidden', !merged);
+    $('results').classList.toggle('merged', merged);
     if (!merged) return;
     $('mergedNote').textContent = `Merged ${fmtDay(res.mergedAt * 1000)}. This is the verdict as it stood at `
-        + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs.';
+        + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs. New runs do not change '
+        + 'this verdict.';
 }
 
 function clearFreshness() {
@@ -1454,7 +1489,8 @@ function renderResult(res, { quiet = false, force = false } = {}) {
             : 'this RunAll';
         const one = notRun === 1;
         $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of ${build} ${one ? 'was' : 'were'} cancelled `
-            + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}. A finished rerun takes a suite off this list.`;
+            + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}.`
+            + (res.mergedAt ? '' : ' A finished rerun takes a suite off this list.');
     }
     renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
     // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
@@ -1580,8 +1616,8 @@ function verdictLines(res, standing) {
         return ['Nothing in this run looks caused by your PR. You don\'t need to fix or rerun anything.'];
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
-        return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested. Rerun their suites under `
-            + 'Recently started failing: the rerun shows whether these tests are blockers.']
+        return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
+            : ' Rerun their suites under Recently started failing: the rerun shows whether these tests are blockers.')]
             .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
     }
     return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
@@ -1613,13 +1649,20 @@ function notePending(res, p) {
     pendingOf = { pr: res.prNumber, buildId: res.buildId, code, ahead, pushed: p.pending ? p : null };
     $('pendingRow').classList.toggle('hidden', !p.pending);
     paintPending();
+    paintPrimary();
 }
 
 // The line about older code. While a RunAll of the PR is queued or running, the line says so instead of offering
-// Run RunAll: the next step is to wait.
+// Run RunAll: the next step is to wait. A merged PR's line only names the commits: no run changes its verdict.
 function paintPending() {
     const p = pendingOf.pushed;
     if (!p || $('pendingRow').classList.contains('hidden')) return;
+    if (lastResult && lastResult.prNumber === selectedPr && lastResult.mergedAt) {
+        $('pending').textContent = `This run tested ${p.builtSha}. The PR was merged at its commit ${p.headSha}`
+            + (!p.rewritten && p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later.` : '.');
+        $('pendingRerun').classList.add('hidden');
+        return;
+    }
     const chain = runsNow.find(b => b.runAll);
     const now = p.rewritten ? `the PR branch was rebased or force-pushed to ${esc(p.headSha)}`
         : `the PR is now at ${esc(p.headSha)}` + (p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later` : '');
@@ -1672,7 +1715,7 @@ async function loadPrTests(res) {
             + (chainRunning(res) ? '&running=true' : ''));
         if (!r.ok) return;
         const body = await r.json().catch(() => null);
-        if (!body || res.prNumber !== selectedPr) return;
+        if (!body || !stillShown(res) || lastResult.live !== res.live) return;
         lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
         renderPrTests(body, res);
     } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
@@ -1890,6 +1933,7 @@ async function doTrigger(act, top, btn) {
         const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : ''),
             { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             sayStatus(notDone('Not queued', res.error), { err: true });
@@ -1932,6 +1976,7 @@ async function cancelMine() {
         sayStatus('Cancelling your runs…', { busy: true });
         const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) { sayStatus(notDone('Not cancelled', res.error), { err: true }); return; }
         const n = res.cancelled || 0;
@@ -1960,6 +2005,7 @@ async function rerunSuite(suite, top, btn) {
     try {
         const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=' + top, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             answerRerun(note, notDone('Not queued', res.error), true);
@@ -2225,7 +2271,8 @@ const ISOLATION_NOTE = 'This is code from a pull request: unless it is your own,
     + 'isolated environment (a container or a VM without your credentials).';
 
 function aiPromptText({ title, pr, tested, lines, details, task }) {
-    const prTitle = ((allPrs.find(p => p.number === pr) || {}).title || '').trim();
+    const shown = shownTitle && shownTitle[0] === pr ? shownTitle[1] : null;
+    const prTitle = (shown ?? (allPrs.find(p => p.number === pr) || {}).title ?? '').trim();
     const head = [
         title,
         '',
@@ -2295,16 +2342,30 @@ function reproduceStep(platform, name) {
                 ? `ctest -V -R ${binary} (one case: --run_test=${suite}/${testCase}).`
                 : 'ctest -V -R IgniteCoreTest, IgniteThinClientTest or IgniteOdbcTest, whichever the suite runs.');
     }
-    if (platform === 'python' || platform === 'nodejs') {
-        const client = platform === 'python' ? 'Python thin client, repository apache/ignite-python-thin-client'
-            : 'Node.js thin client, repository apache/ignite-nodejs-thin-client';
-        const test = platform === 'python' && name ? shortTestName(name).replace(/\(.*$/, '').split('.').pop() : '';
-        return `This suite runs the tests of the ${client}. Build the Java modules of the fetched code (./mvnw clean `
-            + 'install -DskipTests), then run those tests against a node built from them, as that repository\'s README '
-            + 'describes' + (test ? ` (one test: pytest -k ${test}).` : '.');
-    }
+    const client = THIN_CLIENTS[platform];
+    if (client)
+        return `This suite runs the tests of the ${client.name}. Build the Java modules of the fetched code (./mvnw `
+            + 'clean install -DskipTests)' + client.run(name ? shortTestName(name) : '');
     return 'Locate the test class and reproduce the failure locally (JDK 17; run the single test via your build tooling or IDE).';
 }
+
+// The thin clients whose tests live in a repository of their own: how to run them, or one of them, on the fetched code.
+const THIN_CLIENTS = {
+    python: {
+        name: 'Python thin client, repository apache/ignite-python-thin-client',
+        run: test => ', then run those tests against a node built from them, as that repository\'s README describes'
+            + (test ? ` (one test: pytest -k ${test.replace(/\(.*$/, '').split('.').pop()}).` : '.'),
+    },
+    nodejs: {
+        name: 'Node.js thin client, repository apache/ignite-nodejs-thin-client',
+        run: () => ', then run those tests against a node built from them, as that repository\'s README describes.',
+    },
+    php: {
+        name: 'PHP thin client, repository apache/ignite-php-thin-client',
+        run: test => ' and start a node from them (bin/ignite.sh). Then, in that repository, run composer install and '
+            + 'vendor/bin/phpunit tests' + (test.includes(': ') ? ` --filter ${test.split(': ').pop()}.` : '.'),
+    },
+};
 
 const SHRINK_CAUSES = {
     java: 'a test class dropped from the JUnit suite class (@Suite.SuiteClasses in the *TestSuite of this module), a class renamed/moved without updating that list, an @Ignore or assumeTrue that now short-circuits, a failure in @BeforeClass/suite setup that skips the rest, or a run that ended early (check the build log tail).',
@@ -2312,6 +2373,7 @@ const SHRINK_CAUSES = {
     cpp: 'a test case removed or renamed, a test source dropped from the CMakeLists.txt of the test project, a test case disabled with boost::unit_test::disabled(), a failure in a suite fixture that skips the rest, or a run that ended early (check the build log tail).',
     python: 'a test module or function removed or renamed, a new skip mark, a failing fixture that skips the rest, or a run that ended early (check the build log tail).',
     nodejs: 'a test file or case removed or renamed, a test marked skipped, a failing setup hook that skips the rest, or a run that ended early (check the build log tail).',
+    php: 'a test case class or method removed or renamed, a new markTestSkipped or excluded group, a failing setUpBeforeClass that skips the rest, or a run that ended early (check the build log tail).',
 };
 
 function toggleDetails(btn) {
@@ -2466,7 +2528,7 @@ $('statusRetry').onclick = () => {
 // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
 // session, the button opens a hint with a deep link to the JIRA profile page to create one.
 let hasJira = false;
-let lastIssueKey = '';
+let lastIssueKey = null; // the open PR's ticket; '' when its title names none, null while the title is not known
 
 let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
 
@@ -2484,17 +2546,19 @@ function jiraKeptNote(action) {
 async function postVisa() {
     if (!selectedPr || !lastIssueKey) return;
     if (!hasJira) { pendingJiraAction = 'visa'; await toggleJiraPanel(true); return; }
-    if (!confirm(`Post the verdict as a comment to ${lastIssueKey} in ASF JIRA?`)) return;
+    const pr = selectedPr, key = lastIssueKey;
+    if (!confirm(`Post the verdict as a comment to ${key} in ASF JIRA?`)) return;
     const btn = $('visaBtn');
     btn.disabled = true;
     sayStatus('Posting the visa…', { busy: true });
     try {
-        const r = await api(`/api/jira-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`, { method: 'POST' });
+        const r = await api(`/api/jira-visa?pr=${pr}&issue=${encodeURIComponent(key)}`, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (r.status === 412) { sayStatus(''); return askJiraTokenAgain('visa', res.error); }
         if (!r.ok) { visaNote(notDone('Visa not posted', res.error), { err: true }); return; }
-        visaNote(`Visa posted to <a href="${esc(res.url)}" target="_self" rel="noopener" title="Open the comment in JIRA">${esc(lastIssueKey)}</a>`,
+        visaNote(`Visa posted to <a href="${esc(res.url)}" target="_self" rel="noopener" title="Open the comment in JIRA">${esc(key)}</a>`,
             { html: true });
     } finally {
         btn.disabled = false;
@@ -2512,10 +2576,10 @@ function visaNote(text, { html = false, err = false } = {}) {
 }
 
 // The group at the right of the verdict heading: "JIRA visa: Post now · Auto visa", or one line when the PR title
-// names no ticket to post to.
+// names no ticket to post to. Neither while the title is not known: the page cannot tell which it is.
 function paintVisaGroup() {
     $('visaGroup').classList.toggle('hidden', !lastIssueKey);
-    $('noTicket').classList.toggle('hidden', !!lastIssueKey);
+    $('noTicket').classList.toggle('hidden', lastIssueKey !== '');
     $('visaBtn').disabled = !lastIssueKey;
     $('visaBtn').title = `Post the verdict as a comment to ${lastIssueKey || 'the JIRA ticket'} now`;
     paintAutoVisa();
@@ -2565,7 +2629,11 @@ async function saveJiraToken() {
 }
 // One-shot auto visa: post the verdict to the ticket when this PR's run finishes — no babysitting.
 // Each user arms and cancels their own; a standing auto-visa that posts this run's verdict makes it moot.
-let autoVisa = { armed: false, others: [], standingBy: null, refusedFor: null };
+let autoVisa = noAutoVisa();
+
+function noAutoVisa() {
+    return { armed: false, others: [], standingBy: null, refusedFor: null };
+}
 
 // Auto visa is a switch: filled while armed by you, with the others' state as a label beside it.
 function paintAutoVisa() {
@@ -2613,13 +2681,15 @@ async function loadAutoVisa(pr) {
 async function armAutoVisa() {
     if (!selectedPr || !lastIssueKey) return;
     if (!hasJira) { pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
+    const pr = selectedPr, key = lastIssueKey;
     const btn = $('autoVisaBtn');
     btn.disabled = true;
     try {
-        const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + selectedPr
-            : `/api/auto-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`;
+        const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + pr
+            : `/api/auto-visa?pr=${pr}&issue=${encodeURIComponent(key)}`;
         const r = await api(path, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (r.status === 412) return askJiraTokenAgain('auto', res.error);
         if (!r.ok) {
@@ -2629,7 +2699,7 @@ async function armAutoVisa() {
         autoVisa.armed = !!res.armed;
         autoVisa.refusedFor = null;
         visaNote(autoVisa.armed
-            ? `Auto visa armed: the verdict goes to ${lastIssueKey} the next time a RunAll of this PR finishes.`
+            ? `Auto visa armed: the verdict goes to ${key} the next time a RunAll of this PR finishes.`
             : 'Your auto visa is cancelled.');
     } finally {
         paintAutoVisa();

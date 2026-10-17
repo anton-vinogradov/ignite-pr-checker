@@ -102,7 +102,7 @@ async function fakeFetch(url, opts = {}) {
     const route = routes.filter(r => url.startsWith(r.prefix) && (!r.method || r.method === method))
         .sort((a, b) => b.prefix.length - a.prefix.length)[0];
     let answer = route ? route.answer : { status: 404, body: {} };
-    if (typeof answer === 'function') answer = answer(url, method);
+    if (typeof answer === 'function') answer = await answer(url, method);
     const status = answer.status || 200;
     const body = JSON.parse(JSON.stringify(answer.body === undefined ? {} : answer.body));
     return {

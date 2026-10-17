@@ -31,13 +31,14 @@ public class AnalysisCache implements SnapshotCache {
      * Which wording the cached results' reasons and caveats carry. Bump it when the words change and the rules do
      * not: the snapshot's results are then dropped and recomputed, while {@link TestVerdict#RULES} stays, so the
      * history of blocker deltas, which a rules bump would drop, lives on. A merged PR keeps its verdict as it stood,
-     * earlier wording included.
+     * earlier wording included: see {@link #carriedOver()}.
      */
     static final int TEXTS = 1;
 
     private final TtlCache<HistoryKey, RunHistory> history;
     private final TtlCache<HistoryKey, RunHistory> prBranchHistory;
     private final TtlCache<Long, AnalysisResult> results;
+    private final TtlCache<Long, AnalysisResult> carriedOver;
     private final TtlCache<Long, String> revisions;
     private final BuildFacts facts = new BuildFacts();
     private final ObjectMapper mapper;
@@ -47,6 +48,7 @@ public class AnalysisCache implements SnapshotCache {
         this.history = new TtlCache<>(ttlMs);
         this.prBranchHistory = new TtlCache<>(ttlMs);
         this.results = new TtlCache<>(ttlMs);
+        this.carriedOver = new TtlCache<>(ttlMs);
         this.revisions = new TtlCache<>(ttlMs);
         this.mapper = mapper;
     }
@@ -108,6 +110,15 @@ public class AnalysisCache implements SnapshotCache {
     }
 
     /**
+     * The results a snapshot held in the words of an earlier {@link #TEXTS} under the current rules. No page gets
+     * them: a PR merged shortly before the deploy has no other verdict from before its merge, and {@link MergedVerdicts}
+     * keeps it from these. They expire as results do, and a flush leaves them.
+     */
+    public List<AnalysisResult> carriedOver() {
+        return carriedOver.freshValues();
+    }
+
+    /**
      * A test's cached master history in a suite over all its runs, if still fresh (gives the fail-rate
      * without a TeamCity call).
      */
@@ -127,6 +138,7 @@ public class AnalysisCache implements SnapshotCache {
         history.evictExpired();
         prBranchHistory.evictExpired();
         results.evictExpired();
+        carriedOver.evictExpired();
         revisions.evictExpired();
         facts.evictExpired();
     }
@@ -155,7 +167,7 @@ public class AnalysisCache implements SnapshotCache {
     public void saveTo(Path file) throws IOException {
         Snapshots.writeAtomic(mapper, file,
             new Persisted(history.export(), prBranchHistory.export(), results.export(), TestVerdict.RULES,
-                facts.export(), TEXTS));
+                facts.export(), TEXTS, carriedOver.export()));
     }
 
     @Override
@@ -175,8 +187,14 @@ public class AnalysisCache implements SnapshotCache {
         // Results carry verdicts, and a cached result for an unchanged build is never recomputed (the
         // warmer keeps touching it), so verdicts from superseded rules, or in superseded words, would
         // otherwise outlive the deploy that changed them.
-        if (p.rules() != null && p.rules() == TestVerdict.RULES && p.texts() != null && p.texts() == TEXTS)
+        boolean sameRules = p.rules() != null && p.rules() == TestVerdict.RULES;
+        if (sameRules && p.texts() != null && p.texts() == TEXTS)
             results.importAll(p.results());
+        else if (sameRules && p.results() != null)
+            carriedOver.importAll(p.results());
+        // Carried over by an earlier start: they keep their expiry, so restarts do not keep them for good.
+        if (sameRules && p.carriedOver() != null)
+            carriedOver.importUnexpired(p.carriedOver());
         // What TeamCity said does not depend on the rules either; like history, it keeps its expiry.
         if (p.facts() != null)
             facts.importUnexpired(p.facts());
@@ -193,7 +211,8 @@ public class AnalysisCache implements SnapshotCache {
      * Older snapshots carry master history this release cannot use, so it is not read: {@code history},
      * keyed by test id alone, mixes every suite of the test; {@code suiteHistory} keeps per suite only how
      * many runs failed, without their order or the JDK each ran on. A snapshot from before the words of the
-     * results were versioned has no {@code texts}.
+     * results were versioned has no {@code texts}, and one from before results were carried over has no
+     * {@code carriedOver}.
      */
     @JsonIgnoreProperties({"history", "suiteHistory"})
     private record Persisted(
@@ -202,7 +221,8 @@ public class AnalysisCache implements SnapshotCache {
         List<TtlCache.Snapshot<Long, AnalysisResult>> results,
         Integer rules,
         BuildFacts.Saved facts,
-        Integer texts
+        Integer texts,
+        List<TtlCache.Snapshot<Long, AnalysisResult>> carriedOver
     ) {
     }
 }

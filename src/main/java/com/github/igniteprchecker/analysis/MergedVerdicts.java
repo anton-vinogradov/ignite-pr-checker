@@ -115,19 +115,28 @@ public class MergedVerdicts {
 
     /** The verdict a merged PR had at its merge, if it was kept. */
     public Optional<AnalysisResult> verdict(int pr) {
+        return merged(pr).map(Merged::verdict);
+    }
+
+    /** The title a merged PR had at its merge, if its verdict was kept. */
+    public Optional<String> title(int pr) {
+        return merged(pr).map(Merged::title);
+    }
+
+    private Optional<Merged> merged(int pr) {
         if (!kept.contains(pr))
             return Optional.empty();
 
         Merged inMem = inMemory.get(pr);
         if (inMem != null)
-            return Optional.of(inMem.verdict());
+            return Optional.of(inMem);
 
         Path d = dir;
         if (d == null)
             return Optional.empty();
 
         try {
-            return Optional.of(mapper.readValue(d.resolve(pr + ".json").toFile(), Merged.class).verdict());
+            return Optional.of(mapper.readValue(d.resolve(pr + ".json").toFile(), Merged.class));
         }
         catch (IOException e) {
             log.warn("could not read the verdict kept for merged PR {}: {}", pr, e.toString());
@@ -178,10 +187,13 @@ public class MergedVerdicts {
         }
     }
 
-    /** The newest cached verdict of each PR, the one shown last, by PR number. */
+    /**
+     * The newest cached verdict of each PR, the one shown last, by PR number. The results carried over from before a
+     * change of words count too: a PR merged shortly before that deploy has no other.
+     */
     private List<AnalysisResult> latestPerPr() {
         Map<Integer, AnalysisResult> latest = new HashMap<>();
-        for (AnalysisResult r : cache.freshResults())
+        for (AnalysisResult r : Stream.concat(cache.freshResults().stream(), cache.carriedOver().stream()).toList())
             latest.merge(r.prNumber(), r, (a, b) -> a.computedAt() >= b.computedAt() ? a : b);
 
         return latest.values().stream().sorted(Comparator.comparingInt(AnalysisResult::prNumber)).toList();
