@@ -898,9 +898,10 @@ function brokenRow(s, rerun = true, above = []) {
         + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
     const btns = rerun ? suiteRowActs(s.suite, above) : '';
     // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
-    // "tests disappeared" and hides the timeout that emptied the suite.
-    const short = s.tests && s.baseline && s.tests < s.baseline
-        ? ` — ran ${s.tests} of master's ${s.baseline} tests` : '';
+    // "tests disappeared" and hides the timeout that emptied the suite. When the count was all
+    // TeamCity reported, the server makes it the suite's one problem, and it is not said twice.
+    const ran = s.tests && s.baseline && s.tests < s.baseline ? `ran ${s.tests} of master's ${s.baseline} tests` : '';
+    const short = ran && !(s.problems || []).includes(ran) ? ` — ${ran}` : '';
     return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
         + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
         + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
@@ -1042,6 +1043,9 @@ async function aiSuitePrompt(btn) {
     // The configuration page lists this suite's runs on every branch — master included.
     const cfgUrl = tcBase && suite ? `${tcBase}buildConfiguration/${encodeURIComponent(suite)}` : '';
     const broken = btn.dataset.kind === 'broken';
+    const { tests, baseline } = btn.dataset;
+    // When TeamCity's count of the shortfall was all it reported, the server put the count in its own words.
+    const countOnly = btn.dataset.problems === `ran ${tests} of master's ${baseline} tests`;
     const platform = platformOf(suite, '');
     btn.textContent = '…';
     const tested = await testedRun(selectedPr, +btn.dataset.buildid);
@@ -1057,9 +1061,11 @@ async function aiSuitePrompt(btn) {
         tested,
         lines: broken ? [
             `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run (needs a ci2 login): ' + runUrl : ''}`,
-            `- What TeamCity reported: ${btn.dataset.problems || 'no reliable run'}`,
-            +btn.dataset.tests && +btn.dataset.baseline
-                ? `- It ran ${btn.dataset.tests} tests where master runs ${btn.dataset.baseline} — it died partway through, so the missing tests are a symptom, not the problem`
+            countOnly
+                ? `- What TeamCity reported: only that it ran ${tests} tests where master runs ${baseline}`
+                : `- What TeamCity reported: ${btn.dataset.problems || 'no reliable run'}`,
+            +tests && +baseline && !countOnly
+                ? `- It ran ${tests} tests where master runs ${baseline} — it died partway through, so the missing tests are a symptom, not the problem`
                 : null,
             seen.length
                 ? `- Tests of this suite the checker saw failing (${seen.length}): ${seen.slice(0, 8).join(', ')}${seen.length > 8 ? ', …' : ''}`
@@ -2113,7 +2119,7 @@ function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
     const tc = runUrl
         ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
     const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
-        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this revision to tell a break from a flake'
+        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this commit to tell a break from a flake'
         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
     const ai = `<button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
         + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
@@ -2191,7 +2197,7 @@ async function aiCausePrompt(btn, block) {
         tested,
         lines: [
             `- Shared failure signature: ${sig ? sig.textContent : '(see failure output below)'}`,
-            `- ${tests.length} failing test(s) across ${suites.length} suite(s): ${suites.join(', ')}`,
+            `- ${tests.length} failing test${tests.length === 1 ? '' : 's'} across ${suites.length} suite${suites.length === 1 ? '' : 's'}: ${suites.join(', ')}`,
             ...tests.slice(0, 20).map(t => `  - ${t.name}`),
             tests.length > 20 ? `  - … and ${tests.length - 20} more` : null,
         ],

@@ -118,7 +118,7 @@ class EarlyRerunFreshnessTest {
 
     private static TestVerdict queries5Watch() {
         return new TestVerdict(5L, "DynamicEnableIndexingBasicSelfTest.testEnableDynamicIndexing", QUERIES5,
-            QUERIES5_RUN, "Queries 5", "o5", false, true, "first failure on revision ec2c458 — watch", "F", 1);
+            QUERIES5_RUN, "Queries 5", "o5", false, true, "failed the only run on commit ec2c458; the 1 earlier run was on other code", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... watch) {

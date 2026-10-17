@@ -47,6 +47,9 @@ public class VisaService {
     /** How many suites a line of a broken group names before "and N more". */
     private static final int NAMES_SHOWN = 5;
 
+    /** Why a test that started failing is not a proven blocker; the page says it of such a test too. */
+    private static final String TOO_FEW_RUNS = "too few runs of this commit to tell a break from a flake";
+
     private final TeamcityProperties tc;
     private final String publicUrl;
     private final String repo;
@@ -129,8 +132,7 @@ public class VisaService {
         List<String> caveats = Caveats.of(r, commitsAhead);
         Caveats.Standing standing = Caveats.standing(r, commitsAhead);
         if (standing == Caveats.Standing.CLEAN) {
-            b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ")
-                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
+            b.append("✅ **No blockers** — nothing in this run looks caused by this PR. ").append(notBlamed(r));
             return b.toString();
         }
 
@@ -153,8 +155,8 @@ public class VisaService {
         }
 
         if (!r.shrunkSuites().isEmpty()) {
-            b.append("🔍 **").append(r.shrunkSuites().size())
-                .append(" suite(s) ran fewer tests than on master** (tests that never ran can't fail):\n");
+            b.append("🔍 **").append(count(r.shrunkSuites().size(), "suite"))
+                .append(" ran fewer tests than on master** (tests that never ran can't fail):\n");
             r.shrunkSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
                 .append(s.tests()).append(" tests vs ").append(s.baseline())
                 .append(" on master (**−").append(s.dropPct()).append("%**)\n"));
@@ -165,34 +167,51 @@ public class VisaService {
             // Never say the re-runs are under way: this composes from the analysis alone and has no
             // idea whether anyone will re-run anything (a manual visa, a subscription, or auto-rerun
             // switched off). StandingVisas appends the real re-run state when there is one.
-            b.append("👀 **").append(watch.size()).append(" test(s) started failing on this code** — not proven ")
-                .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
-                .append("of the suite decides it.\n");
+            b.append("👀 **").append(count(watch.size(), "test")).append(" started failing on this code** — not ")
+                .append("proven blockers yet. There are ").append(TOO_FEW_RUNS)
+                .append(". A re-run of the suite decides it.\n");
             b.append(tests.markdown(watch, true)).append('\n');
         }
 
         if (!r.unverified().isEmpty()) {
-            b.append("❔ **").append(r.unverified().size()).append(" failed test(s) could not be checked** — ")
+            b.append("❔ **").append(count(r.unverified().size(), "failed test")).append(" could not be checked** — ")
                 .append("TeamCity errors kept them from being compared with master and the branch; not counted as ")
                 .append("blockers.\n");
             b.append(tests.markdown(r.unverified(), false)).append('\n');
         }
 
         if (standing == Caveats.Standing.WATCH)
-            b.append("⚠️ **No proven blocker yet** — this is not an all-clear: see the tests above. ")
-                .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+            b.append("⚠️ **No proven blocker yet** — this does not mean the PR is clean: see the tests above. ")
+                .append(notBlamed(r));
         else if (standing != Caveats.Standing.BLOCKERS)
-            b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ")
-                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
-                .append("Re-run once the above is sorted out.");
+            b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ").append(notBlamed(r))
+                .append(" Re-run once the above is sorted out.");
         else {
-            long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
-            b.append("❌ **").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s)")
-                .append(onOneRun(blockers)).append(":**\n")
+            b.append("❌ **").append(blockersIn(blockers)).append(onOneRun(blockers)).append(":**\n")
                 .append(tests.markdown(blockers, true));
         }
 
         return withLegend(b, tests.markdownLegend(tagged(r)));
+    }
+
+    /** "33 blockers in 2 suites": the suites counted as the page counts them, by suite, not by suite run. */
+    private static String blockersIn(List<TestVerdict> blockers) {
+        long suites = blockers.stream().map(t -> t.suite() == null ? Long.toString(t.suiteBuildId()) : t.suite())
+            .distinct().count();
+
+        return count(blockers.size(), "blocker") + " in " + count((int)suites, "suite");
+    }
+
+    /** "3 failing tests are not blamed on this PR.": the page's name for them, in the comment and the visa too. */
+    private static String notBlamed(AnalysisResult r) {
+        int n = r.filtered().size();
+
+        return count(n, "failing test") + (n == 1 ? " is" : " are") + " not blamed on this PR.";
+    }
+
+    /** "1 suite", "2 suites". */
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
     }
 
     /**
@@ -270,26 +289,20 @@ public class VisaService {
 
     /** The tests a broken suite never got to, stated under its cause rather than as a finding of its own. */
     private static String shortfall(BrokenSuite s) {
-        String ran = ranOf(s);
+        String ran = s.shortfall();
 
         return ran == null ? "" : " — " + ran;
     }
 
     /**
      * "Cache 1 (ran 33 of master's 67 tests)": a suite among others broken the same way, with its own shortfall, as
-     * the group's cause gives none.
+     * the group's cause gives none; when the cause is that very shortfall, the name alone.
      */
-    private static String nameAmongOthers(BrokenSuite s) {
+    private static String nameAmongOthers(BrokenGroup g, BrokenSuite s) {
         String name = BrokenGroup.nameOf(s.suiteName(), s.suite());
-        String ran = ranOf(s);
+        String ran = BrokenSuite.ran(s.tests(), s.baseline());
 
-        return ran == null ? name : name + " (" + ran + ")";
-    }
-
-    /** "ran 33 of master's 67 tests"; null when it ran them all or how many is not known. */
-    private static String ranOf(BrokenSuite s) {
-        return s.tests() > 0 && s.baseline() > s.tests()
-            ? "ran " + s.tests() + " of master's " + s.baseline() + " tests" : null;
+        return ran == null || ran.equals(g.title()) ? name : name + " (" + ran + ")";
     }
 
     /**
@@ -313,7 +326,7 @@ public class VisaService {
             case UPSTREAM, ARTIFACTS -> g.title() + ": " + names(suites);
             case PROBLEM -> suites.size() == 1 ? suiteLine(g.suites().get(0))
                 : g.title() + " (" + suites.size() + " suites): "
-                    + names(g.suites().stream().map(VisaService::nameAmongOthers).toList());
+                    + names(g.suites().stream().map(s -> nameAmongOthers(g, s)).toList());
         };
     }
 
@@ -381,8 +394,7 @@ public class VisaService {
         List<String> caveats = Caveats.of(r, commitsAhead);
         Caveats.Standing standing = Caveats.standing(r, commitsAhead);
         if (standing == Caveats.Standing.CLEAN) {
-            b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ")
-                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out.");
+            b.append("(/) *No blockers* — nothing in this run looks caused by this PR. ").append(notBlamed(r));
             return b.toString();
         }
 
@@ -405,8 +417,8 @@ public class VisaService {
         }
 
         if (!r.shrunkSuites().isEmpty()) {
-            b.append("(?) *").append(r.shrunkSuites().size())
-                .append(" suite(s) ran fewer tests than on master* (tests that never ran can't fail):\n");
+            b.append("(?) *").append(count(r.shrunkSuites().size(), "suite"))
+                .append(" ran fewer tests than on master* (tests that never ran can't fail):\n");
             r.shrunkSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
                 .append(s.tests()).append(" tests vs ").append(s.baseline())
                 .append(" on master (*-").append(s.dropPct()).append("%*)\n"));
@@ -415,30 +427,27 @@ public class VisaService {
 
         if (!watch.isEmpty()) {
             // Never say the re-runs are under way — see composeMarkdown.
-            b.append("(!) *").append(watch.size()).append(" test(s) started failing on this code* — not proven ")
-                .append("blockers yet: too few runs of this revision to tell a break from a flake, so a re-run ")
-                .append("of the suite decides it.\n");
+            b.append("(!) *").append(count(watch.size(), "test")).append(" started failing on this code* — not ")
+                .append("proven blockers yet. There are ").append(TOO_FEW_RUNS)
+                .append(". A re-run of the suite decides it.\n");
             b.append(tests.wiki(watch, true)).append('\n');
         }
 
         if (!r.unverified().isEmpty()) {
-            b.append("(?) *").append(r.unverified().size()).append(" failed test(s) could not be checked* — ")
+            b.append("(?) *").append(count(r.unverified().size(), "failed test")).append(" could not be checked* — ")
                 .append("TeamCity errors kept them from being compared with master and the branch; not counted as ")
                 .append("blockers.\n");
             b.append(tests.wiki(r.unverified(), false)).append('\n');
         }
 
         if (standing == Caveats.Standing.WATCH)
-            b.append("(!) *No proven blocker yet* — this is not an all-clear: see the tests above. ")
-                .append(r.filtered().size()).append(" pre-existing/flaky filtered out.");
+            b.append("(!) *No proven blocker yet* — this does not mean the PR is clean: see the tests above. ")
+                .append(notBlamed(r));
         else if (standing != Caveats.Standing.BLOCKERS)
-            b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ")
-                .append(r.filtered().size()).append(" pre-existing/flaky tests filtered out. ")
-                .append("Re-run once the above is sorted out.");
+            b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ").append(notBlamed(r))
+                .append(" Re-run once the above is sorted out.");
         else {
-            long suites = blockers.stream().map(TestVerdict::suiteBuildId).distinct().count();
-            b.append("(x) *").append(blockers.size()).append(" blocker(s) in ").append(suites).append(" suite(s)")
-                .append(onOneRun(blockers)).append(":*\n")
+            b.append("(x) *").append(blockersIn(blockers)).append(onOneRun(blockers)).append(":*\n")
                 .append(tests.wiki(blockers, true));
         }
 

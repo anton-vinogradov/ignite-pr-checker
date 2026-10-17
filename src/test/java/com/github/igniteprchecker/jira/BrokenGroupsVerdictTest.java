@@ -3,6 +3,7 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.analysis.BrokenRuns;
+import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.List;
@@ -56,7 +57,7 @@ class BrokenGroupsVerdictTest {
         String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.artifactsGlitch());
 
         assertThat(md)
-            .contains("- 64 suite(s) have no reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero "
+            .contains("- 64 suites have no reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero "
                 + "exit code; execution timeout; …)\n")
             .contains("⚠️ **Broken suites** (no reliable run):\n"
                 + "- ci2 glitch: artifacts unavailable (60 suites): Suite 1, Suite 2, Suite 3, Suite 4, Suite 5 and 55 "
@@ -65,6 +66,53 @@ class BrokenGroupsVerdictTest {
                 + "- Cache 5: execution timeout — ran 12 of master's 35 tests\n"
                 + "- Basic 3: Failed to create temporary custom script file")
             .doesNotContain("Suite 6,");
+    }
+
+    /** TeamCity named only its count of the shortfall, so the shortfall is the suite's one problem: said once. */
+    @Test
+    void aSuiteWhoseOnlyProblemIsItsShortfallSaysItOnce() {
+        String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
+            List.of(new BrokenSuite("IgniteTests24Java8_Ml", 9392102L, "Machine Learning",
+                List.of("ran 12 of master's 35 tests"), 12, 35))));
+
+        assertThat(md).contains("- Machine Learning: ran 12 of master's 35 tests\n")
+            .contains("- 1 suite has no reliable result (ran 12 of master's 35 tests)\n")
+            .doesNotContain("tests — ran 12");
+    }
+
+    /**
+     * TeamCity failed Machine Learning and Cache 5 only for their test counts, 12 of master's 35 and 30 of master's
+     * 80: the comment said "ran N of master's N tests (2 suites): Machine Learning, Cache 5", with no count anywhere.
+     */
+    @Test
+    void suitesShortOnlyOfTestsKeepTheirOwnCountsInAGroup() {
+        AnalysisResult r = BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), List.of(
+            new BrokenSuite("IgniteTests24Java8_Ml", 1L, "Machine Learning", List.of("ran 12 of master's 35 tests"), 12,
+                35),
+            new BrokenSuite("IgniteTests24Java8_Cache5", 2L, "Cache 5", List.of("ran 30 of master's 80 tests"), 30,
+                80)));
+
+        String group = "ran fewer tests than on master (2 suites): Machine Learning (ran 12 of master's 35 tests), "
+            + "Cache 5 (ran 30 of master's 80 tests)\n";
+        int pr = BrokenRuns.PR_13655;
+        for (String body : List.of(visas.composeMarkdown(pr, r), visas.compose(pr, r))) {
+            assertThat(body).contains("- " + group)
+                .contains("- 2 suites have no reliable result (2× ran fewer tests than on master)\n")
+                .doesNotContain("ran N");
+        }
+    }
+
+    /** Two suites short by the same count: the group's line says the count, and the names do not repeat it. */
+    @Test
+    void aShortfallTheGroupNamesIsNotRepeatedAfterEachSuite() {
+        String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
+            List.of(
+                new BrokenSuite("IgniteTests24Java8_Ml", 1L, "Machine Learning", List.of("ran 12 of master's 35 tests"),
+                    12, 35),
+                new BrokenSuite("IgniteTests24Java8_Ml2", 2L, "Machine Learning 2",
+                    List.of("ran 12 of master's 35 tests"), 12, 35))));
+
+        assertThat(md).contains("- ran 12 of master's 35 tests (2 suites): Machine Learning, Machine Learning 2\n");
     }
 
     /** Two suites hung the same way, each after its own share of master's tests: neither's numbers fit the other. */
@@ -78,7 +126,7 @@ class BrokenGroupsVerdictTest {
                     "execution timeout", "Number of tests 50 is 77% less than 216 in build #2313"), 50, 216))));
 
         assertThat(md)
-            .contains("- 2 suite(s) have no reliable result (2× execution timeout · Number of tests N is N% less than "
+            .contains("- 2 suites have no reliable result (2× execution timeout · Number of tests N is N% less than "
                 + "N in build #N)\n")
             .contains("- execution timeout · Number of tests N is N% less than N in build #N (2 suites): Cache "
                 + "(Failover) 5 (ran 5 of master's 67 tests), Disk Page Compressions 8 (ran 50 of master's 216 "

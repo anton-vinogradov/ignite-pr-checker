@@ -4,7 +4,6 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -24,6 +23,8 @@ public final class Caveats {
     /** What the caveat about broken suites said of their causes before it named them; see {@link #keyOf}. */
     private static final String UNNAMED_CAUSES = "compilation error, timeout, crash";
 
+    private static final String NEWER_RUN_GOING = "a newer run is still going — its unfinished suites can still fail";
+
     private Caveats() {
     }
 
@@ -32,47 +33,75 @@ public final class Caveats {
      * {@code commitsAhead} is null when nobody checked whether the PR head has moved.
      */
     public static List<String> of(AnalysisResult r, Integer commitsAhead) {
-        return of(r, commitsAhead, Caveats::causesOf);
-    }
-
-    /**
-     * The caveats as a key telling two verdicts of one revision apart. The broken suites' causes are left out, as
-     * TeamCity words them with the numbers of each run, and the caveat reads as it did before it named them, so the
-     * key of a visa an older release posted still matches.
-     */
-    public static List<String> keyOf(AnalysisResult r) {
-        return of(r, null, causes -> UNNAMED_CAUSES);
-    }
-
-    private static List<String> of(AnalysisResult r, Integer commitsAhead,
-        Function<List<BrokenGroup>, String> causesText) {
-        List<String> out = new ArrayList<>();
-        List<BrokenGroup> groups = BrokenGroup.of(r);
-        List<BrokenGroup> upstreams = groups.stream().filter(g -> g.upstream() != null).toList();
-        upstreams.forEach(g -> out.add(g.caveat()));
-
-        int keptFromRunning = upstreams.stream().mapToInt(g -> g.cancelled().size()).sum();
-        if (r.interrupted() && r.canceledSuites() > keptFromRunning)
-            out.add("the RunAll was interrupted — " + (r.canceledSuites() - keptFromRunning) + " suite(s) never ran");
-
-        List<BrokenGroup> causes = groups.stream().filter(g -> g.upstream() == null).toList();
-        int broken = causes.stream().mapToInt(g -> g.suites().size()).sum();
-        if (broken > 0)
-            out.add(broken + " suite(s) have no reliable result (" + causesText.apply(causes) + ")");
-
-        if (!r.shrunkSuites().isEmpty())
-            out.add(r.shrunkSuites().size() + " suite(s) ran far fewer tests than the same suites on master");
-
-        if (!r.unverified().isEmpty())
-            out.add(r.unverified().size() + " failed test(s) could not be checked (TeamCity errors)");
-
-        if (r.live())
-            out.add("a newer run is still going — its unfinished suites can still fail");
-
+        Gaps g = Gaps.of(r);
+        List<String> out = new ArrayList<>(g.upstream());
+        if (g.neverRan() > 0)
+            out.add("the RunAll was interrupted — " + suites(g.neverRan()) + " never ran");
+        if (g.broken() > 0) {
+            out.add(suites(g.broken()) + (g.broken() == 1 ? " has" : " have") + " no reliable result ("
+                + causesOf(g.causes()) + ")");
+        }
+        if (g.shrunk() > 0) {
+            out.add(suites(g.shrunk()) + " ran far fewer tests than the same " + (g.shrunk() == 1 ? "suite" : "suites")
+                + " on master");
+        }
+        if (g.unchecked() > 0) {
+            out.add(g.unchecked() + " failed test" + (g.unchecked() == 1 ? "" : "s")
+                + " could not be checked (TeamCity errors)");
+        }
+        if (g.live())
+            out.add(NEWER_RUN_GOING);
         if (commitsAhead != null && commitsAhead > 0)
             out.add(pushedSince(commitsAhead));
 
         return out;
+    }
+
+    /**
+     * The caveats as a key telling two verdicts of one revision apart, in the words of the first release that posted
+     * visas under such keys: the key never follows the words {@link #of} shows, so a visa an older release posted
+     * still matches, and no second visa of the same verdict goes out when the words change. The broken suites'
+     * causes are left out, as TeamCity words them with the numbers of each run.
+     */
+    public static List<String> keyOf(AnalysisResult r) {
+        Gaps g = Gaps.of(r);
+        List<String> out = new ArrayList<>(g.upstream());
+        if (g.neverRan() > 0)
+            out.add("the RunAll was interrupted — " + g.neverRan() + " suite(s) never ran");
+        if (g.broken() > 0)
+            out.add(g.broken() + " suite(s) have no reliable result (" + UNNAMED_CAUSES + ")");
+        if (g.shrunk() > 0)
+            out.add(g.shrunk() + " suite(s) ran far fewer tests than the same suites on master");
+        if (g.unchecked() > 0)
+            out.add(g.unchecked() + " failed test(s) could not be checked (TeamCity errors)");
+        if (g.live())
+            out.add(NEWER_RUN_GOING);
+
+        return out;
+    }
+
+    private static String suites(int n) {
+        return n + (n == 1 ? " suite" : " suites");
+    }
+
+    /**
+     * What a run left uncovered, counted once for {@link #of} and {@link #keyOf}: the caveats of the failed runs
+     * other suites needed, how many suites never ran for other reasons, how many are broken and why, how many ran
+     * far fewer tests than master, how many failed tests went unchecked, and whether a newer run is still going.
+     */
+    private record Gaps(List<String> upstream, int neverRan, int broken, List<BrokenGroup> causes, int shrunk,
+        int unchecked, boolean live) {
+        static Gaps of(AnalysisResult r) {
+            List<BrokenGroup> groups = BrokenGroup.of(r);
+            List<BrokenGroup> upstreams = groups.stream().filter(g -> g.upstream() != null).toList();
+            int keptFromRunning = upstreams.stream().mapToInt(g -> g.cancelled().size()).sum();
+            List<BrokenGroup> causes = groups.stream().filter(g -> g.upstream() == null).toList();
+
+            return new Gaps(upstreams.stream().map(BrokenGroup::caveat).toList(),
+                r.interrupted() ? Math.max(0, r.canceledSuites() - keptFromRunning) : 0,
+                causes.stream().mapToInt(g -> g.suites().size()).sum(), causes, r.shrunkSuites().size(),
+                r.unverified().size(), r.live());
+        }
     }
 
     /** "60× ci2 glitch: artifacts unavailable; execution timeout; …": the groups' causes, the most common first. */
@@ -96,7 +125,7 @@ public final class Caveats {
 
     /** The caveat of a run the PR's head has since moved past by {@code commits} commits. */
     public static String pushedSince(int commits) {
-        return commits + " commit(s) pushed since this run — it tested older code";
+        return commits + (commits == 1 ? " commit" : " commits") + " pushed since this run — it tested older code";
     }
 
     /** The caveat of a run the PR's head has since moved past by a count not known yet. */

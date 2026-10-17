@@ -93,7 +93,7 @@ class SettlingPhaseTest {
         assertThat(phase.phase()).isEqualTo("settling");
         assertThat(phase.wave()).isEqualTo(1);
         assertThat(phase.of()).isEqualTo(2);
-        assertThat(phase.what()).isEqualTo("1 blocker suite(s)");
+        assertThat(phase.what()).isEqualTo("1 suite with blockers");
         assertThat(phase.etaEpochSec()).isBetween(eta - 5, eta + 5);
     }
 
@@ -282,7 +282,7 @@ class SettlingPhaseTest {
 
     private static TestVerdict blocker() {
         return new TestVerdict(9389011L, "Cache1Test.test", "Cache1", 9389011L, "Cache 1", "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... blockers) {

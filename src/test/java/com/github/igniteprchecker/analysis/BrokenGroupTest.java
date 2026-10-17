@@ -219,7 +219,7 @@ class BrokenGroupTest {
 
     @Test
     void theCaveatNamesTheRealCauses() {
-        assertThat(Caveats.of(BrokenRuns.artifactsGlitch(), null)).containsExactly("64 suite(s) have no reliable "
+        assertThat(Caveats.of(BrokenRuns.artifactsGlitch(), null)).containsExactly("64 suites have no reliable "
             + "result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …)");
         assertThat(Caveats.of(BrokenRuns.buildFailed(false), null))
             .containsExactly("Build failed — nothing else ran");

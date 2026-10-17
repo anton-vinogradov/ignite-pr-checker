@@ -30,31 +30,33 @@
 
 ### Причины под тестом
 
-Причина состоит из части про master и части про ветку, через `;`. `N`, `F/R` и `abc1234` — числа и ревизия.
+Причина состоит из части про master и части про ветку, через `;`. `N`, `F/R` и `abc1234` — числа и коммит.
 `on JDK 17` значит, что считались только прогоны master на JDK этого PR. Замьюченное падение не показывается
 никогда, а прогон, где тест был проигнорирован, прогоном не считается.
 
 | Причина | Что значит | Что делать |
 |---|---|---|
-| `not seen failing in N master run(s)` | На master тест прогнали в этой сьюте N раз (не больше последних 100), и он ни разу не упал. | Смотри часть про ветку. |
-| `not seen failing in only N master run(s) on JDK 17` | То же, но прогонов master на JDK этого PR меньше 10: доводов мало. | Смотри часть про ветку. |
+| `not seen failing in N master runs` | На master тест прогнали в этой сьюте N раз (не больше последних 100), и он ни разу не упал. | Смотри часть про ветку. |
+| `not seen failing in only N master runs on JDK 17` | То же, но прогонов master на JDK этого PR меньше 10: доводов мало. | Смотри часть про ветку. |
 | `no master history (can't prove pre-existing)` | На master нет ни одного прогона теста на JDK этого PR: новый тест или тест, который master не гоняет. Метка `new test / no master history`. | Убедись, что тест стабилен: судить о нём можно только по этому PR. |
 | `rare on master: fails F/R, passed the last G` | На master тест падает не чаще чем в 2% прогонов и ни разу в последних 10, а падений подряд в PR слишком много для такой случайности. | Считай блокером. |
 | `fails F/R on master at TEST_SCALE_FACTOR=1.0, but f/r on other PR branches at 0.1` | На master тест падает минимум в половине прогонов, но только на масштабе, с которым этот PR не гоняли. В других PR, прогнанных так же, он падает редко, а падений подряд в этом PR слишком много для их частоты. | Считай блокером. |
 | `…; fails F/R in K other PRs` (у блокера) | Тест падает ещё в 3 и более других PR, но падений подряд в этом PR слишком много для такой флакучести. | Считай блокером. |
 | `failed all N runs on this branch`, `failed the last N of M runs on this branch` | Последние 3 завершённых прогона сьюты на ветке уронили тест, или все прогоны, если их меньше. Блокер. | Исправь код. |
 | `failed the only run on this branch` | Тест прогнали на ветке один раз, и он упал. Блокер, ещё не подтверждённый. В строке под тестом этой части причины нет: заголовок **Not confirmed: 1 run** или строка **Not confirmed yet** над списком уже говорит об этом. | Нажми **Rerun** у сьюты, чтобы подтвердить. |
-| `failed all N runs on revision abc1234` | Все прогоны текущего кода PR уронили тест, и их было минимум 2. Блокер. | Исправь код. |
-| `first failure on revision abc1234 — watch (nothing has passed on this code; …)` | Текущий код прогнали один раз, и тест упал; прежние прогоны были на старом коде. Под наблюдением. | Нажми **Rerun** у сьюты. |
-| `started failing in the last N of M runs on revision abc1234 — watch (an earlier run on the same code passed)` | Минимум 2 падения подряд на текущем коде после прохода на том же коде. Под наблюдением. | Нажми **Rerun** у сьюты. |
-| `… — watch (too few failures on this code yet to outweigh other PRs)` | Случай с масштабом выше, но падений пока мало, чтобы перевесить частоту в других PR. Под наблюдением. | Нажми **Rerun** у сьюты. |
+| `failed all N runs on commit abc1234` | Все прогоны текущего кода PR уронили тест, и их было минимум 2. Блокер. | Исправь код. |
+| `failed the only run on commit abc1234; the N earlier runs were on other code` | Текущий код прогнали один раз, и тест упал; прежние прогоны шли на старом коде. Под наблюдением. | Нажми **Rerun** у сьюты. |
+| `failed the latest run; TeamCity gave no commit for it, so the N earlier runs do not count` | Последний прогон упал, и TeamCity не назвал для него коммит. Прежние прогоны могли идти на другом коде, поэтому считается только последний. Под наблюдением. | Нажми **Rerun** у сьюты. |
+| `failed the last N of M runs on commit abc1234, after a pass on the same commit` | Минимум 2 падения подряд на текущем коде после прохода на том же коде. Под наблюдением. | Нажми **Rerun** у сьюты. |
+| `…; too few failures on this code yet to outweigh other PRs` | Случай с масштабом выше, но падений пока мало, чтобы перевесить частоту в других PR. Под наблюдением. | Нажми **Rerun** у сьюты. |
 | `pre-existing: fails F/R on master` | Тест падает и на master. В отсеве. | Для PR — ничего. |
 | `flaky on other PR branches: fails F/R in K other PRs; …` | Тест падает в 3 и более других PR, и падений в этом PR не хватает, чтобы это перевесить. В отсеве. | Для PR — ничего. |
-| `flaky on branch: failed only the latest of N runs on revision abc1234 (an earlier run on the same code passed)` | Тест упал один раз после прохода на том же коде. В отсеве. | Ничего или перезапусти для верности. |
+| `flaky on branch: failed only the latest of N runs on commit abc1234 (an earlier run on the same code passed)` | Тест упал один раз после прохода на том же коде. В отсеве. | Ничего или перезапусти для верности. |
 | `not failing in the last finished run (passed on re-run)` | Последний завершённый прогон теста на ветке прошёл. В отсеве. | Ничего. |
 | `could not verify (TeamCity error: …)` | Проверку оборвала ошибка TeamCity. Тест в карточке **Could not be checked**. | Ничего: проверка повторится. |
-| `(the N earlier branch runs ran on other code)` | Прогоны на старой ревизии не считаются; в полоске они бледные. | — |
-| `(passed just before, but TeamCity gave no revisions to prove that was the same code)`, `(… could not be placed on a revision)` | TeamCity не дал ревизию части прогонов, и сравнить их не удалось. | — |
+| `the N earlier runs were on other code` | Прогоны на старом коммите не считаются; в полоске они бледные. | — |
+| `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code` | TeamCity не назвал коммит ни для одного прогона теста на ветке, поэтому тест мог пройти на другом коде. | — |
+| `revision`, `run(s)`, `— watch` в вердикте смерженного PR | Смерженный PR хранит вердикт на момент мержа в формулировках выпуска чекера, который этот вердикт посчитал. | — |
 
 ### Оговорки
 
@@ -63,12 +65,12 @@
 | Оговорка | Что значит | Что делать |
 |---|---|---|
 | `Build failed — N suites that need it did not run` | Упал прогон, который нужен остальным сьютам, и они не запускались. | Почини сборку, запушь, запусти RunAll снова. |
-| `the RunAll was interrupted — N suite(s) never ran` | Сьюты отменили до запуска. | Нажми **Rerun** у них или запусти RunAll снова. |
-| `N suite(s) have no reliable result (…)` | Битые сьюты; причины в скобках. | См. [причины битых сьют](#причины-битых-сьют). |
-| `N suite(s) ran far fewer tests than the same suites on master` | См. **Fewer tests than master**. | Сверь списки тестов, перезапусти. |
-| `N failed test(s) could not be checked (TeamCity errors)` | См. **Could not be checked**. Виза, комментарий в PR и автоперезапуск ждут повторной проверки до 20 минут, потом идут дальше и перечисляют такие тесты отдельно. | Подожди. |
+| `the RunAll was interrupted — N suites never ran` | Сьюты отменили до запуска. | Нажми **Rerun** у них или запусти RunAll снова. |
+| `N suites have no reliable result (…)` | Битые сьюты; причины в скобках. | См. [причины битых сьют](#причины-битых-сьют). |
+| `N suites ran far fewer tests than the same suites on master` | См. **Fewer tests than master**. | Сверь списки тестов, перезапусти. |
+| `N failed tests could not be checked (TeamCity errors)` | См. **Could not be checked**. Виза, комментарий в PR и автоперезапуск ждут повторной проверки до 20 минут, потом идут дальше и перечисляют такие тесты отдельно. | Подожди. |
 | `a newer run is still going — its unfinished suites can still fail` | В вердикт подмешан RunAll, который ещё идёт. | Дождись его конца. |
-| `N commit(s) pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | HEAD PR сдвинулся после прогона. Так пишут комментарий и виза; страница пишет `it tested older code (see the note at the top)`, а строка наверху называет оба коммита и, когда ответит GitHub, их число. | Запусти RunAll снова. |
+| `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | HEAD PR сдвинулся после прогона. Так пишут комментарий и виза; страница пишет `it tested older code (see the note at the top)`, а строка наверху называет оба коммита и, когда ответит GitHub, их число. | Запусти RunAll снова. |
 | `could not check whether the PR changed since this run` | Только на странице: GitHub или ci2 не ответил, та ли ещё ревизия в HEAD PR, что проверял прогон, поэтому страница не называет вердикт чистым. | Обнови страницу через минуту. |
 
 ### Причины битых сьют
@@ -84,7 +86,7 @@
 | `ci2 glitch: artifacts unavailable (N suites)` | ci2 не отдал этим сьютам артефакты нужного им прогона, хотя тот прошёл. | Перезапусти: обычно со второго раза артефакты доходят. |
 | `Build failed — N suites that need it did not run; fix the build, then /run-all` | Упал шаг сборки, и сьюты, которым он нужен, не запускались. `nothing else ran` — если в цепочке больше ничего и не было. | Почини сборку, запушь, `/run-all` или **Run**. |
 | `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | Сборка теперь проходит, но у сьют, которым она нужна, нет результата. | `/run-all` или **Run**. |
-| `— ran 33 of master's 67 tests` (после причины) | Сколько тестов битая сьюта успела прогнать. Недобор объясняется причиной, а не пропажей тестов. | — |
+| `— ran 33 of master's 67 tests` (после причины), `ran 33 of master's 67 tests` (отдельно), `ran fewer tests than on master` (группа) | Сколько тестов битая сьюта успела прогнать. Недобор объясняется причиной, а не пропажей тестов. Если TeamCity не сообщил ничего, кроме своего подсчёта этого недобора, строка говорит только, сколько тестов сьюта успела прогнать. Несколько таких сьют с разным недобором стоят под общей строкой `ran fewer tests than on master`, и у каждой сьюты остаются её числа. Если в подсчёте TeamCity другие числа, строка показывает его как причину: TeamCity сравнивал с прогоном, который выбрал сам. | — |
 | что угодно другое | Первая строка текста проблемы от самого TeamCity. | Открой **TC**. |
 
 ### Метки у теста
@@ -141,9 +143,9 @@
 
 | Что | По умолчанию | Где видно |
 |---|---|---|
-| Сколько прогонов master смотреть на тест в сьюте | 100 (`MASTER_HISTORY_DEPTH`) | `pre-existing`, `not seen failing in N master run(s)` |
+| Сколько прогонов master смотреть на тест в сьюте | 100 (`MASTER_HISTORY_DEPTH`) | `pre-existing`, `not seen failing in N master runs` |
 | Сколько падений подряд на ветке дают блокер | 3, или все прогоны, если их меньше (`BLOCKER_FAIL_STREAK`) | `failed all N runs on this branch` |
-| Мало истории на master | меньше 10 прогонов master на JDK этого PR | `only N master run(s)` |
+| Мало истории на master | меньше 10 прогонов master на JDK этого PR | `only N master runs` |
 | Редкое падение на master | не больше 2% прогонов master и ни одного в последних 10 | `rare on master` |
 | Слишком много падений для случайности | вероятность не больше 1 к 10 000: 2 подряд против 1%, 3 против 2%, 5 против 12,5% | `rare on master`, причины про другие PR и масштаб |
 | Флаки в других PR | падает в 3 и более других PR | `flaky on other PR branches` |
@@ -377,10 +379,10 @@ PR, который GitHub не принял от аккаунта чекера, 
   группа первой. В каждой строке метки теста (`1 run`, `new test / no master history`, `unverified`) и ссылка TC, а
   строка под списками объясняет метки. Комментарий в PR показывает 5 групп и сворачивает остальные; виза — 10.
 - Вердикт, который не может назвать PR чистым, перечисляет оговорки. Вердикт кода, поверх которого уже запушили,
-  говорит, какую ревизию он проверял и какой head у PR сейчас. Красный комментарий в PR кончается строкой **Next:**:
+  говорит, какой коммит он проверял и какой head у PR сейчас. Красный комментарий в PR кончается строкой **Next:**:
   исправь, запушь и `/run-all`.
-- В каждом вердикте сразу под списками стоит ссылка на [словарь вердикта](#словарь-вердикта); строки о проверенной
-  ревизии и строка **Next:** идут после неё.
+- В каждом вердикте сразу под списками стоит ссылка на [словарь вердикта](#словарь-вердикта); строки о проверенном
+  коммите и строка **Next:** идут после неё.
 - Комментарий в PR пишет аккаунт чекера, и начинается он с упоминания того, кто запустил прогон, если его логин GitHub
   доказан, — тогда GitHub ему сообщит. Если в заголовке PR нет тикета IGNITE, а опция визы включена, комментарий говорит,
   почему визы нет.
@@ -405,7 +407,7 @@ GitHub — аккаунта приложения.
   поставленная сборка, затем `⏱ Queued — expected to finish ≈ 21:05 MSK` в часовом поясе твоего браузера, который ⚙
   передаёт при каждом изменении, а до того — в UTC. Рассказ правится, когда меняется стадия или оценка сдвигается на 10
   минут и больше; о правке GitHub никому не сообщает.
-- После конца цепочки рассказ показывает волны перезапусков (`♻️ Auto re-run #2 — 3 broken suite(s), ≈ settled by 22:21`).
+- После конца цепочки рассказ показывает волны перезапусков (`♻️ Auto re-run #2 — 3 broken suites, ≈ settled by 22:21`).
   Когда вердикт готов, тебя упоминает новый комментарий: комментарий с вердиктом, если включена **Post my runs' verdicts in
   the PR**, иначе комментарий о том, что вердикт готов, со ссылкой на него. Пометка
   автоисправления переходит в этот комментарий, а комментарий с рассказом удаляется, и от прогона в PR остаётся один

@@ -163,7 +163,7 @@ class BranchWatermarkTest {
         mapper.writeValue(file.toFile(), Map.of(
             "history", List.of(),
             "results", List.of(Map.of("key", RUN_ALL, "value", result, "expiresAt", Long.MAX_VALUE)),
-            "rules", TestVerdict.RULES));
+            "rules", TestVerdict.RULES, "texts", AnalysisCache.TEXTS));
 
         cache.loadFrom(file);
 

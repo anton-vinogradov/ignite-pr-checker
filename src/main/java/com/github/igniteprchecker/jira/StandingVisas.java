@@ -867,7 +867,7 @@ public class StandingVisas implements SnapshotCache {
         if (r == null || r.pr() != pr)
             return Optional.empty();
 
-        return Optional.of(new WaveStatus(r.wave(), r.what(), activeEtaEpoch(pr)));
+        return Optional.of(new WaveStatus(r.wave(), inPresentWords(r.what()), activeEtaEpoch(pr)));
     }
 
     /**
@@ -881,7 +881,7 @@ public class StandingVisas implements SnapshotCache {
 
         Retry r = waves.get(buildId);
         if (r != null && r.pr() == pr)
-            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, r.what(), activeEtaEpoch(pr));
+            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, inPresentWords(r.what()), activeEtaEpoch(pr));
         if (Long.valueOf(buildId).equals(deciding.get(pr)))
             return new Phase(Phase.SETTLING, 0, MAX_RERUNS, null, null);
 
@@ -2007,9 +2007,9 @@ public class StandingVisas implements SnapshotCache {
             String.join(";", Caveats.keyOf(r)));
     }
 
-    /** "Tested revision abc1234; the PR head is now def5678." with the revisions wrapped in the markup's code marks. */
+    /** "Tested commit abc1234; the PR head is now def5678." with the commits wrapped in the markup's code marks. */
     private static String revisions(PendingCommits.Ahead ahead, String open, String close) {
-        return "Tested revision " + open + ahead.builtShort() + close + "; the PR head is now " + open
+        return "Tested commit " + open + ahead.builtShort() + close + "; the PR head is now " + open
             + ahead.headShort() + close + ".";
     }
 
@@ -2755,9 +2755,12 @@ public class StandingVisas implements SnapshotCache {
         if (history == null || history.isEmpty())
             return null;
 
-        StringBuilder b = new StringBuilder("♻️ Settled after ").append(history.size()).append(" auto re-run wave(s):");
-        for (int i = 0; i < history.size(); i++)
-            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ").append(history.get(i));
+        StringBuilder b = new StringBuilder("♻️ Settled after ").append(history.size()).append(" auto re-run wave")
+            .append(history.size() == 1 ? ":" : "s:");
+        for (int i = 0; i < history.size(); i++) {
+            b.append(i == 0 ? " " : "; ").append("#").append(i + 1).append(" — ")
+                .append(inPresentWords(history.get(i)));
+        }
 
         return b.append(".").toString();
     }
@@ -2799,19 +2802,58 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** e.g. {@code "2 blocker suite(s)"}, {@code "2 blocker + 1 watch + 3 broken + 4 cancelled suite(s)"}. */
+    /**
+     * The suites a wave re-runs, by why: {@code "3 suites (2 with blockers, 1 broken)"}, or by the one reason when
+     * there is one, {@code "2 suites with blockers"}, {@code "1 suite to watch"}, {@code "3 broken suites"},
+     * {@code "4 cancelled suites"}.
+     */
     private static String suitesLabel(int blockers, int watch, int broken, int cancelled) {
         List<String> parts = new ArrayList<>();
         if (blockers > 0)
-            parts.add(blockers + " blocker");
+            parts.add(blockers + " with blockers");
         if (watch > 0)
-            parts.add(watch + " watch");
+            parts.add(watch + " to watch");
         if (broken > 0)
             parts.add(broken + " broken");
         if (cancelled > 0)
             parts.add(cancelled + " cancelled");
+        int n = blockers + watch + broken + cancelled;
+        String suites = n + (n == 1 ? " suite" : " suites");
+        if (parts.size() > 1)
+            return suites + " (" + String.join(", ", parts) + ")";
+        if (blockers > 0)
+            return suites + " with blockers";
+        if (watch > 0)
+            return suites + " to watch";
+        if (broken > 0)
+            return n + " broken" + (n == 1 ? " suite" : " suites");
+        if (cancelled > 0)
+            return n + " cancelled" + (n == 1 ? " suite" : " suites");
 
-        return parts.isEmpty() ? "0 suite(s)" : String.join(" + ", parts) + " suite(s)";
+        return suites;
+    }
+
+    /** A wave's label as releases before this one wrote it: "2 blocker + 1 broken suite(s)", "0 suite(s)". */
+    private static final Pattern EARLIER_LABEL = Pattern.compile(
+        "(?:0|\\d+ (?:blocker|watch|broken|cancelled)(?: \\+ \\d+ (?:blocker|watch|broken|cancelled))*) suite\\(s\\)");
+
+    private static final Pattern EARLIER_LABEL_PART = Pattern.compile("(\\d+) (blocker|watch|broken|cancelled)");
+
+    /**
+     * A wave's label in this release's words. The snapshot keeps each label as the release that queued the wave
+     * wrote it, so a wave queued before a deploy is said after it in the earlier words otherwise.
+     */
+    private static String inPresentWords(String label) {
+        if (label == null || !EARLIER_LABEL.matcher(label).matches())
+            return label;
+
+        Map<String, Integer> counts = new HashMap<>();
+        Matcher m = EARLIER_LABEL_PART.matcher(label);
+        while (m.find())
+            counts.merge(m.group(2), Integer.parseInt(m.group(1)), Integer::sum);
+
+        return suitesLabel(counts.getOrDefault("blocker", 0), counts.getOrDefault("watch", 0),
+            counts.getOrDefault("broken", 0), counts.getOrDefault("cancelled", 0));
     }
 
     /** Queue-aware settle estimate for the PR's live re-runs, from the tracker; null when unknown. */

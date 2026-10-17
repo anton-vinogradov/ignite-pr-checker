@@ -42,6 +42,13 @@ class CauseSignatureTest {
                 + "has failed");
     }
 
+    /** The directory sits inside brackets: the rule stops at the bracket, so only the path goes and the bracket stays. */
+    @Test
+    void theAgentsWorkDirectoryInsideBracketsLeavesTheBrackets() {
+        assertThat(CauseClusters.signature("Failed to open (/opt/teamcity/work/425d7af4e9aa99d9/modules/x.cfg)"))
+            .isEqualTo("Failed to open (modules/x.cfg)");
+    }
+
     @Test
     void bareComparisonNamesTheFailingLineOfTheTest() throws IOException {
         String reservation = CauseClusters.signature(sample("assertion-testGroupReservation.txt"));

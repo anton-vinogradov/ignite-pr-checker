@@ -98,7 +98,7 @@ class SettleOnEventTest {
         when(tc.getBuildState("tc", RERUN)).thenReturn(rerun("finished"));
         tracker.refresh();
 
-        verify(github, timeout(5_000)).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave(s)"));
+        verify(github, timeout(5_000)).appComment(eq(PR), any(), contains("Settled after 1 auto re-run wave:"));
     }
 
     /** The application's beans for the tracker's events, with an enrolled user who has auto re-run on. */
@@ -154,7 +154,7 @@ class SettleOnEventTest {
 
     private static TestVerdict blocker() {
         return new TestVerdict(9389011L, "Cache1Test.test", "Cache1", 9389011L, "Cache 1", "o1", true, false,
-            "not seen failing in 100 master run(s)", "F", 1);
+            "not seen failing in 100 master runs", "F", 1);
     }
 
     private static AnalysisResult verdict(TestVerdict... blockers) {

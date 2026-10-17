@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.jira;
 
+import com.github.igniteprchecker.analysis.CauseClusters;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.analysis.model.TestVerdict.Doubt;
 import java.net.URLEncoder;
@@ -50,7 +51,7 @@ final class TestGroups {
 
     /** What each tag means: the page says it in a tooltip, the PR comment and the visa under their lists. */
     private static final Map<Doubt, String> MEANS = new EnumMap<>(Map.of(
-        Doubt.ONE_RUN, "only one failure on this branch backs it: a re-run of its suite confirms or clears it",
+        Doubt.ONE_RUN, "the test ran once on this code and failed; a rerun of its suite confirms or clears it",
         Doubt.NO_MASTER_HISTORY, "master has no runs of the test on this JDK to compare with: a new test, or one "
             + "master does not run",
         Doubt.UNCHECKED, "a TeamCity error kept the check of other PRs' runs of the test from being made"));
@@ -181,11 +182,12 @@ final class TestGroups {
         return left > 0 ? " and " + left + " more" : "";
     }
 
-    /** "37 more test(s) in 4 class(es)" for the groups left out. */
+    /** "37 more tests in 4 classes" for the groups left out. */
     private static String more(List<Group> left) {
         int tests = left.stream().mapToInt(g -> g.tests().size()).sum();
 
-        return tests + " more test(s) in " + left.size() + " class(es)";
+        return tests + " more test" + (tests == 1 ? "" : "s") + " in " + left.size()
+            + (left.size() == 1 ? " class" : " classes");
     }
 
     /** The test's own row in the run's Tests tab, opened. */
@@ -266,13 +268,14 @@ final class TestGroups {
     }
 
     /**
-     * A TeamCity test name without its suite prefix and package: {@code cls} and {@code method}, a dot inside
-     * {@code (…)} or {@code […]} kept. A failure of the class itself ("pkg.SomeTest.") has no method; a name
-     * with no dot at all has no class.
+     * A TeamCity test name without its suite prefix, package and the agent's work directory: {@code cls} and
+     * {@code method}, a dot inside {@code (…)} or {@code […]} kept. A failure of the class itself ("pkg.SomeTest.")
+     * has no method; a name with no dot at all has no class.
      */
     record Name(String cls, String method) {
         static Name of(String name) {
-            String s = name.contains(": ") ? name.substring(name.indexOf(": ") + 2) : name;
+            String s = CauseClusters.AGENT_WORK_DIR.matcher(name.contains(": ") ? name.substring(name.indexOf(": ") + 2)
+                : name).replaceAll("");
             boolean classLevel = s.endsWith(".");
             List<String> segs = new ArrayList<>();
             StringBuilder seg = new StringBuilder();

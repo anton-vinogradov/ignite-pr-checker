@@ -47,6 +47,29 @@ public record BrokenSuite(String suite, long suiteBuildId, String suiteName, Lis
             || problems != null && problems.contains("compilation error");
     }
 
+    /**
+     * "ran 33 of master's 67 tests": how far it got, to say after its problems; null when it ran them all, how many
+     * is not known, or that is all its problems say (see {@link #ran}).
+     */
+    public String shortfall() {
+        return onlyShortfall() ? null : ran(tests, baseline);
+    }
+
+    /** Whether its one problem is its shortfall: TeamCity named nothing but its own count of the tests. */
+    public boolean onlyShortfall() {
+        String ran = ran(tests, baseline);
+
+        return ran != null && problems != null && problems.equals(List.of(ran));
+    }
+
+    /**
+     * "ran 33 of master's 67 tests", the problem of a suite whose only problem TeamCity named was this count; null
+     * when it ran them all or how many is not known.
+     */
+    public static String ran(int tests, int baseline) {
+        return tests > 0 && baseline > tests ? "ran " + tests + " of master's " + baseline + " tests" : null;
+    }
+
     /** Whether it says it failed only because a run it needed failed, which run not known. */
     public boolean failedDependency() {
         return problems != null && problems.contains("failed dependency");

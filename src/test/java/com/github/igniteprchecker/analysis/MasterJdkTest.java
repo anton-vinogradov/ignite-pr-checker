@@ -60,7 +60,7 @@ class MasterJdkTest {
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
         assertThat(v.reason())
-            .isEqualTo("not seen failing in 85 master run(s) on JDK 17; failed the only run on this branch");
+            .isEqualTo("not seen failing in 85 master runs on JDK 17; failed the only run on this branch");
     }
 
     @Test
@@ -85,7 +85,7 @@ class MasterJdkTest {
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
         assertThat(v.reason())
-            .isEqualTo("not seen failing in only 2 master run(s) on JDK 11; failed the only run on this branch");
+            .isEqualTo("not seen failing in only 2 master runs on JDK 11; failed the only run on this branch");
     }
 
     /** Ten master runs are the least that goes without the "only". */
@@ -94,12 +94,12 @@ class MasterJdkTest {
         failingOn("/opt/java/jdk-open-11");
         when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS)).thenReturn(onJdk11(9));
         assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).reason())
-            .isEqualTo("not seen failing in only 9 master run(s) on JDK 11; failed the only run on this branch");
+            .isEqualTo("not seen failing in only 9 master runs on JDK 11; failed the only run on this branch");
 
         cache.clear();
         when(tc.getBaseBranchHistory(TOK, TEST, SNAPSHOTS)).thenReturn(onJdk11(10));
         assertThat(only(analyzer.analyze(TOK, PR).orElseThrow().blockers()).reason())
-            .isEqualTo("not seen failing in 10 master run(s) on JDK 11; failed the only run on this branch");
+            .isEqualTo("not seen failing in 10 master runs on JDK 11; failed the only run on this branch");
     }
 
     /** No master run on the PR's JDK at all is no master history, whatever ran on other JDKs. */

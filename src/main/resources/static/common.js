@@ -45,7 +45,8 @@ function unsignedTestId(id) {
 
 // The work directory of a TeamCity agent inside a test's parameters ("/opt/teamcity/work/425d7af4e9aa99d9/", a
 // Windows one too): the same on every row. Stops at brackets, commas and spaces, so only the path goes, not the
-// parameter around it; the server's CauseClusters.AGENT_WORK_DIR cuts the causes' titles from a looser \S*? start.
+// parameter around it. The server's CauseClusters.AGENT_WORK_DIR is the same rule: the causes' titles and the
+// names in the PR comment and the visa read as the rows do.
 const AGENT_WORK_DIR = /[^\s()\[\],]*?[\\/]work[\\/][0-9a-f]{8,}[\\/]/g;
 
 // Show only "Class.method[params]" (or just "Class" for a class-level failure): drop the

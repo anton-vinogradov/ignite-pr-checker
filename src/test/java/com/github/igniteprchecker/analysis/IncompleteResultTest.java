@@ -91,7 +91,7 @@ class IncompleteResultTest {
             .containsExactly(tuple(UNLUCKY.name(), "could not verify (TeamCity error: 502 Bad Gateway)", false));
         assertThat(r.filtered()).isEmpty();
         assertThat(r.incompleteSince()).isPositive();
-        assertThat(Caveats.of(r, null)).contains("1 failed test(s) could not be checked (TeamCity errors)");
+        assertThat(Caveats.of(r, null)).contains("1 failed test could not be checked (TeamCity errors)");
         assertThat(analyzer.stillRetrying(r)).as("held back from the visa and the re-run waves").isTrue();
         assertThat(deltas.history(PR)).as("an unchecked test is not a fixed blocker").isEmpty();
     }

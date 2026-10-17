@@ -196,7 +196,7 @@ class MergedVerdictsTest {
 
     private static AnalysisResult verdict(long buildId, long computedAt) {
         TestVerdict blocker = new TestVerdict(42L, "GridCommandHandlerTest.testCacheIdle", "Suite", buildId + 1,
-            "Suite", "occ", true, false, "not seen failing in 85 master run(s); failed all 3 runs on this branch",
+            "Suite", "occ", true, false, "not seen failing in 85 master runs; failed all 3 runs on this branch",
             "FFF", 3);
         TestVerdict filtered = new TestVerdict(43L, "TxRecoveryTest.testRecovery", "Suite", buildId + 1, "Suite", "occ",
             false, false, "pre-existing: fails 15/98 on master on JDK 17", "", 0);

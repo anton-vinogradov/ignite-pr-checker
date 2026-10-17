@@ -213,7 +213,7 @@ class TcTokenRefusalTest {
 
     private static AnalysisResult verdict() {
         TestVerdict blocker = new TestVerdict(1L, "GridCacheTest.testPut", "Cache1", 9389012L, "Cache 1", "o1",
-            true, false, "not seen failing in 100 master run(s)", "F", 1);
+            true, false, "not seen failing in 100 master runs", "F", 1);
 
         return new AnalysisResult(PR, RUN_ALL, "pull/13335/head", System.currentTimeMillis(), List.of(blocker),
             List.of(), List.of(), List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 0, 0);

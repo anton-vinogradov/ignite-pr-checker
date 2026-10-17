@@ -54,7 +54,7 @@ class VerdictDoubtsTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().blockers());
 
-        assertThat(v.reason()).isEqualTo("not seen failing in 85 master run(s); failed the only run on this branch");
+        assertThat(v.reason()).isEqualTo("not seen failing in 85 master runs; failed the only run on this branch");
         assertThat(v.doubts()).containsExactly(Doubt.ONE_RUN);
     }
 
@@ -89,7 +89,7 @@ class VerdictDoubtsTest {
 
         TestVerdict v = only(analyzer.analyze(TOK, PR).orElseThrow().watch());
 
-        assertThat(v.reason()).startsWith("first failure on revision " + HEAD + " — watch");
+        assertThat(v.reason()).isEqualTo("failed the only run on commit " + HEAD + "; the 2 earlier runs were on other code");
         assertThat(v.doubts()).containsExactly(Doubt.ONE_RUN);
     }
 

@@ -37,13 +37,13 @@ class VerdictHeadPageTest {
     void theHeadFollowsTheServersStanding() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN',
-                caveats: ['1 suite(s) have no reliable result (compilation error, timeout, crash)'] }) });
+                caveats: ['1 suite has no reliable result (compilation error, timeout, crash)'] }) });
             await page.load('?pr=13575');
             """ + HEAD);
 
         assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
         assertThat(out.get("clean").asBoolean()).isFalse();
-        assertThat(out.get("lines").asText()).isEqualTo("This run can't prove the PR is clean: 1 suite(s) have no "
+        assertThat(out.get("lines").asText()).isEqualTo("This run can't prove the PR is clean: 1 suite has no "
             + "reliable result (compilation error, timeout, crash).");
         assertThat(out.get("title").asText()).startsWith("⚠ not proven clean");
     }
@@ -70,7 +70,7 @@ class VerdictHeadPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'CLEAN', caveats: [] }) });
             page.route('/api/pending', { body: { pending: true, ahead: 28, builtSha: '0a1b2c3', headSha: '5be1c0d',
-                rewritten: false, caveat: '28 commit(s) pushed since this run — it tested older code' } });
+                rewritten: false, caveat: '28 commits pushed since this run — it tested older code' } });
             await page.load('?pr=13575');
             """ + HEAD);
 
@@ -103,13 +103,13 @@ class VerdictHeadPageTest {
     void blockersComeWithTheCaveats() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/analyze', { body: verdict({ standing: 'BLOCKERS',
-                caveats: ['the RunAll was interrupted — 3 suite(s) never ran'] }) });
+                caveats: ['the RunAll was interrupted — 3 suites never ran'] }) });
             await page.load('?pr=13575');
             """ + HEAD);
 
         assertThat(out.get("head").asText()).isEqualTo("1 blocker in 1 suite");
         assertThat(out.get("lines").asText())
-            .isEqualTo("This run doesn't cover the PR fully: the RunAll was interrupted — 3 suite(s) never ran.");
+            .isEqualTo("This run doesn't cover the PR fully: the RunAll was interrupted — 3 suites never ran.");
         assertThat(out.get("title").asText()).startsWith("❌ 1 blocker");
     }
 }

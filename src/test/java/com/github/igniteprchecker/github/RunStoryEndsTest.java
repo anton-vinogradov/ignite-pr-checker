@@ -289,7 +289,7 @@ class RunStoryEndsTest {
         when(tc.findRunAllBuildForPr("tc-a", PR)).thenReturn(Optional.of(finished(CHAIN, "author")));
         when(analyzer.analyzeForAction("tc-a", PR)).thenReturn(Optional.of(new AnalysisResult(PR, CHAIN,
             "pull/13440/head", System.currentTimeMillis(), List.of(new TestVerdict(1L, "Cache1Test.test", "Cache1", 2L,
-                "Cache 1", "o1", true, false, "not seen failing in 100 master run(s)", "F", 1)), List.of(), List.of(),
+                "Cache 1", "o1", true, false, "not seen failing in 100 master runs", "F", 1)), List.of(), List.of(),
             List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 1, 0)));
         when(tc.triggerBuildReplacingQueued(eq("tc-a"), eq("Cache1"), eq(PR), anyBoolean(), anyString()))
             .thenReturn(chain(9400100L, "queued", null));

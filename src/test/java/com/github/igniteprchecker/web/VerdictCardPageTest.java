@@ -380,7 +380,7 @@ class VerdictCardPageTest {
             + " standing: 'WATCH', caveats: [], watch: [Object.assign(blocker('T.a', 'o1'), { blocker: false, watch: true }),"
             + " Object.assign(blocker('T.b', 'o2'), { blocker: false, watch: true })] });" + scenario);
         JsonNode unproven = PageScript.run("index.html", PageScript.SIGNED_IN + "const FINAL = verdict({ buildId: 9100,"
-            + " blockers: [], standing: 'UNPROVEN', caveats: ['1 suite(s) have no reliable result (execution timeout)'] });"
+            + " blockers: [], standing: 'UNPROVEN', caveats: ['1 suite has no reliable result (execution timeout)'] });"
             + scenario);
 
         assertThat(watch.get("shown").toString())

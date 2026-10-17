@@ -35,6 +35,9 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
 
     private static final String RUN_ALL = "/run-all";
 
+    /** What suites whose one problem is their shortfall broke with, when each is short by its own count. */
+    private static final String RAN_FEWER = "ran fewer tests than on master";
+
     /** What broke the suites of a group. */
     public enum Kind {
         /** A run the other suites need failed (the build step): they did not run. */
@@ -173,12 +176,15 @@ public record BrokenGroup(Kind kind, String title, BrokenSuite root, Upstream up
     /**
      * What the suites of a group broke with: the text of one when they all say the same, and else their shared text
      * with "N" for each number they do not share. The numbers of one suite are wrong for the others: the shortfall of
-     * a hung suite, the run TeamCity compared it with.
+     * a hung suite, the run TeamCity compared it with. Suites short only of tests, each by its own count, share
+     * {@link #RAN_FEWER}: "ran N of master's N tests" reads as if they ran all of master's tests.
      */
     private static String titleOf(List<BrokenSuite> suites) {
         String first = problemsOf(suites.get(0));
         if (suites.stream().allMatch(s -> problemsOf(s).equals(first)))
             return first;
+        if (suites.stream().allMatch(BrokenSuite::onlyShortfall))
+            return RAN_FEWER;
 
         List<List<String>> numbers = suites.stream().map(s -> numbersIn(runsMadeOne(problemsOf(s)))).toList();
         Matcher m = DIGITS.matcher(runsMadeOne(first));

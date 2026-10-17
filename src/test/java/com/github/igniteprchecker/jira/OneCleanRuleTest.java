@@ -78,7 +78,7 @@ class OneCleanRuleTest {
         assertThat(json.get("standing").asText()).isEqualTo("UNPROVEN");
         assertThat(json.get("caveats")).hasSize(1);
         assertThat(json.get("caveats").get(0).asText())
-            .isEqualTo("1 suite(s) have no reliable result (Execution timeout)");
+            .isEqualTo("1 suite has no reliable result (Execution timeout)");
         assertThat(json.has("result")).isFalse();
     }
 
@@ -98,10 +98,10 @@ class OneCleanRuleTest {
 
         Object caveat = served.pending(13636, r.buildId(), "t").get("caveat");
 
-        assertThat(caveat).isEqualTo("28 commit(s) pushed since this run — it tested older code");
+        assertThat(caveat).isEqualTo("28 commits pushed since this run — it tested older code");
         assertThat(visas.composeMarkdown(13636, r, 28, HEAD)).contains("- " + caveat + "\n");
         assertThat(served.pending(13636, r.buildId(), "t"))
-            .containsEntry("caveat", "1 commit(s) pushed since this run — it tested older code");
+            .containsEntry("caveat", "1 commit pushed since this run — it tested older code");
     }
 
     private void assertEverywhere(AnalysisResult r, int commitsAhead, Standing expected) {
@@ -132,7 +132,7 @@ class OneCleanRuleTest {
     private static TestVerdict blocker() {
         return new TestVerdict(5272433775095107011L, "org.apache.ignite.util.GridCommandHandlerTest.testState",
             "IgniteTests24Java8_ControlUtility", 9390050L, "Control Utility", "o1", true, false,
-            "failed its only run on this branch; not seen failing in 100 master run(s)", "F", 1,
+            "failed its only run on this branch; not seen failing in 100 master runs", "F", 1,
             List.of(TestVerdict.Doubt.ONE_RUN));
     }
 

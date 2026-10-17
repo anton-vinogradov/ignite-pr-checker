@@ -66,7 +66,7 @@ class BrokenGroupsPageTest {
             "Cache 5", "execution timeout — ran 12 of master's 35 tests", "Basic 3");
         assertThat(broken.split("ci2 glitch: artifacts unavailable", -1)).hasSize(2);
         assertThat(out.get("html").asText()).doesNotContain("<[Apache").contains("&lt;[Apache Ignite 2.x / Tests]");
-        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 64 suite(s) have no "
+        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 64 suites have no "
             + "reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
     }
 
@@ -83,6 +83,38 @@ class BrokenGroupsPageTest {
         assertThat(out.get("broken").asText()).startsWith("Build failed in this run and passed on a re-run since — 137 "
             + "suites that need it never ran; /run-all to run them");
         assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+    }
+
+    /** TeamCity named only its count of the shortfall, so the server made it the suite's one problem: the row says it once. */
+    @Test
+    void aSuiteWhoseOnlyProblemIsItsShortfallSaysItOnce() throws Exception {
+        JsonNode out = PageScript.run("index.html", page(BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), List.of(
+            new BrokenSuite("IgniteTests24Java8_Ml", 9392102L, "Machine Learning", List.of("ran 12 of master's 35 tests"),
+                12, 35)))));
+
+        String broken = out.get("broken").asText();
+        assertThat(broken).contains("Machine Learning", "ran 12 of master's 35 tests");
+        assertThat(broken.split("ran 12 of master's 35 tests", -1)).hasSize(2);
+    }
+
+    /**
+     * TeamCity failed Machine Learning and Cache 5 only for their test counts, 12 of master's 35 and 30 of master's
+     * 80: the group read "ran N of master's N tests", as if each had run all of master's tests.
+     */
+    @Test
+    void suitesShortOnlyOfTestsShareALineWithoutNumbers() throws Exception {
+        JsonNode out = PageScript.run("index.html", page(BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(), List.of(
+            new BrokenSuite("IgniteTests24Java8_Ml", 1L, "Machine Learning", List.of("ran 12 of master's 35 tests"), 12,
+                35),
+            new BrokenSuite("IgniteTests24Java8_Cache5", 2L, "Cache 5", List.of("ran 30 of master's 80 tests"), 30,
+                80)))));
+
+        assertThat(out.get("broken").asText())
+            .containsSubsequence("ran fewer tests than on master", "2 suites", "Machine Learning",
+                "ran 12 of master's 35 tests", "Cache 5", "ran 30 of master's 80 tests")
+            .doesNotContain("ran N");
+        assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 2 suites have no "
+            + "reliable result (2× ran fewer tests than on master).");
     }
 
     /** A problem's text comes from the build log, which the PR's code can write to. */
