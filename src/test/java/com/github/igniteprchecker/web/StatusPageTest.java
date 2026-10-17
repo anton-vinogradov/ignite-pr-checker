@@ -39,6 +39,8 @@ class StatusPageTest {
 
     private static final Pattern HSL = Pattern.compile("hsl\\((\\d+), (\\d+)%, (\\d+)%\\)");
 
+    private static final Pattern HEX = Pattern.compile("#[0-9a-f]{6}");
+
     private static final String[] FUNCTIONS = {"card", "agoShort", "logTime", "renderLog", "healthProblems",
         "healthTitle", "persistenceCard", "versionCard", "configRows"};
 
@@ -188,8 +190,7 @@ class StatusPageTest {
         out.get("cats").forEach(c -> cats.add(c.asText()));
         List<String> colours = new ArrayList<>();
         out.get("colours").forEach(c -> colours.add(c.asText()));
-        assertThat(colours).hasSameSizeAs(cats).doesNotHaveDuplicates()
-            .allMatch(c -> c.matches("hsl\\(\\d+, 60%, \\d+%\\)"));
+        assertThat(colours).hasSameSizeAs(cats).allMatch(c -> HEX.matcher(c).matches());
         assertThat(out.get("other").asText()).matches("hsl\\(\\d+, 60%, \\d+%\\)");
         String history = "<span><span class=\"dot\" style=\"background:" + colours.get(cats.indexOf("history"))
             + "\"></span>history</span>";
@@ -209,7 +210,10 @@ class StatusPageTest {
     /**
      * One lightness for every theme left the yellow-green bars at 1.8:1 on the white card and the blue ones at 1.9:1 on
      * the dark cards. Every category's bar holds 3:1 (WCAG 1.4.11, graphics) against the card of each theme, and the
-     * chart is drawn again when the theme changes.
+     * chart is drawn again when the theme changes. Hues a golden angle apart gave a category and the eighth after it
+     * hues 20° apart at one lightness: on one chart prRuns, userBuilds and branchMoves were one purple, failedTests and
+     * branchFailures one mint, a CIEDE2000 distance down to 2.9. Any two categories now differ by 15 or more in each
+     * theme.
      */
     @Test
     void everyCategorysBarStandsOutFromTheCardInEveryTheme() throws Exception {
@@ -238,6 +242,10 @@ class StatusPageTest {
                 assertThat(contrast(colours.get(i).asText(), theme.getValue()))
                     .as(cats.get(i) + " " + colours.get(i).asText() + " on the " + theme.getKey() + " card")
                     .isGreaterThanOrEqualTo(3.0);
+                for (int j = i + 1; j < cats.size(); j++) {
+                    assertThat(deltaE2000(lab(rgb(colours.get(i).asText())), lab(rgb(colours.get(j).asText()))))
+                        .as(cats.get(i) + " and " + cats.get(j) + " in " + theme.getKey()).isGreaterThanOrEqualTo(15.0);
+                }
             }
         }
         assertThat(out.get("legend").asText()).contains("<span><span class=\"dot\" style=\"background:"
@@ -342,16 +350,90 @@ class StatusPageTest {
         return bg;
     }
 
-    /** The WCAG contrast ratio of an {@code hsl(h, s%, l%)} colour on a {@code #rgb} or {@code #rrggbb} one. */
-    private static double contrast(String hsl, String hex) {
-        Matcher m = HSL.matcher(hsl);
-        assertThat(m.matches()).as(hsl).isTrue();
-        double a = luminance(hslToRgb(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)) / 100.0,
-            Integer.parseInt(m.group(3)) / 100.0));
-        String six = hex.length() == 4 ? hex.replaceAll("([0-9a-fA-F])", "$1$1") : hex;
-        double b = luminance(new double[] {Integer.parseInt(six.substring(1, 3), 16) / 255.0,
-            Integer.parseInt(six.substring(3, 5), 16) / 255.0, Integer.parseInt(six.substring(5, 7), 16) / 255.0});
+    /** The WCAG contrast ratio of a colour on another: {@code hsl(h, s%, l%)}, {@code #rgb} or {@code #rrggbb}. */
+    private static double contrast(String colour, String on) {
+        double a = luminance(rgb(colour));
+        double b = luminance(rgb(on));
         return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
+
+    /** The channels of a colour, 0 to 1. */
+    private static double[] rgb(String colour) {
+        Matcher m = HSL.matcher(colour);
+        if (m.matches()) {
+            return hslToRgb(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)) / 100.0,
+                Integer.parseInt(m.group(3)) / 100.0);
+        }
+        String six = colour.length() == 4 ? colour.replaceAll("([0-9a-fA-F])", "$1$1") : colour;
+        assertThat(six).as(colour).matches("#[0-9a-fA-F]{6}");
+        return new double[] {Integer.parseInt(six.substring(1, 3), 16) / 255.0,
+            Integer.parseInt(six.substring(3, 5), 16) / 255.0, Integer.parseInt(six.substring(5, 7), 16) / 255.0};
+    }
+
+    /** CIE L*a*b* under D65. */
+    private static double[] lab(double[] rgb) {
+        double r = linear(rgb[0]);
+        double g = linear(rgb[1]);
+        double b = linear(rgb[2]);
+        double x = labF((r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047);
+        double y = labF(r * 0.2126 + g * 0.7152 + b * 0.0722);
+        double z = labF((r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883);
+        return new double[] {116 * y - 16, 500 * (x - y), 200 * (y - z)};
+    }
+
+    private static double labF(double t) {
+        return t > 216.0 / 24389 ? Math.cbrt(t) : (24389.0 / 27 * t + 16) / 116;
+    }
+
+    /** The CIEDE2000 colour difference: about 2 is just noticeable, and 15 tells two colours apart at a glance. */
+    private static double deltaE2000(double[] lab1, double[] lab2) {
+        double c1 = Math.hypot(lab1[1], lab1[2]);
+        double c2 = Math.hypot(lab2[1], lab2[2]);
+        double c7 = Math.pow((c1 + c2) / 2, 7);
+        double g = 0.5 * (1 - Math.sqrt(c7 / (c7 + Math.pow(25, 7))));
+        double a1 = (1 + g) * lab1[1];
+        double a2 = (1 + g) * lab2[1];
+        double c1p = Math.hypot(a1, lab1[2]);
+        double c2p = Math.hypot(a2, lab2[2]);
+        double h1 = hue(lab1[2], a1);
+        double h2 = hue(lab2[2], a2);
+        double dh = 0;
+        if (c1p * c2p != 0) {
+            dh = h2 - h1;
+            if (dh > 180)
+                dh -= 360;
+            else if (dh < -180)
+                dh += 360;
+        }
+        double dl = lab2[0] - lab1[0];
+        double dc = c2p - c1p;
+        double dbigH = 2 * Math.sqrt(c1p * c2p) * Math.sin(Math.toRadians(dh / 2));
+        double lMean = (lab1[0] + lab2[0]) / 2;
+        double cMean = (c1p + c2p) / 2;
+        double hMean = h1 + h2;
+        if (c1p * c2p != 0) {
+            if (Math.abs(h1 - h2) > 180)
+                hMean += h1 + h2 < 360 ? 360 : -360;
+            hMean /= 2;
+        }
+        double t = 1 - 0.17 * Math.cos(Math.toRadians(hMean - 30)) + 0.24 * Math.cos(Math.toRadians(2 * hMean))
+            + 0.32 * Math.cos(Math.toRadians(3 * hMean + 6)) - 0.20 * Math.cos(Math.toRadians(4 * hMean - 63));
+        double rot = 30 * Math.exp(-Math.pow((hMean - 275) / 25, 2));
+        double cMean7 = Math.pow(cMean, 7);
+        double rc = 2 * Math.sqrt(cMean7 / (cMean7 + Math.pow(25, 7)));
+        double sl = 1 + 0.015 * Math.pow(lMean - 50, 2) / Math.sqrt(20 + Math.pow(lMean - 50, 2));
+        double sc = 1 + 0.045 * cMean;
+        double sh = 1 + 0.015 * cMean * t;
+        double rt = -Math.sin(Math.toRadians(2 * rot)) * rc;
+        return Math.sqrt(Math.pow(dl / sl, 2) + Math.pow(dc / sc, 2) + Math.pow(dbigH / sh, 2)
+            + rt * (dc / sc) * (dbigH / sh));
+    }
+
+    private static double hue(double b, double a) {
+        if (a == 0 && b == 0)
+            return 0;
+        double h = Math.toDegrees(Math.atan2(b, a));
+        return h < 0 ? h + 360 : h;
     }
 
     private static double[] hslToRgb(int h, double s, double l) {
@@ -368,10 +450,12 @@ class StatusPageTest {
     private static double luminance(double[] rgb) {
         double[] w = {0.2126, 0.7152, 0.0722};
         double sum = 0;
-        for (int c = 0; c < 3; c++) {
-            double v = rgb[c];
-            sum += w[c] * (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
-        }
+        for (int c = 0; c < 3; c++)
+            sum += w[c] * linear(rgb[c]);
         return sum;
+    }
+
+    private static double linear(double v) {
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
     }
 }

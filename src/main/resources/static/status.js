@@ -366,22 +366,45 @@ function renderCats(el, byCategory) {
     }).join('');
 }
 
-// The categories TcClient records its calls under. A category's colour follows its name, so it keeps the colour from
-// hour to hour whatever else is on the chart; a name not listed here still gets one of its own.
-const TC_CATEGORIES = ['baseline', 'branchFailures', 'branchMoves', 'branchRuns', 'buildState', 'cancel', 'chainEta',
-    'deps', 'details', 'failedTests', 'findBuild', 'finishedChains', 'history', 'masterFail', 'otherBranchRuns',
-    'prRuns', 'prTests', 'queueTop', 'recentChains', 'revision', 'runningChains', 'suiteRun', 'trigger', 'userBuilds',
-    'whoami'];
+// The categories TcClient records its calls under, each with its colour on the light card and on the dark ones. A
+// script picked the colours: any two of a theme differ by a CIEDE2000 distance of 16.9 or more, each stands at 3:1 or
+// more against its cards, and the most frequent categories got the colours picked first, which lie farthest apart. A
+// category keeps its colour from hour to hour, whatever else is on the chart.
+const CATEGORY_COLOURS = {
+    baseline: ['#877800', '#4bf0d2'],
+    branchFailures: ['#4b4b3c', '#699678'],
+    branchMoves: ['#9687d2', '#e1d200'],
+    branchRuns: ['#879687', '#968796'],
+    buildState: ['#876969', '#c3d2ff'],
+    cancel: ['#ff00f0', '#ffa5a5'],
+    chainEta: ['#00785a', '#e100ff'],
+    deps: ['#a5000f', '#ff2d4b'],
+    details: ['#874b00', '#87960f'],
+    failedTests: ['#00a500', '#00ff00'],
+    findBuild: ['#0096c3', '#2dd2ff'],
+    finishedChains: ['#1e00ff', '#b4d296'],
+    history: ['#e1781e', '#c37800'],
+    masterFail: ['#006978', '#0096a5'],
+    otherBranchRuns: ['#ff0000', '#968769'],
+    prRuns: ['#962d96', '#ff96f0'],
+    prTests: ['#c31e5a', '#d25a96'],
+    queueTop: ['#2d5a00', '#ff5a0f'],
+    recentChains: ['#0f4b87', '#6978ff'],
+    revision: ['#2d69ff', '#ffb469'],
+    runningChains: ['#00a596', '#00b42d'],
+    suiteRun: ['#5a4b69', '#0096e1'],
+    trigger: ['#a58769', '#c3e1e1'],
+    userBuilds: ['#ff5a78', '#e1d2c3'],
+    whoami: ['#b46996', '#b47869'],
+};
+const TC_CATEGORIES = Object.keys(CATEGORY_COLOURS);
 
-// Hues a golden angle apart, so neighbours in the list are far apart on the wheel; two lightnesses tell near hues apart.
-// The lightnesses follow the theme: dark bars on the light card, light bars on a dark one, every hue at 3:1 or more.
+// A name not listed above gets a hue of its own from its name, a golden angle per step.
 function catColor(name) {
-    let i = TC_CATEGORIES.indexOf(name);
-    if (i < 0) {
-        i = TC_CATEGORIES.length;
-        for (const ch of String(name)) i = (i * 31 + ch.charCodeAt(0)) % 997;
-    }
     const onLight = document.documentElement.getAttribute('data-theme') === 'light';
+    if (Object.hasOwn(CATEGORY_COLOURS, name)) return CATEGORY_COLOURS[name][onLight ? 0 : 1];
+    let i = TC_CATEGORIES.length;
+    for (const ch of String(name)) i = (i * 31 + ch.charCodeAt(0)) % 997;
     return `hsl(${Math.round(i * 137.508) % 360}, 60%, ${(onLight ? 28 : 58) + (i % 2 ? 10 : 0)}%)`;
 }
 
