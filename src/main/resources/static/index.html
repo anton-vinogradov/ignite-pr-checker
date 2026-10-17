@@ -146,11 +146,11 @@
         .visa-note.err { color: var(--bad); }
         .group-by { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 400; }
         .group-by .tabs { margin-left: 0; }
-        /* The answer to a Rerun stands under its buttons, until the next click there. */
+        /* The answer to a Rerun stands under its buttons, until the next click there or until another PR opens. */
         .act-note { flex: 1 0 100%; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
         .act-note.err { color: var(--bad); }
-        /* No run changes a merged PR's verdict, so its blockers carry no advice to re-run. */
-        #blockersCard.merged .rerun-advice { display: none; }
+        /* No run changes a merged PR's verdict, so its cards do not say that a re-run would change it. */
+        #results.merged .rerun-advice { display: none; }
         .filtered-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
         .filtered-line .sect-act { margin-left: 0.3rem; }
         /* Run RunAll follows the text of the older-code line, not the far edge of the row. */
@@ -538,7 +538,7 @@
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
                         <h2>Broken suites <span id="brokenCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that." aria-label="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that.">?</a> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="brokenActsNote" class="act-note hidden"></span></h2>
-                        <p class="muted">Rerun these first: the verdict above can't see their tests. A compilation error needs a code fix
+                        <p class="muted rerun-advice">Rerun these first: the verdict above can't see their tests. A compilation error needs a code fix
                             instead, so it has no Rerun.</p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
@@ -570,8 +570,8 @@
                     </div>
                     <div id="watchCard" class="card watch hidden">
                         <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake" aria-label="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="watchActsNote" class="act-note hidden"></span></h2>
-                        <p class="muted">Not blockers yet: there are too few runs of this code to tell a break from a flake. Rerun their
-                            suites: if they keep failing, they become blockers; if they pass, they drop out.</p>
+                        <p class="muted">Not blockers yet: there are too few runs of this code to tell a break from a flake. <span class="rerun-advice">Rerun their
+                            suites: if they keep failing, they become blockers; if they pass, they drop out.</span></p>
                         <ul id="watch" class="tests"></ul>
                     </div>
                     <div id="unverifiedCard" class="card watch hidden">

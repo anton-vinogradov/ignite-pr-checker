@@ -47,7 +47,7 @@ class MergedPrPageTest {
     }
 
     /**
-     * PR 13692 merged at a commit two later than its last RunAll: the page said "⚠ The verdict is for older code" and
+     * PR 13692 merged at a commit 14 later than its last RunAll: the page said "⚠ The verdict is for older code" and
      * offered Run RunAll, the hint over "verdict computed" promised a ↻ that a merged PR does not have, and the blockers
      * on one run asked for re-runs, which change nothing in a verdict kept at the merge.
      */
@@ -60,7 +60,7 @@ class MergedPrPageTest {
             await page.load('?pr=13575');
             report({ pending: page.el('pending').textContent, row: !page.el('pendingRow').classList.contains('hidden'),
                 button: !page.el('pendingRerun').classList.contains('hidden'), fresh: page.el('freshText').innerHTML,
-                merged: page.el('blockersCard').classList.contains('merged') });
+                merged: page.el('results').classList.contains('merged') });
             """);
 
         assertThat(out.get("row").asBoolean()).isTrue();
@@ -70,8 +70,40 @@ class MergedPrPageTest {
         assertThat(out.get("fresh").asText()).contains("title=\"When the checker last computed this verdict from the run "
             + "and master's history.\">verdict computed").doesNotContain("↻");
         assertThat(out.get("merged").asBoolean()).isTrue();
-        assertThat(Files.readString(PAGE, UTF_8)).contains("#blockersCard.merged .rerun-advice { display: none; }")
+        assertThat(Files.readString(PAGE, UTF_8)).contains("#results.merged .rerun-advice { display: none; }")
             .contains("each of these failed its only run on this branch. <span class=\"rerun-advice\">Rerun");
+    }
+
+    /**
+     * Re-runs do not change a verdict kept at the merge. So on a merged PR no line says that a re-run shows whether a
+     * test is a blocker, or that it takes a suite off the list of suites that never ran.
+     */
+    @Test
+    void aMergedPrsLinesDoNotPromiseThatARerunChangesTheVerdict() throws Exception {
+        String scenario = """
+            const watch = Object.assign(blocker('W.w', 'o9'), { blocker: false, watch: true });
+            page.route('/api/analyze', { body: verdict({ MERGED blockers: [], watch: [watch], standing: 'WATCH',
+                caveats: [], interrupted: true, canceledSuites: 2 }) });
+            await page.load('?pr=13575');
+            report({ lines: page.el('verdictLines').textContent, banner: page.el('interruptedText').textContent,
+                merged: page.el('results').classList.contains('merged') });
+            """;
+
+        JsonNode merged = PageScript.run("index.html", PageScript.SIGNED_IN
+            + scenario.replace("MERGED", "mergedAt: Math.floor(page.now() / 1000) - 86400,"));
+        JsonNode open = PageScript.run("index.html", PageScript.SIGNED_IN + scenario.replace("MERGED", ""));
+
+        assertThat(merged.get("lines").asText()).isEqualTo("1 test started failing on the code this run tested.");
+        assertThat(merged.get("banner").asText()).contains("the verdict above says nothing about them.")
+            .doesNotContain("rerun");
+        assertThat(merged.get("merged").asBoolean()).isTrue();
+        assertThat(open.get("lines").asText()).contains("Rerun their suites under Recently started failing");
+        assertThat(open.get("banner").asText()).endsWith("A finished rerun takes a suite off this list.");
+        assertThat(open.get("merged").asBoolean()).isFalse();
+        assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " "))
+            .contains("to tell a break from a flake. <span class=\"rerun-advice\">Rerun their suites: if they keep "
+                + "failing, they become blockers; if they pass, they drop out.</span>")
+            .contains("<p class=\"muted rerun-advice\">Rerun these first: the verdict above can't see their tests.");
     }
 
     @Test

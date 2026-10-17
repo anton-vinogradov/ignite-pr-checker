@@ -22,7 +22,8 @@ import org.springframework.http.ResponseEntity;
 /**
  * Merged PR 13692 and open PRs past the list of 50 had no title on their page, so the page told the reader that the
  * title named no IGNITE ticket. The title now comes from the open list, else from the verdict kept at the merge, else
- * from GitHub, and a page left open asks GitHub at most once in five minutes.
+ * from GitHub. GitHub is asked under the bot's token, whose hourly quota also serves PR commands and visas. So an
+ * answer, a title or "no such PR", is kept for five minutes, and GitHub is asked about 60 PRs an hour at most.
  */
 class PrTitleControllerTest {
     private final GithubClient github = mock(GithubClient.class);
@@ -76,6 +77,32 @@ class PrTitleControllerTest {
 
         assertThat(titles.title(13998).getStatusCode().value()).isEqualTo(404);
         assertThat(titles.title(13999).getStatusCode().value()).isEqualTo(404);
+        titles.title(13999);
+        verify(github, times(2)).pullState(13999);
+    }
+
+    @Test
+    void aPrGithubDoesNotKnowIsAskedAboutOnceInFiveMinutes() {
+        for (int i = 0; i < 100; i++)
+            assertThat(titles.title(99999).getStatusCode().value()).isEqualTo(404);
+        verify(github, times(1)).pullState(99999);
+
+        now.addAndGet(PrTitleController.KEPT_MS);
+        titles.title(99999);
+        verify(github, times(2)).pullState(99999);
+    }
+
+    @Test
+    void githubIsAskedAboutSixtyPrsAnHourAtMost() {
+        for (int pr = 1; pr <= 200; pr++)
+            assertThat(titles.title(pr).getStatusCode().value()).isEqualTo(404);
+        verify(github, times(PrTitleController.ASKED_PER_HOUR)).pullState(anyInt());
+        assertThat(body(titles.title(13575))).as("the open list needs no call").containsEntry("title",
+            "IGNITE-29049 Move MDC to JUnit");
+
+        now.addAndGet(60 * 60_000L);
+        titles.title(201);
+        verify(github).pullState(201);
     }
 
     @SuppressWarnings("unchecked")

@@ -3,6 +3,8 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -20,16 +22,22 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * The title of one PR, for a page opened on a PR the open list does not hold: merged, closed, or past the 50 most
  * recently updated. The page's head names the PR's ticket from it, and the JIRA visa posts there. The open list answers
- * first, then the title a merged PR had at its merge, then GitHub. An answer is kept for five minutes, so GitHub is
- * asked about one PR at most that often.
+ * first, then the title a merged PR had at its merge, then GitHub. GitHub is asked under the bot's token, whose hourly
+ * quota also serves PR commands and visas. So GitHub's answer, a title or "no such PR", is kept for five minutes, and
+ * GitHub is asked about {@value #ASKED_PER_HOUR} PRs an hour at most, however many numbers readers try.
  */
 @RestController
 @RequestMapping("/api")
 public class PrTitleController {
     private static final Logger log = LoggerFactory.getLogger(PrTitleController.class);
 
-    /** How long a title is kept. */
+    /** How long an answer is kept. */
     static final long KEPT_MS = 5 * 60_000L;
+
+    /** How many PRs GitHub is asked about in an hour, for all readers together. */
+    static final int ASKED_PER_HOUR = 60;
+
+    private static final long HOUR_MS = 60 * 60_000L;
 
     private final GithubClient github;
 
@@ -38,6 +46,9 @@ public class PrTitleController {
     private final LongSupplier clock;
 
     private final Map<Integer, Known> known = new ConcurrentHashMap<>();
+
+    /** When GitHub was asked, over the last hour. */
+    private final Deque<Long> asked = new ArrayDeque<>();
 
     @Autowired
     public PrTitleController(GithubClient github, MergedVerdicts merged) {
@@ -56,39 +67,58 @@ public class PrTitleController {
         long now = clock.getAsLong();
         Known k = known.get(pr);
         if (k == null || now - k.at() >= KEPT_MS) {
-            Optional<String> title = lookUp(pr);
-            if (title.isEmpty())
-                return ResponseEntity.status(404).body(Map.of("error", "GitHub has no title of PR " + pr));
+            k = lookUp(pr, now);
+            if (k == null)
+                return notKnown(pr);
 
             known.values().removeIf(old -> now - old.at() >= KEPT_MS);
-            k = new Known(title.get(), now);
             known.put(pr, k);
         }
 
-        return ResponseEntity.ok(Map.of("title", k.title()));
+        return k.title() == null ? notKnown(pr) : ResponseEntity.ok(Map.of("title", k.title()));
     }
 
-    private Optional<String> lookUp(int pr) {
+    /** The PR's title, or a null title when GitHub has no such PR; null when GitHub could not be asked. */
+    private Known lookUp(int pr, long now) {
         Optional<String> listed = github.openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::title)
             .filter(Objects::nonNull).findFirst();
         if (listed.isPresent())
-            return listed;
+            return new Known(listed.get(), now);
 
         Optional<String> atMerge = merged.title(pr);
         if (atMerge.isPresent())
-            return atMerge;
+            return new Known(atMerge.get(), now);
+
+        if (!mayAskGithub(now))
+            return null;
 
         try {
-            return github.pullState(pr).map(GithubClient.PullState::title);
+            return new Known(github.pullState(pr).map(GithubClient.PullState::title).orElse(null), now);
         }
         catch (RuntimeException e) {
             log.debug("could not ask GitHub for the title of PR {}: {}", pr, e.toString());
 
-            return Optional.empty();
+            return null;
         }
     }
 
-    /** A title and when it was learned. */
+    private synchronized boolean mayAskGithub(long now) {
+        while (!asked.isEmpty() && now - asked.peekFirst() >= HOUR_MS)
+            asked.pollFirst();
+
+        if (asked.size() >= ASKED_PER_HOUR)
+            return false;
+
+        asked.addLast(now);
+
+        return true;
+    }
+
+    private static ResponseEntity<?> notKnown(int pr) {
+        return ResponseEntity.status(404).body(Map.of("error", "no title known for PR " + pr));
+    }
+
+    /** A title, null for a PR GitHub does not have, and when it was learned. */
     private record Known(String title, long at) {
     }
 }

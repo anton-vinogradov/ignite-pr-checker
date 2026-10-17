@@ -32,9 +32,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Anyone with write access to apache/ignite may edit another's comment. A committer who edited a fresh comment of
- * nsamelchev into "/run-all" queued RunAll under nsamelchev's TeamCity account: the poll reads edited comments, and the
- * checker looked only at when a comment was written.
+ * Anyone with write access to apache/ignite may edit another's comment. The poll reads edited comments, and the checker
+ * looked only at when a comment was written. So a fresh comment that someone else edited into "/run-all" would queue
+ * RunAll under its author's TeamCity account.
  */
 class EditedCommandTest {
     private static final int PR = 13335;

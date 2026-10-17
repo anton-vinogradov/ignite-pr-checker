@@ -188,7 +188,7 @@ not blamed on the PR.
 - **Lines under the head** say when the verdict is for older code, when auto re-runs still settle it, and what is on
   ci2 now. A merged PR's verdict card says that this is the verdict as it stood at the merge: it is kept and not
   recomputed, since master's history now holds the PR's own runs. New runs do not change it, so no button is filled
-  and no line advises a re-run.
+  and no line says that a re-run would change it.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded

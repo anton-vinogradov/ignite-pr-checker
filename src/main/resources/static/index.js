@@ -261,6 +261,7 @@ function openPr(number, push) {
     $('visaNote').classList.add('hidden');
     hideRerunAnswers();
     lastRuns = [];
+    autoVisa = noAutoVisa();
     clearFreshness();
     $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
     runsWere = 0;
@@ -333,7 +334,7 @@ async function rerunSuites(suites, top, btn, note) {
     }
 }
 
-// What a click on Rerun answered, under its buttons until the next click there; nothing hides the line.
+// What a click on Rerun answered, under its buttons until the next click there or until another PR opens.
 function answerRerun(note, text, err) {
     if (!note) return;
     note.textContent = text;
@@ -1413,11 +1414,11 @@ function renderFreshness(res) {
 }
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
-// no refresh for it, and the Blockers card does not ask for re-runs that would change nothing.
+// no refresh for it, and the cards do not ask for re-runs that would change nothing.
 function renderMerged(res) {
     const merged = !!res.mergedAt;
     $('mergedNote').classList.toggle('hidden', !merged);
-    $('blockersCard').classList.toggle('merged', merged);
+    $('results').classList.toggle('merged', merged);
     if (!merged) return;
     $('mergedNote').textContent = `Merged ${fmtDay(res.mergedAt * 1000)}. This is the verdict as it stood at `
         + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs. New runs do not change '
@@ -1488,7 +1489,8 @@ function renderResult(res, { quiet = false, force = false } = {}) {
             : 'this RunAll';
         const one = notRun === 1;
         $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of ${build} ${one ? 'was' : 'were'} cancelled `
-            + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}. A finished rerun takes a suite off this list.`;
+            + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}.`
+            + (res.mergedAt ? '' : ' A finished rerun takes a suite off this list.');
     }
     renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
     // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
@@ -1614,8 +1616,8 @@ function verdictLines(res, standing) {
         return ['Nothing in this run looks caused by your PR. You don\'t need to fix or rerun anything.'];
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
-        return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested. Rerun their suites under `
-            + 'Recently started failing: the rerun shows whether these tests are blockers.']
+        return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
+            : ' Rerun their suites under Recently started failing: the rerun shows whether these tests are blockers.')]
             .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
     }
     return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
@@ -1931,6 +1933,7 @@ async function doTrigger(act, top, btn) {
         const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : ''),
             { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             sayStatus(notDone('Not queued', res.error), { err: true });
@@ -1973,6 +1976,7 @@ async function cancelMine() {
         sayStatus('Cancelling your runs…', { busy: true });
         const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) { sayStatus(notDone('Not cancelled', res.error), { err: true }); return; }
         const n = res.cancelled || 0;
@@ -2625,7 +2629,11 @@ async function saveJiraToken() {
 }
 // One-shot auto visa: post the verdict to the ticket when this PR's run finishes — no babysitting.
 // Each user arms and cancels their own; a standing auto-visa that posts this run's verdict makes it moot.
-let autoVisa = { armed: false, others: [], standingBy: null, refusedFor: null };
+let autoVisa = noAutoVisa();
+
+function noAutoVisa() {
+    return { armed: false, others: [], standingBy: null, refusedFor: null };
+}
 
 // Auto visa is a switch: filled while armed by you, with the others' state as a label beside it.
 function paintAutoVisa() {
