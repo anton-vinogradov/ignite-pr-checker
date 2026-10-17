@@ -45,7 +45,10 @@ class PrListPageTest {
             .contains("<li><span></span><span>no badge — no verdict yet</span></li>");
     }
 
-    /** The filter, the head and the visa read the title from data-title and the link's title, which keep the key. */
+    /**
+     * The filter, the head and the visa read the title from data-title and the link's title, which keep the key. The
+     * title of PR 13640 starts with a space, and its key stood on the second line.
+     */
     @Test
     void theTicketKeyStandsByTheNumberAndTheTitleStartsWithItsOwnWords() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
@@ -57,7 +60,9 @@ class PrListPageTest {
                 { number: 13601, title: 'IGNITE-29100', url: 'https://github.com/apache/ignite/pull/13601',
                     triggeredBy: null, blockers: null },
                 { number: 13602, title: 'IGNITE-29101, IGNITE-29102: Two tickets', url: 'https://github.com/apache/ignite/pull/13602',
-                    triggeredBy: null, blockers: 0, proven: true }] });
+                    triggeredBy: null, blockers: 0, proven: true },
+                { number: 13640, title: ' IGNITE-29079 Implemented relaying', url: 'https://github.com/apache/ignite/pull/13640',
+                    triggeredBy: null, blockers: null }] });
             await page.load('');
             report({ html: page.el('prList').innerHTML });
             """);
@@ -76,6 +81,9 @@ class PrListPageTest {
             .contains("<span class=\"pr-ttl\">IGNITE-29100</span>")
             .contains("<span class=\"pr-num\">#13602</span><span class=\"pr-key\">IGNITE-29101</span>")
             .contains("<span class=\"pr-ttl\">IGNITE-29102: Two tickets</span>")
+            .contains("<span class=\"pr-num\">#13640</span><span class=\"pr-key\">IGNITE-29079</span>")
+            .contains("<span class=\"pr-ttl\">Implemented relaying</span>")
+            .contains("data-title=\" IGNITE-29079 Implemented relaying\"")
             .doesNotContain("My?", "blocker(s)", "<span class=\"pr-ttl\">, IGNITE");
     }
 
@@ -154,7 +162,11 @@ class PrListPageTest {
             + "rel=\"noopener\" title=\"Opens the verdict glossary on GitHub. It says what each badge means.\"");
     }
 
-    /** "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a test. */
+    /**
+     * "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a
+     * test. Each row of the legend had a grid of its own, so the text after "my run" began 25 px right of the text after
+     * "✓": the rows share the list's columns.
+     */
     @Test
     void theUnprovenBadgeIsAmberAndTheTagAPlate() throws IOException {
         String css = Files.readString(PAGE, UTF_8);
@@ -164,7 +176,8 @@ class PrListPageTest {
         assertThat(rule(css, ".my-tag")).contains("background: var(--fill)", "color: var(--muted)", "cursor: help")
             .doesNotContain("border:");
         assertThat(rule(css, ".pr-key")).contains("color: var(--muted)", "font-family: ui-monospace, monospace");
-        assertThat(rule(css, ".pr-legend li")).contains("grid-template-columns: max-content 1fr");
+        assertThat(rule(css, ".pr-legend ul")).contains("display: grid", "grid-template-columns: max-content 1fr");
+        assertThat(rule(css, ".pr-legend li")).contains("grid-column: 1 / -1", "grid-template-columns: subgrid");
         assertThat(css).doesNotContain(".my-tag::before");
     }
 

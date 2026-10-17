@@ -131,15 +131,15 @@
         .card.verdict.watch > h2, .card.verdict.unproven > h2 { color: var(--warn); }
         .visa-group { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
         .visa-group.muted { color: var(--muted); }
-        #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
+        #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
         .verdict-lines { font-size: 0.86rem; color: var(--warn); }
         .verdict-lines p { margin: 0 0 0.3rem; }
         .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
         .delta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; margin-top: 0.4rem; font-size: 0.85rem; color: var(--muted); }
-        .trend { display: inline-flex; gap: 2px; align-items: flex-end; vertical-align: middle; height: 16px; }
-        /* The whole 16 px row of a bar is the link; the bar itself is --h tall. */
-        .trend a { display: block; width: 8px; height: 16px; background: linear-gradient(to top, var(--bad) var(--h, 4px), transparent var(--h, 4px)); }
-        .trend a.clean { background: linear-gradient(to top, var(--ok) var(--h, 4px), transparent var(--h, 4px)); }
+        .trend { display: inline-flex; flex-wrap: wrap; align-items: flex-end; vertical-align: middle; }
+        /* The link is a column 24 px wide and 16 px tall, big enough to hit on a touch screen; the bar is its middle 8 px, --h tall. */
+        .trend a { display: block; width: 24px; height: 16px; padding: 0 8px; background-clip: content-box; background-image: linear-gradient(to top, var(--bad) var(--h, 4px), transparent var(--h, 4px)); }
+        .trend a.clean { background-image: linear-gradient(to top, var(--ok) var(--h, 4px), transparent var(--h, 4px)); }
         .delta-new { color: var(--bad); font-weight: 600; }
         .delta-fixed { color: var(--ok); }
         .visa-note { margin: 0.4rem 0 0; font-size: 0.85rem; }
@@ -171,7 +171,7 @@
         .live-tag { color: var(--ok); font-weight: 600; text-decoration: none; }
         a.live-tag:hover { text-decoration: underline; }
         .cancel { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; border-radius: var(--radius-small); color: var(--bad); border-color: var(--bad); }
-        .refresh { margin-right: 0.4rem; padding: 0; border: none; background: none; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
+        .refresh { margin-left: 0.3em; padding: 0; border: none; background: none; cursor: pointer; color: var(--accent); font-size: 1.05rem; line-height: 1; user-select: none; display: inline-block; }
         .refresh:hover { color: var(--fg); }
         .refresh.spin { animation: spin 0.7s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -203,7 +203,7 @@
         .suite-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.5rem; }
         .suite-name { flex: 1 1 auto; min-width: 0; word-break: break-all; display: flex; align-items: center; flex-wrap: wrap; column-gap: 0.35rem; row-gap: 0.1rem; }
         .suite-name a.ext { margin: 0; }
-        .suite-live { display: inline-flex; align-items: center; gap: 0.35rem; }
+        .suite-live { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
         .suite-live .live { margin-left: 0; }
         .live { font-size: 0.7rem; font-weight: 600; padding: 0.05rem 0.45em; border-radius: var(--radius-tag); margin-left: 0.45rem; text-decoration: none; vertical-align: middle; white-space: nowrap; }
         .live.running { background: var(--ok-bg); color: var(--ok); }
@@ -212,9 +212,9 @@
         .hint { border-bottom: 1px dotted var(--muted); cursor: help; }
         .pr-legend { flex: 1 0 100%; margin: 0; font-size: 0.72rem; line-height: 1.7; text-transform: none; letter-spacing: normal; }
         .pr-legend summary { cursor: pointer; color: var(--muted); }
-        .pr-legend ul { list-style: none; margin: 0.2rem 0 0; padding: 0; }
         /* Badge, then meaning: every badge in one column, as wide as the widest. */
-        .pr-legend li { display: grid; grid-template-columns: max-content 1fr; column-gap: 0.4rem; align-items: baseline; }
+        .pr-legend ul { list-style: none; margin: 0.2rem 0 0; padding: 0; display: grid; grid-template-columns: max-content 1fr; column-gap: 0.4rem; }
+        .pr-legend li { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: baseline; }
         .pr-legend .pr-badge, .pr-legend .my-tag { display: inline-block; margin-left: 0; justify-self: center; }
         /* The tests of a suite share one grid: their strips, tags and buttons stand in one column, after the longest name. */
         ul.suite-tests { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, max-content) auto; }
@@ -242,8 +242,8 @@
         html[data-theme="terminal"] {
             .live { padding: 0 0.15rem; }
             #blockersHead, #verdictText { text-transform: uppercase; letter-spacing: 0.04em; }
-            .act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled { background: var(--accent); color: var(--on-accent); text-decoration: none; }
-            .act.primary::before, .act.primary::after, #autoVisaBtn[aria-pressed="true"]::before, #autoVisaBtn[aria-pressed="true"]::after { color: var(--on-accent); }
+            .act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); text-decoration: none; }
+            .act.primary::before, .act.primary::after, #autoVisaBtn[aria-pressed="true"]::before, #autoVisaBtn[aria-pressed="true"]::after, #notifyBtn[aria-pressed="true"]::before, #notifyBtn[aria-pressed="true"]::after { color: var(--on-accent); }
             .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
             .my-tag { padding: 0 0.15rem; }
             .pr-list li.sel .pr-num::before { content: "> "; color: var(--ok); }

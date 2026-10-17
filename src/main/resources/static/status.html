@@ -77,6 +77,9 @@
 
         @media (max-width: 768px) {
             .wrap { padding: 0 0.75rem; }
+            /* The logger goes under the time and level, so the message has the rest of the row. */
+            .logrow { grid-template-columns: auto auto 1fr; }
+            .loglogger { grid-column: 1 / -1; grid-row: 2; }
         }
     </style>
 </head>

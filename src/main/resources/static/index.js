@@ -160,7 +160,7 @@ async function loadPrs() {
 }
 
 // The ticket key a PR title starts with, and what follows it.
-const TITLE_KEY = /^(IGNITE-\d+)[\s:.,\-–]*/;
+const TITLE_KEY = /^\s*(IGNITE-\d+)[\s:.,\-–]*/;
 
 // The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
 const MY_RUN_TITLE = 'You started its latest RunAll. The PR may be someone else\'s.';
