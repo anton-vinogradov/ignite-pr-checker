@@ -69,19 +69,20 @@ class PrListPageTest {
 
         String html = out.get("html").asText();
         assertThat(html)
-            .contains("<span class=\"pr-num\">#13575</span><span class=\"pr-key\">IGNITE-29049</span><span class=\"pr-badge "
-                + "bad\" title=\"1 blocker\">1</span><span class=\"my-tag\" title=\"You started its latest RunAll. The PR "
-                + "may be someone else's.\">my run</span>")
+            .contains("<span class=\"pr-num\">#13575</span> <span class=\"pr-key\">IGNITE-29049</span>"
+                + "<span class=\"pr-badge bad\" title=\"1 blocker\" role=\"img\" aria-label=\"1 blocker\">1</span><span class=\"my-tag\" "
+                + "title=\"You started its latest RunAll. The PR may be someone else's.\">my run</span>")
             .contains("<span class=\"pr-ttl\">Move MDC to JUnit</span>")
             .contains("data-title=\"IGNITE-29049: Move MDC to JUnit\"")
             .contains("title=\"IGNITE-29049: Move MDC to JUnit\"")
             .contains("<span class=\"pr-num\">#13600</span><span class=\"pr-badge ok\"")
             .contains("<span class=\"pr-ttl\">Fix a typo in the README</span>")
-            .contains("<span class=\"pr-num\">#13601</span><span class=\"pr-key\">IGNITE-29100</span><span class=\"my-tag\"")
+            .contains("<span class=\"pr-num\">#13601</span> <span class=\"pr-key\">IGNITE-29100</span>"
+                + "<span class=\"my-tag\"")
             .contains("<span class=\"pr-ttl\">IGNITE-29100</span>")
-            .contains("<span class=\"pr-num\">#13602</span><span class=\"pr-key\">IGNITE-29101</span>")
+            .contains("<span class=\"pr-num\">#13602</span> <span class=\"pr-key\">IGNITE-29101</span>")
             .contains("<span class=\"pr-ttl\">IGNITE-29102: Two tickets</span>")
-            .contains("<span class=\"pr-num\">#13640</span><span class=\"pr-key\">IGNITE-29079</span>")
+            .contains("<span class=\"pr-num\">#13640</span> <span class=\"pr-key\">IGNITE-29079</span>")
             .contains("<span class=\"pr-ttl\">Implemented relaying</span>")
             .contains("data-title=\" IGNITE-29079 Implemented relaying\"")
             .doesNotContain("My?", "blocker(s)", "<span class=\"pr-ttl\">, IGNITE");
@@ -146,13 +147,16 @@ class PrListPageTest {
         assertThat(out.get("unproven").asText()).isEqualTo("No blockers found, but the run can't prove the PR clean: "
             + "it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be "
             + "checked, or a newer run is still going.");
-        assertThat(out.get("one").asText()).isEqualTo("<span class=\"pr-badge bad\" title=\"1 blocker\">1</span>");
-        assertThat(out.get("many").asText()).isEqualTo("<span class=\"pr-badge bad\" title=\"33 blockers\">33</span>");
+        assertThat(out.get("one").asText()).startsWith("<span class=\"pr-badge bad\" title=\"1 blocker\"")
+            .endsWith(">1</span>");
+        assertThat(out.get("many").asText()).startsWith("<span class=\"pr-badge bad\" title=\"33 blockers\"")
+            .endsWith(">33</span>");
         assertThat(out.get("old").asText())
-            .isEqualTo("<span class=\"pr-badge unproven\" title=\"No blockers found, but commits were pushed after this "
-                + "run.\">?</span>");
+            .startsWith("<span class=\"pr-badge unproven\" title=\"No blockers found, but commits were pushed after this "
+                + "run.\"").endsWith(">?</span>");
         assertThat(out.get("proven").asText())
-            .isEqualTo("<span class=\"pr-badge ok\" title=\"A clean run of the PR&#39;s current code.\">✓</span>");
+            .startsWith("<span class=\"pr-badge ok\" title=\"A clean run of the PR&#39;s current code.\"")
+            .endsWith(">✓</span>");
     }
 
     /** The "?" by the heading said what it explains but not that it leaves the page for the docs on GitHub. */

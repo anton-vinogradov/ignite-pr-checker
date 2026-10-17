@@ -298,6 +298,6 @@ class RerunRulesPageTest {
         assertThat(page).containsPattern("<summary>Not blamed on this PR <span id=\"filteredCount\"></span> <a class=\"help\""
             + "[^>]*>\\?</a></summary> <p class=\"muted filtered-line\">Nothing to do for this PR. Rerun only to double-check "
             + "the flaky ones. <span class=\"sect-act hidden\" id=\"filteredActs\">");
-        assertThat(page).containsPattern("<a class=\"help\" [^>]*title=\"([^\"]+)\" aria-label=\"\\1\"");
+        assertThat(page).doesNotContainPattern("<a class=\"help\" [^>]*title=\"([^\"]+)\" aria-label=\"\\1\"");
     }
 }

@@ -174,7 +174,7 @@ function prRow(p) {
     return `
         <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
             <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(title)}">
-            <span class="pr-num">#${esc(p.number)}</span>${key ? `<span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${MY_RUN_TITLE}">my run</span>
+            <span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${MY_RUN_TITLE}">my run</span>
             <span class="pr-ttl">${esc(rest || title)}</span></a>
         </li>`;
 }
@@ -214,17 +214,18 @@ function markMine() {
 
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
 // where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats
-// these titles word for word.
+// these titles word for word, and its words name the badge to a screen reader, which would read the bare mark.
 const STANDING_BADGES = {
     WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the PR\'s latest code. A rerun shows '
-        + 'whether they are blockers.'],
+        + 'whether they are blockers.', 'started failing'],
     UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
         + 'broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still '
-        + 'going.'],
-    OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.'],
+        + 'going.', 'not proven clean'],
+    OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.', 'not proven clean'],
     UNKNOWN_CODE: ['unproven', '?', 'No blockers found, but it is not known whether this run tested the PR\'s latest '
-        + 'commit.'],
-    CHECKING: ['checking', '…', 'No blockers found. The page is checking that this run tested the PR\'s latest commit.'],
+        + 'commit.', 'not proven clean'],
+    CHECKING: ['checking', '…', 'No blockers found. The page is checking that this run tested the PR\'s latest commit.',
+        'checking'],
 };
 const CLEAN_BADGE_TITLE = 'A clean run of the PR\'s current code.';
 
@@ -233,14 +234,18 @@ const CLEAN_BADGE_TITLE = 'A clean run of the PR\'s current code.';
 // it, nothing if unanalysed.
 function blockerBadge(n, proven, standing) {
     if (n == null) return '';
-    if (n > 0)
-        return `<span class="pr-badge bad" title="${n} blocker${n === 1 ? '' : 's'}">${n}</span>`;
-    const badge = STANDING_BADGES[standing];
+    if (n > 0) {
+        const count = `${n} blocker${n === 1 ? '' : 's'}`;
+        return `<span class="pr-badge bad" title="${count}" ${badgeName(count)}>${n}</span>`;
+    }
+    const badge = STANDING_BADGES[standing] || (proven === false ? STANDING_BADGES.UNPROVEN : null);
     if (badge)
-        return `<span class="pr-badge ${badge[0]}" title="${esc(badge[2])}">${badge[1]}</span>`;
-    return proven === false
-        ? `<span class="pr-badge unproven" title="${esc(STANDING_BADGES.UNPROVEN[2])}">?</span>`
-        : `<span class="pr-badge ok" title="${esc(CLEAN_BADGE_TITLE)}">✓</span>`;
+        return `<span class="pr-badge ${badge[0]}" title="${esc(badge[2])}" ${badgeName(badge[3])}>${badge[1]}</span>`;
+    return `<span class="pr-badge ok" title="${esc(CLEAN_BADGE_TITLE)}" ${badgeName('clean')}>✓</span>`;
+}
+
+function badgeName(words) {
+    return `role="img" aria-label="${esc(words)}"`;
 }
 
 function findLi(number) {

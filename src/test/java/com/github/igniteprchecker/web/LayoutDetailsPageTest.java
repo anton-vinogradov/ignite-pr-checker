@@ -38,8 +38,9 @@ class LayoutDetailsPageTest {
 
         assertThat(rule(css, "#autoVisaBtn[aria-pressed=\"true\"], #autoVisaBtn[aria-pressed=\"true\"]:disabled, "
             + "#notifyBtn[aria-pressed=\"true\"]")).contains("background: var(--accent)", "color: var(--on-accent)");
-        assertThat(css).contains(".act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed=\"true\"], "
-            + "#autoVisaBtn[aria-pressed=\"true\"]:disabled, #notifyBtn[aria-pressed=\"true\"] { background: var(--accent);")
+        assertThat(css).contains(".act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed=\"true\"],"
+                + " #autoVisaBtn[aria-pressed=\"true\"]:disabled, #notifyBtn[aria-pressed=\"true\"] {"
+                + " background: var(--accent);")
             .contains("#notifyBtn[aria-pressed=\"true\"]::before, #notifyBtn[aria-pressed=\"true\"]::after "
                 + "{ color: var(--on-accent); }");
     }

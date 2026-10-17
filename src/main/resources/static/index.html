@@ -76,7 +76,7 @@
         /* The tag's translucent fill over a selected or hovered row would leave its muted text under 4.5:1. */
         .pr-list li.sel .my-tag, .pr-list li:hover .my-tag { background: var(--pane-bg); }
         .pr-num { font-family: ui-monospace, monospace; color: var(--accent); font-size: 0.85rem; }
-        .pr-key { font-family: ui-monospace, monospace; color: var(--muted); font-size: 0.85rem; margin-left: 0.35rem; }
+        .pr-key { font-family: ui-monospace, monospace; color: var(--muted); font-size: 0.85rem; }
         .pr-ttl { display: block; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .pr-badge { display: inline-block; min-width: 1.3em; text-align: center; font-size: 0.7rem; font-weight: 600; border-radius: 8px; padding: 0 0.35em; vertical-align: middle; margin-left: 0.15rem; }
         .pr-badge.bad { background: var(--bad); color: var(--on-bad); }
@@ -450,7 +450,7 @@
             <button id="paneExpand" class="pane-expand" type="button" title="Show PR list" aria-label="Show PR list">›</button>
             <aside class="pr-pane">
                 <div class="pane-head">Open PRs <span id="prCount"></span>
-                    <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="Opens the verdict glossary on GitHub. It says what each badge means." aria-label="Opens the verdict glossary on GitHub. It says what each badge means.">?</a>
+                    <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="Opens the verdict glossary on GitHub. It says what each badge means." aria-label="What this means">?</a>
                     <button id="paneCollapse" class="pane-toggle" type="button" title="Collapse panel" aria-label="Collapse panel">‹</button>
                     <input id="prFilter" type="search" placeholder="Filter, or a PR number" autocomplete="off" spellcheck="false"
                         aria-label="Filter the open PRs, or open any PR by number" title="Filter by number or title; Enter opens the first match (press / to jump here)">
@@ -499,7 +499,7 @@
                     <div id="runsRow" class="head-row hidden">
                         <span id="runs" class="runs muted"></span>
                         <button id="cancelMine" class="cancel hidden" type="button" title="Cancel the runs you started; other people's runs keep going">Cancel my runs</button>
-                        <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas" target="_self" rel="noopener" title="What the run chips and commit tags mean" aria-label="What the run chips and commit tags mean">?</a>
+                        <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas" target="_self" rel="noopener" title="What the run chips and commit tags mean" aria-label="What this means">?</a>
                     </div>
                 </div>
 
@@ -507,7 +507,7 @@
                     <div id="verdictCard" class="card verdict">
                         <p id="mergedNote" class="merged-note hidden"></p>
                         <h2 id="verdictHead"><span id="verdictText"></span>
-                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="What each verdict means and what to do next" aria-label="What each verdict means and what to do next">?</a>
+                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="What each verdict means and what to do next" aria-label="What this means">?</a>
                             <span id="visaGroup" class="visa-group"><span class="muted">JIRA visa:</span>
                                 <button id="visaBtn" class="act" type="button" title="Post the verdict as a comment to the JIRA ticket now">Post now</button>
                                 <button id="autoVisaBtn" class="act" type="button" aria-pressed="false">Auto visa</button>
@@ -532,25 +532,25 @@
                         <p id="visaNote" class="visa-note hidden"></p>
                     </div>
                     <div id="interruptedBanner" class="card interrupted hidden">
-                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them" aria-label="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them">?</a> <span class="sect-act hidden" id="cancelledActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="cancelledActsNote" class="act-note hidden"></span></h2>
+                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them" aria-label="What this means">?</a> <span class="sect-act hidden" id="cancelledActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="cancelledActsNote" class="act-note hidden"></span></h2>
                         <p class="muted" id="interruptedText"></p>
                         <ul id="cancelledSuites" class="tests"></ul>
                     </div>
                     <div id="brokenCard" class="card blockers hidden">
-                        <h2>Broken suites <span id="brokenCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that." aria-label="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that.">?</a> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="brokenActsNote" class="act-note hidden"></span></h2>
+                        <h2>Broken suites <span id="brokenCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites with no reliable result: a compilation error, timeout or crash, or a run they need failed. The checker does not look for blockers in a suite that timed out or crashed: its tests may have failed only because of that." aria-label="What this means">?</a> <span class="sect-act hidden" id="brokenActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="brokenActsNote" class="act-note hidden"></span></h2>
                         <p class="muted rerun-advice">Rerun these first: the verdict above can't see their tests. A compilation error needs a code fix
                             instead, so it has no Rerun.</p>
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div id="shrunkCard" class="card watch hidden">
-                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail" aria-label="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="shrunkActsNote" class="act-note hidden"></span></h2>
+                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail" aria-label="What this means">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="shrunkActsNote" class="act-note hidden"></span></h2>
                         <p class="muted">Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If
                             not, compare the test list with master and rerun.</p>
                         <ul id="shrunkSuites" class="tests"></ul>
                     </div>
                     <div id="blockersCard" class="card blockers hidden">
                         <h2 id="blockersTitle"><span id="blockersHead">Blockers</span>
-                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them" aria-label="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them">?</a>
+                            <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them" aria-label="What this means">?</a>
                             <span id="blockerTabs" class="group-by hidden"><span class="muted">Group by:</span><span class="tabs">
                                 <button id="tabSuites" class="act on" type="button" aria-pressed="true" title="Group by the suite they failed in">Suites</button>
                                 <button id="tabCauses" class="act" type="button" aria-pressed="false" title="Group by failure message — many tests usually share a handful of root causes">Root causes</button>
@@ -561,7 +561,7 @@
                             their suites: a second failure confirms a blocker, a pass removes it.</span></p>
                         <ul id="blockers" class="tests"></ul>
                         <div id="oneRunGroup" class="one-run hidden">
-                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Blockers that failed the only time they ran on this branch" aria-label="Blockers that failed the only time they ran on this branch">?</a> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="oneRunActsNote" class="act-note hidden"></span></h3>
+                            <h3>Not confirmed: 1 run <span id="oneRunCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Blockers that failed the only time they ran on this branch" aria-label="What this means">?</a> <span class="sect-act hidden" id="oneRunActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="oneRunActsNote" class="act-note hidden"></span></h3>
                             <p class="muted">Each failed its only run on this branch. <span class="rerun-advice">Rerun their suites: a second failure confirms a
                                 blocker, a pass removes it.</span></p>
                             <ul id="oneRunBlockers" class="tests"></ul>
@@ -569,19 +569,19 @@
                         <div id="causesView" class="hidden"></div>
                     </div>
                     <div id="watchCard" class="card watch hidden">
-                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake" aria-label="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="watchActsNote" class="act-note hidden"></span></h2>
+                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake" aria-label="What this means">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="watchActsNote" class="act-note hidden"></span></h2>
                         <p class="muted">Not blockers yet: there are too few runs of this code to tell a break from a flake. <span class="rerun-advice">Rerun their
                             suites: if they keep failing, they become blockers; if they pass, they drop out.</span></p>
                         <ul id="watch" class="tests"></ul>
                     </div>
                     <div id="unverifiedCard" class="card watch hidden">
-                        <h2>Could not be checked <span id="unverifiedCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own" aria-label="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own">?</a></h2>
+                        <h2>Could not be checked <span id="unverifiedCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Failed tests TeamCity errors kept from being checked: not counted as blockers, tried again on their own" aria-label="What this means">?</a></h2>
                         <p class="muted">These tests failed, but TeamCity errors stopped the check. They are not counted as blockers.
                             The checker tries again by itself.</p>
                         <ul id="unverified" class="tests"></ul>
                     </div>
                     <div id="prTestsCard" class="card hidden">
-                        <h2>This PR's tests <span id="prTestsCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="How the test classes this PR adds or changes ran in this RunAll" aria-label="How the test classes this PR adds or changes ran in this RunAll">?</a></h2>
+                        <h2>This PR's tests <span id="prTestsCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="How the test classes this PR adds or changes ran in this RunAll" aria-label="What this means">?</a></h2>
                         <p id="prTestsWarn" class="caveat hidden"></p>
                         <p id="prTestsCheck" class="muted hidden"></p>
                         <p id="prTestsNote" class="muted hidden"></p>
@@ -589,7 +589,7 @@
                     </div>
                     <div id="unstableCard" class="card hidden">
                         <details>
-                            <summary>Crashed near the end of the run <span id="unstableCount"></span> — results stand <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand" aria-label="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand">?</a></summary>
+                            <summary>Crashed near the end of the run <span id="unstableCount"></span> — results stand <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that crashed after running over 90% of master's tests, with no failure blamed on the PR: their results stand" aria-label="What this means">?</a></summary>
                             <p class="muted">None of their failures is blamed on this PR (see Not blamed on this PR), so the results of the
                                 tests they ran stand. Nothing to do.</p>
                             <ul id="unstableSuites" class="tests"></ul>
@@ -597,7 +597,7 @@
                     </div>
                     <div id="filteredCard" class="card">
                         <details>
-                            <summary>Not blamed on this PR <span id="filteredCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These tests failed, but they fail on master too, are flaky, or passed in a later run." aria-label="These tests failed, but they fail on master too, are flaky, or passed in a later run.">?</a></summary>
+                            <summary>Not blamed on this PR <span id="filteredCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These tests failed, but they fail on master too, are flaky, or passed in a later run." aria-label="What this means">?</a></summary>
                             <p class="muted filtered-line">Nothing to do for this PR. Rerun only to double-check the flaky ones.
                                 <span class="sect-act hidden" id="filteredActs"><button class="act" type="button" data-top="false" title="Re-run every suite in this section">Rerun</button><button class="act" type="button" data-top="true" title="Re-run every suite in this section, at the top of the queue">Rerun at top</button></span><span id="filteredActsNote" class="act-note hidden"></span></p>
                             <ul id="filtered" class="tests"></ul>
