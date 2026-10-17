@@ -251,6 +251,8 @@ function openPr(number, push) {
     $('actions').classList.remove('hidden');
     sayStatus('');
     $('visaNote').classList.add('hidden');
+    hideRerunAnswers();
+    lastRuns = [];
     clearFreshness();
     $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
     runsWere = 0;
@@ -266,6 +268,12 @@ function openPr(number, push) {
     if (push) history.pushState({ pr: number }, '', '?pr=' + number);
     analyze(number);
     loadRuns(number);
+}
+
+// The answers to Rerun under the buttons belong to the PR they were given on.
+function hideRerunAnswers() {
+    for (const id of sectActs.keys()) answerRerun($(id + 'Note'), '', false);
+    for (const note of document.querySelectorAll('.act-note')) note.classList.add('hidden');
 }
 
 function suitesOfTests(list) { return [...new Set((list || []).map(t => t.suite).filter(Boolean))]; }
@@ -288,6 +296,7 @@ async function rerunSuites(suites, top, btn, note) {
         const r = await api('/api/rerun-suites?pr=' + pr + '&top=' + top
             + '&suites=' + encodeURIComponent(suites.join(',')), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             answerRerun(note, notDone('Not queued', res.error), true);
@@ -478,6 +487,7 @@ async function loadRuns(number) {
     // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
     // so suite chips light up individually while the chain grinds through them.
     const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
+    if (number !== selectedPr) return false;
     lastRuns = runs.concat(rr.filter(x => x.pr === number)
         .map(x => ({ buildId: x.buildId, btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct,
             leftSec: x.leftSec, startSec: x.startSec, waitedSec: x.waitedSec, elapsedSec: x.elapsedSec })));
@@ -1682,7 +1692,7 @@ async function loadPrTests(res) {
             + (chainRunning(res) ? '&running=true' : ''));
         if (!r.ok) return;
         const body = await r.json().catch(() => null);
-        if (!body || res.prNumber !== selectedPr) return;
+        if (!body || !stillShown(res) || lastResult.live !== res.live) return;
         lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
         renderPrTests(body, res);
     } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
@@ -1970,6 +1980,7 @@ async function rerunSuite(suite, top, btn) {
     try {
         const r = await api('/api/rerun-suite?pr=' + pr + '&suite=' + encodeURIComponent(suite) + '&top=' + top, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             answerRerun(note, notDone('Not queued', res.error), true);
@@ -2509,17 +2520,19 @@ function jiraKeptNote(action) {
 async function postVisa() {
     if (!selectedPr || !lastIssueKey) return;
     if (!hasJira) { pendingJiraAction = 'visa'; await toggleJiraPanel(true); return; }
-    if (!confirm(`Post the verdict as a comment to ${lastIssueKey} in ASF JIRA?`)) return;
+    const pr = selectedPr, key = lastIssueKey;
+    if (!confirm(`Post the verdict as a comment to ${key} in ASF JIRA?`)) return;
     const btn = $('visaBtn');
     btn.disabled = true;
     sayStatus('Posting the visa…', { busy: true });
     try {
-        const r = await api(`/api/jira-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`, { method: 'POST' });
+        const r = await api(`/api/jira-visa?pr=${pr}&issue=${encodeURIComponent(key)}`, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (r.status === 412) { sayStatus(''); return askJiraTokenAgain('visa', res.error); }
         if (!r.ok) { visaNote(notDone('Visa not posted', res.error), { err: true }); return; }
-        visaNote(`Visa posted to <a href="${esc(res.url)}" target="_self" rel="noopener" title="Open the comment in JIRA">${esc(lastIssueKey)}</a>`,
+        visaNote(`Visa posted to <a href="${esc(res.url)}" target="_self" rel="noopener" title="Open the comment in JIRA">${esc(key)}</a>`,
             { html: true });
     } finally {
         btn.disabled = false;
@@ -2638,13 +2651,15 @@ async function loadAutoVisa(pr) {
 async function armAutoVisa() {
     if (!selectedPr || !lastIssueKey) return;
     if (!hasJira) { pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
+    const pr = selectedPr, key = lastIssueKey;
     const btn = $('autoVisaBtn');
     btn.disabled = true;
     try {
-        const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + selectedPr
-            : `/api/auto-visa?pr=${selectedPr}&issue=${encodeURIComponent(lastIssueKey)}`;
+        const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + pr
+            : `/api/auto-visa?pr=${pr}&issue=${encodeURIComponent(key)}`;
         const r = await api(path, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
+        if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (r.status === 412) return askJiraTokenAgain('auto', res.error);
         if (!r.ok) {
@@ -2654,7 +2669,7 @@ async function armAutoVisa() {
         autoVisa.armed = !!res.armed;
         autoVisa.refusedFor = null;
         visaNote(autoVisa.armed
-            ? `Auto visa armed: the verdict goes to ${lastIssueKey} the next time a RunAll of this PR finishes.`
+            ? `Auto visa armed: the verdict goes to ${key} the next time a RunAll of this PR finishes.`
             : 'Your auto visa is cancelled.');
     } finally {
         paintAutoVisa();
