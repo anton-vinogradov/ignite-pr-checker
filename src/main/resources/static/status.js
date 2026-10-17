@@ -514,16 +514,19 @@ $('tabUsers').addEventListener('click', () => setStatusTab(true));
 $('restartBtn').addEventListener('click', async () => {
     if (!confirm('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped (caches are saved).')) return;
     const btn = $('restartBtn'), msg = $('restartMsg');
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     msg.textContent = 'restarting…';
     let accepted = false;
     try {
         const r = await fetch('/api/restart', { method: 'POST' });
-        if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; return; }
-        if (r.status === 403 || r.status === 429) { msg.textContent = await errorText(r); btn.disabled = false; return; }
+        if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; refocus(); return; }
+        if (r.status === 403 || r.status === 429) {
+            msg.textContent = await errorText(r); btn.disabled = false; refocus(); return;
+        }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         accepted = true;
-    } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; }
+    } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; refocus(); }
     if (!accepted) return;
     const t0 = Date.now();
     const timer = setInterval(async () => {
@@ -538,6 +541,7 @@ $('restartBtn').addEventListener('click', async () => {
 $('flushBtn').addEventListener('click', async () => {
     if (!confirm('Clear cached analysis results and per-test history?\nThe next analysis will recompute from scratch (extra TeamCity load).')) return;
     const btn = $('flushBtn'), msg = $('flushMsg');
+    const refocus = keepFocus(btn);
     btn.disabled = true; msg.textContent = 'flushing…';
     try {
         const r = await fetch('/api/flush-caches', { method: 'POST', cache: 'no-store' });
@@ -551,6 +555,7 @@ $('flushBtn').addEventListener('click', async () => {
         msg.textContent = 'flush failed: ' + e.message;
     } finally {
         btn.disabled = false;
+        refocus();
     }
 });
 

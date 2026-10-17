@@ -39,6 +39,8 @@ html[data-theme="terminal"] {
 body { font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); }
 html[data-theme="terminal"] body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .hidden { display: none !important; }
+/* Read out by screen readers, not shown. */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .muted { color: var(--muted); }
 .err { color: var(--bad); }
 /* The pulse goes from the muted colour to the text colour: faded, the text would drop under 4.5:1. */

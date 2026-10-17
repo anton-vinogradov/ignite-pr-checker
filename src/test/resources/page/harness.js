@@ -137,6 +137,7 @@ const ctx = {
     fetch: fakeFetch,
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
     setInterval: (fn, ms) => addTimer(fn, ms, true),
+    requestAnimationFrame: fn => addTimer(fn, 16, false),
     clearTimeout: id => timers.delete(id),
     clearInterval: id => timers.delete(id),
     confirm: () => true,

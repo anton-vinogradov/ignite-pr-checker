@@ -27,14 +27,24 @@ function notDone(what, error) {
     return genericError(error) ? `⚠ ${what}. The service may be restarting. Try again in a moment.` : `⚠ ${what}: ${error}`;
 }
 // The status line under the run line: what the page is doing now (busy), or how the last action went; an error is
-// red. Every note goes through here, so a new one always clears the look of the last.
-function sayStatus(text, { html = false, err = false, busy = false } = {}) {
+// red. Every note goes through here, so a new one always clears the look of the last. `aloud` marks the answer to a
+// button, which a screen reader reads out.
+function sayStatus(text, { html = false, err = false, busy = false, aloud = false } = {}) {
     const el = $('status');
     if (html) el.innerHTML = text;
     else el.textContent = text;
     el.classList.toggle('err', err);
     el.classList.toggle('busy', busy);
     $('statusRetry').classList.add('hidden');
+    if (aloud) sayAloud(el.textContent);
+}
+
+// #actAnswer is a polite live region for the answers to buttons alone: the status line also shows progress, and the
+// notes under the buttons repeat it. It is emptied first, so the same answer twice is read out twice.
+function sayAloud(text) {
+    const el = $('actAnswer');
+    el.textContent = '';
+    requestAnimationFrame(() => { el.textContent = text; });
 }
 function show(view) {
     $('loginView').classList.toggle('hidden', view !== 'login');
@@ -317,6 +327,7 @@ async function rerunSuites(suites, top, btn, note) {
     if (suites.length >= ASK_FROM_SUITES && !confirm(`Re-run ${suites.length} suites of PR #${pr} `
         + (top ? 'at the top of the ci2 queue, ahead of everyone else\'s builds?' : 'at the end of the ci2 queue?')))
         return;
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     sayStatus('Queuing ' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + '…', { busy: true });
     try {
@@ -327,15 +338,16 @@ async function rerunSuites(suites, top, btn, note) {
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             answerRerun(note, notDone('Not queued', res.error), true);
-            sayStatus(notDone('Not queued', res.error), { err: true });
+            sayStatus(notDone('Not queued', res.error), { err: true, aloud: true });
             return;
         }
         showQueued(res.triggered);
         answerRerun(note, belowTopLine(res.triggered), false);
-        sayStatus(queuedLine(res.triggered) + belowTopTail(res.triggered), { html: true });
+        sayStatus(queuedLine(res.triggered) + belowTopTail(res.triggered), { html: true, aloud: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
+        refocus();
     }
 }
 
@@ -1919,7 +1931,7 @@ async function refresh() {
 async function freshRuns(pr) {
     if (await loadRuns(pr)) return true;
     if (pr === selectedPr && $('loginView').classList.contains('hidden'))
-        sayStatus('⚠ Could not check the runs of this PR. Try again in a moment.', { err: true });
+        sayStatus('⚠ Could not check the runs of this PR. Try again in a moment.', { err: true, aloud: true });
     return false;
 }
 
@@ -1929,6 +1941,7 @@ async function doTrigger(act, top, btn) {
     if (!selectedPr) return;
     const pr = selectedPr;
     const atTop = String(top) === 'true';
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     try {
         if (!await freshRuns(pr)) return;
@@ -1941,16 +1954,18 @@ async function doTrigger(act, top, btn) {
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
-            sayStatus(notDone('Not queued', res.error), { err: true });
+            sayStatus(notDone('Not queued', res.error), { err: true, aloud: true });
             if (res.replaced) loadRuns(pr);
             return;
         }
         const n = (res.triggered || []).length;
         sayStatus(`Queued ${n} build${n === 1 ? '' : 's'}: ` + queuedLine(res.triggered).replace(/^Queued ?/, '')
-            + belowTopTail(res.triggered) + (res.replaced ? ' Your previous RunAll was cancelled.' : ''), { html: true });
+            + belowTopTail(res.triggered) + (res.replaced ? ' Your previous RunAll was cancelled.' : ''),
+            { html: true, aloud: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
+        refocus();
     }
 }
 
@@ -1972,23 +1987,25 @@ async function cancelMine() {
     if (!selectedPr) return;
     const pr = selectedPr;
     const btn = $('cancelMine');
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     try {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.mine);
-        if (!mine.length) { sayStatus('None of your runs of this PR is still going.'); return; }
+        if (!mine.length) { sayStatus('None of your runs of this PR is still going.', { aloud: true }); return; }
         if (!confirm(cancelQuestion(pr, mine))) return;
         sayStatus('Cancelling your runs…', { busy: true });
         const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { sayStatus(notDone('Not cancelled', res.error), { err: true }); return; }
+        if (!r.ok) { sayStatus(notDone('Not cancelled', res.error), { err: true, aloud: true }); return; }
         const n = res.cancelled || 0;
-        sayStatus(`Cancelled ${n} run${n === 1 ? '' : 's'}.`);
+        sayStatus(`Cancelled ${n} run${n === 1 ? '' : 's'}.`, { aloud: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
+        refocus();
     }
 }
 
@@ -2004,6 +2021,7 @@ async function rerunSuite(suite, top, btn) {
     if (!selectedPr) return;
     const pr = selectedPr;
     const note = rowNote(btn);
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     const orig = btn.textContent;
     btn.textContent = '…';
@@ -2014,16 +2032,17 @@ async function rerunSuite(suite, top, btn) {
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             answerRerun(note, notDone('Not queued', res.error), true);
-            sayStatus(notDone('Not queued', res.error), { err: true });
+            sayStatus(notDone('Not queued', res.error), { err: true, aloud: true });
             return;
         }
         showQueued(res.triggered, suite);
         answerRerun(note, belowTopLine(res.triggered), false);
-        sayStatus(queuedLine(res.triggered) + belowTopTail(res.triggered), { html: true });
+        sayStatus(queuedLine(res.triggered) + belowTopTail(res.triggered), { html: true, aloud: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
         btn.textContent = orig;
+        refocus();
     }
 }
 
@@ -2554,6 +2573,7 @@ async function postVisa() {
     const pr = selectedPr, key = lastIssueKey;
     if (!confirm(`Post the verdict as a comment to ${key} in ASF JIRA?`)) return;
     const btn = $('visaBtn');
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     sayStatus('Posting the visa…', { busy: true });
     try {
@@ -2567,6 +2587,7 @@ async function postVisa() {
             { html: true });
     } finally {
         btn.disabled = false;
+        refocus();
     }
 }
 
@@ -2577,7 +2598,7 @@ function visaNote(text, { html = false, err = false } = {}) {
     else n.textContent = text;
     n.classList.toggle('err', err);
     n.classList.remove('hidden');
-    sayStatus(text, { html, err });
+    sayStatus(text, { html, err, aloud: true });
 }
 
 // The group at the right of the verdict heading: "JIRA visa: Post now · Auto visa", or one line when the PR title
@@ -2688,6 +2709,7 @@ async function armAutoVisa() {
     if (!hasJira) { pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
     const pr = selectedPr, key = lastIssueKey;
     const btn = $('autoVisaBtn');
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     try {
         const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + pr
@@ -2708,6 +2730,7 @@ async function armAutoVisa() {
             : 'Your auto visa is cancelled.');
     } finally {
         paintAutoVisa();
+        refocus();
     }
 }
 
