@@ -92,10 +92,10 @@ class StyleFixReportTest {
 
         String note = service().fixForCommand(PR, author, "Author");
 
-        assertThat(note).isEqualTo("🎨 _Checkstyle autofix: fixed 1 of 2 violation(s) in 1 file(s) and pushed `41b0d3a`"
-            + " to your branch `ignite-28867` — `git pull` before your next push. 1 remain, which need a human (javadoc,"
-            + " naming, wrapping): the [**Check java code**](https://github.com/apache/ignite/pull/13800/checks) check"
-            + " of this PR may still fail on them._\n\n<details><summary>1 violation(s) left</summary>\n\n"
+        assertThat(note).isEqualTo("🎨 _Checkstyle autofix: fixed 1 of 2 violations in 1 file and pushed `41b0d3a`"
+            + " to your branch `ignite-28867` — `git pull` before your next push. 1 remains, which needs a human"
+            + " (javadoc, naming, wrapping): the [**Check java code**](https://github.com/apache/ignite/pull/13800/"
+            + "checks) check of this PR may still fail on it._\n\n<details><summary>1 violation left</summary>\n\n"
             + "- `" + PATH + ":6` — MethodName\n\n</details>");
     }
 
@@ -105,9 +105,9 @@ class StyleFixReportTest {
 
         String note = service().fixForCommand(PR, author, "Author");
 
-        assertThat(note).isEqualTo("🎨 _Checkstyle: 1 violation(s) in the changed files, none of them mechanically"
+        assertThat(note).isEqualTo("🎨 _Checkstyle: 1 violation in the changed files, not mechanically"
             + " fixable (javadoc, naming, wrapping need a human): the [**Check java code**](https://github.com/apache/"
-            + "ignite/pull/13800/checks) check of this PR may fail on them._\n\n<details><summary>1 violation(s) left"
+            + "ignite/pull/13800/checks) check of this PR may fail on it._\n\n<details><summary>1 violation left"
             + "</summary>\n\n- `" + PATH + ":6` — MethodName\n\n</details>");
         verify(github, never()).commitFiles(anyString(), anyString(), anyString(), anyString(), anyMap(), anyString());
     }
@@ -120,7 +120,7 @@ class StyleFixReportTest {
 
         String note = service().fixForCommand(PR, author, "Author");
 
-        assertThat(note).isEqualTo("🎨 _Checkstyle: 1 file(s) were too large for the checker and were not checked ("
+        assertThat(note).isEqualTo("🎨 _Checkstyle: 1 file was too large for the checker and not checked ("
             + PATH + ")._");
         verify(github, never()).rawFile(anyString(), anyString(), eq(PATH));
     }
@@ -141,7 +141,7 @@ class StyleFixReportTest {
         ArgumentCaptor<Map<String, String>> checked = ArgumentCaptor.forClass(Map.class);
         verify(checkstyle).check(checked.capture());
         assertThat(checked.getValue()).hasSize(16);
-        assertThat(note).isEqualTo("🎨 _Checkstyle: 4 file(s) were too large for the checker and were not checked ("
+        assertThat(note).isEqualTo("🎨 _Checkstyle: 4 files were too large for the checker and not checked ("
             + paths.get(16) + ", …)._");
         ArgumentCaptor<Integer> asked = ArgumentCaptor.forClass(Integer.class);
         verify(github, atLeastOnce()).rawFileUpTo(anyString(), anyString(), anyString(), asked.capture());

@@ -2198,7 +2198,7 @@ function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
     const tc = runUrl
         ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
     const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
-        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this commit to tell a break from a flake'
+        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this code to tell a break from a flake'
         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
     const ai = `<button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
         + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`

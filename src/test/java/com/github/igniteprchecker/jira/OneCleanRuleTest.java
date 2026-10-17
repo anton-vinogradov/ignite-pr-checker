@@ -117,9 +117,9 @@ class OneCleanRuleTest {
         String wiki = visas.compose(r.prNumber(), r, ahead, HEAD);
         assertThat(md.contains("✅ **No blockers**")).as("the PR comment is green").isEqualTo(expected == Standing.CLEAN);
         assertThat(wiki.contains("(/) *No blockers*")).as("the visa is green").isEqualTo(expected == Standing.CLEAN);
-        assertThat(md.contains("No proven blocker yet")).as("the PR comment waits for a re-run")
+        assertThat(md.contains("No proven blockers yet")).as("the PR comment waits for a re-run")
             .isEqualTo(expected == Standing.WATCH);
-        assertThat(wiki.contains("No proven blocker yet")).as("the visa waits for a re-run")
+        assertThat(wiki.contains("No proven blockers yet")).as("the visa waits for a re-run")
             .isEqualTo(expected == Standing.WATCH);
         boolean unproven = expected != Standing.CLEAN && expected != Standing.WATCH && expected != Standing.BLOCKERS;
         assertThat(md.contains("can't prove the PR is clean")).as("the PR comment can't prove it").isEqualTo(unproven);

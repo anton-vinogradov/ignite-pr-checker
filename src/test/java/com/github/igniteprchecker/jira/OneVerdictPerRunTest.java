@@ -173,8 +173,8 @@ class OneVerdictPerRunTest {
         ArgumentCaptor<String> visa = ArgumentCaptor.forClass(String.class);
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), visa.capture());
         assertThat(visa.getValue()).contains("2 commits pushed since this run")
-            .contains("_Tested commit {{9f1c2e7}}; the PR head is now {{41b0d3a}}._");
-        verify(github).appComment(eq(PR), any(), contains("_Tested commit `9f1c2e7`; the PR head is now"
+            .contains("_Tested commit {{9f1c2e7}}; the PR is now at {{41b0d3a}}._");
+        verify(github).appComment(eq(PR), any(), contains("_Tested commit `9f1c2e7`; the PR is now at"
             + " `41b0d3a`._"));
     }
 

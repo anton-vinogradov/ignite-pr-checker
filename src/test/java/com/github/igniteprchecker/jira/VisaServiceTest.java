@@ -32,15 +32,15 @@ class VisaServiceTest {
         assertThat(md)
             .doesNotContain("No blockers")
             .contains("👀 **1 test started failing on this code** — not proven blockers yet. There are too few runs "
-                + "of this commit to tell a break from a flake. A re-run of the suite decides it.\n")
+                + "of this code to tell a break from a flake. A re-run of the suite decides it.\n")
             .contains("- Calcite SQL 2 · `T.testJoin` — one run of this code")
-            .contains("⚠️ **No proven blocker yet** — this does not mean the PR is clean: see the tests above. ");
+            .contains("⚠️ **No proven blockers yet** — this does not mean the PR is clean: see the tests above.");
 
         assertThat(visas.compose(42, r))
             .doesNotContain("No blockers")
             .contains("(!) *1 test started failing on this code* — not proven blockers yet. There are too few runs "
-                + "of this commit to tell a break from a flake. A re-run of the suite decides it.\n")
-            .contains("(!) *No proven blocker yet* — this does not mean the PR is clean: see the tests above. ");
+                + "of this code to tell a break from a flake. A re-run of the suite decides it.\n")
+            .contains("(!) *No proven blockers yet* — this does not mean the PR is clean: see the tests above. ");
     }
 
     /**
@@ -79,7 +79,7 @@ class VisaServiceTest {
         assertThat(visas.composeMarkdown(42, r))
             .contains("❌ **1 blocker in 1 suite:**")
             .contains("👀 **1 test started failing on this code**")
-            .doesNotContain("No proven blocker yet");
+            .doesNotContain("No proven blockers yet");
     }
 
     /**
@@ -110,7 +110,7 @@ class VisaServiceTest {
         assertThat(visas.composeMarkdown(42, watched)).contains("see the tests above. 1 failing test is not blamed on "
             + "this PR.");
         assertThat(visas.composeMarkdown(42, unproven)).contains("can't prove the PR is clean.** 0 failing tests are "
-            + "not blamed on this PR. Re-run once the above is sorted out.");
+            + "not blamed on this PR. Re-run after you handle what is listed above.");
         assertThat(visas.compose(42, clean)).contains("(/) *No blockers* — nothing in this run looks caused by this PR. "
             + "3 failing tests are not blamed on this PR.");
         for (AnalysisResult r : List.of(clean, watched, unproven))

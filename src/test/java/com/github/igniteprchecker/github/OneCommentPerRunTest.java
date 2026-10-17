@@ -51,7 +51,7 @@ class OneCommentPerRunTest {
 
     private static final String VERDICT = "@Author **[Ignite PR Checker]";
 
-    private static final String NOTE = "🎨 _Checkstyle autofix: fixed 2 of 2 violation(s) in 1 file(s) and pushed"
+    private static final String NOTE = "🎨 _Checkstyle autofix: fixed 2 of 2 violations in 1 file and pushed"
         + " `abc1234` to your branch `IGNITE-28999` — `git pull` before your next push._";
 
     private final GithubClient github = AppWriting.github();

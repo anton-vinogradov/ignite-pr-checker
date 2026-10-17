@@ -374,7 +374,7 @@ class AiPromptTest {
             """);
 
         assertThat(out.get("watch").asText()).contains("- Ignite PR Checker verdict: RECENTLY STARTED FAILING — too "
-            + "few runs of this commit to tell a break from a flake\n");
+            + "few runs of this code to tell a break from a flake\n");
         assertThat(out.get("one").asText()).contains("- 1 failing test across 1 suite: Cache\n");
         assertThat(out.get("two").asText()).contains("- 2 failing tests across 2 suites: Cache, Basic 1\n");
     }

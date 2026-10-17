@@ -27,7 +27,7 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 | **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Rerun only to double-check the flaky ones. Tests that fail on master are on the flaky board (`/flaky.html`). |
 | **✓ No blockers** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | You can merge the PR. |
 | **No proven blockers yet** | No test was blamed, but tests started failing on the code this run tested: they are under **Recently started failing**. The PR list shows **!**. | **Rerun** their suites: a rerun shows whether these tests are blockers. |
-| **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Sort out what the lines list, then rerun. |
+| **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Handle what the lines list, then rerun. |
 
 ### Reasons under a test
 
@@ -382,7 +382,7 @@ touches your token.
   HTML. The comment and the visa show all of it as written. `#123` and `GH-123` in them do not link to any GitHub
   issue or PR.
 - A verdict that can't call the PR clean lists the caveats. A verdict of code that was pushed over says which commit
-  it tested and what the PR head is now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
+  it tested and which commit the PR is at now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
 - Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
   tested commit and the **Next:** line come after it.
 - The PR comment comes from the checker's account and opens with a mention of the run's starter when their GitHub

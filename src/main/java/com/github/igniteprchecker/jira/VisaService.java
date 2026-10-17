@@ -50,7 +50,7 @@ public class VisaService {
     private static final int NAMES_SHOWN = 5;
 
     /** Why a test that started failing is not a proven blocker; the page says it of such a test too. */
-    private static final String TOO_FEW_RUNS = "too few runs of this commit to tell a break from a flake";
+    private static final String TOO_FEW_RUNS = "too few runs of this code to tell a break from a flake";
 
     private final TeamcityProperties tc;
     private final String publicUrl;
@@ -151,7 +151,7 @@ public class VisaService {
         }
 
         if (!broken.others().isEmpty()) {
-            b.append("⚠️ **Broken suites** (no reliable run):\n");
+            b.append("⚠️ **Broken suites** (no reliable result):\n");
             broken.others().forEach(g -> b.append("- ").append(Markup.text(groupLine(g))).append('\n'));
             b.append('\n');
         }
@@ -182,11 +182,11 @@ public class VisaService {
         }
 
         if (standing == Caveats.Standing.WATCH)
-            b.append("⚠️ **No proven blocker yet** — this does not mean the PR is clean: see the tests above. ")
+            b.append("⚠️ **No proven blockers yet** — this does not mean the PR is clean: see the tests above. ")
                 .append(notBlamed(r));
         else if (standing != Caveats.Standing.BLOCKERS)
             b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ").append(notBlamed(r))
-                .append(" Re-run once the above is sorted out.");
+                .append(" Re-run after you handle what is listed above.");
         else {
             b.append("❌ **").append(blockersIn(blockers)).append(onOneRun(blockers)).append(":**\n")
                 .append(tests.markdown(blockers, true));
@@ -420,7 +420,7 @@ public class VisaService {
         }
 
         if (!broken.others().isEmpty()) {
-            b.append("(!) *Broken suites* (failed without a reliable run):\n");
+            b.append("(!) *Broken suites* (no reliable result):\n");
             broken.others().forEach(g -> b.append("- ").append(Markup.wikiText(groupLine(g))).append('\n'));
             b.append('\n');
         }
@@ -449,11 +449,11 @@ public class VisaService {
         }
 
         if (standing == Caveats.Standing.WATCH)
-            b.append("(!) *No proven blocker yet* — this does not mean the PR is clean: see the tests above. ")
+            b.append("(!) *No proven blockers yet* — this does not mean the PR is clean: see the tests above. ")
                 .append(notBlamed(r));
         else if (standing != Caveats.Standing.BLOCKERS)
             b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ").append(notBlamed(r))
-                .append(" Re-run once the above is sorted out.");
+                .append(" Re-run after you handle what is listed above.");
         else {
             b.append("(x) *").append(blockersIn(blockers)).append(onOneRun(blockers)).append(":*\n")
                 .append(tests.wiki(blockers, true));

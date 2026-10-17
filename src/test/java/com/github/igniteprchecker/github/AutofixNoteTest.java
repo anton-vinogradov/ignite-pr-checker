@@ -36,8 +36,8 @@ import org.mockito.ArgumentCaptor;
 class AutofixNoteTest {
     private static final int PR = 13800;
 
-    private static final String NOTE = "🎨 _Checkstyle autofix: fixed 1 of 2 violation(s)._\n\n<details><summary>1"
-        + " violation(s) left</summary>\n\n- `p/C.java:6` — MethodName\n\n</details>";
+    private static final String NOTE = "🎨 _Checkstyle autofix: fixed 1 of 2 violations._\n\n<details><summary>1"
+        + " violation left</summary>\n\n- `p/C.java:6` — MethodName\n\n</details>";
 
     private final GithubClient github = AppWriting.github();
 
