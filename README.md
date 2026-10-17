@@ -103,7 +103,7 @@ as broken suites. The [glossary](docs/features.md#verdict-glossary) has every re
   someone revokes it. When GitHub makes its writes wait (a secondary rate limit) they go out later, and
   so do the writes past 40 an hour to one PR or 60 for one user; the status page shows writes that wait or that GitHub
   refuses. The PR page checks whether a running build tests the PR's head and whether the head moved since a run.
-  Once GitHub names a PR's head, the page reuses it for 30 seconds. While fewer than a fifth of the token's hourly
+  Once GitHub names a PR's head, the checker reuses it for 30 seconds. While fewer than a fifth of the token's hourly
   calls are left, these checks do not ask GitHub. The checker's own work, such as PR commands, comments and visas,
   needs the rest. Without the token the options that write to GitHub are off. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
   what it found: whose token it is, whether it can write to the repo (a fine-grained token cannot, nor a classic one
