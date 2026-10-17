@@ -2295,16 +2295,30 @@ function reproduceStep(platform, name) {
                 ? `ctest -V -R ${binary} (one case: --run_test=${suite}/${testCase}).`
                 : 'ctest -V -R IgniteCoreTest, IgniteThinClientTest or IgniteOdbcTest, whichever the suite runs.');
     }
-    if (platform === 'python' || platform === 'nodejs') {
-        const client = platform === 'python' ? 'Python thin client, repository apache/ignite-python-thin-client'
-            : 'Node.js thin client, repository apache/ignite-nodejs-thin-client';
-        const test = platform === 'python' && name ? shortTestName(name).replace(/\(.*$/, '').split('.').pop() : '';
-        return `This suite runs the tests of the ${client}. Build the Java modules of the fetched code (./mvnw clean `
-            + 'install -DskipTests), then run those tests against a node built from them, as that repository\'s README '
-            + 'describes' + (test ? ` (one test: pytest -k ${test}).` : '.');
-    }
+    const client = THIN_CLIENTS[platform];
+    if (client)
+        return `This suite runs the tests of the ${client.name}. Build the Java modules of the fetched code (./mvnw `
+            + 'clean install -DskipTests)' + client.run(name ? shortTestName(name) : '');
     return 'Locate the test class and reproduce the failure locally (JDK 17; run the single test via your build tooling or IDE).';
 }
+
+// The thin clients whose tests live in a repository of their own: how to run them, or one of them, on the fetched code.
+const THIN_CLIENTS = {
+    python: {
+        name: 'Python thin client, repository apache/ignite-python-thin-client',
+        run: test => ', then run those tests against a node built from them, as that repository\'s README describes'
+            + (test ? ` (one test: pytest -k ${test.replace(/\(.*$/, '').split('.').pop()}).` : '.'),
+    },
+    nodejs: {
+        name: 'Node.js thin client, repository apache/ignite-nodejs-thin-client',
+        run: () => ', then run those tests against a node built from them, as that repository\'s README describes.',
+    },
+    php: {
+        name: 'PHP thin client, repository apache/ignite-php-thin-client',
+        run: test => ' and start a node from them (bin/ignite.sh). Then, in that repository, run composer install and '
+            + 'vendor/bin/phpunit tests' + (test.includes(': ') ? ` --filter ${test.split(': ').pop()}.` : '.'),
+    },
+};
 
 const SHRINK_CAUSES = {
     java: 'a test class dropped from the JUnit suite class (@Suite.SuiteClasses in the *TestSuite of this module), a class renamed/moved without updating that list, an @Ignore or assumeTrue that now short-circuits, a failure in @BeforeClass/suite setup that skips the rest, or a run that ended early (check the build log tail).',
@@ -2312,6 +2326,7 @@ const SHRINK_CAUSES = {
     cpp: 'a test case removed or renamed, a test source dropped from the CMakeLists.txt of the test project, a test case disabled with boost::unit_test::disabled(), a failure in a suite fixture that skips the rest, or a run that ended early (check the build log tail).',
     python: 'a test module or function removed or renamed, a new skip mark, a failing fixture that skips the rest, or a run that ended early (check the build log tail).',
     nodejs: 'a test file or case removed or renamed, a test marked skipped, a failing setup hook that skips the rest, or a run that ended early (check the build log tail).',
+    php: 'a test case class or method removed or renamed, a new markTestSkipped or excluded group, a failing setUpBeforeClass that skips the rest, or a run that ended early (check the build log tail).',
 };
 
 function toggleDetails(btn) {

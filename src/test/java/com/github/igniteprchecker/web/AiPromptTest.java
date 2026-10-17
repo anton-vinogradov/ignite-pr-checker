@@ -222,12 +222,12 @@ class AiPromptTest {
     @Test
     void pythonAndNodeJsTestsAreNotToldToUseAJavaIde() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
-            const py = Object.assign(blocker('x', 'occ-py'), { suite: 'IgniteTests24Java8_ThinClientPython',
+            const py = Object.assign(blocker('x', 'occ-py'), { suite: 'IgniteTests24Java8_WiPThinClientPython',
                 suiteName: 'Thin client: Python', name: 'test_binary.test_sql_read_as_binary' });
             const node = Object.assign(blocker('x', 'occ-node'), { suite: 'IgniteTests24Java8_ThinClientNodeJs',
                 suiteName: 'Thin client: Node.js', name: 'SqlExample' });
             page.route('/api/analyze', { body: verdict({ blockers: [py],
-                shrunkSuites: [{ suite: 'IgniteTests24Java8_ThinClientPython', suiteBuildId: 9401,
+                shrunkSuites: [{ suite: 'IgniteTests24Java8_WiPThinClientPython', suiteBuildId: 9401,
                     suiteName: 'Thin client: Python', tests: 40, baseline: 120, dropPct: 66 }] }) });
             await page.load('?pr=13575');
             const python = await aiOf('blockers');
@@ -256,6 +256,48 @@ class AiPromptTest {
                 + "Build the Java modules of the fetched code (./mvnw clean install -DskipTests), then run those tests "
                 + "against a node built from them, as that repository's README describes.")
             .doesNotContain("JDK 17; run the single test", "pytest");
+    }
+
+    /**
+     * Thin client: PHP is in RunAll too, and master run 9418944 failed ScanQueryTestCase: testScanQuerySettings in it.
+     * Its prompt said "Java" and "JDK 17 … IDE", and the suite's fewer-tests prompt gave JUnit's causes.
+     */
+    @Test
+    void phpTestsGetThePhpClientsSteps() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
+            const tests = 'tests: Apache\\\\Ignite\\\\Tests\\\\';
+            const php = Object.assign(blocker('x', 'occ-php'), { suite: 'IgniteTests24Java8_ThinClientPhp',
+                suiteName: 'Thin client: PHP', name: tests + 'ScanQueryTestCase: testScanQuerySettings' });
+            const byName = Object.assign(blocker('x', 'occ-php2'), { suite: 'IgniteTests24Java8_ThinClient',
+                suiteName: 'Thin client', name: tests + 'CacheTestCase: testCreateCache' });
+            page.route('/api/analyze', { body: verdict({ blockers: [php],
+                shrunkSuites: [{ suite: 'IgniteTests24Java8_ThinClientPhp', suiteBuildId: 9401,
+                    suiteName: 'Thin client: PHP', tests: 40, baseline: 124, dropPct: 68 }] }) });
+            await page.load('?pr=13575');
+            const bySuite = await aiOf('blockers');
+            const shrunk = await suiteAiOf('shrunkSuites');
+            page.route('/api/analyze', { body: verdict({ blockers: [byName], buildId: 9100 }) });
+            await page.run('analyze')(13575, true);
+            await page.settle();
+            report({ bySuite, shrunk, byName: await aiOf('blockers') });
+            """);
+
+        String phpTests = "2. This suite runs the tests of the PHP thin client, repository apache/ignite-php-thin-client. "
+            + "Build the Java modules of the fetched code (./mvnw clean install -DskipTests) and start a node from them "
+            + "(bin/ignite.sh). Then, in that repository, run composer install and vendor/bin/phpunit tests --filter ";
+        assertThat(out.get("bySuite").asText())
+            .startsWith("Fix a failing test in Apache Ignite (PHP).")
+            .contains(phpTests + "testScanQuerySettings.")
+            .doesNotContain("JDK 17; run the single test", "pytest", "undefined");
+        assertThat(out.get("byName").asText())
+            .startsWith("Fix a failing test in Apache Ignite (PHP).")
+            .contains(phpTests + "testCreateCache.");
+        assertThat(out.get("shrunk").asText())
+            .startsWith("Find out why an Apache Ignite test suite (PHP tests) ran far fewer tests than it does on master.")
+            .contains("2. Work through the usual causes: a test case class or method removed or renamed, a new "
+                + "markTestSkipped or excluded group, a failing setUpBeforeClass that skips the rest, or a run that ended "
+                + "early (check the build log tail).")
+            .doesNotContain("undefined", "@Suite.SuiteClasses");
     }
 
     /** The Python suite's TeamCity id was never seen in the checker's data: a pytest name alone marks the test Python. */

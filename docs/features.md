@@ -232,7 +232,7 @@ not blamed on the PR.
 - **copy AI prompt** copies a prompt for a coding assistant. The button is in the open panel, or on the row when
   TeamCity kept no failure message. The prompt includes the PR, the suite and its run, the test, the checker's verdict
   with its reason, the triage label and the failure output. It also says how to reproduce the failure on the commit the
-  run tested, with steps for Java, .NET, C++, Python or Node.js by suite. Everything quoted from the PR is marked as
+  run tested, with steps for Java, .NET, C++, Python, Node.js or PHP by suite. Everything quoted from the PR is marked as
   data, not instructions, and the prompt asks to run the PR's code in an isolated environment. On the Root causes tab,
   **copy AI prompt** copies one prompt that covers all tests of a cause; broken suites and suites with fewer tests than
   master have their own **copy AI prompt**.
