@@ -395,7 +395,8 @@ class FlakyBoardPageTest {
 
         assertThat(out.get("focused").asBoolean()).as("the chip keeps the focus").isTrue();
         assertThat(out.get("text").asText()).isEqualTo("#13999 · running 3m");
-        assertThat(out.get("title").asText()).isEqualTo("This suite's re-run on TeamCity · 41% complete");
+        assertThat(out.get("title").asText())
+            .isEqualTo("Open this suite's re-run in TeamCity. The re-run is 41% complete.");
         assertThat(out.get("writes").asInt()).as("the slot is written once").isOne();
     }
 

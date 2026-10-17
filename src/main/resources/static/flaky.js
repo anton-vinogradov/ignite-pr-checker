@@ -140,7 +140,7 @@ function liveChip(rr) {
     return {
         className: 'live ' + (rr.state === 'running' ? 'running' : 'queued'),
         href: rr.webUrl ?? '',
-        title: 'This suite\'s re-run on TeamCity' + (rr.pct != null && rr.pct >= 0 ? ' · ' + rr.pct + '% complete' : ''),
+        title: 'Open this suite\'s re-run in TeamCity.' + (rr.pct != null && rr.pct >= 0 ? ' The re-run is ' + rr.pct + '% complete.' : ''),
         textContent: `#${rr.pr} · ${rr.state}${chipEta(rr)}`,
     };
 }

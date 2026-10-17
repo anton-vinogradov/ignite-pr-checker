@@ -239,7 +239,7 @@ not blamed on the PR.
   master have their own **copy AI prompt**.
 - **The tab** shows how the run stands in its title and icon: `⏱ ~1h 05m left`, `♻️ re-run 1/2`, then
   `❌ 3 blockers`, `✅ no blockers`, `⚠ started failing` or `⚠ not proven clean`. **🔔 Notify me** sends one desktop
-  notification when the verdict is final; the tab has to stay open. While it is on, the button is filled and reads
+  notification when the verdict is final; the tab has to stay open. While the button is on, it is filled and reads
   `🔔 Will notify`.
 
 ## Iterating on a fix
