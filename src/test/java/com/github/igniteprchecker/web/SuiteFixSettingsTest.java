@@ -110,9 +110,9 @@ class SuiteFixSettingsTest {
         assertThat(cards.get("old").asText()).isEmpty();
     }
 
-    /** The card said nothing of the users with the option on whom the last sweep skipped. */
+    /** The card said nothing of the users with the option on whom the last sweep did not act for. */
     @Test
-    void theStatusCardSaysHowManyTheLastSweepSkipped() throws Exception {
+    void theStatusCardSaysHowManyArePaused() throws Exception {
         JsonNode cards = PageFunctions.run("status.js", """
             const ago = ms => ms ? '2m ago' : 'never';
             out({ paused: suiteFixCard({ users: 3, acting: 2, pushed: 1, lastSweepAt: 1 }, ago),
@@ -121,8 +121,9 @@ class SuiteFixSettingsTest {
             """, "card", "suiteFixCard");
 
         assertThat(cards.get("paused").asText()).contains("class=\"v warn\"",
-            "title=\"The last sweep did not act for one user with the option on: TeamCity or GitHub refuses their"
-                + " token, a GitHub account or token is missing, or the option was switched on after the sweep.\"");
+            "title=\"The last sweep did not act for one user with the option on. The reason is one of these:"
+                + " TeamCity or GitHub refuses their token, a GitHub account or token is missing, or they switched the"
+                + " option on after the sweep.\"");
         assertThat(cards.get("paused").asText().replaceAll("<[^>]+>", ""))
             .contains("1 commit · 3 users with the option on · 1 paused · sweep 2m ago");
         assertThat(cards.get("acting").asText()).doesNotContain("paused", "warn", "title=");

@@ -136,7 +136,7 @@ and the visa.
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
 | **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
-| **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. The key may be in any case. With no ticket in the title, the group is one line saying so. For a PR that is not in the open list, the page asks the checker for the title and shows the group or the line once it has it. | — |
+| **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. The key may be in any case. With no ticket in the title, the group is one line saying so. For a PR that is not in the left pane, the group or the line appears once the page gets the PR's title. | — |
 | **Auto visa** | Posts the verdict to the ticket once, the next time a RunAll of the PR finishes. Filled while armed by you (`Auto visa ✓`); `armed by bob` beside it: armed by others, who get one visa between them. | — |
 | `on in your ⚙`, `on in bob's ⚙` | Beside **Auto visa**, shown as on: the standing auto-visa of whoever started the run will post it, so there is nothing to arm. | — |
 | **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
@@ -457,9 +457,10 @@ from its own GitHub account, the app account.
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
   in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
-- The **Tests added to suites** card counts the users who have that option on. If the last sweep skipped some of
-  them, the card turns amber and says how many are paused. A user is skipped when TeamCity or GitHub refuses their
-  token, or a GitHub account or token is missing.
+- The **Tests added to suites** card counts the users who have **Add my PR's tests that no suite runs** on. If the
+  last sweep did not act for some of them, the card turns amber and says how many are paused. A user is paused when
+  TeamCity or GitHub refuses their token, or a GitHub account or token is missing. A user who switched the option on
+  after the last sweep also counts as paused until the next sweep. Without a `GITHUB_TOKEN`, all of them are paused.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
   classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
   beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
@@ -477,9 +478,9 @@ from its own GitHub account, the app account.
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form. Before **Link GitHub**, **Unlink**, a switch in ⚙, the visa buttons **Post now** and **Auto visa**, and
-  the operator's buttons, the checker asks TeamCity whether your token still works; with a revoked token the action
-  does not happen. **Log out** ends your login in every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
+  login form. The checker asks TeamCity whether your token still works before these actions: **Link GitHub**,
+  **Unlink**, a switch in ⚙, the operator's buttons, the visa button **Post now**, and arming **Auto visa**. With a
+  revoked token, the action does not happen. **Log out** ends your login in every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
   logins, except one that a standing option keeps in use. Log out asks TeamCity first too: with a revoked token, only
   this browser is logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
