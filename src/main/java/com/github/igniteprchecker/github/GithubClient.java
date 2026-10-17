@@ -885,10 +885,18 @@ public class GithubClient implements SnapshotCache {
     /** A minute of a busy repo is a few comments; ten full pages only follow a long outage. */
     private static final int COMMENT_PAGES = 10;
 
-    /** One repo comment from the poll: {@code htmlUrl} tells a PR comment from a plain issue's. */
+    /**
+     * One repo comment from the poll: {@code htmlUrl} tells a PR comment from a plain issue's. {@code updatedAt} is
+     * {@code createdAt} until someone edits the comment; null when GitHub does not say.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record IssueComment(long id, String body,
-        @JsonProperty("html_url") String htmlUrl, @JsonProperty("created_at") String createdAt, GhUser user) {
+        @JsonProperty("html_url") String htmlUrl, @JsonProperty("created_at") String createdAt, GhUser user,
+        @JsonProperty("updated_at") String updatedAt) {
+        /** A comment with no word of an edit. */
+        public IssueComment(long id, String body, String htmlUrl, String createdAt, GhUser user) {
+            this(id, body, htmlUrl, createdAt, user, null);
+        }
     }
 
     /** A GitHub account: its login, which its owner may change, and its id, which never changes (0: not known). */

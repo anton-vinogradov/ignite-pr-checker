@@ -398,7 +398,8 @@ from its own GitHub account, the app account.
 | `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits; the run's story says so. |
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
-  A comment written more than an hour ago is not run, even if it is edited later.
+  A comment written more than an hour ago is not run. An edited comment is not run either: anyone with write access
+  may edit your comment. The checker answers 😕 and asks you to post the command in a new comment.
 - 🚀 means accepted, 😕 refused. Then a comment of the app account, which mentions you, tells the story of the run:
   the queued build, then `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with
   every change, and in UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or
