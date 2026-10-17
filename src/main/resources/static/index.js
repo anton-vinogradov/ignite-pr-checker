@@ -674,7 +674,7 @@ function paintTab() {
     else if (st && st.kind === 'settling') {
         color = TAB_COLORS.settling;
         const left = st.phase.etaEpochSec ? ' ' + fmtLeft(st.phase.etaEpochSec - Date.now() / 1000) : '';
-        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ deciding') + pr;
+        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ deciding on re-run') + pr;
     }
     else if (st && st.kind === 'final') {
         color = TAB_COLORS[st.verdict];

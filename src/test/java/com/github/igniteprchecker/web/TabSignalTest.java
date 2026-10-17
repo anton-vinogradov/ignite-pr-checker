@@ -93,7 +93,7 @@ class TabSignalTest {
             report({ title: page.run('document').title, line: page.el('settling').textContent });
             """);
 
-        assertThat(out.get("title").asText()).isEqualTo("♻️ deciding · #13575 — Ignite PR Checker");
+        assertThat(out.get("title").asText()).isEqualTo("♻️ deciding on re-run · #13575 — Ignite PR Checker");
         assertThat(out.get("line").asText()).startsWith("♻︎ Deciding whether to re-run the failed suites.");
     }
 

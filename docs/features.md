@@ -129,7 +129,7 @@ and the visa.
 | `takes latest commit at start` | The run is still queued; TeamCity picks the PR's latest commit when it starts. | — |
 | `by alice` | Someone else started this run. **Cancel my runs** leaves it alone. | — |
 | `● includes an unfinished run` | The verdict folds in the finished suites of a RunAll that is still running. It never reads green. | Wait for the run. |
-| `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs on unchanged commits. Shown when some were reused, or while the run still goes. | — |
+| `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs of the same commit. Shown when some were reused, or while the run still goes. | — |
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
 | `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
@@ -285,8 +285,9 @@ shows the button that gives it.
 
 Your login is all these two options need.
 
-- **Re-run failed suites of my runs** re-runs the suites the verdict blames: blockers, tests that recently started
-  failing and broken suites, and also the suites TeamCity cancelled by itself, not those a person cancelled.
+- **Re-run failed suites of my runs** re-runs the suites the verdict blames: suites with blockers, suites with tests
+  that recently started failing, and broken suites. It also re-runs the suites TeamCity cancelled by itself, but not
+  those a person cancelled.
   A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
@@ -434,7 +435,7 @@ from its own GitHub account, the app account.
 
 ![The flaky board: tests ranked by their master fail rate, each with its failed master runs](img/flaky-board.jpg)
 
-- Tests that fail on master: the checker blames them on no PR, yet they fail in PRs that did not break them.
+- Tests that fail on master: the checker does not blame them on any PR, yet they fail in PRs that did not break them.
   **Flaky on master** comes first: tests that fail some master runs and pass others. **Broken on master** follows:
   tests that failed each of their newest 10 master runs, or every run when there were fewer.
 - Each group is ranked by master fail rate, then by how many PRs the test failed in during the last 14 days, and shows
@@ -458,7 +459,7 @@ from its own GitHub account, the app account.
 - The health dot next to **Status** in the menu turns red for 6 hours after an error and amber for an hour after a
   warning. It also turns red or amber when a background job stops (the standing sweep, the PR command poll, the warm
   cycle), a state file could not be read, or a setting is out of range; such problems are listed at the top. Requests
-  Spring turns away as the caller's mistake are listed greyed out and never colour it.
+  that the service rejects as the caller's mistake are listed in grey and never colour the dot.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,

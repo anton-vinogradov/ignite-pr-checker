@@ -20,8 +20,9 @@ each label means and what to do about it.
 ## What it does
 
 - **The verdict.** The PR page splits the failures of the PR's latest RunAll into blockers, tests that recently
-  started failing, broken suites and failures not blamed on the PR. The reason stands under each test, or once above
-  the tests of a suite that share it. See [Reading the verdict](docs/features.md#reading-the-verdict).
+  started failing, broken suites and failures not blamed on the PR. A line under each test gives its reason. When
+  tests of a suite have the same reason, the line appears once above them. See
+  [Reading the verdict](docs/features.md#reading-the-verdict).
 - **Runs.** Run RunAll or rerun suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
