@@ -52,14 +52,21 @@ class BrokenGroupsVerdictTest {
             .doesNotContain("- Build:", "the RunAll was interrupted", "doesn't cover");
     }
 
+    /**
+     * The page heads these suites "Broken suites" and says they have no reliable result; the comment said "no reliable
+     * run" and the visa "failed without a reliable run".
+     */
     @Test
     void theArtifactGlitchIsOneLineAndTheCaveatNamesTheCauses() {
         String md = visas.composeMarkdown(BrokenRuns.PR_13655, BrokenRuns.artifactsGlitch());
 
+        assertThat(visas.compose(BrokenRuns.PR_13655, BrokenRuns.artifactsGlitch()))
+            .contains("(!) *Broken suites* (no reliable result):\n- ci2 glitch: artifacts unavailable (60 suites): ");
+
         assertThat(md)
             .contains("- 64 suites have no reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero "
                 + "exit code; execution timeout; …)\n")
-            .contains("⚠️ **Broken suites** (no reliable run):\n"
+            .contains("⚠️ **Broken suites** (no reliable result):\n"
                 + "- ci2 glitch: artifacts unavailable (60 suites): Suite 1, Suite 2, Suite 3, Suite 4, Suite 5 and 55 "
                 + "more\n"
                 + "- non-zero exit code (2 suites): PDS 5, PDS 6\n"

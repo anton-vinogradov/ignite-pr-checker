@@ -90,7 +90,8 @@ public class StyleFixService {
             List<Violation> before = first.violations();
             notChecked.addAll(first.skipped());
             String skippedNote = notChecked.isEmpty() ? ""
-                : " " + notChecked.size() + " file(s) were too large for the checker and were not checked ("
+                : " " + count(notChecked.size(), "file") + (notChecked.size() == 1 ? " was" : " were")
+                    + " too large for the checker and not checked ("
                     + notChecked.get(0) + (notChecked.size() > 1 ? ", …" : "") + ").";
             if (before.isEmpty())
                 return skippedNote.isEmpty() ? null : "🎨 _Checkstyle:" + skippedNote + "_";
@@ -109,10 +110,11 @@ public class StyleFixService {
             }
 
             String check = "[**Check java code**](" + github.checksUrl(pr) + ") check of this PR";
+            boolean one = before.size() == 1;
             if (remaining.size() >= before.size())
-                return "🎨 _Checkstyle: " + before.size() + " violation(s) in the changed files, none of them"
-                    + " mechanically fixable (javadoc, naming, wrapping need a human): the " + check
-                    + " may fail on them." + skippedNote + "_" + listed(before);
+                return "🎨 _Checkstyle: " + count(before.size(), "violation") + " in the changed files, "
+                    + (one ? "not" : "none of them") + " mechanically fixable (javadoc, naming, wrapping need a human):"
+                    + " the " + check + " may fail on " + (one ? "it." : "them.") + skippedNote + "_" + listed(before);
 
             Map<String, String> changed = new LinkedHashMap<>();
             for (var e : fixed.entrySet()) {
@@ -151,11 +153,9 @@ public class StyleFixService {
                 pr, before.size(), remaining.size(), changed.size(), sha.substring(0, 8));
 
             return "🎨 _Checkstyle autofix: fixed " + (before.size() - remaining.size()) + " of " + before.size()
-                + " violation(s) in " + changed.size() + " file(s) and pushed `" + sha.substring(0, 7)
-                + "` to your branch `" + head.headRef() + "` — `git pull` before your next push."
-                + (remaining.isEmpty() ? "" : " " + remaining.size() + " remain, which need a human (javadoc, naming,"
-                    + " wrapping): the " + check + " may still fail on them.")
-                + skippedNote + "_" + listed(remaining);
+                + (one ? " violation" : " violations") + " in " + count(changed.size(), "file") + " and pushed `"
+                + sha.substring(0, 7) + "` to your branch `" + head.headRef() + "` — `git pull` before your next"
+                + " push." + left(remaining.size(), check) + skippedNote + "_" + listed(remaining);
         }
         catch (Throwable e) {
             // Throwable, not Exception: checkstyle wraps OOM into java.lang.Error, and a style
@@ -179,13 +179,29 @@ public class StyleFixService {
         return code == 403 && !GithubClient.rateLimited(e) || code == 404;
     }
 
+    /** " 2 remain, which need a human (…): the check … may still fail on them."; empty when none remain. */
+    private static String left(int n, String check) {
+        if (n == 0)
+            return "";
+
+        boolean one = n == 1;
+
+        return " " + n + (one ? " remains, which needs" : " remain, which need") + " a human (javadoc, naming,"
+            + " wrapping): the " + check + " may still fail on " + (one ? "it." : "them.");
+    }
+
+    /** "1 file", "2 files". */
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
     /** The violations as "path:line — rule", folded; empty when there are none. */
     private static String listed(List<Violation> violations) {
         if (violations.isEmpty())
             return "";
 
-        StringBuilder b = new StringBuilder("\n\n<details><summary>").append(violations.size())
-            .append(" violation(s) left</summary>\n\n");
+        StringBuilder b = new StringBuilder("\n\n<details><summary>").append(count(violations.size(), "violation"))
+            .append(" left</summary>\n\n");
         violations.stream().limit(LISTED).forEach(v -> b.append("- `").append(v.path()).append(':').append(v.line())
             .append("` — ").append(v.rule()).append('\n'));
         if (violations.size() > LISTED)

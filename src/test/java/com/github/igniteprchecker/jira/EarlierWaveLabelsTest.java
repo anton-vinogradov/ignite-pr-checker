@@ -103,15 +103,35 @@ class EarlierWaveLabelsTest {
     void everyEarlierLabelIsSaidInTheNewWords(@TempDir Path dir) throws Exception {
         Map<String, String> labels = Map.of(
             "2 blocker suite(s)", "2 suites with blockers",
-            "1 watch suite(s)", "1 suite to watch",
+            "1 watch suite(s)", "1 suite with tests that started failing",
             "3 broken suite(s)", "3 broken suites",
             "4 cancelled suite(s)", "4 cancelled suites",
             "2 blocker + 1 broken suite(s)", "3 suites (2 with blockers, 1 broken)",
             "2 blocker + 1 watch + 3 broken + 4 cancelled suite(s)",
-            "10 suites (2 with blockers, 1 to watch, 3 broken, 4 cancelled)",
+            "10 suites (2 with blockers, 1 with tests that started failing, 3 broken, 4 cancelled)",
             "0 suite(s)", "0 suites",
             "3 suites that failed mid-run", "3 suites that failed mid-run");
 
+        saidAs(dir, labels);
+    }
+
+    /**
+     * The release before this one said "1 suite to watch" of a suite re-run for a test under Recently started failing,
+     * the page's name for it. A label without those words stays as it is.
+     */
+    @Test
+    void aSuiteToWatchIsSaidInThePagesWords(@TempDir Path dir) throws Exception {
+        saidAs(dir, Map.of(
+            "1 suite to watch", "1 suite with tests that started failing",
+            "2 suites to watch", "2 suites with tests that started failing",
+            "4 suites (1 with blockers, 2 to watch, 1 broken)",
+            "4 suites (1 with blockers, 2 with tests that started failing, 1 broken)",
+            "2 suites with blockers", "2 suites with blockers",
+            "3 suites (2 with blockers, 1 broken)", "3 suites (2 with blockers, 1 broken)"));
+    }
+
+    /** Each label of a wave queued before the deploy, the key, reads after it as its value. */
+    private void saidAs(Path dir, Map<String, String> labels) {
         labels.forEach((earlier, now) -> {
             try {
                 assertThat(deployedWith(dir, earlier).phase(PR, RUN_ALL).what()).as(earlier).isEqualTo(now);

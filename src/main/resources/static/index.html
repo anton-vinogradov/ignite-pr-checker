@@ -42,6 +42,7 @@
         .login-create { white-space: nowrap; }
         .err { font-size: 0.9rem; }
         .err:not(:empty) { margin-top: 0.4rem; }
+        #loginErr:not(:empty) { margin-top: 0.4rem; font-size: 0.9rem; }
         .login-pr { margin: 0 0 1.1rem; padding: 0.7rem 0.9rem; border-left: 3px solid var(--accent); background: var(--sel); border-radius: 0 var(--radius) var(--radius) 0; }
         .login-pr p { margin: 0; }
         .login-pr p + p { margin-top: 0.35rem; }
@@ -409,12 +410,11 @@
             <p class="login-intro">See which tests your Apache Ignite PR actually broke, not the ones already failing or
                 flaky on master. Start a RunAll or rerun just the blockers, right from here.</p>
             <p id="loginTokenNote" class="login-note muted">Log in with your own TeamCity (ci2) access token. There is no
-                shared account: TeamCity records the runs you start or cancel here as yours. Until you log out, but no
-                longer than about an hour after your last request, the server keeps your token in memory. The host's
-                swap can write that memory to the disk. The server uses the token only to read from TeamCity, to check
-                open PRs for everyone.</p>
+                shared account: TeamCity records the runs you start or cancel here as yours. The server also uses your
+                token to read TeamCity for everyone's PRs, for up to an hour after your last request.</p>
             <div class="row">
-                <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off">
+                <input id="token" type="password" placeholder="Your TeamCity access token" size="34" autocomplete="off"
+                    aria-label="TeamCity access token">
                 <button id="loginBtn" class="primary">Log in</button>
                 <a id="tokenLink" class="login-create" href="#" target="_self" rel="noopener">Create a token</a>
             </div>
@@ -423,6 +423,8 @@
                 <summary>What the checker does with your token</summary>
                 <ul>
                     <li>Your browser keeps it in an encrypted session cookie.</li>
+                    <li>The server keeps it in memory for up to an hour after your last request, or until you log out.
+                        The host's swap can write that memory to the disk.</li>
                     <li>After login, the ⚙ menu has options that work while this page is closed. While one is on, the
                         server stores the token encrypted, until you turn them all off. Copies stay in server backups
                         until the backups are replaced. With any option other than PR commands on, the server also
@@ -461,8 +463,8 @@
                         <summary>What the badges mean</summary>
                         <ul>
                             <li><span class="pr-badge ok" title="A clean run of the PR's current code.">✓</span><span>clean — a run of the PR's current code blamed nothing on it</span></li>
-                            <li><span class="pr-badge watch" title="No blockers yet, but some tests started failing on the PR's latest code. A rerun shows whether they are blockers.">!</span><span>started failing — no blockers yet, but tests started failing on its code; a rerun shows whether they are blockers</span></li>
-                            <li><span class="pr-badge unproven" title="No blockers found, but the run can't prove the PR clean: it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still going.">?</span><span>not proven clean — no blockers found, but the run can't prove the PR clean</span></li>
+                            <li><span class="pr-badge watch" title="No blockers yet, but some tests started failing on the code the run tested. A rerun shows whether they are blockers.">!</span><span>started failing — no blockers yet, but tests started failing on the code the run tested; a rerun shows whether they are blockers</span></li>
+                            <li><span class="pr-badge unproven" title="No blockers found, but the PR is not proven clean. The run can't prove it, commits were pushed after the run, or it is not known whether the run tested the PR's latest commit.">?</span><span>not proven clean — no blockers found, but the run can't prove the PR clean</span></li>
                             <li id="legendChecking" class="hidden"><span class="pr-badge checking" title="No blockers found. The page is checking that this run tested the PR's latest commit.">…</span><span>checking — only for the PR open on the page: checking that the run tested its latest commit</span></li>
                             <li><span class="pr-badge bad" title="2 blockers">2</span><span>blockers — tests the PR most likely broke</span></li>
                             <li><span class="my-tag" title="You started its latest RunAll. The PR may be someone else's.">my run</span><span>my run — you started its latest RunAll</span></li>

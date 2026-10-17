@@ -115,8 +115,12 @@ class ServiceHealthTest {
 
         assertThat(report.health()).isEqualTo("warn");
         assertThat(report.problems()).extracting(ServiceHealth.Problem::text).containsExactly(
-            "no TeamCity token in the pool though 2 user(s) have standing options: background warming and run "
+            "no TeamCity token in the pool though 2 users have standing options: background warming and run "
                 + "tracking are paused");
+        assertThat(assess(new ServiceHealth.Clocks(c.startedAt(), c.lastSweepAt(), c.lastPollAt(), false,
+            c.warmStartedAt(), c.warmTried(), c.warmFailed(), 0, 1)).problems()).extracting(ServiceHealth.Problem::text)
+            .containsExactly("no TeamCity token in the pool though 1 user has standing options: background warming "
+                + "and run tracking are paused");
     }
 
     @Test

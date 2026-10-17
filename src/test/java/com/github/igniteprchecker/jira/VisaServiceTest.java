@@ -3,6 +3,7 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.ArrayList;
@@ -31,15 +32,15 @@ class VisaServiceTest {
         assertThat(md)
             .doesNotContain("No blockers")
             .contains("👀 **1 test started failing on this code** — not proven blockers yet. There are too few runs "
-                + "of this commit to tell a break from a flake. A re-run of the suite decides it.\n")
+                + "of this code to tell a break from a flake. A re-run of the suite decides it.\n")
             .contains("- Calcite SQL 2 · `T.testJoin` — one run of this code")
-            .contains("⚠️ **No proven blocker yet** — this does not mean the PR is clean: see the tests above. ");
+            .contains("⚠️ **No proven blockers yet** — this does not mean the PR is clean: see the tests above.");
 
         assertThat(visas.compose(42, r))
             .doesNotContain("No blockers")
             .contains("(!) *1 test started failing on this code* — not proven blockers yet. There are too few runs "
-                + "of this commit to tell a break from a flake. A re-run of the suite decides it.\n")
-            .contains("(!) *No proven blocker yet* — this does not mean the PR is clean: see the tests above. ");
+                + "of this code to tell a break from a flake. A re-run of the suite decides it.\n")
+            .contains("(!) *No proven blockers yet* — this does not mean the PR is clean: see the tests above. ");
     }
 
     /**
@@ -78,7 +79,7 @@ class VisaServiceTest {
         assertThat(visas.composeMarkdown(42, r))
             .contains("❌ **1 blocker in 1 suite:**")
             .contains("👀 **1 test started failing on this code**")
-            .doesNotContain("No proven blocker yet");
+            .doesNotContain("No proven blockers yet");
     }
 
     /**
@@ -109,11 +110,31 @@ class VisaServiceTest {
         assertThat(visas.composeMarkdown(42, watched)).contains("see the tests above. 1 failing test is not blamed on "
             + "this PR.");
         assertThat(visas.composeMarkdown(42, unproven)).contains("can't prove the PR is clean.** 0 failing tests are "
-            + "not blamed on this PR. Re-run once the above is sorted out.");
+            + "not blamed on this PR. Re-run after you handle what is listed above.");
         assertThat(visas.compose(42, clean)).contains("(/) *No blockers* — nothing in this run looks caused by this PR. "
             + "3 failing tests are not blamed on this PR.");
         for (AnalysisResult r : List.of(clean, watched, unproven))
             assertThat(visas.composeMarkdown(42, r) + visas.compose(42, r)).doesNotContain("filtered out");
+    }
+
+    /**
+     * A suite of a RunAll ran 467 of master's 861 tests: the comment and the visa said "467 tests vs 861 on master",
+     * the page "ran 467 tests · master runs 861", and a broken suite's line "ran 1 of master's 3 tests". All three use
+     * the last form. A shrunk suite may have run no test at all, and its line still gives the count.
+     */
+    @Test
+    void aSuiteWithFewerTestsReadsAsOnThePage() {
+        AnalysisResult r = new AnalysisResult(42, 9244731L, "pull/42/head", System.currentTimeMillis(), List.of(),
+            List.of(), List.of(), List.of(), List.of(new ShrunkSuite("Pds2", "PDS 2", 2L, 467, 861, 46),
+                new ShrunkSuite("Cache3", "Cache 3", 3L, 0, 120, 100)), 120, 9, false, 0, false, 0, 0, 0, 0, 0);
+
+        assertThat(visas.composeMarkdown(42, r)).contains("🔍 **2 suites ran fewer tests than on master** (tests that "
+            + "never ran can't fail):\n- PDS 2: ran 467 of master's 861 tests (**−46%**)\n"
+            + "- Cache 3: ran 0 of master's 120 tests (**−100%**)\n");
+        assertThat(visas.compose(42, r)).contains("(?) *2 suites ran fewer tests than on master* (tests that never ran "
+            + "can't fail):\n- PDS 2: ran 467 of master's 861 tests (*-46%*)\n"
+            + "- Cache 3: ran 0 of master's 120 tests (*-100%*)\n");
+        assertThat(visas.composeMarkdown(42, r) + visas.compose(42, r)).doesNotContain("far fewer", " vs ");
     }
 
     private static AnalysisResult withFiltered(List<TestVerdict> watch, boolean interrupted, int filtered) {

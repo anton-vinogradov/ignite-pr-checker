@@ -42,7 +42,7 @@ public final class Caveats {
                 + causesOf(g.causes()) + ")");
         }
         if (g.shrunk() > 0) {
-            out.add(suites(g.shrunk()) + " ran far fewer tests than the same " + (g.shrunk() == 1 ? "suite" : "suites")
+            out.add(suites(g.shrunk()) + " ran fewer tests than the same " + (g.shrunk() == 1 ? "suite" : "suites")
                 + " on master");
         }
         if (g.unchecked() > 0) {

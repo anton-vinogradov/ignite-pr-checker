@@ -146,7 +146,7 @@ class SpokenAnswersPageTest {
             report({ msg: page.el('flushMsg').textContent, back: doc.activeElement === btn });
             """);
 
-        assertThat(out.get("msg").asText()).isEqualTo("cleared 3 result(s), 1 history entry");
+        assertThat(out.get("msg").asText()).isEqualTo("cleared 3 results, 1 history entry");
         assertThat(out.get("back").asBoolean()).isTrue();
     }
 

@@ -271,13 +271,13 @@ class FlakyBoardPageTest {
         assertThat(out.get("broken").asText())
             .startsWith("Find the commit that broke a test on Apache Ignite master (Java) — it failed all 100 recent "
                 + "master runs.")
-            .contains("- Failed in 3 pull request(s) in the last 14 days")
+            .contains("- Failed in 3 pull requests in the last 14 days")
             .contains("shows the last run it passed and the first it failed")
             .contains("If the test fails on purpose (an explicit fail(\"IGNITE-NNNN\")")
             .doesNotContain("Stabilise");
         assertThat(out.get("flaky").asText())
             .startsWith("Stabilise a flaky test in Apache Ignite (Java)")
-            .contains("- Failed in 1 pull request(s) in the last 14 days")
+            .contains("- Failed in 1 pull request in the last 14 days")
             .doesNotContain("open pull request");
         assertThat(out.get("flashed").asText()).isEqualTo("copied");
         assertThat(out.get("label").asText()).isEqualTo("copy AI prompt");
@@ -411,7 +411,7 @@ class FlakyBoardPageTest {
             """);
 
         assertThat(out.get("shown").asText())
-            .startsWith("♻ environment/timing — but it failed the last 12 master runs, so a re-run alone is unlikely "
+            .startsWith("environment/timing — but it failed the last 12 master runs, so a re-run alone is unlikely "
                 + "to pass");
         assertThat(out.get("label").asText()).isEqualTo("failure ▾");
         assertThat(out.get("expanded").asText()).isEqualTo("true");

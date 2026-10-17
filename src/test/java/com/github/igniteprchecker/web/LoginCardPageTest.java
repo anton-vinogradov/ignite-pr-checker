@@ -42,26 +42,36 @@ class LoginCardPageTest {
             + "or flaky on master. Start a RunAll or rerun just the blockers, right from here.");
     }
 
+    /**
+     * Over the field stood five sentences: where the server keeps the token and that the host's swap can write it to
+     * the disk too. Three remain: the user's own token, no shared account, and the server reading TeamCity with it for
+     * everyone. The field's only name was its placeholder, which a screen reader may not read.
+     */
     @Test
     void theOneLineOverTheFieldSaysTheServerReadsForEveryone() throws IOException {
         assertThat(textOf("<p id=\"loginTokenNote\"")).isEqualTo("Log in with your own TeamCity (ci2) access token. "
-            + "There is no shared account: TeamCity records the runs you start or cancel here as yours. Until you log "
-            + "out, but no longer than about an hour after your last request, the server keeps your token in memory. "
-            + "The host's swap can write that memory to the disk. The server uses the token only to read from "
-            + "TeamCity, to check open PRs for everyone.");
+            + "There is no shared account: TeamCity records the runs you start or cancel here as yours. The server also "
+            + "uses your token to read TeamCity for everyone's PRs, for up to an hour after your last request.");
+        assertThat(card()).contains("<input id=\"token\" type=\"password\" placeholder=\"Your TeamCity access token\" "
+            + "size=\"34\" autocomplete=\"off\"\n                    aria-label=\"TeamCity access token\">");
     }
 
-    /** The fold said again what the line over the field says: that the server reads TeamCity with the token. */
+    /**
+     * The fold said again what the line over the field says: that the server reads TeamCity with the token. It holds
+     * where the server keeps the token instead.
+     */
     @Test
     void theFoldHoldsTheOtherFactsAboutTheToken() throws IOException {
         String fold = card().substring(card().indexOf("<details id=\"loginTokenMore\""));
         fold = fold.substring(0, fold.indexOf("</details>"));
 
         assertThat(fold).contains("<summary>What the checker does with your token</summary>");
-        assertThat(fold.split("<li>")).hasSize(4);
+        assertThat(fold.split("<li>")).hasSize(5);
         assertThat(fold.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " "))
-            .contains("Your browser keeps it in an encrypted session cookie.")
-            .doesNotContain("For about an hour", "in memory")
+            .contains("Your browser keeps it in an encrypted session cookie. The server keeps it in memory for up to an "
+                + "hour after your last request, or until you log out. The host's swap can write that memory to the "
+                + "disk.")
+            .doesNotContain("everyone's PRs")
             .contains("After login, the ⚙ menu has options that work while this page is closed. While one is on, the "
                 + "server stores the token encrypted, until you turn them all off. Copies stay in server backups until "
                 + "the backups are replaced. With any option other than PR commands on, the server also keeps using "

@@ -35,6 +35,10 @@ class GlossaryTest {
 
     private static final Path TOUR_RU = Path.of("docs/features.ru.md");
 
+    private static final Path README = Path.of("README.md");
+
+    private static final Path README_RU = Path.of("README.ru.md");
+
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
     private static final Path FLAKY_PAGE = Path.of("src/main/resources/static/flaky.html");
@@ -130,7 +134,7 @@ class GlossaryTest {
             " on other code", "TeamCity gave no commit for it, so ", " not count",
             "passed just before, but TeamCity gave no commits to prove that was the same code");
         quoted(MAIN.resolve("analysis/Caveats.java"), "the RunAll was interrupted — ", " never ran",
-            " no reliable result (", " ran far fewer tests than the same ", " could not be checked (TeamCity errors)",
+            " no reliable result (", " ran fewer tests than the same ", " could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail",
             " pushed since this run — it tested older code", "new commits pushed since this run — it tested older code");
         quoted(MAIN.resolve("analysis/ChainCollector.java"), "compilation error", "execution timeout",
@@ -149,7 +153,7 @@ class GlossaryTest {
             "♻︎ Deciding whether to re-run", "Rerun at top", "Auto visa ✓", "armed by ", "on in your ⚙",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
             "Blockers since the ", " dropped out", " still blocking");
-        quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "♻ environment/timing — a re-run may pass",
+        quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
     }
 
@@ -243,7 +247,41 @@ class GlossaryTest {
         assertThat(rowOf(glossary(TOUR), "**Visa my runs in JIRA** (⚙)")).contains(exceptions);
         assertThat(rowOf(glossary(TOUR_RU), "**Visa my runs in JIRA** (⚙)"))
             .contains("нет ключа — нет визы", "Пока идёт более новый RunAll этого PR, визы нет",
-                "не повторяет прошлую визу той же ревизии");
+                "не повторяет прошлую визу того же коммита");
+    }
+
+    /**
+     * The page names its cards Recently started failing and Not blamed on this PR, and the comment and the visa say
+     * "commit". The glossary's reasons ended in "To watch." and "Filtered out.", and the tours and the READMEs said
+     * "filtered-out noise", "tests to watch" and "revision". Only the row on a merged PR's old words quotes "revision".
+     * The flaky board's tour said the checker "filters out" its tests; the READMEs' first lines keep the verb for what
+     * the checker does with the failures that master and other PRs explain.
+     */
+    @Test
+    void theDocsUseThePagesNames() throws IOException {
+        for (Path doc : List.of(TOUR, README)) {
+            String text = withoutMergedRow(read(doc));
+            assertThat(text).as(doc.toString()).doesNotContain("Filtered out", "filtered out", "filtered-out",
+                "To watch.", "tests to watch", "revision");
+        }
+        for (Path doc : List.of(TOUR_RU, README_RU)) {
+            String text = withoutMergedRow(read(doc));
+            assertThat(text).as(doc.toString())
+                .doesNotContain("В отсеве", "Под наблюдением.", "под наблюдением", "отфильтрован", "ревизи");
+        }
+        assertThat(read(TOUR)).doesNotContain("filters out");
+        assertThat(read(TOUR_RU)).doesNotContain("отфильтровыва");
+        assertThat(rowOf(glossary(TOUR), "`pre-existing: fails F/R on master`"))
+            .contains("Listed under **Not blamed on this PR**.");
+        assertThat(rowOf(glossary(TOUR), "`failed the latest run; TeamCity gave no commit for it, so the N earlier "
+            + "runs do not count`")).contains("Listed under **Recently started failing**.");
+    }
+
+    /** The text without the glossary's row on a merged PR's verdict, which quotes the old words on purpose. */
+    private static String withoutMergedRow(String text) {
+        return text.lines()
+            .filter(line -> !line.contains("merged PR's verdict") && !line.contains("вердикте смерженного PR"))
+            .collect(Collectors.joining("\n"));
     }
 
     /** The tours quote the runs' composition as the page draws it: the tour still had the old "6 ran · 141 reused". */

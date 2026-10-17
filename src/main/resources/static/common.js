@@ -7,6 +7,11 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// "1 result", "3 results".
+function countOf(n, noun) {
+    return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 // A button disabled while its request runs drops the keyboard focus to the page. The returned function gives the focus
 // back once the button is enabled again, unless the focus has moved on meanwhile.
 function keepFocus(btn) {
@@ -105,8 +110,8 @@ function kindLabel(kind, failedRuns) {
     if (kind === 'assertion') return '⚖ assertion — likely a real logic failure';
     if (kind !== 'environment') return null;
     return failedRuns
-        ? `♻ environment/timing — but it failed ${failedRuns}, so a re-run alone is unlikely to pass`
-        : '♻ environment/timing — a re-run may pass';
+        ? `environment/timing — but it failed ${failedRuns}, so a re-run alone is unlikely to pass`
+        : 'environment/timing — a re-run may pass';
 }
 
 // The labels the failure lists of the PR page and the flaky board share: the prompt copy, and the toggle of a

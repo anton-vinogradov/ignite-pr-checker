@@ -198,7 +198,8 @@ class AiPromptTest {
             .contains("5. Reproduce it locally as modules/platforms/dotnet/DEVNOTES.txt describes")
             .doesNotContain("JDK 17 (the suspect test");
         assertThat(out.get("shrunk").asText())
-            .startsWith("Find out why an Apache Ignite test suite (C++ tests) ran far fewer tests than it does on master.")
+            .startsWith("Find out why an Apache Ignite test suite (C++ tests) ran fewer tests than it does on master.")
+            .contains("- Tests: ran 40 of master's 120 tests (−66%)")
             .contains("— this run (needs a ci2 login): "
                 + "https://ci2.example/buildConfiguration/IgniteTests24Java8_PlatformCPPCMakeLinux/9401")
             .contains("2. Work through the usual causes: a test case removed or renamed, a test source dropped from the "
@@ -246,7 +247,7 @@ class AiPromptTest {
             .contains("2. " + pythonTests + " (one test: pytest -k test_sql_read_as_binary).")
             .doesNotContain("JDK 17; run the single test");
         assertThat(out.get("shrunk").asText())
-            .startsWith("Find out why an Apache Ignite test suite (Python tests) ran far fewer tests than it does on master.")
+            .startsWith("Find out why an Apache Ignite test suite (Python tests) ran fewer tests than it does on master.")
             .contains("2. Work through the usual causes: a test module or function removed or renamed, a new skip mark, "
                 + "a failing fixture that skips the rest, or a run that ended early (check the build log tail).")
             .doesNotContain("undefined", "@Suite.SuiteClasses");
@@ -293,7 +294,7 @@ class AiPromptTest {
             .startsWith("Fix a failing test in Apache Ignite (PHP).")
             .contains(phpTests + "testCreateCache.");
         assertThat(out.get("shrunk").asText())
-            .startsWith("Find out why an Apache Ignite test suite (PHP tests) ran far fewer tests than it does on master.")
+            .startsWith("Find out why an Apache Ignite test suite (PHP tests) ran fewer tests than it does on master.")
             .contains("2. Work through the usual causes: a test case class or method removed or renamed, a new "
                 + "markTestSkipped or excluded group, a failing setUpBeforeClass that skips the rest, or a run that ended "
                 + "early (check the build log tail).")
@@ -348,11 +349,11 @@ class AiPromptTest {
     }
 
     /**
-     * The prompt of a test that started failing said "too few runs of this revision", where the page and the comment
-     * say "commit", and the prompt of a cause said "1 failing test(s) across 1 suite(s)".
+     * The prompt of a test that started failing said "too few runs of this revision", where the page, the comment and
+     * the visa say "this code", and the prompt of a cause said "1 failing test(s) across 1 suite(s)".
      */
     @Test
-    void thePromptsSayCommitsAndCountInPlainNumbers() throws Exception {
+    void thePromptsSayTheCodeAndCountInPlainNumbers() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIPBOARD + """
             const started = Object.assign(blocker('CacheTest.testPut', 'occ-2'), { blocker: false, watch: true,
                 reason: 'failed the only run on commit abc1234; the 1 earlier run was on other code', branchRuns: 'PF',
@@ -373,7 +374,7 @@ class AiPromptTest {
             """);
 
         assertThat(out.get("watch").asText()).contains("- Ignite PR Checker verdict: RECENTLY STARTED FAILING — too "
-            + "few runs of this commit to tell a break from a flake\n");
+            + "few runs of this code to tell a break from a flake\n");
         assertThat(out.get("one").asText()).contains("- 1 failing test across 1 suite: Cache\n");
         assertThat(out.get("two").asText()).contains("- 2 failing tests across 2 suites: Cache, Basic 1\n");
     }

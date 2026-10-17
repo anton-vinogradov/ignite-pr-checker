@@ -88,9 +88,9 @@ class DocFactsTest {
     @Test
     void theTourSaysAutoRerunAlsoRerunsWhatTeamCityCancelled() throws IOException {
         assertThat(collapsed(TOUR))
-            .contains("broken suites, and also the suites TeamCity cancelled by itself, not those a person cancelled.");
+            .contains("It also re-runs the suites TeamCity cancelled by itself, but not those a person cancelled.");
         assertThat(collapsed(TOUR_RU))
-            .contains("битые сьюты, а ещё сьюты, которые TeamCity отменил сам, но не те, что отменил человек.");
+            .contains("Ещё опция перезапускает сьюты, которые TeamCity отменил сам, но не те, что отменил человек.");
     }
 
     /** The settle line, the tested commit and Next: are appended after the verdict's glossary footer. */

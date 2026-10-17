@@ -17,7 +17,7 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 |---|---|---|
 | **Blockers** | Tests this PR most likely broke: they fail in its runs, and neither master nor other PRs explain them. Each suite is judged on its own. The line under a test says why ([reasons](#reasons-under-a-test)). When tests of a suite have the same reason, the line stands once above them. | Open **failure ▸** or **TC**, fix the code, push, run RunAll again. |
 | **Not confirmed: 1 run** | Blockers that failed the only time they ran on this branch. They still count as blockers: in the count, the PR list badge, the visa and the comment. The heading says that each of these tests failed its only run on this branch. So their rows leave out `failed the only run on this branch`, the `1 run` tag and a strip of one bar. If every blocker failed its only run on this branch, the line **Not confirmed yet** above the Blockers list says so, and this group is not shown. | **Rerun** their suites. A second failure confirms the blocker, a pass drops it. |
-| **Recently started failing** | Tests failing on the PR's current code, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
+| **Recently started failing** | Tests failing on the code this run tested, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
 | **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
 | **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Rerun them first: the verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
 | **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and rerun. |
@@ -27,7 +27,7 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 | **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Rerun only to double-check the flaky ones. Tests that fail on master are on the flaky board (`/flaky.html`). |
 | **✓ No blockers** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | You can merge the PR. |
 | **No proven blockers yet** | No test was blamed, but tests started failing on the code this run tested: they are under **Recently started failing**. The PR list shows **!**. | **Rerun** their suites: a rerun shows whether these tests are blockers. |
-| **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Sort out what the lines list, then rerun. |
+| **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Handle what the lines list, then rerun. |
 
 ### Reasons under a test
 
@@ -46,14 +46,14 @@ run where the test was ignored does not count as a run.
 | `failed all N runs on this branch`, `failed the last N of M runs on this branch` | The last 3 finished runs of the suite on the branch failed the test, or all of them when there were fewer. A blocker. | Fix the code. |
 | `failed the only run on this branch` | The test ran once on the branch and failed. A blocker that is not confirmed yet. The line under the test leaves this part out, because **Not confirmed: 1 run** or **Not confirmed yet** above the test already says so. | **Rerun** the suite to confirm it. |
 | `failed all N runs on commit abc1234` | Every run of the PR's current code failed the test, and there were at least 2. A blocker. | Fix the code. |
-| `failed the only run on commit abc1234; the N earlier runs were on other code` | The current code ran once and failed; the earlier runs were on older code. To watch. | **Rerun** the suite. |
-| `failed the latest run; TeamCity gave no commit for it, so the N earlier runs do not count` | The latest run failed, and TeamCity gave no commit for it. The earlier runs may have tested other code, so only the latest run counts. To watch. | **Rerun** the suite. |
-| `failed the last N of M runs on commit abc1234, after a pass on the same commit` | At least 2 failures in a row on the current code, after a pass on the same code. To watch. | **Rerun** the suite. |
-| `…; too few failures on this code yet to outweigh other PRs` | The scale factor case above, without enough failures yet to beat the other PRs' rate. To watch. | **Rerun** the suite. |
-| `pre-existing: fails F/R on master` | Master fails the test too. Filtered out. | Nothing for the PR. |
-| `flaky on other PR branches: fails F/R in K other PRs; …` | It fails in 3 or more other PRs, and this PR's failures are not enough to outweigh that. Filtered out. | Nothing for the PR. |
-| `flaky on branch: failed only the latest of N runs on commit abc1234 (an earlier run on the same code passed)` | It failed once after passing on the same code. Filtered out. | Nothing, or rerun to be sure. |
-| `not failing in the last finished run (passed on re-run)` | The newest finished run of the test on the branch passed. Filtered out. | Nothing. |
+| `failed the only run on commit abc1234; the N earlier runs were on other code` | The current code ran once and failed; the earlier runs were on older code. Listed under **Recently started failing**. | **Rerun** the suite. |
+| `failed the latest run; TeamCity gave no commit for it, so the N earlier runs do not count` | The latest run failed, and TeamCity gave no commit for it. The earlier runs may have tested other code, so only the latest run counts. Listed under **Recently started failing**. | **Rerun** the suite. |
+| `failed the last N of M runs on commit abc1234, after a pass on the same commit` | At least 2 failures in a row on the current code, after a pass on the same code. Listed under **Recently started failing**. | **Rerun** the suite. |
+| `…; too few failures on this code yet to outweigh other PRs` | The scale factor case above, without enough failures yet to beat the other PRs' rate. Listed under **Recently started failing**. | **Rerun** the suite. |
+| `pre-existing: fails F/R on master` | Master fails the test too. Listed under **Not blamed on this PR**. | Nothing for the PR. |
+| `flaky on other PR branches: fails F/R in K other PRs; …` | It fails in 3 or more other PRs, and this PR's failures are not enough to outweigh that. Listed under **Not blamed on this PR**. | Nothing for the PR. |
+| `flaky on branch: failed only the latest of N runs on commit abc1234 (an earlier run on the same code passed)` | It failed once after passing on the same code. Listed under **Not blamed on this PR**. | Nothing, or rerun to be sure. |
+| `not failing in the last finished run (passed on re-run)` | The newest finished run of the test on the branch passed. Listed under **Not blamed on this PR**. | Nothing. |
 | `could not verify (TeamCity error: …)` | A TeamCity error stopped the check. Listed under **Could not be checked**. | Nothing: it is tried again. |
 | `the N earlier runs were on other code` | Runs on an older commit don't count; they are dimmed in the strip. | — |
 | `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code` | TeamCity gave no commit for any run of the test on the branch, so the pass may have been on other code. | — |
@@ -69,11 +69,11 @@ and the visa.
 | `Build failed — N suites that need it did not run` | A run the other suites need failed, so they never ran. | Fix the build, push, run RunAll again. |
 | `the RunAll was interrupted — N suites never ran` | Suites were cancelled before they ran. | **Rerun** them, or run RunAll again. |
 | `N suites have no reliable result (…)` | Broken suites; their causes are in brackets. | See [broken suite causes](#broken-suite-causes). |
-| `N suites ran far fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
+| `N suites ran fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
 | `N failed tests could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. The comment and the visa use these words; the page says `it tested older code (see the note at the top)`, and the line at the top names both commits, with their count once GitHub answers. | Run RunAll again. |
-| `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the revision the run tested, so the page does not call the verdict clean. The same can happen while fewer than a fifth of the checker's hourly GitHub calls are left: the page then does not ask GitHub about it. | Reload the page in a minute. If the **GitHub API** card on the status page shows fewer than a fifth of the calls left, wait until GitHub resets the hourly limit. |
+| `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the commit the run tested, so the page does not call the verdict clean. The same can happen while fewer than a fifth of the checker's hourly GitHub calls are left: the page then does not ask GitHub about it. | Reload the page in a minute. If the **GitHub API** card on the status page shows fewer than a fifth of the calls left, wait until GitHub resets the hourly limit. |
 
 ### Broken suite causes
 
@@ -102,8 +102,8 @@ and the visa.
 | `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PR's tests that no suite runs** in ⚙. |
 | `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
 | `⚖ assertion — likely a real logic failure` (in **failure ▸**) | A failed check. | Fix the code. |
-| `♻ environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
-| `♻ environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
+| `environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
+| `environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
 | `⌛ hang — the test ran out of time; …` | The test hung. The test's thread from the thread dump is shown. | See where that thread waits. |
 | **failure ▸** / **copy failure** / **copy AI prompt** | **failure ▸** opens a panel with the failure message and the stack trace. In the panel, **copy failure** copies the message and **copy AI prompt** copies a fix prompt for a coding assistant. If there is no failure message to open, **copy AI prompt** is on the row itself. | — |
 
@@ -112,8 +112,8 @@ and the visa.
 | Badge | What it means | What to do |
 |---|---|---|
 | red number | Blockers in the PR's latest analysed RunAll. | Open the PR. |
-| **!** | No blockers yet, but tests started failing on the PR's latest code. | A rerun shows whether these tests are blockers. |
-| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
+| **!** | No blockers yet, but tests started failing on the code the run tested. | A rerun shows whether these tests are blockers. |
+| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
@@ -129,7 +129,7 @@ and the visa.
 | `takes latest commit at start` | The run is still queued; TeamCity picks the PR's latest commit when it starts. | — |
 | `by alice` | Someone else started this run. **Cancel my runs** leaves it alone. | — |
 | `● includes an unfinished run` | The verdict folds in the finished suites of a RunAll that is still running. It never reads green. | Wait for the run. |
-| `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs on unchanged revisions. Shown when some were reused, or while the run still goes. | — |
+| `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs of the same commit. Shown when some were reused, or while the run still goes. | — |
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
 | `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
@@ -139,7 +139,7 @@ and the visa.
 | **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. The key may be in any case. With no ticket in the title, the group is one line saying so. For a PR that is not in the left pane, the group or the line appears once the page gets the PR's title. | — |
 | **Auto visa** | Posts the verdict to the ticket once, the next time a RunAll of the PR finishes. Filled while armed by you (`Auto visa ✓`); `armed by bob` beside it: armed by others, who get one visa between them. | — |
 | `on in your ⚙`, `on in bob's ⚙` | Beside **Auto visa**, shown as on: the standing auto-visa of whoever started the run will post it, so there is nothing to arm. | — |
-| **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same revision. | — |
+| **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same commit. | — |
 
 ### Thresholds
 
@@ -178,8 +178,8 @@ and the visa.
 
 The page answers one question: which tests did this PR break? The verdict card answers it first, in the words of the
 PR comment and the visa. The [cards](#cards-on-the-pr-page) under it go from what makes the run unreliable (suites that
-never ran, broken suites, fewer tests than master) to the blockers, the tests to watch, the PR's own tests, and what was
-not blamed on the PR.
+never ran, broken suites, fewer tests than master) to the blockers, the tests that recently started failing, the PR's
+own tests, and what was not blamed on the PR.
 
 - **The head** names the PR, its number a link to GitHub and its IGNITE ticket a link to JIRA, and has the RunAll
   buttons. The line under it names the RunAll build with its TeamCity link, when the run finished and when the verdict
@@ -200,7 +200,7 @@ not blamed on the PR.
 - **Each suite on its own.** One test can run in several suites (the C++ tests run on Windows, Linux and Clang). It is
   listed in each suite it failed in, with that suite's own verdict, so a pass on Windows does not hide a steady break
   on Linux.
-- **The same code, the same JDK.** Every run is matched to the revision it built: a pass on older code does not clear
+- **The same code, the same JDK.** Every run is matched to the commit it built: a pass on older code does not clear
   a failure, and such runs are dimmed in the test's strip. Master runs are counted only on the JDK of the PR's run. A
   run where the test was ignored is not a run, and a failure TeamCity muted is never listed.
 - **Grouped by suite.** The lists of tests group the rows by suite. The suite's **TC** opens its newest run, and a row's
@@ -228,7 +228,7 @@ not blamed on the PR.
   `Checking that this run tested the PR's latest commit…` and the PR's badge in the list is **…**; after that, the
   badge says what the page says.
 - **failure ▸** opens the failure message and the stack trace, with a rough triage label: `⚖ assertion …`,
-  `♻ environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
+  `environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
   **copy failure** in the open panel copies the message.
 - **copy AI prompt** copies a prompt for a coding assistant. The button is in the open panel, or on the row when
   TeamCity kept no failure message. The prompt includes the PR, the suite and its run, the test, the checker's verdict
@@ -285,8 +285,10 @@ shows the button that gives it.
 
 Your login is all these two options need.
 
-- **Re-run failed suites of my runs** re-runs the suites the verdict blames: blockers, tests to watch and broken
-  suites, and also the suites TeamCity cancelled by itself, not those a person cancelled. A suite that fails while the
+- **Re-run failed suites of my runs** re-runs the suites the verdict blames: suites with blockers, suites with tests
+  that recently started failing, and broken suites. It also re-runs the suites TeamCity cancelled by itself, but not
+  those a person cancelled.
+  A suite that fails while the
   chain still runs is re-run at once, at the top of the queue, up to 10 per chain. After the chain finishes, the suites
   still blamed are re-run: up to 2 waves per run, the mid-run re-runs counting as the first; up to 10 suites go to the
   top of the queue, more to the tail. With more than 30 such suites and no re-run yet, nothing is re-run: that looks
@@ -307,7 +309,7 @@ cookie, encrypted, and the server stores it encrypted while the option below is 
 
 - **Visa my runs in JIRA** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
-  newer RunAll of the PR is going, and none that repeats the last visa for the same revision.
+  newer RunAll of the PR is going, and none that repeats the last visa for the same commit.
 
 When JIRA refuses the stored token itself, the checker drops it and switches the visa off; ⚙ says so. A rate limit,
 an outage or a ticket you may not comment on keeps the token, and the visa is tried again at the next sweeps. A visa a
@@ -375,14 +377,15 @@ touches your token.
   **Auto visa ⚠** until you arm it again.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
-- The lists of blockers, tests to watch and unchecked tests are grouped by suite and class, the biggest group first.
+- The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the
+  biggest group first.
   Each line has the test's tags (`1 run`, `new test / no master history`, `unverified`) and a TC link, and a line
   under the lists explains the tags. The PR comment shows 5 groups and folds the rest; the visa shows 10.
 - Test names and the reasons TeamCity gives for a broken suite can have links, web addresses, mentions, images and
   HTML. The comment and the visa show all of it as written. `#123` and `GH-123` in them do not link to any GitHub
   issue or PR.
 - A verdict that can't call the PR clean lists the caveats. A verdict of code that was pushed over says which commit
-  it tested and what the PR head is now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
+  it tested and which commit the PR is at now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
 - Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
   tested commit and the **Next:** line come after it.
 - The PR comment comes from the checker's account and opens with a mention of the run's starter when their GitHub
@@ -432,9 +435,9 @@ from its own GitHub account, the app account.
 
 ![The flaky board: tests ranked by their master fail rate, each with its failed master runs](img/flaky-board.jpg)
 
-- Tests the checker filters out because they fail on master: not any one PR's fault, yet they fail in PRs that did
-  not break them. **Flaky on master** comes first: tests that fail some master runs and pass others. **Broken on
-  master** follows: tests that failed each of their newest 10 master runs, or every run when there were fewer.
+- Tests that fail on master: the checker does not blame them on any PR, yet they fail in PRs that did not break them.
+  **Flaky on master** comes first: tests that fail some master runs and pass others. **Broken on master** follows:
+  tests that failed each of their newest 10 master runs, or every run when there were fewer.
 - Each group is ranked by master fail rate, then by how many PRs the test failed in during the last 14 days, and shows
   40 rows at most. The two columns on the right show both: **Master fail rate** (for a broken test, how many runs in a
   row it failed) and **PRs, last 14 days**.
@@ -453,10 +456,10 @@ from its own GitHub account, the app account.
 - Anyone can see the version and its commit, uptime, CPU and load, the heap with its old-generation peak, the
   process's memory, the snapshots, the latency of each endpoint, the cache warmer, the build watcher, and the
   TeamCity, GitHub and JIRA calls by category over the last hour.
-- The health dot next to the title turns red for 6 hours after an error and amber for an hour after a warning. It
-  also turns red or amber when a background job stops (the standing sweep, the PR command poll, the warm cycle), a
-  state file could not be read, or a setting is out of range; such problems are listed at the top. Requests Spring
-  turns away as the caller's mistake are listed greyed out and never colour it.
+- The health dot next to **Status** in the menu turns red for 6 hours after an error and amber for an hour after a
+  warning. It also turns red or amber when a background job stops (the standing sweep, the PR command poll, the warm
+  cycle), a state file could not be read, or a setting is out of range; such problems are listed at the top. Requests
+  that the service rejects as the caller's mistake are listed in grey and never colour the dot.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,

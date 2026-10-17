@@ -2035,9 +2035,9 @@ public class StandingVisas implements SnapshotCache {
             String.join(";", Caveats.keyOf(r)));
     }
 
-    /** "Tested commit abc1234; the PR head is now def5678." with the commits wrapped in the markup's code marks. */
+    /** "Tested commit abc1234; the PR is now at def5678." with the commits wrapped in the markup's code marks. */
     private static String revisions(PendingCommits.Ahead ahead, String open, String close) {
-        return "Tested commit " + open + ahead.builtShort() + close + "; the PR head is now " + open
+        return "Tested commit " + open + ahead.builtShort() + close + "; the PR is now at " + open
             + ahead.headShort() + close + ".";
     }
 
@@ -2857,15 +2857,15 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The suites a wave re-runs, by why: {@code "3 suites (2 with blockers, 1 broken)"}, or by the one reason when
-     * there is one, {@code "2 suites with blockers"}, {@code "1 suite to watch"}, {@code "3 broken suites"},
-     * {@code "4 cancelled suites"}.
+     * there is one, {@code "2 suites with blockers"}, {@code "1 suite with tests that started failing"},
+     * {@code "3 broken suites"}, {@code "4 cancelled suites"}.
      */
     private static String suitesLabel(int blockers, int watch, int broken, int cancelled) {
         List<String> parts = new ArrayList<>();
         if (blockers > 0)
             parts.add(blockers + " with blockers");
         if (watch > 0)
-            parts.add(watch + " to watch");
+            parts.add(watch + " " + WATCH_SUITES);
         if (broken > 0)
             parts.add(broken + " broken");
         if (cancelled > 0)
@@ -2877,7 +2877,7 @@ public class StandingVisas implements SnapshotCache {
         if (blockers > 0)
             return suites + " with blockers";
         if (watch > 0)
-            return suites + " to watch";
+            return suites + " " + WATCH_SUITES;
         if (broken > 0)
             return n + " broken" + (n == 1 ? " suite" : " suites");
         if (cancelled > 0)
@@ -2892,11 +2892,23 @@ public class StandingVisas implements SnapshotCache {
 
     private static final Pattern EARLIER_LABEL_PART = Pattern.compile("(\\d+) (blocker|watch|broken|cancelled)");
 
+    /** What a wave's label says of the suites it re-runs for tests under Recently started failing. */
+    private static final String WATCH_SUITES = "with tests that started failing";
+
+    /** How a part of a wave's label with several reasons read: "2 with blockers", "1 to watch". */
+    private static final String WATCH_LABEL_PART = "\\d+ (?:with blockers|to watch|broken|cancelled)";
+
+    /** A wave's label that called those suites "to watch": "1 suite to watch", "2 suites (1 to watch, 1 broken)". */
+    private static final Pattern WATCH_LABEL = Pattern.compile(
+        "\\d+ suites? to watch|\\d+ suites \\(" + WATCH_LABEL_PART + "(?:, " + WATCH_LABEL_PART + ")*\\)");
+
     /**
      * A wave's label in this release's words. The snapshot keeps each label as the release that queued the wave
      * wrote it, so a wave queued before a deploy is said after it in the earlier words otherwise.
      */
     private static String inPresentWords(String label) {
+        if (label != null && WATCH_LABEL.matcher(label).matches())
+            return label.replace(" to watch", " " + WATCH_SUITES);
         if (label == null || !EARLIER_LABEL.matcher(label).matches())
             return label;
 

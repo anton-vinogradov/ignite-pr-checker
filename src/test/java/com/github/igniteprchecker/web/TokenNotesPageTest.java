@@ -28,11 +28,12 @@ class TokenNotesPageTest {
         String note = textOf("loginTokenNote");
         String fold = textOf("loginTokenMore");
 
-        assertThat(note).doesNotContain("never on the server")
-            .contains("Until you log out, but no longer than about an hour after your last request, the server keeps "
-                + "your token in memory. The host's swap can write that memory to the disk. The server uses the token "
-                + "only to read from TeamCity, to check open PRs for everyone.");
+        assertThat(note).doesNotContain("never on the server", "memory", "swap")
+            .contains("The server also uses your token to read TeamCity for everyone's PRs, for up to an hour after "
+                + "your last request.");
         assertThat(fold).contains("Your browser keeps it in an encrypted session cookie.")
+            .contains("The server keeps it in memory for up to an hour after your last request, or until you log out. "
+                + "The host's swap can write that memory to the disk.")
             .contains("While one is on, the server stores the token encrypted, until you turn them all off. Copies "
                 + "stay in server backups until the backups are replaced. With any option other than PR commands on, "
                 + "the server also keeps using the token to read from TeamCity, to check open PRs for everyone.");

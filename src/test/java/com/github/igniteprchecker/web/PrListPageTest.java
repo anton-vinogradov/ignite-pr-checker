@@ -120,13 +120,19 @@ class PrListPageTest {
         assertThat(out.get("keptFolded").asBoolean()).isFalse();
     }
 
-    /** The legend's badges carry the rows' own tooltips, word for word, and a count reads "1 blocker" or "33 blockers". */
+    /**
+     * The legend's badges carry the rows' own tooltips, word for word, and a count reads "1 blocker" or "33 blockers".
+     * Its one "?" stands for three standings, and on prod 7 of 8 "?" were runs of older code, so its tooltip names all
+     * three reasons; it listed only the run's gaps. A "!" stood on runs older than the PR's head, under a tooltip that
+     * said the tests failed on the PR's latest code.
+     */
     @Test
     void theLegendRepeatsTheRowsTooltips() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('');
             const badges = page.run('STANDING_BADGES');
             report({ watch: badges.WATCH[2], unproven: badges.UNPROVEN[2], checking: badges.CHECKING[2],
+                anyUnproven: page.run('UNPROVEN_LEGEND_TITLE'),
                 clean: page.run('CLEAN_BADGE_TITLE'), mine: page.run('MY_RUN_TITLE'),
                 one: page.run('blockerBadge')(1, false, null), many: page.run('blockerBadge')(33, false, null),
                 old: page.run('blockerBadge')(0, false, 'OLD_CODE'), proven: page.run('blockerBadge')(0, true, null) });
@@ -136,17 +142,20 @@ class PrListPageTest {
         int start = legend.indexOf("<details id=\"prLegend\"");
         legend = legend.substring(start, legend.indexOf("</details>", start));
         assertThat(legend).contains("<span class=\"pr-badge watch\" title=\"" + out.get("watch").asText() + "\">!</span>")
-            .contains("<span class=\"pr-badge unproven\" title=\"" + out.get("unproven").asText() + "\">?</span>")
+            .contains("<span class=\"pr-badge unproven\" title=\"" + out.get("anyUnproven").asText() + "\">?</span>")
             .contains("<span class=\"pr-badge checking\" title=\"" + out.get("checking").asText() + "\">…</span>")
             .contains("<span class=\"pr-badge ok\" title=\"" + out.get("clean").asText() + "\">✓</span>")
             .contains("<span class=\"pr-badge bad\" title=\"2 blockers\">2</span>")
             .contains("<span class=\"my-tag\" title=\"" + out.get("mine").asText() + "\">my run</span>")
-            .contains("<span>started failing — no blockers yet, but tests started failing on its code; a rerun shows "
-                + "whether they are blockers</span>");
-        assertThat(out.get("watch").asText()).isEqualTo("No blockers yet, but some tests started failing on the PR's "
-            + "latest code. A rerun shows whether they are blockers.");
+            .contains("<span>started failing — no blockers yet, but tests started failing on the code the run tested; "
+                + "a rerun shows whether they are blockers</span>");
+        assertThat(out.get("watch").asText()).isEqualTo("No blockers yet, but some tests started failing on the code "
+            + "the run tested. A rerun shows whether they are blockers.");
+        assertThat(out.get("anyUnproven").asText()).isEqualTo("No blockers found, but the PR is not proven clean. The run "
+            + "can't prove it, commits were pushed after the run, or it is not known whether the run tested the PR's "
+            + "latest commit.");
         assertThat(out.get("unproven").asText()).isEqualTo("No blockers found, but the run can't prove the PR clean: "
-            + "it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be "
+            + "it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be "
             + "checked, or a newer run is still going.");
         assertThat(out.get("one").asText()).startsWith("<span class=\"pr-badge bad\" title=\"1 blocker\"")
             .endsWith(">1</span>");

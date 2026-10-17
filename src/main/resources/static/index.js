@@ -76,8 +76,16 @@ async function loggedOut(r) {
     if (body.tokenRejected)
         await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
     if (body.tokenRejected || body.sessionEnded)
-        $('loginErr').textContent = body.error;
+        loginMsg(body.error, body.tokenRejected);
     signedOut();
+}
+
+// The line under the login form: an error in red, a note on how the session ended in the muted colour.
+function loginMsg(text, isError) {
+    const el = $('loginErr');
+    el.textContent = text;
+    el.classList.toggle('err', !!isError);
+    el.classList.toggle('muted', !isError);
 }
 
 // Nothing of the ended session may keep polling, or offer what only a signed-in user may do.
@@ -223,13 +231,15 @@ function markMine() {
 }
 
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
-// where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats
-// these titles word for word, and its words name the badge to a screen reader, which would read the bare mark.
+// where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats the
+// "!" and "…" titles word for word; its one "?" stands for three of them and has UNPROVEN_LEGEND_TITLE. The fourth
+// item names the badge to a screen reader, which would read the bare mark.
+// WATCH comes before the check of the code, so a "!" may stand on a run of older code.
 const STANDING_BADGES = {
-    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the PR\'s latest code. A rerun shows '
+    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A rerun shows '
         + 'whether they are blockers.', 'started failing'],
     UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
-        + 'broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still '
+        + 'broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still '
         + 'going.', 'not proven clean'],
     OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.', 'not proven clean'],
     UNKNOWN_CODE: ['unproven', '?', 'No blockers found, but it is not known whether this run tested the PR\'s latest '
@@ -238,6 +248,10 @@ const STANDING_BADGES = {
         'checking'],
 };
 const CLEAN_BADGE_TITLE = 'A clean run of the PR\'s current code.';
+
+// The legend has one "?" for the three standings that draw it, so its title names all three.
+const UNPROVEN_LEGEND_TITLE = 'No blockers found, but the PR is not proven clean. The run can\'t prove it, commits were '
+    + 'pushed after the run, or it is not known whether the run tested the PR\'s latest commit.';
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
 // "!" for tests that started failing, a question mark when nothing was blamed but the run couldn't prove
@@ -660,7 +674,7 @@ function paintTab() {
     else if (st && st.kind === 'settling') {
         color = TAB_COLORS.settling;
         const left = st.phase.etaEpochSec ? ' ' + fmtLeft(st.phase.etaEpochSec - Date.now() / 1000) : '';
-        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ settling') + pr;
+        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ deciding on re-run') + pr;
     }
     else if (st && st.kind === 'final') {
         color = TAB_COLORS[st.verdict];
@@ -810,9 +824,9 @@ async function loadMe() {
 }
 
 async function login() {
-    $('loginErr').textContent = '';
+    loginMsg('', false);
     const token = $('token').value.trim();
-    if (!token) { $('loginErr').textContent = 'Enter a token.'; return; }
+    if (!token) { loginMsg('Enter a token.', true); return; }
     $('loginBtn').disabled = true;
     try {
         const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
@@ -825,7 +839,7 @@ async function login() {
             offerCommands();
         } else {
             const { error } = await r.json().catch(() => ({ error: 'login failed' }));
-            $('loginErr').textContent = error || 'login failed';
+            loginMsg(error || 'login failed', true);
         }
     } finally {
         $('loginBtn').disabled = false;
@@ -839,7 +853,7 @@ async function logout() {
     const r = await api('/api/logout', { method: 'POST' });
     const { note, error } = await r.json().catch(() => ({}));
     signedOut();
-    if (note || error) $('loginErr').textContent = note || error;
+    if (note || error) loginMsg(note || error, !note);
 }
 
 let analyzeRetries = 0;
@@ -1064,7 +1078,7 @@ function renderShrunk(el, suites) {
         const btns = suiteRowActs(s.suite, above);
         return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'shrunk')}`
             + `<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
-            + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
+            + `<div class="reason">ran <b>${s.tests}</b> of master's <b>${s.baseline}</b> tests (<b>−${s.dropPct}%</b>)</div></li>`;
     }).join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
@@ -1109,7 +1123,7 @@ async function aiSuitePrompt(btn) {
     const prompt = aiPromptText({
         title: broken
             ? `Find out why a TeamCity suite of Apache Ignite (${LANGUAGE[platform]} tests) produced no reliable result, and fix it.`
-            : `Find out why an Apache Ignite test suite (${LANGUAGE[platform]} tests) ran far fewer tests than it does on master.`,
+            : `Find out why an Apache Ignite test suite (${LANGUAGE[platform]} tests) ran fewer tests than it does on master.`,
         pr: selectedPr,
         tested,
         lines: broken ? [
@@ -1126,7 +1140,7 @@ async function aiSuitePrompt(btn) {
             cfgUrl ? `- The same suite on other branches, master included (needs a ci2 login): ${cfgUrl}` : null,
         ] : [
             `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run (needs a ci2 login): ' + runUrl : ''}`,
-            `- Tests: ran ${btn.dataset.tests}, master runs ${btn.dataset.baseline} — ${btn.dataset.drop}% fewer`,
+            `- Tests: ran ${btn.dataset.tests} of master's ${btn.dataset.baseline} tests (−${btn.dataset.drop}%)`,
             cfgUrl ? `- The same suite on other branches, master included (needs a ci2 login): ${cfgUrl}` : null,
         ],
         task: broken ? [
@@ -1603,7 +1617,8 @@ function renderVerdictHead(res) {
         : standing === 'WATCH' ? 'watch' : 'unproven';
     for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven']) $('verdictCard').classList.toggle(k, k === kind);
     $('verdictText').textContent = verdictTitle(res, standing);
-    $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p>${esc(line)}</p>`).join('');
+    const busy = standing === 'CHECKING' ? ' class="busy"' : '';
+    $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p${busy}>${esc(line)}</p>`).join('');
 }
 
 function verdictTitle(res, standing) {
@@ -2193,7 +2208,7 @@ function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
     const tc = runUrl
         ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
     const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
-        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this commit to tell a break from a flake'
+        : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this code to tell a break from a flake'
         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
     const ai = `<button class="why ai" data-occ="${esc(t.occurrenceId || '')}" data-name="${esc(t.name)}"`
         + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
@@ -2926,7 +2941,7 @@ $('ghTokenBtn').onclick = () => {
 $('tcRelogin').onclick = async () => {
     await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
     signedOut();
-    $('loginErr').textContent = 'Log in with a fresh TeamCity token: your options resume with it.';
+    loginMsg('Log in with a fresh TeamCity token: your options resume with it.', false);
 };
 
 // What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,

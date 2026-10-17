@@ -56,10 +56,10 @@ class FailureLabelTest {
             """);
 
         assertThat(out.get("always").asText())
-            .startsWith("♻ environment/timing — but it failed all 3 runs of this code, so a re-run alone is unlikely "
+            .startsWith("environment/timing — but it failed all 3 runs of this code, so a re-run alone is unlikely "
                 + "to pass")
             .doesNotContain("a re-run may pass");
-        assertThat(out.get("once").asText()).startsWith("♻ environment/timing — a re-run may pass");
+        assertThat(out.get("once").asText()).startsWith("environment/timing — a re-run may pass");
     }
 
     @Test
@@ -73,7 +73,7 @@ class FailureLabelTest {
             report({ shown: await why('filtered') });
             """);
 
-        assertThat(out.get("shown").asText()).startsWith("♻ environment/timing — a re-run may pass");
+        assertThat(out.get("shown").asText()).startsWith("environment/timing — a re-run may pass");
     }
 
     @Test
@@ -114,8 +114,8 @@ class FailureLabelTest {
             """);
 
         assertThat(out.get("broken").asText())
-            .startsWith("♻ environment/timing — but it failed all 100 recent master runs, so a re-run alone is "
+            .startsWith("environment/timing — but it failed all 100 recent master runs, so a re-run alone is "
                 + "unlikely to pass");
-        assertThat(out.get("flaky").asText()).startsWith("♻ environment/timing — a re-run may pass");
+        assertThat(out.get("flaky").asText()).startsWith("environment/timing — a re-run may pass");
     }
 }

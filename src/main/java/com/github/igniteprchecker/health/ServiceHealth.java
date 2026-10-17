@@ -116,7 +116,8 @@ public class ServiceHealth {
 
         if (clocks.pooledTokens() == 0 && clocks.enrolled() > 0) {
             problems.add(Problem.warn("no TeamCity token in the pool though " + clocks.enrolled()
-                + " user(s) have standing options: background warming and run tracking are paused"));
+                + (clocks.enrolled() == 1 ? " user has" : " users have")
+                + " standing options: background warming and run tracking are paused"));
         }
 
         if (persistence != null)
