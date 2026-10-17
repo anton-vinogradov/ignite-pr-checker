@@ -15,7 +15,7 @@ few JSON files on disk.
 ➡ **[Feature tour](docs/features.md)**. It starts with the [verdict glossary](docs/features.md#verdict-glossary): what
 each label means and what to do about it.
 
-![The PR page: broken suites grouped by cause, then the blockers, each with the reason under it](docs/img/pr-page.jpg)
+![The PR page: the verdict comes first, then the broken suites, the blockers and the tests that recently started failing](docs/img/pr-page.jpg)
 
 ## What it does
 
