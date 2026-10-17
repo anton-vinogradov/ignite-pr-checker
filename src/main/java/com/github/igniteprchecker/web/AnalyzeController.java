@@ -25,11 +25,13 @@ public class AnalyzeController {
     private final BlockerAnalyzer analyzer;
     private final RunDeltaStore deltas;
     private final PendingCommits pending;
+    private final PrHeads heads;
 
-    public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas, PendingCommits pending) {
+    public AnalyzeController(BlockerAnalyzer analyzer, RunDeltaStore deltas, PendingCommits pending, PrHeads heads) {
         this.analyzer = analyzer;
         this.deltas = deltas;
         this.pending = pending;
+        this.heads = heads;
     }
 
     /** Serves the cached analysis (recomputing only on a cache miss). */
@@ -66,16 +68,16 @@ public class AnalyzeController {
 
     /**
      * Whether the PR head has moved since the analysed build — the verdict would then describe older
-     * code. Always fresh (the head can change any time), and cheap: one TeamCity + one GitHub call. The
-     * build may be any run, a single suite's too: the "ai" prompts ask it about the run they quote.
-     * {@code checked} is false when TeamCity or GitHub could not tell.
+     * code. One TeamCity call, and the head as {@link PrHeads} knows it. The build may be any run of the
+     * PR, a single suite's too: the "ai" prompts ask it about the run they quote. {@code checked} is false
+     * when TeamCity or GitHub could not tell, the build is not of the PR, or GitHub was not asked.
      */
     @GetMapping("/pending")
     public Map<String, Object> pending(@RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
         PendingCommits.Ahead ahead;
         try {
-            ahead = pending.movedSince(token, pr, build);
+            ahead = pending.movedSince(token, pr, build, heads::of);
         }
         catch (RuntimeException e) {
             return Map.of("pending", false, "checked", false);

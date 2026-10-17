@@ -15,6 +15,7 @@ import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.web.AnalyzeController;
+import com.github.igniteprchecker.web.PrHeads;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -44,11 +45,11 @@ class RewrittenBranchTest {
     private final TcClient tc = mock(TcClient.class);
 
     private final AnalyzeController analyze = new AnalyzeController(mock(BlockerAnalyzer.class),
-        mock(RunDeltaStore.class), new PendingCommits(tc, github));
+        mock(RunDeltaStore.class), new PendingCommits(tc, github), new PrHeads(github));
 
     @Test
     void rebasedBranchIsToldApartFromNewCommits() {
-        when(tc.buildRevision("t", 9002L)).thenReturn(Optional.of(BUILT));
+        when(tc.prBuildRevision("t", 13575, 9002L)).thenReturn(Optional.of(BUILT));
         expectHead();
         server.expect(requestTo(compare())).andRespond(withSuccess("{\"status\":\"diverged\",\"ahead_by\":150,"
             + "\"behind_by\":2}", MediaType.APPLICATION_JSON));
@@ -62,7 +63,7 @@ class RewrittenBranchTest {
 
     @Test
     void newCommitsOnTopAreNoRewrite() {
-        when(tc.buildRevision("t", 9002L)).thenReturn(Optional.of(BUILT));
+        when(tc.prBuildRevision("t", 13575, 9002L)).thenReturn(Optional.of(BUILT));
         expectHead();
         server.expect(requestTo(compare())).andRespond(withSuccess("{\"status\":\"ahead\",\"ahead_by\":2,"
             + "\"behind_by\":0}", MediaType.APPLICATION_JSON));
@@ -72,7 +73,7 @@ class RewrittenBranchTest {
 
     @Test
     void failedCompareCountsNothingAndClaimsNoRewrite() {
-        when(tc.buildRevision("t", 9002L)).thenReturn(Optional.of(BUILT));
+        when(tc.prBuildRevision("t", 13575, 9002L)).thenReturn(Optional.of(BUILT));
         expectHead();
         server.expect(requestTo(compare())).andRespond(withServerError());
 

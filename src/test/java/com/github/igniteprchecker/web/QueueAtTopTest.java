@@ -14,7 +14,6 @@ import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -77,7 +76,7 @@ class QueueAtTopTest {
         tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"), cfg, new Metrics(new ObjectMapper()));
         mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, mock(BlockerAnalyzer.class),
-                mock(RerunTracker.class), mock(GithubClient.class), mock(SuiteBaseline.class), cfg))
+                mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
     }

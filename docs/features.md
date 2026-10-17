@@ -73,7 +73,7 @@ and the visa.
 | `N failed tests could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. The comment and the visa use these words; the page says `it tested older code (see the note at the top)`, and the line at the top names both commits, with their count once GitHub answers. | Run RunAll again. |
-| `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the revision the run tested, so the page does not call the verdict clean. | Reload the page in a minute. |
+| `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the revision the run tested, so the page does not call the verdict clean. The same happens while fewer than a fifth of the checker's hourly GitHub calls are left: the page then does not ask GitHub. | Reload the page in a minute. If the **GitHub API** card on the status page shows fewer than a fifth of the calls left, wait until GitHub resets the hourly limit. |
 
 ### Broken suite causes
 

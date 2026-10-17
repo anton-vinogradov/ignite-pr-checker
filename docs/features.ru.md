@@ -71,7 +71,7 @@
 | `N failed tests could not be checked (TeamCity errors)` | См. **Could not be checked**. Виза, комментарий в PR и автоперезапуск ждут повторной проверки до 20 минут, потом идут дальше и перечисляют такие тесты отдельно. | Подожди. |
 | `a newer run is still going — its unfinished suites can still fail` | В вердикт подмешан RunAll, который ещё идёт. | Дождись его конца. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | HEAD PR сдвинулся после прогона. Так пишут комментарий и виза; страница пишет `it tested older code (see the note at the top)`, а строка наверху называет оба коммита и, когда ответит GitHub, их число. | Запусти RunAll снова. |
-| `could not check whether the PR changed since this run` | Только на странице: GitHub или ci2 не ответил, та ли ещё ревизия в HEAD PR, что проверял прогон, поэтому страница не называет вердикт чистым. | Обнови страницу через минуту. |
+| `could not check whether the PR changed since this run` | Только на странице: GitHub или ci2 не ответил, та ли ещё ревизия в HEAD PR, что проверял прогон, поэтому страница не называет вердикт чистым. То же бывает, пока у чекера остаётся меньше пятой части часовых вызовов GitHub: тогда страница GitHub не спрашивает. | Обнови страницу через минуту. Если карточка **GitHub API** на странице статуса показывает меньше пятой части вызовов, дождись, пока GitHub обнулит часовой лимит. |
 
 ### Причины битых сьют
 
