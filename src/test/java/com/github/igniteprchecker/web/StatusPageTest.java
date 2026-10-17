@@ -245,6 +245,27 @@ class StatusPageTest {
     }
 
     /**
+     * The labels of the chart's axes were drawn in #999, 2.85:1 on the light card. They take the theme's muted text
+     * colour, which the page check holds at 4.5:1 or better.
+     */
+    @Test
+    void theAxisLabelsAreInTheThemesMutedColour() throws Exception {
+        JsonNode out = PageScript.run("status.html", STATUS + """
+            page.run('document').documentElement.style['--muted'] = ' #666';
+            const texts = [];
+            page.el('tcStack').getContext = () => new Proxy({}, {
+                get: (ctx, k) => k === 'fillText' ? (text => texts.push(String(text) + ' ' + ctx.fillStyle))
+                    : k in ctx ? ctx[k] : () => {} });
+            status.teamcity.perMinuteByCategory = { history: [4] };
+            await page.load('');
+            report({ texts });
+            """);
+
+        assertThat(out.get("texts").toString()).isEqualTo("[\"0 #666\",\"1 #666\",\"2 #666\",\"3 #666\",\"4 #666\","
+            + "\"-60m #666\",\"now #666\"]");
+    }
+
+    /**
      * A label breaks only between its " · " chunks, so a number keeps its unit; a legend item keeps its square. The
      * dot stood between the chunks, and the browser broke the line before it: "· sweep never" began a line of the
      * Tests added to suites card. The dot ends the chunk before it, after a no-break space.

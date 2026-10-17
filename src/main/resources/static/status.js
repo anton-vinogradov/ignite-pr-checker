@@ -402,10 +402,11 @@ function drawStacked(canvas, legendEl, byCat) {
     const max = Math.max(1, ...totals);
 
     ctx.font = '10px system-ui';
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
     for (let k = 0; k <= 4; k++) {
         const y = pad.t + ch - (ch * k / 4);
         ctx.strokeStyle = 'rgba(128,128,128,0.18)'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
-        ctx.fillStyle = '#999'; ctx.fillText(Math.round(max * k / 4), 2, y + 3);
+        ctx.fillStyle = muted; ctx.fillText(Math.round(max * k / 4), 2, y + 3);
     }
 
     const bw = cw / N;
@@ -420,7 +421,7 @@ function drawStacked(canvas, legendEl, byCat) {
             yTop -= h;
         });
     }
-    ctx.fillStyle = '#999'; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
+    ctx.fillStyle = muted; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
     legendEl.innerHTML = cats.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('');
 }
 

@@ -104,6 +104,44 @@ class PageContrastTest {
         }
     }
 
+    /**
+     * The check passed what it skipped: the client rows of the /status log, faded to an opacity of 0.55; the busy
+     * pulse, faded to 0.55 in its @keyframes; Chrome's grey placeholder on the dark fields. They stood at 2.3:1 to
+     * 3.9:1. The check blends a faded element into what lies beneath it, checks each frame of an animation, and reads a
+     * placeholder as Chrome and as Firefox draw it; a disabled button is left out, as WCAG leaves it.
+     */
+    @Test
+    void theCheckSeesFadedTextAPulseAndAPlaceholder() throws Exception {
+        Path page = Files.createTempFile("page", ".html");
+        try {
+            Files.writeString(page, """
+                <html><head><style>
+                :root { --bg: #fff; --fg: #1a1a1a; --muted: #666; --input-bg: #fff; }
+                body { color: var(--fg); background: var(--bg); }
+                .logrow.client { opacity: 0.55; }
+                .busy { color: var(--muted); animation: busy 1.4s ease-in-out infinite; }
+                @keyframes busy { 50% { opacity: 0.55; } }
+                input { color: var(--fg); background: var(--input-bg); }
+                button:disabled { opacity: 0.5; }
+                html[data-theme="dark"] { --bg: #17191c; --fg: #e6e6e6; --muted: #9aa0a6; --input-bg: #1f2328; }
+                </style></head><body></body></html>
+                """);
+            JsonNode out = run(page);
+
+            List<String> failures = new ArrayList<>();
+            for (JsonNode f : out.get("failures")) {
+                if (!f.get("element").asText().contains(":hover"))
+                    failures.add(f.get("theme").asText() + " " + f.get("element").asText() + " " + f.get("ratio").asText());
+            }
+            assertThat(failures).containsExactlyInAnyOrder("light .logrow.client 3.89",
+                "light .busy @keyframes busy 50% 2.3", "light input::placeholder (Firefox) 3.77",
+                "dark .busy @keyframes busy 50% 2.92", "dark input::placeholder (Chrome) 3.43");
+        }
+        finally {
+            Files.deleteIfExists(page);
+        }
+    }
+
     private static JsonNode run(Path page) throws Exception {
         Process node;
         try {

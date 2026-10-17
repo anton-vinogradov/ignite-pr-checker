@@ -7,7 +7,9 @@
 // "button:hover" a hovered button. Each such element is also checked hovered, and with its ::before and ::after
 // when they hold text (the Terminal brackets). For each of them the rules are cascaded as a browser would
 // (specificity, then order; a theme's rules carry its html[data-theme] prefix), the text colour is inherited down
-// the chain, and the background is composited from the page's down to the element's.
+// the chain, and the background is composited from the page's down to the element's. An element with an opacity
+// under 1 fades everything in it into what lies beneath; an animated element is checked at each frame of its
+// @keyframes; an input is checked with its placeholder. A disabled element is left out: WCAG asks no contrast of it.
 'use strict';
 
 const fs = require('fs');
@@ -16,7 +18,7 @@ const path = require('path');
 const MIN_RATIO = 4.5;
 
 // Boxes that carry no text: bars, dots and strips painted with a colour that no letter sits on.
-const NO_TEXT = ['.trend a', '.trend a.clean', '.run-p', '.run-f', '.catfill', '.catbar', '.hdot', '.hdot.ok',
+const NO_TEXT = ['.trend a', '.trend a.clean', '.run-p', '.run-f', '.run-old', '.catfill', '.catbar', '.hdot', '.hdot.ok',
     '.hdot.warn', '.hdot.error', '.dot', '.resizer', '.resizer.dragging', '.star-ico'];
 
 // A class-only selector says nothing about the tag; these classes are always on a button or a link, whose own rules
@@ -39,8 +41,21 @@ const INSIDE = {
     '.section': ['.catname', '.muted', 'a', '.flake', '.lbsuite', '.lbrank', '.lbcol', '.group-sub', '.details p'],
 };
 
+// What browsers draw a placeholder with when no rule says: Chrome a grey of its own, Firefox the input's own colour,
+// faded.
+const PLACEHOLDER_DEFAULTS = { Chrome: { color: '#757575', opacity: '1' }, Firefox: { opacity: '0.54' } };
+
 const pagePath = process.argv[2];
 const html = fs.readFileSync(pagePath, 'utf8');
+
+// The tag and classes of each element with an id, so a rule that names an element by its id alone ("#prFilter")
+// describes the input it is.
+const BY_ID = new Map();
+for (const m of html.matchAll(/<([a-z][a-z0-9]*)\b([^>]*)>/gi)) {
+    const id = /\bid="([^"]+)"/.exec(m[2]);
+    const cls = /\bclass="([^"]*)"/.exec(m[2]);
+    if (id) BY_ID.set(id[1], { tag: m[1].toLowerCase(), classes: cls ? cls[1].split(/\s+/).filter(Boolean) : [] });
+}
 const sheets = [...html.matchAll(/<link rel="stylesheet" href="\/([^"]+)">/g)]
     .map(m => fs.readFileSync(path.join(path.dirname(pagePath), m[1]), 'utf8'));
 for (const m of html.matchAll(/<style>([\s\S]*?)<\/style>/g)) sheets.push(m[1]);
@@ -72,9 +87,10 @@ function pushDecl(block, text) {
 
 const THEME = /^html\[data-theme="([a-z]+)"\]/;
 
-// Flattens the sheets into rules of { theme | null, selector, decls, order } and the tokens of each theme.
+// Flattens the sheets into rules of { theme | null, selector, decls, order }, the tokens of each theme and the frames
+// of each @keyframes.
 function flatten(sheetTexts) {
-    const rules = [], tokens = { light: {} }, themes = new Set(['light']);
+    const rules = [], tokens = { light: {} }, themes = new Set(['light']), keyframes = {};
     let order = 0;
     const addRule = (theme, selector, decls) => {
         for (const one of selector.split(/,(?![^(]*\))/).map(s => s.trim()).filter(Boolean))
@@ -87,7 +103,9 @@ function flatten(sheetTexts) {
     for (const text of sheetTexts) {
         for (const block of parseCss(text).children) {
             const p = block.prelude;
-            if (p.startsWith('@')) continue; // narrow-screen layout, keyframes, reduced motion: no colours of their own
+            const frames = /^@keyframes\s+([\w-]+)/.exec(p);
+            if (frames) { keyframes[frames[1]] = block.children.map(f => ({ at: f.prelude, decls: f.decls })); continue; }
+            if (p.startsWith('@')) continue; // the narrow-screen layout and reduced motion: no colours of their own
             const themed = THEME.exec(p);
             if (p === ':root') { addTokens('light', block.decls); continue; }
             if (themed) {
@@ -104,7 +122,7 @@ function flatten(sheetTexts) {
         }
     }
     for (const t of themes) tokens[t] = Object.assign({}, tokens.light, tokens[t] || {});
-    return { rules, tokens, themes: [...themes] };
+    return { rules, tokens, themes: [...themes], keyframes };
 }
 
 // --- selectors: compounds joined by ' ' (descendant) or '>' (child) ---
@@ -256,7 +274,7 @@ function describe(chain) {
     return text;
 }
 
-const { rules, tokens, themes } = flatten(sheets);
+const { rules, tokens, themes, keyframes } = flatten(sheets);
 for (const r of rules) r.compounds = parseSelector(r.selector);
 
 function tagOf(classes) {
@@ -283,10 +301,13 @@ function elementsOf(rulesOfPage) {
     const selectors = rulesOfPage.map(r => ({ selector: r.selector, compounds: r.compounds }))
         .concat(compositesOf(rulesOfPage).map(s => ({ selector: s, compounds: parseSelector(s) })));
     for (const r of selectors) {
-        if (/[+~]|:has\(/.test(r.selector)) continue;
+        if (/[+~]|:has\(/.test(r.selector) || r.compounds.some(c => c.states.includes('disabled'))) continue;
         if (NO_TEXT.includes(r.selector.replace(THEME, '').replace(/::[\w-]+/g, '').trim())) continue;
-        let compounds = r.compounds.filter(c => !c.pseudo)
-            .map(c => ({ tag: c.tag || tagOf(c.classes), id: c.id, classes: [...c.classes], attrs: { ...c.attrs }, states: [...c.states] }));
+        let compounds = r.compounds.filter(c => !c.pseudo).map(c => {
+            const known = (c.id && BY_ID.get(c.id)) || { tag: null, classes: [] };
+            return { tag: c.tag || tagOf(c.classes) || known.tag, id: c.id,
+                classes: [...new Set([...c.classes, ...known.classes])], attrs: { ...c.attrs }, states: [...c.states] };
+        });
         if (compounds[0].tag === 'html') compounds = compounds.slice(1);
         if (!compounds.length || compounds.some(c => c.tag === null && !c.id && !c.classes.length && !Object.keys(c.attrs).length)) continue;
         if (compounds[0].tag === 'body') compounds = compounds.slice(1);
@@ -312,8 +333,21 @@ function paint(style, bg, color) {
     return { bg, color };
 }
 
-function dimmed(style) {
-    return style.opacity !== undefined && +style.opacity < 1;
+// Paints the chain from the page down to its last element, whose cascaded style `last` may amend (a frame of its
+// animation, a browser's default). Each element with an opacity under 1 is a layer: what is painted in it is blended
+// into what lay beneath it. Returns the colours as seen, with the last element's style.
+function walk(theme, chain, last) {
+    const t = tokens[theme];
+    let bg = { r: 255, g: 255, b: 255, a: 1 }, color = null, style = {};
+    const layers = [];
+    for (let at = 0; at < chain.length; at++) {
+        style = cascade(rules, theme, chain, at, t);
+        if (at === chain.length - 1) style = Object.assign(style, last || {});
+        if (style.opacity !== undefined && +style.opacity < 1) layers.push({ alpha: +style.opacity, under: bg });
+        ({ bg, color } = paint(style, bg, color));
+    }
+    const seen = c => layers.reduceRight((top, l) => over({ ...top, a: l.alpha }, l.under), c);
+    return { style, bg: seen(bg), color: color && seen(color) };
 }
 
 // A ::before or ::after shows text only with a content of its own that is not empty.
@@ -322,35 +356,45 @@ function hasText(content) {
     return v !== '' && v !== 'none' && v !== 'normal' && !/^(['"])\1$/.test(v);
 }
 
+// The frames of the animation an element runs, with the variables of the theme resolved.
+function framesOf(style, theme) {
+    const names = `${style.animation || ''} ${style['animation-name'] || ''}`.split(/[\s,]+/);
+    const name = names.find(n => keyframes[n]);
+    if (!name) return [];
+    return keyframes[name].map(f => ({ name: `@keyframes ${name} ${f.at}`,
+        decls: Object.fromEntries(f.decls.map(([p, v]) => [p, resolveVars(v, tokens[theme])])) }));
+}
+
 const failures = [];
 let pairs = 0;
 
-function check(theme, chain, color, bg) {
-    if (!color) return;
+function check(theme, chain, seen, suffix) {
+    if (!seen.color) return;
     pairs++;
-    const r = ratio(color, bg);
+    const r = ratio(seen.color, seen.bg);
     if (r < MIN_RATIO || process.env.CONTRAST_ALL)
-        failures.push({ theme, element: describe(chain), color: hex(color), background: hex(bg), ratio: Math.round(r * 100) / 100 });
+        failures.push({ theme, element: describe(chain) + (suffix ? ' ' + suffix : ''), color: hex(seen.color),
+            background: hex(seen.bg), ratio: Math.round(r * 100) / 100 });
 }
 
 for (const theme of themes) {
-    const t = tokens[theme];
     for (const chain of elementsOf(rules)) {
         chain[0].attrs['data-theme'] = theme;
-        let bg = { r: 255, g: 255, b: 255, a: 1 }, color = null, faded = false;
-        for (let at = 0; at < chain.length; at++) {
-            const style = cascade(rules, theme, chain, at, t);
-            faded ||= dimmed(style);
-            ({ bg, color } = paint(style, bg, color));
-        }
-        if (faded) continue;
-        check(theme, chain, color, bg);
+        const seen = walk(theme, chain);
+        check(theme, chain, seen);
+        for (const frame of framesOf(seen.style, theme))
+            check(theme, chain, walk(theme, chain, frame.decls), frame.name);
         for (const name of ['before', 'after']) {
             const box = [...chain, { tag: null, id: null, classes: [], attrs: {}, states: [], pseudo: name }];
-            const style = cascade(rules, theme, box, chain.length, t);
-            if (!hasText(style.content) || dimmed(style)) continue;
-            const painted = paint(style, bg, color);
-            check(theme, box, painted.color, painted.bg);
+            if (hasText(cascade(rules, theme, box, chain.length, tokens[theme]).content)) check(theme, box, walk(theme, box));
+        }
+        if (chain[chain.length - 1].tag === 'input') {
+            const box = [...chain, { tag: null, id: null, classes: [], attrs: {}, states: [], pseudo: 'placeholder' }];
+            const own = cascade(rules, theme, box, chain.length, tokens[theme]);
+            for (const [browser, defaults] of Object.entries(PLACEHOLDER_DEFAULTS)) {
+                const unset = Object.fromEntries(Object.entries(defaults).filter(([p]) => own[p] === undefined));
+                check(theme, box, walk(theme, box, unset), `(${browser})`);
+            }
         }
     }
 }

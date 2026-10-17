@@ -142,6 +142,8 @@ const ctx = {
     confirm: () => true,
     alert: () => {},
     innerWidth: 1280,
+    // An element's custom properties are what a scenario puts into its style: style['--muted'] = '#666'.
+    getComputedStyle: el => ({ getPropertyValue: name => (el.style && el.style[name]) || '' }),
     addEventListener(type, fn) { (winListeners[type] ||= []).push(fn); },
     URLSearchParams,
 };

@@ -41,8 +41,9 @@ html[data-theme="terminal"] body { font-family: ui-monospace, SFMono-Regular, Me
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 .err { color: var(--bad); }
+/* The pulse goes from the muted colour to the text colour: faded, the text would drop under 4.5:1. */
 .busy { color: var(--muted); animation: busy 1.4s ease-in-out infinite; }
-@keyframes busy { 50% { opacity: 0.55; } }
+@keyframes busy { 50% { color: var(--fg); } }
 @media (prefers-reduced-motion: reduce) { .busy { animation: none; } }
 
 a { color: var(--accent); }
@@ -57,6 +58,8 @@ button:hover { border-color: var(--line-strong); }
 button.primary { background: var(--primary-bg); color: var(--on-primary); border-color: var(--primary-bg); }
 button:disabled { opacity: 0.5; cursor: default; }
 input { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--input-bg); color: var(--fg); }
+/* Chrome's own grey is under 4.5:1 on the dark fields, and Firefox fades a placeholder unless told otherwise. */
+::placeholder { color: var(--muted); opacity: 1; }
 .act, .why, .suite-rerun { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--btn-bg); color: var(--fg); cursor: pointer; white-space: nowrap; vertical-align: middle; }
 .act:not(:disabled):hover, .why:not(:disabled):hover, .suite-rerun:not(:disabled):hover { background: var(--btn-hover); border-color: var(--line-strong); }
 .act:disabled, .suite-rerun:disabled { opacity: 0.5; cursor: default; }
