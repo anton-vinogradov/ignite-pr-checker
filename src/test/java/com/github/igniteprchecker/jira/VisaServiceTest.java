@@ -3,6 +3,7 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import java.util.ArrayList;
@@ -114,6 +115,26 @@ class VisaServiceTest {
             + "3 failing tests are not blamed on this PR.");
         for (AnalysisResult r : List.of(clean, watched, unproven))
             assertThat(visas.composeMarkdown(42, r) + visas.compose(42, r)).doesNotContain("filtered out");
+    }
+
+    /**
+     * A suite of a RunAll ran 467 of master's 861 tests: the comment and the visa said "467 tests vs 861 on master",
+     * the page "ran 467 tests · master runs 861", and a broken suite's line "ran 1 of master's 3 tests". All three use
+     * the last form. A shrunk suite may have run no test at all, and its line still gives the count.
+     */
+    @Test
+    void aSuiteWithFewerTestsReadsAsOnThePage() {
+        AnalysisResult r = new AnalysisResult(42, 9244731L, "pull/42/head", System.currentTimeMillis(), List.of(),
+            List.of(), List.of(), List.of(), List.of(new ShrunkSuite("Pds2", "PDS 2", 2L, 467, 861, 46),
+                new ShrunkSuite("Cache3", "Cache 3", 3L, 0, 120, 100)), 120, 9, false, 0, false, 0, 0, 0, 0, 0);
+
+        assertThat(visas.composeMarkdown(42, r)).contains("🔍 **2 suites ran fewer tests than on master** (tests that "
+            + "never ran can't fail):\n- PDS 2: ran 467 of master's 861 tests (**−46%**)\n"
+            + "- Cache 3: ran 0 of master's 120 tests (**−100%**)\n");
+        assertThat(visas.compose(42, r)).contains("(?) *2 suites ran fewer tests than on master* (tests that never ran "
+            + "can't fail):\n- PDS 2: ran 467 of master's 861 tests (*-46%*)\n"
+            + "- Cache 3: ran 0 of master's 120 tests (*-100%*)\n");
+        assertThat(visas.composeMarkdown(42, r) + visas.compose(42, r)).doesNotContain("far fewer", " vs ");
     }
 
     private static AnalysisResult withFiltered(List<TestVerdict> watch, boolean interrupted, int filtered) {

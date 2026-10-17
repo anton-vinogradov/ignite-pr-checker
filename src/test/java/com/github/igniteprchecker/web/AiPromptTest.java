@@ -198,7 +198,8 @@ class AiPromptTest {
             .contains("5. Reproduce it locally as modules/platforms/dotnet/DEVNOTES.txt describes")
             .doesNotContain("JDK 17 (the suspect test");
         assertThat(out.get("shrunk").asText())
-            .startsWith("Find out why an Apache Ignite test suite (C++ tests) ran far fewer tests than it does on master.")
+            .startsWith("Find out why an Apache Ignite test suite (C++ tests) ran fewer tests than it does on master.")
+            .contains("- Tests: ran 40 of master's 120 tests (−66%)")
             .contains("— this run (needs a ci2 login): "
                 + "https://ci2.example/buildConfiguration/IgniteTests24Java8_PlatformCPPCMakeLinux/9401")
             .contains("2. Work through the usual causes: a test case removed or renamed, a test source dropped from the "
@@ -246,7 +247,7 @@ class AiPromptTest {
             .contains("2. " + pythonTests + " (one test: pytest -k test_sql_read_as_binary).")
             .doesNotContain("JDK 17; run the single test");
         assertThat(out.get("shrunk").asText())
-            .startsWith("Find out why an Apache Ignite test suite (Python tests) ran far fewer tests than it does on master.")
+            .startsWith("Find out why an Apache Ignite test suite (Python tests) ran fewer tests than it does on master.")
             .contains("2. Work through the usual causes: a test module or function removed or renamed, a new skip mark, "
                 + "a failing fixture that skips the rest, or a run that ended early (check the build log tail).")
             .doesNotContain("undefined", "@Suite.SuiteClasses");
@@ -293,7 +294,7 @@ class AiPromptTest {
             .startsWith("Fix a failing test in Apache Ignite (PHP).")
             .contains(phpTests + "testCreateCache.");
         assertThat(out.get("shrunk").asText())
-            .startsWith("Find out why an Apache Ignite test suite (PHP tests) ran far fewer tests than it does on master.")
+            .startsWith("Find out why an Apache Ignite test suite (PHP tests) ran fewer tests than it does on master.")
             .contains("2. Work through the usual causes: a test case class or method removed or renamed, a new "
                 + "markTestSkipped or excluded group, a failing setUpBeforeClass that skips the rest, or a run that ended "
                 + "early (check the build log tail).")

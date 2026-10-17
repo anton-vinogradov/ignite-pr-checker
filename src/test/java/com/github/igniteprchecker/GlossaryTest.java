@@ -130,7 +130,7 @@ class GlossaryTest {
             " on other code", "TeamCity gave no commit for it, so ", " not count",
             "passed just before, but TeamCity gave no commits to prove that was the same code");
         quoted(MAIN.resolve("analysis/Caveats.java"), "the RunAll was interrupted — ", " never ran",
-            " no reliable result (", " ran far fewer tests than the same ", " could not be checked (TeamCity errors)",
+            " no reliable result (", " ran fewer tests than the same ", " could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail",
             " pushed since this run — it tested older code", "new commits pushed since this run — it tested older code");
         quoted(MAIN.resolve("analysis/ChainCollector.java"), "compilation error", "execution timeout",

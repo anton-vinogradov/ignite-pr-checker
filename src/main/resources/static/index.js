@@ -230,7 +230,7 @@ const STANDING_BADGES = {
     WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A rerun shows '
         + 'whether they are blockers.', 'started failing'],
     UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
-        + 'broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still '
+        + 'broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still '
         + 'going.', 'not proven clean'],
     OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.', 'not proven clean'],
     UNKNOWN_CODE: ['unproven', '?', 'No blockers found, but it is not known whether this run tested the PR\'s latest '
@@ -1069,7 +1069,7 @@ function renderShrunk(el, suites) {
         const btns = suiteRowActs(s.suite, above);
         return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'shrunk')}`
             + `<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
-            + `<div class="reason">ran <b>${s.tests}</b> tests · master runs <b>${s.baseline}</b> — <b>−${s.dropPct}%</b></div></li>`;
+            + `<div class="reason">ran <b>${s.tests}</b> of master's <b>${s.baseline}</b> tests (<b>−${s.dropPct}%</b>)</div></li>`;
     }).join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
@@ -1114,7 +1114,7 @@ async function aiSuitePrompt(btn) {
     const prompt = aiPromptText({
         title: broken
             ? `Find out why a TeamCity suite of Apache Ignite (${LANGUAGE[platform]} tests) produced no reliable result, and fix it.`
-            : `Find out why an Apache Ignite test suite (${LANGUAGE[platform]} tests) ran far fewer tests than it does on master.`,
+            : `Find out why an Apache Ignite test suite (${LANGUAGE[platform]} tests) ran fewer tests than it does on master.`,
         pr: selectedPr,
         tested,
         lines: broken ? [
@@ -1131,7 +1131,7 @@ async function aiSuitePrompt(btn) {
             cfgUrl ? `- The same suite on other branches, master included (needs a ci2 login): ${cfgUrl}` : null,
         ] : [
             `- Suite: ${name} (TeamCity id ${suite})${runUrl ? ' — this run (needs a ci2 login): ' + runUrl : ''}`,
-            `- Tests: ran ${btn.dataset.tests}, master runs ${btn.dataset.baseline} — ${btn.dataset.drop}% fewer`,
+            `- Tests: ran ${btn.dataset.tests} of master's ${btn.dataset.baseline} tests (−${btn.dataset.drop}%)`,
             cfgUrl ? `- The same suite on other branches, master included (needs a ci2 login): ${cfgUrl}` : null,
         ],
         task: broken ? [

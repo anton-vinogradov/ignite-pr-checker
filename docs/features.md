@@ -69,7 +69,7 @@ and the visa.
 | `Build failed — N suites that need it did not run` | A run the other suites need failed, so they never ran. | Fix the build, push, run RunAll again. |
 | `the RunAll was interrupted — N suites never ran` | Suites were cancelled before they ran. | **Rerun** them, or run RunAll again. |
 | `N suites have no reliable result (…)` | Broken suites; their causes are in brackets. | See [broken suite causes](#broken-suite-causes). |
-| `N suites ran far fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
+| `N suites ran fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
 | `N failed tests could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. The comment and the visa use these words; the page says `it tested older code (see the note at the top)`, and the line at the top names both commits, with their count once GitHub answers. | Run RunAll again. |
@@ -113,7 +113,7 @@ and the visa.
 |---|---|---|
 | red number | Blockers in the PR's latest analysed RunAll. | Open the PR. |
 | **!** | No blockers yet, but tests started failing on the code the run tested. | A rerun shows whether these tests are blockers. |
-| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
+| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |

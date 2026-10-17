@@ -67,7 +67,7 @@
 | `Build failed — N suites that need it did not run` | Упал прогон, который нужен остальным сьютам, и они не запускались. | Почини сборку, запушь, запусти RunAll снова. |
 | `the RunAll was interrupted — N suites never ran` | Сьюты отменили до запуска. | Нажми **Rerun** у них или запусти RunAll снова. |
 | `N suites have no reliable result (…)` | Битые сьюты; причины в скобках. | См. [причины битых сьют](#причины-битых-сьют). |
-| `N suites ran far fewer tests than the same suites on master` | См. **Fewer tests than master**. | Сверь списки тестов, перезапусти. |
+| `N suites ran fewer tests than the same suites on master` | См. **Fewer tests than master**. | Сверь списки тестов, перезапусти. |
 | `N failed tests could not be checked (TeamCity errors)` | См. **Could not be checked**. Виза, комментарий в PR и автоперезапуск ждут повторной проверки до 20 минут, потом идут дальше и перечисляют такие тесты отдельно. | Подожди. |
 | `a newer run is still going — its unfinished suites can still fail` | В вердикт подмешан RunAll, который ещё идёт. | Дождись его конца. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | HEAD PR сдвинулся после прогона. Так пишут комментарий и виза; страница пишет `it tested older code (see the note at the top)`, а строка наверху называет оба коммита и, когда ответит GitHub, их число. | Запусти RunAll снова. |

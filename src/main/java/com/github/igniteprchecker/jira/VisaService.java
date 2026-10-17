@@ -6,6 +6,7 @@ import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
@@ -159,8 +160,7 @@ public class VisaService {
             b.append("🔍 **").append(count(r.shrunkSuites().size(), "suite"))
                 .append(" ran fewer tests than on master** (tests that never ran can't fail):\n");
             r.shrunkSuites().forEach(s -> b.append("- ").append(Markup.text(s.suiteName())).append(": ")
-                .append(s.tests()).append(" tests vs ").append(s.baseline())
-                .append(" on master (**−").append(s.dropPct()).append("%**)\n"));
+                .append(ranOfMasters(s)).append(" (**−").append(s.dropPct()).append("%**)\n"));
             b.append('\n');
         }
 
@@ -193,6 +193,14 @@ public class VisaService {
         }
 
         return withLegend(b, tests.markdownLegend(tagged(r)));
+    }
+
+    /**
+     * "ran 467 of master's 861 tests", as the page says it. Not {@link BrokenSuite#ran}, which gives null for a suite
+     * that ran no test: a shrunk suite may have run none.
+     */
+    private static String ranOfMasters(ShrunkSuite s) {
+        return "ran " + s.tests() + " of master's " + s.baseline() + " tests";
     }
 
     /** "33 blockers in 2 suites": the suites counted as the page counts them, by suite, not by suite run. */
@@ -421,8 +429,7 @@ public class VisaService {
             b.append("(?) *").append(count(r.shrunkSuites().size(), "suite"))
                 .append(" ran fewer tests than on master* (tests that never ran can't fail):\n");
             r.shrunkSuites().forEach(s -> b.append("- ").append(Markup.wikiText(s.suiteName())).append(": ")
-                .append(s.tests()).append(" tests vs ").append(s.baseline())
-                .append(" on master (*-").append(s.dropPct()).append("%*)\n"));
+                .append(ranOfMasters(s)).append(" (*-").append(s.dropPct()).append("%*)\n"));
             b.append('\n');
         }
 

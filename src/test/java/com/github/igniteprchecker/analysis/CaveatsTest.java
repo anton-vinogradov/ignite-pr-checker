@@ -51,9 +51,10 @@ class CaveatsTest {
     }
 
     /**
-     * One suite never ran, one broke, one ran far fewer tests, one failed test went unchecked, and a newer run goes:
+     * One suite never ran, one broke, one ran fewer tests, one failed test went unchecked, and a newer run goes:
      * each caveat reads in the singular. The key a visa is deduplicated by keeps the words of the first release that
-     * posted visas under such keys, so the visa that release posted still matches and no second one goes out.
+     * posted visas under such keys, so the visa that release posted still matches and no second one goes out: the
+     * caveat says "fewer", and the key keeps "far fewer".
      */
     @Test
     void theKeyKeepsTheWordsOfTheFirstVisasWhileTheShownWordsChange() {
@@ -66,7 +67,7 @@ class CaveatsTest {
         assertThat(Caveats.of(r, null)).containsExactly(
             "the RunAll was interrupted — 1 suite never ran",
             "1 suite has no reliable result (timeout)",
-            "1 suite ran far fewer tests than the same suite on master",
+            "1 suite ran fewer tests than the same suite on master",
             "1 failed test could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail");
         assertThat(Caveats.keyOf(r)).containsExactly(
