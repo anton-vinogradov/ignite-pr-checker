@@ -140,6 +140,14 @@ public class SessionCodec {
             .map(Payload::session);
     }
 
+    /**
+     * Whether the cookie value is one an earlier version issued, however long ago: {@link #decodeEarlier} may refuse it
+     * for its age, yet its owner did log in.
+     */
+    public boolean issuedByEarlier(String cookie) {
+        return payload(cookie).filter(p -> p.v() == null).isPresent();
+    }
+
     private Optional<Payload> payload(String cookie) {
         if (cookie == null || cookie.isBlank())
             return Optional.empty();

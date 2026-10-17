@@ -70,6 +70,14 @@ final class SessionCookies {
         return secure && value(req, AuthInterceptor.COOKIE).isPresent();
     }
 
+    /**
+     * Whether the request carries, under the name earlier versions gave it over HTTPS, a cookie an earlier version
+     * issued; {@link #carried} takes it only within {@link SessionCodec#EARLIER_TAKEN_FOR} of its issue.
+     */
+    static boolean earlierIssued(HttpServletRequest req, SessionCodec codec, boolean secure) {
+        return secure && value(req, AuthInterceptor.COOKIE).filter(codec::issuedByEarlier).isPresent();
+    }
+
     private static String name(boolean secure) {
         return secure ? HOST_COOKIE : AuthInterceptor.COOKIE;
     }

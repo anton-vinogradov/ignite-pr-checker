@@ -39,6 +39,9 @@ public class LoginController {
     static final String OTHERS_STAY_IN = "TeamCity refused this browser's token, so only this browser is logged out: "
         + "your logins in other browsers go on. To end them, log in again and press Log out.";
 
+    /** What the page opening on a cookie of an earlier version that is no longer taken tells its owner. */
+    static final String EARLIER_LOGIN = "Your login is from an earlier version of the checker. Please log in again.";
+
     private final UserDirectory users;
 
     private final TcClient tc;
@@ -189,11 +192,19 @@ public class LoginController {
 
     /**
      * Who the session is, for the page as it opens. A cookie old enough, or under the name earlier versions gave it, is
-     * issued again, as the login guard does.
+     * issued again, as the login guard does. A cookie under that name that is no longer taken goes, and when an
+     * earlier version issued it, the answer says why its owner is at the login form.
      */
     @GetMapping("/me")
     public ResponseEntity<?> me(HttpServletRequest http) {
         Optional<SessionCookies.Carried> carried = SessionCookies.carried(http, codec, props.cookieSecure());
+        if (carried.isEmpty() && SessionCookies.earlierLeft(http, props.cookieSecure())) {
+            ResponseEntity.BodyBuilder refused = ResponseEntity.status(401)
+                .header(HttpHeaders.SET_COOKIE, SessionCookies.clearedEarlier().toString());
+
+            return SessionCookies.earlierIssued(http, codec, props.cookieSecure())
+                ? refused.body(Map.of("error", EARLIER_LOGIN, "sessionEnded", true)) : refused.build();
+        }
         if (carried.isEmpty())
             return ResponseEntity.status(401).build();
 

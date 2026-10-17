@@ -14,6 +14,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.Cookie;
 import java.net.HttpCookie;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -122,6 +123,39 @@ class HostCookieTest {
             assertThat(guarded.getStatus()).isEqualTo(401);
             assertThat(login.me(browser(AuthInterceptor.COOKIE, planted)).getStatusCode().value()).isEqualTo(401);
         }
+    }
+
+    /**
+     * Eight of ten users logged in before cookies said when they were issued. After the upgrade their page opened on an
+     * empty login form with no word of why, and the old cookie stayed in the browser.
+     */
+    @Test
+    void anEarlierCookieNoLongerTakenSaysWhyAndGoes() {
+        String saved = earlierCookie(System.currentTimeMillis() - 31 * 24 * 3600_000L);
+        String undated = codec.encryptString("{\"username\":\"" + USER + "\",\"token\":\"" + TOKEN + "\"}");
+
+        for (String earlier : List.of(saved, undated)) {
+            ResponseEntity<?> me = login.me(browser(AuthInterceptor.COOKIE, earlier));
+
+            assertThat(me.getStatusCode().value()).isEqualTo(401);
+            assertThat(me.getBody()).isEqualTo(Map.of("error",
+                "Your login is from an earlier version of the checker. Please log in again.", "sessionEnded", true));
+            assertThat(me.getHeaders().get(HttpHeaders.SET_COOKIE)).singleElement().asString()
+                .startsWith("IPRC_SESSION=;").contains("Max-Age=0");
+        }
+    }
+
+    /** A cookie of this version under the old name came from a page that planted it: it goes without a word. */
+    @Test
+    void aPlantedCookieUnderTheOldNameGoesWithoutAWord() {
+        String planted = codec.encode(new SessionCodec.Session("mallory", "mallory-tc", null));
+
+        ResponseEntity<?> me = login.me(browser(AuthInterceptor.COOKIE, planted));
+
+        assertThat(me.getStatusCode().value()).isEqualTo(401);
+        assertThat(me.getBody()).isNull();
+        assertThat(me.getHeaders().get(HttpHeaders.SET_COOKIE)).singleElement().asString()
+            .startsWith("IPRC_SESSION=;");
     }
 
     @Test
