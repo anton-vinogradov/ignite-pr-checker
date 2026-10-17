@@ -44,7 +44,7 @@ import org.springframework.web.client.RestClient;
 /**
  * Any signed-in user spends calls of the checker's own GitHub token through the page, and ci2 lets anyone register.
  * /api/runs asked GitHub for the head of any PR number, with or without a run, and kept each answer, a failed one
- * too; /api/pending asked GitHub on every request, about any build. On prod on 17.10 the PR head took 120 of the
+ * too; /api/pending asked GitHub on every request, about any build. On prod on 17.10, PR head lookups took 120 of the
  * hour's 308 GitHub calls. With the calls run out for over an hour, the PR commands posted meanwhile are skipped, and
  * visas go out without saying that commits were pushed since.
  */
