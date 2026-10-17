@@ -224,11 +224,12 @@ function render(d) {
     const agoW = ms => !ms ? 'never' : Math.round((Date.now() - ms) / 1000) < 90
         ? Math.round((Date.now() - ms) / 1000) + 's ago' : Math.round((Date.now() - ms) / 60000) + 'm ago';
     $('watcherCards').innerHTML = [
-        card('Tracked builds', w.tracked ?? 0, `${w.chains ?? 0} chains · ${w.suites ?? 0} suites`,
+        card('Tracked builds', w.tracked ?? 0,
+            `${countOf(w.chains ?? 0, 'RunAll')} · ${countOf(w.suites ?? 0, 'suite')}`,
             (w.tracked ?? 0) > 0 ? 'ok' : ''),
         card('Last refresh', agoW(w.lastRefreshAt), w.lastRefreshMs ? w.lastRefreshMs + 'ms' : '',
             w.lastRefreshAt && Date.now() - w.lastRefreshAt < 60000 ? 'ok' : w.lastRefreshAt ? 'warn' : ''),
-        card('Chain finishes', w.chainFinishes ?? 0, 'since start'),
+        card('RunAlls finished', w.chainFinishes ?? 0, 'since start'),
         card('Auto visas armed', w.autoVisaArmed ?? 0,
             `${w.autoVisaPosted ?? 0} posted${w.autoVisaLastPostedAt ? ' · last ' + agoW(w.autoVisaLastPostedAt) : ''}`),
         card('Standing options', w.standingEnrolled ?? 0,
@@ -549,7 +550,8 @@ $('flushBtn').addEventListener('click', async () => {
         if (r.status === 403 || r.status === 429) { msg.textContent = await errorText(r); return; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const c = await r.json();
-        msg.textContent = `cleared ${c.results} result(s), ${c.history} history entr${c.history === 1 ? 'y' : 'ies'}`;
+        msg.textContent = `cleared ${countOf(c.results, 'result')}, `
+            + `${c.history} history entr${c.history === 1 ? 'y' : 'ies'}`;
         tick();
     } catch (e) {
         msg.textContent = 'flush failed: ' + e.message;

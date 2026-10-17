@@ -208,7 +208,7 @@ async function aiFlakyPrompt(btn, b) {
         b.broken
             ? `- Master runs: the newest ${b.failStreak} failed in a row; ${b.masterFails} of the latest ${b.masterRuns} failed in all`
             : `- Master fail rate: ${b.masterFails}/${b.masterRuns} recent runs (${pct}%)`,
-        b.prCount ? `- Failed in ${b.prCount} pull request(s) in the last ${prDays} days` : null,
+        b.prCount ? `- Failed in ${countOf(b.prCount, 'pull request')} in the last ${prDays} days` : null,
         mf.length ? `- Failed master runs (need a ci2 login): ${mf.slice(0, 3).join(' ')}` : null,
     ].filter(Boolean).join('\n');
     const fail = details && details.trim() ? '\n\nFailure output:\n' + fenced(details.trim()) : '';

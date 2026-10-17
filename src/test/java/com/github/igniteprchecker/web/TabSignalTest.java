@@ -79,6 +79,24 @@ class TabSignalTest {
         assertThat(out.get("home").get("icon").asText()).isEqualTo("/favicon.png");
     }
 
+    /**
+     * Before the first wave of re-runs, the line at the top of the page says "Deciding whether to re-run the failed
+     * suites", and the tab said "settling", a word the page uses nowhere else.
+     */
+    @Test
+    void theTabSaysDecidingBeforeTheFirstWave() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + RUNNING + """
+            await page.load('?pr=13575');
+            page.route('/api/runs', { body: [] });
+            page.route('/api/settling', { body: { phase: 'settling', wave: 0, of: 2 } });
+            await page.tick(15000);
+            report({ title: page.run('document').title, line: page.el('settling').textContent });
+            """);
+
+        assertThat(out.get("title").asText()).isEqualTo("♻️ deciding · #13575 — Ignite PR Checker");
+        assertThat(out.get("line").asText()).startsWith("♻︎ Deciding whether to re-run the failed suites.");
+    }
+
     @Test
     void aHiddenTabKeepsAskingUntilTheVerdictIsFinal() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + RUNNING + """

@@ -149,7 +149,7 @@ class GlossaryTest {
             "♻︎ Deciding whether to re-run", "Rerun at top", "Auto visa ✓", "armed by ", "on in your ⚙",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
             "Blockers since the ", " dropped out", " still blocking");
-        quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "♻ environment/timing — a re-run may pass",
+        quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
     }
 

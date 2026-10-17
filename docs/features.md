@@ -102,8 +102,8 @@ and the visa.
 | `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PR's tests that no suite runs** in ⚙. |
 | `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
 | `⚖ assertion — likely a real logic failure` (in **failure ▸**) | A failed check. | Fix the code. |
-| `♻ environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
-| `♻ environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
+| `environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
+| `environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
 | `⌛ hang — the test ran out of time; …` | The test hung. The test's thread from the thread dump is shown. | See where that thread waits. |
 | **failure ▸** / **copy failure** / **copy AI prompt** | **failure ▸** opens a panel with the failure message and the stack trace. In the panel, **copy failure** copies the message and **copy AI prompt** copies a fix prompt for a coding assistant. If there is no failure message to open, **copy AI prompt** is on the row itself. | — |
 
@@ -228,7 +228,7 @@ not blamed on the PR.
   `Checking that this run tested the PR's latest commit…` and the PR's badge in the list is **…**; after that, the
   badge says what the page says.
 - **failure ▸** opens the failure message and the stack trace, with a rough triage label: `⚖ assertion …`,
-  `♻ environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
+  `environment/timing …` or `⌛ hang …`. Output over 32,000 characters is cut; the whole of it stays in TeamCity.
   **copy failure** in the open panel copies the message.
 - **copy AI prompt** copies a prompt for a coding assistant. The button is in the open panel, or on the row when
   TeamCity kept no failure message. The prompt includes the PR, the suite and its run, the test, the checker's verdict

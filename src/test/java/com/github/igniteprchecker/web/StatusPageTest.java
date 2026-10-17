@@ -297,7 +297,10 @@ class StatusPageTest {
         assertThat(css).doesNotContain(".legend span {");
     }
 
-    /** The watcher's heading is a sentence, and its cards are named as the glossary names what they count. */
+    /**
+     * The watcher's heading is a sentence, and its cards are named as the glossary names what they count. Its heading
+     * says "RunAlls", and two cards said "chains" of the same builds.
+     */
     @Test
     void theWatcherSpeaksTheGlossarysWords() throws Exception {
         JsonNode out = PageScript.run("status.html", STATUS + """
@@ -312,6 +315,9 @@ class StatusPageTest {
             """);
 
         assertThat(out.get("cards").asText().replace('\u00a0', ' '))
+            .contains("Tracked builds2 1 RunAll · 1 suite")
+            .contains("RunAlls finished4 since start")
+            .doesNotContain("chain", "Chain")
             .contains("Auto visas armed1 2 posted · last 3m ago")
             .contains("Standing options7 users with an option on · 5 JIRA visas posted · sweep 2m ago (9.2s)")
             .contains("Tests added to suites2 commits · 1 user with the option on · sweep 2m ago")

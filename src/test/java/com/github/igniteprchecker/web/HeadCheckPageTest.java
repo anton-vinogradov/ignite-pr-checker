@@ -30,7 +30,7 @@ class HeadCheckPageTest {
         };
         const state = () => ({ head: page.el('verdictText').textContent,
             clean: page.el('verdictCard').classList.contains('clean'),
-            lines: page.el('verdictLines').textContent,
+            lines: page.el('verdictLines').textContent, busy: page.el('verdictLines').innerHTML.includes('class="busy"'),
             pushed: page.el('pendingRow').classList.contains('hidden') ? null : page.el('pending').textContent,
             title: page.run('document').title });
         const CLEAN = verdict({ blockers: [], standing: 'CLEAN', caveats: [],
@@ -84,6 +84,7 @@ class HeadCheckPageTest {
         assertThat(before.get("head").asText()).isEqualTo("No blockers found");
         assertThat(before.get("clean").asBoolean()).isFalse();
         assertThat(before.get("lines").asText()).isEqualTo("Checking that this run tested the PR's latest commit…");
+        assertThat(before.get("busy").asBoolean()).as("the check pulses as every line that waits").isTrue();
         assertThat(before.get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
 
         JsonNode after = out.get("after");
@@ -91,6 +92,7 @@ class HeadCheckPageTest {
         assertThat(after.get("clean").asBoolean()).isTrue();
         assertThat(after.get("lines").asText())
             .isEqualTo("Nothing in this run looks caused by your PR. You don't need to fix or rerun anything.");
+        assertThat(after.get("busy").asBoolean()).isFalse();
         assertThat(after.get("title").asText()).isEqualTo("✅ no blockers · #13575 — Ignite PR Checker");
     }
 

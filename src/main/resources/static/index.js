@@ -76,8 +76,16 @@ async function loggedOut(r) {
     if (body.tokenRejected)
         await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
     if (body.tokenRejected || body.sessionEnded)
-        $('loginErr').textContent = body.error;
+        loginMsg(body.error, body.tokenRejected);
     signedOut();
+}
+
+// The line under the login form: an error in red, a note on how the session ended in the muted colour.
+function loginMsg(text, isError) {
+    const el = $('loginErr');
+    el.textContent = text;
+    el.classList.toggle('err', !!isError);
+    el.classList.toggle('muted', !isError);
 }
 
 // Nothing of the ended session may keep polling, or offer what only a signed-in user may do.
@@ -665,7 +673,7 @@ function paintTab() {
     else if (st && st.kind === 'settling') {
         color = TAB_COLORS.settling;
         const left = st.phase.etaEpochSec ? ' ' + fmtLeft(st.phase.etaEpochSec - Date.now() / 1000) : '';
-        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ settling') + pr;
+        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ deciding') + pr;
     }
     else if (st && st.kind === 'final') {
         color = TAB_COLORS[st.verdict];
@@ -815,9 +823,9 @@ async function loadMe() {
 }
 
 async function login() {
-    $('loginErr').textContent = '';
+    loginMsg('', false);
     const token = $('token').value.trim();
-    if (!token) { $('loginErr').textContent = 'Enter a token.'; return; }
+    if (!token) { loginMsg('Enter a token.', true); return; }
     $('loginBtn').disabled = true;
     try {
         const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
@@ -830,7 +838,7 @@ async function login() {
             offerCommands();
         } else {
             const { error } = await r.json().catch(() => ({ error: 'login failed' }));
-            $('loginErr').textContent = error || 'login failed';
+            loginMsg(error || 'login failed', true);
         }
     } finally {
         $('loginBtn').disabled = false;
@@ -844,7 +852,7 @@ async function logout() {
     const r = await api('/api/logout', { method: 'POST' });
     const { note, error } = await r.json().catch(() => ({}));
     signedOut();
-    if (note || error) $('loginErr').textContent = note || error;
+    if (note || error) loginMsg(note || error, !note);
 }
 
 let analyzeRetries = 0;
@@ -1608,7 +1616,8 @@ function renderVerdictHead(res) {
         : standing === 'WATCH' ? 'watch' : 'unproven';
     for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven']) $('verdictCard').classList.toggle(k, k === kind);
     $('verdictText').textContent = verdictTitle(res, standing);
-    $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p>${esc(line)}</p>`).join('');
+    const busy = standing === 'CHECKING' ? ' class="busy"' : '';
+    $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p${busy}>${esc(line)}</p>`).join('');
 }
 
 function verdictTitle(res, standing) {
@@ -2931,7 +2940,7 @@ $('ghTokenBtn').onclick = () => {
 $('tcRelogin').onclick = async () => {
     await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
     signedOut();
-    $('loginErr').textContent = 'Log in with a fresh TeamCity token: your options resume with it.';
+    loginMsg('Log in with a fresh TeamCity token: your options resume with it.', false);
 };
 
 // What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,
