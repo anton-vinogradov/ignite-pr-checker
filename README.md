@@ -19,9 +19,9 @@ each label means and what to do about it.
 
 ## What it does
 
-- **The verdict.** The PR page splits the failures of the PR's latest RunAll into blockers, tests to watch, broken
-  suites and filtered-out noise, with a reason under each test. See
-  [Reading the verdict](docs/features.md#reading-the-verdict).
+- **The verdict.** The PR page splits the failures of the PR's latest RunAll into blockers, tests that recently
+  started failing, broken suites and failures not blamed on the PR. The reason stands under each test, or once above
+  the tests of a suite that share it. See [Reading the verdict](docs/features.md#reading-the-verdict).
 - **Runs.** Run RunAll or rerun suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
@@ -48,8 +48,8 @@ A failed test is a **blocker** when all of these hold:
 
 - **The branch keeps failing it.** It failed in each of its last 3 finished runs in that suite on the PR branch, or in
   every run when there were fewer: on a PR's first RunAll one failure is enough. Failing every run of the PR's current
-  revision, two or more, counts too. Each run is matched to the revision it built, so a pass on older code does not
-  clear a failure.
+  commit, two or more, counts too. Each run is matched to the commit it built, so a pass on older code does not clear
+  a failure.
 - **Master does not explain it.** It did not fail in the last 100 runs of that suite on master on the PR's JDK. A
   master failure makes the test pre-existing, unless that failure is rare and old (at most 2% of the runs, none of the
   newest 10) and the PR's failures in a row are too many to be chance, or master fails it only at a
@@ -59,9 +59,9 @@ A failed test is a **blocker** when all of these hold:
 
 A test that master and other PRs do not explain, but that the branch fails too little to block, goes to **Recently
 started failing** when it failed the only run of newly pushed code after passing on the branch before, or its last two
-or more runs on the same code after passing on that code. A re-run decides. Everything else is filtered out with its
-reason. Suites with no reliable result (a compilation error, a timeout, a crash, a failed build step) are listed apart
-as broken suites. The [glossary](docs/features.md#verdict-glossary) has every reason and threshold.
+or more runs on the same code after passing on that code. A re-run decides. Everything else is not blamed on the PR and
+is listed with its reason. Suites with no reliable result (a compilation error, a timeout, a crash, a failed build step)
+are listed apart as broken suites. The [glossary](docs/features.md#verdict-glossary) has every reason and threshold.
 
 ## Accounts and tokens
 
@@ -252,7 +252,8 @@ cd /opt/ignite-pr-checker && sudo install -m 644 app.jar.prev app.jar && sudo sy
 ```
 
 Use `install`, not `cp`: `cp` writes into the jar the running service still reads, and the service then fails to save
-its state as it stops.
+its state as it stops. A jar installed before v1.35.0 is not in `installed-jars`, so after a rollback to it an update
+from the page fails. Install the next release with `update.sh` as shown above.
 
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
 release wrote, stop the service, copy that file over the state file, and start the old jar.
