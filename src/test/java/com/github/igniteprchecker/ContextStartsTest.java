@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -15,8 +19,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -53,6 +61,9 @@ class ContextStartsTest {
     @Autowired
     private PrCommands commands;
 
+    @LocalServerPort
+    private int port;
+
     @Test
     void theServiceStartsAndAnswers() {
         Map<String, Object> status = http.exchange("/api/status", HttpMethod.GET, null,
@@ -88,6 +99,39 @@ class ContextStartsTest {
                 assertThat(js.getStatusCode().is2xxSuccessful()).as(script).isTrue();
                 assertThat(js.getHeaders().getContentType()).as(script).hasToString("text/javascript");
             }
+        }
+    }
+
+    /** A page of another site cannot change anything: the filter that refuses its requests is in place. */
+    @Test
+    void aPostFromAnotherSiteIsRefused() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Sec-Fetch-Site", "cross-site");
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<String> res = http.exchange("/api/login", HttpMethod.POST,
+            new HttpEntity<>("{\"token\":\"FAKEtokenFAKEtoken0123456789\"}", headers), String.class);
+
+        assertThat(res.getStatusCode().value()).isEqualTo(403);
+    }
+
+    /**
+     * Tomcat and Spring read {@code /api;x/login} and {@code /%61pi/login} as {@code /api/login}: a filter that looked
+     * at the raw path let such a POST from another site reach the login, and the options with the visitor's cookie.
+     */
+    @Test
+    void aPostFromAnotherSiteIsRefusedWhateverItsPathLooksLike() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        List<String> paths = List.of("/api;x/login", "/%61pi/login", "/api/login;x=1",
+            "/api;x/auto-visa-all?visa=true");
+        for (String path : paths) {
+            HttpRequest req = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                .header("Sec-Fetch-Site", "same-site").header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"FAKEtokenFAKEtoken0123456789\"}")).build();
+
+            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+
+            assertThat(res.statusCode()).as(path).isEqualTo(403);
         }
     }
 

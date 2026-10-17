@@ -19,7 +19,7 @@ class AppAccountCardTest {
         "appWritesCard"};
 
     private static final String FINE = """
-        [{ level: 'ok', text: 'classic token, scopes: public_repo' }, { level: 'ok', text: 'does not expire' },
+        [{ level: 'ok', text: 'classic token, scopes: public_repo' }, { level: 'ok', text: 'expires on 2027-01-12' },
          { level: 'ok', text: 'cannot push to apache/ignite' },
          { level: 'ok', text: 'cannot push to anton-vinogradov/ignite-pr-checker' }]""";
 
@@ -30,7 +30,7 @@ class AppAccountCardTest {
 
         assertThat(card).contains("App account", "@ignite-pr-checker", "class=\"v ok\"");
         assertThat(card.replaceAll("<[^>]+>", ""))
-            .contains("classic token, scopes: public_repo · does not expire · cannot push to apache/ignite");
+            .contains("classic token, scopes: public_repo · expires on 2027-01-12 · cannot push to apache/ignite");
     }
 
     @Test

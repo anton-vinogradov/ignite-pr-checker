@@ -79,7 +79,7 @@ class RevokedSessionTest {
     /** The login that ends the refusal starts another warm cycle, which must not meet the old 401 again. */
     private void loginWithTheTokenReissued() {
         doReturn(false).when(analyzer).warm(anyString(), anyInt());
-        warmer.offerVerifiedToken("tok");
+        warmer.offerVerifiedToken("alice", "tok");
     }
 
     private void warmCycleRuns() throws Exception {
@@ -108,12 +108,13 @@ class RevokedSessionTest {
     /** The page shows why only when /api/me refuses: let in there, the user met a bare login form on the next call. */
     @Test
     void theRevokedSessionIsToldWhyOnItsFirstCall() throws Exception {
-        LoginController login = new LoginController(null, codec, null, warmer, new UserDirectory(mapper), null,
+        LoginController login = new LoginController(null, codec, new SessionProperties(false, "test-secret"), warmer,
+            new UserDirectory(mapper), null,
             new AdminActions(new AdminProperties(null), mapper), mock(StandingVisas.class));
         teamCityAnswers(HttpStatus.UNAUTHORIZED);
         warmCycleRuns();
 
-        ResponseEntity<?> me = login.me(codec.encode("avinogradov", "tok"));
+        ResponseEntity<?> me = login.me(session());
 
         assertThat(me.getStatusCode().value()).isEqualTo(401);
         assertThat(me.getBody()).isEqualTo(Map.of("error", "TeamCity rejected your token — log in again",
@@ -121,7 +122,7 @@ class RevokedSessionTest {
 
         loginWithTheTokenReissued();
 
-        assertThat(login.me(codec.encode("avinogradov", "tok")).getStatusCode().value()).isEqualTo(200);
+        assertThat(login.me(session()).getStatusCode().value()).isEqualTo(200);
     }
 
     @Test

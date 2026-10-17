@@ -81,7 +81,7 @@ class SharedComputeRevokeTest {
         other.start();
         revokedComputing.await();
 
-        warmer.offerToken("valid");
+        warmer.offerToken("alice", "valid");
 
         // Only the join on the shared compute parks the warm thread: everything before it is a mock or a map.
         await().atMost(Duration.ofSeconds(5))

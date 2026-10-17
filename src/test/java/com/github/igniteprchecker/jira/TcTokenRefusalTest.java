@@ -13,12 +13,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
@@ -27,6 +29,7 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -187,6 +190,71 @@ class TcTokenRefusalTest {
         assertThat(restarted.tcTokenRejected(LIVE)).isFalse();
     }
 
+    /**
+     * A refusal kept the dead token's ciphertext in standing-visas.json, and with it in every backup, though only a
+     * comparison with the token a session brings needed it.
+     */
+    @Test
+    void ofARefusedTokenOnlyItsHashIsKept(@TempDir Path dir) throws Exception {
+        standing.markTcRejected(DEAD);
+        Path file = dir.resolve("standing-visas.json");
+        standing.saveTo(file);
+
+        JsonNode dead = enrollmentOf(new ObjectMapper().readTree(file.toFile()), DEAD);
+        assertThat(dead.get("tcToken").isNull()).isTrue();
+        assertThat(dead.get("tcRefusedHash").asText()).isEqualTo(Secrets.sha256("dead-tc"));
+        assertThat(dead.get("tcRejectedAt").asLong()).isPositive();
+
+        StandingVisas restarted = restarted(file);
+        restarted.tcTokenOffered(DEAD, "dead-tc");
+        assertThat(restarted.tcTokenRejected(DEAD)).as("the same dead token does not resume the options").isTrue();
+        restarted.tcTokenOffered(DEAD, "new-browser-tc");
+        assertThat(restarted.tcTokenRejected(DEAD)).isFalse();
+        assertThat(restarted.actor(DEAD)).hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("new-browser-tc"));
+    }
+
+    /**
+     * Without the ciphertext the user's commands found no actor, and the reply said the checker could no longer read
+     * the token instead of that TeamCity refused it; the story of their /run-all ended "options switched off".
+     */
+    @Test
+    void aUserWhoseTokenWasRefusedIsStillTheActorOfTheirCommands() {
+        when(github.writes()).thenReturn(true);
+        assertThat(standing.linkGhLogin(DEAD, "dead-tc", new GithubClient.GhUser("NSAmelchev", 4242))).isEqualTo("ok");
+        standing.markTcRejected(DEAD);
+
+        assertThat(standing.actorByGhUser(new GithubClient.GhUser("NSAmelchev", 4242))).hasValueSatisfying(a -> {
+            assertThat(a.username()).isEqualTo(DEAD);
+            assertThat(a.tcToken()).isNull();
+        });
+        assertThat(standing.actor(DEAD)).isPresent();
+        assertThat(standing.tcTokenRejected(DEAD)).isTrue();
+    }
+
+    /** The ciphertext of a refused token an earlier version kept goes at the first load; its hash stays. */
+    @Test
+    void aRefusedTokenAnEarlierVersionKeptIsHashedAtLoad(@TempDir Path dir) throws Exception {
+        SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper());
+        Path file = dir.resolve("standing-visas.json");
+        Files.writeString(file, "{\"enrollments\":[{\"username\":\"nsamelchev\",\"tcToken\":\""
+            + codec.encryptString("dead-tc") + "\",\"tz\":\"Europe/Moscow\",\"enabledAt\":1760000000000,"
+            + "\"autoVisa\":false,\"autoRerun\":true,\"tcRejectedAt\":1760400000000,\"commands\":false}]}");
+
+        StandingVisas loaded = restarted(file);
+        Path saved = dir.resolve("saved.json");
+        loaded.saveTo(saved);
+
+        JsonNode dead = enrollmentOf(new ObjectMapper().readTree(saved.toFile()), DEAD);
+        assertThat(dead.get("tcToken").isNull()).isTrue();
+        assertThat(dead.get("tcRefusedHash").asText()).isEqualTo(Secrets.sha256("dead-tc"));
+        assertThat(dead.get("tcRejectedAt").asLong()).isEqualTo(1760400000000L);
+        assertThat(loaded.rerunOn(DEAD)).isTrue();
+        loaded.tcTokenOffered(DEAD, "dead-tc");
+        assertThat(loaded.tcTokenRejected(DEAD)).isTrue();
+        loaded.tcTokenOffered(DEAD, "fresh-tc");
+        assertThat(loaded.tcTokenRejected(DEAD)).isFalse();
+    }
+
     @Test
     void anEarlyRerunFindsTheChainOwnerWithAnotherToken() {
         when(tc.buildTriggeredBy("dead-tc", RUN_ALL)).thenThrow(refused());
@@ -196,6 +264,25 @@ class TcTokenRefusalTest {
         standing.earlyRerun(new RerunTracker.SuiteFailedMidRun(PR, RUN_ALL, "Cache1", 9389012L, "Cache 1"));
 
         verify(tc).triggerBuildReplacingQueued(eq("live-tc"), eq("Cache1"), eq(PR), eq(true), anyString());
+    }
+
+    private StandingVisas restarted(Path file) throws Exception {
+        StandingVisas restarted = new StandingVisas(new ObjectMapper(),
+            new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper()), tc, github, analyzer,
+            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+            mock(PendingCommits.class));
+        restarted.loadFrom(file);
+
+        return restarted;
+    }
+
+    private static JsonNode enrollmentOf(JsonNode snapshot, String username) {
+        for (JsonNode e : snapshot.get("enrollments")) {
+            if (e.get("username").asText().equals(username))
+                return e;
+        }
+
+        throw new AssertionError("no enrollment of " + username);
     }
 
     private void runOf(String user) {

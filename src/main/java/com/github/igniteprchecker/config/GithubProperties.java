@@ -39,6 +39,13 @@ public record GithubProperties(String repo, String token, Integer cacheSeconds, 
         this(repo, token, cacheSeconds, null, null);
     }
 
+    @Override
+    public String toString() {
+        return "GithubProperties[repo=" + repo + ", token=" + Secrets.masked(token) + ", cacheSeconds=" + cacheSeconds
+            + ", readTimeout=" + readTimeout + ", apiUrl=" + apiUrl + ", webUrl=" + webUrl + ", oauthClientId="
+            + oauthClientId + ", oauthClientSecret=" + Secrets.masked(oauthClientSecret) + "]";
+    }
+
     private static String baseUrl(String url, String otherwise) {
         if (url == null || url.isBlank())
             return otherwise;

@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
+import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -68,7 +69,7 @@ class OwnRunsTest {
 
         mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, mock(BlockerAnalyzer.class),
                 mock(RerunTracker.class), mock(GithubClient.class), mock(SuiteBaseline.class), cfg))
-            .setControllerAdvice(new ApiExceptionHandler(tc))
+            .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
     }
 

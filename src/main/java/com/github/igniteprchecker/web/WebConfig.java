@@ -4,13 +4,23 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-/** Applies {@link AuthInterceptor} to the endpoints that require a logged-in user. */
+/**
+ * Applies {@link AuthInterceptor} to the endpoints that require a logged-in user, and {@link LiveTokenGuard} to the
+ * actions that must not run on a token TeamCity has since revoked.
+ */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+    /** What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, restart, update, flush. */
+    static final String[] LIVE_TOKEN_ACTIONS = {"/api/github/link", "/api/github/unlink", "/api/auto-visa-all",
+        "/api/restart", "/api/update", "/api/flush-caches"};
+
     private final AuthInterceptor auth;
 
-    public WebConfig(AuthInterceptor auth) {
+    private final LiveTokenGuard live;
+
+    public WebConfig(AuthInterceptor auth, LiveTokenGuard live) {
         this.auth = auth;
+        this.live = live;
     }
 
     @Override
@@ -21,5 +31,6 @@ public class WebConfig implements WebMvcConfigurer {
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling");
         registry.addInterceptor(auth).addPathPatterns("/api/pr-tests");
+        registry.addInterceptor(live).addPathPatterns(LIVE_TOKEN_ACTIONS);
     }
 }

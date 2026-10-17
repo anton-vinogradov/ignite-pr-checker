@@ -12,7 +12,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import ch.qos.logback.classic.Level;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.LogCapture;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -124,6 +126,24 @@ class GithubLinkTest {
             .doesNotContain(ONCE);
         assertThat(back.getHeaders().toString()).doesNotContain(ONCE);
         assertThat(output.getAll()).doesNotContain(ONCE);
+    }
+
+    /**
+     * With Spring's web logging at DEBUG, the form that buys the token went into the log whole, the OAuth App's client
+     * secret in it, and so did the body that revokes the user's token.
+     */
+    @Test
+    void theClientSecretAndTheUsersTokenStayOutOfTheDebugLog() {
+        URI authorize = start("alice", "tc-alice", null);
+        expectAccount("code-1", "Alice-V", 4242);
+
+        try (LogCapture log = new LogCapture(Map.of("org.springframework", Level.TRACE, "org.apache.hc",
+            Level.TRACE))) {
+            links.callback("code-1", state(authorize), null, browserOf("alice", "tc-alice"));
+
+            gh.verify();
+            assertThat(log.text()).contains("DefaultRestClient").doesNotContain("client-secret", ONCE);
+        }
     }
 
     /** bob sends alice the address GitHub gave him back, his state and his code in it: nothing is linked. */

@@ -107,7 +107,7 @@ class RecomputeThreadsTest {
     @Test
     void theRecomputeAfterAReRunDoesNotWaitForTheWarmCycle() {
         Warmer warmer = warmer();
-        warmer.offerToken(TOK);
+        warmer.offerToken("alice", TOK);
 
         warmer.refreshPr(PR);
 
@@ -118,7 +118,7 @@ class RecomputeThreadsTest {
     @Test
     void theWarmOfAFinishedRunAllDoesNotWaitForTheWarmCycle() {
         Warmer warmer = warmer();
-        warmer.offerToken(TOK);
+        warmer.offerToken("alice", TOK);
 
         warmer.warmPr(PR);
 
@@ -133,7 +133,7 @@ class RecomputeThreadsTest {
     @Test
     void aUserDoesNotWaitBehindTheWarmOfAFinishedRunAll() throws Exception {
         Warmer warmer = warmer();
-        warmer.offerToken(TOK);
+        warmer.offerToken("alice", TOK);
 
         assertAUserDoesNotWaitBehind(() -> warmer.warmPr(PR));
     }
@@ -141,7 +141,7 @@ class RecomputeThreadsTest {
     @Test
     void aUserDoesNotWaitBehindTheRecomputeAfterAReRun() throws Exception {
         Warmer warmer = warmer();
-        warmer.offerToken(TOK);
+        warmer.offerToken("alice", TOK);
 
         assertAUserDoesNotWaitBehind(() -> warmer.refreshPr(PR));
     }

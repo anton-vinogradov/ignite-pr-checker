@@ -15,9 +15,9 @@ import org.springframework.http.HttpHeaders;
 /**
  * What GitHub tells of {@code GITHUB_TOKEN} and its account, for the operator. The startup check named the account and
  * whether it may push to the repo, and showed it as fine when GitHub did not say. A token that cannot write to the
- * repo (a fine-grained one, or a classic one without {@code public_repo}), one about to expire, and an account that may
- * push to the repo or to the checker's own, where its releases come from, are now told; what GitHub does not say is
- * unknown.
+ * repo (a fine-grained one, or a classic one without {@code public_repo}), one about to expire or that never expires,
+ * and an account that may push to the repo or to the checker's own, where its releases come from, are now told; what
+ * GitHub does not say is unknown.
  */
 final class AppAccountChecks {
     /** How long before the token expires the operator is warned. */
@@ -81,8 +81,10 @@ final class AppAccountChecks {
     }
 
     private static Check expiry(String header, long nowMs) {
-        if (header == null)
-            return Check.ok("does not expire");
+        if (header == null) {
+            return Check.warn("GITHUB_TOKEN does not expire: a copy of it works until you revoke it on GitHub — make "
+                + "a new one with an expiry, say 90 days");
+        }
 
         Matcher m = WHEN.matcher(header.strip());
         if (!m.matches())

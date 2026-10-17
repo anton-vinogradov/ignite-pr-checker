@@ -15,4 +15,9 @@ public record SessionProperties(Boolean cookieSecure, String secret) {
         if (cookieSecure == null)
             cookieSecure = false;
     }
+
+    @Override
+    public String toString() {
+        return "SessionProperties[cookieSecure=" + cookieSecure + ", secret=" + Secrets.masked(secret) + "]";
+    }
 }

@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
@@ -136,7 +137,16 @@ public class JiraController {
     }
 
     /** What a change of the standing options may bring along: the GitHub token of an option that commits. */
-    public record OptionTokens(String githubToken) {
+    public record OptionTokens(String githubToken) implements CarriesToken {
+        @Override
+        public String token() {
+            return githubToken;
+        }
+
+        @Override
+        public String toString() {
+            return "OptionTokens[githubToken=" + Secrets.masked(githubToken) + "]";
+        }
     }
 
     /** The logged-in user's standing options, and whether the server holds the tokens they run on. */
@@ -257,6 +267,10 @@ public class JiraController {
     }
 
     /** The PAT as pasted by the user. */
-    public record TokenRequest(String token) {
+    public record TokenRequest(String token) implements CarriesToken {
+        @Override
+        public String toString() {
+            return "TokenRequest[token=" + Secrets.masked(token) + "]";
+        }
     }
 }

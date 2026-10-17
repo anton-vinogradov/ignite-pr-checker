@@ -2,6 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -55,8 +56,8 @@ class CommandsOnlyTokenTest {
 
         standing.sweep();
 
-        verify(warmer, atLeastOnce()).offerToken("rerun-tc");
-        verify(warmer, never()).offerToken("commands-tc");
+        verify(warmer, atLeastOnce()).offerToken("avinogradov", "rerun-tc");
+        verify(warmer, never()).offerToken(anyString(), eq("commands-tc"));
         verify(tc, never()).findRunAllBuildForPr(eq("commands-tc"), anyInt());
         verify(tc, never()).runningRunAllChains("commands-tc");
     }

@@ -17,6 +17,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
+import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -75,7 +76,7 @@ class TeamCityRefusalTest {
                 new TriggerController(tc, analyzer, mock(RerunTracker.class), mock(GithubClient.class),
                     mock(SuiteBaseline.class), cfg),
                 new AnalyzeController(analyzer, mock(RunDeltaStore.class), mock(PendingCommits.class)))
-            .setControllerAdvice(new ApiExceptionHandler(tc))
+            .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
     }
 

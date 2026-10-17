@@ -455,9 +455,9 @@ from its own GitHub account, the app account.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
   in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
 - The token is checked at the start and every 6 hours. A token that cannot write to the repo (a fine-grained one, or a
-  classic one without `public_repo`) turns the dot red; one that expires within 14 days, scopes beyond `public_repo`,
-  and an account that can push to the repo or to the checker's own, where its releases come from, turn it amber. What
-  GitHub does not say is shown as unknown, not as fine.
+  classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
+  beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
+  turn it amber. What GitHub does not say is shown as unknown, not as fine.
 - Signed-in viewers also see what the check found, the log messages, the settings in effect, and who restarted or
   flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get
   **Restart service**, **Flush caches** and the list on the **Users** tab.
@@ -471,8 +471,11 @@ from its own GitHub account, the app account.
   and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form. **Log out** ends your login in every browser, copies of its cookie included; a login left unused for 400
-  days ends too.
+  login form. Before **Link GitHub**, **Unlink**, a switch in ⚙ and the operator's buttons, the checker asks TeamCity
+  whether your token still works; with a revoked token the action does not happen. **Log out** ends your login in
+  every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
+  logins, except one that a standing option keeps in use. Log out asks TeamCity first too: with a revoked token, only
+  this browser is logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

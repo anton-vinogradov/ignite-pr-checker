@@ -17,6 +17,19 @@ logging:
       max-history: 30
       # A logging loop must not fill the disk.
       total-size-cap: 500MB
+  level:
+    # At DEBUG or TRACE these print tokens: the text of a request body the checker could not read, the arguments a
+    # request's handler gets, the headers and bytes of the GitHub calls, the headers of the TeamCity and JIRA calls
+    # (Spring Boot passes these levels on to java.util.logging, which the JDK's HttpURLConnection logs to), each request
+    # as Tomcat reads it, with its body, and the session cookie as Tomcat parses it. They stay at INFO whatever level
+    # their package or root gets.
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
+    org.springframework.web.method.HandlerMethod: INFO
+    org.apache.hc.client5.http.headers: INFO
+    org.apache.hc.client5.http.wire: INFO
+    sun.net.www.protocol.http.HttpURLConnection: INFO
+    org.apache.coyote.http11.Http11InputBuffer: INFO
+    org.apache.tomcat.util.http.Rfc6265CookieProcessor: INFO
 
 spring:
   servlet:

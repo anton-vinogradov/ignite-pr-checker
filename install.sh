@@ -120,8 +120,10 @@ chmod 640 "$ETC_DIR/env"
 
 # 4. update.sh: installs a release as root before each start, the one the service asked for (POST /api/update writes
 # it into update/requested) or the one given as the argument. The download must match the sha256 GitHub records for
-# the release's jar; the jar it replaces stays as app.jar.prev for a rollback. A failure keeps the current jar and
-# leaves its reason in update-failed, which the page shows. Run by systemd it never fails the start.
+# the release's jar; the jar it replaces stays as app.jar.prev for a rollback. A release the service asks for must be
+# newer than the one that runs: a hole in the service must not roll it back to a release with known holes. A failure
+# keeps the current jar and leaves its reason in update-failed, which the page shows. Run by systemd it never fails
+# the start.
 rm -f "$APP_DIR/update.sh"
 cat > "$APP_DIR/update.sh" <<'UPDATE'
 #!/usr/bin/env bash
@@ -134,6 +136,38 @@ JAR="$APP_DIR/app.jar"
 NEW="$APP_DIR/app.jar.new"
 REQUEST="$APP_DIR/update/requested"
 FAILED="$APP_DIR/update-failed"
+# The sha256 and version of each jar update.sh or deploy.sh installed, a line each: which release runs now.
+INSTALLED="$APP_DIR/installed-jars"
+RELEASE='^[0-9]+(\.[0-9]+){1,3}$'
+
+# Trusted only as root's own file: the directory may once have been the service account's.
+if [ -L "$INSTALLED" ] || { [ -e "$INSTALLED" ] && [ ! -O "$INSTALLED" ]; }; then
+    rm -f "$INSTALLED"
+fi
+
+# The release of the jar that runs, as recorded when it was installed: of a local build such as 1.24.0-3-g5f2c9e1,
+# the release it was built after. Empty when the jar is none update.sh or deploy.sh installed.
+running_release() {
+    local sum v
+    sum="$(sha256sum "$JAR" 2>/dev/null | cut -d ' ' -f 1)"
+    [ -n "$sum" ] && [ -f "$INSTALLED" ] || return 0
+    v="$(awk -v sum="$sum" '$1 == sum { v = $2 } END { print v }' "$INSTALLED")"
+    v="${v%%-*}"
+    if [[ "$v" =~ $RELEASE ]]; then printf '%s' "$v"; fi
+}
+
+# Whether release $1 is newer than release $2.
+newer() {
+    local -a a b
+    local i
+    IFS=. read -r -a a <<< "$1"
+    IFS=. read -r -a b <<< "$2"
+    for i in 0 1 2 3; do
+        [ "${a[i]:-0}" -gt "${b[i]:-0}" ] && return 0
+        [ "${a[i]:-0}" -lt "${b[i]:-0}" ] && return 1
+    done
+    return 1
+}
 
 if [ $# -gt 0 ]; then
     version="$1"
@@ -157,9 +191,17 @@ fail() {
     exit 0
 }
 
-if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]]; then
+if ! [[ "$version" =~ $RELEASE ]]; then
     version="?"
     fail "the request does not name a release"
+fi
+
+# The operator may name an older release on the command line; the service may not ask for one.
+if [ "$strict" = false ]; then
+    running="$(running_release)"
+    [ -n "$running" ] \
+        || fail "the jar that runs is not one update.sh installed: install v$version with update.sh as root"
+    newer "$version" "$running" || fail "v$version is not newer than v$running, which runs now"
 fi
 
 release="$(curl -fsSL -m 30 -H 'Accept: application/vnd.github+json' \
@@ -184,6 +226,7 @@ if [ -f "$JAR" ] && [ ! -L "$JAR" ] && ! cmp -s "$JAR" "$NEW"; then
     install -m 644 "$JAR" "$APP_DIR/app.jar.prev"
 fi
 mv -f "$NEW" "$JAR"
+grep -qx "$actual $version" "$INSTALLED" 2>/dev/null || printf '%s %s\n' "$actual" "$version" >> "$INSTALLED"
 rm -f "$FAILED"
 echo "installed v$version"
 UPDATE
@@ -283,9 +326,14 @@ if [ -z "$(setting APP_PUBLIC_URL)" ]; then
 Next:
   1. DNS: point a name, e.g. prc.example.org, at this host.
   2. HTTPS: serve it through a proxy, e.g. in the Caddyfile:
+       {
+           admin unix//run/caddy/admin.sock
+       }
        prc.example.org {
            reverse_proxy $ADDR:${PORT:-8080}
        }
+     The admin line moves Caddy's admin API off port 2019, where any local process could reconfigure the proxy. Give
+     the socket its directory: "systemctl edit caddy", add RuntimeDirectory=caddy under [Service], restart Caddy.
   3. $ETC_DIR/env: APP_PUBLIC_URL=https://prc.example.org (and GITHUB_TOKEN, GITHUB_OAUTH_CLIENT_ID,
      GITHUB_OAUTH_CLIENT_SECRET, PRC_ADMINS if you need them).
   4. systemctl restart $SERVICE

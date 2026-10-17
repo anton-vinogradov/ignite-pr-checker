@@ -18,6 +18,9 @@ public final class OutboundHttp {
 
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
+    /** How the JDK's HTTP client starts the error for a header it refuses, the header's value after it. */
+    private static final String REFUSED_HEADER = "Illegal character(s) in message header";
+
     private OutboundHttp() {
     }
 
@@ -51,9 +54,14 @@ public final class OutboundHttp {
 
     /**
      * A failed call, with the service named when the call got no answer: the page tells the user which service
-     * that was. Any other failure is returned as is.
+     * that was. A header the JDK's client refused comes back without its value, which is {@code Bearer <token>} for
+     * the token's header. Any other failure is returned as is.
      */
     public static RuntimeException naming(String service, RuntimeException e) {
+        if (e instanceof IllegalArgumentException && String.valueOf(e.getMessage()).startsWith(REFUSED_HEADER)) {
+            return new IllegalArgumentException(service + " was not called: a request header has a character HTTP "
+                + "does not allow");
+        }
         if (e instanceof NoAnswer || !(e instanceof ResourceAccessException failure))
             return e;
 

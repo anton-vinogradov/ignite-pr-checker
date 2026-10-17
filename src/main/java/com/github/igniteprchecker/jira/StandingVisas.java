@@ -10,6 +10,7 @@ import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.github.CommitTokens;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
@@ -199,8 +200,7 @@ public class StandingVisas implements SnapshotCache {
      * the page, so the next visitor pays the full cold analysis.
      */
     private void donateWarmTokens() {
-        for (Enrollment e : enrolled.values())
-            backgroundToken(e).ifPresent(warmer::offerToken);
+        enrolled.forEach((user, e) -> backgroundToken(e).ifPresent(t -> warmer.offerToken(user, t)));
     }
 
     /**
@@ -493,8 +493,16 @@ public class StandingVisas implements SnapshotCache {
         return Optional.empty();
     }
 
+    /**
+     * The user as their commands act, tokens decrypted. A user whose TeamCity token TeamCity refused is there without
+     * it, as only its hash is kept: a command of theirs is answered that TeamCity refused the token.
+     */
     private Optional<GhActor> actorOf(String username, Enrollment e) {
-        return decrypt(e.tc()).map(tcToken -> new GhActor(username, tcToken, decrypt(e.gh()).orElse(null), e.tz()));
+        String gh = decrypt(e.gh()).orElse(null);
+        if (e.tc().rejected())
+            return Optional.of(new GhActor(username, null, gh, e.tz()));
+
+        return decrypt(e.tc()).map(tcToken -> new GhActor(username, tcToken, gh, e.tz()));
     }
 
     /**
@@ -585,14 +593,28 @@ public class StandingVisas implements SnapshotCache {
     /**
      * Records that TeamCity refused the user's stored token. The options stay as they were but pause:
      * nothing runs under a dead token, the settings panel and the PR commands say why, and the first
-     * request that brings a working token resumes them.
+     * request that brings a working token resumes them. Of the dead token only its hash stays, to know it again.
      */
     public void markTcRejected(String username) {
         long now = System.currentTimeMillis();
-        boolean marked = changed(username, e -> e.tc().rejected() ? e : e.withTc(new Credential(e.tc().token(), now)));
+        boolean marked = changed(username, e -> e.tc().rejected() ? e : e.withTc(refused(e.tc(), now)));
         if (marked)
             log.warn("TeamCity rejected the stored token of {}: their options pause until a working token comes",
                 username);
+    }
+
+    /** Whether the user's options lend this TeamCity token to the background reads; see {@link #backgroundToken}. */
+    public boolean lendsTcToken(String username, String token) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && backgroundToken(e).filter(t -> t.equals(token)).isPresent();
+    }
+
+    /** Whether options of the user are on and act with a TeamCity token the server stores, one TeamCity accepts. */
+    public boolean keepsTcToken(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && !e.tc().rejected() && e.tc().token() != null;
     }
 
     /** When TeamCity refused the user's stored token; 0 when it has not. */
@@ -639,13 +661,19 @@ public class StandingVisas implements SnapshotCache {
      * The TeamCity credential to keep when a request brings its session's token: the stored one while
      * it works, because the session's token is unchecked and a tab of an older login must not swap a
      * live token for its own dead one; the session's one when TeamCity refused the stored token or it
-     * can no longer be read. A login, which TeamCity checks, replaces it outright.
+     * can no longer be read. The refused token itself, known by its hash, does not resume the options. A login,
+     * which TeamCity checks, replaces it outright.
      */
     private Credential tcKept(Credential stored, String sessionToken) {
-        Optional<String> token = decrypt(stored);
+        boolean kept = stored.rejected() ? Secrets.sha256(sessionToken).equals(stored.hash())
+            : decrypt(stored).isPresent();
 
-        return token.isPresent() && (!stored.rejected() || token.get().equals(sessionToken)) ? stored
-            : new Credential(codec.encryptString(sessionToken), 0);
+        return kept ? stored : new Credential(codec.encryptString(sessionToken), 0);
+    }
+
+    /** The TeamCity credential TeamCity refused at {@code at}: its hash, without the ciphertext. */
+    private Credential refused(Credential tc, long at) {
+        return Credential.refused(decrypt(tc).map(Secrets::sha256).orElse(null), at);
     }
 
     /** A TeamCity call under the user's own stored token; a refusal is recorded against them. */
@@ -2319,8 +2347,11 @@ public class StandingVisas implements SnapshotCache {
             enrollments = mapper.readValue(file.toFile(), Persisted[].class);
         }
 
-        for (Persisted p : enrollments)
-            enrolled.put(p.username(), p.enrollment());
+        for (Persisted p : enrollments) {
+            Enrollment e = p.enrollment();
+            boolean refusedKept = e.tc().rejected() && e.tc().token() != null;
+            enrolled.put(p.username(), refusedKept ? e.withTc(refused(e.tc(), e.tc().rejectedAt())) : e);
+        }
     }
 
     /**
@@ -2431,17 +2462,26 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * A stored token (encrypted; null once dropped), when its service last refused it (0: never), and what the user
-     * should know of it ({@code note}, null when nothing).
+     * should know of it ({@code note}, null when nothing). Of a TeamCity token TeamCity refused only its SHA-256
+     * ({@code hash}) stays, to know the dead token when a session brings it again.
      */
-    private record Credential(String token, long rejectedAt, String note) {
+    private record Credential(String token, long rejectedAt, String note, String hash) {
         static final Credential NONE = new Credential(null, 0);
 
         Credential(String token, long rejectedAt) {
             this(token, rejectedAt, null);
         }
 
+        Credential(String token, long rejectedAt, String note) {
+            this(token, rejectedAt, note, null);
+        }
+
         static Credential refusedAt(long at) {
             return new Credential(null, at);
+        }
+
+        static Credential refused(String hash, long at) {
+            return new Credential(null, at, null, hash);
         }
 
         boolean rejected() {
@@ -2630,6 +2670,11 @@ public class StandingVisas implements SnapshotCache {
 
     /** An enrolled user resolved from a GitHub login, tokens decrypted and ready to act with. */
     public record GhActor(String username, String tcToken, String ghToken, String tz) {
+        @Override
+        public String toString() {
+            return "GhActor[username=" + username + ", tcToken=" + Secrets.masked(tcToken) + ", ghToken="
+                + Secrets.masked(ghToken) + ", tz=" + tz + "]";
+        }
     }
 
     /**
@@ -2870,14 +2915,16 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * One enrollment as it is written to disk; the field names are the file format. {@code onSince} is keyed by
-     * the option's name, so a snapshot that names an option this version does not know still loads.
+     * the option's name, so a snapshot that names an option this version does not know still loads. Snapshots without
+     * {@code tcRefusedHash} kept the ciphertext of a TeamCity token TeamCity refused; it is hashed at load.
      */
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
         Map<Integer, JiraThread> jiraThreads,
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
         Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince,
-        Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven, String ghTokenNote) {
+        Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven, String ghTokenNote,
+        String tcRefusedHash) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -2889,7 +2936,8 @@ public class StandingVisas implements SnapshotCache {
                 e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
                 e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()),
-                gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven(), e.gh().note());
+                gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven(), e.gh().note(),
+                e.tc().hash());
         }
 
         /**
@@ -2948,7 +2996,8 @@ public class StandingVisas implements SnapshotCache {
             GhAccount account = ghLogin == null ? null : ghLoginProven != null && !ask
                 ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ask);
 
-            return new Enrollment(new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt),
+            return new Enrollment(
+                new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt, null, tcRefusedHash),
                 new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
                 new Credential(ghKept ? ghToken : null, ghRejectedAt == null ? 0 : ghRejectedAt,
                     ghKept ? ghTokenNote : null), account, tz, enabledAt, options, h,

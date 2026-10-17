@@ -65,6 +65,8 @@ elif [ -f app.jar ] && [ ! -L app.jar ] && ! cmp -s app.jar app.jar.new; then
     install -o root -g root -m 644 app.jar app.jar.prev
 fi
 install -o root -g root -m 644 app.jar.new app.jar
+# update.sh installs a release the service asks for only when it is newer than the one this build was made after.
+printf '%s %s\n' "$(sha256sum app.jar | cut -d ' ' -f 1)" "$version" >> installed-jars
 rm -f app.jar.new update-failed
 systemctl restart ignite-pr-checker
 

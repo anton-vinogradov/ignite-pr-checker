@@ -2,6 +2,7 @@ package com.github.igniteprchecker.github;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.OutboundHttp;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,11 +39,10 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.StreamingHttpOutputMessage;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -136,16 +137,16 @@ public class GithubClient implements SnapshotCache {
     }
 
     private Optional<String> oauthToken(String code) {
-        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("client_id", props.oauthClientId());
-        form.add("client_secret", props.oauthClientSecret());
-        form.add("code", code);
-        form.add("redirect_uri", linkCallback);
+        byte[] form = ("client_id=" + formValue(props.oauthClientId())
+            + "&client_secret=" + formValue(props.oauthClientSecret())
+            + "&code=" + formValue(code)
+            + "&redirect_uri=" + formValue(linkCallback)).getBytes(StandardCharsets.UTF_8);
         Map<?, ?> answer = recordedAsUser("oauth", () -> http.post()
             .uri(URI.create(props.webUrl() + "/login/oauth/access_token"))
             .header("Accept", "application/json")
             .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-            .body(form)
+            .contentLength(form.length)
+            .body(unlogged(form))
             .retrieve().body(Map.class));
         if (answer != null && answer.get("access_token") instanceof String token && !token.isBlank())
             return Optional.of(token);
@@ -158,17 +159,31 @@ public class GithubClient implements SnapshotCache {
 
     private void revokeOauthToken(String token) {
         try {
+            byte[] json = mapper.writeValueAsBytes(Map.of("access_token", token));
             recordedAsUser("oauthRevoke", () -> http.method(HttpMethod.DELETE)
                 .uri(URI.create(props.apiUrl() + "/applications/" + props.oauthClientId() + "/token"))
                 .headers(h -> h.setBasicAuth(props.oauthClientId(), props.oauthClientSecret()))
                 .header("Accept", "application/vnd.github+json")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("access_token", token))
+                .contentLength(json.length)
+                .body(unlogged(json))
                 .retrieve().toBodilessEntity());
         }
-        catch (RuntimeException e) {
+        catch (JsonProcessingException | RuntimeException e) {
             log.warn("GitHub did not revoke the token of a GitHub account link: {}", e.toString());
         }
+    }
+
+    private static String formValue(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * A request body written as it is. Spring writes a body it converts into the log at DEBUG, and these bodies carry
+     * the OAuth App's client secret or a user's token.
+     */
+    private static StreamingHttpOutputMessage.Body unlogged(byte[] body) {
+        return out -> out.write(body);
     }
 
     /**
