@@ -131,10 +131,10 @@ and the visa.
 | `● includes an unfinished run` | The verdict folds in the finished suites of a RunAll that is still running. It never reads green. | Wait for the run. |
 | `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs on unchanged revisions. Shown when some were reused, or while the run still goes. | — |
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
-| `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. | **Run RunAll**. |
+| `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
-| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
+| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
 | **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. With no ticket in the title, the group is one line saying so. | — |
 | **Auto visa** | Posts the verdict to the ticket once, the next time a RunAll of the PR finishes. Filled while armed by you (`Auto visa ✓`); `armed by bob` beside it: armed by others, who get one visa between them. | — |
@@ -187,7 +187,8 @@ not blamed on the PR.
   When TeamCity reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
 - **Lines under the head** say when the verdict is for older code, when auto re-runs still settle it, and what is on
   ci2 now. A merged PR's verdict card says that this is the verdict as it stood at the merge: it is kept and not
-  recomputed, since master's history now holds the PR's own runs.
+  recomputed, since master's history now holds the PR's own runs. New runs do not change it, so no button is filled
+  and no line advises a re-run.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
@@ -252,7 +253,8 @@ not blamed on the PR.
   chain at the end, and the page says so.
 - **Rerun** and **Rerun at top** re-run one suite, every suite of a section or a group of broken suites. Each suite
   row has its own pair of small text buttons. A section's button says how many suites it re-runs. A pair that would
-  re-run what the pair above it re-runs is left out, and one button is filled as the next step. From 5 suites on they
+  re-run what the pair above it re-runs is left out, and one button is filled as the next step, except on a merged
+  PR. From 5 suites on they
   ask first. Your own identical re-run still in the queue is replaced; someone else's stays. At the top works as for
   Run. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top.
   The queued chip appears on the suite at once.

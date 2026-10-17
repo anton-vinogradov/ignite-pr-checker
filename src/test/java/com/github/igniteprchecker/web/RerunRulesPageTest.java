@@ -162,6 +162,31 @@ class RerunRulesPageTest {
     }
 
     /**
+     * PR 13692 was merged, and its page filled Run RunAll for its older code: a RunAll of about 147 suites on ci2 that
+     * would not change the verdict kept at the merge. A merged PR fills no button.
+     */
+    @Test
+    void aMergedPrFillsNoButton() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PAIRS + """
+            const mergedAt = Math.floor(page.now() / 1000) - 86400;
+            page.route('/api/pending', { body: { pending: true, ahead: 2, builtSha: 'ac9f829', headSha: '5ae5733',
+                rewritten: false } });
+            page.route('/api/analyze', { body: verdict({ mergedAt }) });
+            await page.load('?pr=13575');
+            const olderCode = primary();
+            page.route('/api/pending', { body: { pending: false, checked: true } });
+            page.route('/api/analyze', { body: verdict({ mergedAt, computedAt: page.now() + 1,
+                blockers: [once('A.a', 'o1', 'Python'), blocker('B.b', 'o2')] }) });
+            await page.run('analyze')(13575);
+            await page.run('loadPending')(page.run('lastResult'));
+            report({ olderCode, notConfirmed: primary() });
+            """);
+
+        assertThat(out.get("olderCode").toString()).isEqualTo("[]");
+        assertThat(out.get("notConfirmed").toString()).isEqualTo("[]");
+    }
+
+    /**
      * A group that is the whole section has no pair of its own; one that is part of it keeps its pair, and a suite that
      * is its own group keeps its row's pair, since the section's pair re-runs more than it.
      */

@@ -401,15 +401,15 @@ function suiteRowActs(suite, above) {
         + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun at top</button></span>`;
 }
 
-// The one filled button, the next step. None while auto re-runs go, a RunAll of the PR is queued or running, or the
-// suites that step would re-run are already queued: then the next step is to wait. Else Run RunAll when the verdict is
-// for older code; else the pair of Broken suites or of Suites that never ran; else the pair of the blockers on one
-// run, or the card's own when they are all of its blockers.
+// The one filled button, the next step. None on a merged PR, whose verdict no run changes, and none while auto re-runs
+// go, a RunAll of the PR is queued or running, or the suites that step would re-run are already queued: then the next
+// step is to wait. Else Run RunAll when the verdict is for older code; else the pair of Broken suites or of Suites that
+// never ran; else the pair of the blockers on one run, or the card's own when they are all of its blockers.
 function paintPrimary() {
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
     $('pendingRerun').classList.remove('primary');
     for (const s of sectActs.values()) if (s.rerun) s.rerun.classList.remove('primary');
-    if (!res) return;
+    if (!res || res.mergedAt) return;
     const settling = phaseNow && phaseNow.pr === selectedPr && phaseNow.phase === 'settling';
     if (settling || runsNow.some(b => b.runAll)) return;
     if (codeOf(res) === 'old') { $('pendingRerun').classList.add('primary'); return; }
@@ -1375,19 +1375,22 @@ function renderFreshness(res) {
             : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
         : '';
     $('freshText').innerHTML = buildLabel + runWhen(res) + ' · <span class="hint" title="When the checker last computed '
-        + 'this verdict from the run and master\'s history. ↻ computes it again.">verdict computed ' + esc(ago(res.computedAt)) + '</span>';
+        + 'this verdict from the run and master\'s history.' + (res.mergedAt ? '' : ' ↻ computes it again.')
+        + '">verdict computed ' + esc(ago(res.computedAt)) + '</span>';
     $('freshMore').innerHTML = suitesRanLabel(res) + liveTag;
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
-// no refresh for it.
+// no refresh for it, and the Blockers card does not ask for re-runs that would change nothing.
 function renderMerged(res) {
     const merged = !!res.mergedAt;
     $('mergedNote').classList.toggle('hidden', !merged);
+    $('blockersCard').classList.toggle('merged', merged);
     if (!merged) return;
     $('mergedNote').textContent = `Merged ${fmtDay(res.mergedAt * 1000)}. This is the verdict as it stood at `
-        + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs.';
+        + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs. New runs do not change '
+        + 'this verdict.';
 }
 
 function clearFreshness() {
@@ -1613,13 +1616,20 @@ function notePending(res, p) {
     pendingOf = { pr: res.prNumber, buildId: res.buildId, code, ahead, pushed: p.pending ? p : null };
     $('pendingRow').classList.toggle('hidden', !p.pending);
     paintPending();
+    paintPrimary();
 }
 
 // The line about older code. While a RunAll of the PR is queued or running, the line says so instead of offering
-// Run RunAll: the next step is to wait.
+// Run RunAll: the next step is to wait. A merged PR's line only names the commits: no run changes its verdict.
 function paintPending() {
     const p = pendingOf.pushed;
     if (!p || $('pendingRow').classList.contains('hidden')) return;
+    if (lastResult && lastResult.prNumber === selectedPr && lastResult.mergedAt) {
+        $('pending').textContent = `This run tested ${p.builtSha}. The PR was merged at its commit ${p.headSha}`
+            + (!p.rewritten && p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later.` : '.');
+        $('pendingRerun').classList.add('hidden');
+        return;
+    }
     const chain = runsNow.find(b => b.runAll);
     const now = p.rewritten ? `the PR branch was rebased or force-pushed to ${esc(p.headSha)}`
         : `the PR is now at ${esc(p.headSha)}` + (p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later` : '');
