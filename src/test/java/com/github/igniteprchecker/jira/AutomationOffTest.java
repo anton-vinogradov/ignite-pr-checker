@@ -73,7 +73,7 @@ class AutomationOffTest {
         standing.sweep();
         standing.earlyRerun(queries5);
 
-        verify(warmer).offerToken("tc");
+        verify(warmer).offerToken("avinogradov", "tc");
         verify(github).openPrs();
         verify(tc).buildTriggeredBy(anyString(), anyLong());
     }

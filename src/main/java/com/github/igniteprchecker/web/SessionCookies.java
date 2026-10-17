@@ -54,7 +54,8 @@ final class SessionCookies {
 
     /**
      * The session a request's cookie carries. Over HTTPS a cookie under the old name counts only as an earlier version
-     * issued it, so a login survives the upgrade; a copy of a newer cookie set under the old name does not count.
+     * issued it, and for {@link SessionCodec#EARLIER_TAKEN_FOR} after its issue, so a login in use survives the upgrade;
+     * a copy of a newer cookie set under the old name does not count.
      */
     static Optional<Carried> carried(HttpServletRequest req, SessionCodec codec, boolean secure) {
         Optional<SessionCodec.Session> named = value(req, name(secure)).flatMap(codec::decode);

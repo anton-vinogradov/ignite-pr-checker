@@ -711,6 +711,9 @@ public class PrCommands implements SnapshotCache {
     /** The stage and estimate each narration last showed — what decides whether a new one is worth an edit. */
     private final ConcurrentMap<Long, Shown> shown = new ConcurrentHashMap<>();
 
+    /** The stage of a story that waits for a token TeamCity accepts. */
+    private static final String TOKEN_REFUSED = "token refused";
+
     /** An estimate has to move this much before the comment is edited for it. */
     private static final long ETA_SHIFT_SEC = 10 * 60;
 
@@ -738,8 +741,11 @@ public class PrCommands implements SnapshotCache {
 
             return;
         }
-        if (standing.tcTokenRejected(run.username()))
-            return; // narration resumes with a working token
+        if (standing.tcTokenRejected(run.username())) {
+            waitForToken(run);
+
+            return;
+        }
 
         try {
             var b = standing.asUser(run.username(), () -> tc.getBuildState(actor.get().tcToken(), run.buildId()));
@@ -815,6 +821,17 @@ public class PrCommands implements SnapshotCache {
         catch (RuntimeException e) {
             log.warn("ETA update for PR {} failed: {}", pr, e.toString());
         }
+    }
+
+    /**
+     * Says once that the story waits: TeamCity refused the token the checker stores for the commander, so it cannot
+     * see how the run goes. The next look with a working token tells the run again.
+     */
+    private void waitForToken(CommandRun run) {
+        if (worthEditing(run, TOKEN_REFUSED, -1) && narrate(run, run.baseBody() + "\n⏸ _TeamCity no longer accepts "
+            + "the token the checker stores for you, so this story waits. The run itself goes on in TeamCity. Log in at "
+            + publicUrl + " with a fresh TeamCity token to continue the story._"))
+            shown.put(run.commentId(), new Shown(run.buildId(), TOKEN_REFUSED, -1));
     }
 
     /** The run as the story keeps it now: posting its comment gives it an id. */

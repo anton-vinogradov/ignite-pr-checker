@@ -26,7 +26,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
  * is the same site. A page of such a host could set its own IPRC_SESSION for the whole domain: the visitor then worked
  * in its owner's session, and a GitHub token they pasted in ⚙ went into that session's options. Over HTTPS the cookie
  * is now __Host-IPRC_SESSION, which a browser keeps only as this host set it. A cookie an earlier version issued under
- * the old name is read once and issued under the new one, so nobody logs in again.
+ * the old name is read once and issued under the new one, so a login in use survives the upgrade.
  */
 class HostCookieTest {
     private static final String USER = "alice";
@@ -102,6 +102,28 @@ class HostCookieTest {
         assertThat(login.me(browser(AuthInterceptor.COOKIE, planted)).getStatusCode().value()).isEqualTo(401);
     }
 
+    /**
+     * A cookie of an earlier version that someone saved could be planted under the old name for good, and a visitor
+     * without a session of their own worked in its owner's session. One issued over 30 days ago, or so long ago that it
+     * does not say when, is not taken: no cookie under the old name is issued any more, so none is taken 30 days after
+     * the upgrade.
+     */
+    @Test
+    void anEarlierCookieIsTakenOnlyWithin30DaysOfItsIssue() throws Exception {
+        long day = 24 * 3600_000L;
+        String fresh = earlierCookie(System.currentTimeMillis() - 29 * day);
+        String saved = earlierCookie(System.currentTimeMillis() - 31 * day);
+        String undated = codec.encryptString("{\"username\":\"mallory\",\"token\":\"mallory-tc\"}");
+
+        assertThat(auth.signedIn(browser(AuthInterceptor.COOKIE, fresh))).isPresent();
+        for (String planted : List.of(saved, undated)) {
+            MockHttpServletResponse guarded = new MockHttpServletResponse();
+            assertThat(auth.preHandle(browser(AuthInterceptor.COOKIE, planted), guarded, new Object())).isFalse();
+            assertThat(guarded.getStatus()).isEqualTo(401);
+            assertThat(login.me(browser(AuthInterceptor.COOKIE, planted)).getStatusCode().value()).isEqualTo(401);
+        }
+    }
+
     @Test
     void aLogoutRemovesTheCookieUnderBothNames() throws Exception {
         MockHttpServletRequest both = new MockHttpServletRequest();
@@ -117,8 +139,12 @@ class HostCookieTest {
 
     /** The cookie as a version before the __Host- name issued it. */
     private String earlierCookie() {
-        return codec.encryptString("{\"username\":\"" + USER + "\",\"token\":\"" + TOKEN + "\",\"iat\":"
-            + System.currentTimeMillis() + "}");
+        return earlierCookie(System.currentTimeMillis());
+    }
+
+    private String earlierCookie(long issuedAt) {
+        return codec.encryptString("{\"username\":\"" + USER + "\",\"token\":\"" + TOKEN + "\",\"iat\":" + issuedAt
+            + "}");
     }
 
     private LoginController login(SessionProperties props) {

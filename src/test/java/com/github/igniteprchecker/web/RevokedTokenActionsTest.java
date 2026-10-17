@@ -40,7 +40,10 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.handler.MappedInterceptor;
 
 /**
  * A copy of alice's cookie, or her own session right after she revoked its token in ci2, could link a GitHub account,
@@ -79,14 +82,12 @@ class RevokedTokenActionsTest {
     private final LoginController login = new LoginController(tc, codec, props, warmer, users, new LoginThrottle(),
         admin, standing);
 
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
+    private final MockMvc mvc = guardedAsTheServiceGuards(MockMvcBuilders.standaloneSetup(
             new GithubLinkController(github, standing, auth),
             new JiraController(mock(JiraClient.class), tc, mock(BlockerAnalyzer.class), codec, mock(VisaService.class),
                 mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false),
             new CacheController(cache, warmer, admin),
-            new UpdateController(update, admin))
-        .addMappedInterceptors(new String[] {"/api/**"}, auth)
-        .addMappedInterceptors(WebConfig.LIVE_TOKEN_ACTIONS, new LiveTokenGuard(tc, warmer))
+            new UpdateController(update, admin)))
         .build();
 
     @Test
@@ -141,7 +142,8 @@ class RevokedTokenActionsTest {
         var out = login.logout(true, browser);
 
         assertThat(out.getStatusCode().value()).isEqualTo(401);
-        assertThat(out.getBody()).containsEntry("tokenRejected", true);
+        assertThat(out.getBody()).containsEntry("tokenRejected", true)
+            .containsEntry("error", LoginController.OTHERS_STAY_IN);
         assertThat(users.ended(codec.decode(other).orElseThrow())).isFalse();
         assertThat(warmer.tokenRevoked("revoked-tc")).isTrue();
     }
@@ -161,9 +163,28 @@ class RevokedTokenActionsTest {
         assertThat(send(get("/api/auto-visa-all"), "revoked-tc").getStatus()).isEqualTo(401);
     }
 
+    /** The login guard and the live token check on the paths and in the order the service registers them. */
+    private StandaloneMockMvcBuilder guardedAsTheServiceGuards(StandaloneMockMvcBuilder mvc) {
+        Registry registry = new Registry();
+        new WebConfig(auth, new LiveTokenGuard(tc, warmer)).addInterceptors(registry);
+        for (Object added : registry.interceptors()) {
+            MappedInterceptor mapped = (MappedInterceptor)added;
+            mvc.addMappedInterceptors(mapped.getIncludePathPatterns(), mapped.getInterceptor());
+        }
+
+        return mvc;
+    }
+
     private MockHttpServletResponse send(MockHttpServletRequestBuilder req, String token) throws Exception {
         Cookie cookie = new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(USER, token, null)));
 
         return mvc.perform(req.cookie(cookie)).andReturn().getResponse();
+    }
+
+    /** The registry {@link WebConfig} fills, with what it holds in view. */
+    private static final class Registry extends InterceptorRegistry {
+        List<Object> interceptors() {
+            return getInterceptors();
+        }
     }
 }

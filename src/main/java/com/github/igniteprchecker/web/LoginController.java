@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,10 @@ public class LoginController {
     /** What a logout tells a user whose options go on without them. */
     static final String OPTIONS_GO_ON = "You are logged out. Your options in ⚙ stay on and keep using your TeamCity "
         + "token, which the server stores for them: to stop that, log in and switch them off.";
+
+    /** What a logout everywhere tells a user whose session's token TeamCity refused. */
+    static final String OTHERS_STAY_IN = "TeamCity refused this browser's token, so only this browser is logged out: "
+        + "your logins in other browsers go on. To end them, log in again and press Log out.";
 
     private final UserDirectory users;
 
@@ -112,7 +117,7 @@ public class LoginController {
         users.touchLogin(username.get());
         long issuedAt = System.currentTimeMillis();
         SessionCodec.Session session = sessionOf(username.get(), token, http);
-        warmer.offerVerifiedToken(token); // TeamCity just accepted it
+        warmer.offerVerifiedToken(username.get(), token); // TeamCity just accepted it
         standing.tcTokenAccepted(username.get(), token);
 
         return ResponseEntity.ok()
@@ -152,9 +157,9 @@ public class LoginController {
      * TeamCity has refused the session's token: that ends no other session, which may run on another token. A cookie
      * the guard would refuse ends nothing, or a copy a logout already ended could end each later login of its user.
      * Before ending every session, TeamCity is asked whether this session's token still works: a session on a token
-     * TeamCity refuses ends no other, and the answer says the token was refused, as {@link LiveTokenGuard} does. The
-     * session's token leaves the warming pool at once, unless the user's standing options lend it there; when
-     * options of theirs work on a stored token, {@code note} says so.
+     * TeamCity refuses ends no other, and the answer says so. The tokens of the sessions that end leave the warming
+     * pool at once, unless the user's standing options lend them there; when options of theirs work on a stored token,
+     * {@code note} says so.
      */
     @PostMapping("/logout")
     public ResponseEntity<Map<String, Object>> logout(@RequestParam(defaultValue = "true") boolean everywhere,
@@ -164,12 +169,18 @@ public class LoginController {
             .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
         if (everywhere && live.filter(s -> LiveTokenGuard.refusedNow(tc, warmer, s.token())).isPresent()) {
             return ResponseEntity.status(401).header(HttpHeaders.SET_COOKIE, cleared)
-                .body(Map.of("error", ApiExceptionHandler.TOKEN_REJECTED, "tokenRejected", true));
+                .body(Map.of("error", OTHERS_STAY_IN, "tokenRejected", true));
         }
 
-        if (everywhere)
-            live.ifPresent(s -> users.endSessions(s.username()));
-        live.filter(s -> !standing.lendsTcToken(s.username(), s.token())).ifPresent(s -> warmer.forget(s.token()));
+        live.ifPresent(s -> {
+            Predicate<String> lent = t -> standing.lendsTcToken(s.username(), t);
+            if (everywhere) {
+                users.endSessions(s.username());
+                warmer.forgetAllOf(s.username(), lent);
+            }
+            else if (!lent.test(s.token()))
+                warmer.forget(s.token());
+        });
         boolean optionsGoOn = live.filter(s -> standing.keepsTcToken(s.username())).isPresent();
 
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cleared)
@@ -193,7 +204,7 @@ public class LoginController {
         if (users.ended(s))
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.ENDED, "sessionEnded", true));
 
-        warmer.offerToken(s.token());
+        warmer.offerToken(s.username(), s.token());
         ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
         if (carried.get().earlier() || SessionCookies.due(s, checkedAt))
             ok.header(HttpHeaders.SET_COOKIE, cookies(http, sessionCookie(codec.encode(s, checkedAt))));

@@ -10,12 +10,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Refuses a request that changes something at /api/ when a page of another site sends it. The browser sends the
- * session cookie with such a request: SameSite=Lax lets a POST through from a host of the same site, and the second
- * name the checker answers to, v888764.hosted-by-vdsina.com, shares its site with every other host there. A form on
- * such a page could switch on the visitor's options, which then store the visitor's TeamCity and JIRA tokens. The
- * browser names where a request comes from in Sec-Fetch-Site; a browser too old for it sends Origin, compared with the
- * origin the request went to, as APP_PUBLIC_URL may be empty. A request with neither, as a script sends, goes through.
+ * Refuses a request that may change something when a page of another site sends it. The browser sends the session
+ * cookie with such a request: SameSite=Lax lets a POST through from a host of the same site, and the second name the
+ * checker answers to, v888764.hosted-by-vdsina.com, shares its site with every other host there. A form on such a page
+ * could switch on the visitor's options, which then store the visitor's TeamCity and JIRA tokens. The browser names
+ * where a request comes from in Sec-Fetch-Site; a browser too old for it sends Origin, compared with the origin the
+ * request went to, as APP_PUBLIC_URL may be empty. A request with neither, as a script sends, goes through.
+ *
+ * <p>Every such request is checked, whatever its path: Tomcat and Spring take {@code /api;x/login} and
+ * {@code /%61pi/login} for {@code /api/login}, so a check of the raw path would let them through.
  */
 @Component
 public class SameOriginFilter extends OncePerRequestFilter {
@@ -26,7 +29,7 @@ public class SameOriginFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest req) {
-        return !req.getRequestURI().startsWith("/api/") || SAFE.contains(req.getMethod());
+        return SAFE.contains(req.getMethod());
     }
 
     @Override

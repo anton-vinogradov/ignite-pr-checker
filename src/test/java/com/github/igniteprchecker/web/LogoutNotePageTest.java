@@ -30,9 +30,9 @@ class LogoutNotePageTest {
             await page.load('?pr=13575');
             await page.el('logout').onclick();
             report({ message: page.el('loginErr').textContent });
-            """.replace("ERROR", new ObjectMapper().writeValueAsString(ApiExceptionHandler.TOKEN_REJECTED)));
+            """.replace("ERROR", new ObjectMapper().writeValueAsString(LoginController.OTHERS_STAY_IN)));
 
-        assertThat(out.get("message").asText()).isEqualTo(ApiExceptionHandler.TOKEN_REJECTED);
+        assertThat(out.get("message").asText()).isEqualTo(LoginController.OTHERS_STAY_IN);
     }
 
     @Test

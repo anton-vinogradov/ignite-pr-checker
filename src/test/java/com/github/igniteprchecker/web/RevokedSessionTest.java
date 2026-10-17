@@ -79,7 +79,7 @@ class RevokedSessionTest {
     /** The login that ends the refusal starts another warm cycle, which must not meet the old 401 again. */
     private void loginWithTheTokenReissued() {
         doReturn(false).when(analyzer).warm(anyString(), anyInt());
-        warmer.offerVerifiedToken("tok");
+        warmer.offerVerifiedToken("alice", "tok");
     }
 
     private void warmCycleRuns() throws Exception {

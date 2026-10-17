@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,21 +76,21 @@ public class Warmer {
         }));
     }
 
-    /** An authenticated request offers its token; the first token into an empty pool kicks off warming. */
-    public void offerToken(String token) {
-        donate(token, false);
+    /** An authenticated request offers its user's token; the first token into an empty pool kicks off warming. */
+    public void offerToken(String user, String token) {
+        donate(user, token, false);
     }
 
     /**
      * Offers a token TeamCity has just accepted (a fresh login), so an earlier rejection of the same
      * string — a revoked token since re-issued, or one dropped during a TeamCity hiccup — is forgiven.
      */
-    public void offerVerifiedToken(String token) {
-        donate(token, true);
+    public void offerVerifiedToken(String user, String token) {
+        donate(user, token, true);
     }
 
-    private void donate(String token, boolean verified) {
-        boolean wasEmpty = tokens.offer(token, verified);
+    private void donate(String user, String token, boolean verified) {
+        boolean wasEmpty = tokens.offer(user, token, verified);
 
         if (wasEmpty && props.enabled())
             worker.execute(this::warmCycle);
@@ -313,6 +314,14 @@ public class Warmer {
      */
     public void forget(String token) {
         tokens.forget(token);
+    }
+
+    /**
+     * Drops every token the user offered, but those {@code kept} names, from the pool at once: a logout ended all their
+     * sessions. Like {@link #forget}, it marks no token refused.
+     */
+    public void forgetAllOf(String user, Predicate<String> kept) {
+        tokens.forgetAllOf(user, kept);
     }
 
     /**

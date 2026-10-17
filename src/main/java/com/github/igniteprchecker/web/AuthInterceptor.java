@@ -95,7 +95,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (session.get().jiraToken() != null)
             req.setAttribute(JIRA_ATTR, session.get().jiraToken());
         users.touch(session.get().username());
-        warmer.offerToken(session.get().token());
+        warmer.offerToken(session.get().username(), session.get().token());
         standing.tcTokenOffered(session.get().username(), session.get().token());
 
         return true;

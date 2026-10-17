@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 
 /**
  * The set of TeamCity tokens the background work may run under, so the warmer can spread its load
@@ -28,7 +29,8 @@ final class TokenPool {
     /** Bounds the memory of revoked tokens; past it the oldest is forgotten first. */
     static final int REVOKED_MAX = 10_000;
 
-    private final Map<String, Long> lastSeen = new ConcurrentHashMap<>();
+    /** The pooled tokens: who offered each and when last. */
+    private final Map<String, Offer> offers = new ConcurrentHashMap<>();
     /** Hashes of tokens TeamCity rejected, with when — re-donating one before its cooldown ends is pointless. */
     private final Map<String, Long> rejected = new ConcurrentHashMap<>();
     /**
@@ -54,12 +56,12 @@ final class TokenPool {
     }
 
     /**
-     * Record or refresh a donated token. Returns true if the pool had been empty (nothing to warm
+     * Record or refresh a token {@code user} donated. Returns true if the pool had been empty (nothing to warm
      * with yet). A {@code verified} token has just been accepted by TeamCity, which clears any
      * earlier rejection; an unverified re-donation of a rejected one is ignored until the cooldown
      * ends, so an expired token can't make every cycle hammer ci2 with 401s.
      */
-    boolean offer(String token, boolean verified) {
+    boolean offer(String user, String token, boolean verified) {
         if (token == null || token.isBlank())
             return false;
 
@@ -74,7 +76,7 @@ final class TokenPool {
             return false;
 
         boolean wasEmpty = tokens().isEmpty();
-        lastSeen.put(token, nowMs.getAsLong());
+        offers.put(token, new Offer(user, nowMs.getAsLong()));
 
         return wasEmpty;
     }
@@ -85,7 +87,12 @@ final class TokenPool {
      */
     void forget(String token) {
         if (token != null)
-            lastSeen.remove(token);
+            offers.remove(token);
+    }
+
+    /** Drops every token {@code user} offered, but those {@code kept} names; see {@link #forget}. */
+    void forgetAllOf(String user, Predicate<String> kept) {
+        offers.entrySet().removeIf(e -> user.equals(e.getValue().user()) && !kept.test(e.getKey()));
     }
 
     /** Drop a token TeamCity rejected (revoked/expired) so it isn't tried again while it cools down. */
@@ -97,7 +104,7 @@ final class TokenPool {
     void remove(String token, boolean revoked) {
         long now = nowMs.getAsLong();
         String key = hash(token);
-        lastSeen.remove(token);
+        offers.remove(token);
         rejected.values().removeIf(at -> now - at > ttlMs);
         rejected.put(key, now);
         if (!revoked)
@@ -158,9 +165,9 @@ final class TokenPool {
     /** Non-stale tokens, evicting any not re-offered within the TTL. */
     private List<String> tokens() {
         long now = nowMs.getAsLong();
-        lastSeen.entrySet().removeIf(e -> now - e.getValue() > ttlMs);
+        offers.entrySet().removeIf(e -> now - e.getValue().at() > ttlMs);
 
-        return List.copyOf(lastSeen.keySet());
+        return List.copyOf(offers.keySet());
     }
 
     /** What the pool keeps of a refused token. */
@@ -172,5 +179,9 @@ final class TokenPool {
         catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** Who offered a token, and when last. */
+    private record Offer(String user, long at) {
     }
 }

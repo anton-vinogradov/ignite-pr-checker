@@ -265,8 +265,9 @@ restarts and lists at the top what is wrong now: a background job that stopped, 
 setting out of range.
 
 Some loggers write tokens at DEBUG or TRACE: Spring's, with the text of a request body the service could not read and
-the arguments of a request's handler, and httpclient's, with the headers of GitHub calls. `application.yml` keeps
-those at INFO, whatever level the env file sets for their package.
+the arguments of a request's handler; httpclient's, with the headers of GitHub calls; the JDK's `HttpURLConnection`,
+with the headers of TeamCity and JIRA calls; and Tomcat's, with each request as it comes in and the session cookie.
+`application.yml` keeps those at INFO, whatever level the env file sets for their package or for root.
 
 ### Memory
 

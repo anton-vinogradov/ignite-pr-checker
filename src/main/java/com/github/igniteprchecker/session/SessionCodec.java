@@ -7,6 +7,7 @@ import com.github.igniteprchecker.config.SessionProperties;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
@@ -28,6 +29,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class SessionCodec {
+    /** How long after its issue a cookie of an earlier version still counts; see {@link #decodeEarlier}. */
+    public static final Duration EARLIER_TAKEN_FOR = Duration.ofDays(30);
+
     private static final Logger log = LoggerFactory.getLogger(SessionCodec.class);
     private static final String TRANSFORM = "AES/GCM/NoPadding";
     private static final int IV_LEN = 12;
@@ -123,11 +127,17 @@ public class SessionCodec {
     }
 
     /**
-     * Decrypts a cookie value an earlier version issued, before cookies over HTTPS were named {@code __Host-}; empty
-     * for one this version issued. A copy of a newer cookie under the old name comes from someone who set it there.
+     * Decrypts a cookie value an earlier version issued, before cookies over HTTPS were named {@code __Host-}, if it was
+     * issued within {@link #EARLIER_TAKEN_FOR}; empty for one this version issued. A copy of a newer cookie under the old
+     * name comes from someone who set it there. No cookie of the old format is issued any more, so none is taken once
+     * that time has passed since the upgrade: a cookie someone kept cannot be planted in a visitor's browser for good.
      */
     public Optional<Session> decodeEarlier(String cookie) {
-        return payload(cookie).filter(p -> p.v() == null).map(Payload::session);
+        long now = System.currentTimeMillis();
+
+        return payload(cookie)
+            .filter(p -> p.v() == null && p.iat() != null && now - p.iat() <= EARLIER_TAKEN_FOR.toMillis())
+            .map(Payload::session);
     }
 
     private Optional<Payload> payload(String cookie) {

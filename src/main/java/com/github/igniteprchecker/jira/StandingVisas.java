@@ -200,8 +200,7 @@ public class StandingVisas implements SnapshotCache {
      * the page, so the next visitor pays the full cold analysis.
      */
     private void donateWarmTokens() {
-        for (Enrollment e : enrolled.values())
-            backgroundToken(e).ifPresent(warmer::offerToken);
+        enrolled.forEach((user, e) -> backgroundToken(e).ifPresent(t -> warmer.offerToken(user, t)));
     }
 
     /**

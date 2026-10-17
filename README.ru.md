@@ -268,8 +268,9 @@ sudo tail -f /opt/ignite-pr-checker/logs/ignite-pr-checker.log
 настройку вне диапазона.
 
 Некоторые логгеры на DEBUG и TRACE пишут токены: логгеры Spring — текст тела запроса, которое сервис не смог
-прочитать, и аргументы обработчика запроса, логгеры httpclient — заголовки вызовов GitHub. `application.yml` держит
-их на INFO, какой бы уровень ни задал для их пакета файл env.
+прочитать, и аргументы обработчика запроса; логгеры httpclient — заголовки вызовов GitHub; `HttpURLConnection` из
+JDK — заголовки вызовов TeamCity и JIRA; логгеры Tomcat — каждый входящий запрос и cookie сессии. `application.yml`
+держит их на INFO, какой бы уровень ни задал файл env для их пакета или для root.
 
 ### Память
 

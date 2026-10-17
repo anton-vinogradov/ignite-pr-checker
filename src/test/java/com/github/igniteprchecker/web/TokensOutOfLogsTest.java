@@ -114,6 +114,19 @@ class TokensOutOfLogsTest {
         verifyNoInteractions(tc, jira, github, standing);
     }
 
+    /** A body of JSON {@code null} failed the token check with a 500 and an ERROR, which turned the health amber. */
+    @Test
+    void aNullBodyIsAnsweredAsAnEmptyOne() throws Exception {
+        MockHttpServletResponse login = send(post("/api/login"), "null");
+        MockHttpServletResponse jiraToken = send(signedIn(post("/api/jira-token")), "null");
+
+        assertThat(login.getStatus()).isEqualTo(400);
+        assertThat(login.getContentAsString()).contains("token required");
+        assertThat(jiraToken.getStatus()).isEqualTo(400);
+        assertThat(jiraToken.getContentAsString()).contains(ApiExceptionHandler.BAD_JSON);
+        verifyNoInteractions(tc, jira);
+    }
+
     /** A token as the user pastes it, with a space or a line break around it, still logs in. */
     @Test
     void aTokenPastedWithSpacesAroundItIsTaken() throws Exception {

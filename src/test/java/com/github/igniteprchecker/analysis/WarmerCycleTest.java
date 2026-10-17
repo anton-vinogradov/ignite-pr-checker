@@ -59,8 +59,8 @@ class WarmerCycleTest {
         when(analyzer.warm(eq("dead"), anyInt())).thenThrow(refused(401));
         when(analyzer.warm(eq("live"), anyInt())).thenReturn(true);
 
-        warmer.offerToken("dead");
-        warmer.offerToken("live");
+        warmer.offerToken("alice", "dead");
+        warmer.offerToken("bob", "live");
         bothLent.countDown();
         await().atMost(Duration.ofSeconds(10)).until(() -> warmer.cyclesCompleted() == 1);
 
@@ -77,7 +77,7 @@ class WarmerCycleTest {
         when(github.openPrs()).thenReturn(prs);
         when(analyzer.warm(eq("tc"), anyInt())).thenThrow(refused(403));
 
-        warmer.offerToken("tc");
+        warmer.offerToken("alice", "tc");
         await().atMost(Duration.ofSeconds(10)).until(() -> warmer.cyclesCompleted() == 1);
 
         assertThat(warmer.pooledTokens()).isZero();
@@ -89,7 +89,7 @@ class WarmerCycleTest {
         when(github.openPrs()).thenReturn(prs);
         when(analyzer.userWaiting()).thenReturn(true);
 
-        warmer.offerToken("tc");
+        warmer.offerToken("alice", "tc");
         await().atMost(Duration.ofSeconds(10)).until(() -> warmer.cyclesCompleted() == 1);
 
         verify(analyzer, never()).warm(anyString(), anyInt());
