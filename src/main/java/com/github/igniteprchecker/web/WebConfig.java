@@ -33,7 +33,7 @@ public class WebConfig implements WebMvcConfigurer {
                 "/api/rerun-suite", "/api/rerun-suites", "/api/runs", "/api/cancel-all", "/api/update", "/api/restart", "/api/users", "/api/jira-token", "/api/github-token", "/api/github/link", "/api/github/unlink", "/api/jira-visa", "/api/auto-visa", "/api/auto-visa-cancel", "/api/auto-visa-all", "/api/test-details",
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling");
-        registry.addInterceptor(auth).addPathPatterns("/api/pr-tests");
+        registry.addInterceptor(auth).addPathPatterns("/api/pr-tests", "/api/pr-title");
         registry.addInterceptor(live).addPathPatterns(LIVE_TOKEN_ACTIONS);
     }
 }

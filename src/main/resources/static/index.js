@@ -104,13 +104,20 @@ function fmtDay(ms) {
 
 let shownTitle = null; // what setPrTitle last drew, to redraw once /api/config names the hosts
 
+// An IGNITE ticket key in a PR title, in any case: the rule the server finds the ticket of a visa by.
+const ISSUE_KEY = /\bIGNITE-\d{4,}\b/i;
+
+// `title` is null while the page does not know it: then the PR's ticket is not known either (lastIssueKey null), which
+// is not the same as a title that names none ('').
 function setPrTitle(number, title, url) {
     shownTitle = [number, title, url];
-    lastIssueKey = (title && (title.match(/IGNITE-\d+/) || [])[0]) || '';
+    lastIssueKey = title == null ? null : ((title.match(ISSUE_KEY) || [''])[0]).toUpperCase();
     const href = url || prUrl(number);
     $('prTitle').classList.remove('muted');
-    const linked = title ? esc(title).replace(/IGNITE-\d+/g,
-        m => `<a href="${esc(jiraBase)}/browse/${m}" target="_self" rel="noopener" title="Open ${m} in JIRA">${m}</a>`) : '';
+    const linked = title ? esc(title).replace(new RegExp(ISSUE_KEY.source, 'gi'), m => {
+        const key = m.toUpperCase();
+        return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="Open ${key} in JIRA">${m}</a>`;
+    }) : '';
     $('prTitle').innerHTML = `<a href="${esc(href)}" target="_self" rel="noopener" title="Open PR #${esc(number)} on GitHub">#${esc(number)}</a>`
         + (linked ? ' ' + linked : '');
 }
@@ -248,6 +255,7 @@ function openPr(number, push) {
     for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
     const li = findLi(number);
     setPrTitle(number, li ? li.dataset.title : null, li ? li.dataset.url : null);
+    if (!li) loadPrTitle(number);
     $('actions').classList.remove('hidden');
     sayStatus('');
     $('visaNote').classList.add('hidden');
@@ -268,6 +276,19 @@ function openPr(number, push) {
     if (push) history.pushState({ pr: number }, '', '?pr=' + number);
     analyze(number);
     loadRuns(number);
+}
+
+// A PR off the open list (merged, closed, or past the 50 the list holds) gets its title from the server: the head names
+// its ticket, and the visa group knows where to post. An answer for a PR no longer open on the page is dropped.
+async function loadPrTitle(number) {
+    try {
+        const r = await api('/api/pr-title?pr=' + number);
+        if (!r.ok) return;
+        const { title } = await r.json();
+        if (number !== selectedPr || typeof title !== 'string') return;
+        setPrTitle(number, title, null);
+        paintVisaGroup();
+    } catch (e) { /* the head keeps the number alone, and the visa group stays hidden */ }
 }
 
 // The answers to Rerun under the buttons belong to the PR they were given on.
@@ -2246,7 +2267,8 @@ const ISOLATION_NOTE = 'This is code from a pull request: unless it is your own,
     + 'isolated environment (a container or a VM without your credentials).';
 
 function aiPromptText({ title, pr, tested, lines, details, task }) {
-    const prTitle = ((allPrs.find(p => p.number === pr) || {}).title || '').trim();
+    const shown = shownTitle && shownTitle[0] === pr ? shownTitle[1] : null;
+    const prTitle = (shown ?? (allPrs.find(p => p.number === pr) || {}).title ?? '').trim();
     const head = [
         title,
         '',
@@ -2502,7 +2524,7 @@ $('statusRetry').onclick = () => {
 // JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
 // session, the button opens a hint with a deep link to the JIRA profile page to create one.
 let hasJira = false;
-let lastIssueKey = '';
+let lastIssueKey = null; // the open PR's ticket; '' when its title names none, null while the title is not known
 
 let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
 
@@ -2550,10 +2572,10 @@ function visaNote(text, { html = false, err = false } = {}) {
 }
 
 // The group at the right of the verdict heading: "JIRA visa: Post now · Auto visa", or one line when the PR title
-// names no ticket to post to.
+// names no ticket to post to. Neither while the title is not known: the page cannot tell which it is.
 function paintVisaGroup() {
     $('visaGroup').classList.toggle('hidden', !lastIssueKey);
-    $('noTicket').classList.toggle('hidden', !!lastIssueKey);
+    $('noTicket').classList.toggle('hidden', lastIssueKey !== '');
     $('visaBtn').disabled = !lastIssueKey;
     $('visaBtn').title = `Post the verdict as a comment to ${lastIssueKey || 'the JIRA ticket'} now`;
     paintAutoVisa();

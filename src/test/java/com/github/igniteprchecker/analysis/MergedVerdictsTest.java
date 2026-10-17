@@ -65,6 +65,7 @@ class MergedVerdictsTest {
             .containsExactly("GridCommandHandlerTest.testCacheIdle");
         assertThat(kept.filtered()).extracting(TestVerdict::reason)
             .containsExactly("pre-existing: fails 15/98 on master on JDK 17");
+        assertThat(restarted.title(PR)).as("the page's head names the ticket from it").contains("IGNITE-28890 Fix it");
     }
 
     @Test

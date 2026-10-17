@@ -122,6 +122,8 @@ class VerdictCardPageTest {
     void theVisaGroupSitsInTheVerdictCardAndSaysWhenItWillPost() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
+            page.run('setPrTitle')(13575, 'Move MDC to JUnit', null);
+            page.run('paintVisaGroup')();
             const noTicket = { group: page.el('visaGroup').classList.contains('hidden'),
                 line: page.el('noTicket').classList.contains('hidden') };
             """ + TICKET + """
