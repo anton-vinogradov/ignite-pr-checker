@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -175,6 +176,81 @@ class MergedVerdictsTest {
         merged.sweep();
 
         assertThat(merged.verdict(PR).orElseThrow().mergedAt()).isEqualTo(MERGED_AT);
+    }
+
+    /**
+     * A deploy that changed the words of the reasons dropped the snapshot's results. A PR merged 15 minutes before it
+     * had no other verdict from before its merge, so none was kept, and its failures later read as pre-existing.
+     */
+    @Test
+    void aPrMergedJustBeforeADeployThatChangedTheWordsKeepsItsVerdict(@TempDir Path dir) throws Exception {
+        AnalysisCache restarted = startedOn(snapshotInEarlierWords(dir, TestVerdict.RULES));
+        openAre(13600);
+        when(github.prOutcome(PR)).thenReturn(merged());
+
+        assertThat(restarted.peekResult(9391879L)).as("no page gets the earlier words").isEmpty();
+        assertThat(restarted.freshResults()).isEmpty();
+        MergedVerdicts merged = new MergedVerdicts(github, restarted, dir.resolve("merged"), mapper);
+        merged.load();
+        merged.sweep();
+
+        AnalysisResult kept = merged.verdict(PR).orElseThrow();
+        assertThat(kept.buildId()).isEqualTo(9391879L);
+        assertThat(kept.blockers()).extracting(TestVerdict::name)
+            .containsExactly("GridCommandHandlerTest.testCacheIdle");
+    }
+
+    /** Verdicts of earlier rules are not what the PR had under these: none is kept. */
+    @Test
+    void verdictsOfEarlierRulesAreNotCarriedOver(@TempDir Path dir) throws Exception {
+        AnalysisCache restarted = startedOn(snapshotInEarlierWords(dir, TestVerdict.RULES - 1));
+        openAre(13600);
+
+        new MergedVerdicts(github, restarted, (Path)null, mapper).sweep();
+
+        assertThat(restarted.carriedOver()).isEmpty();
+        verify(github, never()).prOutcome(anyInt());
+    }
+
+    /** A second restart before the sweep got to the PR keeps what the first carried over, until it expires. */
+    @Test
+    void resultsCarriedOverOutliveARestartButNotTheirExpiry(@TempDir Path dir) throws Exception {
+        AnalysisCache first = startedOn(snapshotInEarlierWords(dir, TestVerdict.RULES));
+        Path again = dir.resolve("again.json");
+        first.saveTo(again);
+
+        assertThat(startedOn(again).carriedOver()).extracting(AnalysisResult::buildId).containsExactly(9391879L);
+
+        ObjectNode expired = (ObjectNode)mapper.readTree(again.toFile());
+        ((ObjectNode)expired.withArray("carriedOver").get(0)).put("expiresAt", System.currentTimeMillis() - 1);
+        mapper.writeValue(again.toFile(), expired);
+
+        assertThat(startedOn(again).carriedOver()).isEmpty();
+    }
+
+    /**
+     * The snapshot of the release before a change of words, as v1.35.0 wrote it: the result of a PR merged at
+     * {@link #MERGED_AT}, computed 15 minutes before, under {@code rules}.
+     */
+    private Path snapshotInEarlierWords(Path dir, int rules) throws Exception {
+        AnalysisCache before = new AnalysisCache(cfg, mapper);
+        before.putResult(9391879L, verdict(9391879L, (MERGED_AT - 900) * 1000));
+        Path file = dir.resolve("analysis.json");
+        before.saveTo(file);
+        ObjectNode old = (ObjectNode)mapper.readTree(file.toFile());
+        old.remove("carriedOver");
+        old.put("rules", rules);
+        old.put("texts", AnalysisCache.TEXTS - 1);
+        mapper.writeValue(file.toFile(), old);
+
+        return file;
+    }
+
+    private AnalysisCache startedOn(Path snapshot) throws Exception {
+        AnalysisCache started = new AnalysisCache(cfg, mapper);
+        started.loadFrom(snapshot);
+
+        return started;
     }
 
     private MergedVerdicts merged(Path dir) {

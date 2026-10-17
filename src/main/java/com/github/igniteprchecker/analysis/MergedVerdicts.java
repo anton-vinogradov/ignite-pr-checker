@@ -178,10 +178,13 @@ public class MergedVerdicts {
         }
     }
 
-    /** The newest cached verdict of each PR, the one shown last, by PR number. */
+    /**
+     * The newest cached verdict of each PR, the one shown last, by PR number. The results carried over from before a
+     * change of words count too: a PR merged shortly before that deploy has no other.
+     */
     private List<AnalysisResult> latestPerPr() {
         Map<Integer, AnalysisResult> latest = new HashMap<>();
-        for (AnalysisResult r : cache.freshResults())
+        for (AnalysisResult r : Stream.concat(cache.freshResults().stream(), cache.carriedOver().stream()).toList())
             latest.merge(r.prNumber(), r, (a, b) -> a.computedAt() >= b.computedAt() ? a : b);
 
         return latest.values().stream().sorted(Comparator.comparingInt(AnalysisResult::prNumber)).toList();
