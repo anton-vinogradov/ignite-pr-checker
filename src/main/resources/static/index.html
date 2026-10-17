@@ -148,8 +148,9 @@
         .group-by .tabs { margin-left: 0; }
         /* The answer to a Rerun stands under its buttons, until the next click there. */
         .act-note { flex: 1 0 100%; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
-        #blockersCard.merged .rerun-advice { display: none; }
         .act-note.err { color: var(--bad); }
+        /* No run changes a merged PR's verdict, so its blockers carry no advice to re-run. */
+        #blockersCard.merged .rerun-advice { display: none; }
         .filtered-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
         .filtered-line .sect-act { margin-left: 0.3rem; }
         /* Run RunAll follows the text of the older-code line, not the far edge of the row. */

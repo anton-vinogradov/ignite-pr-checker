@@ -192,7 +192,7 @@ public class LoginController {
 
     /**
      * Who the session is, for the page as it opens. A cookie old enough, or under the name earlier versions gave it, is
-     * issued again, as the login guard does. A cookie under that name that is no longer taken goes, and when an
+     * issued again, as the login guard does. A cookie under that name that is no longer taken is removed, and when an
      * earlier version issued it, the answer says why its owner is at the login form.
      */
     @GetMapping("/me")
