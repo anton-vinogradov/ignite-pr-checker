@@ -37,6 +37,45 @@ class PageContrastTest {
         assertThat(out.get("themes").toString()).isEqualTo("[\"light\",\"dark\",\"jetbrains\",\"terminal\"]");
         assertThat(out.get("pairs").asInt()).as("pairs of text and fill checked").isGreaterThan(300);
         assertThat(out.get("failures")).as(out.get("failures").toPrettyString()).isEmpty();
+        assertThat(out.get("rings").asInt()).as("focus rings checked").isGreaterThan(300);
+        assertThat(out.get("badRings")).as(out.get("badRings").toPrettyString()).isEmpty();
+    }
+
+    /**
+     * The keyboard's focus was Chrome's own ring, #005fcc: 1.5:1 on the selected tab's accent fill and 2.2:1 on Auto
+     * visa when on; .tabs clipped the ring's outer part. The check finds a ring of the fill's own colour, a ring cut off
+     * by a parent that clips, and an element with no ring.
+     */
+    @Test
+    void theCheckFindsARingLostOnItsFillCutByItsParentOrMissing() throws Exception {
+        Path page = Files.createTempFile("page", ".html");
+        try {
+            Files.writeString(page, """
+                <html><head><style>
+                :root { --accent: #1565c0; --on-accent: #fff; --fg: #1a1a1a; }
+                body { color: var(--fg); background: #fff; }
+                .tabs { overflow: hidden; }
+                .tabs .act.on { background: var(--accent); color: var(--on-accent); }
+                .update-btn { background: var(--accent); color: var(--on-accent); }
+                :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+                .update-btn:focus-visible { outline-offset: -3px; }
+                .quiet:focus-visible { outline: none; }
+                </style></head><body></body></html>
+                """);
+            JsonNode out = run(page);
+
+            List<String> rings = new ArrayList<>();
+            for (JsonNode r : out.get("badRings")) {
+                if (!r.get("element").asText().contains(":hover"))
+                    rings.add(r.get("theme").asText() + " " + r.get("element").asText() + " "
+                        + (r.get("cut").asBoolean() ? "cut" : r.get("ring").asText() + " " + r.get("ratio").asText()));
+            }
+            assertThat(rings).containsExactlyInAnyOrder("light .tabs button.act.on:focus-visible cut",
+                "light a.update-btn:focus-visible #1565c0 1", "light button.quiet:focus-visible none 0");
+        }
+        finally {
+            Files.deleteIfExists(page);
+        }
     }
 
     /** The check sees through variables, nesting, specificity and a hover rule that outranks the selected tab's. */

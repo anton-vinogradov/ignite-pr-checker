@@ -132,6 +132,7 @@
         .visa-group { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
         .visa-group.muted { color: var(--muted); }
         #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
+        #autoVisaBtn[aria-pressed="true"]:focus-visible, #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
         .verdict-lines { font-size: 0.86rem; color: var(--warn); }
         .verdict-lines p { margin: 0 0 0.3rem; }
         .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
@@ -244,6 +245,7 @@
             #blockersHead, #verdictText { text-transform: uppercase; letter-spacing: 0.04em; }
             .act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); text-decoration: none; }
             .act.primary::before, .act.primary::after, #autoVisaBtn[aria-pressed="true"]::before, #autoVisaBtn[aria-pressed="true"]::after, #notifyBtn[aria-pressed="true"]::before, #notifyBtn[aria-pressed="true"]::after { color: var(--on-accent); }
+            #autoVisaBtn[aria-pressed="true"]:focus-visible, #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--fg); outline-offset: 1px; }
             .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
             .my-tag { padding: 0 0.15rem; }
             .pr-list li.sel .pr-num::before { content: "> "; color: var(--ok); }

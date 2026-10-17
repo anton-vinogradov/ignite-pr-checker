@@ -1,6 +1,8 @@
 // Works out, from a page's own CSS, the contrast of text on its background in every theme, and reports the
-// pairs under 4.5:1 (WCAG AA for body text). Usage: node contrast.js <page.html>; prints JSON
-// { pairs, failures: [{ theme, element, color, background, ratio }] }.
+// pairs under 4.5:1 (WCAG AA for body text). It also checks the ring of every element the keyboard can focus: 3:1
+// against what the ring covers (WCAG 1.4.11), and not cut off by a parent that clips. Usage: node contrast.js
+// <page.html>; prints JSON { pairs, failures: [{ theme, element, color, background, ratio }],
+// rings, badRings: [{ theme, element, ring, background, ratio, cut }] }.
 //
 // The stylesheets the page links (in its own directory) come first, then its <style>, as the browser reads them.
 // Every selector of every rule describes an element to check: ".tabs .act.on" is a selected tab inside .tabs,
@@ -16,6 +18,10 @@ const fs = require('fs');
 const path = require('path');
 
 const MIN_RATIO = 4.5;
+
+const MIN_RING = 3;
+
+const FOCUSABLE = ['a', 'button', 'input', 'select', 'summary', 'textarea'];
 
 // Boxes that carry no text: bars, dots and strips painted with a colour that no letter sits on.
 const NO_TEXT = ['.trend a', '.trend a.clean', '.run-p', '.run-f', '.run-old', '.catfill', '.catbar', '.hdot', '.hdot.ok',
@@ -335,19 +341,23 @@ function paint(style, bg, color) {
 
 // Paints the chain from the page down to its last element, whose cascaded style `last` may amend (a frame of its
 // animation, a browser's default). Each element with an opacity under 1 is a layer: what is painted in it is blended
-// into what lay beneath it. Returns the colours as seen, with the last element's style.
+// into what lay beneath it. Returns the colours as seen, with the last element's style, the fill around the element and
+// the way to see any other colour drawn on it.
 function walk(theme, chain, last) {
     const t = tokens[theme];
-    let bg = { r: 255, g: 255, b: 255, a: 1 }, color = null, style = {};
+    let bg = { r: 255, g: 255, b: 255, a: 1 }, color = null, around = bg, style = {};
     const layers = [];
     for (let at = 0; at < chain.length; at++) {
         style = cascade(rules, theme, chain, at, t);
-        if (at === chain.length - 1) style = Object.assign(style, last || {});
+        if (at === chain.length - 1) {
+            style = Object.assign(style, last || {});
+            around = bg;
+        }
         if (style.opacity !== undefined && +style.opacity < 1) layers.push({ alpha: +style.opacity, under: bg });
         ({ bg, color } = paint(style, bg, color));
     }
     const seen = c => layers.reduceRight((top, l) => over({ ...top, a: l.alpha }, l.under), c);
-    return { style, bg: seen(bg), color: color && seen(color) };
+    return { style, around: seen(around), bg: seen(bg), color: color && seen(color), seen };
 }
 
 // A ::before or ::after shows text only with a content of its own that is not empty.
@@ -367,6 +377,8 @@ function framesOf(style, theme) {
 
 const failures = [];
 let pairs = 0;
+const badRings = [];
+const ringsSeen = new Set();
 
 function check(theme, chain, seen, suffix) {
     if (!seen.color) return;
@@ -375,6 +387,29 @@ function check(theme, chain, seen, suffix) {
     if (r < MIN_RATIO || process.env.CONTRAST_ALL)
         failures.push({ theme, element: describe(chain) + (suffix ? ' ' + suffix : ''), color: hex(seen.color),
             background: hex(seen.bg), ratio: Math.round(r * 100) / 100 });
+}
+
+// The ring of a focused element: its outline, against the element's own fill when a negative offset draws it inside,
+// else against the fill around the element. Outside, it is cut off where the parent clips its overflow.
+function checkRing(theme, chain) {
+    const focused = chain.map((el, i) => i < chain.length - 1 ? el
+        : { ...el, states: [...new Set([...el.states, 'focus-visible'])].sort() });
+    const key = theme + ' ' + describe(focused);
+    if (ringsSeen.has(key)) return;
+    ringsSeen.add(key);
+    const seen = walk(theme, focused);
+    const outline = (seen.style.outline ?? '').trim();
+    const none = !outline || /^(none|0)(\s|$)/.test(outline) || seen.style['outline-style'] === 'none';
+    const named = seen.style['outline-color'] ?? /rgba?\([^)]*\)|#[0-9a-f]{3,8}\b/i.exec(outline)?.[0];
+    const colour = named && named.toLowerCase() !== 'currentcolor' ? parseColor(named) : null;
+    const offset = parseFloat(seen.style['outline-offset'] ?? '0') || 0;
+    const covered = offset < 0 ? seen.bg : seen.around;
+    const ring = none ? null : colour ? seen.seen(colour) : seen.color;
+    const cut = !none && offset >= 0 && cascade(rules, theme, focused, focused.length - 2, tokens[theme]).overflow === 'hidden';
+    const r = ring ? ratio(ring, covered) : 0;
+    if (r < MIN_RING || cut)
+        badRings.push({ theme, element: describe(focused), ring: ring ? hex(ring) : 'none', background: hex(covered),
+            ratio: Math.round(r * 100) / 100, cut });
 }
 
 for (const theme of themes) {
@@ -388,6 +423,7 @@ for (const theme of themes) {
             const box = [...chain, { tag: null, id: null, classes: [], attrs: {}, states: [], pseudo: name }];
             if (hasText(cascade(rules, theme, box, chain.length, tokens[theme]).content)) check(theme, box, walk(theme, box));
         }
+        if (FOCUSABLE.includes(chain[chain.length - 1].tag)) checkRing(theme, chain);
         if (chain[chain.length - 1].tag === 'input') {
             const box = [...chain, { tag: null, id: null, classes: [], attrs: {}, states: [], pseudo: 'placeholder' }];
             const own = cascade(rules, theme, box, chain.length, tokens[theme]);
@@ -399,4 +435,4 @@ for (const theme of themes) {
     }
 }
 if (process.env.CONTRAST_ALL) failures.sort((a, b) => a.ratio - b.ratio);
-process.stdout.write(JSON.stringify({ pairs, themes, failures }));
+process.stdout.write(JSON.stringify({ pairs, themes, failures, rings: ringsSeen.size, badRings }));
