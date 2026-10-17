@@ -47,6 +47,13 @@ class FlakyBoardPageTest {
         await page.load('');
         """;
 
+    /** The slot of the run chip in the rows of the Cache suite, as the board finds it. */
+    private static final String SLOT = """
+        const slot = page.el('slot');
+        slot.dataset.suite = 'IgniteTests24Java8_Cache';
+        page.el('flaky').querySelectorAll = sel => sel === '.lb-live' ? [slot] : [];
+        """;
+
     /** A row's toggle, panel, message box and buttons, wired as the page wires them; the copy button starts disabled. */
     private static final String PANEL = """
         const btn = page.el('why'), row = page.el('row'), box = page.el('box'), pre = page.el('pre');
@@ -244,6 +251,81 @@ class FlakyBoardPageTest {
             + "waitedSec: 720")).contains("#13655 · queued 12m · starts ~5m");
     }
 
+    /**
+     * The board compared each poll with the last one as a whole, the re-runs of every PR included. Their times change on
+     * every poll while any run goes on ci2, so every 15 s the board was drawn again: the open "failure ▾" panel closed and
+     * the focus fell to the page. A re-run's chip is drawn in its slot; the board is drawn again only when its list
+     * changes.
+     */
+    @Test
+    void aRunningReRunUpdatesItsChipAndLeavesTheBoardAlone() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD.replace("page.route('/api/reruns', { body: [] });", """
+            let polls = 0;
+            page.route('/api/reruns', () => ({ body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13999,
+                webUrl: 'https://ci2.example/build/9500', state: 'running', pct: 40, leftSec: -1, startSec: -1,
+                waitedSec: -1, elapsedSec: 120 + 20 * polls++ }] }));
+            """).replace("await page.load('');", SLOT + "await page.load('');") + """
+            const drawn = page.el('flaky').htmlWrites, first = slot.textContent;
+            await page.tick(15000);
+            const second = slot.textContent;
+            await page.tick(15000);
+            report({ drawn, after: page.el('flaky').htmlWrites, first, second, third: slot.textContent,
+                writes: slot.htmlWrites });
+            """);
+
+        assertThat(out.get("after").asInt()).as("the board is not drawn again").isEqualTo(out.get("drawn").asInt());
+        assertThat(out.get("first").asText()).isEqualTo("#13999 · running 2m");
+        assertThat(out.get("second").asText()).isEqualTo("#13999 · running 2m");
+        assertThat(out.get("third").asText()).isEqualTo("#13999 · running 3m");
+        assertThat(out.get("writes").asInt()).as("a chip that did not change is not written again").isEqualTo(2);
+    }
+
+    /**
+     * When the list itself changes and the board is drawn again, the panel that was open opens again from the message
+     * already loaded, with no new request, and its toggle keeps the focus.
+     */
+    @Test
+    void aNewListKeepsTheOpenPanelAndTheFocus() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD + """
+            const doc = page.run('document'), board = page.el('flaky');
+            function row(n) {
+                const r = page.el('row' + n), box = page.el('box' + n), toggle = page.el('toggle' + n);
+                const pre = page.el('pre' + n), copy = page.el('copy' + n);
+                r.dataset.key = '102@IgniteTests24Java8_Cache';
+                toggle.dataset.i = '0';
+                toggle.classList.add('why', 'toggle');
+                toggle.closest = () => r;
+                box.classList.add('details', 'hidden');
+                box.querySelector = sel => sel === 'pre' ? pre : copy;
+                r.querySelector = sel => sel === '.details' ? box : sel === '.why.toggle' ? toggle : null;
+                return { r, box, toggle, pre };
+            }
+            const old = row(1), fresh = row(2);
+            board.querySelectorAll = sel => sel === '.lbrow' ? [old.r] : [];
+            board.contains = el => el === old.toggle;
+            await page.run('toggleDetails')(old.toggle, rebalance);
+            old.toggle.focus();
+            const asked = page.fetches('/api/test-details').length;
+            const write = Object.getOwnPropertyDescriptor(board, 'innerHTML').set;
+            Object.defineProperty(board, 'innerHTML', { get() { return this._html; }, set(v) {
+                write.call(this, v);
+                this.querySelectorAll = sel => sel === '.lbrow' ? [fresh.r] : [];
+            } });
+            page.route('/api/top-flaky', { body: { tracked: 5, muted: 2, prDays: 14,
+                tests: [Object.assign({}, rebalance, { masterFails: 4 }), nearReader, recent] } });
+            await page.tick(15000);
+            report({ open: !fresh.box.classList.contains('hidden'), expanded: fresh.toggle.getAttribute('aria-expanded'),
+                shown: fresh.pre.textContent, focused: doc.activeElement === fresh.toggle,
+                asked: page.fetches('/api/test-details').length - asked });
+            """);
+
+        assertThat(out.get("open").asBoolean()).isTrue();
+        assertThat(out.get("expanded").asText()).isEqualTo("true");
+        assertThat(out.get("shown").asText()).contains("java.lang.AssertionError: IGNITE-627");
+        assertThat(out.get("focused").asBoolean()).isTrue();
+        assertThat(out.get("asked").asInt()).as("no new request for the message").isZero();
+    }
+
     @Test
     void aTestThatBrokeRecentlyIsNotToldARerunMayPass() throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD + PANEL + """
@@ -341,11 +423,12 @@ class FlakyBoardPageTest {
     private static String boardWithReRun(String run) throws Exception {
         JsonNode out = PageScript.run("flaky.html", BOARD.replace("page.route('/api/reruns', { body: [] });",
             "page.route('/api/reruns', { body: [{ buildTypeId: 'IgniteTests24Java8_Cache', pr: 13655, "
-                + "webUrl: 'https://ci2.example/build/9400', " + run + " }] });") + """
-            report({ board: page.el('flaky').textContent });
+                + "webUrl: 'https://ci2.example/build/9400', " + run + " }] });").replace("await page.load('');", SLOT
+                + "await page.load('');") + """
+            report({ chip: slot.textContent });
             """);
 
-        return out.get("board").asText();
+        return out.get("chip").asText();
     }
 
     private static String rule(String css, String selector) {
