@@ -22,7 +22,7 @@ class VisaServiceTest {
         assertThat(visas.compose(42, result(List.of(), List.of(), false))).contains("(/) *No blockers*");
     }
 
-    /** PR #13421: the whole point — a red RunAll whose findings are all watch items is not an all-clear. */
+    /** PR #13421: the whole point — a red RunAll whose findings are all watch items does not read clean. */
     @Test
     void watchItemsAreNamedAndKeepTheVisaOutOfTheGreenBranch() {
         AnalysisResult r = result(List.of(), List.of(verdict(1L, "CalciteSql2: T.testJoin")), false);
@@ -30,14 +30,16 @@ class VisaServiceTest {
         String md = visas.composeMarkdown(42, r);
         assertThat(md)
             .doesNotContain("No blockers")
-            .contains("👀 **1 test started failing on this code**")
+            .contains("👀 **1 test started failing on this code** — not proven blockers yet. There are too few runs "
+                + "of this commit to tell a break from a flake. A re-run of the suite decides it.\n")
             .contains("- Calcite SQL 2 · `T.testJoin` — one run of this code")
-            .contains("⚠️ **No proven blocker yet**");
+            .contains("⚠️ **No proven blocker yet** — this does not mean the PR is clean: see the tests above. ");
 
         assertThat(visas.compose(42, r))
             .doesNotContain("No blockers")
-            .contains("(!) *1 test started failing on this code*")
-            .contains("(!) *No proven blocker yet*");
+            .contains("(!) *1 test started failing on this code* — not proven blockers yet. There are too few runs "
+                + "of this commit to tell a break from a flake. A re-run of the suite decides it.\n")
+            .contains("(!) *No proven blocker yet* — this does not mean the PR is clean: see the tests above. ");
     }
 
     /**
@@ -102,14 +104,14 @@ class VisaServiceTest {
         AnalysisResult watched = withFiltered(List.of(verdict(1L, "T.testJoin")), false, 1);
         AnalysisResult unproven = withFiltered(List.of(), true, 0);
 
-        assertThat(visas.composeMarkdown(42, clean)).endsWith("3 failing tests not blamed on this PR.\n\n"
+        assertThat(visas.composeMarkdown(42, clean)).endsWith("3 failing tests are not blamed on this PR.\n\n"
             + "<sub>What each label means and what to do: [verdict glossary](" + VisaService.GLOSSARY + ").</sub>");
-        assertThat(visas.composeMarkdown(42, watched)).contains("see the tests above. 1 failing test not blamed on this "
-            + "PR.");
-        assertThat(visas.composeMarkdown(42, unproven)).contains("can't prove the PR is clean.** 0 failing tests not "
-            + "blamed on this PR. Re-run once the above is sorted out.");
+        assertThat(visas.composeMarkdown(42, watched)).contains("see the tests above. 1 failing test is not blamed on "
+            + "this PR.");
+        assertThat(visas.composeMarkdown(42, unproven)).contains("can't prove the PR is clean.** 0 failing tests are "
+            + "not blamed on this PR. Re-run once the above is sorted out.");
         assertThat(visas.compose(42, clean)).contains("(/) *No blockers* — nothing in this run looks caused by this PR. "
-            + "3 failing tests not blamed on this PR.");
+            + "3 failing tests are not blamed on this PR.");
         for (AnalysisResult r : List.of(clean, watched, unproven))
             assertThat(visas.composeMarkdown(42, r) + visas.compose(42, r)).doesNotContain("filtered out");
     }

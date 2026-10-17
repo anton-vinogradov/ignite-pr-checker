@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
  * "Number of tests 33 is 51% less than 67 in build #1141": the page, the PR comment and the visa said the shortfall
  * twice, in TeamCity's words and as "ran 33 of master's 67 tests". TeamCity's count of the same numbers is left out,
  * and when it was all TeamCity named, the shortfall is the suite's one problem. A count of other numbers stays:
- * TeamCity compared with a run of its own choosing.
+ * TeamCity compared with a run it chose itself.
  */
 class ShortfallSaidOnceTest {
     private static final String TOK = "t";

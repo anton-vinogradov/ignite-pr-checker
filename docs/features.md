@@ -57,7 +57,7 @@ run where the test was ignored does not count as a run.
 | `could not verify (TeamCity error: …)` | A TeamCity error stopped the check. Listed under **Could not be checked**. | Nothing: it is tried again. |
 | `the N earlier runs were on other code` | Runs on an older commit don't count; they are dimmed in the strip. | — |
 | `passed just before, but TeamCity gave no commits to prove that was the same code`, `after a pass; TeamCity gave no commits to prove that was the same code` | TeamCity gave no commit for any run of the test on the branch, so the pass may have been on other code. | — |
-| the earlier words: `revision`, `run(s)`, `— watch` | A merged PR keeps the verdict it had at the merge, in the words of the release that computed it. | — |
+| `revision`, `run(s)`, `— watch` in a merged PR's verdict | A merged PR keeps the verdict it had at the merge, in the words of the checker release that computed it. | — |
 
 ### Caveats
 
@@ -88,7 +88,7 @@ and the visa.
 | `ci2 glitch: artifacts unavailable (N suites)` | ci2 could not hand these suites the artifacts of a run they need, though that run passed. | Rerun: a re-run usually gets them. |
 | `Build failed — N suites that need it did not run; fix the build, then /run-all` | The build step failed, and the suites that need it never ran. `nothing else ran` when that was the whole chain. | Fix the build, push, `/run-all` or **Run**. |
 | `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | The build passes now, but the suites that need it have no result. | `/run-all` or **Run**. |
-| `— ran 33 of master's 67 tests` (after a cause), `ran 33 of master's 67 tests` (alone), `ran fewer tests than on master` (a group) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. When TeamCity's only problem was its own count of this shortfall, the line says how far the suite got and nothing else. Several such suites, each short by its own count, share the line `ran fewer tests than on master`, and each suite keeps its own count. TeamCity's count with other numbers stays: it compared with a run of its own choosing. | — |
+| `— ran 33 of master's 67 tests` (after a cause), `ran 33 of master's 67 tests` (alone), `ran fewer tests than on master` (a group) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. When TeamCity reported nothing but its own count of this shortfall, the line says only how far the suite got. Several such suites with different counts share the line `ran fewer tests than on master`, and each suite keeps its own count. When TeamCity's count has other numbers, the line keeps it: TeamCity compared with a run it chose itself. | — |
 | anything else | The first line of TeamCity's own problem text. | Open **TC**. |
 
 ### Tags next to a test

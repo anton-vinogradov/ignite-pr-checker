@@ -168,7 +168,8 @@ public class VisaService {
             // idea whether anyone will re-run anything (a manual visa, a subscription, or auto-rerun
             // switched off). StandingVisas appends the real re-run state when there is one.
             b.append("👀 **").append(count(watch.size(), "test")).append(" started failing on this code** — not ")
-                .append("proven blockers yet: ").append(TOO_FEW_RUNS).append(", so a re-run of the suite decides it.\n");
+                .append("proven blockers yet. There are ").append(TOO_FEW_RUNS)
+                .append(". A re-run of the suite decides it.\n");
             b.append(tests.markdown(watch, true)).append('\n');
         }
 
@@ -180,7 +181,8 @@ public class VisaService {
         }
 
         if (standing == Caveats.Standing.WATCH)
-            b.append("⚠️ **No proven blocker yet** — this is not an all-clear: see the tests above. ").append(notBlamed(r));
+            b.append("⚠️ **No proven blocker yet** — this does not mean the PR is clean: see the tests above. ")
+                .append(notBlamed(r));
         else if (standing != Caveats.Standing.BLOCKERS)
             b.append("🔎 **No blockers found — but the run above can't prove the PR is clean.** ").append(notBlamed(r))
                 .append(" Re-run once the above is sorted out.");
@@ -200,9 +202,11 @@ public class VisaService {
         return count(blockers.size(), "blocker") + " in " + count((int)suites, "suite");
     }
 
-    /** "3 failing tests not blamed on this PR.": the page's name for them, in the comment and the visa too. */
+    /** "3 failing tests are not blamed on this PR.": the page's name for them, in the comment and the visa too. */
     private static String notBlamed(AnalysisResult r) {
-        return count(r.filtered().size(), "failing test") + " not blamed on this PR.";
+        int n = r.filtered().size();
+
+        return count(n, "failing test") + (n == 1 ? " is" : " are") + " not blamed on this PR.";
     }
 
     /** "1 suite", "2 suites". */
@@ -424,7 +428,8 @@ public class VisaService {
         if (!watch.isEmpty()) {
             // Never say the re-runs are under way — see composeMarkdown.
             b.append("(!) *").append(count(watch.size(), "test")).append(" started failing on this code* — not ")
-                .append("proven blockers yet: ").append(TOO_FEW_RUNS).append(", so a re-run of the suite decides it.\n");
+                .append("proven blockers yet. There are ").append(TOO_FEW_RUNS)
+                .append(". A re-run of the suite decides it.\n");
             b.append(tests.wiki(watch, true)).append('\n');
         }
 
@@ -436,7 +441,8 @@ public class VisaService {
         }
 
         if (standing == Caveats.Standing.WATCH)
-            b.append("(!) *No proven blocker yet* — this is not an all-clear: see the tests above. ").append(notBlamed(r));
+            b.append("(!) *No proven blocker yet* — this does not mean the PR is clean: see the tests above. ")
+                .append(notBlamed(r));
         else if (standing != Caveats.Standing.BLOCKERS)
             b.append("(?) *No blockers found — but the run above can't prove the PR is clean.* ").append(notBlamed(r))
                 .append(" Re-run once the above is sorted out.");

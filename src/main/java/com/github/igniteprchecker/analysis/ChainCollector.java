@@ -448,7 +448,7 @@ public class ChainCollector {
 
     /**
      * Whether a problem is TeamCity's "Number of tests 33 is 51% less than 67 in build #1141" about the same counts
-     * the suite's shortfall names. With other counts it stays: TeamCity compared with a run of its own choosing.
+     * the suite's shortfall names. With other counts it stays: TeamCity compared with a run it chose itself.
      */
     private static boolean saysTheShortfall(String problem, int tests, int master) {
         Matcher m = TESTS_COUNT_PROBLEM.matcher(problem);
