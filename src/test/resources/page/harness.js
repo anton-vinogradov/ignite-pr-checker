@@ -137,11 +137,14 @@ const ctx = {
     fetch: fakeFetch,
     setTimeout: (fn, ms) => addTimer(fn, ms, false),
     setInterval: (fn, ms) => addTimer(fn, ms, true),
+    requestAnimationFrame: fn => addTimer(fn, 16, false),
     clearTimeout: id => timers.delete(id),
     clearInterval: id => timers.delete(id),
     confirm: () => true,
     alert: () => {},
     innerWidth: 1280,
+    // An element's custom properties are what a scenario puts into its style: style['--muted'] = '#666'.
+    getComputedStyle: el => ({ getPropertyValue: name => (el.style && el.style[name]) || '' }),
     addEventListener(type, fn) { (winListeners[type] ||= []).push(fn); },
     URLSearchParams,
 };

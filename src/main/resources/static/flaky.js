@@ -3,12 +3,16 @@ watchForDeploy();
 let tcBase = '';
 let githubRepo = 'apache/ignite';
 let prDays = 14; // how far back a row's PR count goes; the server says
-let lastJson = ''; // only re-render on change, so an open failure panel isn't wiped by the poll
+let lastJson = ''; // the list as last drawn: the poll draws it again only when it changed
+const failureTexts = new Map(); // occurrenceId → the request for /api/test-details, so a redrawn panel needs no new one
+const chipsShown = new WeakMap(); // a run chip's slot → the chip drawn in it
 
 // The flaky tests first, then those broken on master: the server sends them in that order, each ranked and cut
 // to the rows asked for; `sizes` says how many each group holds ({flaky, broken}; empty from an older server).
-function render(list, reruns, sizes = {}) {
+// The panels that were open stay open, and the button that had the focus keeps it.
+function render(list, sizes = {}) {
     const el = $('flaky');
+    const kept = keptState(el);
     if (!list || !list.length) {
         el.innerHTML = '<div class="muted">No tests failing on master recorded yet. The list fills as the checker '
             + 'analyses PRs, and that needs an active login. Check back shortly.</div>';
@@ -18,7 +22,7 @@ function render(list, reruns, sizes = {}) {
     const broken = list.filter(b => b.broken);
     const group = (title, sub, rows, size) => rows.length
         ? `<div class="group-row"><h2 class="group-head">${title} (${groupCount(rows.length, size)})</h2>${columnHeads()}</div>`
-            + `<p class="group-sub">${sub}</p>` + rows.map((b, i) => flakyRow(b, i, list.indexOf(b), reruns)).join('')
+            + `<p class="group-sub">${sub}</p>` + rows.map((b, i) => flakyRow(b, i, list.indexOf(b))).join('')
         : '';
     el.innerHTML = group('Flaky on master', 'They fail some master runs and pass others. Make them stable.', flaky, sizes.flaky)
         + group('Broken on master', 'They failed their last 10 master runs in a row, or every run if there were fewer. '
@@ -26,6 +30,35 @@ function render(list, reruns, sizes = {}) {
     for (const btn of el.querySelectorAll('.why.toggle')) btn.onclick = () => toggleDetails(btn, list[+btn.dataset.i]);
     for (const btn of el.querySelectorAll('.why.ai')) btn.onclick = () => aiFlakyPrompt(btn, list[+btn.dataset.i]);
     for (const btn of el.querySelectorAll('.details .copy')) btn.onclick = () => copyDetails(btn, 'copy failure');
+    restoreState(el, list, kept);
+}
+
+// A test's row, whatever place the ranking gives it.
+function rowKey(b) {
+    return b.testId + '@' + b.suite;
+}
+
+// The rows whose failure panel is open, and the button that has the focus: its row and its kind.
+function keptState(el) {
+    const open = new Set();
+    for (const row of el.querySelectorAll('.lbrow')) {
+        const box = row.querySelector('.details');
+        if (box && !box.classList.contains('hidden')) open.add(row.dataset.key);
+    }
+    const active = document.activeElement;
+    const row = active && el.contains(active) && active.closest ? active.closest('.lbrow') : null;
+    const kind = row && ['toggle', 'ai', 'copy'].find(k => active.classList.contains(k));
+    return { open, focus: kind ? { key: row.dataset.key, kind } : null };
+}
+
+// Opens again the panels that were open, from the answers already loaded, and gives the focus back.
+function restoreState(el, list, { open, focus }) {
+    for (const row of el.querySelectorAll('.lbrow')) {
+        const toggle = row.querySelector('.why.toggle');
+        if (toggle && open.has(row.dataset.key)) toggleDetails(toggle, list[+toggle.dataset.i]);
+        const target = focus && focus.key === row.dataset.key && row.querySelector('.why.' + focus.kind);
+        if (target) target.focus();
+    }
 }
 
 // "40 of 45" when the group holds more tests than it shows.
@@ -38,7 +71,7 @@ function columnHeads() {
 }
 
 // One test in one suite: `rank` in its group, `i` its place in the list the buttons look it up in.
-function flakyRow(b, rank, i, reruns) {
+function flakyRow(b, rank, i) {
     const short = `<span title="${esc(b.name)}">${esc(shortTestName(b.name))}</span>`;
     const mf = b.masterFailures || [];
     const onMaster = tcBase && mf.length;
@@ -57,19 +90,16 @@ function flakyRow(b, rank, i, reruns) {
     const toggle = panel
         ? `<button class="why toggle" type="button" data-i="${i}" aria-expanded="false" title="${BOARD_FAILURE_CLOSED[1]}">${BOARD_FAILURE_CLOSED[0]}</button>`
         : ai;
-    // A live re-run of this suite launched through the tool (running preferred over queued).
-    const rr = (reruns || []).find(x => x.buildTypeId === b.suite);
-    const live = rr ? `<a class="live ${rr.state === 'running' ? 'running' : 'queued'}" href="${esc(rr.webUrl)}" target="_self" rel="noopener" title="This suite's re-run on TeamCity${rr.pct != null && rr.pct >= 0 ? ' · ' + esc(rr.pct) + '% complete' : ''}">#${esc(rr.pr)} · ${esc(rr.state)}${chipEta(rr)}</a>` : '';
     const prsTitle = b.prCount
         ? `This test failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}.`
         : `This test did not fail in any PR in the last ${prDays} days.`;
     // On a phone the column headings are gone, so the cell says what it counts; wide, the heading says it.
     const prsCell = b.prCount ? `${b.prCount}<small>PRs, last ${prDays} days</small>`
         : `<span class="prs-none">—</span><small>no PRs, last ${prDays} days</small>`;
-    return `<div class="lbrow">
+    return `<div class="lbrow" data-key="${esc(rowKey(b))}">
             <div class="lbhead">
                 <span class="lbrank">${rank + 1}.</span>
-                <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${toggle}${live}</span>
+                <span class="lbname"><span class="lbsuite">${esc(b.suiteName || b.suite)} · </span>${nameHtml}${toggle}<span class="lb-live" data-suite="${esc(b.suite)}"></span></span>
                 ${rateCell(b)}
                 <span class="lbcol lbcol-prs" title="${esc(prsTitle)}">${prsCell}</span>
             </div>
@@ -87,6 +117,32 @@ function rateCell(b) {
     const hot = pct >= 30 ? 'hot' : pct >= 10 ? 'warm' : '';
     return `<span class="lbcol" title="This test failed ${b.masterFails} of the last ${b.masterRuns} master runs.">`
         + `<span class="flake ${hot}">${pct}%</span><small>${b.masterFails} of ${b.masterRuns} runs</small></span>`;
+}
+
+// The chip of a live re-run of each row's suite launched through the tool, drawn in its slot on every poll: its times
+// change on every poll, and drawing the whole board again would close the open panels and drop the focus. A chip
+// already drawn is changed in place, since a link written anew loses the keyboard focus.
+function paintLiveChips(reruns) {
+    for (const slot of $('flaky').querySelectorAll('.lb-live')) {
+        const rr = (reruns || []).find(x => x.buildTypeId === slot.dataset.suite);
+        const chip = rr ? liveChip(rr) : null;
+        const key = JSON.stringify(chip);
+        if (chipsShown.get(slot) === key) continue;
+        chipsShown.set(slot, key);
+        const shown = slot.querySelector('a.live');
+        if (chip && shown) Object.assign(shown, chip);
+        else slot.innerHTML = chip ? `<a class="${chip.className}" href="${esc(chip.href)}" target="_self" rel="noopener" title="${esc(chip.title)}">${esc(chip.textContent)}</a>` : '';
+    }
+}
+
+// The chip of a suite's live re-run: the properties of its link.
+function liveChip(rr) {
+    return {
+        className: 'live ' + (rr.state === 'running' ? 'running' : 'queued'),
+        href: rr.webUrl ?? '',
+        title: 'Open this suite\'s re-run in TeamCity.' + (rr.pct != null && rr.pct >= 0 ? ' The re-run is ' + rr.pct + '% complete.' : ''),
+        textContent: `#${rr.pr} · ${rr.state}${chipEta(rr)}`,
+    };
 }
 
 // The board's panel also holds the test's older failed master runs, so its toggle names them, unlike the PR page's.
@@ -201,26 +257,44 @@ async function loadFailure(box, b) {
     if (!pre || pre.dataset.loaded) return;
     pre.textContent = 'loading…';
     try {
-        const r = await fetch('/api/test-details?occ=' + encodeURIComponent(b.occurrenceId), { cache: 'no-store' });
-        if (r.status === 401) {
+        const answer = await failureText(b.occurrenceId);
+        if (!answer) {
             pre.textContent = 'Log in on the main page to see the failure message. Without a login, the AI prompt still '
                 + 'works, but it has no failure message.';
             return;
         }
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const { details, kind } = await r.json().catch(() => ({ details: '' }));
-        const label = details ? kindLabel(kind, failedEveryMasterRun(b)) : null;
-        pre.dataset.raw = details || '';
-        pre.textContent = details && details.trim()
-            ? (label ? label + '\n\n' : '') + details
-            : '(no failure message available)';
-        pre.dataset.loaded = '1';
-        box.querySelector('.copy').disabled = false;
+        showFailure(box, b, answer);
     } catch (e) {
         pre.innerHTML = '<span class="err">Could not load the failure message.</span>'
             + '<button class="why retry" type="button" title="Load the failure message again.">Retry</button>';
         pre.querySelector('.retry').onclick = () => loadFailure(box, b);
     }
+}
+
+// The answer of /api/test-details for an occurrence, or null without a login. A panel drawn again while the request
+// runs waits for the same request. A refused or failed request is not kept, so the next opening asks again.
+function failureText(occ) {
+    if (!failureTexts.has(occ)) {
+        const asked = fetch('/api/test-details?occ=' + encodeURIComponent(occ), { cache: 'no-store' }).then(r => {
+            if (r.status === 401) return null;
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json().catch(() => ({ details: '' }));
+        });
+        failureTexts.set(occ, asked);
+        asked.then(answer => answer || failureTexts.delete(occ), () => failureTexts.delete(occ));
+    }
+    return failureTexts.get(occ);
+}
+
+function showFailure(box, b, { details, kind }) {
+    const pre = box.querySelector('pre');
+    const label = details ? kindLabel(kind, failedEveryMasterRun(b)) : null;
+    pre.dataset.raw = details || '';
+    pre.textContent = details && details.trim()
+        ? (label ? label + '\n\n' : '') + details
+        : '(no failure message available)';
+    pre.dataset.loaded = '1';
+    box.querySelector('.copy').disabled = false;
 }
 
 async function tick() {
@@ -234,8 +308,9 @@ async function tick() {
         const reruns = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
         $('err').textContent = '';
         const sizes = { flaky: data.flakyCount, broken: data.brokenCount };
-        const json = JSON.stringify({ list, reruns, sizes });
-        if (json !== lastJson) { render(list, reruns, sizes); lastJson = json; }
+        const json = JSON.stringify({ list, sizes, prDays });
+        if (json !== lastJson) { render(list, sizes); lastJson = json; }
+        paintLiveChips(reruns);
         $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
     } catch (e) {
         // A failed poll with data already on screen is usually a redeploy/restart blip: stay calm,

@@ -62,7 +62,7 @@
         .loglist { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-family: ui-monospace, monospace; }
         .logrow { display: grid; grid-template-columns: 62px 46px 130px 1fr; gap: 0.5rem; align-items: baseline; }
         .logsep { color: var(--muted); font-size: 0.75rem; margin: 0.3rem 0; }
-        .logrow.client { opacity: 0.55; }
+        .logrow.client, .logrow.client > * { color: var(--muted); }
         .logtime { color: var(--muted); }
         .loglevel { font-weight: 600; }
         .lvl-error { color: var(--bad); }
@@ -77,6 +77,11 @@
 
         @media (max-width: 768px) {
             .wrap { padding: 0 0.75rem; }
+            /* The logger takes a line of its own under the message, so the message gets the logger's column. The
+               lines of one entry stand closer than two entries, so the logger reads as part of its own entry. */
+            .loglist { gap: 0.6rem; }
+            .logrow { grid-template-columns: 62px 46px 1fr; row-gap: 0.1rem; }
+            .loglogger { grid-column: 1 / -1; grid-row: 2; }
         }
     </style>
 </head>

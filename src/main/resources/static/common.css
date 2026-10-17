@@ -39,11 +39,17 @@ html[data-theme="terminal"] {
 body { font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); }
 html[data-theme="terminal"] body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .hidden { display: none !important; }
+/* Read out by screen readers, not shown. */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .muted { color: var(--muted); }
 .err { color: var(--bad); }
+/* The pulse goes from the muted colour to the text colour: faded, the text would drop under 4.5:1. */
 .busy { color: var(--muted); animation: busy 1.4s ease-in-out infinite; }
-@keyframes busy { 50% { opacity: 0.55; } }
+@keyframes busy { 50% { color: var(--fg); } }
 @media (prefers-reduced-motion: reduce) { .busy { animation: none; } }
+
+/* The keyboard's focus: a ring in the accent colour, off the element's edge, so no fill hides it. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 a { color: var(--accent); }
 /* A link that stands in running text or after a test name: no box, but room to hit. */
@@ -57,6 +63,8 @@ button:hover { border-color: var(--line-strong); }
 button.primary { background: var(--primary-bg); color: var(--on-primary); border-color: var(--primary-bg); }
 button:disabled { opacity: 0.5; cursor: default; }
 input { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--input-bg); color: var(--fg); }
+/* Chrome's own grey is under 4.5:1 on the dark fields, and Firefox fades a placeholder unless told otherwise. */
+::placeholder { color: var(--muted); opacity: 1; }
 .act, .why, .suite-rerun { flex: none; font-size: 0.72rem; font-weight: 500; padding: 0.12rem 0.5rem; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--btn-bg); color: var(--fg); cursor: pointer; white-space: nowrap; vertical-align: middle; }
 .act:not(:disabled):hover, .why:not(:disabled):hover, .suite-rerun:not(:disabled):hover { background: var(--btn-hover); border-color: var(--line-strong); }
 .act:disabled, .suite-rerun:disabled { opacity: 0.5; cursor: default; }
@@ -71,6 +79,9 @@ button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--acc
 .tabs .act + .act { border-left: 1px solid var(--line); }
 .tabs .act:not(.on):hover { color: var(--fg); background: var(--fill); }
 .tabs .act.on, .tabs .act.on:hover { background: var(--accent); color: var(--on-accent); }
+/* .tabs clips what sticks out of it, so a tab's ring goes inside; on the filled tab it takes the colour of its text. */
+.tabs .act:focus-visible { outline-offset: -2px; }
+.tabs .act.on:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
 
 .tag, .tag-doubt, .tag-flaky { font-size: 0.7rem; padding: 0.05rem 0.45em; border-radius: var(--radius-tag); background: var(--fill); color: var(--muted); vertical-align: middle; white-space: nowrap; }
 .tag[title], .tag-doubt[title], .tag-flaky[title] { cursor: help; }
@@ -87,6 +98,7 @@ button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--acc
 /* The one accented thing in the bar: the update buttons, there only while there is something to update. */
 .update-btn { display: inline-flex; align-items: center; font: inherit; font-size: 0.85rem; color: var(--on-accent); background: var(--accent); border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.3rem 0.7rem; text-decoration: none; white-space: nowrap; cursor: pointer; }
 .update-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.update-btn:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
 .update-notes { font-size: 0.8rem; white-space: nowrap; }
 .star-btn { display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; color: var(--fg); font-size: 0.85rem; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.25rem 0.55rem; background: var(--btn-bg); }
 .star-btn:hover { border-color: var(--line-strong); }
@@ -94,7 +106,7 @@ button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--acc
 .star-ico { fill: none; stroke: var(--muted); stroke-width: 1.3; flex: none; }
 .star-count { color: var(--muted); }
 .star-count:empty { display: none; }
-.theme-sel { font: inherit; font-size: 0.85rem; padding: 0.2rem 0.1rem; border: none; border-radius: var(--radius); background: transparent; color: var(--fg); cursor: pointer; }
+.theme-sel { font: inherit; font-size: 0.85rem; padding: 0.2rem 0.1rem; border: none; border-radius: var(--radius); background: var(--bg); color: var(--fg); cursor: pointer; }
 .theme-sel:hover, .theme-sel:focus-visible { color: var(--accent); }
 .session { font-size: 0.85rem; white-space: nowrap; }
 .settings-btn { font-size: 1.15rem; line-height: 1; padding: 0.14rem 0.45rem; }
@@ -104,7 +116,9 @@ html[data-theme="terminal"] .act, html[data-theme="terminal"] .why, html[data-th
 html[data-theme="terminal"] .act::before, html[data-theme="terminal"] .why::before, html[data-theme="terminal"] .suite-rerun::before, html[data-theme="terminal"] .cancel::before, html[data-theme="terminal"] .mini-btn::before { content: "["; color: var(--muted); }
 html[data-theme="terminal"] .act::after, html[data-theme="terminal"] .why::after, html[data-theme="terminal"] .suite-rerun::after, html[data-theme="terminal"] .cancel::after, html[data-theme="terminal"] .mini-btn::after { content: "]"; color: var(--muted); }
 html[data-theme="terminal"] .act:not(:disabled):hover, html[data-theme="terminal"] .why:not(:disabled):hover, html[data-theme="terminal"] .suite-rerun:not(:disabled):hover, html[data-theme="terminal"] .cancel:hover, html[data-theme="terminal"] .mini-btn:hover { text-decoration: underline; background: transparent; }
-html[data-theme="terminal"] .tabs { border: none; }
+html[data-theme="terminal"] .tabs { border: none; overflow: visible; }
+/* A Terminal tab has no padding: a ring inside would cross its letters, so it goes just outside, in the text colour. */
+html[data-theme="terminal"] .tabs .act:focus-visible { outline-color: var(--fg); outline-offset: 1px; }
 html[data-theme="terminal"] .tabs .act + .act { border-left: none; }
 /* terminal switcher idiom: inverse video for the selected tab (mc/htop style); the others stay muted */
 html[data-theme="terminal"] .tabs .act:not(.on)::before, html[data-theme="terminal"] .tabs .act:not(.on)::after { color: var(--muted); }

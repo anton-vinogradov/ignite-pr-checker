@@ -7,6 +7,15 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// A button disabled while its request runs drops the keyboard focus to the page. The returned function gives the focus
+// back once the button is enabled again, unless the focus has moved on meanwhile.
+function keepFocus(btn) {
+    const had = document.activeElement === btn;
+    return () => {
+        if (had && (!document.activeElement || document.activeElement === document.body)) btn.focus();
+    };
+}
+
 // "· ~18m" (time to finish) or "· starts ~12m" (queued, only the start is predictable).
 function chipEta(b) {
     // An estimate says when a run ends; the elapsed/waited part says what it has cost so far —

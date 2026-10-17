@@ -45,7 +45,10 @@ class PrListPageTest {
             .contains("<li><span></span><span>no badge — no verdict yet</span></li>");
     }
 
-    /** The filter, the head and the visa read the title from data-title and the link's title, which keep the key. */
+    /**
+     * The filter, the head and the visa read the title from data-title and the link's title, which keep the key. The
+     * title of PR 13640 starts with a space, and its key stood on the second line.
+     */
     @Test
     void theTicketKeyStandsByTheNumberAndTheTitleStartsWithItsOwnWords() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
@@ -57,25 +60,32 @@ class PrListPageTest {
                 { number: 13601, title: 'IGNITE-29100', url: 'https://github.com/apache/ignite/pull/13601',
                     triggeredBy: null, blockers: null },
                 { number: 13602, title: 'IGNITE-29101, IGNITE-29102: Two tickets', url: 'https://github.com/apache/ignite/pull/13602',
-                    triggeredBy: null, blockers: 0, proven: true }] });
+                    triggeredBy: null, blockers: 0, proven: true },
+                { number: 13640, title: ' IGNITE-29079 Implemented relaying', url: 'https://github.com/apache/ignite/pull/13640',
+                    triggeredBy: null, blockers: null }] });
             await page.load('');
             report({ html: page.el('prList').innerHTML });
             """);
 
         String html = out.get("html").asText();
         assertThat(html)
-            .contains("<span class=\"pr-num\">#13575</span><span class=\"pr-key\">IGNITE-29049</span><span class=\"pr-badge "
-                + "bad\" title=\"1 blocker\">1</span><span class=\"my-tag\" title=\"You started its latest RunAll. The PR "
-                + "may be someone else's.\">my run</span>")
+            .contains("<span class=\"pr-num\">#13575</span> <span class=\"pr-key\">IGNITE-29049</span>"
+                + "<span class=\"pr-badge bad\" title=\"1 blocker\" role=\"img\" aria-label=\"1 blocker\">1</span>"
+                + "<span class=\"my-tag\" "
+                + "title=\"You started its latest RunAll. The PR may be someone else's.\">my run</span>")
             .contains("<span class=\"pr-ttl\">Move MDC to JUnit</span>")
             .contains("data-title=\"IGNITE-29049: Move MDC to JUnit\"")
             .contains("title=\"IGNITE-29049: Move MDC to JUnit\"")
             .contains("<span class=\"pr-num\">#13600</span><span class=\"pr-badge ok\"")
             .contains("<span class=\"pr-ttl\">Fix a typo in the README</span>")
-            .contains("<span class=\"pr-num\">#13601</span><span class=\"pr-key\">IGNITE-29100</span><span class=\"my-tag\"")
+            .contains("<span class=\"pr-num\">#13601</span> <span class=\"pr-key\">IGNITE-29100</span>"
+                + "<span class=\"my-tag\"")
             .contains("<span class=\"pr-ttl\">IGNITE-29100</span>")
-            .contains("<span class=\"pr-num\">#13602</span><span class=\"pr-key\">IGNITE-29101</span>")
+            .contains("<span class=\"pr-num\">#13602</span> <span class=\"pr-key\">IGNITE-29101</span>")
             .contains("<span class=\"pr-ttl\">IGNITE-29102: Two tickets</span>")
+            .contains("<span class=\"pr-num\">#13640</span> <span class=\"pr-key\">IGNITE-29079</span>")
+            .contains("<span class=\"pr-ttl\">Implemented relaying</span>")
+            .contains("data-title=\" IGNITE-29079 Implemented relaying\"")
             .doesNotContain("My?", "blocker(s)", "<span class=\"pr-ttl\">, IGNITE");
     }
 
@@ -138,13 +148,16 @@ class PrListPageTest {
         assertThat(out.get("unproven").asText()).isEqualTo("No blockers found, but the run can't prove the PR clean: "
             + "it was interrupted, suites broke or ran far fewer tests than on master, failed tests could not be "
             + "checked, or a newer run is still going.");
-        assertThat(out.get("one").asText()).isEqualTo("<span class=\"pr-badge bad\" title=\"1 blocker\">1</span>");
-        assertThat(out.get("many").asText()).isEqualTo("<span class=\"pr-badge bad\" title=\"33 blockers\">33</span>");
+        assertThat(out.get("one").asText()).startsWith("<span class=\"pr-badge bad\" title=\"1 blocker\"")
+            .endsWith(">1</span>");
+        assertThat(out.get("many").asText()).startsWith("<span class=\"pr-badge bad\" title=\"33 blockers\"")
+            .endsWith(">33</span>");
         assertThat(out.get("old").asText())
-            .isEqualTo("<span class=\"pr-badge unproven\" title=\"No blockers found, but commits were pushed after this "
-                + "run.\">?</span>");
+            .startsWith("<span class=\"pr-badge unproven\" title=\"No blockers found, but commits were pushed after this "
+                + "run.\"").endsWith(">?</span>");
         assertThat(out.get("proven").asText())
-            .isEqualTo("<span class=\"pr-badge ok\" title=\"A clean run of the PR&#39;s current code.\">✓</span>");
+            .startsWith("<span class=\"pr-badge ok\" title=\"A clean run of the PR&#39;s current code.\"")
+            .endsWith(">✓</span>");
     }
 
     /** The "?" by the heading said what it explains but not that it leaves the page for the docs on GitHub. */
@@ -154,7 +167,11 @@ class PrListPageTest {
             + "rel=\"noopener\" title=\"Opens the verdict glossary on GitHub. It says what each badge means.\"");
     }
 
-    /** "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a test. */
+    /**
+     * "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a
+     * test. Each row of the legend had a grid of its own, so the text after "my run" began 25 px right of the text
+     * after "✓": the rows share the list's columns.
+     */
     @Test
     void theUnprovenBadgeIsAmberAndTheTagAPlate() throws IOException {
         String css = Files.readString(PAGE, UTF_8);
@@ -164,7 +181,8 @@ class PrListPageTest {
         assertThat(rule(css, ".my-tag")).contains("background: var(--fill)", "color: var(--muted)", "cursor: help")
             .doesNotContain("border:");
         assertThat(rule(css, ".pr-key")).contains("color: var(--muted)", "font-family: ui-monospace, monospace");
-        assertThat(rule(css, ".pr-legend li")).contains("grid-template-columns: max-content 1fr");
+        assertThat(rule(css, ".pr-legend ul")).contains("display: grid", "grid-template-columns: max-content 1fr");
+        assertThat(rule(css, ".pr-legend li")).contains("grid-column: 1 / -1", "grid-template-columns: subgrid");
         assertThat(css).doesNotContain(".my-tag::before");
     }
 

@@ -11,9 +11,11 @@ function fmtDur(s) {
     return `${s}s`;
 }
 
-// `sub` breaks only between its " · " chunks; `title` explains the card on hover.
+// `sub` breaks only between its " · " chunks, and each dot ends the chunk before it: next to an inline-block the
+// browser may break the line on either side of a dot that stands between them. `title` explains the card on hover.
 function card(k, v, sub, cls, title) {
-    const chunks = String(sub || '').split(' · ').map(c => `<span class="seg">${c}</span>`).join(' · ');
+    const parts = String(sub || '').split(' · ');
+    const chunks = parts.map((c, i) => `<span class="seg">${c}${i < parts.length - 1 ? '\u00a0·' : ''}</span>`).join(' ');
     return `<div class="card"${title ? ` title="${esc(title)}"` : ''}><div class="k">${k}</div>`
         + `<div class="v ${cls || ''}">${v}${sub ? ` <small>${chunks}</small>` : ''}</div></div>`;
 }
@@ -364,22 +366,45 @@ function renderCats(el, byCategory) {
     }).join('');
 }
 
-// The categories TcClient records its calls under. A category's colour follows its name, so it keeps the colour from
-// hour to hour whatever else is on the chart; a name not listed here still gets one of its own.
-const TC_CATEGORIES = ['baseline', 'branchFailures', 'branchMoves', 'branchRuns', 'buildState', 'cancel', 'chainEta',
-    'deps', 'details', 'failedTests', 'findBuild', 'finishedChains', 'history', 'masterFail', 'otherBranchRuns',
-    'prRuns', 'prTests', 'queueTop', 'recentChains', 'revision', 'runningChains', 'suiteRun', 'trigger', 'userBuilds',
-    'whoami'];
+// The categories TcClient records its calls under, each with its colour on the light card and on the dark ones. A
+// script picked the colours: any two of a theme differ by a CIEDE2000 distance of 16.9 or more, each stands at 3:1 or
+// more against its cards, and the most frequent categories got the colours picked first, which lie farthest apart. A
+// category keeps its colour from hour to hour, whatever else is on the chart.
+const CATEGORY_COLOURS = {
+    baseline: ['#877800', '#4bf0d2'],
+    branchFailures: ['#4b4b3c', '#699678'],
+    branchMoves: ['#9687d2', '#e1d200'],
+    branchRuns: ['#879687', '#968796'],
+    buildState: ['#876969', '#c3d2ff'],
+    cancel: ['#ff00f0', '#ffa5a5'],
+    chainEta: ['#00785a', '#e100ff'],
+    deps: ['#a5000f', '#ff2d4b'],
+    details: ['#874b00', '#87960f'],
+    failedTests: ['#00a500', '#00ff00'],
+    findBuild: ['#0096c3', '#2dd2ff'],
+    finishedChains: ['#1e00ff', '#b4d296'],
+    history: ['#e1781e', '#c37800'],
+    masterFail: ['#006978', '#0096a5'],
+    otherBranchRuns: ['#ff0000', '#968769'],
+    prRuns: ['#962d96', '#ff96f0'],
+    prTests: ['#c31e5a', '#d25a96'],
+    queueTop: ['#2d5a00', '#ff5a0f'],
+    recentChains: ['#0f4b87', '#6978ff'],
+    revision: ['#2d69ff', '#ffb469'],
+    runningChains: ['#00a596', '#00b42d'],
+    suiteRun: ['#5a4b69', '#0096e1'],
+    trigger: ['#a58769', '#c3e1e1'],
+    userBuilds: ['#ff5a78', '#e1d2c3'],
+    whoami: ['#b46996', '#b47869'],
+};
+const TC_CATEGORIES = Object.keys(CATEGORY_COLOURS);
 
-// Hues a golden angle apart, so neighbours in the list are far apart on the wheel; two lightnesses tell near hues apart.
-// The lightnesses follow the theme: dark bars on the light card, light bars on a dark one, every hue at 3:1 or more.
+// A name not listed above gets a hue of its own from its name, a golden angle per step.
 function catColor(name) {
-    let i = TC_CATEGORIES.indexOf(name);
-    if (i < 0) {
-        i = TC_CATEGORIES.length;
-        for (const ch of String(name)) i = (i * 31 + ch.charCodeAt(0)) % 997;
-    }
     const onLight = document.documentElement.getAttribute('data-theme') === 'light';
+    if (Object.hasOwn(CATEGORY_COLOURS, name)) return CATEGORY_COLOURS[name][onLight ? 0 : 1];
+    let i = TC_CATEGORIES.length;
+    for (const ch of String(name)) i = (i * 31 + ch.charCodeAt(0)) % 997;
     return `hsl(${Math.round(i * 137.508) % 360}, 60%, ${(onLight ? 28 : 58) + (i % 2 ? 10 : 0)}%)`;
 }
 
@@ -400,10 +425,11 @@ function drawStacked(canvas, legendEl, byCat) {
     const max = Math.max(1, ...totals);
 
     ctx.font = '10px system-ui';
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
     for (let k = 0; k <= 4; k++) {
         const y = pad.t + ch - (ch * k / 4);
         ctx.strokeStyle = 'rgba(128,128,128,0.18)'; ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(cssW - pad.r, y); ctx.stroke();
-        ctx.fillStyle = '#999'; ctx.fillText(Math.round(max * k / 4), 2, y + 3);
+        ctx.fillStyle = muted; ctx.fillText(Math.round(max * k / 4), 2, y + 3);
     }
 
     const bw = cw / N;
@@ -418,7 +444,7 @@ function drawStacked(canvas, legendEl, byCat) {
             yTop -= h;
         });
     }
-    ctx.fillStyle = '#999'; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
+    ctx.fillStyle = muted; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
     legendEl.innerHTML = cats.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('');
 }
 
@@ -488,16 +514,19 @@ $('tabUsers').addEventListener('click', () => setStatusTab(true));
 $('restartBtn').addEventListener('click', async () => {
     if (!confirm('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped (caches are saved).')) return;
     const btn = $('restartBtn'), msg = $('restartMsg');
+    const refocus = keepFocus(btn);
     btn.disabled = true;
     msg.textContent = 'restarting…';
     let accepted = false;
     try {
         const r = await fetch('/api/restart', { method: 'POST' });
-        if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; return; }
-        if (r.status === 403 || r.status === 429) { msg.textContent = await errorText(r); btn.disabled = false; return; }
+        if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; refocus(); return; }
+        if (r.status === 403 || r.status === 429) {
+            msg.textContent = await errorText(r); btn.disabled = false; refocus(); return;
+        }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         accepted = true;
-    } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; }
+    } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; refocus(); }
     if (!accepted) return;
     const t0 = Date.now();
     const timer = setInterval(async () => {
@@ -512,6 +541,7 @@ $('restartBtn').addEventListener('click', async () => {
 $('flushBtn').addEventListener('click', async () => {
     if (!confirm('Clear cached analysis results and per-test history?\nThe next analysis will recompute from scratch (extra TeamCity load).')) return;
     const btn = $('flushBtn'), msg = $('flushMsg');
+    const refocus = keepFocus(btn);
     btn.disabled = true; msg.textContent = 'flushing…';
     try {
         const r = await fetch('/api/flush-caches', { method: 'POST', cache: 'no-store' });
@@ -525,6 +555,7 @@ $('flushBtn').addEventListener('click', async () => {
         msg.textContent = 'flush failed: ' + e.message;
     } finally {
         btn.disabled = false;
+        refocus();
     }
 });
 
