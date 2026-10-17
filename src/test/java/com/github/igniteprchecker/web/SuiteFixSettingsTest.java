@@ -103,9 +103,9 @@ class SuiteFixSettingsTest {
             """, "card", "suiteFixCard");
 
         assertThat(cards.get("idle").asText()).contains("Tests added to suites");
-        assertThat(cards.get("idle").asText().replaceAll("<[^>]+>", ""))
+        assertThat(cards.get("idle").asText().replaceAll("<[^>]+>", "").replace('\u00a0', ' '))
             .contains("0 commits · 0 users with the option on · sweep never");
-        assertThat(cards.get("busy").asText().replaceAll("<[^>]+>", ""))
+        assertThat(cards.get("busy").asText().replaceAll("<[^>]+>", "").replace('\u00a0', ' '))
             .contains("3 commits · 2 users with the option on · sweep 2m ago");
         assertThat(cards.get("old").asText()).isEmpty();
     }
@@ -124,10 +124,10 @@ class SuiteFixSettingsTest {
             "title=\"The last sweep did not act for one user with the option on. The reason is one of these:"
                 + " TeamCity or GitHub refuses their token, a GitHub account or token is missing, or they switched the"
                 + " option on after the sweep.\"");
-        assertThat(cards.get("paused").asText().replaceAll("<[^>]+>", ""))
+        assertThat(cards.get("paused").asText().replaceAll("<[^>]+>", "").replace('\u00a0', ' '))
             .contains("1 commit · 3 users with the option on · 1 paused · sweep 2m ago");
         assertThat(cards.get("acting").asText()).doesNotContain("paused", "warn", "title=");
-        assertThat(cards.get("starting").asText().replaceAll("<[^>]+>", ""))
+        assertThat(cards.get("starting").asText().replaceAll("<[^>]+>", "").replace('\u00a0', ' '))
             .contains("0 commits · 1 user with the option on · sweep never").doesNotContain("paused");
     }
 

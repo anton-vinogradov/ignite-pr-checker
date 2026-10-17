@@ -29,7 +29,7 @@ class AppAccountCardTest {
             + FINE + " }));").asText();
 
         assertThat(card).contains("App account", "@ignite-pr-checker", "class=\"v ok\"");
-        assertThat(card.replaceAll("<[^>]+>", ""))
+        assertThat(card.replaceAll("<[^>]+>", "").replace('\u00a0', ' '))
             .contains("classic token, scopes: public_repo · expires on 2027-01-12 · cannot push to apache/ignite");
     }
 

@@ -244,7 +244,11 @@ class StatusPageTest {
             + out.get("byTheme").get("terminal").get(cats.indexOf("history")).asText() + "\"></span>history</span>");
     }
 
-    /** A label breaks only between its " · " chunks, so a number keeps its unit; a legend item keeps its square. */
+    /**
+     * A label breaks only between its " · " chunks, so a number keeps its unit; a legend item keeps its square. The
+     * dot stood between the chunks, and the browser broke the line before it: "· sweep never" began a line of the
+     * Tests added to suites card. The dot ends the chunk before it, after a no-break space.
+     */
     @Test
     void aCardLabelBreaksOnlyBetweenItsChunks() throws Exception {
         String card = run("out(card('Heap', 45, '/ 494 MB · old-gen peak 28 MB', 'ok', 'Whole heap in use now.'));")
@@ -252,8 +256,13 @@ class StatusPageTest {
         String css = Files.readString(PAGE, UTF_8);
 
         assertThat(card).isEqualTo("<div class=\"card\" title=\"Whole heap in use now.\"><div class=\"k\">Heap</div>"
-            + "<div class=\"v ok\">45 <small><span class=\"seg\">/ 494 MB</span> · <span class=\"seg\">old-gen peak 28 MB"
-            + "</span></small></div></div>");
+            + "<div class=\"v ok\">45 <small><span class=\"seg\">/ 494 MB\u00a0·</span> <span class=\"seg\">old-gen peak "
+            + "28 MB</span></small></div></div>");
+        String three = run("out(card('Tests added to suites', 0, 'commits · 0 users with the option on · sweep never'));")
+            .asText();
+        assertThat(three).contains("<span class=\"seg\">commits\u00a0·</span> <span class=\"seg\">0 users with the "
+            + "option on\u00a0·</span> <span class=\"seg\">sweep never</span>");
+        assertThat(three.replaceAll("<span class=\"seg\">[^<]*</span>", "")).doesNotContain("·");
         assertThat(rule(css, ".card .v small .seg")).contains("display: inline-block", "max-width: 100%");
         assertThat(rule(css, ".legend > span")).contains("white-space: nowrap");
         assertThat(css).doesNotContain(".legend span {");
@@ -273,7 +282,7 @@ class StatusPageTest {
             report({ cards: page.el('watcherCards').textContent, system: page.el('systemCards').innerHTML });
             """);
 
-        assertThat(out.get("cards").asText())
+        assertThat(out.get("cards").asText().replace('\u00a0', ' '))
             .contains("Auto visas armed1 2 posted · last 3m ago")
             .contains("Standing options7 users with an option on · 5 JIRA visas posted · sweep 2m ago (9.2s)")
             .contains("Tests added to suites2 commits · 1 user with the option on · sweep 2m ago")
@@ -281,8 +290,8 @@ class StatusPageTest {
         assertThat(out.get("system").asText()).contains("<div class=\"card\" title=\"The first number is the whole "
             + "heap in use now. Old-gen peak is the most the old generation has held since the server started. Set "
             + "-Xmx large enough to hold this peak.\"><div class=\"k\">Heap</div>"
-            + "<div class=\"v ok\">120 <small><span class=\"seg\">/ 512 MB</span> · <span class=\"seg\">old-gen peak 28 MB"
-            + "</span></small></div></div>");
+            + "<div class=\"v ok\">120 <small><span class=\"seg\">/ 512 MB\u00a0·</span> <span class=\"seg\">old-gen peak "
+            + "28 MB</span></small></div></div>");
         assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " "))
             .contains("<h2>TC watcher <span class=\"muted\" style=\"font-weight:400;font-size:0.8rem\">· checks the RunAlls "
                 + "and suite re-runs of PRs every 20 s. When one ends, it recomputes the verdict at once and starts what "

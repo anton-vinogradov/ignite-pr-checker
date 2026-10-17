@@ -11,9 +11,11 @@ function fmtDur(s) {
     return `${s}s`;
 }
 
-// `sub` breaks only between its " · " chunks; `title` explains the card on hover.
+// `sub` breaks only between its " · " chunks, and each dot ends the chunk before it: next to an inline-block the
+// browser may break the line on either side of a dot that stands between them. `title` explains the card on hover.
 function card(k, v, sub, cls, title) {
-    const chunks = String(sub || '').split(' · ').map(c => `<span class="seg">${c}</span>`).join(' · ');
+    const parts = String(sub || '').split(' · ');
+    const chunks = parts.map((c, i) => `<span class="seg">${c}${i < parts.length - 1 ? '\u00a0·' : ''}</span>`).join(' ');
     return `<div class="card"${title ? ` title="${esc(title)}"` : ''}><div class="k">${k}</div>`
         + `<div class="v ${cls || ''}">${v}${sub ? ` <small>${chunks}</small>` : ''}</div></div>`;
 }
