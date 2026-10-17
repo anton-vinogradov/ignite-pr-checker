@@ -13,6 +13,7 @@ import com.github.igniteprchecker.github.GithubClient;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -137,27 +138,27 @@ public class VisaService {
         }
 
         Broken broken = Broken.of(r, caveats);
-        broken.roots().forEach(g -> b.append("🛑 **").append(g.title()).append("**\n")
-            .append(rootLines(g)).append('\n'));
+        broken.roots().forEach(g -> b.append("🛑 **").append(Markup.text(g.title())).append("**\n")
+            .append(rootLines(g, Markup::text)).append('\n'));
         if (broken.allSaid(r))
             return b.toString().stripTrailing();
 
         if (!broken.caveats().isEmpty()) {
             b.append("⚠️ **This run doesn't cover the PR fully:**\n");
-            broken.caveats().forEach(c -> b.append("- ").append(c).append('\n'));
+            broken.caveats().forEach(c -> b.append("- ").append(Markup.text(c)).append('\n'));
             b.append("\nEverything below is what it did manage to say.\n\n");
         }
 
         if (!broken.others().isEmpty()) {
             b.append("⚠️ **Broken suites** (no reliable run):\n");
-            broken.others().forEach(g -> b.append("- ").append(groupLine(g)).append('\n'));
+            broken.others().forEach(g -> b.append("- ").append(Markup.text(groupLine(g))).append('\n'));
             b.append('\n');
         }
 
         if (!r.shrunkSuites().isEmpty()) {
             b.append("🔍 **").append(count(r.shrunkSuites().size(), "suite"))
                 .append(" ran fewer tests than on master** (tests that never ran can't fail):\n");
-            r.shrunkSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
+            r.shrunkSuites().forEach(s -> b.append("- ").append(Markup.text(s.suiteName())).append(": ")
                 .append(s.tests()).append(" tests vs ").append(s.baseline())
                 .append(" on master (**−").append(s.dropPct()).append("%**)\n"));
             b.append('\n');
@@ -307,15 +308,15 @@ public class VisaService {
 
     /**
      * Under a failed run the others need: what it failed with while it stays broken, and the suites it kept from
-     * running, in one line.
+     * running, in one line; TeamCity's words go through {@code text}, the markup's escape.
      */
-    private static String rootLines(BrokenGroup g) {
+    private static String rootLines(BrokenGroup g, UnaryOperator<String> text) {
         List<String> victims = Stream.concat(
             g.suites().stream().map(s -> BrokenGroup.nameOf(s.suiteName(), s.suite())),
             g.cancelled().stream().map(c -> BrokenGroup.nameOf(c.suiteName(), c.suite()))).toList();
 
-        return (g.root() == null ? "" : "- " + suiteLine(g.root()) + "\n")
-            + (victims.isEmpty() ? "" : "- Did not run: " + names(victims) + "\n");
+        return (g.root() == null ? "" : "- " + text.apply(suiteLine(g.root())) + "\n")
+            + (victims.isEmpty() ? "" : "- Did not run: " + text.apply(names(victims)) + "\n");
     }
 
     /** One line for a group of broken suites: its cause and the suites it holds. */
@@ -399,27 +400,27 @@ public class VisaService {
         }
 
         Broken broken = Broken.of(r, caveats);
-        broken.roots().forEach(g -> b.append("(x) *").append(g.title()).append("*\n")
-            .append(rootLines(g)).append('\n'));
+        broken.roots().forEach(g -> b.append("(x) *").append(Markup.wikiText(g.title())).append("*\n")
+            .append(rootLines(g, Markup::wikiText)).append('\n'));
         if (broken.allSaid(r))
             return b.toString().stripTrailing();
 
         if (!broken.caveats().isEmpty()) {
             b.append("(!) *This run doesn't cover the PR fully:*\n");
-            broken.caveats().forEach(c -> b.append("- ").append(c).append('\n'));
+            broken.caveats().forEach(c -> b.append("- ").append(Markup.wikiText(c)).append('\n'));
             b.append("\nEverything below is what it did manage to say.\n\n");
         }
 
         if (!broken.others().isEmpty()) {
             b.append("(!) *Broken suites* (failed without a reliable run):\n");
-            broken.others().forEach(g -> b.append("- ").append(groupLine(g)).append('\n'));
+            broken.others().forEach(g -> b.append("- ").append(Markup.wikiText(groupLine(g))).append('\n'));
             b.append('\n');
         }
 
         if (!r.shrunkSuites().isEmpty()) {
             b.append("(?) *").append(count(r.shrunkSuites().size(), "suite"))
                 .append(" ran fewer tests than on master* (tests that never ran can't fail):\n");
-            r.shrunkSuites().forEach(s -> b.append("- ").append(s.suiteName()).append(": ")
+            r.shrunkSuites().forEach(s -> b.append("- ").append(Markup.wikiText(s.suiteName())).append(": ")
                 .append(s.tests()).append(" tests vs ").append(s.baseline())
                 .append(" on master (*-").append(s.dropPct()).append("%*)\n"));
             b.append('\n');

@@ -67,6 +67,8 @@ dependencies {
         exclude group: 'commons-logging', module: 'commons-logging'
     }
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Tests render the PR comment by the CommonMark rules GitHub's markdown follows.
+    testImplementation 'org.commonmark:commonmark:0.28.0'
 }
 
 springBoot {

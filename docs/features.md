@@ -377,6 +377,8 @@ touches your token.
 - The lists of blockers, tests to watch and unchecked tests are grouped by suite and class, the biggest group first.
   Each line has the test's tags (`1 run`, `new test / no master history`, `unverified`) and a TC link, and a line
   under the lists explains the tags. The PR comment shows 5 groups and folds the rest; the visa shows 10.
+- In the comment and the visa, test names and TeamCity's words on why a suite broke are plain text. They make no
+  link, mention, image or HTML, and `#123` in them links no GitHub issue.
 - A verdict that can't call the PR clean lists the caveats. A verdict of code that was pushed over says which commit
   it tested and what the PR head is now. A red PR comment ends with a **Next:** line: fix, push, and `/run-all`.
 - Every verdict carries a link to the [verdict glossary](#verdict-glossary) right under its lists; the lines about the
