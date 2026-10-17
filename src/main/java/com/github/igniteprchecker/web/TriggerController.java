@@ -29,17 +29,16 @@ public class TriggerController {
     private final TcClient tc;
     private final BlockerAnalyzer analyzer;
     private final RerunTracker reruns;
-    private final com.github.igniteprchecker.github.GithubClient github;
+    private final PrHeads heads;
     private final com.github.igniteprchecker.analysis.SuiteBaseline baseline;
     private final String runAllBuildType;
 
-    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns,
-        com.github.igniteprchecker.github.GithubClient github,
+    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns, PrHeads heads,
         com.github.igniteprchecker.analysis.SuiteBaseline baseline, AnalysisProperties cfg) {
         this.tc = tc;
         this.analyzer = analyzer;
         this.reruns = reruns;
-        this.github = github;
+        this.heads = heads;
         this.baseline = baseline;
         this.runAllBuildType = cfg.runAllBuildType();
     }
@@ -137,10 +136,6 @@ public class TriggerController {
     /** A started build's revision never changes — cached forever, so the 15s runs-poll stays cheap. */
     private final java.util.concurrent.ConcurrentMap<Long, String> buildRevs = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** The PR head sha, briefly cached (30s) — one GitHub call per PR per poll window, not per build. */
-    private final java.util.concurrent.ConcurrentMap<Integer, Object[]> headShas =
-        new java.util.concurrent.ConcurrentHashMap<>();
-
     /**
      * Builds people launched (RunAll and re-run suites) currently queued or running for the PR, each with
      * who started it ({@code by}), whether that is the viewer ({@code mine}), and whether it is a RunAll.
@@ -149,28 +144,15 @@ public class TriggerController {
     public List<Map<String, Object>> runs(@RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        List<TcModel.Build> builds = tc.currentUserBuilds(token, pr);
         // Whether each RUNNING build is on the PR's current head: a run started before the latest
         // push tests older code, and that must be visible. Queued builds have no revision yet —
         // TeamCity resolves it at start, so they will pick up the head of that moment.
-        String headSha;
-        Object[] cached = headShas.get(pr);
-        if (cached != null && System.currentTimeMillis() - (long)cached[0] < 30_000)
-            headSha = (String)cached[1];
-        else {
-            String sha;
-            try {
-                sha = github.prHead(pr).headSha();
-            }
-            catch (RuntimeException e) {
-                sha = null; // GitHub blip or PR gone: skip the annotation rather than fail the list
-            }
-            headShas.put(pr, new Object[] {System.currentTimeMillis(), sha});
-            headSha = sha;
-        }
+        String headSha = builds.stream().anyMatch(b -> "running".equalsIgnoreCase(b.state())) ? heads.of(pr) : null;
 
         // Seed the rerun tracker from what's actually live: recovers entries lost to a restart and
         // picks up builds triggered outside the tool (straight from the TeamCity UI).
-        return tc.currentUserBuilds(token, pr).stream().map(b -> {
+        return builds.stream().map(b -> {
             Map<String, Object> m = brief(track(pr, b));
             String by = TcClient.starter(b);
             m.put("by", by == null ? "" : by);

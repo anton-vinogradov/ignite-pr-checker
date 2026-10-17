@@ -1,6 +1,8 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,7 @@ import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.web.AnalyzeController;
+import com.github.igniteprchecker.web.PrHeads;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -69,7 +72,8 @@ class OneCleanRuleTest {
 
         BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
         when(analyzer.analyze("t", 13593)).thenReturn(Optional.of(r));
-        AnalyzeController served = new AnalyzeController(analyzer, mock(RunDeltaStore.class), mock(PendingCommits.class));
+        AnalyzeController served = new AnalyzeController(analyzer, mock(RunDeltaStore.class),
+            mock(PendingCommits.class), mock(PrHeads.class));
 
         JsonNode json = new ObjectMapper().valueToTree(served.analyze(13593, "t").getBody());
 
@@ -90,11 +94,11 @@ class OneCleanRuleTest {
     void commitsPushedSinceTheRunComeInTheServersWords() {
         AnalysisResult r = verdict(13636, List.of(), List.of(), List.of());
         PendingCommits pending = mock(PendingCommits.class);
-        when(pending.movedSince("t", 13636, r.buildId()))
+        when(pending.movedSince(eq("t"), eq(13636), eq(r.buildId()), any(), any()))
             .thenReturn(new PendingCommits.Ahead(28, "0a1b2c3", "5be1c0d", OLDER, false),
                 new PendingCommits.Ahead(-1, "0a1b2c3", "5be1c0d", OLDER, false));
         AnalyzeController served = new AnalyzeController(mock(BlockerAnalyzer.class), mock(RunDeltaStore.class),
-            pending);
+            pending, mock(PrHeads.class));
 
         Object caveat = served.pending(13636, r.buildId(), "t").get("caveat");
 

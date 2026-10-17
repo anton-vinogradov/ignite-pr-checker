@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -36,10 +37,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.StreamingHttpOutputMessage;
+import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -944,6 +948,9 @@ public class GithubClient implements SnapshotCache {
 
     private volatile Map<String, Object> rateCache;
 
+    /** See {@link #appQuota}. */
+    private final AtomicReference<Quota> appQuota = new AtomicReference<>();
+
     /** When the last fetch of the stars and the rate limit ended, failed or not. */
     private volatile long ownStatsTs;
 
@@ -990,8 +997,8 @@ public class GithubClient implements SnapshotCache {
         this.ttlMs = props.cacheSeconds() * 1000L;
         this.mapper = mapper;
         this.metrics = metrics;
-        this.http = http;
-        this.noRedirects = noRedirects;
+        this.http = http.mutate().requestInterceptor(this::noteQuota).build();
+        this.noRedirects = noRedirects.mutate().requestInterceptor(this::noteQuota).build();
         String base = publicUrl == null ? "" : publicUrl.strip().replaceFirst("/+$", "");
         this.linkCallback = base.isEmpty() ? null : base + LINK_CALLBACK;
     }
@@ -1318,6 +1325,62 @@ public class GithubClient implements SnapshotCache {
         Map<String, Object> cached = rateCache;
 
         return cached != null ? cached : Map.of();
+    }
+
+    /**
+     * What GitHub last said of the app token's hourly calls in the headers of its answers to them: how many are left,
+     * of how many, and when its hour resets. Null until an answer said it.
+     */
+    public Quota appQuota() {
+        return appQuota.get();
+    }
+
+    /** The app token's hourly calls: {@code remaining} of {@code limit} are left until {@code resetEpochSec}. */
+    public record Quota(int remaining, int limit, long resetEpochSec) {
+    }
+
+    /** Notes what GitHub's answer to a call under the app token says of its hourly calls. */
+    private ClientHttpResponse noteQuota(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
+        throws IOException {
+        ClientHttpResponse response = execution.execute(request, body);
+        if (underAppToken(request))
+            quotaOf(response.getHeaders()).ifPresent(q -> appQuota.accumulateAndGet(q, GithubClient::later));
+
+        return response;
+    }
+
+    /** Whether a call goes under the app token, or under none without one: GitHub then counts calls by address. */
+    private boolean underAppToken(HttpRequest request) {
+        String auth = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+
+        return props.token() == null || props.token().isBlank() ? auth == null
+            : ("Bearer " + props.token()).equals(auth);
+    }
+
+    /** The hourly calls the headers of an answer name; empty when they name none, or those of another API than core. */
+    private static Optional<Quota> quotaOf(HttpHeaders headers) {
+        String resource = headers.getFirst("X-RateLimit-Resource");
+        String remaining = headers.getFirst("X-RateLimit-Remaining");
+        String limit = headers.getFirst("X-RateLimit-Limit");
+        String reset = headers.getFirst("X-RateLimit-Reset");
+        if (resource != null && !"core".equals(resource) || remaining == null || limit == null || reset == null)
+            return Optional.empty();
+
+        try {
+            return Optional.of(new Quota(Integer.parseInt(remaining.strip()), Integer.parseInt(limit.strip()),
+                Long.parseLong(reset.strip())));
+        }
+        catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** The note of the later hour, and in one hour the one with fewer calls left: answers may come out of order. */
+    private static Quota later(Quota known, Quota seen) {
+        if (known == null || seen.resetEpochSec() > known.resetEpochSec())
+            return seen;
+
+        return seen.resetEpochSec() == known.resetEpochSec() && seen.remaining() < known.remaining() ? seen : known;
     }
 
     private void refreshOwnStats() {

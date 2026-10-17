@@ -1048,6 +1048,22 @@ public class TcClient {
     public Optional<String> buildRevision(String token, long buildId) {
         TcModel.Build b = get("revision", token, url("app/rest/builds/id:" + buildId, query(
             "fields", "revisions(revision(version))")), TcModel.Build.class);
+
+        return revisionOf(b);
+    }
+
+    /**
+     * The same for a build of PR {@code prNumber}: empty for a build of another branch, as for one TeamCity names no
+     * revision of.
+     */
+    public Optional<String> prBuildRevision(String token, int prNumber, long buildId) {
+        TcModel.Build b = get("revision", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "branchName,revisions(revision(version))")), TcModel.Build.class);
+
+        return b != null && ("pull/" + prNumber + "/head").equals(b.branchName()) ? revisionOf(b) : Optional.empty();
+    }
+
+    private static Optional<String> revisionOf(TcModel.Build b) {
         if (b == null || b.revisions() == null || b.revisions().revision() == null || b.revisions().revision().isEmpty())
             return Optional.empty();
 

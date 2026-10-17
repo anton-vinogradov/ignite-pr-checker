@@ -12,8 +12,6 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * The failed tests a verdict names, grouped by the suite run they failed in and their class, the biggest group first:
@@ -39,9 +37,6 @@ final class TestGroups {
 
     /** How many methods of a class a group spells out. */
     private static final int METHODS_NAMED = 3;
-
-    /** Characters JIRA reads as markup inside {@code {{…}}}: a parameterized name became a link or a broken macro. */
-    private static final Pattern WIKI_MARKUP = Pattern.compile("[\\[\\]{}\\\\]");
 
     /** What a blocker or a test to watch rests on short of proof, tagged as the checker's page tags it. */
     private static final Map<Doubt, String> TAGS = new EnumMap<>(Map.of(
@@ -111,16 +106,16 @@ final class TestGroups {
             Name n = Name.of(t.name());
             String reason = why ? shortReason(t) : "";
 
-            return "- " + g.suiteName() + " · " + code(n.shown()) + (n.classLevel() ? " (class-level failure)" : "")
-                + (reason.isEmpty() ? "" : " — " + reason) + (url == null ? "" : " · [TC](" + testUrl(url, t) + ")")
-                + "\n";
+            return "- " + Markup.text(g.suiteName()) + " · " + Markup.code(n.shown())
+                + (n.classLevel() ? " (class-level failure)" : "") + (reason.isEmpty() ? "" : " — " + reason)
+                + (url == null ? "" : " · [TC](" + testUrl(url, t) + ")") + "\n";
         }
 
         List<String> methods = g.tests().stream().limit(METHODS_NAMED).map(t -> Name.of(t.name()))
-            .map(n -> n.classLevel() ? "(class-level failure)" : code(n.method())).toList();
+            .map(n -> n.classLevel() ? "(class-level failure)" : Markup.code(n.method())).toList();
 
-        return "- " + g.suiteName() + " · " + code(g.className()) + " — " + g.tests().size() + " tests"
-            + (why ? groupTags(g) : "") + ": " + String.join(", ", methods) + rest(g)
+        return "- " + Markup.text(g.suiteName()) + " · " + Markup.code(g.className()) + " — " + g.tests().size()
+            + " tests" + (why ? groupTags(g) : "") + ": " + String.join(", ", methods) + rest(g)
             + (url == null ? "" : " · [TC](" + url + ")") + "\n";
     }
 
@@ -131,16 +126,16 @@ final class TestGroups {
             Name n = Name.of(t.name());
             String reason = why ? shortReason(t) : "";
 
-            return "- " + g.suiteName() + " · {{" + wikiText(n.shown()) + "}}"
+            return "- " + Markup.wikiText(g.suiteName()) + " · {{" + Markup.wikiText(n.shown()) + "}}"
                 + (n.classLevel() ? " (class-level failure)" : "") + (reason.isEmpty() ? "" : " — " + reason)
                 + (url == null ? "" : " · [TC|" + testUrl(url, t) + "]") + "\n";
         }
 
         List<String> methods = g.tests().stream().limit(METHODS_NAMED).map(t -> Name.of(t.name()))
-            .map(n -> n.classLevel() ? "(class-level failure)" : "{{" + wikiText(n.method()) + "}}").toList();
+            .map(n -> n.classLevel() ? "(class-level failure)" : "{{" + Markup.wikiText(n.method()) + "}}").toList();
 
-        return "- " + g.suiteName() + " · {{" + wikiText(g.className()) + "}} — " + g.tests().size() + " tests"
-            + (why ? groupTags(g) : "") + ": " + String.join(", ", methods) + rest(g)
+        return "- " + Markup.wikiText(g.suiteName()) + " · {{" + Markup.wikiText(g.className()) + "}} — "
+            + g.tests().size() + " tests" + (why ? groupTags(g) : "") + ": " + String.join(", ", methods) + rest(g)
             + (url == null ? "" : " · [TC|" + url + "]") + "\n";
     }
 
@@ -242,16 +237,6 @@ final class TestGroups {
     /** How many of the tests rest on one failure. */
     static long oneRun(List<TestVerdict> tests) {
         return tests.stream().filter(t -> t.doubts().contains(Doubt.ONE_RUN)).count();
-    }
-
-    /** Text for inside JIRA's {@code {{…}}}, its markup characters escaped so a test name reads as written. */
-    static String wikiText(String s) {
-        return WIKI_MARKUP.matcher(s).replaceAll(m -> Matcher.quoteReplacement("\\" + m.group()));
-    }
-
-    /** A markdown code span that holds {@code s} whole, backticks in it included. */
-    private static String code(String s) {
-        return s.contains("`") ? "`` " + s + " ``" : "`" + s + "`";
     }
 
     private static String enc(String s) {

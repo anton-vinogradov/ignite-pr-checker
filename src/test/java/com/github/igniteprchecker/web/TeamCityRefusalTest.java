@@ -20,7 +20,6 @@ import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
-import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
@@ -73,9 +72,10 @@ class TeamCityRefusalTest {
             + server.getAddress().getPort() + "/"), cfg, new Metrics(new ObjectMapper()));
 
         mvc = MockMvcBuilders.standaloneSetup(
-                new TriggerController(tc, analyzer, mock(RerunTracker.class), mock(GithubClient.class),
+                new TriggerController(tc, analyzer, mock(RerunTracker.class), mock(PrHeads.class),
                     mock(SuiteBaseline.class), cfg),
-                new AnalyzeController(analyzer, mock(RunDeltaStore.class), mock(PendingCommits.class)))
+                new AnalyzeController(analyzer, mock(RunDeltaStore.class), mock(PendingCommits.class),
+                    mock(PrHeads.class)))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
     }

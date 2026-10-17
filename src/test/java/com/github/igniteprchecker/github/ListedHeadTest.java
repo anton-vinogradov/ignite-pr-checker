@@ -18,6 +18,7 @@ import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.web.AnalyzeController;
+import com.github.igniteprchecker.web.PrHeads;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,7 +60,7 @@ class ListedHeadTest {
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
     private final AnalyzeController controller = new AnalyzeController(analyzer, mock(RunDeltaStore.class),
-        new PendingCommits(tc, github));
+        new PendingCommits(tc, github), new PrHeads(github));
 
     @Test
     void theAnalysisSaysTheHeadTheListSawMove(@TempDir Path dir) throws IOException {
@@ -96,7 +97,7 @@ class ListedHeadTest {
 
     @Test
     void pendingSaysTheRunTestedTheHead() {
-        when(tc.buildRevision("t", BUILD)).thenReturn(Optional.of(BUILT));
+        when(tc.prBuildRevision("t", 13335, BUILD)).thenReturn(Optional.of(BUILT));
         expectHead(BUILT);
 
         assertThat(controller.pending(13335, BUILD, "t")).containsEntry("pending", false)
@@ -106,7 +107,7 @@ class ListedHeadTest {
     /** The author deleted the fork: GitHub names no head repository, but still the head's sha. */
     @Test
     void pendingSaysTheRunTestedTheHeadOfADeletedFork() {
-        when(tc.buildRevision("t", BUILD)).thenReturn(Optional.of(BUILT));
+        when(tc.prBuildRevision("t", 13335, BUILD)).thenReturn(Optional.of(BUILT));
         server.expect(requestTo("https://api.github.com/repos/apache/ignite/pulls/13335")).andRespond(withSuccess(
             "{\"user\":{\"login\":\"alice\"},\"head\":{\"ref\":\"ignite-28867\",\"sha\":\"" + BUILT + "\","
                 + "\"repo\":null}}", MediaType.APPLICATION_JSON));
@@ -117,7 +118,7 @@ class ListedHeadTest {
 
     @Test
     void pendingSaysWhenGithubCouldNotTell() {
-        when(tc.buildRevision("t", BUILD)).thenReturn(Optional.of(BUILT));
+        when(tc.prBuildRevision("t", 13335, BUILD)).thenReturn(Optional.of(BUILT));
         server.expect(requestTo("https://api.github.com/repos/apache/ignite/pulls/13335"))
             .andRespond(withServerError());
 
@@ -127,7 +128,7 @@ class ListedHeadTest {
 
     @Test
     void pendingSaysWhenTeamCityCouldNotTell() {
-        when(tc.buildRevision("t", BUILD)).thenReturn(Optional.empty());
+        when(tc.prBuildRevision("t", 13335, BUILD)).thenReturn(Optional.empty());
 
         assertThat(controller.pending(13335, BUILD, "t")).containsEntry("pending", false)
             .containsEntry("checked", false);
