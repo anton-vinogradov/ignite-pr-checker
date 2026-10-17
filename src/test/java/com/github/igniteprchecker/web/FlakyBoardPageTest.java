@@ -252,10 +252,10 @@ class FlakyBoardPageTest {
     }
 
     /**
-     * The board compared each poll with the last one as a whole, the re-runs of every PR included. Their times change on
-     * every poll while any run goes on ci2, so every 15 s the board was drawn again: the open "failure ▾" panel closed and
-     * the focus fell to the page. A re-run's chip is drawn in its slot; the board is drawn again only when its list
-     * changes.
+     * The board compared each poll with the last one as a whole, the re-runs of every PR included. Their times change
+     * on every poll while any run goes on ci2, so every 15 s the board was drawn again: the open "failure ▾" panel
+     * closed and the focus fell to the page. A re-run's chip is drawn in its slot; the board is drawn again only when
+     * its list changes.
      */
     @Test
     void aRunningReRunUpdatesItsChipAndLeavesTheBoardAlone() throws Exception {

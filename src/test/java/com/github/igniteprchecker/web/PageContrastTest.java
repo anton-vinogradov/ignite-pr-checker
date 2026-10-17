@@ -43,8 +43,8 @@ class PageContrastTest {
 
     /**
      * The keyboard's focus was Chrome's own ring, #005fcc: 1.5:1 on the selected tab's accent fill and 2.2:1 on Auto
-     * visa when on; .tabs clipped the ring's outer part. The check finds a ring of the fill's own colour, a ring cut off
-     * by a parent that clips, and an element with no ring.
+     * visa when on; .tabs clipped the ring's outer part. The check finds a ring of the fill's own colour, a ring cut
+     * off by a parent that clips, and an element with no ring.
      */
     @Test
     void theCheckFindsARingLostOnItsFillCutByItsParentOrMissing() throws Exception {

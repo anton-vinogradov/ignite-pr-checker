@@ -70,7 +70,8 @@ class PrListPageTest {
         String html = out.get("html").asText();
         assertThat(html)
             .contains("<span class=\"pr-num\">#13575</span> <span class=\"pr-key\">IGNITE-29049</span>"
-                + "<span class=\"pr-badge bad\" title=\"1 blocker\" role=\"img\" aria-label=\"1 blocker\">1</span><span class=\"my-tag\" "
+                + "<span class=\"pr-badge bad\" title=\"1 blocker\" role=\"img\" aria-label=\"1 blocker\">1</span>"
+                + "<span class=\"my-tag\" "
                 + "title=\"You started its latest RunAll. The PR may be someone else's.\">my run</span>")
             .contains("<span class=\"pr-ttl\">Move MDC to JUnit</span>")
             .contains("data-title=\"IGNITE-29049: Move MDC to JUnit\"")
@@ -168,8 +169,8 @@ class PrListPageTest {
 
     /**
      * "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a
-     * test. Each row of the legend had a grid of its own, so the text after "my run" began 25 px right of the text after
-     * "✓": the rows share the list's columns.
+     * test. Each row of the legend had a grid of its own, so the text after "my run" began 25 px right of the text
+     * after "✓": the rows share the list's columns.
      */
     @Test
     void theUnprovenBadgeIsAmberAndTheTagAPlate() throws IOException {

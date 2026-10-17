@@ -7,10 +7,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Enter on "Rerun 2 suites" in Broken suites: Chrome took the focus off the button as the page disabled it for the
- * request, so the focus fell to the page; the answer "⚠ Not queued…" went into the note under the buttons and the status
- * line, and the page had no live region to read it out. The answer to Rerun, Run, Cancel my runs, Post now and Auto
- * visa is read out from one polite live region, emptied first so the same answer twice is heard twice; the focus comes
- * back to the button, on the status page too.
+ * request, so the focus fell to the page; the answer "⚠ Not queued…" went into the note under the buttons and the
+ * status line, and the page had no live region to read it out. The answer to Rerun, Run, Cancel my runs, Post now and
+ * Auto visa is read out from one polite live region, emptied first so the same answer twice is heard twice; the focus
+ * comes back to the button, on the status page too.
  */
 class SpokenAnswersPageTest {
     /** A button that loses the focus when it is disabled, as in a browser; the scenario focuses it. */
