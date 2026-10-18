@@ -75,16 +75,16 @@ class TokenTextsTest {
 
         assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options; "
             + "an Auto visa you armed keeps your JIRA token until the visa is posted or you cancel it. Copies in the "
-            + "server's backups go as the backups rotate, and your session cookie keeps the TeamCity and JIRA tokens "
-            + "you pasted until you log out.");
+            + "server's backups go within 2 days, and your session cookie keeps the TeamCity and JIRA tokens you "
+            + "pasted until you log out.");
     }
 
     @Test
     void theStoredTokensAreSaidToStayInTheBackups() throws IOException {
         assertThat(collapsed(Path.of("README.md"))).contains("Copies stay in the backups of the [cache directory]"
-            + "(#the-cache-directory) until they rotate out: a daily backup for 7 days, a copy made before an update "
-            + "until 5 newer ones replace it.");
-        assertThat(collapsed(Path.of("README.ru.md"))).contains("Копии остаются в бэкапах [каталога кэша]");
+            + "(#the-cache-directory) for 2 days; older copies keep the rest of the state, without the tokens.");
+        assertThat(collapsed(Path.of("README.ru.md"))).contains("Копии остаются в бэкапах [каталога кэша]"
+            + "(#каталог-кэша) 2 дня; в более старых копиях остаётся остальное состояние, без токенов.");
     }
 
     /** Without GITHUB_TOKEN there are no PR commands to poll for: the checker has no account to answer them from. */

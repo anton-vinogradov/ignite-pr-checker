@@ -75,8 +75,8 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
-  adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) until
-  they rotate out: a daily backup for 7 days, a copy made before an update until 5 newer ones replace it.
+  adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) for 2
+  days; older copies keep the rest of the state, without the tokens.
 - **GitHub account.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in
   ⚙, or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no
   scope.
@@ -315,6 +315,12 @@ each boot, or the tokens can stay in the swap file.
 
 State is written within a second of a change, the caches every 5 minutes, and everything at shutdown.
 
+Backups and the `.before-` and `.bad-` files keep their tokens for 2 days. Then the service takes the tokens out of them
+and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a copy, each user's options
+stay on but pause until the user brings the missing tokens. The TeamCity token comes back when the user opens the
+checker or logs in. ⚙ asks the user to save the JIRA token and the GitHub token for commits again. A `.bad-` file that
+is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
+
 The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Changing the secret logs
 everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. The standing options do not wait
 for their owner: when a run of a user with auto re-run, auto-visa or the PR comment on finishes, the checker drops all
@@ -334,8 +340,9 @@ can make a session cookie for any user.
 2. Ask every user in `users.json` to make new TeamCity, JIRA and GitHub tokens and to revoke the old ones in ci2, JIRA
    and GitHub. Changing the secret logs everyone out; [The cache directory](#the-cache-directory) says what it does to
    the stored tokens.
-3. If you like, delete `cache/backups/` and the `*.before-*` files: they hold the old tokens, encrypted with the old
-   `SESSION_SECRET`. Without them there is nothing to roll the state back to.
+3. If you like, delete the files in `cache/backups/` and the `*.before-*` files written in the last 2 days: they hold
+   the old tokens, encrypted with the old `SESSION_SECRET`. Older copies hold no tokens, and the state can still be
+   rolled back to them.
 
 ### Who may restart, update and flush
 

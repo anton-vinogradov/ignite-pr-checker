@@ -9,13 +9,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -40,7 +43,8 @@ import org.springframework.stereotype.Component;
  * fixed interval, and everything on graceful shutdown. A file that cannot be read is kept aside as
  * {@code <file>.bad-<time>} and reported, never deleted; the first start of each build copies every durable file it
  * read to {@code <file>.before-<build>}, the state as it was before that build ran. Once a day the snapshot files are
- * zipped into {@code backups/}, the last seven kept. If the configured directory isn't writable (e.g. a local run
+ * zipped into {@code backups/}, the last seven kept. A copy keeps its tokens {@link #TOKENS_KEPT}, then {@link
+ * TokenScrub} takes them out and leaves the rest. If the configured directory isn't writable (e.g. a local run
  * without the server layout), persistence disables itself and the app runs in-memory only — never fatal.
  */
 @Component
@@ -60,6 +64,11 @@ public class CacheStore {
 
     private static final String BEFORE = ".before-";
 
+    private static final String BAD = ".bad-";
+
+    /** How long a copy of the state keeps the tokens: restored within that time, no user has to bring them again. */
+    public static final Duration TOKENS_KEPT = Duration.ofDays(2);
+
     /** Enough for a bad release, the rollback from it and a few more deploys. */
     private static final int BEFORE_KEPT = 5;
 
@@ -74,6 +83,12 @@ public class CacheStore {
 
     /** File name -> why its last save failed; a file leaves when a save works again. */
     private final Map<String, String> failing = new ConcurrentHashMap<>();
+
+    /** Copies already rid of their tokens, or that hold none, as last modified then. */
+    private final Map<Path, FileTime> tokenFree = new ConcurrentHashMap<>();
+
+    /** Copies whose tokens could not be taken out at the last try: each is warned of once. */
+    private final Set<Path> scrubFailing = ConcurrentHashMap.newKeySet();
 
     private volatile boolean active;
     private volatile String off;
@@ -132,6 +147,73 @@ public class CacheStore {
         }
 
         backUpOncePerDay();
+    }
+
+    @Scheduled(fixedDelay = 10, initialDelay = 1, timeUnit = TimeUnit.MINUTES)
+    void removeOldTokens() {
+        if (active)
+            removeTokensFromCopies(System.currentTimeMillis());
+    }
+
+    /**
+     * Takes the tokens out of every copy written {@link #TOKENS_KEPT} or longer before {@code now}. A copy keeps the
+     * time it was written: the newest copies are the ones kept, and their age is what counts here. One with a part
+     * that is not JSON, a {@code .bad-} file cut short, keeps its tokens: no field can be told in it. The daily backup
+     * takes the same lock, as it deletes the oldest zips this may be rewriting.
+     */
+    synchronized void removeTokensFromCopies(long now) {
+        List<Path> copies;
+        try {
+            copies = copies();
+        }
+        catch (IOException e) {
+            log.warn("could not list the copies of the state in {}: {}", dir, e.toString());
+            return;
+        }
+
+        tokenFree.keySet().retainAll(copies);
+        scrubFailing.retainAll(copies);
+        for (Path copy : copies) {
+            FileTime written = modified(copy);
+            if (now - written.toMillis() < TOKENS_KEPT.toMillis() || written.equals(tokenFree.get(copy)))
+                continue;
+
+            try {
+                if (TokenScrub.removeFrom(copy, now)) {
+                    Files.setLastModifiedTime(copy, written);
+                    log.info("took the tokens out of {}, written {}: a copy of the state keeps them {} days", copy,
+                        written, TOKENS_KEPT.toDays());
+                }
+                tokenFree.put(copy, written);
+                if (scrubFailing.remove(copy))
+                    log.info("the tokens are out of {} now", copy);
+            }
+            catch (TokenScrub.NotJson e) {
+                tokenFree.put(copy, written);
+                log.warn("could not take the tokens out of {}: {}. Delete it once you no longer need it", copy,
+                    e.getMessage());
+            }
+            catch (IOException e) {
+                if (scrubFailing.add(copy))
+                    log.warn("could not take the tokens out of {}: {}", copy, e.toString());
+            }
+        }
+    }
+
+    /** The copies of the state: the daily backups, the files kept from before a build and those set aside. */
+    private List<Path> copies() throws IOException {
+        List<Path> copies = new ArrayList<>();
+        try (Stream<Path> files = Files.list(dir)) {
+            files.filter(p -> {
+                String name = p.getFileName().toString();
+
+                return (name.contains(BEFORE) || name.contains(BAD)) && !name.endsWith(".tmp")
+                    && Files.isRegularFile(p);
+            }).forEach(copies::add);
+        }
+        copies.addAll(backupsNewestFirst(dir.resolve(BACKUPS)));
+
+        return copies;
     }
 
     /** Durable state is saved by the flusher alone while it runs, so two writers never share a temp file. */
@@ -213,7 +295,7 @@ public class CacheStore {
 
     /** A snapshot that fails to load must not block startup, nor be overwritten by the empty state that follows. */
     private void setAside(SnapshotCache c, Path f, Exception cause) {
-        Path kept = f.resolveSibling(c.fileName() + ".bad-" + STAMP.format(Instant.now()));
+        Path kept = f.resolveSibling(c.fileName() + BAD + STAMP.format(Instant.now()));
         try {
             Files.move(f, kept);
         }
@@ -287,7 +369,7 @@ public class CacheStore {
         }
     }
 
-    private void backUpOncePerDay() {
+    private synchronized void backUpOncePerDay() {
         String name = "cache-" + LocalDate.now(ZoneOffset.UTC) + ".zip";
         Path backups = dir.resolve(BACKUPS);
         Path zip = backups.resolve(name);

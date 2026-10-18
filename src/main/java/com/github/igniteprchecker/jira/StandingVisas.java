@@ -398,7 +398,18 @@ public class StandingVisas implements SnapshotCache {
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
             e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven(), github.writes(), app,
             appPushes, e.gh().token() == null ? null : e.gh().note(), linkable,
-            decrypt(e.gh()).map(CommitTokens::kind).orElse(null));
+            decrypt(e.gh()).map(CommitTokens::kind).orElse(null), tokensRemoved(e));
+    }
+
+    /** The tokens a restored copy of the state lacked that options still wait for. */
+    private static List<String> tokensRemoved(Enrollment e) {
+        List<String> removed = new ArrayList<>();
+        if (e.jira().removed() && e.options().autoVisa())
+            removed.add("jira");
+        if (e.gh().removed() && e.options().needsGh())
+            removed.add("github");
+
+        return removed;
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -440,11 +451,24 @@ public class StandingVisas implements SnapshotCache {
      * not said. {@code ghTokenNote}: what the user should know of the GitHub token the server holds.
      * {@code githubLinkable}: the user can link their GitHub account with the checker's OAuth App.
      * {@code ghTokenKind}: what kind of token the server holds, {@link CommitTokens#kind}; null when none.
+     * {@code tokensRemoved}: the tokens ("jira", "github") the state was restored without, whose options pause until
+     * the user saves them again.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
         boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
-        Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind) {
+        Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind,
+        List<String> tokensRemoved) {
+        /** The settings with no token missing from a restored copy of the state. */
+        public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
+            boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
+            boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
+            Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind) {
+            this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
+                tcTokenRejected, suites, loginUnproven, githubAvailable, appLogin, appPushes, ghTokenNote,
+                githubLinkable, ghTokenKind, List.of());
+        }
+
         /**
          * The settings of a user whose login, if any, is proven, on a checker with a GitHub account and no OAuth App to
          * link one with.
@@ -1112,11 +1136,12 @@ public class StandingVisas implements SnapshotCache {
      * An option whose credential is gone is switched off. A token can leave without a 401 — dropped
      * as unusable when saved, made undecryptable by a rotated secret, or lost by an older build that
      * only dropped the token — and a switch left on then promises work that silently never happens.
+     * A token taken out of a restored copy of the state only pauses its options: ⚙ asks the user for it.
      */
     private void switchOffOptionsWithoutTokens() {
         enrolled.replaceAll((u, e) -> {
-            boolean ghGone = e.options().needsGh() && e.gh().token() == null;
-            boolean jiraGone = e.options().autoVisa() && e.jira().token() == null;
+            boolean ghGone = e.options().needsGh() && e.gh().token() == null && !e.gh().removed();
+            boolean jiraGone = e.options().autoVisa() && e.jira().token() == null && !e.jira().removed();
             if (!ghGone && !jiraGone)
                 return e;
 
@@ -1662,8 +1687,8 @@ public class StandingVisas implements SnapshotCache {
                     rests = true;
                     return 0;
                 }
-                if (e.tc().rejected())
-                    return 0; // a refused token pauses its owner's options until a working one comes
+                if (e.tc().rejected() || e.tc().removed())
+                    return 0; // a refused or removed token pauses its owner's options until a working one comes
 
                 Long last = e.handled().posted().get(pr.number());
                 if (last != null && last == buildId) {
@@ -1690,7 +1715,7 @@ public class StandingVisas implements SnapshotCache {
 
                 Optional<String> tcToken = decrypt(e.tc());
                 Optional<String> jiraToken = decrypt(e.jira());
-                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty())) {
+                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty() && !e.jira().removed())) {
                     enrolled.remove(who);
                     log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
                     rests = true;
@@ -1869,7 +1894,8 @@ public class StandingVisas implements SnapshotCache {
         Retry done = waves.get(buildId);
         Owed due = new Owed(buildId, acting.autoVisa(), acting.ghComment(), done == null ? null : done.history(),
             done == null ? null : done.note());
-        int posted = deliver(who, e, pr, due, due.visa(), due.comment(), res, tcToken, jiraToken);
+        // A JIRA token a restored copy of the state lacked: the visa stays owed until the user saves one.
+        int posted = deliver(who, e, pr, due, due.visa() && jiraToken != null, due.comment(), res, tcToken, jiraToken);
         settled(e, pr.number(), buildId);
 
         return posted;
@@ -2471,10 +2497,14 @@ public class StandingVisas implements SnapshotCache {
     /**
      * A stored token (encrypted; null once dropped), when its service last refused it (0: never), and what the user
      * should know of it ({@code note}, null when nothing). Of a TeamCity token TeamCity refused only its SHA-256
-     * ({@code hash}) stays, to know the dead token when a session brings it again.
+     * ({@code hash}) stays, to know the dead token when a session brings it again. {@code removed}: the state was
+     * restored from a copy old enough to have lost the token ({@link com.github.igniteprchecker.persist.TokenScrub}),
+     * and the options that need it pause until the user brings a new one.
      */
-    private record Credential(String token, long rejectedAt, String note, String hash) {
+    private record Credential(String token, long rejectedAt, String note, String hash, boolean removed) {
         static final Credential NONE = new Credential(null, 0);
+
+        static final Credential REMOVED = new Credential(null, 0, null, null, true);
 
         Credential(String token, long rejectedAt) {
             this(token, rejectedAt, null);
@@ -2482,6 +2512,10 @@ public class StandingVisas implements SnapshotCache {
 
         Credential(String token, long rejectedAt, String note) {
             this(token, rejectedAt, note, null);
+        }
+
+        Credential(String token, long rejectedAt, String note, String hash) {
+            this(token, rejectedAt, note, hash, false);
         }
 
         static Credential refusedAt(long at) {
@@ -2936,7 +2970,9 @@ public class StandingVisas implements SnapshotCache {
     /**
      * One enrollment as it is written to disk; the field names are the file format. {@code onSince} is keyed by
      * the option's name, so a snapshot that names an option this version does not know still loads. Snapshots without
-     * {@code tcRefusedHash} kept the ciphertext of a TeamCity token TeamCity refused; it is hashed at load.
+     * {@code tcRefusedHash} kept the ciphertext of a TeamCity token TeamCity refused; it is hashed at load. A token
+     * taken out of a copy of the state is marked {@code tcTokenRemoved}, {@code jiraTokenRemoved} or {@code
+     * ghTokenRemoved}, and its refusal time there was set for builds that do not know the mark.
      */
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
@@ -2944,7 +2980,7 @@ public class StandingVisas implements SnapshotCache {
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
         Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince,
         Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven, String ghTokenNote,
-        String tcRefusedHash) {
+        String tcRefusedHash, Boolean tcTokenRemoved, Boolean jiraTokenRemoved, Boolean ghTokenRemoved) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -2957,7 +2993,7 @@ public class StandingVisas implements SnapshotCache {
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
                 e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()),
                 gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven(), e.gh().note(),
-                e.tc().hash());
+                e.tc().hash(), e.tc().removed(), e.jira().removed(), e.gh().removed());
         }
 
         /**
@@ -3017,10 +3053,13 @@ public class StandingVisas implements SnapshotCache {
                 ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ask);
 
             return new Enrollment(
-                new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt, null, tcRefusedHash),
-                new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
-                new Credential(ghKept ? ghToken : null, ghRejectedAt == null ? 0 : ghRejectedAt,
-                    ghKept ? ghTokenNote : null), account, tz, enabledAt, options, h,
+                Boolean.TRUE.equals(tcTokenRemoved) ? Credential.REMOVED
+                    : new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt, null, tcRefusedHash),
+                Boolean.TRUE.equals(jiraTokenRemoved) && options.autoVisa() ? Credential.REMOVED
+                    : new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
+                Boolean.TRUE.equals(ghTokenRemoved) && options.needsGh() ? Credential.REMOVED
+                    : new Credential(ghKept ? ghToken : null, ghRejectedAt == null ? 0 : ghRejectedAt,
+                        ghKept ? ghTokenNote : null), account, tz, enabledAt, options, h,
                 Collections.unmodifiableMap(since));
         }
     }
