@@ -222,8 +222,9 @@ new versions of the scripts and the systemd unit, not only of the jar. It:
 - creates the `prc` service user. `/opt/ignite-pr-checker` with the jar and the scripts belongs to root, so the service
   cannot change the code it runs; it writes only to `cache/`, `update/`, `dumps/` and `logs/` there;
 - writes `/etc/ignite-pr-checker/env` from the template, with a generated `SESSION_SECRET`, if the file is not there;
-- writes `update.sh`, `run.sh` and the unit `ignite-pr-checker`, installs the latest release through `update.sh`,
-  starts the service and waits up to 60 s for it to answer.
+- writes `update.sh`, `run.sh`, the unit `ignite-pr-checker` and `/etc/tmpfiles.d/ignite-pr-checker.conf`, which
+  deletes old heap dumps, installs the latest release through `update.sh`, starts the service and waits up to 60 s for
+  it to answer.
 
 **Update from the page.** When a newer release is out, the top bar shows **Update to vX.Y.Z** and a **what's new** link
 to its release notes, or to the list of releases when it is not the next patch release. The button restarts the
