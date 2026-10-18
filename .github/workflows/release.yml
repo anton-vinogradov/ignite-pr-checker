@@ -46,7 +46,7 @@ jobs:
         run: |
           bash .github/release-notes.sh "${{ github.ref_name }}" > release-notes.md
           bash .github/dependency-notes.sh build/libs/ignite-pr-checker.jar >> release-notes.md \
-            || echo "::warning::.github/dependency-notes.sh failed, so the notes may lack the dependencies"
+            || echo "::warning::.github/dependency-notes.sh failed, so the 'Dependencies to update' section of the release notes may be missing or incomplete"
 
       - name: Publish release
         env:

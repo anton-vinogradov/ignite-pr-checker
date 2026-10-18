@@ -75,7 +75,7 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   every browser, or leaves it unused for 400 days. One network address gets 3 login attempts in 10 minutes. For all
   users together, the checker checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from
   the server's address, and if ci2 blocks that address, the checker stops for everyone. Past either limit, the login
-  form says how long to wait. A login that waits for the shared limit does not use up an attempt of its address.
+  form says how long to wait. A login that the shared limit stops does not use up an attempt of its address.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies of these tokens stay in the backups of the
@@ -382,11 +382,11 @@ changed: every verdict is then computed again after the update.
 
 After **What changes for users**, the notes have a **Dependencies to update** section, and GitHub's list of the merged
 PRs comes last. The section names the platforms and libraries of the checker whose free support has ended or ends within
-90 days, by endoflife.date. It checks Spring Boot, Spring Framework, Gradle, Java (Eclipse Temurin), Tomcat and Log4j.
-It also lists the open Dependabot PRs. When endoflife.date or GitHub does not answer, the section says "could not
-check", and the release still comes out. Updates skipped on purpose are under `ignore` in `.github/dependabot.yml`, each
-with its reason. For example, Dependabot offers no new major version of checkstyle, since the checker keeps the version
-Ignite's own build runs.
+90 days. The support end dates come from endoflife.date. It checks Spring Boot, Spring Framework, Gradle, Java (Eclipse
+Temurin), Tomcat and Log4j. It also lists the open Dependabot PRs. When endoflife.date or GitHub does not answer, the
+section says "could not check", and the release still comes out. Updates skipped on purpose are under `ignore` in
+`.github/dependabot.yml`, each with its reason. For example, Dependabot offers no new major version of checkstyle, since
+the checker keeps the version Ignite's own build runs.
 
 For the maintainer: fill **What changes for users** in each PR (the template has it), release a change of the verdict
 rules as a minor version, and put small PRs into one release.
