@@ -283,9 +283,12 @@ DEBUG or TRACE they write tokens:
 ### Memory
 
 The JVM gets `-Xmx512m`. A JVM out of memory writes a heap dump to `/opt/ignite-pr-checker/dumps/` and exits, and
-systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decrypted tokens, so only the service can
-read that directory. For more heap, set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the
-heap with the peak of its old generation, and the process's resident memory with its peak.
+systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decrypted tokens and the session key, so
+only the service can read that directory. The service deletes the dump 2 days after the JVM wrote it. While the service
+is stopped, systemd-tmpfiles deletes the dump at its daily clean instead, once nobody has read it for 2 days. Until the
+dump is deleted, the status page shows the **Out of memory** card: when the JVM ran out of memory and when the dump
+goes. For more heap, set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the heap with the peak
+of its old generation, and the process's resident memory with its peak.
 
 The JVM's memory holds decrypted tokens too, and the host may move it to swap. Encrypt the swap with a random key at
 each boot, or the tokens can stay in the swap file.

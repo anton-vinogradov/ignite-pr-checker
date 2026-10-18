@@ -297,6 +297,12 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
 
+# The service deletes a heap dump two days after the JVM wrote it. While the service is stopped, systemd-tmpfiles
+# deletes it instead, at its daily clean.
+cat > "/etc/tmpfiles.d/${SERVICE}.conf" <<TMPFILES
+e ${APP_DIR}/dumps - - - 2d
+TMPFILES
+
 # 8. (re)start, and wait for the service to answer: it takes about 15 s to start.
 systemctl daemon-reload
 systemctl enable "$SERVICE" >/dev/null 2>&1 || true

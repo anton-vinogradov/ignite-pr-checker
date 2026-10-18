@@ -134,6 +134,16 @@ function persistenceCard(p) {
     return card('Snapshots', 'active', day ? 'last backup ' + esc(day) : 'no backup yet', 'ok');
 }
 
+// The page learns of an out-of-memory error from the dump alone: the JVM exits without a word in the service's log.
+function heapDumpCard(dump) {
+    if (!dump) return '';
+    const left = Math.max(0, Math.round((dump.deletedAt - Date.now()) / 1000));
+    return card('Out of memory', agoShort(dump.writtenAt),
+        left >= 60 ? 'heap dump deleted in ' + fmtDur(left) : 'heap dump deleted within 10 min', 'warn',
+        'The JVM ran out of memory and restarted. Its heap dump holds decrypted tokens, so the server deletes it two'
+        + ' days after the JVM wrote it.');
+}
+
 // The version alone does not tell a local build's code: the commit does, unless the tree had changes.
 function versionCard(d) {
     if (!d.commit) return card('Version', esc(d.version));
@@ -210,6 +220,7 @@ function render(d) {
         card('Process memory', j.rssMb >= 0 ? j.rssMb : '—', j.rssMb >= 0
             ? `MB resident · peak ${j.rssPeakMb}` + (j.hostMemMb > 0 ? ` · host ${j.hostMemMb} MB` : '') : 'not measured here'),
         card('Threads', j.threads, `· ${j.cpus} cpu`),
+        heapDumpCard(j.heapDump),
         persistenceCard(d.persistence),
     ].join('');
 

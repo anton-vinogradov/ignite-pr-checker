@@ -468,6 +468,8 @@ from its own GitHub account, the app account.
   that the service rejects as the caller's mistake are listed in grey and never colour the dot.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
+- The **Out of memory** card is there while a heap dump is on disk: it says when the JVM ran out of memory and when
+  the dump is deleted. The server deletes a dump 2 days after the JVM wrote it, since it holds decrypted tokens.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,
   in amber, and a write GitHub refused for another reason (a block, a locked PR) in red until one goes in.
 - The **Tests added to suites** card counts the users who have **Add my PR's tests that no suite runs** on. If the

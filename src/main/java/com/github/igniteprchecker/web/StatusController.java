@@ -6,6 +6,7 @@ import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
+import com.github.igniteprchecker.metrics.HeapDumps;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.metrics.ProcessMemory;
 import com.github.igniteprchecker.persist.CacheStore;
@@ -116,6 +117,7 @@ public class StatusController {
         jvm.put("rssMb", memory.rssMb());
         jvm.put("rssPeakMb", memory.rssPeakMb());
         jvm.put("hostMemMb", memory.hostMb());
+        jvm.put("heapDump", HeapDumps.ofThisJvm().newest());
         jvm.put("threads", ManagementFactory.getThreadMXBean().getThreadCount());
         jvm.put("cpus", Runtime.getRuntime().availableProcessors());
 
