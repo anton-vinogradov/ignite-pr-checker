@@ -75,10 +75,38 @@ class PrTestsSoonPageTest {
             report({ before, after: page.el('prTests').textContent, asked: page.fetches('/api/pr-tests').length });
             """);
 
-        assertThat(out.get("before").asText()).contains("1 failed (not checked yet)", "testReloadExpiredfailed3 s"
-            + "not checked yet");
+        assertThat(out.get("before").asText()).endsWith("1 failed (not checked) in Security · slowest test 3 s"
+            + "SslContextTest.testReloadExpiredfailed3 snot checked");
         assertThat(out.get("after").asText()).contains("1 failed (not blamed)",
             "testReloadExpiredfailed3 snot blamed: pre-existing: fails 3/100 on master");
         assertThat(out.get("asked").asInt()).isEqualTo(1);
+    }
+
+    /**
+     * The answer about the PR's tests is still on its way when a quiet look brings a new verdict of the same RunAll,
+     * which puts the Security suite's failure under Not blamed. The card draws the answer with the verdict on screen,
+     * not with the one that asked for it, so it agrees with Not blamed on this PR.
+     */
+    @Test
+    void aLateAnswerIsDrawnWithTheVerdictOnScreen() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL + """
+            let answer;
+            const answered = new Promise(resolve => { answer = resolve; });
+            page.route('/api/pr-tests', async () => {
+                await answered;
+                return { body: prTests };
+            });
+            await page.load('?pr=13575');
+            page.route('/api/analyze', { body: verdict({ filtered: [filtered] }) });
+            await page.run('analyze')(13575, true);
+            await page.settle();
+            answer();
+            await page.settle();
+            report({ text: page.el('prTests').textContent, asked: page.fetches('/api/pr-tests').length });
+            """);
+
+        assertThat(out.get("asked").asInt()).isEqualTo(1);
+        assertThat(out.get("text").asText()).contains("1 failed (not blamed)",
+            "testReloadExpiredfailed3 snot blamed: pre-existing: fails 3/100 on master");
     }
 }

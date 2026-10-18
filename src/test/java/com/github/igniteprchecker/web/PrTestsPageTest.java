@@ -57,8 +57,8 @@ class PrTestsPageTest {
             .contains("TcpDiscoveryClientTopologyGapTestnew1 passed in Control Utility · slowest test 4 m 58 s",
                 "TcpDiscoveryClientTopologyGapTest.testGappassed4 m 58 s")
             .contains("GridCommandHandlerTestchangedall 2 tests ▸",
-                "1 passed, 1 failed (not checked yet) in Control Utility · slowest test 3 s",
-                "GridCommandHandlerTest.testNewOptionfailed3 sno master historynot checked yet")
+                "1 passed, 1 failed (not checked) in Control Utility · slowest test 3 s",
+                "GridCommandHandlerTest.testNewOptionfailed3 sno master historynot checkedAbstractGapTest")
             .doesNotContain("testCacheIdle")
             .contains("AbstractGapTestnew", "no runs in this RunAll");
     }
@@ -130,7 +130,7 @@ class PrTestsPageTest {
         assertThat(out.get("asked")).extracting(JsonNode::asText).containsExactly(
             "/api/pr-tests?pr=13575&build=9001&running=true", "/api/pr-tests?pr=13575&build=9001");
         assertThat(out.get("list").asText())
-            .contains("1 failed (not checked yet) in Control Utility · slowest test 4 m 58 s")
+            .contains("1 failed (not checked) in Control Utility · slowest test 4 m 58 s")
             .doesNotContain("no runs");
     }
 

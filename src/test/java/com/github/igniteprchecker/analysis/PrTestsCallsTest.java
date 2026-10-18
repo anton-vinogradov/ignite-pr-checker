@@ -18,9 +18,11 @@ import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -45,6 +47,12 @@ class PrTestsCallsTest {
     private static final long CHAIN = 9389046L;
 
     private static final String HEAD = "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b";
+
+    private static final int OTHER_PR = 13575;
+
+    private static final long OTHER_CHAIN = 9391002L;
+
+    private static final String OTHER_HEAD = "1f2e3d4c5b6a7980f1e2d3c4b5a6978801f2e3d4";
 
     private static final String SECURITY = "IgniteTests24Java8_Security";
 
@@ -147,6 +155,53 @@ class PrTestsCallsTest {
         assertThat(together).as("each history was asked before the other one came").isTrue();
         assertThat(answer.classes()).singleElement().satisfies(c -> assertThat(c.runs())
             .extracting(PrTests.Run::masterRuns).containsExactly(40, 40));
+    }
+
+    /**
+     * Two PRs are opened at once. TeamCity takes long on each master history of PR 13335's 20 failed tests, which the
+     * analysis cache does not have. PR 13575 has one passed test, so its answer needs only GitHub's word on its head.
+     * With every thread of the application's pool on PR 13335's lookups, PR 13575's answer does not wait for them.
+     */
+    @Test
+    void anAnswerDoesNotWaitForAnotherPrsLookups() throws Exception {
+        ExecutorService shared = new AnalysisConfig().prTestsExecutor();
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            pr();
+            when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(IntStream.range(0, 20)
+                .mapToObj(i -> run(400 + i, "SslContextTest.testReload" + i, "FAILURE", 3_000)).toList()));
+            CountDownLatch busy = new CountDownLatch(4);
+            when(tc.getBaseBranchHistory(eq(TOK), anyLong(), eq(SECURITY))).thenAnswer(inv -> {
+                busy.countDown();
+                release.await(10, TimeUnit.SECONDS);
+
+                return masterRuns(40);
+            });
+            when(github.prTestFiles(OTHER_PR)).thenReturn(List.of(new GithubClient.PrFile(
+                "modules/core/src/test/java/org/apache/ignite/internal/ssl/SslRenewalTest.java", "modified")));
+            when(github.prOutcome(OTHER_PR)).thenReturn(new GithubClient.PrOutcome(false, false, 0, null, OTHER_HEAD,
+                "IGNITE-29049 Move MDC to JUnit"));
+            when(tc.testRunsOfClasses(eq(TOK), eq(OTHER_CHAIN), any())).thenReturn(Optional.of(List.of(
+                run(501, "SslRenewalTest.testRenew", "SUCCESS", 900))));
+            PrTestRuns prTests = new PrTestRuns(github, tc, cache, shared, System::currentTimeMillis);
+
+            CompletableFuture<PrTests> slow = CompletableFuture.supplyAsync(() -> prTests.of(TOK, PR, CHAIN, false));
+            assertThat(busy.await(5, TimeUnit.SECONDS)).as("PR 13335's lookups hold the pool's threads").isTrue();
+            CompletableFuture<PrTests> quick = CompletableFuture.supplyAsync(
+                () -> prTests.of(TOK, OTHER_PR, OTHER_CHAIN, false));
+
+            assertThat(quick).as("PR 13575's answer while PR 13335's lookups wait")
+                .succeedsWithin(Duration.ofSeconds(2))
+                .satisfies(answer -> assertThat(answer.suiteCheck().sha()).isEqualTo(OTHER_HEAD));
+            release.countDown();
+            assertThat(slow).succeedsWithin(Duration.ofSeconds(5)).satisfies(answer -> assertThat(answer.classes())
+                .singleElement().satisfies(c -> assertThat(c.runs()).extracting(PrTests.Run::masterRuns)
+                    .hasSize(20).containsOnly(40)));
+        }
+        finally {
+            release.countDown();
+            shared.shutdown();
+        }
     }
 
     /**

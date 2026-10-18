@@ -167,9 +167,54 @@ class PrTestRunsTest {
 
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
-        assertThat(answer.note()).isEqualTo("master history was looked up for only 20 of 25 failed tests");
+        assertThat(answer.note())
+            .isEqualTo("master history was looked up for only 20 of 25 failed tests of changed classes");
         assertThat(answer.classes().get(0).runs().stream().filter(r -> r.masterRuns() != null))
             .hasSize(20).allMatch(r -> "FAILURE".equals(r.status()));
+        verify(tc, times(20)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
+    }
+
+    /**
+     * The PR changes GridCommandHandlerTest, where 23 tests failed, 2 of them muted, and adds
+     * TcpDiscoveryClientTopologyGapTest, where 5 failed. The note counts the 23 failures the reader sees under the
+     * changed class: a new class has no master history, and a muted failure is not looked up.
+     */
+    @Test
+    void theNoteCountsTheFailuresOfChangedClasses() {
+        when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(GAP, "added"),
+            new GithubClient.PrFile(HANDLER, "modified")));
+        List<TcModel.TestOccurrence> runs = new ArrayList<>(IntStream.range(0, 23).mapToObj(i -> run(200 + i,
+            "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.testBroken" + i, "FAILURE", 1,
+            CONTROL)).map(o -> o.test().id() < 202 ? new TcModel.TestOccurrence(o.id(), o.name(), o.status(), o.test(),
+                o.build(), null, o.duration(), true) : o).toList());
+        IntStream.range(0, 5).forEach(i -> runs.add(run(300 + i, "IgniteSpiDiscoverySelfTestSuite: "
+            + "org.apache.ignite.spi.discovery.tcp.TcpDiscoveryClientTopologyGapTest.testGap" + i, "FAILURE", 1,
+            "IgniteTests24Java8_Spi")));
+        when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(runs));
+        when(tc.getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL))).thenReturn(masterRuns(3));
+
+        PrTests answer = prTests.of(TOK, PR, CHAIN, false);
+
+        assertThat(answer.note())
+            .isEqualTo("master history was looked up for only 20 of 23 failed tests of changed classes");
+        verify(tc, times(20)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
+    }
+
+    /**
+     * 20 failures of the changed class are looked up, and 3 more TeamCity muted: the reader misses nothing the card
+     * could show, so no note.
+     */
+    @Test
+    void mutedFailuresAboveTwentyNeedNoNote() {
+        when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(HANDLER, "modified")));
+        List<TcModel.TestOccurrence> runs = IntStream.range(0, 23).mapToObj(i -> run(200 + i,
+            "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.testBroken" + i, "FAILURE", 1,
+            CONTROL)).map(o -> o.test().id() < 203 ? new TcModel.TestOccurrence(o.id(), o.name(), o.status(), o.test(),
+                o.build(), null, o.duration(), true) : o).toList();
+        when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(runs));
+        when(tc.getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL))).thenReturn(masterRuns(3));
+
+        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isNull();
         verify(tc, times(20)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
     }
 

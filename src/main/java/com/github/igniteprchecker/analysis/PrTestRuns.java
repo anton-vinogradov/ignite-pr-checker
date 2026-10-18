@@ -209,9 +209,7 @@ public class PrTestRuns {
         if (runs.get().size() >= TcClient.CLASS_RUNS_MAX)
             notes.add("only the first " + TcClient.CLASS_RUNS_MAX + " runs were read");
 
-        int failed = withMasterRuns(token, byClass);
-        if (failed > MASTER_LOOKUPS)
-            notes.add("master history was looked up for only " + MASTER_LOOKUPS + " of " + failed + " failed tests");
+        withMasterRuns(token, byClass).ifPresent(notes::add);
 
         return new Ran(classes, byClass, notes.isEmpty() ? null : String.join("; ", notes), true);
     }
@@ -305,24 +303,32 @@ public class PrTestRuns {
     }
 
     /**
-     * Fills in master's run count for the failed tests of changed classes, up to {@link #MASTER_LOOKUPS} of them, all
-     * at once; returns how many failed. A muted failure is left out: the verdict does not judge it.
+     * Fills in master's run count for the failed tests of changed classes, up to {@link #MASTER_LOOKUPS} of them; a
+     * muted failure is left out, as the verdict does not judge it. The analysis cache answers on the calling thread,
+     * and TeamCity is asked the rest side by side. Returns the note on the failures left without a lookup, if any:
+     * it counts every failure of the changed classes, as the card lists them.
      */
-    private int withMasterRuns(String token, Map<ClassFile, List<PrTests.Run>> byClass) {
+    private Optional<String> withMasterRuns(String token, Map<ClassFile, List<PrTests.Run>> byClass) {
         List<PrTests.Run> failed = byClass.entrySet().stream()
             .filter(e -> !e.getKey().added())
             .flatMap(e -> e.getValue().stream())
-            .filter(r -> "FAILURE".equals(r.status()) && !r.muted())
+            .filter(r -> "FAILURE".equals(r.status()))
             .toList();
+        List<PrTests.Run> judged = failed.stream().filter(r -> !r.muted()).toList();
 
         Map<PrTests.Run, CompletableFuture<PrTests.Run>> looking = new LinkedHashMap<>();
-        for (PrTests.Run r : failed.subList(0, Math.min(MASTER_LOOKUPS, failed.size())))
-            looking.put(r, CompletableFuture.supplyAsync(() -> withMasterRuns(r, masterRuns(token, r)), lookups));
+        for (PrTests.Run r : judged.subList(0, Math.min(MASTER_LOOKUPS, judged.size()))) {
+            Optional<RunHistory> known = cache.masterHistoryOf(r.testId(), r.suite());
+            looking.put(r, known.isPresent()
+                ? CompletableFuture.completedFuture(withMasterRuns(r, known.get().all().runs()))
+                : CompletableFuture.supplyAsync(() -> withMasterRuns(r, masterRuns(token, r)), lookups));
+        }
 
         byClass.replaceAll((c, runs) -> runs.stream()
             .map(r -> looking.containsKey(r) ? looking.get(r).join() : r).toList());
 
-        return failed.size();
+        return judged.size() > MASTER_LOOKUPS ? Optional.of("master history was looked up for only " + MASTER_LOOKUPS
+            + " of " + failed.size() + " failed tests of changed classes") : Optional.empty();
     }
 
     /** How many master runs of the test are on record, null when TeamCity can't say. */

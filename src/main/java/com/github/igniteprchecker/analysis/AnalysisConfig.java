@@ -3,7 +3,10 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -121,13 +124,15 @@ public class AnalysisConfig {
     }
 
     /**
-     * Asks, for one answer about a PR's own tests, what does not depend on each other at the same time; four threads,
-     * since one answer has at most one GitHub lookup and 20 master histories in it, and most histories are in the
-     * analysis cache already.
+     * Asks, for one answer about a PR's own tests, what does not depend on each other at the same time; up to four
+     * threads, since one answer has at most one GitHub lookup and 20 master histories in it, and most histories are
+     * in the analysis cache already. Nothing waits in a queue: there, one PR's answer would wait for another PR's
+     * TeamCity lookups. With every thread busy, the thread that asked does the task itself.
      */
     @Bean(destroyMethod = "shutdown")
     ExecutorService prTestsExecutor() {
-        return Executors.newFixedThreadPool(4, named("pr-tests-"));
+        return new ThreadPoolExecutor(0, 4, 60, TimeUnit.SECONDS, new SynchronousQueue<>(), named("pr-tests-"),
+            (task, pool) -> task.run());
     }
 
     private static ThreadFactory named(String prefix) {

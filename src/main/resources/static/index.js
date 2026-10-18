@@ -1772,7 +1772,8 @@ async function loadPrTests(res) {
         if (!stillShown(res) || lastResult.live !== res.live) return;
         if (body) {
             lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
-            renderPrTests(body, res);
+            // A quiet look may have brought a new verdict of the same run while the answer was on its way.
+            renderPrTests(body, lastResult);
         }
     } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
     showLateCards(res.prNumber);
@@ -2017,29 +2018,32 @@ function testKey(t) {
 }
 
 // What the verdict did with a failed run of a PR's test. The verdict does not judge a test of a suite that timed out
-// or crashed, nor a failure TeamCity muted; any other failure it has not judged yet.
+// or crashed, nor a failure TeamCity muted. Any other failure a later verdict may still judge while this one can
+// change: a RunAll is still going, or missed TeamCity lookups make the checker compute it again. A final verdict
+// leaves it unjudged for good, as when a suite broke and a re-run of the suite settled it.
 function outcomeOf(r, verdicts, res) {
     const v = verdicts.get(testKey(r));
     if (v) return v;
     if (r.muted) return { place: 'muted' };
     if ((res.brokenSuites || []).some(s => s.suite === r.suite)) return { place: 'broken' };
-    return { place: 'later' };
+    return { place: res.live || res.incompleteSince > 0 ? 'later' : 'unjudged' };
 }
 
 function verdictLine(r, verdicts, res) {
     const { place, t } = outcomeOf(r, verdicts, res);
     if (place === 'muted') return 'not checked: TeamCity muted it';
     if (place === 'later') return 'not checked yet';
-    if (place === 'broken') return 'not checked: ' + seenAt('broken', null);
+    if (place === 'unjudged') return 'not checked';
+    if (place === 'broken') return 'not checked: ' + seenAt('broken', null, r.suite);
     const where = VERDICT_PLACES[place];
     return seenAt(place, t) + (where.reason && t.reason ? esc(': ' + t.reason) : '');
 }
 
-// The words of a card's line under a PR's test, as a link to the test's row in that card, or to the card.
-function seenAt(place, t) {
+// The words of a card's line under a PR's test, as a link to the test's row in that card, or to its suite's row.
+function seenAt(place, t, suite = t ? t.suite : '') {
     const where = VERDICT_PLACES[place];
-    const test = t ? ` data-name="${esc(t.name)}" data-suite="${esc(t.suite || '')}"` : '';
-    return `<a class="seen-at" href="#${where.card}" data-place="${place}"${test} `
+    const test = t ? ` data-name="${esc(t.name)}"` : '';
+    return `<a class="seen-at" href="#${where.card}" data-place="${place}"${test} data-suite="${esc(suite || '')}" `
         + `title="${esc(`Shows ${t ? 'this test' : 'its suite'} in “${where.name}”.`)}">${esc(where.said)}</a>`;
 }
 
@@ -2048,7 +2052,7 @@ function seenAt(place, t) {
 function failedOutcome(failed, res) {
     const verdicts = verdictsOf(res);
     const places = failed.map(r => outcomeOf(r, verdicts, res).place);
-    const unchecked = p => p === 'muted' || p === 'later' || p === 'broken';
+    const unchecked = p => p === 'muted' || p === 'later' || p === 'unjudged' || p === 'broken';
     if (failed.length === 1)
         return unchecked(places[0]) ? (places[0] === 'later' ? 'not checked yet' : 'not checked')
             : VERDICT_PLACES[places[0]].said;
@@ -2070,17 +2074,22 @@ function wireSeenAt(el) {
         };
 }
 
-// Takes the reader from a PR's test to its row in the card that judged it, or to the card when it has no row there.
-// A folded card opens, and Blockers leave Root causes for Suites: the causes have no row per suite and test.
+// Takes the reader from a PR's test to its row in the card that judged it, or to its suite's row in Broken suites,
+// or to the card when it has no such row. The fold that holds the row opens, or the card's own fold when there is no
+// row, and Blockers leave Root causes for Suites: the causes have no row per suite and test.
 function showVerdictRow(link) {
     const place = VERDICT_PLACES[link.dataset.place];
     if (!place) return;
     if (link.dataset.place === 'blockers' && blockerView !== 'suites') setBlockerView('suites');
     const card = $(place.card);
-    const fold = card.querySelector('details');
+    const row = link.dataset.place === 'broken' ? rowOfBrokenSuite(link.dataset.suite)
+        : rowOfTest(place.lists, link.dataset.name, link.dataset.suite);
+    const fold = row ? row.closest('details') : card.querySelector(':scope > details');
     if (fold) fold.open = true;
-    const target = rowOfTest(place.lists, link.dataset.name, link.dataset.suite) || card;
+    const target = row || card;
     target.setAttribute('tabindex', '-1');
+    // Focusable for good, the row or card would take the focus and its ring from any click on its text.
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
     target.scrollIntoView({ block: 'center' });
     target.focus({ preventScroll: true });
 }
@@ -2090,6 +2099,14 @@ function rowOfTest(lists, name, suite) {
     for (const id of lists)
         for (const b of $(id).querySelectorAll('.why.ai'))
             if (b.dataset.name === name && b.dataset.suite === suite) return b.closest('li.test-row');
+    return null;
+}
+
+// A suite's row in Broken suites, found by its "copy AI prompt" button. A suite a failed run kept from running has
+// none: its group only names it.
+function rowOfBrokenSuite(suite) {
+    for (const b of $('brokenSuites').querySelectorAll('.ai-suite'))
+        if (b.dataset.suite === suite) return b.closest('li');
     return null;
 }
 
