@@ -55,7 +55,14 @@ function warmerCard(a) {
         return card('Warmer', 'paused', 'no pooled tokens — nothing to warm with', 'warn');
     if (a.lastWarmCycleAt)
         return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run`, 'ok');
-    return card('Warmer', 'idle', 'no cycle yet');
+    return idleWarmerCard(a.firstCycleAt);
+}
+
+// A first cycle that never starts logs nothing, so the card turns amber a minute after the cycle was due.
+function idleWarmerCard(firstAt) {
+    const state = firstPassState(firstAt);
+    if (state === 'late') return card('Warmer', 'never', '', 'warn', lateTitle('cycle', firstAt));
+    return card('Warmer', 'idle', state === 'off' ? 'no cycle yet' : passText('cycle', 0, firstAt));
 }
 
 // The initial post-restart warm-up: amber while it's still going, green once done.
@@ -151,7 +158,7 @@ function versionCard(d) {
         + (d.dirty ? ' + uncommitted changes' : ''), d.dirty ? 'warn' : '');
 }
 
-// The settings name paths on the server and the operators, so only signed-in viewers get them.
+// The settings name paths on the server, so only signed-in viewers get them.
 function configRows(d) {
     if (!d.config) return '<div class="muted">log in on the main page to see the settings</div>';
     return Object.entries(d.config).map(([k, v]) =>
@@ -385,8 +392,8 @@ function renderLog(el, d) {
     const recent = log.recent || [];
     if (d.operatorsNamed === false) { el.innerHTML = `<div class="muted">${NO_OPERATOR}</div>`; return; }
     if (!d.operator && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
-        el.innerHTML = d.signedIn ? '<div class="muted">only operators see the messages</div>'
-            : '<div class="muted">only operators see the messages: log in on the main page if you are one</div>';
+        el.innerHTML = d.signedIn ? '<div class="muted">Only operators see the messages.</div>'
+            : '<div class="muted">Only operators see the messages. Log in on the main page if you are one.</div>';
         return;
     }
     if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }

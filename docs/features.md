@@ -482,12 +482,13 @@ from its own GitHub account, the app account.
   turn it amber. What GitHub does not say is shown as unknown, not as fine.
 - The **Standing options**, **PR commands** and **Tests added to suites** cards say when their job last started a
   pass. **Last refresh** says the same for the build watcher. Before the first pass after a start, a card says when
-  it is due, for example "first sweep in 3m". If the pass has not started a minute after that, the card says "never"
-  in amber: the job may be stuck.
+  it is due, for example "first sweep in 3m". The **Warmer** card says when the first warm cycle is due. If the pass
+  has not started a minute after that, the card says "never" in amber: the job may be stuck.
 - Signed-in viewers also see what the check found and the settings in effect.
-- Operators are the users `PRC_ADMINS` names. They also see the log messages, who restarted or flushed last,
-  **Restart service**, **Flush caches** and the **Users** tab. Other viewers see only how many warnings and errors
-  were logged. Without `PRC_ADMINS` nobody sees these, and the page says how to name operators.
+- Operators are the users `PRC_ADMINS` names. They also see the log messages, who restarted or flushed last, the
+  operators' names in the settings, **Restart service**, **Flush caches** and the **Users** tab. Other viewers see
+  only how many warnings and errors were logged, and signed-in ones also see how many operators there are. Without
+  `PRC_ADMINS` nobody sees these, and the page says how to name operators.
 
 ## Everything else
 

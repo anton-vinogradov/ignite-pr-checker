@@ -152,7 +152,7 @@ class AnonymousViewTest {
         assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains(why);
     }
 
-    /** The settings name the operators and paths on the server. */
+    /** The settings name paths on the server, and to the operator, the operators. */
     @Test
     void statusShowsTheSettingsToSignedInViewersOnly() throws Exception {
         when(config.settings()).thenReturn(Map.of("PRC_CACHE_DIR", "/opt/ignite-pr-checker/cache",
@@ -161,6 +161,18 @@ class AnonymousViewTest {
         assertThat(status.status(new MockHttpServletRequest())).doesNotContainKey("config");
         assertThat(status.status(signedIn())).containsEntry("config", Map.of("PRC_CACHE_DIR",
             "/opt/ignite-pr-checker/cache", "PRC_ADMINS", "avinogradov"));
+    }
+
+    /** Anyone may register on ci2: the operators' names would tell a stranger whose login opens Restart and Update. */
+    @Test
+    void statusCountsTheOperatorsToOtherSignedInViewers() throws Exception {
+        when(config.settings()).thenReturn(Map.of("PRC_ADMINS", "avinogradov"));
+        when(config.settingsWithoutOperatorNames()).thenReturn(Map.of("PRC_ADMINS", "1 name, shown to operators only"));
+
+        Map<String, Object> res = status.status(signedInAs("stranger"));
+
+        assertThat(mapper.writeValueAsString(res)).doesNotContain("avinogradov");
+        assertThat(res).containsEntry("config", Map.of("PRC_ADMINS", "1 name, shown to operators only"));
     }
 
     /** Whether the server's GitHub token can push to apache/ignite says how much it is worth to whoever reads it. */

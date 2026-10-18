@@ -180,6 +180,16 @@ class ContextStartsTest {
         assertThat((Map<String, Object>)watcher.get("suiteFix")).containsEntry("firstSweepAt", 0);
     }
 
+    /** Warming is off here: a first cycle due would turn the warmer card amber for a cycle that never runs. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void noWarmCycleIsDueWithWarmingOff() {
+        Map<String, Object> app = (Map<String, Object>)http.exchange("/api/status", HttpMethod.GET, null,
+            new ParameterizedTypeReference<Map<String, Object>>() { }).getBody().get("app");
+
+        assertThat(app).containsEntry("firstCycleAt", 0);
+    }
+
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */
     @Test
     void automationOffReachesTheJobs() {

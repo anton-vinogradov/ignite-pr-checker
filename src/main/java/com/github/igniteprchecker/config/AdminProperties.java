@@ -7,8 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Who operates the instance: the TeamCity usernames ({@code PRC_ADMINS}, comma-separated) allowed to restart,
- * update and flush the service and to list its users. Empty means no one is singled out: any logged-in user
- * may, within cooldowns. Names compare case-insensitively.
+ * update and flush the service, to list its users and to read its log messages on the status page. Empty means
+ * there is no operator, so nobody may do these. Names compare case-insensitively.
  */
 @ConfigurationProperties(prefix = "admin")
 public record AdminProperties(List<String> logins) {

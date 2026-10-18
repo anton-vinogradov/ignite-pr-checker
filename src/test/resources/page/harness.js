@@ -18,12 +18,14 @@ function stripTags(s) {
         .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 }
 
-// The classes each element starts with, so "is it hidden?" answers as the real page would.
+// The classes and the hidden attribute each element starts with, so "is it hidden?" answers as the real page would.
 const initialClasses = new Map();
+const initialHidden = new Set();
 for (const m of html.matchAll(/<[a-zA-Z0-9]+\b([^>]*)>/g)) {
     const id = /\bid="([^"]+)"/.exec(m[1]);
     const cls = /\bclass="([^"]*)"/.exec(m[1]);
     if (id) initialClasses.set(id[1], cls ? cls[1].split(/\s+/).filter(Boolean) : []);
+    if (id && /(?:^|\s)hidden(?=[\s=]|$)/.test(m[1].replace(/"[^"]*"/g, '""'))) initialHidden.add(id[1]);
 }
 
 // As in a browser, whatever goes into an element's dataset comes back as a string.
@@ -36,6 +38,7 @@ function fakeElement(id) {
     const el = {
         id, dataset: fakeDataset(), style: {}, attributes: {}, listeners: {}, children: [],
         value: '', disabled: false, checked: false, title: '', href: '', open: false, scrollTop: 0,
+        hidden: initialHidden.has(id),
         htmlWrites: 0, classLog: [], _html: '', _text: '',
         get innerHTML() { return this._html; },
         set innerHTML(v) { this._html = String(v); this._text = stripTags(v); this.htmlWrites++; },

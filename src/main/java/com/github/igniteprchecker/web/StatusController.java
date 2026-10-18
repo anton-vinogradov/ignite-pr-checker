@@ -18,6 +18,7 @@ import java.lang.management.MemoryUsage;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
@@ -30,8 +31,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
  * read the counters, the health and the levels of its problems; the problems' texts and the settings name files and
- * errors on the server, so only signed-in viewers get those. The log messages and who restarted or flushed last name
- * people, so only the operators get those.
+ * errors on the server, so only signed-in viewers get those. Only the operators get the log messages, who restarted
+ * or flushed last, and the operators' names in the settings. The messages tell whose tokens TeamCity or GitHub
+ * refused, and an operator's login is what opens Restart, Update and the messages.
  */
 @RestController
 @RequestMapping("/api")
@@ -156,6 +158,7 @@ public class StatusController {
         app.put("cycleStartedAt", warmer.cycleStartedAt());
         app.put("cycleTotal", warmer.cycleTotal());
         app.put("cycleDone", warmer.cycleDone());
+        app.put("firstCycleAt", firstCycleAt());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
         ServiceHealth.Report report = health.report(logSnap, System.currentTimeMillis());
@@ -198,7 +201,7 @@ public class StatusController {
         out.put("operatorsNamed", admin.operatorsNamed());
         if (operator)
             out.put("admin", Map.of("last", admin.lastUses()));
-        viewer.ifPresent(v -> out.put("config", config.settings()));
+        viewer.ifPresent(v -> out.put("config", operator ? config.settings() : config.settingsWithoutOperatorNames()));
 
         return out;
     }
@@ -213,6 +216,11 @@ public class StatusController {
     /** When a job's first pass is due, or 0 while the jobs are not scheduled yet. */
     private long firstPassAt(long initialDelayMs) {
         return jobsScheduledAt == 0 ? 0 : jobsScheduledAt + initialDelayMs;
+    }
+
+    /** When the warmer's first scheduled cycle is due: never with warming off. */
+    private long firstCycleAt() {
+        return warmer.warms() ? firstPassAt(TimeUnit.MINUTES.toMillis(Warmer.FIRST_CYCLE_MINUTES)) : 0;
     }
 
     /** The suite-fix sweep's figures, and when its first pass is due: never with automation off. */

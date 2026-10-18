@@ -30,6 +30,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 /**
  * For the 3 minutes after a restart the status page said "sweep never" of the standing sweep and of tests added to
  * suites, and /api/status gave it nothing to say better: it knew when a pass last started, not when the first is due.
+ * The warmer card said "no cycle yet" as long as its first cycle did not start, a minute or a day after the start.
  */
 class FirstPassTimesTest {
     private final ObjectMapper mapper = new ObjectMapper();
@@ -57,6 +58,7 @@ class FirstPassTimesTest {
     void eachFirstPassIsDueItsJobsInitialDelayAfterTheJobsAreScheduled() {
         when(suiteFix.stats()).thenReturn(Map.of("users", 1, "lastSweepAt", 0L));
         when(suiteFix.sweeps()).thenReturn(true);
+        when(warmer.warms()).thenReturn(true);
         ContextRefreshedEvent scheduled = new ContextRefreshedEvent(mock(ApplicationContext.class));
         status.jobsScheduled(scheduled);
         long at = scheduled.getTimestamp();
@@ -67,15 +69,20 @@ class FirstPassTimesTest {
             .containsEntry("standingFirstSweepAt", at + 180_000).containsEntry("prCommandsFirstPollAt", at + 30_000);
         assertThat(watcher.get("suiteFix")).isEqualTo(Map.of("users", 1, "lastSweepAt", 0L,
             "firstSweepAt", at + 180_000));
+        assertThat(app()).containsEntry("firstCycleAt", at + 60_000);
     }
 
-    /** With automation off, tests are never added to suites: no time is due, and the page keeps a grey "never". */
+    /**
+     * With automation off, tests are never added to suites, and with warming off no warm cycle runs: no time is due,
+     * and the page keeps its grey texts.
+     */
     @Test
-    void aSweepThatDoesNotRunHereIsNeverDue() {
+    void aJobThatDoesNotRunHereIsNeverDue() {
         when(suiteFix.stats()).thenReturn(Map.of());
         status.jobsScheduled(new ContextRefreshedEvent(mock(ApplicationContext.class)));
 
         assertThat(watcher().get("suiteFix")).isEqualTo(Map.of("firstSweepAt", 0L));
+        assertThat(app()).containsEntry("firstCycleAt", 0L);
     }
 
     /** A context of its own for management refreshes too, a moment apart: the times stay those of the first. */
@@ -91,12 +98,20 @@ class FirstPassTimesTest {
 
     @Test
     void beforeTheJobsAreScheduledNothingIsDue() {
+        when(warmer.warms()).thenReturn(true);
+
         assertThat(watcher()).containsEntry("firstRefreshAt", 0L).containsEntry("standingFirstSweepAt", 0L)
             .containsEntry("prCommandsFirstPollAt", 0L);
+        assertThat(app()).containsEntry("firstCycleAt", 0L);
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> watcher() {
         return (Map<String, Object>)status.status(new MockHttpServletRequest()).get("watcher");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> app() {
+        return (Map<String, Object>)status.status(new MockHttpServletRequest()).get("app");
     }
 }

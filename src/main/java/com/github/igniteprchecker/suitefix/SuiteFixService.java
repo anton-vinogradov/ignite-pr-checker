@@ -168,7 +168,7 @@ public class SuiteFixService implements SnapshotCache {
         return out;
     }
 
-    /** Whether the sweep runs at all: it is off with automation. */
+    /** Whether the sweep runs at all: it is off while automation is off. */
     public boolean sweeps() {
         return automation;
     }

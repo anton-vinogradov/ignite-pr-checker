@@ -57,7 +57,7 @@ class OperatorPagesTest {
         assertThat(out.get("restart").asBoolean()).isFalse();
         assertThat(out.get("flush").asBoolean()).isFalse();
         assertThat(out.get("tabs").asBoolean()).isFalse();
-        assertThat(out.get("log").asText()).isEqualTo("only operators see the messages");
+        assertThat(out.get("log").asText()).isEqualTo("Only operators see the messages.");
         assertThat(out.get("logCard").asText()).contains("Log issues", "1 warn");
         assertThat(out.get("last").asText()).isEmpty();
     }
@@ -73,7 +73,7 @@ class OperatorPagesTest {
 
         assertThat(out.get("tabs").asBoolean()).isFalse();
         assertThat(out.get("log").asText())
-            .isEqualTo("only operators see the messages: log in on the main page if you are one");
+            .isEqualTo("Only operators see the messages. Log in on the main page if you are one.");
     }
 
     /** Nobody sees the messages then, signed in or not: the page says where they are and how to name an operator. */

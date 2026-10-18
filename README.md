@@ -354,10 +354,11 @@ can make a session cookie for any user.
 ### Operators
 
 Operators are the TeamCity users that `PRC_ADMINS` names, comma-separated. Only they see the log messages on the
-status page, who restarted and who flushed last, and the list on the **Users** tab. Only they can press
-**Restart service**, **Update** and **Flush caches**. The server checks this itself: it sends these to nobody else and
-refuses anyone else's press. The PR page shows **operator** next to an operator's name. Other logged-in users see how
-many warnings and errors were logged, but not the messages. Every press is logged with the operator's name.
+status page, who restarted and who flushed last, the operators' names in the settings, and the list on the **Users**
+tab. Only they can press **Restart service**, **Update** and **Flush caches**. The server checks this itself: it sends
+these to nobody else and refuses anyone else's press. The PR page shows **operator** next to an operator's name. Other
+logged-in users see how many warnings and errors were logged, but not the messages. They also see how many operators
+there are, but not who. Every press is logged with the operator's name.
 
 Without `PRC_ADMINS`, nobody is an operator. Nobody can restart, update or flush the service from the pages. Nobody
 sees the log messages on the status page either: they stay in the journal and in the service's own log. To name
