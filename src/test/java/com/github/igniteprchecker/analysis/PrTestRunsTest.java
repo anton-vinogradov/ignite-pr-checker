@@ -28,7 +28,8 @@ import org.junit.jupiter.api.Test;
 /**
  * TcpDiscoveryClientTopologyGapTest came in with PR 13327 taking 298 s, passed there once, and now fails 18 of 100
  * master runs, noise in 77 PRs: nothing in the verdict showed the PR's own tests apart. The PR's new and changed
- * test classes are now looked up in its RunAll, with each test's status, duration and master history.
+ * test classes are now looked up in its RunAll, with each test's status and duration, and a failed test's master
+ * history.
  */
 class PrTestRunsTest {
     private static final String TOK = "tok";
@@ -67,7 +68,6 @@ class PrTestRunsTest {
                 "FAILURE", 3_000, CONTROL),
             run(4, "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTestBase.testBase",
                 "SUCCESS", 100, CONTROL))));
-        when(tc.getBaseBranchHistory(TOK, 2, CONTROL)).thenReturn(masterRuns(85));
         when(tc.getBaseBranchHistory(TOK, 3, CONTROL)).thenReturn(List.of());
 
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
@@ -81,10 +81,11 @@ class PrTestRunsTest {
             .extracting(PrTests.Run::status, PrTests.Run::durationMs, PrTests.Run::suiteName, PrTests.Run::masterRuns)
             .containsExactly(tuple("SUCCESS", 298_000L, "Spi", null));
         assertThat(answer.classes().get(1).runs()).extracting(PrTests.Run::testId, PrTests.Run::masterRuns)
-            .containsExactly(tuple(2L, 85), tuple(3L, 0));
+            .containsExactly(tuple(2L, null), tuple(3L, 0));
         verify(tc).testRunsOfClasses(TOK, CHAIN,
             List.of("TcpDiscoveryClientTopologyGapTest", "GridCommandHandlerTest"));
         verify(tc, never()).getBaseBranchHistory(TOK, 1, "IgniteTests24Java8_Spi");
+        verify(tc, never()).getBaseBranchHistory(TOK, 2, CONTROL);
     }
 
     @Test
@@ -146,24 +147,45 @@ class PrTestRunsTest {
         verify(tc, times(2)).testRunsOfClasses(eq(TOK), eq(CHAIN), any());
     }
 
+    /**
+     * The card shows master history only for a failed test: 30 passing tests ask TeamCity nothing, and the note says
+     * what the reader misses when more tests failed than are looked up.
+     */
     @Test
-    void masterHistoryIsLookedUpForTwentyTestsAtMostFailedOnesFirst() {
+    void masterHistoryIsLookedUpForTwentyFailedTestsAtMost() {
         when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(HANDLER, "modified")));
         List<TcModel.TestOccurrence> runs = new ArrayList<>(IntStream.range(0, 30).mapToObj(i -> run(100 + i,
-            "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.test" + i, "SUCCESS", i,
-            CONTROL)).toList());
-        runs.add(run(7, "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.testBroken",
-            "FAILURE", 1, CONTROL));
+            "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.test" + i, "SUCCESS",
+            70_000 + i, CONTROL)).toList());
+        IntStream.range(0, 25).forEach(i -> runs.add(run(200 + i,
+            "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.testBroken" + i, "FAILURE", 1,
+            CONTROL)));
         Collections.reverse(runs);
         when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(runs));
         when(tc.getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL))).thenReturn(masterRuns(3));
 
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
-        assertThat(answer.note()).isEqualTo("master history was looked up for 20 of 31 tests of changed classes");
-        assertThat(answer.classes().get(0).runs().stream().filter(r -> r.masterRuns() != null)).hasSize(20);
+        assertThat(answer.note()).isEqualTo("master history was looked up for only 20 of 25 failed tests");
+        assertThat(answer.classes().get(0).runs().stream().filter(r -> r.masterRuns() != null))
+            .hasSize(20).allMatch(r -> "FAILURE".equals(r.status()));
         verify(tc, times(20)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
-        verify(tc).getBaseBranchHistory(TOK, 7, CONTROL);
+    }
+
+    /** A note says nothing when every failed test got its master history, however many tests passed. */
+    @Test
+    void noNoteWhenEveryFailedTestIsLookedUp() {
+        when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(HANDLER, "modified")));
+        List<TcModel.TestOccurrence> runs = new ArrayList<>(IntStream.range(0, 66).mapToObj(i -> run(100 + i,
+            "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.test" + i, "SUCCESS", i,
+            CONTROL)).toList());
+        runs.add(run(7, "IgniteControlUtilityTestSuite: org.apache.ignite.util.GridCommandHandlerTest.testBroken",
+            "FAILURE", 1, CONTROL));
+        when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenReturn(Optional.of(runs));
+        when(tc.getBaseBranchHistory(TOK, 7, CONTROL)).thenReturn(masterRuns(3));
+
+        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isNull();
+        verify(tc, times(1)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
     }
 
     @Test

@@ -603,9 +603,10 @@ public class TcClient {
 
     /**
      * The runs in a RunAll chain of the tests whose names contain one of these simple class names, with how long
-     * each took: one call, TeamCity listing a composite build's tests as its suites ran them (up to
-     * {@link #CLASS_RUNS_MAX}), and one more for each further {@link #CLASS_PATTERN_MAX} characters of names. The
-     * caller picks the classes it means out of them. Empty when TeamCity rejects the query; it is then not asked again.
+     * each took and whether TeamCity muted it: one call, TeamCity listing a composite build's tests as its suites ran
+     * them (up to {@link #CLASS_RUNS_MAX}), and one more for each further {@link #CLASS_PATTERN_MAX} characters of
+     * names. The caller picks the classes it means out of them. Empty when TeamCity rejects the query; it is then not
+     * asked again.
      */
     public Optional<List<TcModel.TestOccurrence>> testRunsOfClasses(String token, long chainBuildId,
         Collection<String> simpleNames) {
@@ -655,7 +656,8 @@ public class TcClient {
             TcModel.TestOccurrences occ = get("prTests", token, url("app/rest/testOccurrences", query(
                 "locator", "build:(id:" + chainBuildId + "),name:(value:.*(" + String.join("|", simpleNames)
                     + ").*,matchType:matches),count:" + count,
-                "fields", "testOccurrence(id,name,status,duration,test(id),build(id,buildTypeId,buildType(name)))")),
+                "fields",
+                "testOccurrence(id,name,status,duration,muted,test(id),build(id,buildTypeId,buildType(name)))")),
                 TcModel.TestOccurrences.class);
 
             return Optional.of(occ == null || occ.testOccurrence() == null ? List.of() : occ.testOccurrence());

@@ -24,6 +24,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   <li>{@code backgroundExecutor} also fans out the computes the standing sweep, early re-runs and the auto
  *   visa act on; the auto visa's first try after a chain finished recomputes as ↻ does.</li>
  *   <li>{@code causesExecutor} clusters the "Top causes".</li>
+ *   <li>{@code prTestsExecutor} asks GitHub for the PR's head and Ignite's check of it while TeamCity says how the
+ *   PR's test classes ran, and looks up the master histories of their failed tests side by side.</li>
  *   <li>{@code earlyRerunExecutor}, one thread, re-runs a suite that failed while its chain still runs, and
  *   {@code settleExecutor}, one thread, settles a PR whose chain or re-run just finished: both off the rerun
  *   tracker's timer, which announces them. {@code visaPosterExecutor}, one thread, posts the one-shot auto
@@ -116,6 +118,16 @@ public class AnalysisConfig {
     @Bean(destroyMethod = "shutdown")
     ExecutorService causesExecutor() {
         return Executors.newFixedThreadPool(6, named("causes-"));
+    }
+
+    /**
+     * Asks, for one answer about a PR's own tests, what does not depend on each other at the same time; four threads,
+     * since one answer has at most one GitHub lookup and 20 master histories in it, and most histories are in the
+     * analysis cache already.
+     */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService prTestsExecutor() {
+        return Executors.newFixedThreadPool(4, named("pr-tests-"));
     }
 
     private static ThreadFactory named(String prefix) {

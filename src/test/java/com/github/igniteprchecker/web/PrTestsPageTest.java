@@ -54,10 +54,11 @@ class PrTestsPageTest {
         assertThat(out.get("count").asText()).isEqualTo("(3 classes, 3 tests)");
         assertThat(out.get("warn").asText()).isEqualTo("⚠ 1 test ran longer than 60 s.");
         assertThat(out.get("list").asText())
-            .contains("TcpDiscoveryClientTopologyGapTestnew", "1 passed in Control Utility · slowest test 4 m 58 s",
-                "TcpDiscoveryClientTopologyGapTest.testGap4 m 58 s")
-            .contains("GridCommandHandlerTestchanged", "1 passed, 1 failed in Control Utility · slowest test 3 s",
-                "GridCommandHandlerTest.testNewOptionfailedno master history")
+            .contains("TcpDiscoveryClientTopologyGapTestnew1 passed in Control Utility · slowest test 4 m 58 s",
+                "TcpDiscoveryClientTopologyGapTest.testGappassed4 m 58 s")
+            .contains("GridCommandHandlerTestchangedall 2 tests ▸",
+                "1 passed, 1 failed (not checked yet) in Control Utility · slowest test 3 s",
+                "GridCommandHandlerTest.testNewOptionfailed3 sno master historynot checked yet")
             .doesNotContain("testCacheIdle")
             .contains("AbstractGapTestnew", "no runs in this RunAll");
     }
@@ -128,7 +129,8 @@ class PrTestsPageTest {
 
         assertThat(out.get("asked")).extracting(JsonNode::asText).containsExactly(
             "/api/pr-tests?pr=13575&build=9001&running=true", "/api/pr-tests?pr=13575&build=9001");
-        assertThat(out.get("list").asText()).contains("1 failed in Control Utility · slowest test 4 m 58 s")
+        assertThat(out.get("list").asText())
+            .contains("1 failed (not checked yet) in Control Utility · slowest test 4 m 58 s")
             .doesNotContain("no runs");
     }
 

@@ -12,9 +12,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -25,12 +29,14 @@ import org.springframework.stereotype.Component;
  * makes a PR run anything again.
  *
  * <p>Asked when a PR is viewed: one GitHub call for the PR's files, one TeamCity call for the runs of its test
- * classes in the chain (more only for hundreds of classes), and the master history of up to 20 tests of the changed
- * classes, shared with the analysis. A class the PR adds has no master history to look up. A PR with test classes
- * also gets Ignite's own check of its head for classes in no test suite ({@link AbandonedTestsCheck}). For a class
- * with no runs, what the run's revision had of it: GitHub's comparison of that revision with the head, and Ignite's
- * check of it unless the class is new since. How the classes ran is kept for 15 minutes per PR and chain, for 2 while
- * the chain goes, the PR's files and a comparison for 15 minutes, the head for one, and Ignite's checks for as long as
+ * classes in the chain (more only for hundreds of classes), and the master history of up to 20 failed tests of the
+ * changed classes, shared with the analysis, which looks up the history of every failure it judges. A class the PR
+ * adds has no master history to look up, and the card shows none for a test that passed. A PR with test classes also
+ * gets Ignite's own check of its head for classes in no test suite ({@link AbandonedTestsCheck}), asked while
+ * TeamCity says how the classes ran; the master histories are looked up side by side. For a class with no runs, what
+ * the run's revision had of it: GitHub's comparison of that revision with the head, and Ignite's check of it unless
+ * the class is new since. How the classes ran is kept for 15 minutes per PR and chain, for 2 while the chain goes,
+ * the PR's files and a comparison for 15 minutes, the head for one, and Ignite's checks for as long as
  * AbandonedTestsCheck keeps them.
  */
 @Component
@@ -43,7 +49,7 @@ public class PrTestRuns {
      */
     private static final long KEEP_RUNNING_MS = 2 * 60_000L;
 
-    /** The most tests of changed classes whose master history one answer looks up. */
+    /** The most failed tests of changed classes whose master history one answer looks up. */
     static final int MASTER_LOOKUPS = 20;
 
     /** How long the PR's head is taken as known: the answer and the verdict of one settle ask it twice in a row. */
@@ -66,6 +72,8 @@ public class PrTestRuns {
 
     private final AbandonedTestsCheck suites;
 
+    private final Executor lookups;
+
     private final TtlCache<Integer, List<GithubClient.PrFile>> files;
 
     private final TtlCache<Integer, String> heads;
@@ -77,14 +85,25 @@ public class PrTestRuns {
     private final TtlCache<Between, GithubClient.Changes> changes;
 
     @Autowired
+    public PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache,
+        @Qualifier("prTestsExecutor") ExecutorService lookups) {
+        this(github, tc, cache, lookups, System::currentTimeMillis);
+    }
+
+    /** Asks GitHub and TeamCity one thing after another, on the calling thread. */
     public PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache) {
-        this(github, tc, cache, System::currentTimeMillis);
+        this(github, tc, cache, Runnable::run, System::currentTimeMillis);
     }
 
     PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache, LongSupplier nowMs) {
+        this(github, tc, cache, Runnable::run, nowMs);
+    }
+
+    PrTestRuns(GithubClient github, TcClient tc, AnalysisCache cache, Executor lookups, LongSupplier nowMs) {
         this.github = github;
         this.tc = tc;
         this.cache = cache;
+        this.lookups = lookups;
         this.suites = new AbandonedTestsCheck(github, nowMs);
         this.files = new TtlCache<>(KEEP_MS, nowMs);
         this.heads = new TtlCache<>(KEEP_HEAD_MS, nowMs);
@@ -100,24 +119,31 @@ public class PrTestRuns {
     public PrTests of(String token, int pr, long buildId, boolean running) {
         TtlCache<Asked, Ran> kept = running ? runningAnswers : answers;
         Asked asked = new Asked(pr, buildId);
-        Ran ran = kept.peek(asked).orElseGet(() -> {
-            Ran now = lookUp(token, pr, buildId, running);
+        Optional<Ran> known = kept.peek(asked);
+        List<ClassFile> classes;
+        try {
+            classes = known.isPresent() ? known.get().classes()
+                : files.get(pr, () -> github.prTestFiles(pr)).stream().map(ClassFile::of).toList();
+        }
+        catch (RuntimeException e) {
+            return new PrTests(buildId, List.of(), "GitHub could not list the PR's files", null, false);
+        }
+        if (classes.isEmpty())
+            return new PrTests(buildId, List.of(), null, null, true);
+
+        CompletableFuture<Head> checked = CompletableFuture.supplyAsync(() -> headOf(pr), lookups);
+        Ran ran = known.orElseGet(() -> {
+            Ran now = lookUp(token, buildId, classes, running);
             if (now.keep())
                 kept.put(asked, now);
 
             return now;
         });
-        if (ran.classes().isEmpty())
-            return new PrTests(buildId, List.of(), ran.note(), null, ran.byClass() != null);
-
-        String head = head(pr);
-        AbandonedTestsCheck.Outcome check = head == null
-            ? AbandonedTestsCheck.Outcome.unknown(null, null, "GitHub could not name the PR's head", false)
-            : suites.of(head);
+        Head head = checked.join();
         Map<ClassFile, PrTests.AtRun> atRun = running || ran.byClass() == null ? Map.of()
-            : atRun(token, buildId, head, unexplained(ran, check));
+            : atRun(token, buildId, head.sha(), unexplained(ran, head.check()));
 
-        return answer(buildId, ran, check, atRun);
+        return answer(buildId, ran, head.check(), atRun);
     }
 
     /**
@@ -156,17 +182,7 @@ public class PrTestRuns {
         suites.evictExpired();
     }
 
-    private Ran lookUp(String token, int pr, long buildId, boolean running) {
-        List<ClassFile> classes;
-        try {
-            classes = files.get(pr, () -> github.prTestFiles(pr)).stream().map(ClassFile::of).toList();
-        }
-        catch (RuntimeException e) {
-            return new Ran(List.of(), null, "GitHub could not list the PR's files", false);
-        }
-        if (classes.isEmpty())
-            return new Ran(classes, Map.of(), null, true);
-
+    private Ran lookUp(String token, long buildId, List<ClassFile> classes, boolean running) {
         List<String> names = classes.stream().map(ClassFile::simple).filter(n -> CLASS_NAME.matcher(n).matches())
             .distinct().toList();
         Optional<List<TcModel.TestOccurrence>> runs;
@@ -193,12 +209,20 @@ public class PrTestRuns {
         if (runs.get().size() >= TcClient.CLASS_RUNS_MAX)
             notes.add("only the first " + TcClient.CLASS_RUNS_MAX + " runs were read");
 
-        int toLookUp = withMasterRuns(token, byClass);
-        if (toLookUp > MASTER_LOOKUPS)
-            notes.add("master history was looked up for " + MASTER_LOOKUPS + " of " + toLookUp
-                + " tests of changed classes");
+        int failed = withMasterRuns(token, byClass);
+        if (failed > MASTER_LOOKUPS)
+            notes.add("master history was looked up for only " + MASTER_LOOKUPS + " of " + failed + " failed tests");
 
         return new Ran(classes, byClass, notes.isEmpty() ? null : String.join("; ", notes), true);
+    }
+
+    /** The PR's head and what Ignite's check says of it; the check is unknown when GitHub could not name the head. */
+    private Head headOf(int pr) {
+        String head = head(pr);
+
+        return new Head(head, head == null
+            ? AbandonedTestsCheck.Outcome.unknown(null, null, "GitHub could not name the PR's head", false)
+            : suites.of(head));
     }
 
     /** The PR's head commit; null when GitHub could not say. */
@@ -281,24 +305,24 @@ public class PrTestRuns {
     }
 
     /**
-     * Fills in master's run count for the tests of changed classes, failed ones first, then the slowest, up to
-     * {@link #MASTER_LOOKUPS} of them; returns how many there were to look up.
+     * Fills in master's run count for the failed tests of changed classes, up to {@link #MASTER_LOOKUPS} of them, all
+     * at once; returns how many failed. A muted failure is left out: the verdict does not judge it.
      */
     private int withMasterRuns(String token, Map<ClassFile, List<PrTests.Run>> byClass) {
-        List<PrTests.Run> changed = byClass.entrySet().stream()
+        List<PrTests.Run> failed = byClass.entrySet().stream()
             .filter(e -> !e.getKey().added())
             .flatMap(e -> e.getValue().stream())
-            .sorted(Comparator.comparing((PrTests.Run r) -> !"FAILURE".equals(r.status()))
-                .thenComparing(Comparator.comparingLong(PrTests.Run::durationMs).reversed()))
+            .filter(r -> "FAILURE".equals(r.status()) && !r.muted())
             .toList();
 
-        Map<PrTests.Run, PrTests.Run> looked = new LinkedHashMap<>();
-        for (PrTests.Run r : changed.subList(0, Math.min(MASTER_LOOKUPS, changed.size())))
-            looked.put(r, withMasterRuns(r, masterRuns(token, r)));
+        Map<PrTests.Run, CompletableFuture<PrTests.Run>> looking = new LinkedHashMap<>();
+        for (PrTests.Run r : failed.subList(0, Math.min(MASTER_LOOKUPS, failed.size())))
+            looking.put(r, CompletableFuture.supplyAsync(() -> withMasterRuns(r, masterRuns(token, r)), lookups));
 
-        byClass.replaceAll((c, runs) -> runs.stream().map(r -> looked.getOrDefault(r, r)).toList());
+        byClass.replaceAll((c, runs) -> runs.stream()
+            .map(r -> looking.containsKey(r) ? looking.get(r).join() : r).toList());
 
-        return changed.size();
+        return failed.size();
     }
 
     /** How many master runs of the test are on record, null when TeamCity can't say. */
@@ -314,7 +338,7 @@ public class PrTestRuns {
 
     private static PrTests.Run withMasterRuns(PrTests.Run r, Integer masterRuns) {
         return new PrTests.Run(r.testId(), r.name(), r.suite(), r.suiteBuildId(), r.suiteName(), r.occurrenceId(),
-            r.status(), r.durationMs(), masterRuns);
+            r.status(), r.durationMs(), masterRuns, r.muted());
     }
 
     private static PrTests.Run run(TcModel.TestOccurrence o) {
@@ -324,7 +348,7 @@ public class PrTestRuns {
             : suite;
 
         return new PrTests.Run(o.test().id(), o.name(), suite, b == null ? 0 : b.id(), suiteName, o.id(), o.status(),
-            o.duration() == null ? 0 : o.duration(), null);
+            o.duration() == null ? 0 : o.duration(), null, Boolean.TRUE.equals(o.muted()));
     }
 
     /** One PR's question about one of its chains. */
@@ -341,6 +365,10 @@ public class PrTestRuns {
 
     /** The revision a chain ran on, and the PR's head. */
     private record Between(String built, String head) {
+    }
+
+    /** The PR's head commit, null when GitHub could not say, and Ignite's check of it. */
+    private record Head(String sha, AbandonedTestsCheck.Outcome check) {
     }
 
     /**

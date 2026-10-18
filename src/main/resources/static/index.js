@@ -1513,6 +1513,9 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     const prev = lastResult && lastResult.prNumber === res.prNumber ? lastResult : null;
     const kept = prev ? openState() : null;
     lastResult = res;
+    // The PR's tests take the server seconds, and drawing the verdict takes the page milliseconds: they go first.
+    const asksTests = !prev || prev.buildId !== res.buildId || prev.live !== res.live || force;
+    if (asksTests) loadPrTests(res);
     noRunNote = '';
     if (!quiet || !prev) sayStatus(''); // a first verdict replaces "no run yet"
     renderFreshness(res);
@@ -1586,7 +1589,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     loadDelta(res);
     paintPrimary();
     if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
-    if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPrTests(res);
+    if (!asksTests) repaintPrTests(res);
     if (!prev || prev.buildId !== res.buildId || force) loadSettling(res.prNumber);
 }
 
@@ -1752,6 +1755,7 @@ function showListBadge(listed, standing) {
 // in its PR and now fails 18 of 100 master runs.
 const SLOW_TEST_MS = 60000;
 let lastPrTests = null; // the PR and run whose tests the card shows, and the answer it shows
+let prTestsOpen = { key: '', names: new Set() }; // the classes the reader opened in the card, for the PR and run
 
 // The analysed chain itself is still going (a PR's first RunAll), not only a newer one.
 function chainRunning(res) {
@@ -1801,6 +1805,12 @@ function paintLateCards() {
     $('filteredCard').classList.toggle('hidden', !shown);
 }
 
+// A new verdict of the run the card shows says anew what it did with the failed tests; nothing is asked again.
+function repaintPrTests(res) {
+    if (lastPrTests && lastPrTests.pr === res.prNumber && lastPrTests.buildId === res.buildId)
+        renderPrTests(lastPrTests.body, res);
+}
+
 function renderPrTests(t, res) {
     const classes = t.classes || [];
     const check = t.suiteCheck || null;
@@ -1816,8 +1826,12 @@ function renderPrTests(t, res) {
         slow ? esc(`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
     $('prTestsWarn').classList.toggle('hidden', !warns.length);
     $('prTestsWarn').innerHTML = warns.join(' ');
-    $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check, known)).join('')
+    const key = res.prNumber + '|' + res.buildId;
+    if (prTestsOpen.key !== key) prTestsOpen = { key, names: new Set() };
+    $('prTests').innerHTML = classes.map((c, i) => prTestClass(c, i, res, check, known)).join('')
         + elsewhere.map(notInSuiteElsewhere).join('');
+    for (const b of $('prTests').querySelectorAll('.prt-all')) b.onclick = () => togglePrTestClass(b);
+    wireSeenAt($('prTests'));
     const untold = !known || chainRunning(res) || checkTold(check) ? 0
         : classes.filter(c => !c.runs.length && !c.notInSuite).length;
     const said = suiteCheckNote(check, untold, classes.length) || (known ? noRunsNote(classes, res, check) : '');
@@ -1878,32 +1892,205 @@ function notInSuiteElsewhere(name) {
         + '</span></div>' + NOT_IN_SUITE_TODO + '</li>';
 }
 
-function prTestClass(c, res, check, known) {
+function prTestClass(c, i, res, check, known) {
     const name = c.name.slice(c.name.lastIndexOf('.') + 1);
+    const listId = 'prtTests' + i;
+    const open = prTestsOpen.names.has(c.name);
+    const shown = flaggedOf(c.runs).length;
+    const toggle = c.runs.length > shown
+        ? `<button class="why prt-all" type="button" data-cls="${esc(c.name)}" aria-controls="${listId}" `
+            + `aria-expanded="${open}" title="${esc(classToggleTitle(shown, open))}">${esc(classToggleLabel(c, open))}</button>`
+        : '';
     const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
         + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span>${c.notInSuite ? NOT_IN_SUITE_TAG : ''}`
-        + '</span></div>';
+        + `</span>${toggle}</div>`;
     const todo = c.notInSuite ? NOT_IN_SUITE_TODO : '';
     if (!c.runs.length) {
         const why = known ? `<div class="reason">${esc(noRunsOf(c, res, check))}</div>` : '';
         return `<li>${head}${why}${todo}</li>`;
     }
-    const count = s => c.runs.filter(r => r.status === s).length;
-    const parts = [[count('SUCCESS'), 'passed'], [count('FAILURE'), 'failed'], [count('UNKNOWN'), 'ignored']]
-        .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
-    const suites = [...new Set(c.runs.map(r => r.suiteName || r.suite).filter(Boolean))];
+    const failed = c.runs.filter(r => r.status === 'FAILURE');
+    const parts = [[c.runs.filter(r => r.status === 'SUCCESS').length, 'passed'],
+        [failed.length, 'failed', failed.length ? ` (${failedOutcome(failed, res)})` : ''],
+        [c.runs.filter(r => r.status === 'UNKNOWN').length, 'ignored']]
+        .filter(([n]) => n).map(([n, what, outcome = '']) => esc(`${n} ${what}${outcome}`));
+    const suites = [...new Map(c.runs.filter(r => r.suite || r.suiteName).map(r => [r.suite || r.suiteName, r])).values()];
     const longest = Math.max(...c.runs.map(r => r.durationMs));
-    const summary = parts.join(', ') + (suites.length ? ' in ' + suites.join(', ') : '')
-        + ` · slowest test ${fmtTestTime(longest)}`;
-    // A new test that passed has no master history by nature: only a failure makes that worth saying.
-    const flagged = c.runs.filter(r => r.status === 'FAILURE' || r.durationMs > SLOW_TEST_MS);
-    const rows = flagged.map(r => `<li><div class="tname">${esc(shortTestName(r.name))}`
-        + (r.status === 'FAILURE' ? '<span class="tag-doubt">failed</span>' : '')
-        + (r.durationMs > SLOW_TEST_MS ? `<span class="tag-doubt">${esc(fmtTestTime(r.durationMs))}</span>` : '')
-        + (r.status === 'FAILURE' && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
-        + '</div></li>').join('');
-    return `<li>${head}<div class="reason">${esc(summary)}</div>${todo}`
-        + (rows ? `<ul class="suite-tests">${rows}</ul>` : '') + '</li>';
+    const summary = parts.join(', ') + (suites.length ? ' in ' + suites.map(suiteRunLink).join(', ') : '')
+        + esc(` · slowest test ${fmtTestTime(longest)}`);
+    return `<li>${head}<div class="reason">${summary}</div>${todo}`
+        + `<ul id="${listId}" class="suite-tests">${prTestRows(c, open, res)}</ul></li>`;
+}
+
+// A class's tests that stand in its list while it is folded. A new test that passed has no master history by nature:
+// only a failure or a slow run makes it worth a row.
+function flaggedOf(runs) {
+    return runs.filter(r => r.status === 'FAILURE' || r.durationMs > SLOW_TEST_MS);
+}
+
+function classToggleLabel(c, open) {
+    return `all ${c.runs.length} test${c.runs.length === 1 ? '' : 's'} ${open ? '▾' : '▸'}`;
+}
+
+function classToggleTitle(shown, open) {
+    if (!open) return 'Shows every test of this class in this RunAll, with its status and time.';
+    return shown ? 'Shows only the tests that failed or ran longer than 60 s.' : 'Hides the tests of this class.';
+}
+
+// A class's tests in its list: the failed ones, then those over 60 s, slowest first, then the rest by name. Folded,
+// the list keeps the failed and the slow ones.
+function prTestRows(c, open, res) {
+    const rank = r => r.status === 'FAILURE' ? 0 : r.durationMs > SLOW_TEST_MS ? 1 : 2;
+    const byName = (a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    const tests = [...c.runs].sort((a, b) => rank(a) - rank(b)
+        || (rank(a) === 1 ? b.durationMs - a.durationMs : 0) || byName(a, b));
+    const verdicts = verdictsOf(res);
+    return (open ? tests : flaggedOf(tests)).map(r => prTestRow(r, verdicts, res)).join('');
+}
+
+// The button of a class opens and folds its list where it stands: the reader's focus stays on it.
+function togglePrTestClass(btn) {
+    const c = lastPrTests && (lastPrTests.body.classes || []).find(x => x.name === btn.dataset.cls);
+    if (!c || !lastResult) return;
+    const open = btn.getAttribute('aria-expanded') !== 'true';
+    if (open) prTestsOpen.names.add(c.name);
+    else prTestsOpen.names.delete(c.name);
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = classToggleLabel(c, open);
+    btn.title = classToggleTitle(flaggedOf(c.runs).length, open);
+    const list = $(btn.getAttribute('aria-controls'));
+    list.innerHTML = prTestRows(c, open, lastResult);
+    wireSeenAt(list);
+}
+
+const PR_TEST_STATUS = { SUCCESS: 'passed', FAILURE: 'failed', UNKNOWN: 'ignored' };
+
+// One test of the PR's class: its name opens its run in TeamCity; its status and time; under a failed one, what the
+// verdict did with it.
+function prTestRow(r, verdicts, res) {
+    const url = testRunUrl(r.suite, r);
+    const short = esc(shortTestName(r.name));
+    const name = url
+        ? `<a href="${esc(url)}" target="_self" rel="noopener" title="Opens this test's run in TeamCity.">${short}</a>`
+        : short;
+    const slow = r.durationMs > SLOW_TEST_MS;
+    const time = r.status === 'UNKNOWN' ? ''
+        : `<span class="${slow ? 'tag-doubt' : 'test-time'}">${esc(fmtTestTime(r.durationMs))}</span>`;
+    const failed = r.status === 'FAILURE';
+    return `<li class="test-row"><span class="tname">${name}</span><span class="tacts">`
+        + `<span class="tag-doubt">${esc(PR_TEST_STATUS[r.status] || String(r.status).toLowerCase())}</span>${time}`
+        + (failed && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
+        + '</span>' + (failed ? `<div class="reason">${verdictLine(r, verdicts, res)}</div>` : '') + '</li>';
+}
+
+function suiteRunLink(r) {
+    const name = esc(r.suiteName || r.suite);
+    const url = runUrlOf(r.suite, r.suiteBuildId);
+    return url ? `<a href="${esc(url)}" target="_self" rel="noopener" title="Opens this suite's run in TeamCity.">${name}</a>`
+        : name;
+}
+
+// The cards that judge failed tests: where a test's row stands in each, what the card's line under a PR's test says,
+// and whether it says the test's reason there too.
+const VERDICT_PLACES = {
+    blockers: { card: 'blockersCard', lists: ['blockers', 'oneRunBlockers'], said: 'blocks this PR', name: 'Blockers' },
+    watch: { card: 'watchCard', lists: ['watch'], said: 'recently started failing', name: 'Recently started failing',
+        reason: true },
+    unverified: { card: 'unverifiedCard', lists: ['unverified'], said: 'could not be checked',
+        name: 'Could not be checked' },
+    filtered: { card: 'filteredCard', lists: ['filtered'], said: 'not blamed', name: 'Not blamed on this PR',
+        reason: true },
+    broken: { card: 'brokenCard', lists: [], said: 'its suite broke', name: 'Broken suites' },
+};
+
+// The verdict's word on each failed test, by test and suite: the card that lists it, and the test as listed there.
+function verdictsOf(res) {
+    const by = new Map();
+    for (const place of ['blockers', 'watch', 'unverified', 'filtered'])
+        for (const t of res[place] || [])
+            if (!by.has(testKey(t))) by.set(testKey(t), { place, t });
+    return by;
+}
+
+function testKey(t) {
+    return t.testId + '@' + (t.suite || '');
+}
+
+// What the verdict did with a failed run of a PR's test. The verdict does not judge a test of a suite that timed out
+// or crashed, nor a failure TeamCity muted; any other failure it has not judged yet.
+function outcomeOf(r, verdicts, res) {
+    const v = verdicts.get(testKey(r));
+    if (v) return v;
+    if (r.muted) return { place: 'muted' };
+    if ((res.brokenSuites || []).some(s => s.suite === r.suite)) return { place: 'broken' };
+    return { place: 'later' };
+}
+
+function verdictLine(r, verdicts, res) {
+    const { place, t } = outcomeOf(r, verdicts, res);
+    if (place === 'muted') return 'not checked: TeamCity muted it';
+    if (place === 'later') return 'not checked yet';
+    if (place === 'broken') return 'not checked: ' + seenAt('broken', null);
+    const where = VERDICT_PLACES[place];
+    return seenAt(place, t) + (where.reason && t.reason ? esc(': ' + t.reason) : '');
+}
+
+// The words of a card's line under a PR's test, as a link to the test's row in that card, or to the card.
+function seenAt(place, t) {
+    const where = VERDICT_PLACES[place];
+    const test = t ? ` data-name="${esc(t.name)}" data-suite="${esc(t.suite || '')}"` : '';
+    return `<a class="seen-at" href="#${where.card}" data-place="${place}"${test} `
+        + `title="${esc(`Shows ${t ? 'this test' : 'its suite'} in “${where.name}”.`)}">${esc(where.said)}</a>`;
+}
+
+// What the verdict did with a class's failed tests, as their count says it: "none blamed on this PR" when it put
+// all of them under Not blamed on this PR.
+function failedOutcome(failed, res) {
+    const verdicts = verdictsOf(res);
+    const places = failed.map(r => outcomeOf(r, verdicts, res).place);
+    const unchecked = p => p === 'muted' || p === 'later' || p === 'broken';
+    if (failed.length === 1)
+        return unchecked(places[0]) ? (places[0] === 'later' ? 'not checked yet' : 'not checked')
+            : VERDICT_PLACES[places[0]].said;
+    if (places.every(p => p === 'filtered')) return 'none blamed on this PR';
+    const count = test => places.filter(test).length;
+    return [[count(p => p === 'blockers'), n => n === 1 ? 'blocks this PR' : 'block this PR'],
+        [count(p => p === 'watch'), () => 'recently started failing'],
+        [count(p => p === 'unverified'), () => 'could not be checked'],
+        [count(unchecked), () => 'not checked'],
+        [count(p => p === 'filtered'), () => 'not blamed']]
+        .filter(([n]) => n).map(([n, said]) => `${n} ${said(n)}`).join(', ');
+}
+
+function wireSeenAt(el) {
+    for (const a of el.querySelectorAll('a.seen-at'))
+        a.onclick = e => {
+            e.preventDefault();
+            showVerdictRow(a);
+        };
+}
+
+// Takes the reader from a PR's test to its row in the card that judged it, or to the card when it has no row there.
+// A folded card opens, and Blockers leave Root causes for Suites: the causes have no row per suite and test.
+function showVerdictRow(link) {
+    const place = VERDICT_PLACES[link.dataset.place];
+    if (!place) return;
+    if (link.dataset.place === 'blockers' && blockerView !== 'suites') setBlockerView('suites');
+    const card = $(place.card);
+    const fold = card.querySelector('details');
+    if (fold) fold.open = true;
+    const target = rowOfTest(place.lists, link.dataset.name, link.dataset.suite) || card;
+    target.setAttribute('tabindex', '-1');
+    target.scrollIntoView({ block: 'center' });
+    target.focus({ preventScroll: true });
+}
+
+// A test's row in the lists of a card, found by its "copy AI prompt" button, which every row has.
+function rowOfTest(lists, name, suite) {
+    for (const id of lists)
+        for (const b of $(id).querySelectorAll('.why.ai'))
+            if (b.dataset.name === name && b.dataset.suite === suite) return b.closest('li.test-row');
+    return null;
 }
 
 const NO_RUNS_AT_RUN = {
@@ -2259,20 +2446,26 @@ function runUrlOf(btId, buildId) {
     return btId && buildId ? `${tcBase}buildConfiguration/${encodeURIComponent(btId)}/${buildId}` : '';
 }
 
+// A test's run in its suite's build, opened at the test on the Tests tab; '' when the build is not known.
+// expandedTest opens the test "into itself" in this build (not the branch summary).
+// occurrenceId is already the full "build:(id:..),id:.." locator; TeamCity's router
+// needs the parens percent-encoded too, which encodeURIComponent leaves intact.
+function testRunUrl(btId, t) {
+    const runUrl = runUrlOf(btId, t.suiteBuildId);
+    const expanded = t.occurrenceId
+        ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
+        : '';
+    return runUrl ? `${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}` : '';
+}
+
 // One test: its name as plain text, the full one in its title, then one column of strip, tags, TC link and
 // "failure ▸", or "copy AI prompt" when TeamCity kept no failure message to open. `own` is the reason written under
 // this row alone; when the row does not show its whole reason, the row's title holds it, and data-verdict always does.
 // A `grouped` row stands under a "N tests: reason" line, one step in.
 function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
-    const runUrl = runUrlOf(btId, t.suiteBuildId);
-    // expandedTest opens the test "into itself" in this build (not the branch summary).
-    // occurrenceId is already the full "build:(id:..),id:.." locator; TeamCity's router
-    // needs the parens percent-encoded too, which encodeURIComponent leaves intact.
-    const expanded = t.occurrenceId
-        ? `&expandedTest=${encodeURIComponent(t.occurrenceId).replace(/\(/g, '%28').replace(/\)/g, '%29')}`
-        : '';
-    const tc = runUrl
-        ? `<a class="ext" href="${runUrl}?buildTab=tests${expanded}#testNameId${unsignedTestId(t.testId)}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
+    const testUrl = testRunUrl(btId, t);
+    const tc = testUrl
+        ? `<a class="ext" href="${testUrl}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
     const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
         : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this code to tell a break from a flake'
         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');

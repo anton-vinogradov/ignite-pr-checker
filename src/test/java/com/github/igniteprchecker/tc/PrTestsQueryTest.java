@@ -24,7 +24,8 @@ import org.junit.jupiter.api.Test;
 /**
  * How the PR's new and changed test classes ran in its RunAll is one call, more only for hundreds of classes: the
  * RunAll is a composite build, whose tests are its suites' tests, picked by name with a pattern of the class names,
- * the way run conditions are already asked for. If ci2 rejects the query, it is not asked again.
+ * the way run conditions are already asked for. If ci2 rejects the query, it is not asked again. The same call says
+ * whether TeamCity muted a test: the verdict leaves a muted failure out, and the card says why.
  */
 class PrTestsQueryTest {
     /** About as long a request line as the Tomcat TeamCity runs on takes; past it, it answers 400. */
@@ -47,7 +48,7 @@ class PrTestsQueryTest {
             boolean refused = rejects || ex.getRequestURI().getRawPath().length()
                 + ex.getRequestURI().getRawQuery().length() > TOMCAT_REQUEST_LINE;
             byte[] body = (refused ? "Error has occurred during request processing, Status: BAD_REQUEST" : """
-                {"testOccurrence":[{"id":"build:(id:9391900),id:2000000001","status":"SUCCESS","duration":298000,
+                {"testOccurrence":[{"id":"build:(id:9391900),id:2000000001","status":"FAILURE","duration":298000,"muted":true,
                   "name":"IgniteSpiDiscoverySelfTestSuite: org.apache.ignite.spi.discovery.tcp.TcpDiscoveryClientTopologyGapTest.testClientReconnect",
                   "test":{"id":"5272433775095107011"},
                   "build":{"id":9391900,"buildTypeId":"IgniteTests24Java8_Spi","buildType":{"name":"SPI"}}}]}
@@ -74,9 +75,10 @@ class PrTestsQueryTest {
         assertThat(locators).containsExactly("build:(id:9391879),name:(value:.*(TcpDiscoveryClientTopologyGapTest|"
             + "GridCommandHandlerTest).*,matchType:matches),count:2000");
         assertThat(fields).containsExactly(
-            "testOccurrence(id,name,status,duration,test(id),build(id,buildTypeId,buildType(name)))");
+            "testOccurrence(id,name,status,duration,muted,test(id),build(id,buildTypeId,buildType(name)))");
         assertThat(runs.orElseThrow()).singleElement().satisfies(o -> {
             assertThat(o.duration()).isEqualTo(298_000L);
+            assertThat(o.muted()).isTrue();
             assertThat(o.test().id()).isEqualTo(5272433775095107011L);
             assertThat(o.build().buildType().name()).isEqualTo("SPI");
         });
@@ -111,13 +113,13 @@ class PrTestsQueryTest {
         assertThat(locators).hasSize(1);
     }
 
-    /** Runs kept on disk (analysis.json) read and write as before when no duration was asked for. */
+    /** Runs kept on disk (analysis.json) read and write as before when no duration and no mute was asked for. */
     @Test
     void aRunWithoutItsDurationIsKeptAsBefore() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         TcModel.TestOccurrence run = new TcModel.TestOccurrence("o", "t", "FAILURE", null, null, null);
 
-        assertThat(mapper.writeValueAsString(run)).doesNotContain("duration");
+        assertThat(mapper.writeValueAsString(run)).doesNotContain("duration", "muted");
         assertThat(mapper.readValue("{\"id\":\"o\",\"name\":\"t\",\"status\":\"FAILURE\"}",
             TcModel.TestOccurrence.class)).isEqualTo(run);
     }
