@@ -71,7 +71,7 @@ class MergedPrPageTest {
             + "and master's history.\">verdict computed").doesNotContain("↻");
         assertThat(out.get("merged").asBoolean()).isTrue();
         assertThat(Files.readString(PAGE, UTF_8)).contains("#results.merged .rerun-advice { display: none; }")
-            .contains("each of these failed its only run on this branch. <span class=\"rerun-advice\">Rerun");
+            .contains("each of these failed its only run on this branch. <span class=\"rerun-advice\">Re-run");
     }
 
     /**
@@ -95,15 +95,15 @@ class MergedPrPageTest {
 
         assertThat(merged.get("lines").asText()).isEqualTo("1 test started failing on the code this run tested.");
         assertThat(merged.get("banner").asText()).contains("the verdict above says nothing about them.")
-            .doesNotContain("rerun");
+            .doesNotContain("re-run");
         assertThat(merged.get("merged").asBoolean()).isTrue();
-        assertThat(open.get("lines").asText()).contains("Rerun their suites under Recently started failing");
-        assertThat(open.get("banner").asText()).endsWith("A finished rerun takes a suite off this list.");
+        assertThat(open.get("lines").asText()).contains("Re-run their suites under “Recently started failing”");
+        assertThat(open.get("banner").asText()).endsWith("A finished re-run takes a suite off this list.");
         assertThat(open.get("merged").asBoolean()).isFalse();
         assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " "))
-            .contains("to tell a break from a flake. <span class=\"rerun-advice\">Rerun their suites: if they keep "
+            .contains("to tell a break from a flake. <span class=\"rerun-advice\">Re-run their suites: if they keep "
                 + "failing, they become blockers; if they pass, they drop out.</span>")
-            .contains("<p class=\"muted rerun-advice\">Rerun these first: the verdict above can't see their tests.");
+            .contains("<p id=\"brokenAdvice\" class=\"muted rerun-advice\">");
     }
 
     @Test

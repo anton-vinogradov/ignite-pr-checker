@@ -19,6 +19,12 @@ import org.junit.jupiter.api.Test;
 class RerunRulesPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
+    /** The tooltip of a suite row's Rerun: what a click does, not the button's name again. */
+    private static final String ROW = "Queues this suite on ci2. Its result joins the verdict when it finishes.";
+
+    private static final String ROW_TOP = "Queues this suite on ci2, at the top of the queue. Its result joins the verdict "
+        + "when it finishes.";
+
     /** Gives a section's pair real buttons, which the harness's elements lack. */
     private static final String PAIRS = """
         const pairs = {};
@@ -47,7 +53,37 @@ class RerunRulesPageTest {
 
         assertThat(out.get("rerun").asText()).isEqualTo("Rerun 2 suites");
         assertThat(out.get("top").asText()).isEqualTo("Rerun at top");
-        assertThat(out.get("title").asText()).isEqualTo("Re-run the 2 suites of this section");
+        assertThat(out.get("title").asText()).isEqualTo("Queues the 2 suites of this section on ci2. Their results join the verdict "
+            + "when they finish.");
+    }
+
+    /**
+     * PR 13692's buttons read "Rerun" and their tooltips "Re-run this suite": the name again. A tooltip says what a
+     * click does. A merged PR keeps the verdict it had at the merge, so there it does not promise that the results
+     * join the verdict.
+     */
+    @Test
+    void aRerunsTooltipSaysWhatAClickDoes() throws Exception {
+        String scenario = PageScript.SIGNED_IN + PAIRS + """
+            page.route('/api/analyze', { body: verdict({ MERGED blockers: [blocker('A.a', 'o1'),
+                Object.assign(blocker('B.b', 'o2'), { suite: 'IgniteTests24Java8_Pds', suiteBuildId: 9003, suiteName: 'PDS' })] }) });
+            await page.load('?pr=13575');
+            report({ section: pairs.blockerActs.title, top: page.el('blockerActs-top').title,
+                rows: page.el('blockers').innerHTML });
+            """;
+
+        JsonNode open = PageScript.run("index.html", scenario.replace("MERGED", ""));
+        JsonNode merged = PageScript.run("index.html",
+            scenario.replace("MERGED", "mergedAt: Math.floor(page.now() / 1000) - 86400,"));
+
+        assertThat(open.get("section").asText()).isEqualTo("Queues the 2 suites of this section on ci2. Their results "
+            + "join the verdict when they finish.");
+        assertThat(open.get("rows").asText()).contains("title=\"" + ROW + "\">Rerun</button>");
+        assertThat(merged.get("section").asText()).isEqualTo("Queues the 2 suites of this section on ci2.");
+        assertThat(merged.get("top").asText()).isEqualTo("Queues the 2 suites of this section on ci2, at the top of the "
+            + "queue.");
+        assertThat(merged.get("rows").asText()).contains("title=\"Queues this suite on ci2.\">Rerun</button>",
+            "title=\"Queues this suite on ci2, at the top of the queue.\">Rerun at top</button>");
     }
 
     /** One suite ran fewer tests: the card's pair re-runs it, so its row has no pair; with two, each row has one. */
@@ -68,8 +104,8 @@ class RerunRulesPageTest {
         assertThat(single.get("html").asText()).doesNotContain("suite-rerun");
         assertThat(pair.get("html").asText())
             .contains("<button class=\"suite-rerun quiet\" type=\"button\" data-suite=\"Cache1\" data-top=\"false\" "
-                + "title=\"Re-run this suite\">Rerun</button>")
-            .contains("data-suite=\"Cache2\" data-top=\"true\" title=\"Re-run this suite at the top of the queue\">Rerun at top</button>");
+                + "title=\"" + ROW + "\">Rerun</button>")
+            .contains("data-suite=\"Cache2\" data-top=\"true\" title=\"" + ROW_TOP + "\">Rerun at top</button>");
     }
 
     /**
@@ -90,7 +126,7 @@ class RerunRulesPageTest {
         String twoSuites = "{ blockers: [blocker('A.a', 'o1'), Object.assign(blocker('B.b', 'o2'),"
             + " { suite: 'IgniteTests24Java8_Pds', suiteBuildId: 9003, suiteName: 'PDS' })] }";
         String quietRerun = "<button class=\"suite-rerun quiet\" type=\"button\" data-suite=\"IgniteTests24Java8_Cache\" "
-            + "data-top=\"false\" title=\"Re-run this suite\">Rerun</button>";
+            + "data-top=\"false\" title=\"" + ROW + "\">Rerun</button>";
 
         JsonNode one = PageScript.run("index.html", PageScript.SIGNED_IN + "const VERDICT = " + unverified + ";" + scenario);
         JsonNode two = PageScript.run("index.html", PageScript.SIGNED_IN + "const VERDICT = " + twoSuites + ";" + scenario);
@@ -99,7 +135,7 @@ class RerunRulesPageTest {
         assertThat(one.get("blockers").asText()).as("the card's pair re-runs this one suite").doesNotContain("suite-rerun");
         assertThat(one.get("unverified").asText()).as("no pair stands above Could not be checked").contains(quietRerun);
         assertThat(two.get("blockers").asText()).contains(quietRerun)
-            .contains("data-suite=\"IgniteTests24Java8_Pds\" data-top=\"true\" title=\"Re-run this suite at the top of the queue\">"
+            .contains("data-suite=\"IgniteTests24Java8_Pds\" data-top=\"true\" title=\"" + ROW_TOP + "\">"
                 + "Rerun at top</button>")
             .doesNotContain("class=\"suite-rerun\"");
     }
@@ -279,12 +315,10 @@ class RerunRulesPageTest {
     void theCardsSayWhatTheyMeanInOneLineAndNotBlamedKeepsItsPairInside() throws IOException {
         String page = Files.readString(PAGE, UTF_8).replaceAll("\\s+", " ");
 
-        assertThat(page).contains("Rerun these first: the verdict above can't see their tests. A compilation error needs a "
-            + "code fix instead, so it has no Rerun.")
-            .contains("Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If not, "
-                + "compare the test list with master and rerun.")
+        assertThat(page).contains("Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If not, "
+                + "compare the test list with master and re-run.")
             .contains("Not blockers yet: there are too few runs of this code to tell a break from a flake. <span "
-                + "class=\"rerun-advice\">Rerun their suites: if they keep failing, they become blockers; if they pass, they "
+                + "class=\"rerun-advice\">Re-run their suites: if they keep failing, they become blockers; if they pass, they "
                 + "drop out.</span>")
             .contains("These tests failed, but TeamCity errors stopped the check. They are not counted as blockers. "
                 + "The checker tries again by itself.")
@@ -296,7 +330,7 @@ class RerunRulesPageTest {
             .doesNotContain("Didn't complete a reliable run", "the passes above them", "How the test classes this PR adds or "
                 + "changes ran in this RunAll.</p>", "Filtered out", "mined for blockers", "hang cascade");
         assertThat(page).containsPattern("<summary>Not blamed on this PR <span id=\"filteredCount\"></span> <a class=\"help\""
-            + "[^>]*>\\?</a></summary> <p class=\"muted filtered-line\">Nothing to do for this PR. Rerun only to double-check "
+            + "[^>]*>\\?</a></summary> <p class=\"muted filtered-line\">Nothing to do for this PR. Re-run only to double-check "
             + "the flaky ones. <span class=\"sect-act hidden\" id=\"filteredActs\">");
         assertThat(page).doesNotContainPattern("<a class=\"help\" [^>]*title=\"([^\"]+)\" aria-label=\"\\1\"");
     }

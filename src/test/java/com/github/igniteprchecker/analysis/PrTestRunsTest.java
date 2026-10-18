@@ -73,6 +73,7 @@ class PrTestRunsTest {
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note()).isNull();
+        assertThat(answer.runsKnown()).isTrue();
         assertThat(answer.classes()).extracting(PrTests.TestClass::name, PrTests.TestClass::added)
             .containsExactly(tuple("org.apache.ignite.spi.discovery.tcp.TcpDiscoveryClientTopologyGapTest", true),
                 tuple("org.apache.ignite.util.GridCommandHandlerTest", false));
@@ -173,6 +174,7 @@ class PrTestRunsTest {
         assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isNull();
     }
 
+    /** TeamCity did not say how the class ran: the answer marks its empty runs as not known, not as none. */
     @Test
     void aTeamCityThatRejectsTheQuerySaysSo() {
         when(github.prTestFiles(PR)).thenReturn(List.of(new GithubClient.PrFile(GAP, "added")));
@@ -181,6 +183,7 @@ class PrTestRunsTest {
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note()).isEqualTo("TeamCity does not answer how they ran");
+        assertThat(answer.runsKnown()).isFalse();
         assertThat(answer.classes()).singleElement().satisfies(c -> assertThat(c.runs()).isEmpty());
     }
 
@@ -190,8 +193,13 @@ class PrTestRunsTest {
         when(tc.testRunsOfClasses(eq(TOK), eq(CHAIN), any())).thenThrow(new IllegalStateException("TeamCity: 502"))
             .thenReturn(Optional.of(List.of()));
 
-        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isEqualTo("TeamCity could not be asked how they ran");
-        assertThat(prTests.of(TOK, PR, CHAIN, false).note()).isNull();
+        PrTests failed = prTests.of(TOK, PR, CHAIN, false);
+        PrTests next = prTests.of(TOK, PR, CHAIN, false);
+
+        assertThat(failed.note()).isEqualTo("TeamCity could not be asked how they ran");
+        assertThat(failed.runsKnown()).isFalse();
+        assertThat(next.note()).isNull();
+        assertThat(next.runsKnown()).isTrue();
     }
 
     private static TcModel.TestOccurrence run(long testId, String name, String status, long durationMs, String suite) {

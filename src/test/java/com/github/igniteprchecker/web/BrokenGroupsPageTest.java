@@ -33,6 +33,7 @@ class BrokenGroupsPageTest {
         assertThat(out.get("sectionRerunHidden").asBoolean()).isFalse();
         assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: Build failed — nothing "
             + "else ran.");
+        assertThat(out.get("advice").asText()).isEqualTo("Re-run these first: the verdict above can't see their tests.");
     }
 
     @Test
@@ -42,6 +43,31 @@ class BrokenGroupsPageTest {
         assertThat(out.get("broken").asText()).contains("compilation error");
         assertThat(out.get("html").asText()).doesNotContain("suite-rerun");
         assertThat(out.get("sectionRerunHidden").asBoolean()).isTrue();
+        assertThat(out.get("advice").asText()).as("nothing in the card can be re-run").isEqualTo("The verdict above "
+            + "can't see their tests. A suite that failed to compile has no “Rerun”: it needs a code fix.");
+    }
+
+    /**
+     * PR 13696's only broken suite, Open Census, timed out, and the card said that a compilation error has no Rerun.
+     * The line says so only beside a suite that failed to compile, as the server tells it.
+     */
+    @Test
+    void theCardSpeaksOfACompilationErrorOnlyWhenOneIsThere() throws Exception {
+        BrokenSuite census = new BrokenSuite("IgniteTests24Java8_OpenCensus", 9396001L, "Open Census",
+            List.of("execution timeout", "non-zero exit code"), 1, 3, List.of("TC_EXECUTION_TIMEOUT", "TC_EXIT_CODE"),
+            null);
+        BrokenSuite build = new BrokenSuite(BrokenRuns.BUILD, 9396002L, "> Build", List.of("compilation error"), 0, 0,
+            List.of("TC_COMPILATION_ERROR"), null);
+
+        JsonNode timeout = PageScript.run("index.html", page(BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
+            List.of(census))));
+        JsonNode both = PageScript.run("index.html", page(BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
+            List.of(census, build))));
+
+        assertThat(timeout.get("advice").asText()).isEqualTo("Re-run these first: the verdict above can't see their "
+            + "tests.");
+        assertThat(both.get("advice").asText()).isEqualTo("Re-run these first: the verdict above can't see their tests. "
+            + "A suite that failed to compile has no “Rerun”: it needs a code fix.");
     }
 
     /** Before the suites that need it fail, a Build that failed to compile is a broken suite of its own. */
@@ -65,7 +91,9 @@ class BrokenGroupsPageTest {
             "non-zero exit code", "Rerun 2 suites", "2 suites", "PDS 5", "PDS 6",
             "Cache 5", "execution timeout — ran 12 of master's 35 tests", "Basic 3");
         assertThat(broken.split("ci2 glitch: artifacts unavailable", -1)).hasSize(2);
-        assertThat(out.get("html").asText()).doesNotContain("<[Apache").contains("&lt;[Apache Ignite 2.x / Tests]");
+        assertThat(out.get("html").asText()).doesNotContain("<[Apache").contains("&lt;[Apache Ignite 2.x / Tests]")
+            .contains("title=\"Queues the 60 suites of this group on ci2. Their results join the verdict when they "
+                + "finish.\">Rerun 60 suites</button>");
         assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: 64 suites have no "
             + "reliable result (60× ci2 glitch: artifacts unavailable; 2× non-zero exit code; execution timeout; …).");
     }
@@ -140,7 +168,7 @@ class BrokenGroupsPageTest {
                 cardHidden: page.el('brokenCard').classList.contains('hidden'),
                 head: page.el('verdictText').textContent,
                 sectionSuites: page.run('[...sectActs.get("brokenActs").suites]'),
-                caveat: page.el('verdictLines').textContent });
+                caveat: page.el('verdictLines').textContent, advice: page.el('brokenAdvice').textContent });
             """;
     }
 }

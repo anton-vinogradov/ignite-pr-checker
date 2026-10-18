@@ -39,7 +39,7 @@ class LoginCardPageTest {
 
         assertThat(card()).doesNotContain("<br>");
         assertThat(intro).isEqualTo("See which tests your Apache Ignite PR actually broke, not the ones already failing "
-            + "or flaky on master. Start a RunAll or rerun just the blockers, right from here.");
+            + "or flaky on master. Start a RunAll or re-run just the blockers, right from here.");
     }
 
     /**

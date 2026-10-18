@@ -91,7 +91,7 @@ class HeadCheckPageTest {
         assertThat(after.get("head").asText()).isEqualTo("✓ No blockers");
         assertThat(after.get("clean").asBoolean()).isTrue();
         assertThat(after.get("lines").asText())
-            .isEqualTo("Nothing in this run looks caused by your PR. You don't need to fix or rerun anything.");
+            .isEqualTo("Nothing in this run looks caused by your PR. You don't need to fix or re-run anything.");
         assertThat(after.get("busy").asBoolean()).isFalse();
         assertThat(after.get("title").asText()).isEqualTo("✅ no blockers · #13575 — Ignite PR Checker");
     }

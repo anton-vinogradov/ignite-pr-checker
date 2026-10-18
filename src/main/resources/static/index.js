@@ -236,7 +236,7 @@ function markMine() {
 // item names the badge to a screen reader, which would read the bare mark.
 // WATCH comes before the check of the code, so a "!" may stand on a run of older code.
 const STANDING_BADGES = {
-    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A rerun shows '
+    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A re-run shows '
         + 'whether they are blockers.', 'started failing'],
     UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
         + 'broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still '
@@ -444,11 +444,19 @@ function wireSectActs(containerId, suites) {
         const top = b.dataset.top === 'true';
         b.classList.remove('primary');
         b.textContent = top ? 'Rerun at top' : `Rerun ${n} suite${n === 1 ? '' : 's'}`;
-        b.title = `Re-run the ${n} suite${n === 1 ? '' : 's'} of this section${top ? ', at the top of the queue' : ''}`;
+        b.title = rerunTitle(`the ${n} suite${n === 1 ? '' : 's'} of this section`, n === 1, top);
         b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, top, b, note); };
         if (!top) rerun = b;
     }
     sectActs.set(containerId, { suites, rerun });
+}
+
+// What a click on a Rerun button does. A merged PR keeps the verdict of its merge, so there the results join nothing.
+function rerunTitle(what, one, top) {
+    const queued = `Queues ${what} on ci2${top ? ', at the top of the queue' : ''}.`;
+    if (lastResult && lastResult.mergedAt) return queued;
+    return queued + (one ? ' Its result joins the verdict when it finishes.'
+        : ' Their results join the verdict when they finish.');
 }
 
 function sameSuites(a, b) {
@@ -459,8 +467,8 @@ function sameSuites(a, b) {
 // above re-runs exactly this one suite.
 function suiteRowActs(suite, above) {
     if (!suite || (above && above.length === 1 && above[0] === suite)) return '';
-    return `<span class="suite-runs"><button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="false" title="Re-run this suite">Rerun</button>`
-        + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="Re-run this suite at the top of the queue">Rerun at top</button></span>`;
+    return `<span class="suite-runs"><button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="false" title="${esc(rerunTitle('this suite', true, false))}">Rerun</button>`
+        + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="${esc(rerunTitle('this suite', true, true))}">Rerun at top</button></span>`;
 }
 
 // The one filled button, the next step. None on a merged PR, whose verdict no run changes, and none while auto re-runs
@@ -737,7 +745,7 @@ function notifyIfFinal(st) {
     const head = st.verdict === 'blockers' ? `${n} blocker${n === 1 ? '' : 's'}`
         : st.verdict === 'clean' ? 'no blockers'
         : st.verdict === 'watch'
-            ? `${w} test${w === 1 ? '' : 's'} started failing. A rerun shows whether they are blockers.`
+            ? `${w} test${w === 1 ? '' : 's'} started failing. A re-run shows whether they are blockers.`
         : 'no blockers found, not proven clean. Open the page to see why.';
     notifyFor = null;
     try {
@@ -1015,8 +1023,8 @@ function brokenGroupHtml(g, i, kept, sectionRerun) {
     const n = rerunSet.length;
     const own = n > 0 && !sameSuites(rerunSet, sectionRerun);
     const btns = own
-        ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="Re-run the ${n} suites of this group">Rerun ${n} suites</button>`
-            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="Re-run the ${n} suites of this group, at the top of the queue">Rerun at top</button></span>`
+        ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="${esc(rerunTitle(`the ${n} suites of this group`, false, false))}">Rerun ${n} suites</button>`
+            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="${esc(rerunTitle(`the ${n} suites of this group`, false, true))}">Rerun at top</button></span>`
         : '';
     const above = own ? rerunSet : sectionRerun;
     const why = g.kind === 'ARTIFACTS'
@@ -1024,6 +1032,14 @@ function brokenGroupHtml(g, i, kept, sectionRerun) {
         : '';
     return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(g.title)}</span>${btns}</div>${why}`
         + fold(`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s), above)).join('')}</ul>`) + '</li>';
+}
+
+// What the Broken suites card asks for. A suite that failed to compile (compileError from the server) has no Rerun.
+function brokenAdvice(groups) {
+    const compile = groups.some(g => [g.root, ...(g.suites || [])].some(s => s && s.compileError));
+    return (rerunOfGroups(groups).length ? 'Re-run these first: the verdict above can\'t see their tests.'
+        : 'The verdict above can\'t see their tests.')
+        + (compile ? ' A suite that failed to compile has no “Rerun”: it needs a code fix.' : '');
 }
 
 // What the broken groups re-run between them, each suite once: never the suites a failed Build kept from running.
@@ -1521,7 +1537,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
         const one = notRun === 1;
         $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of ${build} ${one ? 'was' : 'were'} cancelled `
             + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}.`
-            + (res.mergedAt ? '' : ' A finished rerun takes a suite off this list.');
+            + (res.mergedAt ? '' : ' A finished re-run takes a suite off this list.');
     }
     renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
     // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
@@ -1529,12 +1545,13 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     $('brokenCard').classList.toggle('hidden', groups.length === 0);
     $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
     renderBrokenGroups($('brokenSuites'), groups, res.buildId);
+    $('brokenAdvice').textContent = brokenAdvice(groups);
     const shrunk = res.shrunkSuites || [];
     $('shrunkCard').classList.toggle('hidden', shrunk.length === 0);
     $('shrunkCount').textContent = shrunk.length ? `(${shrunk.length})` : '';
     renderShrunk($('shrunkSuites'), shrunk);
     const unstable = res.unstableSuites || [];
-    $('unstableCard').classList.toggle('hidden', unstable.length === 0);
+    paintLateCards();
     $('unstableCount').textContent = unstable.length ? `(${unstable.length})` : '';
     renderBroken($('unstableSuites'), unstable);
     $('watchCard').classList.toggle('hidden', watch.length === 0);
@@ -1645,11 +1662,12 @@ function verdictLines(res, standing) {
     if (res.blockers.length) return caveats.length ? [`This run doesn't cover the PR fully: ${listed}`] : [];
     if (standing === 'CHECKING') return ['Checking that this run tested the PR\'s latest commit…'];
     if (standing === 'CLEAN')
-        return ['Nothing in this run looks caused by your PR. You don\'t need to fix or rerun anything.'];
+        return ['Nothing in this run looks caused by your PR. You don\'t need to fix or re-run anything.'];
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
         return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
-            : ' Rerun their suites under Recently started failing: the rerun shows whether these tests are blockers.')]
+            : ' Re-run their suites under “Recently started failing”: '
+                + 'the re-run shows whether these tests are blockers.')]
             .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
     }
     return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
@@ -1742,34 +1760,67 @@ function chainRunning(res) {
 
 async function loadPrTests(res) {
     if (!lastPrTests || lastPrTests.pr !== res.prNumber) $('prTestsCard').classList.add('hidden');
+    holdLateCards(res.prNumber);
     try {
         const r = await api('/api/pr-tests?pr=' + res.prNumber + '&build=' + res.buildId
             + (chainRunning(res) ? '&running=true' : ''));
-        if (!r.ok) return;
-        const body = await r.json().catch(() => null);
-        if (!body || !stillShown(res) || lastResult.live !== res.live) return;
-        lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
-        renderPrTests(body, res);
+        const body = r.ok ? await r.json().catch(() => null) : null;
+        if (!stillShown(res) || lastResult.live !== res.live) return;
+        if (body) {
+            lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
+            renderPrTests(body, res);
+        }
     } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
+    showLateCards(res.prNumber);
+}
+
+// "Crashed near the end of the run" and "Not blamed on this PR" stand under "This PR's tests", whose answer comes
+// seconds after the verdict. They wait for it, so the card does not push them down when it comes; a PR whose answer
+// does not come shows them after LATE_CARDS_WAIT_MS.
+const LATE_CARDS_WAIT_MS = 20000;
+let lateCards = { shownFor: 0, waitFor: 0, timer: null };
+
+function holdLateCards(pr) {
+    if (lateCards.shownFor === pr || lateCards.waitFor === pr) return;
+    clearTimeout(lateCards.timer);
+    lateCards = { shownFor: 0, waitFor: pr, timer: setTimeout(() => showLateCards(pr), LATE_CARDS_WAIT_MS) };
+}
+
+function showLateCards(pr) {
+    const onScreen = !!lastResult && lastResult.prNumber === pr;
+    if (!onScreen && lateCards.waitFor !== pr) return;
+    clearTimeout(lateCards.timer);
+    // A PR the reader left ends its wait unshown: a return to it waits anew, not for an answer that may never come.
+    lateCards = { shownFor: onScreen ? pr : 0, waitFor: 0, timer: null };
+    paintLateCards();
+}
+
+function paintLateCards() {
+    const shown = !!lastResult && lateCards.shownFor === lastResult.prNumber;
+    $('unstableCard').classList.toggle('hidden', !shown || !(lastResult.unstableSuites || []).length);
+    $('filteredCard').classList.toggle('hidden', !shown);
 }
 
 function renderPrTests(t, res) {
     const classes = t.classes || [];
     const check = t.suiteCheck || null;
+    // When TeamCity did not say how the classes ran, none has runs, and that does not mean they did not run.
+    const known = t.runsKnown !== false;
     const elsewhere = check && check.state === 'FAILED' ? check.elsewhere || [] : [];
     $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
     const runs = classes.flatMap(c => c.runs);
-    $('prTestsCount').textContent = classes.length
-        ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})` : '';
+    $('prTestsCount').textContent = classes.length ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}`
+        + (known ? `, ${runs.length} test${runs.length === 1 ? '' : 's'}` : '') + ')' : '';
     const slow = runs.filter(r => r.durationMs > SLOW_TEST_MS).length;
     const warns = [notInSuiteWarn(classes.filter(c => c.notInSuite).length + elsewhere.length, check),
         slow ? esc(`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
     $('prTestsWarn').classList.toggle('hidden', !warns.length);
     $('prTestsWarn').innerHTML = warns.join(' ');
-    $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check)).join('')
+    $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check, known)).join('')
         + elsewhere.map(notInSuiteElsewhere).join('');
-    const untold = chainRunning(res) || checkTold(check) ? 0 : classes.filter(c => !c.runs.length && !c.notInSuite).length;
-    const said = suiteCheckNote(check, untold, classes.length);
+    const untold = !known || chainRunning(res) || checkTold(check) ? 0
+        : classes.filter(c => !c.runs.length && !c.notInSuite).length;
+    const said = suiteCheckNote(check, untold, classes.length) || (known ? noRunsNote(classes, res, check) : '');
     $('prTestsCheck').classList.toggle('hidden', !said);
     $('prTestsCheck').textContent = said;
     $('prTestsNote').classList.toggle('hidden', !t.note);
@@ -1827,14 +1878,16 @@ function notInSuiteElsewhere(name) {
         + '</span></div>' + NOT_IN_SUITE_TODO + '</li>';
 }
 
-function prTestClass(c, res, check) {
+function prTestClass(c, res, check, known) {
     const name = c.name.slice(c.name.lastIndexOf('.') + 1);
     const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
         + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span>${c.notInSuite ? NOT_IN_SUITE_TAG : ''}`
         + '</span></div>';
     const todo = c.notInSuite ? NOT_IN_SUITE_TODO : '';
-    if (!c.runs.length)
-        return `<li>${head}<div class="reason">${esc(noRunsOf(c, res, check))}</div>${todo}</li>`;
+    if (!c.runs.length) {
+        const why = known ? `<div class="reason">${esc(noRunsOf(c, res, check))}</div>` : '';
+        return `<li>${head}${why}${todo}</li>`;
+    }
     const count = s => c.runs.filter(r => r.status === s).length;
     const parts = [[count('SUCCESS'), 'passed'], [count('FAILURE'), 'failed'], [count('UNKNOWN'), 'ignored']]
         .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
@@ -1860,12 +1913,25 @@ const NO_RUNS_AT_RUN = {
 };
 
 // Why a class did not run, as far as Ignite's checks and the files changed since the run tell it. Without the check's
-// word, the card's note above the list says why nobody can tell.
+// word, the card's note above the list says why nobody can tell; when they tell nothing more, it says the reasons that
+// stay open, once for all such classes.
 function noRunsOf(c, res, check) {
     if (chainRunning(res)) return 'no runs yet: this RunAll is still going';
     if (c.notInSuite || !checkTold(check)) return 'no runs in this RunAll';
-    return NO_RUNS_AT_RUN[c.atRun] || 'no runs in this RunAll: its suite did not run or broke, it is a base or '
-        + '@Ignore class, or it came into a suite after this run';
+    return NO_RUNS_AT_RUN[c.atRun] || 'no runs in this RunAll';
+}
+
+// The reasons that stay open for the classes noRunsOf gives none for, said once above the list.
+function noRunsNote(classes, res, check) {
+    if (chainRunning(res) || !checkTold(check)) return '';
+    const idle = classes.filter(c => !c.runs.length);
+    const open = idle.filter(c => !c.notInSuite && !NO_RUNS_AT_RUN[c.atRun]).length;
+    if (!open) return '';
+    const lead = `${idle.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} did not run`;
+    const mixed = open < idle.length
+        ? `, ${open} of them with no reason in ${open === 1 ? 'its row' : 'their rows'}` : '';
+    return lead + mixed + '. Possible reasons: a class\'s suite did not run or broke, '
+        + 'the class is a base or @Ignore class, or it was added to a suite after this run.';
 }
 
 // "0.4 s", "12 s", "4 m 58 s": how long a test ran.
@@ -2091,7 +2157,7 @@ function runStrip(runs, codeRuns, atLeast = 1) {
 
 // What a blocker or watch verdict rests on short of proof (TestVerdict.Doubt on the server).
 const DOUBTS = {
-    ONE_RUN: ['1 run', 'The test ran once on this code and failed. A rerun of its suite confirms or clears the test\'s verdict.'],
+    ONE_RUN: ['1 run', 'The test ran once on this code and failed. A re-run of its suite confirms or clears the test\'s verdict.'],
     NO_MASTER_HISTORY: ['new test / no master history',
         'Master has no runs of this test on this JDK to compare with: a new test, or one master does not run'],
     UNCHECKED: ['unverified', 'A TeamCity error kept part of the check from being made; the checker tries again'],
