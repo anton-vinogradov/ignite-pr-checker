@@ -1,0 +1,87 @@
+{
+  "schema_version": "1.2.1",
+  "generated_at": "2026-10-18T00:08:26+00:00",
+  "last_modified": "2026-10-08T00:10:03+00:00",
+  "result": {
+    "name": "tomcat",
+    "aliases": [],
+    "label": "Apache Tomcat",
+    "category": "server-app",
+    "tags": [
+      "apache",
+      "server-app",
+      "web-server"
+    ],
+    "versionCommand": "./bin/version.sh",
+    "labels": {
+      "eoas": null,
+      "discontinued": null,
+      "eol": "Security Support",
+      "eoes": null
+    },
+    "links": {
+      "icon": "https://cdn.jsdelivr.net/npm/simple-icons/icons/apachetomcat.svg",
+      "html": "https://endoflife.date/tomcat",
+      "releasePolicy": "https://tomcat.apache.org/whichversion.html"
+    },
+    "releases": [
+      {
+        "name": "11.0",
+        "codename": null,
+        "label": "11.0",
+        "releaseDate": "2024-10-03",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": null,
+        "isMaintained": true,
+        "latest": {
+          "name": "11.0.27",
+          "date": "2026-10-06",
+          "link": "https://tomcat.apache.org/tomcat-11.0-doc/changelog.html"
+        },
+        "custom": {
+          "minJavaVersion": "17"
+        }
+      },
+      {
+        "name": "10.1",
+        "codename": null,
+        "label": "10.1",
+        "releaseDate": "2022-09-23",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": null,
+        "isMaintained": true,
+        "latest": {
+          "name": "10.1.61",
+          "date": "2026-10-06",
+          "link": "https://tomcat.apache.org/tomcat-10.1-doc/changelog.html"
+        },
+        "custom": {
+          "minJavaVersion": "11"
+        }
+      },
+      {
+        "name": "10.0",
+        "codename": null,
+        "label": "10.0",
+        "releaseDate": "2020-12-03",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": true,
+        "eolFrom": "2022-10-31",
+        "isMaintained": false,
+        "latest": {
+          "name": "10.0.27",
+          "date": "2022-10-03",
+          "link": "https://tomcat.apache.org/tomcat-10.0-doc/changelog.html"
+        },
+        "custom": {
+          "minJavaVersion": "8"
+        }
+      }
+    ]
+  }
+}

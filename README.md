@@ -380,6 +380,13 @@ The release workflow runs all the tests and publishes the jar as `ignite-pr-chec
 **What changes for users** section of each PR merged since the previous tag, with a warning when `TestVerdict.RULES`
 changed: every verdict is then computed again after the update.
 
+The notes end with **Dependencies to update**. It names the platforms and libraries of the checker whose free support
+has ended or ends within 90 days, by endoflife.date. It checks Spring Boot, Spring Framework, Gradle, Java (Eclipse
+Temurin), Tomcat and Log4j. It also lists the open Dependabot PRs. When endoflife.date or GitHub does not answer, the
+section says "could not check", and the release still comes out. Updates skipped on purpose are under `ignore` in
+`.github/dependabot.yml`, each with its reason. For example, Dependabot offers no new major version of checkstyle,
+since the checker keeps the version Ignite's own build runs.
+
 For the maintainer: fill **What changes for users** in each PR (the template has it), release a change of the verdict
 rules as a minor version, and put small PRs into one release.
 

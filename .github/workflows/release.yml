@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: write
+  # The release notes read the descriptions of the merged PRs and list the open Dependabot PRs.
+  pull-requests: read
 
 jobs:
   build-release:
@@ -38,8 +40,12 @@ jobs:
       - name: Release notes
         env:
           GH_TOKEN: ${{ github.token }}
-        # What changes for users, from the PR descriptions, and whether the verdict rules changed.
-        run: bash .github/release-notes.sh "${{ github.ref_name }}" > release-notes.md
+        # What changes for users, from the PR descriptions, and whether the verdict rules changed. Then what the build
+        # runs on that loses free support within 90 days, and the open Dependabot PRs; that part never stops a release.
+        run: |
+          bash .github/release-notes.sh "${{ github.ref_name }}" > release-notes.md
+          bash .github/dependency-notes.sh build/libs/ignite-pr-checker.jar >> release-notes.md \
+            || echo "::warning::.github/dependency-notes.sh failed, so the notes may lack the dependencies"
 
       - name: Publish release
         env:
