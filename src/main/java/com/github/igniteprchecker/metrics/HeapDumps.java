@@ -50,12 +50,16 @@ public final class HeapDumps {
         }
     }
 
-    /** Without {@code -XX:HeapDumpPath} the JVM writes the dump to its working directory. */
+    /**
+     * Without {@code -XX:HeapDumpPath} the JVM writes the dump to its working directory. {@code
+     * -XX:-HeapDumpOnOutOfMemoryError} stops new dumps only: one written before it went off still lies at the path.
+     * With the flag off and no path, a {@code .hprof} file in the working directory may be anyone's, so it stays.
+     */
     static Path dumpPath(boolean dumpsOnOom, String heapDumpPath) {
-        if (!dumpsOnOom)
-            return null;
+        if (heapDumpPath != null && !heapDumpPath.isBlank())
+            return Path.of(heapDumpPath);
 
-        return Path.of(heapDumpPath == null || heapDumpPath.isBlank() ? System.getProperty("user.dir") : heapDumpPath);
+        return dumpsOnOom ? Path.of(System.getProperty("user.dir")) : null;
     }
 
     /** The newest dump; null when there is none. */

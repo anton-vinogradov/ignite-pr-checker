@@ -295,7 +295,8 @@ public class CacheStore {
 
     /** A snapshot that fails to load must not block startup, nor be overwritten by the empty state that follows. */
     private void setAside(SnapshotCache c, Path f, Exception cause) {
-        Path kept = f.resolveSibling(c.fileName() + BAD + STAMP.format(Instant.now()));
+        Instant now = Instant.now();
+        Path kept = f.resolveSibling(c.fileName() + BAD + STAMP.format(now));
         try {
             Files.move(f, kept);
         }
@@ -304,6 +305,7 @@ public class CacheStore {
                 e.toString());
             return;
         }
+        madeAt(kept, now);
 
         if (!c.durable()) {
             log.warn("could not read {} ({}); kept it as {}, starting cold", f, cause.toString(), kept.getFileName());
@@ -313,6 +315,20 @@ public class CacheStore {
         log.error("could not read {} ({}); kept it as {} — this state starts empty", f, cause.toString(),
             kept.getFileName());
         unreadable.add(new Unreadable(c.fileName(), kept.getFileName().toString()));
+    }
+
+    /**
+     * A moved file keeps the time of its last save, days back for a file that seldom changes; the copy's {@link
+     * #TOKENS_KEPT} count from when it is made.
+     */
+    private static void madeAt(Path copy, Instant at) {
+        try {
+            Files.setLastModifiedTime(copy, FileTime.from(at));
+        }
+        catch (IOException e) {
+            log.warn("could not set the modification time of {} to now: {}. Its tokens may go before {} days pass",
+                copy, e.toString(), TOKENS_KEPT.toDays());
+        }
     }
 
     /**

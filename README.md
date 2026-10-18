@@ -222,9 +222,10 @@ new versions of the scripts and the systemd unit, not only of the jar. It:
 - creates the `prc` service user. `/opt/ignite-pr-checker` with the jar and the scripts belongs to root, so the service
   cannot change the code it runs; it writes only to `cache/`, `update/`, `dumps/` and `logs/` there;
 - writes `/etc/ignite-pr-checker/env` from the template, with a generated `SESSION_SECRET`, if the file is not there;
-- writes `update.sh`, `run.sh`, the unit `ignite-pr-checker` and `/etc/tmpfiles.d/ignite-pr-checker.conf`, which
-  deletes old heap dumps, installs the latest release through `update.sh`, starts the service and waits up to 60 s for
-  it to answer.
+- writes `/etc/tmpfiles.d/ignite-pr-checker.conf`: while the service is stopped, systemd-tmpfiles deletes a heap dump
+  older than 2 days at its daily clean;
+- writes `update.sh`, `run.sh` and the unit `ignite-pr-checker`, installs the latest release through `update.sh`,
+  starts the service and waits up to 60 s for it to answer.
 
 **Update from the page.** When a newer release is out, the top bar shows **Update to vX.Y.Z** and a **what's new** link
 to its release notes, or to the list of releases when it is not the next patch release. The button restarts the
@@ -258,7 +259,9 @@ its state as it stops. A jar installed before v1.35.0 is not in `installed-jars`
 from the page fails. Install the next release with `update.sh` as shown above.
 
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
-release wrote, stop the service, copy that file over the state file, and start the old jar.
+release wrote, stop the service, copy that file over the state file, and start the old jar. A copy older than 2 days
+holds no tokens. A jar of v1.36.0 or older started on such a copy switches off the visa and the options that commit, as
+if JIRA or GitHub had rejected the token. Each user switches them on again with their token.
 
 ### Service and logs
 
@@ -286,10 +289,11 @@ DEBUG or TRACE they write tokens:
 The JVM gets `-Xmx512m`. A JVM out of memory writes a heap dump to `/opt/ignite-pr-checker/dumps/` and exits, and
 systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decrypted tokens and the session key, so
 only the service can read that directory. The service deletes the dump 2 days after the JVM wrote it. While the service
-is stopped, systemd-tmpfiles deletes the dump at its daily clean instead, once nobody has read it for 2 days. Until the
-dump is deleted, the status page shows the **Out of memory** card: when the JVM ran out of memory and when the dump
-goes. For more heap, set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the heap with the peak
-of its old generation, and the process's resident memory with its peak.
+is stopped, systemd-tmpfiles deletes the dump instead, at its first daily clean after the dump is 2 days old. The rule
+for that needs systemd 249 or newer, as in Ubuntu 22.04: an older systemd refuses it. Until the dump is deleted, the
+status page shows the **Out of memory** card: when the JVM ran out of memory and when the dump goes. For more heap,
+set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the heap with the peak of its old
+generation, and the process's resident memory with its peak.
 
 The JVM's memory holds decrypted tokens too, and the host may move it to swap. Encrypt the swap with a random key at
 each boot, or the tokens can stay in the swap file.
@@ -316,11 +320,11 @@ each boot, or the tokens can stay in the swap file.
 
 State is written within a second of a change, the caches every 5 minutes, and everything at shutdown.
 
-Backups and the `.before-` and `.bad-` files keep their tokens for 2 days. Then the service takes the tokens out of them
-and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a copy, each user's options
-stay on but pause until the user brings the missing tokens. The TeamCity token comes back when the user opens the
-checker or logs in. ⚙ asks the user to save the JIRA token and the GitHub token for commits again. A `.bad-` file that
-is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
+Backups and the `.before-` and `.bad-` files keep their tokens for 2 days after they are made. Then the service takes
+the tokens out of them and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a
+copy, each user's options stay on but pause until the user brings the missing tokens. The TeamCity token comes back
+when the user opens the checker or logs in. ⚙ asks the user to save the JIRA token and the GitHub token for commits
+again. A `.bad-` file that is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
 
 The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Changing the secret logs
 everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. The standing options do not wait
@@ -341,9 +345,10 @@ can make a session cookie for any user.
 2. Ask every user in `users.json` to make new TeamCity, JIRA and GitHub tokens and to revoke the old ones in ci2, JIRA
    and GitHub. Changing the secret logs everyone out; [The cache directory](#the-cache-directory) says what it does to
    the stored tokens.
-3. If you like, delete the files in `cache/backups/` and the `*.before-*` files written in the last 2 days: they hold
-   the old tokens, encrypted with the old `SESSION_SECRET`. Older copies hold no tokens, and the state can still be
-   rolled back to them.
+3. If you like, delete the copies of the state made in the last 2 days, by their modification time: the files in
+   `cache/backups/`, `*.before-*` and `*.bad-*`. They hold the old tokens, encrypted with the old `SESSION_SECRET`.
+   Also delete each copy the log names after "could not take the tokens out of": it may still hold its tokens. The
+   other older copies hold no tokens, and the state can still be rolled back to them.
 
 ### Who may restart, update and flush
 

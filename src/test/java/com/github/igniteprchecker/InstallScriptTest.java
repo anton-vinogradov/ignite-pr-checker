@@ -185,13 +185,17 @@ class InstallScriptTest {
             "-XX:+HeapDumpOnOutOfMemoryError", dumps, "-jar", dir.resolve("app.jar").toString());
     }
 
-    /** A heap dump holds decrypted tokens: the service deletes it on time, and while it is stopped, systemd does. */
+    /**
+     * A heap dump holds decrypted tokens: the service deletes it on time, and while it is stopped, systemd does. By
+     * default systemd-tmpfiles counts a file's age from its last read too, so a dump someone copied every day would
+     * never be deleted. The age counts from the dump's last write only.
+     */
     @Test
     void aStoppedServiceLosesItsHeapDumpOnTimeToo() throws IOException {
         String rule = heredoc("cat > \"/etc/tmpfiles.d/${SERVICE}.conf\" <<TMPFILES\n", "TMPFILES");
         String run = heredoc("cat > \"$APP_DIR/run.sh\" <<'RUN'\n", "RUN");
 
-        assertThat(rule).isEqualTo("e ${APP_DIR}/dumps - - - " + HeapDumps.KEPT.toDays() + "d\n");
+        assertThat(rule).isEqualTo("e ${APP_DIR}/dumps - - - m:" + HeapDumps.KEPT.toDays() + "d\n");
         assertThat(run).contains("DUMPS=\"$APP_DIR/dumps\"\n").contains("-XX:HeapDumpPath=\"$DUMPS\"");
     }
 

@@ -128,6 +128,48 @@ class CopyTokensTest {
         assertThat(Files.readAllBytes(young)).isEqualTo(youngBytes);
     }
 
+    /**
+     * A release that could not read standing-visas.json set it aside with the time of its last save, three quiet days
+     * back, and its tokens went within ten minutes: the rollback to the release before then brought a state with every
+     * user's options paused. The two days of a file set aside start when it is set aside.
+     */
+    @Test
+    void aFileSetAsideKeepsItsTokensTwoDaysFromThenHoweverOldItsLastSave(@TempDir Path dir) throws IOException {
+        long lastSave = System.currentTimeMillis() - Duration.ofDays(3).toMillis();
+        Files.setLastModifiedTime(Files.writeString(dir.resolve("standing-visas.json"), STANDING),
+            FileTime.fromMillis(lastSave));
+        SnapshotCache unreadable = new SnapshotCache() {
+            @Override public String fileName() {
+                return "standing-visas.json";
+            }
+
+            @Override public boolean durable() {
+                return true;
+            }
+
+            @Override public void saveTo(Path file) {
+            }
+
+            @Override public void loadFrom(Path file) throws IOException {
+                throw new IOException("Unrecognized field \"ghThreadsV2\"");
+            }
+        };
+        CacheStore store = new CacheStore(List.of(unreadable), new PersistProperties(true, dir.toString(), 5),
+            "1.37.0");
+        store.init();
+        store.onShutdown();
+        Path bad = dir.resolve(store.status().unreadable().get(0).keptAs());
+        long setAside = System.currentTimeMillis();
+
+        store.removeTokensFromCopies(setAside + Duration.ofMinutes(10).toMillis());
+
+        assertThat(bad).hasContent(STANDING);
+
+        store.removeTokensFromCopies(setAside + Duration.ofDays(2).plusMinutes(1).toMillis());
+
+        assertThat(bad).content().doesNotContain("tc-cipher", "jira-cipher");
+    }
+
     /** A file set aside because it could not be read may be cut short: then no field in it can be told. */
     @Test
     void aCopyThatIsNotJsonIsNamedInTheLogOnce(@TempDir Path dir) throws IOException {

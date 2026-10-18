@@ -2,7 +2,9 @@ package com.github.igniteprchecker.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sun.management.HotSpotDiagnosticMXBean;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -58,13 +60,47 @@ class HeapDumpsTest {
         assertThat(new HeapDumps(null).newest()).isNull();
     }
 
-    /** run.sh names the dumps directory; without a path the JVM writes to its working directory. */
+    /**
+     * run.sh names the dumps directory; without a path the JVM writes to its working directory. A run with no dumps
+     * and no path leaves the {@code .hprof} files of its working directory alone.
+     */
     @Test
     void theDumpsAreWhereTheJvmWritesThem() {
         assertThat(HeapDumps.dumpPath(true, "/opt/ignite-pr-checker/dumps"))
             .isEqualTo(Path.of("/opt/ignite-pr-checker/dumps"));
+        assertThat(HeapDumps.dumpPath(false, "/opt/ignite-pr-checker/dumps"))
+            .isEqualTo(Path.of("/opt/ignite-pr-checker/dumps"));
         assertThat(HeapDumps.dumpPath(true, "")).isEqualTo(Path.of(System.getProperty("user.dir")));
-        assertThat(HeapDumps.dumpPath(false, "/opt/ignite-pr-checker/dumps")).isNull();
+        assertThat(HeapDumps.dumpPath(false, "")).isNull();
+    }
+
+    /**
+     * After an OOM the operator turned the dumps off with {@code -XX:-HeapDumpOnOutOfMemoryError} in JAVA_OPTS and
+     * restarted. The dump already on disk, with its decrypted tokens, then was never deleted, and the status page no
+     * longer showed it. The flag decides whether the JVM writes new dumps, not where the old ones lie.
+     */
+    @Test
+    void aDumpWrittenBeforeTheDumpsWentOffStillGoes(@TempDir Path dir) throws IOException {
+        long now = System.currentTimeMillis();
+        Path f = Files.writeString(dir.resolve("java_pid101.hprof"), "JAVA PROFILE 1.0.2");
+        Files.setLastModifiedTime(f, FileTime.fromMillis(now - Duration.ofDays(3).toMillis()));
+        HotSpotDiagnosticMXBean vm = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+        String onOom = vm.getVMOption("HeapDumpOnOutOfMemoryError").getValue();
+        String path = vm.getVMOption("HeapDumpPath").getValue();
+        try {
+            vm.setVMOption("HeapDumpOnOutOfMemoryError", "false");
+            vm.setVMOption("HeapDumpPath", dir.toString());
+
+            assertThat(HeapDumps.ofThisJvm().newest()).as("the status page shows the dump on disk").isNotNull();
+
+            HeapDumps.ofThisJvm().deleteExpired(now);
+        }
+        finally {
+            vm.setVMOption("HeapDumpOnOutOfMemoryError", onOom);
+            vm.setVMOption("HeapDumpPath", path);
+        }
+
+        assertThat(f).doesNotExist();
     }
 
     /** {@code -XX:HeapDumpPath} may name the dump file itself, in JAVA_OPTS of the env file. */

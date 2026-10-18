@@ -145,6 +145,18 @@ class StatusPageTest {
             "SESSION_SECRET");
     }
 
+    /** The card of a heap dump on disk is among the System cards, as the service reports the dump. */
+    @Test
+    void theSystemCardsShowAHeapDumpOnDisk() throws Exception {
+        JsonNode page = PageScript.run("status.html", STATUS + """
+            status.jvm.heapDump = { writtenAt: page.now() - 5 * 3600e3, deletedAt: page.now() + 43 * 3600e3 };
+            await page.load('');
+            report({ system: page.el('systemCards').textContent });
+            """);
+
+        assertThat(page.get("system").asText()).contains("Out of memory", "heap dump deleted in 1d 19h 0m");
+    }
+
     /** Status | Users is the segmented switch of the PR page's Suites | Root causes; Flush caches and Restart stay buttons. */
     @Test
     void theViewsAreASegmentedSwitchAndTheActionsButtons() throws Exception {

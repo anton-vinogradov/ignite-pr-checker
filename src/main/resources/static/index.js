@@ -3090,11 +3090,12 @@ function renderSettings(st) {
 }
 
 // Each group opens with the state of what its options need. The options run on the tokens the server holds; this
-// browser's session may carry a JIRA token too.
+// browser's session may carry a JIRA token too, but a visa paused for a removed token waits for one the server keeps.
 function renderAccess(st) {
     $('tcState').textContent = myUsername || 'logged in';
+    const removed = (st.tokensRemoved || []).includes('jira') && !jiraPasted;
     const jira = st.jiraStored ? 'saved' : st.jiraTokenRejected && !jiraPasted ? 'rejected'
-        : hasJira ? 'saved' : 'not saved';
+        : hasJira && !removed ? 'saved' : 'not saved';
     $('jiraState').textContent = jira;
     $('jiraTokenBtn').textContent = jira === 'saved' ? 'Replace' : 'Save';
     $('ghTokenState').textContent = st.ghStored ? 'saved' + (st.ghTokenKind ? ', ' + st.ghTokenKind : '')

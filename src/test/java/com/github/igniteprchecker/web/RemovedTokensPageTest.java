@@ -43,6 +43,36 @@ class RemovedTokensPageTest {
         assertThat(out.get("suites").asBoolean()).isTrue();
     }
 
+    /**
+     * Her session still carried a JIRA token she had pasted before, so ⚙ said "JIRA token: saved" with Replace under
+     * the note that the visa waits for her JIRA token. The server keeps no JIRA token of hers: ⚙ says so, and the
+     * token she saves goes to the server with the visa.
+     */
+    @Test
+    void aJiraTokenInTheSessionIsNotTheOneTheVisaWaitsFor() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/me', { body: { username: 'alice', jira: true, github: false } });
+            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
+            page.route('/api/auto-visa-all', { body: { visa: true, commands: true, login: 'avinogradov-gh',
+                jiraStored: true, githubAvailable: true, tokensRemoved: [] } }, 'POST');
+            """ + SETTINGS.formatted("['jira']") + """
+            const before = { state: page.el('jiraState').textContent, button: page.el('jiraTokenBtn').textContent };
+            await page.el('jiraTokenBtn').onclick();
+            page.el('settingsJiraToken').value = 'jira-pat';
+            await page.el('settingsJiraSave').onclick();
+            await page.settle();
+            report({ before, posts: page.fetches('/api/auto-visa-all?').map(f => f.url),
+                note: !page.el('jiraTokenRemoved').classList.contains('hidden'),
+                state: page.el('jiraState').textContent });
+            """);
+
+        assertThat(out.get("before").get("state").asText()).isEqualTo("not saved");
+        assertThat(out.get("before").get("button").asText()).isEqualTo("Save");
+        assertThat(out.get("posts").toString()).contains("/api/auto-visa-all?visa=true");
+        assertThat(out.get("note").asBoolean()).isFalse();
+        assertThat(out.get("state").asText()).isEqualTo("saved");
+    }
+
     @Test
     void nothingIsSaidWhenNoTokenIsMissing() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS.formatted("[]"));
