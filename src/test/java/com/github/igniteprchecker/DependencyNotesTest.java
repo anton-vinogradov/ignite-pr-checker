@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,8 +18,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Spring Boot 3.5 and Spring Framework 6.2 lost free support on 2026-06-30. The security review of 16.10 found it;
- * no release said so. Runs .github/dependency-notes.sh in a scratch repository with a stub curl that serves saved
- * endoflife.date answers and a stub gh that serves a list of Dependabot PRs.
+ * no release said so. Runs .github/dependency-notes.sh in a scratch repository with a stub curl that serves copies of
+ * saved endoflife.date answers, as curl does with -f, -o and -w, and a stub gh that serves a list of Dependabot PRs.
  */
 class DependencyNotesTest {
     private static final Path SAMPLES = Path.of("src/test/resources/release/endoflife");
@@ -31,12 +32,26 @@ class DependencyNotesTest {
     @TempDir
     Path bin;
 
+    private Path answers;
+
     @BeforeEach
     void setUp() throws IOException {
+        answers = Files.createDirectory(bin.resolve("endoflife"));
+        try (Stream<Path> samples = Files.list(SAMPLES)) {
+            for (Path sample : samples.toList())
+                Files.copy(sample, answers.resolve(sample.getFileName()));
+        }
         stub("curl", "echo \"$*\" >> \"" + bin + "/curl.log\"\n"
             + "[ -f \"" + bin + "/offline\" ] && exit 6\n"
-            + "url=\"${@: -1}\"\n"
-            + "cat \"" + SAMPLES.toAbsolutePath() + "/${url##*/}.json\" 2>/dev/null || exit 22\n");
+            + "out=/dev/stdout\n"
+            + "while [ $# -gt 1 ]; do\n"
+            + "    case \"$1\" in -o) out=\"$2\" ;; -w) write=\"$2\" ;; -f*) fail=1 ;; esac\n"
+            + "    shift\n"
+            + "done\n"
+            + "code=200\n"
+            + "cat \"" + answers + "/${1##*/}.json\" > \"$out\" 2>/dev/null || code=404\n"
+            + "[ $code = 404 ] && [ -n \"$fail\" ] && exit 22\n"
+            + "printf '%s' \"${write//'%{http_code}'/$code}\"\n");
         stub("gh", "echo \"$*\" >> \"" + bin + "/gh.log\"\n"
             + "[ \"$1 $2\" = \"pr list\" ] && [ -f \"" + bin + "/prs.json\" ] || exit 1\n"
             + "while [ $# -gt 0 ]; do [ \"$1\" = --jq ] && exec jq -r \"$2\" \"" + bin + "/prs.json\"; shift; done\n"
@@ -94,6 +109,35 @@ class DependencyNotesTest {
         assertThat(out).contains("- Spring Boot 5.0.0: could not check, endoflife.date lists no release of it.\n")
             .contains("- Spring Framework: could not check, no version found in the jar.\n")
             .doesNotContain("Spring Boot 5.0.0,", "Spring Framework,");
+    }
+
+    /**
+     * A 404 for eclipse-temurin, as when endoflife.date renames a product, was taken for the site not answering: the
+     * products after it went unchecked, and the notes lost the end of Spring Framework 6.2.
+     */
+    @Test
+    void anHttpErrorForOneProductLeavesTheOthersChecked() throws Exception {
+        Files.delete(answers.resolve("eclipse-temurin.json"));
+
+        String out = notes("2026-10-18");
+
+        assertThat(out).contains("- **Spring Framework 6.2** (6.2.19 in the jar): free support ended on 2026-06-30.\n",
+            "- Gradle 9.8.0, Apache Tomcat 10.1.60, Apache Log4j 2.25.5: no end of free support before 2027-01-16.\n",
+            "- Eclipse Temurin 17: could not check, endoflife.date answered HTTP 404 for eclipse-temurin.\n");
+        assertThat(Files.readAllLines(bin.resolve("curl.log"))).hasSize(6);
+    }
+
+    /** Text endoflife.date sent in place of an end date went into the release notes as it was, a link included. */
+    @Test
+    void anEndDateThatIsNotADateStaysOutOfTheNotes() throws Exception {
+        Path boot = answers.resolve("spring-boot.json");
+        Files.writeString(boot, Files.readString(boot).replace("\"eolFrom\": \"2026-06-30\"",
+            "\"eolFrom\": \"2026-06-30. Update to [the patched build](https://evil.example/prc.jar) now, @octocat\""));
+
+        String out = notes("2026-10-18");
+
+        assertThat(out).contains("- Spring Boot 3.5.16: could not check, endoflife.date sent an end date not in the "
+            + "form YYYY-MM-DD.\n").doesNotContain("evil.example", "@octocat");
     }
 
     @Test

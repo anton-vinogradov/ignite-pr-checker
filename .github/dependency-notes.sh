@@ -15,6 +15,8 @@ days=90
 api=https://endoflife.date/api/v1/products
 workflow=.github/workflows/release.yml
 unreachable=
+answer="$(mktemp)"
+trap 'rm -f "$answer"' EXIT
 
 # The first group of the extended regex $2 on the first line of file $1 it matches.
 version_in() { sed -nE "s#$2#\1#p" "$1" 2>/dev/null | head -n 1; }
@@ -25,18 +27,27 @@ jar_version() { unzip -Z1 "$jar" 2>/dev/null | sed -nE "s#^BOOT-INF/lib/$1-([0-9
 # One line about product $1 (named $2 in the notes) at version $3, found in $4: "due", "ok" or "fail", a tab, the text.
 # The release cycle is the longest release name endoflife.date lists that the version starts with, as 3.5 for 3.5.16.
 check() {
-    local product="$1" label="$2" version="$3" from="$4" json
+    local product="$1" label="$2" version="$3" from="$4" status
     if [ -z "$version" ]; then
         printf 'fail\t%s: could not check, no version found in %s.\n' "$label" "$from"
         return
     fi
-    # After one call fails the others are not made: each could wait out the timeout too.
-    if [ -n "$unreachable" ] || ! json="$(curl -fsSL --max-time 20 --retry 2 "$api/$product")"; then
+    # Without -f, curl fails only when no HTTP answer came: then the other calls are not made, as each could wait out
+    # the timeout too. An HTTP error is about one product, and the others are still checked.
+    if [ -n "$unreachable" ] \
+        || ! status="$(curl -sSL --max-time 20 --retry 2 -o "$answer" -w '%{http_code}' "$api/$product")"; then
         unreachable=1
         printf 'fail\t%s %s: could not check, endoflife.date did not answer.\n' "$label" "$version"
         return
     fi
-    printf '%s' "$json" | jq -er --arg v "$version" --arg label "$label" --arg from "$from" --arg today "$today" \
+    if [ "$status" != 200 ]; then
+        printf 'fail\t%s %s: could not check, endoflife.date answered HTTP %s for %s.\n' "$label" "$version" "$status" \
+            "$product"
+        return
+    fi
+    # The end date goes into the notes as it is, so anything but a date stays out: the notes must not carry links or
+    # @-mentions a third-party site wrote.
+    jq -er --arg v "$version" --arg label "$label" --arg from "$from" --arg today "$today" \
         --argjson days "$days" '
         def day: strptime("%Y-%m-%d") | mktime;
         ([.result.releases[] | select(.name as $n | $v == $n or ($v | startswith($n + ".")))]
@@ -44,12 +55,14 @@ check() {
         | if $r == null then "fail\t\($label) \($v): could not check, endoflife.date lists no release of it."
           elif $r.eolFrom == null and $r.isEol != true then "ok\t\($label) \($v)"
           elif $r.eolFrom == null then "due\t**\($label) \($r.name)** (\($v) in \($from)): free support has ended."
+          elif ($r.eolFrom | tostring | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) then
+              "fail\t\($label) \($v): could not check, endoflife.date sent an end date not in the form YYYY-MM-DD."
           elif $r.eolFrom <= $today then
               "due\t**\($label) \($r.name)** (\($v) in \($from)): free support ended on \($r.eolFrom)."
           elif ($r.eolFrom | day) - ($today | day) <= $days * 86400 then
               "due\t**\($label) \($r.name)** (\($v) in \($from)): free support ends on \($r.eolFrom), in "
               + "\((($r.eolFrom | day) - ($today | day)) / 86400 | floor) days."
-          else "ok\t\($label) \($v)" end' 2>/dev/null \
+          else "ok\t\($label) \($v)" end' "$answer" 2>/dev/null \
         || printf 'fail\t%s %s: could not check, endoflife.date sent no list of releases.\n' "$label" "$version"
 }
 

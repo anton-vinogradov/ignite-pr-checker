@@ -43,13 +43,35 @@ class LoginThrottleTest {
     @Test
     void teamCityChecksAreCappedAcrossClients() {
         for (int i = 0; i < 30; i++)
-            assertThat(throttle.admitCheck()).isNull();
+            assertThat(throttle.admitCheck("203.0.113." + i)).isNull();
 
-        assertThat(throttle.admitCheck()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(throttle.admitCheck("198.51.100.1")).isEqualTo(new LoginThrottle.Wait(Duration.ofMinutes(1), true));
 
         after(Duration.ofMinutes(1));
 
-        assertThat(throttle.admitCheck()).isNull();
+        assertThat(throttle.admitCheck("198.51.100.1")).isNull();
+    }
+
+    /**
+     * A login the shared checks turned away used one of its client's 3 attempts, so other clients' logins could use up
+     * the attempts of a user who retried as told.
+     */
+    @Test
+    void aLoginTheSharedChecksTurnAwayCostsItsClientNoAttempt() {
+        for (int i = 0; i < 30; i++)
+            throttle.admitCheck("203.0.113." + i);
+
+        for (int i = 0; i < 5; i++)
+            assertThat(throttle.admitCheck("192.0.2.50")).extracting(LoginThrottle.Wait::shared).isEqualTo(true);
+
+        after(Duration.ofMinutes(1));
+
+        for (int i = 0; i < 3; i++)
+            assertThat(throttle.admitCheck("192.0.2.50")).isNull();
+
+        assertThat(throttle.admitCheck("192.0.2.50")).isEqualTo(new LoginThrottle.Wait(Duration.ofMinutes(10), false));
+        assertThat(throttle.admitAttempt("192.0.2.50")).as("a granted check is an attempt")
+            .isEqualTo(Duration.ofMinutes(10));
     }
 
     @Test

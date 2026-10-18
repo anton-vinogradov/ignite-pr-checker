@@ -91,16 +91,16 @@ public class LoginController {
             return ResponseEntity.badRequest().body(Map.of("error", "token required"));
 
         String token = req.token().trim();
-        Duration wait = throttle.admitAttempt(LoginThrottle.clientOf(http));
-        if (wait != null)
-            return tooMany(wait, addressUsedUp(wait));
+        String client = LoginThrottle.clientOf(http);
+        if (throttle.recentlyRejected(token)) {
+            Duration wait = throttle.admitAttempt(client);
 
-        if (throttle.recentlyRejected(token))
-            return rejected();
+            return wait != null ? tooMany(wait, addressUsedUp(wait)) : rejected();
+        }
 
-        wait = throttle.admitCheck();
+        LoginThrottle.Wait wait = throttle.admitCheck(client);
         if (wait != null)
-            return tooMany(wait, checksUsedUp(wait));
+            return tooMany(wait.time(), wait.shared() ? checksUsedUp(wait.time()) : addressUsedUp(wait.time()));
 
         Optional<String> username;
         try {
@@ -157,8 +157,8 @@ public class LoginController {
 
     /** The answer to a login when all logins together have used the TeamCity checks of the last minute. */
     private static String checksUsedUp(Duration wait) {
-        return "The checker checks at most " + LoginThrottle.CHECKS_PER_MINUTE + " tokens a minute with TeamCity, for"
-            + " all users together. Logins in the last minute used all " + LoginThrottle.CHECKS_PER_MINUTE
+        return "The checker checks the tokens of at most " + LoginThrottle.CHECKS_PER_MINUTE + " logins a minute with"
+            + " TeamCity, for all users together. Logins in the last minute used all " + LoginThrottle.CHECKS_PER_MINUTE
             + ": try again in " + minutes(wait) + ".";
     }
 

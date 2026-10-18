@@ -145,8 +145,8 @@ class DocFactsTest {
             + " minutes";
 
         assertThat(collapsed(README)).contains(perAddress)
-            .contains("checks at most " + constant(throttle, "CHECKS_PER_MINUTE = (\\d+);")
-                + " tokens a minute with TeamCity");
+            .contains("checks the tokens of at most " + constant(throttle, "CHECKS_PER_MINUTE = (\\d+);")
+                + " logins a minute with TeamCity");
         assertThat(collapsed(TOUR)).contains(perAddress);
     }
 
