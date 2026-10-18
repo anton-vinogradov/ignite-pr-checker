@@ -19,15 +19,15 @@ page, the PR comment and the JIRA visa link here. The numbers are the defaults i
 | **Not confirmed: 1 run** | Blockers that failed the only time they ran on this branch. They still count as blockers: in the count, the PR list badge, the visa and the comment. The heading says that each of these tests failed its only run on this branch. So their rows leave out `failed the only run on this branch`, the `1 run` tag and a strip of one bar. If every blocker failed its only run on this branch, the line **Not confirmed yet** above the Blockers list says so, and this group is not shown. | **Rerun** their suites. A second failure confirms the blocker, a pass drops it. |
 | **Recently started failing** | Tests failing on the code this run tested, with too few runs of it to tell a break from a flake. Not blockers yet. | **Rerun** the suite. If it keeps failing, it becomes a blocker; if it passes, it drops out. |
 | **Could not be checked** | Failed tests that TeamCity errors kept from being compared with master and the branch. Not counted as blockers. | Nothing: the checker tries them again on its own. |
-| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Rerun them first: the verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
-| **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and rerun. |
+| **Broken suites** | Suites with no reliable result ([causes](#broken-suite-causes)). A timed-out or crashed suite is listed here, and the checker does not look for blockers in it. Its failures would come from the timeout or crash, and some tests never ran. | Re-run them first: the verdict can't see their tests. A suite that failed to compile has no **Rerun**: it needs a code fix. |
+| **Fewer tests than master** | Suites that ran at least 10% fewer tests than the same suite on master; only suites with 20 or more tests on master are compared. Tests that never ran can't fail. | If the PR removes tests on purpose, nothing. Otherwise compare the test list with master and re-run. |
 | **Crashed near the end of the run** | Suites that hit a timeout, out-of-memory error or JVM crash after running over 90% of master's tests, with no failure blamed on the PR. Their results stand. Shown folded, with the count in its heading. | Nothing for the PR. |
 | **⚠ Suites that never ran** | The RunAll was interrupted: these suites were cancelled and never ran. The verdict says nothing about them. Suites a person cancelled are folded into one line per person. | **Rerun** them, or run RunAll again. |
-| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed or ran longer than 60 s. A new test that passed is not: it has no master history by nature. A class that Ignite's own abandoned-tests check finds in no test suite is tagged `not in any suite`. A class with no runs says why: a commit after the run added it or put it in a suite, its suite did not run or broke, or it is a base or `@Ignore` class. The abandoned-tests check may still be running or be waiting for a maintainer to approve its run (a push by someone outside the project). It may also be skipped, or its result can't be read. Then a note above the list says so and how many classes did not run, if any. The card does not say why these classes did not run: without the check, nobody can tell. | Check that the new tests ran and passed. A failed one is judged in the verdict above as well. Add a `not in any suite` class to a test suite or mark it `@Ignore`. |
-| **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Rerun only to double-check the flaky ones. Tests that fail on master are on the flaky board (`/flaky.html`). |
+| **This PR's tests** | How the test classes the PR adds (`new`) or changes (`changed`) ran in this RunAll. A test is listed when it failed or ran longer than 60 s. A new test that passed is not: it has no master history by nature. A class that Ignite's own abandoned-tests check finds in no test suite is tagged `not in any suite`. A class with no runs says why, as far as the run tells: a commit after the run added it or put it in a suite, its suite did not run or broke, or it is a base or `@Ignore` class. When the run tells nothing more, a note above the list names the possible reasons once for all such classes. The abandoned-tests check may still be running or be waiting for a maintainer to approve its run (a push by someone outside the project). It may also be skipped, or its result can't be read. Then a note above the list says so and how many classes did not run, if any. The card does not say why these classes did not run: without the check, nobody can tell. | Check that the new tests ran and passed. A failed one is judged in the verdict above as well. Add a `not in any suite` class to a test suite or mark it `@Ignore`. |
+| **Not blamed on this PR** | Failures not blamed on the PR, each with its reason: they fail on master too, are flaky, or passed in a later run. Shown folded. | Nothing for this PR. Re-run only to double-check the flaky ones. Tests that fail on master are on the flaky board (`/flaky.html`). |
 | **✓ No blockers** | The run covered the PR's current code and blamed nothing on it. The PR list shows **✓**. | You can merge the PR. |
-| **No proven blockers yet** | No test was blamed, but tests started failing on the code this run tested: they are under **Recently started failing**. The PR list shows **!**. | **Rerun** their suites: a rerun shows whether these tests are blockers. |
-| **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Handle what the lines list, then rerun. |
+| **No proven blockers yet** | No test was blamed, but tests started failing on the code this run tested: they are under **Recently started failing**. The PR list shows **!**. | **Rerun** their suites: a re-run shows whether these tests are blockers. |
+| **No blockers found — not proven clean** | No test was blamed, but the verdict can't call the PR clean. The amber lines under the heading say why ([caveats](#caveats)). The PR list shows **?**. While the page still checks that the run tested the PR's latest commit, the heading reads **No blockers found**. | Handle what the lines list, then re-run. |
 
 ### Reasons under a test
 
@@ -52,7 +52,7 @@ run where the test was ignored does not count as a run.
 | `…; too few failures on this code yet to outweigh other PRs` | The scale factor case above, without enough failures yet to beat the other PRs' rate. Listed under **Recently started failing**. | **Rerun** the suite. |
 | `pre-existing: fails F/R on master` | Master fails the test too. Listed under **Not blamed on this PR**. | Nothing for the PR. |
 | `flaky on other PR branches: fails F/R in K other PRs; …` | It fails in 3 or more other PRs, and this PR's failures are not enough to outweigh that. Listed under **Not blamed on this PR**. | Nothing for the PR. |
-| `flaky on branch: failed only the latest of N runs on commit abc1234 (an earlier run on the same code passed)` | It failed once after passing on the same code. Listed under **Not blamed on this PR**. | Nothing, or rerun to be sure. |
+| `flaky on branch: failed only the latest of N runs on commit abc1234 (an earlier run on the same code passed)` | It failed once after passing on the same code. Listed under **Not blamed on this PR**. | Nothing, or re-run to be sure. |
 | `not failing in the last finished run (passed on re-run)` | The newest finished run of the test on the branch passed. Listed under **Not blamed on this PR**. | Nothing. |
 | `could not verify (TeamCity error: …)` | A TeamCity error stopped the check. Listed under **Could not be checked**. | Nothing: it is tried again. |
 | `the N earlier runs were on other code` | Runs on an older commit don't count; they are dimmed in the strip. | — |
@@ -69,7 +69,7 @@ and the visa.
 | `Build failed — N suites that need it did not run` | A run the other suites need failed, so they never ran. | Fix the build, push, run RunAll again. |
 | `the RunAll was interrupted — N suites never ran` | Suites were cancelled before they ran. | **Rerun** them, or run RunAll again. |
 | `N suites have no reliable result (…)` | Broken suites; their causes are in brackets. | See [broken suite causes](#broken-suite-causes). |
-| `N suites ran fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, rerun. |
+| `N suites ran fewer tests than the same suites on master` | See **Fewer tests than master**. | Check the test lists, re-run. |
 | `N failed tests could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. The comment and the visa use these words; the page says `it tested older code (see the note at the top)`, and the line at the top names both commits, with their count once GitHub answers. | Run RunAll again. |
@@ -80,12 +80,12 @@ and the visa.
 | Cause | What it means | What to do |
 |---|---|---|
 | `compilation error` | The suite's code did not compile. The page offers no **Rerun** for it: the same code fails the same way. | Fix the build, push, run RunAll again. |
-| `execution timeout` | The suite ran out of time. Its failures are likely hang cascade, and some tests never ran. | Rerun. If it times out again, look at the thread dump in TeamCity. |
-| `JVM crash / out of memory` | The JVM died mid-run. | Rerun. If it repeats, look for the crash or the leak in the build log. |
+| `execution timeout` | The suite ran out of time. Its failures are likely hang cascade, and some tests never ran. | Re-run. If it times out again, look at the thread dump in TeamCity. |
+| `JVM crash / out of memory` | The JVM died mid-run. | Re-run. If it repeats, look for the crash or the leak in the build log. |
 | `non-zero exit code` | The build exited with an error, and no unmuted test failed. | Open **TC** to see what failed. |
 | `failed dependency` | A run this suite depends on failed. | Fix that run first. |
-| `failed without running tests` | TeamCity named no problem, and no test failed. | Open **TC**, rerun. |
-| `ci2 glitch: artifacts unavailable (N suites)` | ci2 could not hand these suites the artifacts of a run they need, though that run passed. | Rerun: a re-run usually gets them. |
+| `failed without running tests` | TeamCity named no problem, and no test failed. | Open **TC**, re-run. |
+| `ci2 glitch: artifacts unavailable (N suites)` | ci2 could not hand these suites the artifacts of a run they need, though that run passed. | Re-run them: a new run usually gets them. |
 | `Build failed — N suites that need it did not run; fix the build, then /run-all` | The build step failed, and the suites that need it never ran. `nothing else ran` when that was the whole chain. | Fix the build, push, `/run-all` or **Run**. |
 | `Build failed in this run and passed on a re-run since — N suites that need it never ran; /run-all to run them` | The build passes now, but the suites that need it have no result. | `/run-all` or **Run**. |
 | `— ran 33 of master's 67 tests` (after a cause), `ran 33 of master's 67 tests` (alone), `ran fewer tests than on master` (a group) | How far the broken suite got. The cause explains the shortfall; it is not a missing-tests finding of its own. When TeamCity reported nothing but its own count of this shortfall, the line says only how far the suite got. Several such suites with different counts share the line `ran fewer tests than on master`, and each suite keeps its own count. When TeamCity's count has other numbers, the line keeps it: TeamCity compared with a run it chose itself. | — |
@@ -102,7 +102,7 @@ and the visa.
 | `not in any suite` (on a test class) | Ignite's own check (GitHub Actions job Check java code, step "Run abandoned tests checks.") finds the class in no test suite, so CI never runs it. Shown in **This PR's tests**; the PR comment and the visa say it too, and the verdict stays as it is. | Add it to a test suite or mark it `@Ignore`, or switch on **Add my PR's tests that no suite runs** in ⚙. |
 | `unverified` | A TeamCity error kept part of the check from being made: other PRs' runs of the test. The checker tries again. | Wait. |
 | `⚖ assertion — likely a real logic failure` (in **failure ▸**) | A failed check. | Fix the code. |
-| `environment/timing — a re-run may pass` | Environment or timing trouble. | Rerun. |
+| `environment/timing — a re-run may pass` | Environment or timing trouble. | Re-run. |
 | `environment/timing — but it failed all N runs of this code, …` | The same, but every run of this code failed. | A re-run alone is unlikely to pass: fix it. |
 | `⌛ hang — the test ran out of time; …` | The test hung. The test's thread from the thread dump is shown. | See where that thread waits. |
 | **failure ▸** / **copy failure** / **copy AI prompt** | **failure ▸** opens a panel with the failure message and the stack trace. In the panel, **copy failure** copies the message and **copy AI prompt** copies a fix prompt for a coding assistant. If there is no failure message to open, **copy AI prompt** is on the row itself. | — |
@@ -112,7 +112,7 @@ and the visa.
 | Badge | What it means | What to do |
 |---|---|---|
 | red number | Blockers in the PR's latest analysed RunAll. | Open the PR. |
-| **!** | No blockers yet, but tests started failing on the code the run tested. | A rerun shows whether these tests are blockers. |
+| **!** | No blockers yet, but tests started failing on the code the run tested. | A re-run shows whether these tests are blockers. |
 | **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
@@ -156,7 +156,7 @@ and the visa.
 | A crashed suite whose results stand | ran over 90% of master's tests | **Crashed near the end of the run** |
 | An incomplete verdict held back | 20 minutes | **Could not be checked** |
 | A slow test of the PR | longer than 60 s | **This PR's tests** |
-| A rerun that asks first | 5 suites | **Rerun N suites** |
+| A re-run that asks first | 5 suites | **Rerun N suites** |
 
 ## Finding your PR
 
@@ -219,7 +219,9 @@ own tests, and what was not blamed on the PR.
   share the signature, and the suites when there are more than one. Blockers whose failure message TeamCity no longer
   keeps are listed there apart, with a hint to re-run their suites.
 - **This PR's tests** shows how the test classes the PR adds or changes ran: each class with its passed, failed and
-  ignored tests and its slowest test, and the tests that failed or ran over 60 s.
+  ignored tests and its slowest test, and the tests that failed or ran over 60 s. The card often comes a few seconds
+  after the verdict. The cards under it, **Crashed near the end of the run** and **Not blamed on this PR**, wait for it,
+  so it does not push them down. If it does not come, they show after 20 s.
 - **✓ No blockers** heads the verdict card only for the verdict the PR list ticks: a run of the PR's current head that
   covered everything and blamed nothing on it. Otherwise, when tests started failing on the code the run tested, the
   heading reads **No proven blockers yet**. In other cases it reads **No blockers found — not proven clean**. The amber

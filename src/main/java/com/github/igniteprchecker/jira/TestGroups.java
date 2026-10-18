@@ -46,7 +46,7 @@ final class TestGroups {
 
     /** What each tag means: the page says it in a tooltip, the PR comment and the visa under their lists. */
     private static final Map<Doubt, String> MEANS = new EnumMap<>(Map.of(
-        Doubt.ONE_RUN, "the test ran once on this code and failed; a rerun of its suite confirms or clears it",
+        Doubt.ONE_RUN, "the test ran once on this code and failed; a re-run of its suite confirms or clears it",
         Doubt.NO_MASTER_HISTORY, "master has no runs of the test on this JDK to compare with: a new test, or one "
             + "master does not run",
         Doubt.UNCHECKED, "a TeamCity error kept the check of other PRs' runs of the test from being made"));

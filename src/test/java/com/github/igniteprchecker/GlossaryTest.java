@@ -191,7 +191,7 @@ class GlossaryTest {
         assertThat(table.get("An incomplete verdict held back"))
             .startsWith(constant(BlockerAnalyzer.class, "HOLD_INCOMPLETE_MS") / 60_000 + " minutes");
         assertThat(table.get("A slow test of the PR")).contains(pageConstant("SLOW_TEST_MS") / 1000 + " s");
-        assertThat(table.get("A rerun that asks first")).startsWith(pageConstant("ASK_FROM_SUITES") + " suites");
+        assertThat(table.get("A re-run that asks first")).startsWith(pageConstant("ASK_FROM_SUITES") + " suites");
     }
 
     /**

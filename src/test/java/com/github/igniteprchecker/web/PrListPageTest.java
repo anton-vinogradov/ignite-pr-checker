@@ -148,9 +148,9 @@ class PrListPageTest {
             .contains("<span class=\"pr-badge bad\" title=\"2 blockers\">2</span>")
             .contains("<span class=\"my-tag\" title=\"" + out.get("mine").asText() + "\">my run</span>")
             .contains("<span>started failing — no blockers yet, but tests started failing on the code the run tested; "
-                + "a rerun shows whether they are blockers</span>");
+                + "a re-run shows whether they are blockers</span>");
         assertThat(out.get("watch").asText()).isEqualTo("No blockers yet, but some tests started failing on the code "
-            + "the run tested. A rerun shows whether they are blockers.");
+            + "the run tested. A re-run shows whether they are blockers.");
         assertThat(out.get("anyUnproven").asText()).isEqualTo("No blockers found, but the PR is not proven clean. The run "
             + "can't prove it, commits were pushed after the run, or it is not known whether the run tested the PR's "
             + "latest commit.");

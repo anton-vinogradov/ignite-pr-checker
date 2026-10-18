@@ -240,6 +240,23 @@ class BrokenGroupTest {
         assertThat(back.cancelledSuites().get(0).failedUpstream().buildId()).isEqualTo(9384622L);
     }
 
+    /**
+     * The Broken suites card says that a suite which failed to compile has no Rerun only when one did: the page reads
+     * the server's word on each suite. The word is not written back into a suite read from disk.
+     */
+    @Test
+    void thePageLearnsWhichSuiteFailedToCompile() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String json = mapper.writeValueAsString(BrokenRuns.buildFailed(true));
+
+        JsonNode served = mapper.readTree(json);
+        assertThat(served.get("brokenGroups").get(0).get("root").get("compileError").asBoolean()).isTrue();
+        assertThat(served.get("brokenSuites").get(1).get("compileError").asBoolean()).isFalse();
+        AnalysisResult back = mapper.readValue(json, AnalysisResult.class);
+        assertThat(back.brokenSuites().get(0).compileError()).isTrue();
+        assertThat(back.brokenSuites().get(1).compileError()).isFalse();
+    }
+
     /** A broken suite as v1.22.1 wrote it to disk, without problem types or the run it needed. */
     @Test
     void aBrokenSuiteOfTheOlderReleaseReadsBack() throws Exception {

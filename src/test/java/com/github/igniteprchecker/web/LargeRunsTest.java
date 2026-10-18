@@ -54,7 +54,8 @@ class LargeRunsTest {
 
         assertThat(out.get("rerun").asText()).isEqualTo("Rerun 6 suites");
         assertThat(out.get("top").asText()).isEqualTo("Rerun at top");
-        assertThat(out.get("title").asText()).isEqualTo("Re-run the 6 suites of this section, at the top of the queue");
+        assertThat(out.get("title").asText()).isEqualTo("Queues the 6 suites of this section on ci2, at the top of the queue. Their results join the "
+            + "verdict when they finish.");
         assertThat(out.get("label").asText()).isEqualTo("RunAll (~150 suites):");
     }
 

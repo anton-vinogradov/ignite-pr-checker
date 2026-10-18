@@ -1,5 +1,7 @@
 package com.github.igniteprchecker.analysis.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
@@ -15,8 +17,10 @@ import java.util.List;
  *
  * <p>{@code problemTypes} are TeamCity's types of its problems, as {@code problems} describe them.
  * {@code failedUpstream} is the run it needed that failed, null when every run it needed passed: such a suite
- * usually never got to run, and only that run tells why.
+ * usually never got to run, and only that run tells why. {@code compileError} is derived: written for the page,
+ * never read back.
  */
+@JsonIgnoreProperties(value = "compileError", allowGetters = true)
 public record BrokenSuite(String suite, long suiteBuildId, String suiteName, List<String> problems,
     int tests, int baseline, List<String> problemTypes, Upstream failedUpstream) {
     /** TeamCity's problem type of a suite it could not hand the artifacts of a run it needs. */
@@ -42,6 +46,7 @@ public record BrokenSuite(String suite, long suiteBuildId, String suiteName, Lis
     }
 
     /** Whether it failed to compile: no re-run of the same code gets past that. */
+    @JsonProperty("compileError")
     public boolean compileError() {
         return problemTypes.contains("TC_COMPILATION_ERROR")
             || problems != null && problems.contains("compilation error");

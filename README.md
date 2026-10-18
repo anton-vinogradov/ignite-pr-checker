@@ -23,7 +23,7 @@ each label means and what to do about it.
   started failing, broken suites and failures not blamed on the PR. A line under each test gives its reason. When
   tests of a suite have the same reason, the line appears once above them. See
   [Reading the verdict](docs/features.md#reading-the-verdict).
-- **Runs.** Run RunAll or rerun suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
+- **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
 - **Standing options.** ⚙ groups them by what they need. Auto re-run of failed suites and a PR comment for each of

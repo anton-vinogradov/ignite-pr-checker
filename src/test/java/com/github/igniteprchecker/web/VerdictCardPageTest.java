@@ -386,7 +386,7 @@ class VerdictCardPageTest {
             + scenario);
 
         assertThat(watch.get("shown").toString())
-            .isEqualTo("[\"PR #13575: 2 tests started failing. A rerun shows whether they are blockers.\"]");
+            .isEqualTo("[\"PR #13575: 2 tests started failing. A re-run shows whether they are blockers.\"]");
         assertThat(watch.get("title").asText()).isEqualTo("⚠ started failing · #13575 — Ignite PR Checker");
         assertThat(unproven.get("shown").toString())
             .isEqualTo("[\"PR #13575: no blockers found, not proven clean. Open the page to see why.\"]");
