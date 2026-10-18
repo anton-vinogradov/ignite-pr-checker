@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 /**
  * The heap dumps the JVM writes when it runs out of memory ({@code -XX:+HeapDumpOnOutOfMemoryError}). A dump holds
  * whatever the heap held, decrypted tokens and the session key among them, so it is deleted {@link #KEPT} after the
- * JVM wrote it. Until then the status page says when the JVM ran out of memory and when the dump goes.
+ * JVM wrote it. Until then the status page says when the JVM ran out of memory and when the dump is deleted.
  */
 public final class HeapDumps {
     private static final Logger log = LoggerFactory.getLogger(HeapDumps.class);

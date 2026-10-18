@@ -75,8 +75,9 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   every browser, or leaves it unused for 400 days.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
-  adding tests to suites, the two options that commit. Copies stay in the backups of the [cache directory](#the-cache-directory) for 2
-  days; older copies keep the rest of the state, without the tokens.
+  adding tests to suites, the two options that commit. Copies of these tokens stay in the backups of the
+  [cache directory](#the-cache-directory) for 2 days; backups older than 2 days keep the rest of the state, without
+  the tokens.
 - **GitHub account.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in
   ⚙, or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no
   scope.
@@ -260,7 +261,7 @@ from the page fails. Install the next release with `update.sh` as shown above.
 
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
 release wrote, stop the service, copy that file over the state file, and start the old jar. A copy older than 2 days
-holds no tokens. A jar of v1.36.0 or older started on such a copy switches off the visa and the options that commit, as
+holds no tokens. A jar of v1.37.0 or older started on such a copy switches off the visa and the options that commit, as
 if JIRA or GitHub had rejected the token. Each user switches them on again with their token.
 
 ### Service and logs
@@ -287,13 +288,13 @@ DEBUG or TRACE they write tokens:
 ### Memory
 
 The JVM gets `-Xmx512m`. A JVM out of memory writes a heap dump to `/opt/ignite-pr-checker/dumps/` and exits, and
-systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decrypted tokens and the session key, so
-only the service can read that directory. The service deletes the dump 2 days after the JVM wrote it. While the service
-is stopped, systemd-tmpfiles deletes the dump instead, at its first daily clean after the dump is 2 days old. The rule
-for that needs systemd 249 or newer, as in Ubuntu 22.04: an older systemd refuses it. Until the dump is deleted, the
-status page shows the **Out of memory** card: when the JVM ran out of memory and when the dump goes. For more heap,
-set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the heap with the peak of its old
-generation, and the process's resident memory with its peak.
+systemd starts it again; `run.sh` keeps only the newest dump. A dump holds decrypted tokens and the key made from
+`SESSION_SECRET`, so only the service can read that directory. The service deletes the dump 2 days after the JVM wrote
+it. While the service is stopped, systemd-tmpfiles deletes the dump instead, at its first daily clean after the dump is
+2 days old. The rule for that needs systemd 249 or newer, as in Ubuntu 22.04: an older systemd refuses it. Until the
+dump is deleted, the status page shows the **Out of memory** card: when the JVM ran out of memory and when the dump is
+deleted. For more heap, set `JAVA_OPTS=-Xmx768m` in the env file and restart. The status page shows the heap with the
+peak of its old generation, and the process's resident memory with its peak.
 
 The JVM's memory holds decrypted tokens too, and the host may move it to swap. Encrypt the swap with a random key at
 each boot, or the tokens can stay in the swap file.
@@ -345,7 +346,7 @@ can make a session cookie for any user.
 2. Ask every user in `users.json` to make new TeamCity, JIRA and GitHub tokens and to revoke the old ones in ci2, JIRA
    and GitHub. Changing the secret logs everyone out; [The cache directory](#the-cache-directory) says what it does to
    the stored tokens.
-3. If you like, delete the copies of the state made in the last 2 days, by their modification time: the files in
+3. If you like, delete the copies of the state whose modification time is within the last 2 days: the files in
    `cache/backups/`, `*.before-*` and `*.bad-*`. They hold the old tokens, encrypted with the old `SESSION_SECRET`.
    Also delete each copy the log names after "could not take the tokens out of": it may still hold its tokens. The
    other older copies hold no tokens, and the state can still be rolled back to them.

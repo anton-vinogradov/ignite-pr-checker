@@ -3232,7 +3232,7 @@ $('tcRelogin').onclick = async () => {
 // What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,
 // the server's backups and this browser's cookie.
 const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
-    + 'token until the visa is posted or you cancel it. Copies in the server\'s backups lose them after 2 days, '
+    + 'token until the visa is posted or you cancel it. Copies of the tokens stay in the server\'s backups for 2 days, '
     + 'and your session cookie keeps the TeamCity and JIRA tokens you pasted until you log out.';
 
 // The checkstyle fix runs only from a PR command, so it goes on only with PR commands and off with them.

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 /**
  * The JVM ran out of memory, wrote a heap dump with decrypted tokens in it and restarted, and the status page showed
  * none of it: the service's log has no word of an OOM. The page shows when the JVM ran out of memory while its dump is
- * on disk, and when the dump goes.
+ * on disk, and when the dump is deleted.
  */
 class OutOfMemoryCardTest {
     private static final String[] FUNCTIONS = {"fmtDur", "card", "agoShort", "heapDumpCard"};

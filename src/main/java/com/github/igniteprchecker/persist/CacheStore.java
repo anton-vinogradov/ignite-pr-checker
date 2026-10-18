@@ -326,8 +326,8 @@ public class CacheStore {
             Files.setLastModifiedTime(copy, FileTime.from(at));
         }
         catch (IOException e) {
-            log.warn("could not set the modification time of {} to now: {}. Its tokens may go before {} days pass",
-                copy, e.toString(), TOKENS_KEPT.toDays());
+            log.warn("could not set the modification time of {} to now: {}. The service may take the tokens out of it "
+                + "before {} days pass", copy, e.toString(), TOKENS_KEPT.toDays());
         }
     }
 
