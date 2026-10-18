@@ -1786,9 +1786,11 @@ function holdLateCards(pr) {
 }
 
 function showLateCards(pr) {
-    if (!lastResult || lastResult.prNumber !== pr) return;
+    const onScreen = !!lastResult && lastResult.prNumber === pr;
+    if (!onScreen && lateCards.waitFor !== pr) return;
     clearTimeout(lateCards.timer);
-    lateCards = { shownFor: pr, waitFor: 0, timer: null };
+    // A PR the reader left ends its wait unshown: a return to it waits anew, not for an answer that may never come.
+    lateCards = { shownFor: onScreen ? pr : 0, waitFor: 0, timer: null };
     paintLateCards();
 }
 
@@ -1801,20 +1803,23 @@ function paintLateCards() {
 function renderPrTests(t, res) {
     const classes = t.classes || [];
     const check = t.suiteCheck || null;
+    // When TeamCity did not say how the classes ran, none has runs, and that does not mean they did not run.
+    const known = t.runsKnown !== false;
     const elsewhere = check && check.state === 'FAILED' ? check.elsewhere || [] : [];
     $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
     const runs = classes.flatMap(c => c.runs);
-    $('prTestsCount').textContent = classes.length
-        ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})` : '';
+    $('prTestsCount').textContent = classes.length ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}`
+        + (known ? `, ${runs.length} test${runs.length === 1 ? '' : 's'}` : '') + ')' : '';
     const slow = runs.filter(r => r.durationMs > SLOW_TEST_MS).length;
     const warns = [notInSuiteWarn(classes.filter(c => c.notInSuite).length + elsewhere.length, check),
         slow ? esc(`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
     $('prTestsWarn').classList.toggle('hidden', !warns.length);
     $('prTestsWarn').innerHTML = warns.join(' ');
-    $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check)).join('')
+    $('prTests').innerHTML = classes.map(c => prTestClass(c, res, check, known)).join('')
         + elsewhere.map(notInSuiteElsewhere).join('');
-    const untold = chainRunning(res) || checkTold(check) ? 0 : classes.filter(c => !c.runs.length && !c.notInSuite).length;
-    const said = suiteCheckNote(check, untold, classes.length) || noRunsNote(classes, res, check);
+    const untold = !known || chainRunning(res) || checkTold(check) ? 0
+        : classes.filter(c => !c.runs.length && !c.notInSuite).length;
+    const said = suiteCheckNote(check, untold, classes.length) || (known ? noRunsNote(classes, res, check) : '');
     $('prTestsCheck').classList.toggle('hidden', !said);
     $('prTestsCheck').textContent = said;
     $('prTestsNote').classList.toggle('hidden', !t.note);
@@ -1872,14 +1877,16 @@ function notInSuiteElsewhere(name) {
         + '</span></div>' + NOT_IN_SUITE_TODO + '</li>';
 }
 
-function prTestClass(c, res, check) {
+function prTestClass(c, res, check, known) {
     const name = c.name.slice(c.name.lastIndexOf('.') + 1);
     const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
         + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span>${c.notInSuite ? NOT_IN_SUITE_TAG : ''}`
         + '</span></div>';
     const todo = c.notInSuite ? NOT_IN_SUITE_TODO : '';
-    if (!c.runs.length)
-        return `<li>${head}<div class="reason">${esc(noRunsOf(c, res, check))}</div>${todo}</li>`;
+    if (!c.runs.length) {
+        const why = known ? `<div class="reason">${esc(noRunsOf(c, res, check))}</div>` : '';
+        return `<li>${head}${why}${todo}</li>`;
+    }
     const count = s => c.runs.filter(r => r.status === s).length;
     const parts = [[count('SUCCESS'), 'passed'], [count('FAILURE'), 'failed'], [count('UNKNOWN'), 'ignored']]
         .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
@@ -1916,13 +1923,14 @@ function noRunsOf(c, res, check) {
 // The reasons that stay open for the classes noRunsOf gives none for, said once above the list.
 function noRunsNote(classes, res, check) {
     if (chainRunning(res) || !checkTold(check)) return '';
-    const idle = classes.filter(c => !c.runs.length && !c.notInSuite);
-    const open = idle.filter(c => !NO_RUNS_AT_RUN[c.atRun]).length;
+    const idle = classes.filter(c => !c.runs.length);
+    const open = idle.filter(c => !c.notInSuite && !NO_RUNS_AT_RUN[c.atRun]).length;
     if (!open) return '';
-    const why = 'its suite did not run or broke, it is a base or @Ignore class, or it came into a suite after this run';
-    return `${idle.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} did not run. `
-        + (open < idle.length ? 'For each class below without a reason of its own, ' + why
-            : idle.length === 1 ? why[0].toUpperCase() + why.slice(1) : 'For each, ' + why) + '.';
+    const lead = `${idle.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} did not run`;
+    const mixed = open < idle.length
+        ? `, ${open} of them with no reason in ${open === 1 ? 'its row' : 'their rows'}` : '';
+    return lead + mixed + '. Possible reasons: suite did not run or broke; base or @Ignore class; '
+        + 'added to a suite after this run.';
 }
 
 // "0.4 s", "12 s", "4 m 58 s": how long a test ran.

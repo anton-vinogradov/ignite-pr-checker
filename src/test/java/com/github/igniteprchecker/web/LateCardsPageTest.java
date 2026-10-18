@@ -68,7 +68,10 @@ class LateCardsPageTest {
         assertThat(out.get("after").toString()).isEqualTo("{\"prTests\":false,\"unstable\":true,\"filtered\":true}");
     }
 
-    /** A newer run of the same PR keeps the card in place while its tests are asked for again: nothing hides. */
+    /**
+     * A newer run of the same PR keeps the card in place while its tests are asked for again: nothing hides, also when
+     * a later look redraws that run (one more suite ran) before its tests answer.
+     */
     @Test
     void aNewerRunOfTheSamePrKeepsThemShown() throws Exception {
         JsonNode out = PageScript.run("index.html", SETUP + """
@@ -78,11 +81,38 @@ class LateCardsPageTest {
             page.route('/api/analyze', { body: verdict({ buildId: 9002 }) });
             await page.run('analyze')(13575, true);
             await page.settle();
-            report({ asked: page.fetches('/api/pr-tests').length, cards: cards() });
+            page.route('/api/analyze', { body: verdict({ buildId: 9002, suitesRan: 11 }) });
+            await page.run('analyze')(13575, true);
+            await page.settle();
+            report({ asked: page.fetches('/api/pr-tests').length, ran: page.run('lastResult').suitesRan,
+                cards: cards() });
             """);
 
         assertThat(out.get("asked").asInt()).isEqualTo(2);
+        assertThat(out.get("ran").asInt()).isEqualTo(11);
         assertThat(out.get("cards").toString()).isEqualTo("{\"prTests\":true,\"unstable\":false,\"filtered\":true}");
+    }
+
+    /**
+     * The reader left PR 13575 before its tests answered and came back after the wait. The cards wait anew, for 20 s
+     * at most, not for an answer that may never come.
+     */
+    @Test
+    void aReturnToThePrWaitsAnew() throws Exception {
+        JsonNode out = PageScript.run("index.html", SETUP + """
+            await page.load('?pr=13575');
+            page.run('goHome')(true);
+            await page.tick(page.run('LATE_CARDS_WAIT_MS') + 1000);
+            page.run('openPr')(13575, true);
+            await page.settle();
+            const back = cards();
+            await page.tick(page.run('LATE_CARDS_WAIT_MS') + 1000);
+            report({ asked: page.fetches('/api/pr-tests').length, back, after: cards() });
+            """);
+
+        assertThat(out.get("asked").asInt()).isEqualTo(2);
+        assertThat(out.get("back").get("filtered").asBoolean()).isFalse();
+        assertThat(out.get("after").toString()).isEqualTo("{\"prTests\":false,\"unstable\":true,\"filtered\":true}");
     }
 
     /** Another PR's card is not this one's: its cards wait for its own answer. */
@@ -112,8 +142,9 @@ class LateCardsPageTest {
         assertThat(wait.find()).isTrue();
         long seconds = Long.parseLong(wait.group(1)) / 1000;
 
-        assertThat(Files.readString(Path.of("docs/features.md"), UTF_8)).contains("they show after " + seconds + " s.");
+        assertThat(Files.readString(Path.of("docs/features.md"), UTF_8).replaceAll("\\s+", " "))
+            .contains("If the answer does not come in " + seconds + " s, they show without it.");
         assertThat(Files.readString(Path.of("docs/features.ru.md"), UTF_8).replaceAll("\\s+", " "))
-            .contains("они появляются через " + seconds + " с.");
+            .contains("Если ответа нет " + seconds + " с, они появляются без него.");
     }
 }

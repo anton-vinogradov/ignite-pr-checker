@@ -108,7 +108,7 @@ public class PrTestRuns {
             return now;
         });
         if (ran.classes().isEmpty())
-            return new PrTests(buildId, List.of(), ran.note());
+            return new PrTests(buildId, List.of(), ran.note(), null, ran.byClass() != null);
 
         String head = head(pr);
         AbandonedTestsCheck.Outcome check = head == null
@@ -276,7 +276,8 @@ public class PrTestRuns {
             .filter(name -> ran.classes().stream().noneMatch(c -> c.fqcn().equals(name))).toList();
 
         return new PrTests(buildId, tested, ran.note(),
-            new PrTests.SuiteCheck(check.state(), check.sha(), check.url(), check.reason(), elsewhere));
+            new PrTests.SuiteCheck(check.state(), check.sha(), check.url(), check.reason(), elsewhere),
+            ran.byClass() != null);
     }
 
     /**

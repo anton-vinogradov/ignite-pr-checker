@@ -7,13 +7,10 @@ import java.util.List;
  * How the PR's own new and changed test classes ran in its RunAll: TcpDiscoveryClientTopologyGapTest came in with
  * PR 13327 taking 298 s, passed there once, and now fails 18 of 100 master runs. {@code note} says what is missing
  * from the answer and why, null when nothing is. {@code suiteCheck} is what Ignite's own check says of the classes no
- * test suite holds, null when it was not asked.
+ * test suite holds, null when it was not asked. {@code runsKnown}: TeamCity said how the classes ran; when it did not,
+ * no class has runs, and that does not mean they did not run.
  */
-public record PrTests(long buildId, List<TestClass> classes, String note, SuiteCheck suiteCheck) {
-    public PrTests(long buildId, List<TestClass> classes, String note) {
-        this(buildId, classes, note, null);
-    }
-
+public record PrTests(long buildId, List<TestClass> classes, String note, SuiteCheck suiteCheck, boolean runsKnown) {
     /**
      * One test class the PR adds ({@code added}) or changes, as its file names it, with its tests' runs in the
      * RunAll; none when no suite of the RunAll ran it. {@code notInSuite}: Ignite's check finds it in no test suite,

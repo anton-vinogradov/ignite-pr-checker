@@ -220,8 +220,9 @@ own tests, and what was not blamed on the PR.
   keeps are listed there apart, with a hint to re-run their suites.
 - **This PR's tests** shows how the test classes the PR adds or changes ran: each class with its passed, failed and
   ignored tests and its slowest test, and the tests that failed or ran over 60 s. The card often comes a few seconds
-  after the verdict. The cards under it, **Crashed near the end of the run** and **Not blamed on this PR**, wait for it,
-  so it does not push them down. If it does not come, they show after 20 s.
+  after the verdict. Two cards stand under it, **Crashed near the end of the run** and **Not blamed on this PR**.
+  They wait for the server's answer about the PR's tests, so the card does not push them down. If the answer does not
+  come in 20 s, they show without it.
 - **✓ No blockers** heads the verdict card only for the verdict the PR list ticks: a run of the PR's current head that
   covered everything and blamed nothing on it. Otherwise, when tests started failing on the code the run tested, the
   heading reads **No proven blockers yet**. In other cases it reads **No blockers found — not proven clean**. The amber

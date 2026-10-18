@@ -37,6 +37,9 @@ class PrTestsPageTest {
         }
         """;
 
+    private static final String OPEN_REASONS = "Possible reasons: suite did not run or broke; base or @Ignore class; "
+        + "added to a suite after this run.";
+
     @Test
     void thePrsOwnTestsShowHowTheyRanWithWarnings() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + PR_TESTS + """
@@ -199,8 +202,7 @@ class PrTestsPageTest {
             """);
 
         assertThat(out.get("list").asText()).endsWith("SslRenewalTestnewno runs in this RunAll");
-        assertThat(out.get("check").asText()).isEqualTo("1 of 1 class did not run. Its suite did not run or broke, it "
-            + "is a base or @Ignore class, or it came into a suite after this run.");
+        assertThat(out.get("check").asText()).isEqualTo("1 of 1 class did not run. " + OPEN_REASONS);
         assertThat(out.get("checkHidden").asBoolean()).isFalse();
     }
 
@@ -229,14 +231,57 @@ class PrTestsPageTest {
 
         assertThat(out.get("all").get("list").asText()).isEqualTo("AbstractRollingUpgradeMessageTestnewno runs in this "
             + "RunAllGridAbstractCommunicationSelfTestnewno runs in this RunAll");
-        assertThat(out.get("all").get("check").asText()).isEqualTo("2 of 2 classes did not run. For each, its suite did "
-            + "not run or broke, it is a base or @Ignore class, or it came into a suite after this run.");
+        assertThat(out.get("all").get("check").asText()).isEqualTo("2 of 2 classes did not run. " + OPEN_REASONS);
         assertThat(out.get("mixed").get("list").asText()).isEqualTo("AbstractRollingUpgradeMessageTestnewno runs in this "
             + "RunAll: added under this name by a commit pushed after itGridAbstractCommunicationSelfTestnewno runs in "
             + "this RunAll");
-        assertThat(out.get("mixed").get("check").asText()).isEqualTo("2 of 2 classes did not run. For each class below "
-            + "without a reason of its own, its suite did not run or broke, it is a base or @Ignore class, or it came "
-            + "into a suite after this run.");
+        assertThat(out.get("mixed").get("check").asText())
+            .isEqualTo("2 of 2 classes did not run, 1 of them with no reason in its row. " + OPEN_REASONS);
+    }
+
+    /**
+     * The PR adds SslRenewalTest, forgotten in every suite, and the base class AbstractRollingUpgradeMessageTest; neither
+     * ran. Ignite's check names the first, its row says why, and the note counts both.
+     */
+    @Test
+    void aClassInNoSuiteCountsAmongThoseThatDidNotRun() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL_TESTS + """
+            const body = sslTests('FAILED', { notInSuite: true });
+            body.classes.push({ name: 'org.apache.ignite.AbstractRollingUpgradeMessageTest', path: 'p2', added: true,
+                runs: [], notInSuite: false, atRun: null });
+            page.route('/api/pr-tests', { body });
+            await page.load('?pr=13575');
+            report({ check: page.el('prTestsCheck').textContent });
+            """);
+
+        assertThat(out.get("check").asText())
+            .isEqualTo("2 of 2 classes did not run, 1 of them with no reason in its row. " + OPEN_REASONS);
+    }
+
+    /**
+     * TeamCity could not be asked how PR 13335's SslRenewalTest ran: its empty runs say nothing of whether it ran, so
+     * neither its row nor a note says it did not.
+     */
+    @Test
+    void runsTeamCityDidNotTellOfAreNotNoRuns() throws Exception {
+        String script = PageScript.SIGNED_IN + SSL_TESTS + """
+            const body = Object.assign(sslTests(STATE, {}), { note: 'TeamCity could not be asked how they ran',
+                runsKnown: false });
+            page.route('/api/pr-tests', { body });
+            await page.load('?pr=13575');
+            report({ count: page.el('prTestsCount').textContent, list: page.el('prTests').textContent,
+                check: page.el('prTestsCheck').textContent, note: page.el('prTestsNote').textContent });
+            """;
+
+        JsonNode told = PageScript.run("index.html", script.replace("STATE", "'PASSED'"));
+        JsonNode running = PageScript.run("index.html", script.replace("STATE", "'RUNNING'"));
+
+        assertThat(told.get("count").asText()).isEqualTo("(1 class)");
+        assertThat(told.get("list").asText()).isEqualTo("SslRenewalTestnew");
+        assertThat(told.get("check").asText()).isEmpty();
+        assertThat(told.get("note").asText()).isEqualTo("Not complete: TeamCity could not be asked how they ran.");
+        assertThat(running.get("list").asText()).isEqualTo("SslRenewalTestnew");
+        assertThat(running.get("check").asText()).isEqualTo("Ignite's abandoned-tests check is still running on 9a8b7c6.");
     }
 
     /** CI never runs a class Ignite's check finds in no suite: the card says so, and what to do. */
