@@ -143,7 +143,7 @@ class LateCardsPageTest {
         long seconds = Long.parseLong(wait.group(1)) / 1000;
 
         assertThat(Files.readString(Path.of("docs/features.md"), UTF_8).replaceAll("\\s+", " "))
-            .contains("If the answer does not come in " + seconds + " s, they show without it.");
+            .contains("If the answer does not come in " + seconds + " s, they appear without it.");
         assertThat(Files.readString(Path.of("docs/features.ru.md"), UTF_8).replaceAll("\\s+", " "))
             .contains("Если ответа нет " + seconds + " с, они появляются без него.");
     }

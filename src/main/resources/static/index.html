@@ -438,10 +438,10 @@
                     <li>Register an account on <a id="registerLink" href="#" target="_self" rel="noopener">ci2</a>, the
                         TeamCity of Apache Ignite.</li>
                     <li>Create an access token there: Profile → Access Tokens (“Create a token” above opens it).</li>
-                    <li>The token acts with your account's rights. Reading verdicts needs only view access; “Run” and
-                        “Rerun” need the right to run builds, “Run at top” and “Rerun at top” also to reorder the build
-                        queue (without it, TeamCity queues them at the end), and “Cancel my runs” to stop builds and
-                        remove them from the queue.</li>
+                    <li>The token acts with your account's rights. Reading verdicts needs only view access. “Run” and
+                        “Rerun” need the right to run builds. “Run at top” and “Rerun at top” also need the right to
+                        reorder the build queue. Without it, TeamCity queues them at the end. “Cancel my runs” needs
+                        the right to stop builds and remove them from the queue.</li>
                 </ol>
             </details>
             <p class="login-foot muted">An open-source developer tool for
@@ -537,7 +537,7 @@
                         <p id="visaNote" class="visa-note hidden"></p>
                     </div>
                     <div id="interruptedBanner" class="card interrupted hidden">
-                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites of this RunAll that were cancelled before they ran: the verdict says nothing about them" aria-label="What this means">?</a> <span class="sect-act hidden" id="cancelledActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="cancelledActsNote" class="act-note hidden"></span></h2>
+                        <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These suites of this RunAll were cancelled before they ran. The verdict says nothing about them." aria-label="What this means">?</a> <span class="sect-act hidden" id="cancelledActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="cancelledActsNote" class="act-note hidden"></span></h2>
                         <p class="muted" id="interruptedText"></p>
                         <ul id="cancelledSuites" class="tests"></ul>
                     </div>
@@ -547,7 +547,7 @@
                         <ul id="brokenSuites" class="tests"></ul>
                     </div>
                     <div id="shrunkCard" class="card watch hidden">
-                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Suites that ran at least 10% fewer tests than on master: tests that never ran can't fail" aria-label="What this means">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="shrunkActsNote" class="act-note hidden"></span></h2>
+                        <h2>Fewer tests than master <span id="shrunkCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These suites ran at least 10% fewer tests than on master. Tests that never ran can't fail." aria-label="What this means">?</a> <span class="sect-act hidden" id="shrunkActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="shrunkActsNote" class="act-note hidden"></span></h2>
                         <p class="muted">Tests that did not run cannot fail. Nothing to do if this PR removes tests on purpose. If
                             not, compare the test list with master and re-run.</p>
                         <ul id="shrunkSuites" class="tests"></ul>
@@ -573,7 +573,7 @@
                         <div id="causesView" class="hidden"></div>
                     </div>
                     <div id="watchCard" class="card watch hidden">
-                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="Tests failing on the code this run tested, with too few runs of it to tell a break from a flake" aria-label="What this means">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="watchActsNote" class="act-note hidden"></span></h2>
+                        <h2>Recently started failing <span id="watchCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These tests fail on the code this run tested. There are too few runs of this code to tell a break from a flake." aria-label="What this means">?</a> <span class="sect-act hidden" id="watchActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="watchActsNote" class="act-note hidden"></span></h2>
                         <p class="muted">Not blockers yet: there are too few runs of this code to tell a break from a flake. <span class="rerun-advice">Re-run their
                             suites: if they keep failing, they become blockers; if they pass, they drop out.</span></p>
                         <ul id="watch" class="tests"></ul>

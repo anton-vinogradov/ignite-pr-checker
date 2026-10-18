@@ -97,7 +97,7 @@ class MergedPrPageTest {
         assertThat(merged.get("banner").asText()).contains("the verdict above says nothing about them.")
             .doesNotContain("re-run");
         assertThat(merged.get("merged").asBoolean()).isTrue();
-        assertThat(open.get("lines").asText()).contains("Re-run their suites under Recently started failing");
+        assertThat(open.get("lines").asText()).contains("Re-run their suites under “Recently started failing”");
         assertThat(open.get("banner").asText()).endsWith("A finished re-run takes a suite off this list.");
         assertThat(open.get("merged").asBoolean()).isFalse();
         assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " "))

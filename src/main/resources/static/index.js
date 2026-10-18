@@ -1666,7 +1666,8 @@ function verdictLines(res, standing) {
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
         return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
-            : ' Re-run their suites under Recently started failing: the re-run shows whether these tests are blockers.')]
+            : ' Re-run their suites under “Recently started failing”: '
+                + 'the re-run shows whether these tests are blockers.')]
             .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
     }
     return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
@@ -1929,8 +1930,8 @@ function noRunsNote(classes, res, check) {
     const lead = `${idle.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} did not run`;
     const mixed = open < idle.length
         ? `, ${open} of them with no reason in ${open === 1 ? 'its row' : 'their rows'}` : '';
-    return lead + mixed + '. Possible reasons: suite did not run or broke; base or @Ignore class; '
-        + 'added to a suite after this run.';
+    return lead + mixed + '. Possible reasons: a class\'s suite did not run or broke, '
+        + 'the class is a base or @Ignore class, or it was added to a suite after this run.';
 }
 
 // "0.4 s", "12 s", "4 m 58 s": how long a test ran.

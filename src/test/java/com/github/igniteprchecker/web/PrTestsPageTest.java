@@ -37,8 +37,8 @@ class PrTestsPageTest {
         }
         """;
 
-    private static final String OPEN_REASONS = "Possible reasons: suite did not run or broke; base or @Ignore class; "
-        + "added to a suite after this run.";
+    private static final String OPEN_REASONS = "Possible reasons: a class's suite did not run or broke, the class "
+        + "is a base or @Ignore class, or it was added to a suite after this run.";
 
     @Test
     void thePrsOwnTestsShowHowTheyRanWithWarnings() throws Exception {
