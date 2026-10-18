@@ -72,7 +72,7 @@ public class LoginController {
         }
     }
 
-    /** Everyone who has used the tool (names + activity): for the operator, or anyone logged in if none is named. */
+    /** Everyone who has used the tool (names + activity): for the operators only. */
     @GetMapping("/users")
     public ResponseEntity<?> users(@RequestAttribute(AuthInterceptor.USER_ATTR) String user) {
         if (!admin.mayAdminister(user))
@@ -81,7 +81,7 @@ public class LoginController {
         return ResponseEntity.ok(users.list());
     }
 
-    /** {@code admin}: whether this user may restart, update and flush (the page shows those buttons only then). */
+    /** {@code admin}: whether this user is an operator; the page shows the operator mark and Update only then. */
     public record UserResponse(String username, boolean jira, boolean admin) {
     }
 

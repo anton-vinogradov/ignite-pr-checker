@@ -184,7 +184,7 @@ settings by hand.
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
 | `GITHUB_TOKEN` | none | Token of the app account, which writes every comment of the checker: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix and tests to suites are off. |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | none | The client ID and a client secret of the checker's GitHub OAuth App, for **Link GitHub** in ⚙. See [Quick start](#quick-start). Without them users link a GitHub account only with a GitHub token for commits. |
-| `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Who may restart, update and flush](#who-may-restart-update-and-flush). |
+| `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Operators](#operators). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
@@ -274,8 +274,8 @@ sudo tail -f /opt/ignite-pr-checker/logs/ignite-pr-checker.log
 ```
 
 The service's own log keeps 30 days, a file a day. The status page keeps the recent warnings and errors across
-restarts and lists at the top what is wrong now: a background job that stopped, a state file it could not read, a
-setting out of range.
+restarts, for the [operators](#operators) to read. At the top it lists what is wrong now: a background job that
+stopped, a state file it could not read, a setting out of range.
 
 `application.yml` keeps the loggers below at INFO, whatever level the env file sets for their package or for root. At
 DEBUG or TRACE they write tokens:
@@ -351,12 +351,18 @@ can make a session cookie for any user.
    Also delete each copy the log names after "could not take the tokens out of": it may still hold its tokens. The
    other older copies hold no tokens, and the state can still be rolled back to them.
 
-### Who may restart, update and flush
+### Operators
 
-With `PRC_ADMINS` set, only those TeamCity users may press **Restart service**, **Update** and **Flush caches** and
-see the list on the **Users** tab; the buttons are hidden from everyone else. Without it, any logged-in user may, but
-restart and update at most once per 10 minutes between them, and flush at most once per hour. Every press is logged
-with the user's name, and the status page shows who restarted and who flushed last.
+Operators are the TeamCity users that `PRC_ADMINS` names, comma-separated. Only they see the log messages on the
+status page, who restarted and who flushed last, and the list on the **Users** tab. Only they can press
+**Restart service**, **Update** and **Flush caches**. The server checks this itself: it sends these to nobody else and
+refuses anyone else's press. The PR page shows **operator** next to an operator's name. Other logged-in users see how
+many warnings and errors were logged, but not the messages. Every press is logged with the operator's name.
+
+Without `PRC_ADMINS`, nobody is an operator. Nobody can restart, update or flush the service from the pages, and
+nobody sees the log messages on the status page: they stay in the journal and in the service's own log. To name
+operators, set `PRC_ADMINS` in `/etc/ignite-pr-checker/env` to their TeamCity usernames, comma-separated, and restart
+the service.
 
 ### Releases
 

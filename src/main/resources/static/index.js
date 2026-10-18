@@ -6,7 +6,7 @@ let tcBase = ''; // TeamCity base URL (ends with '/'), from /api/config
 let selectedPr = null;
 let lastResult = null; // the currently rendered analysis (drives the root-cause view)
 let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("my run")
-let canAdmin = false; // may update the service: the operator, or anyone when no operator is named
+let canAdmin = false; // an operator: may update the service
 let allPrs = []; // last-loaded open-PR list, for the list filter
 let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
 
@@ -785,6 +785,7 @@ function prFromUrl() {
 async function enterApp(username) {
     myUsername = username || '';
     $('username').textContent = username;
+    $('operatorMark').classList.toggle('hidden', !canAdmin);
     show('analyze');
     $('actions').classList.add('hidden');
     $('runsRow').classList.add('hidden');

@@ -95,8 +95,7 @@ SESSION_COOKIE_SECURE=true
 #GITHUB_OAUTH_CLIENT_ID=
 #GITHUB_OAUTH_CLIENT_SECRET=
 # TeamCity usernames (comma-separated) of who operates this instance: only they may restart, update
-# and flush it and see its users. Unset: any logged-in user may, but restart/update at most once per
-# 10 minutes and flush once per hour.
+# and flush it, and see its log messages and users on the status page. Unset: nobody may.
 #PRC_ADMINS=
 # Optional overrides of the built-in defaults; uncomment to change.
 #TC_BASE_URL=https://ci2.ignite.apache.org/

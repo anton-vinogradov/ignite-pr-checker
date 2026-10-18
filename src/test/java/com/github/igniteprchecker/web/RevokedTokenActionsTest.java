@@ -81,7 +81,7 @@ class RevokedTokenActionsTest {
     private final Warmer warmer = new Warmer(mock(BlockerAnalyzer.class), github,
         new WarmProperties(false, null, null, null), mock(ExecutorService.class));
 
-    private final AdminActions admin = new AdminActions(new AdminProperties(null), mapper);
+    private final AdminActions admin = new AdminActions(new AdminProperties(List.of(USER)), mapper);
 
     private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, standing);
 

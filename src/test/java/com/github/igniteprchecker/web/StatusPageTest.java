@@ -62,7 +62,7 @@ class StatusPageTest {
         String html = run("""
             const start = Date.now() - 3700;
             const el = {};
-            renderLog(el, { signedIn: true, startedAt: start, uptimeSeconds: 3, log: { recent: [
+            renderLog(el, { signedIn: true, operator: true, startedAt: start, uptimeSeconds: 3, log: { recent: [
                 { t: start + 251, level: 'ERROR', logger: 'CacheStore', message: 'could not read standing-visas.json' },
                 { t: start - 3600000, level: 'WARN', logger: 'TcClient', message: 'TeamCity did not answer' },
             ] } });
@@ -161,8 +161,8 @@ class StatusPageTest {
     @Test
     void theViewsAreASegmentedSwitchAndTheActionsButtons() throws Exception {
         String html = Files.readString(PAGE, UTF_8).replaceAll("\\s+", " ");
-        assertThat(html).contains("<div class=\"tabs-row\"><span class=\"tabs\"> <button id=\"tabStatus\" class=\"act on\" "
-                + "type=\"button\" aria-pressed=\"true\"")
+        assertThat(html).contains("<div id=\"viewTabs\" class=\"tabs-row\" hidden><span class=\"tabs\"> "
+                + "<button id=\"tabStatus\" class=\"act on\" type=\"button\" aria-pressed=\"true\"")
             .contains("<button id=\"tabUsers\" class=\"act\" type=\"button\" aria-pressed=\"false\"")
             .contains("<button id=\"restartBtn\" class=\"mini-btn danger\"")
             .contains("<button id=\"flushBtn\" class=\"mini-btn\"")

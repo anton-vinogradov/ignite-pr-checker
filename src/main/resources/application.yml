@@ -155,8 +155,7 @@ update:
 
 admin:
   # TeamCity usernames, comma-separated, of the operators: only they may restart, update and flush the
-  # service and see its user list. Unset: any logged-in user may, but restart/update at most once per
-  # 10 minutes and flush once per hour. Set with PRC_ADMINS.
+  # service, and see its log messages and user list on the status page. Unset: nobody may. Set with PRC_ADMINS.
   logins: ${PRC_ADMINS:}
 
 session:

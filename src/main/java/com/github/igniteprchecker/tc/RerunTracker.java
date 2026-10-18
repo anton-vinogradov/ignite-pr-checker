@@ -37,6 +37,9 @@ public class RerunTracker implements SnapshotCache {
     /** Hide an entry whose live state we could not confirm for this long (no tokens to poll with). */
     private static final long STALE_MS = 45 * 60 * 1000L;
 
+    /** How long after the start the first refresh is due. */
+    public static final long FIRST_REFRESH_MS = 10_000;
+
     private final TcClient tc;
     private final Warmer warmer;
     private final String runAllBuildType;
@@ -107,7 +110,7 @@ public class RerunTracker implements SnapshotCache {
     }
 
     /** Refreshes each active build's state (chains expand to per-suite states); drops finished/gone ones. */
-    @Scheduled(fixedDelay = 20_000, initialDelay = 10_000)
+    @Scheduled(fixedDelay = 20_000, initialDelay = FIRST_REFRESH_MS)
     void refresh() {
         long t0 = System.currentTimeMillis();
         lastRefreshAt = t0; // the watcher looked, even if there was nothing to track or no token

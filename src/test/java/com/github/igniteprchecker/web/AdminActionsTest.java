@@ -1,7 +1,6 @@
 package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -26,11 +25,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,8 +33,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
  * Restart (a System.exit), Update, Flush (re-warming 50 PRs on other users' tokens, thousands of TeamCity calls)
- * and the user list were open to anyone who logged in, and anyone may register on ci2. Nothing said who pressed
- * them, and nothing stopped pressing them again and again.
+ * and the user list were open to anyone who logged in while PRC_ADMINS was not set, and anyone may register on ci2;
+ * a cooldown only made them wait 10 minutes between presses.
  */
 class AdminActionsTest {
     private final ObjectMapper mapper = new ObjectMapper();
@@ -106,6 +100,37 @@ class AdminActionsTest {
         assertThat(toldAdmin(login.me(overHttps(codec.encode("AVinogradov", "operator-token"))))).isTrue();
     }
 
+    @Test
+    void withoutOperatorsNobodyMayActOrSeeTheUsers() throws Exception {
+        AdminActions admin = admin();
+        UpdateController ctl = new UpdateController(update, admin);
+        CacheController flush = new CacheController(cache, mock(Warmer.class), admin);
+        LoginController users = new LoginController(null, null, null, null, new UserDirectory(mapper), null, admin,
+            mock(StandingVisas.class));
+
+        assertThat(status(ctl.restart("alice"))).isEqualTo(403);
+        assertThat(status(ctl.update("alice"))).isEqualTo(403);
+        assertThat(status(flush.flush("alice"))).isEqualTo(403);
+        assertThat(status(users.users("alice"))).isEqualTo(403);
+        verify(update, never()).restart();
+        verify(update, never()).performUpdate();
+        verify(cache, never()).clear();
+        assertThat(admin.lastUses()).isEmpty();
+    }
+
+    @Test
+    void withoutOperatorsNobodyIsToldTheyAreAnAdmin() {
+        SessionProperties props = new SessionProperties(true, "test-secret");
+        SessionCodec codec = new SessionCodec(props, mapper);
+        TcClient tc = mock(TcClient.class);
+        when(tc.currentUsername("alice-token")).thenReturn(Optional.of("alice"));
+        LoginController login = new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper),
+            new LoginThrottle(), admin(), mock(StandingVisas.class));
+
+        assertThat(toldAdmin(login.login(token("alice-token"), new MockHttpServletRequest()))).isFalse();
+        assertThat(toldAdmin(login.me(overHttps(codec.encode("alice", "alice-token"))))).isFalse();
+    }
+
     /** A request from a browser that keeps the session cookie a checker behind HTTPS sets. */
     private static MockHttpServletRequest overHttps(String cookie) {
         MockHttpServletRequest req = new MockHttpServletRequest();
@@ -123,56 +148,18 @@ class AdminActionsTest {
     }
 
     @Test
-    void withoutOperatorsRestartAndUpdateShareATenMinuteCooldown() throws Exception {
-        AdminActions admin = admin();
-        UpdateController ctl = new UpdateController(update, admin);
-
-        assertThat(status(ctl.restart("alice"))).isEqualTo(200);
-
-        now.addAndGet(Duration.ofMinutes(3).toMillis());
-        ResponseEntity<?> again = ctl.update("bob");
-
-        assertThat(status(again)).isEqualTo(429);
-        assertThat(error(again)).isEqualTo("Restarted 3 min ago by alice; try again in 7 min.");
-        verify(update, never()).performUpdate();
-
-        now.addAndGet(Duration.ofMinutes(7).toMillis());
-
-        assertThat(status(ctl.update("bob"))).isEqualTo(200);
-        assertThat(admin.lastUses()).containsOnlyKeys("restart", "update");
-        assertThat(admin.lastUses().get("update").by()).isEqualTo("bob");
-    }
-
-    @Test
-    void withoutOperatorsFlushRunsOncePerHour() {
-        CacheController flush = new CacheController(cache, mock(Warmer.class), admin());
-
-        assertThat(status(flush.flush("alice"))).isEqualTo(200);
-
-        now.addAndGet(Duration.ofMinutes(59).toMillis());
-
-        assertThat(status(flush.flush("bob"))).isEqualTo(429);
-
-        now.addAndGet(Duration.ofMinutes(1).toMillis());
-
-        assertThat(status(flush.flush("bob"))).isEqualTo(200);
-        verify(cache, times(2)).clear();
-    }
-
-    @Test
-    void aFailedUpdateLeavesNoCooldown() throws Exception {
-        AdminActions admin = admin();
+    void aFailedUpdateIsNotNamedAsTheLast() throws Exception {
+        AdminActions admin = admin("alice");
         UpdateController ctl = new UpdateController(update, admin);
         doThrow(new IllegalStateException("no update available")).when(update).performUpdate();
 
         assertThat(status(ctl.update("alice"))).isEqualTo(400);
-        assertThat(admin.refusal("alice", AdminActions.Action.RESTART)).isEmpty();
         assertThat(admin.lastUses()).isEmpty();
     }
 
     @Test
     void aFailedUpdateKeepsTheLastOneThatHappened() throws Exception {
-        AdminActions admin = admin();
+        AdminActions admin = admin("carol", "bob");
         UpdateController ctl = new UpdateController(update, admin);
         long carolsAt = now.get();
 
@@ -185,85 +172,19 @@ class AdminActionsTest {
         assertThat(admin.lastUses().get("update")).isEqualTo(new AdminActions.Use("carol", carolsAt));
     }
 
-    /** Both presses passed the check before either was recorded, and both cleared the caches. */
-    @Test
-    void twoFlushesAtOnceRunOnce() throws Exception {
-        CountDownLatch bothChecked = new CountDownLatch(2);
-        AdminActions admin = new AdminActions(new AdminProperties(List.of()), mapper, now::get) {
-            @Override
-            public Optional<Refusal> refusal(String user, Action action) {
-                Optional<Refusal> res = super.refusal(user, action);
-                bothChecked.countDown();
-                try {
-                    // An atomic check-and-record holds the other press out until this wait gives up.
-                    bothChecked.await(500, TimeUnit.MILLISECONDS);
-                }
-                catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-
-                return res;
-            }
-        };
-        CacheController flush = new CacheController(cache, mock(Warmer.class), admin);
-        ExecutorService presses = Executors.newFixedThreadPool(2);
-        try {
-            Future<ResponseEntity<?>> bob = presses.submit(() -> flush.flush("bob"));
-            Future<ResponseEntity<?>> carol = presses.submit(() -> flush.flush("carol"));
-
-            assertThat(List.of(status(bob.get()), status(carol.get()))).containsExactlyInAnyOrder(200, 429);
-            verify(cache, times(1)).clear();
-        }
-        finally {
-            presses.shutdownNow();
-        }
-    }
-
-    /** Fetching the release takes a while, and a restart pressed meanwhile would cut the update short. */
-    @Test
-    void anUpdateUnderWayHoldsTheCooldown() throws Exception {
-        CountDownLatch updating = new CountDownLatch(1);
-        CountDownLatch fetched = new CountDownLatch(1);
-        doAnswer(inv -> {
-            updating.countDown();
-            fetched.await();
-
-            return null;
-        }).when(update).performUpdate();
-        UpdateController ctl = new UpdateController(update, admin());
-        ExecutorService alice = Executors.newSingleThreadExecutor();
-        try {
-            Future<ResponseEntity<?>> updated = alice.submit(() -> ctl.update("alice"));
-            updating.await();
-
-            ResponseEntity<?> restart = ctl.restart("bob");
-            fetched.countDown();
-
-            assertThat(status(restart)).isEqualTo(429);
-            assertThat(error(restart)).isEqualTo("Updated 1 min ago by alice; try again in 10 min.");
-            assertThat(status(updated.get())).isEqualTo(200);
-            verify(update, never()).restart();
-        }
-        finally {
-            alice.shutdownNow();
-        }
-    }
-
-    /** A restart exits the JVM: its record has to come back from disk, or the cooldown would never hold. */
+    /** A restart exits the JVM: its record has to come back from disk, or the status page could not name who did it. */
     @Test
     void theLastUsesSurviveTheRestartTheyCause(@TempDir Path dir) throws IOException {
-        AdminActions before = admin();
+        AdminActions before = admin("alice");
         new UpdateController(update, before).restart("alice");
         Path file = dir.resolve(before.fileName());
         before.saveTo(file);
 
-        AdminActions after = admin();
+        AdminActions after = admin("alice");
         after.loadFrom(file);
 
-        assertThat(after.refusal("bob", AdminActions.Action.RESTART)).hasValueSatisfying(r -> {
-            assertThat(r.status()).isEqualTo(429);
-            assertThat(r.message()).contains("by alice");
-        });
+        assertThat(after.lastUses()).containsOnlyKeys("restart");
+        assertThat(after.lastUses().get("restart")).isEqualTo(new AdminActions.Use("alice", now.get()));
     }
 
     @Test
@@ -276,8 +197,7 @@ class AdminActionsTest {
         admin.loadFrom(file);
 
         assertThat(admin.lastUses()).containsOnlyKeys("restart", "flush");
+        assertThat(admin.lastUses().get("restart")).isEqualTo(new AdminActions.Use("alice", 1_760_000_000_000L));
         assertThat(admin.lastUses().get("flush")).isEqualTo(new AdminActions.Use("bob", 1_759_999_000_000L));
-        assertThat(admin.allowedAt(AdminActions.Action.UPDATE))
-            .isEqualTo(1_760_000_000_000L + Duration.ofMinutes(10).toMillis());
     }
 }

@@ -8,7 +8,6 @@ import com.github.igniteprchecker.persist.Snapshots;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -22,33 +21,25 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 /**
- * Restart, update, cache flush and the user list. A restart exits the JVM and a flush re-warms 50 PRs (thousands of
- * TeamCity calls on other users' tokens), so with operators named in {@code PRC_ADMINS} only they may use these;
- * without that any logged-in user may, but restart or update at most once per 10 minutes and flush once per
- * hour. Each use is logged with its user and kept on disk, so the status page can say who did it last and the
- * cooldown survives the restart it causes.
+ * Restart, update, cache flush and the user list, for the operators: the TeamCity users {@code PRC_ADMINS} names. A
+ * restart exits the JVM, a flush re-warms 50 PRs (thousands of TeamCity calls on other users' tokens), and anyone may
+ * register on ci2, so without {@code PRC_ADMINS} nobody may use these. Each use is logged with its user and kept on
+ * disk, so the status page can tell the operators who did it last, after the restart it causes too.
  */
 @Component
 public class AdminActions implements SnapshotCache {
     private static final Logger log = LoggerFactory.getLogger(AdminActions.class);
 
-    static final Duration RESTART_COOLDOWN = Duration.ofMinutes(10);
-
-    static final Duration FLUSH_COOLDOWN = Duration.ofHours(1);
-
-    /** An admin-only action; restart and update share a cooldown, as both restart the service. */
+    /** An operator's action. */
     public enum Action {
-        RESTART("restart the service", "Restarted"),
-        UPDATE("update the service", "Updated"),
-        FLUSH("flush the caches", "Caches flushed");
+        RESTART("restart the service"),
+        UPDATE("update the service"),
+        FLUSH("flush the caches");
 
         private final String what;
 
-        private final String done;
-
-        Action(String what, String done) {
+        Action(String what) {
             this.what = what;
-            this.done = done;
         }
 
         String key() {
@@ -78,41 +69,20 @@ public class AdminActions implements SnapshotCache {
         this.nowMs = nowMs;
     }
 
-    /** Whether operators are named; without them everyone logged in may, within cooldowns. */
+    /** Whether {@code PRC_ADMINS} names anyone: without it nobody is an operator. */
     public boolean operatorsNamed() {
         return !props.logins().isEmpty();
     }
 
-    /** Whether this user may use the admin actions at all (cooldowns aside). */
+    /** Whether this user is an operator: {@code PRC_ADMINS} names them. */
     public boolean mayAdminister(String user) {
-        return !operatorsNamed() || (user != null && props.logins().contains(user.toLowerCase(Locale.ROOT)));
+        return user != null && props.logins().contains(user.toLowerCase(Locale.ROOT));
     }
 
-    /** Why this user may not do this now, or empty when they may. */
-    public synchronized Optional<Refusal> refusal(String user, Action action) {
+    /** Lets this user do this now and records the use, or says why not. */
+    public synchronized Optional<Refusal> claim(String user, Action action) {
         if (!mayAdminister(user))
             return Optional.of(new Refusal(403, "Only the operator can " + action.what + "."));
-
-        long now = nowMs.getAsLong();
-        long allowedAt = allowedAt(action);
-        if (allowedAt <= now)
-            return Optional.empty();
-
-        Action prev = cooldownStart(action);
-        Use use = last.get(prev);
-
-        return Optional.of(new Refusal(429, prev.done + " " + minutes(now - use.at()) + " ago by " + use.by()
-            + "; try again in " + minutes(allowedAt - now) + "."));
-    }
-
-    /**
-     * Lets this user do this now and records the use, or says why not. Checked and recorded in one step: two
-     * presses at once would otherwise both pass the check before either was recorded.
-     */
-    public synchronized Optional<Refusal> claim(String user, Action action) {
-        Optional<Refusal> refused = refusal(user, action);
-        if (refused.isPresent())
-            return refused;
 
         beforeClaim.put(action, last.put(action, new Use(user, nowMs.getAsLong())));
         log.info("{} requested by {}", action.key(), user);
@@ -120,7 +90,7 @@ public class AdminActions implements SnapshotCache {
         return Optional.empty();
     }
 
-    /** Takes back this user's claim of an action that did not happen, so it starts no cooldown. */
+    /** Takes back this user's claim of an action that did not happen: the status page names who did it last. */
     public synchronized void withdraw(String user, Action action) {
         Use claimed = last.get(action);
         if (claimed == null || !claimed.by().equals(user))
@@ -133,42 +103,12 @@ public class AdminActions implements SnapshotCache {
             last.put(action, before);
     }
 
-    /** Epoch-ms when this action is allowed again; 0 when it never ran, or operators are named (no cooldown). */
-    public synchronized long allowedAt(Action action) {
-        Action prev = operatorsNamed() ? null : cooldownStart(action);
-
-        return prev == null ? 0 : last.get(prev).at() + cooldown(action).toMillis();
-    }
-
     /** The last use of each action, by action key ("restart", "update", "flush"). */
     public synchronized Map<String, Use> lastUses() {
         Map<String, Use> out = new LinkedHashMap<>();
         last.forEach((a, u) -> out.put(a.key(), u));
 
         return out;
-    }
-
-    /** The last use that this action's cooldown runs from, or null if there was none. */
-    private Action cooldownStart(Action action) {
-        if (action == Action.FLUSH)
-            return last.containsKey(Action.FLUSH) ? Action.FLUSH : null;
-
-        Use restart = last.get(Action.RESTART);
-        Use update = last.get(Action.UPDATE);
-        if (restart == null)
-            return update == null ? null : Action.UPDATE;
-
-        return update == null || restart.at() >= update.at() ? Action.RESTART : Action.UPDATE;
-    }
-
-    private static Duration cooldown(Action action) {
-        return action == Action.FLUSH ? FLUSH_COOLDOWN : RESTART_COOLDOWN;
-    }
-
-    private static String minutes(long ms) {
-        long min = Math.max(1, (ms + 59_999) / 60_000);
-
-        return min + " min";
     }
 
     @Override
@@ -203,11 +143,11 @@ public class AdminActions implements SnapshotCache {
         }
     }
 
-    /** One use of an admin action: who and when (epoch ms). */
+    /** One use of an operator's action: who and when (epoch ms). */
     public record Use(String by, long at) {
     }
 
-    /** A refused admin action: the HTTP status to answer with and a short text for the user. */
+    /** A refused action: the HTTP status to answer with and a short text for the user. */
     public record Refusal(int status, String message) {
         public ResponseEntity<?> response() {
             return ResponseEntity.status(status).body(Map.of("error", message));
