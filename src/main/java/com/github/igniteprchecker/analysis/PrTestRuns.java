@@ -327,8 +327,8 @@ public class PrTestRuns {
         byClass.replaceAll((c, runs) -> runs.stream()
             .map(r -> looking.containsKey(r) ? looking.get(r).join() : r).toList());
 
-        return judged.size() > MASTER_LOOKUPS ? Optional.of("master history was looked up for only " + MASTER_LOOKUPS
-            + " of " + failed.size() + " failed tests of changed classes") : Optional.empty();
+        return judged.size() > MASTER_LOOKUPS ? Optional.of("the checker looked up master history for only "
+            + MASTER_LOOKUPS + " of " + failed.size() + " failed tests of changed classes") : Optional.empty();
     }
 
     /** How many master runs of the test are on record, null when TeamCity can't say. */

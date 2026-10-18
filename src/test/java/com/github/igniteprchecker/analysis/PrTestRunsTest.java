@@ -168,7 +168,7 @@ class PrTestRunsTest {
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note())
-            .isEqualTo("master history was looked up for only 20 of 25 failed tests of changed classes");
+            .isEqualTo("the checker looked up master history for only 20 of 25 failed tests of changed classes");
         assertThat(answer.classes().get(0).runs().stream().filter(r -> r.masterRuns() != null))
             .hasSize(20).allMatch(r -> "FAILURE".equals(r.status()));
         verify(tc, times(20)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
@@ -196,7 +196,7 @@ class PrTestRunsTest {
         PrTests answer = prTests.of(TOK, PR, CHAIN, false);
 
         assertThat(answer.note())
-            .isEqualTo("master history was looked up for only 20 of 23 failed tests of changed classes");
+            .isEqualTo("the checker looked up master history for only 20 of 23 failed tests of changed classes");
         verify(tc, times(20)).getBaseBranchHistory(eq(TOK), anyLong(), eq(CONTROL));
     }
 
