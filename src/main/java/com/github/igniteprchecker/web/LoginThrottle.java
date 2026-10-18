@@ -25,7 +25,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class LoginThrottle {
-    static final int ATTEMPTS_PER_CLIENT = 10;
+    /** With 3 per 10 minutes, keeping the shared {@link #CHECKS_PER_MINUTE} used up takes about 100 addresses. */
+    static final int ATTEMPTS_PER_CLIENT = 3;
 
     static final Duration CLIENT_WINDOW = Duration.ofMinutes(10);
 

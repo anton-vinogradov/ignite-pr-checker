@@ -20,15 +20,22 @@ class LoginThrottleTest {
         now.addAndGet(d.toMillis());
     }
 
+    /**
+     * At 10 attempts per address, about 30 addresses kept the shared 30 TeamCity checks a minute used up, and nobody
+     * could log in. At 3 it takes about 100.
+     */
     @Test
-    void aClientGetsTenAttemptsPerTenMinutes() {
-        for (int i = 0; i < 10; i++)
+    void aClientGetsThreeAttemptsPerTenMinutes() {
+        for (int i = 0; i < 3; i++)
             assertThat(throttle.admitAttempt("203.0.113.7")).isNull();
 
         assertThat(throttle.admitAttempt("203.0.113.7")).isEqualTo(Duration.ofMinutes(10));
         assertThat(throttle.admitAttempt("198.51.100.1")).as("another client").isNull();
 
-        after(Duration.ofMinutes(10));
+        after(Duration.ofMinutes(4));
+        assertThat(throttle.admitAttempt("203.0.113.7")).isEqualTo(Duration.ofMinutes(6));
+
+        after(Duration.ofMinutes(6));
 
         assertThat(throttle.admitAttempt("203.0.113.7")).isNull();
     }

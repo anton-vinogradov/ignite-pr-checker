@@ -79,14 +79,48 @@ class LoginRateLimitTest {
         return login.login(new LoginController.LoginRequest(token), from(client)).getStatusCode().value();
     }
 
+    private static String error(ResponseEntity<?> res) {
+        return String.valueOf(((Map<?, ?>)res.getBody()).get("error"));
+    }
+
     @Test
     void aFloodFromOneAddressStopsReachingTeamCity() {
         for (int i = 0; i < 15; i++)
             post("guess-" + i, "203.0.113.7");
 
-        assertThat(whoami).hasValue(10);
+        assertThat(whoami).hasValue(3);
         assertThat(post("guess-15", "203.0.113.7")).isEqualTo(429);
         assertThat(post("guess-16", "198.51.100.1")).as("another address").isEqualTo(401);
+    }
+
+    /**
+     * The wait read "Too many login attempts from your address", without the limit: a user who shares the address
+     * with others could not tell why one attempt was too many.
+     */
+    @Test
+    void theWaitSaysTheLimitOfTheAddressAndHowLong() {
+        for (int i = 0; i < 3; i++)
+            post("guess-" + i, "203.0.113.7");
+
+        ResponseEntity<?> res = login.login(new LoginController.LoginRequest("guess-3"), from("203.0.113.7"));
+
+        assertThat(res.getStatusCode().value()).isEqualTo(429);
+        assertThat(res.getHeaders().getFirst("Retry-After")).isIn("599", "600");
+        assertThat(error(res)).isEqualTo("One network address gets 3 login attempts in 10 minutes, and yours has used"
+            + " them. Try again in 10 minutes.");
+    }
+
+    @Test
+    void theSharedWaitSaysItCountsEveryone() {
+        for (int i = 0; i < 30; i++)
+            assertThat(post("guess-" + i, "203.0.113." + i)).isEqualTo(401);
+
+        ResponseEntity<?> res = login.login(new LoginController.LoginRequest("guess-30"), from("198.51.100.1"));
+
+        assertThat(whoami).hasValue(30);
+        assertThat(res.getStatusCode().value()).isEqualTo(429);
+        assertThat(error(res)).isEqualTo("The checker checks at most 30 tokens a minute with TeamCity, for all users"
+            + " together. Logins in the last minute used all 30: try again in a minute.");
     }
 
     @Test

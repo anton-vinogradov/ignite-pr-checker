@@ -93,14 +93,14 @@ public class LoginController {
         String token = req.token().trim();
         Duration wait = throttle.admitAttempt(LoginThrottle.clientOf(http));
         if (wait != null)
-            return tooMany(wait, "Too many login attempts from your address — try again in " + minutes(wait) + ".");
+            return tooMany(wait, addressUsedUp(wait));
 
         if (throttle.recentlyRejected(token))
             return rejected();
 
         wait = throttle.admitCheck();
         if (wait != null)
-            return tooMany(wait, "Too many logins right now — try again in " + minutes(wait) + ".");
+            return tooMany(wait, checksUsedUp(wait));
 
         Optional<String> username;
         try {
@@ -146,6 +146,20 @@ public class LoginController {
         return ResponseEntity.status(429)
             .header(HttpHeaders.RETRY_AFTER, String.valueOf(Math.max(1, wait.toSeconds())))
             .body(Map.of("error", message));
+    }
+
+    /** The answer to a login from an address that has used its attempts: the limit and how long to wait. */
+    private static String addressUsedUp(Duration wait) {
+        return "One network address gets " + LoginThrottle.ATTEMPTS_PER_CLIENT + " login attempts in "
+            + LoginThrottle.CLIENT_WINDOW.toMinutes() + " minutes, and yours has used them. Try again in "
+            + minutes(wait) + ".";
+    }
+
+    /** The answer to a login when all logins together have used the TeamCity checks of the last minute. */
+    private static String checksUsedUp(Duration wait) {
+        return "The checker checks at most " + LoginThrottle.CHECKS_PER_MINUTE + " tokens a minute with TeamCity, for"
+            + " all users together. Logins in the last minute used all " + LoginThrottle.CHECKS_PER_MINUTE
+            + ": try again in " + minutes(wait) + ".";
     }
 
     private static String minutes(Duration wait) {

@@ -135,6 +135,28 @@ class DocFactsTest {
             .contains("except a rare and old one and one at another test scale factor");
     }
 
+    /** The login limits LoginThrottle keeps; DocParityTest holds the Russian numbers to the English ones. */
+    @Test
+    void theDocsStateTheLoginLimits() throws IOException {
+        String throttle = Files.readString(Path.of("src/main/java/com/github/igniteprchecker/web/LoginThrottle.java"),
+            UTF_8);
+        String perAddress = "One network address gets " + constant(throttle, "ATTEMPTS_PER_CLIENT = (\\d+);")
+            + " login attempts in " + constant(throttle, "CLIENT_WINDOW = Duration.ofMinutes\\((\\d+)\\);")
+            + " minutes";
+
+        assertThat(collapsed(README)).contains(perAddress)
+            .contains("checks at most " + constant(throttle, "CHECKS_PER_MINUTE = (\\d+);")
+                + " tokens a minute with TeamCity");
+        assertThat(collapsed(TOUR)).contains(perAddress);
+    }
+
+    private static String constant(String src, String regex) {
+        Matcher m = Pattern.compile(regex).matcher(src);
+        assertThat(m.find()).as(regex).isTrue();
+
+        return m.group(1);
+    }
+
     /** The files of the snapshot caches in the main code, each with whether it is durable state. */
     private static Map<String, Boolean> snapshotFiles() throws IOException {
         Map<String, Boolean> out = new TreeMap<>();
