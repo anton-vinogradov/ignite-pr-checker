@@ -83,9 +83,10 @@ class TopBarPageTest {
 
         assertThat(bar.replaceAll("\\s+", " ")).contains("<span id=\"session\" class=\"session muted hidden\">"
             + "<span id=\"username\"></span> <span id=\"operatorMark\" class=\"tag hidden\" title=\"You are an operator: "
-            + "PRC_ADMINS on the server names you. You can restart, update and flush the service, and the status page shows "
-            + "you its log messages and users.\">operator</span> · <button id=\"logout\" class=\"linklike\" type=\"button\" "
-            + "title=\"Logs you out here and in every other browser.\">Log out</button></span>");
+            + "PRC_ADMINS on the server names you. You can restart and update the service and flush its caches. The "
+            + "status page shows you the service's log messages and users.\">operator</span> · <button id=\"logout\" "
+            + "class=\"linklike\" type=\"button\" title=\"Logs you out here and in every other browser.\">Log out"
+            + "</button></span>");
         assertThat(bar.substring(bar.lastIndexOf("<button"))).startsWith("<button id=\"settingsBtn\"");
         assertThat(read("flaky.html")).doesNotContain("id=\"session\"", "settingsBtn");
         assertThat(read("status.html")).doesNotContain("id=\"session\"", "settingsBtn");

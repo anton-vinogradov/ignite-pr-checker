@@ -360,10 +360,10 @@ these to nobody else and refuses anyone else's press. The PR page shows **operat
 logged-in users see how many warnings and errors were logged, but not the messages. They also see how many operators
 there are, but not who. Every press is logged with the operator's name.
 
-Without `PRC_ADMINS`, nobody is an operator. Nobody can restart, update or flush the service from the pages. Nobody
-sees the log messages on the status page either: they stay in the journal and in the service's own log. To name
-operators, set `PRC_ADMINS` in `/etc/ignite-pr-checker/env` to their TeamCity usernames, comma-separated, and restart
-the service.
+Without `PRC_ADMINS`, nobody is an operator. Nobody can restart the service, update it or flush its caches from the
+pages. Nobody sees the log messages on the status page either: they stay in the journal and in the service's own log.
+To name operators, set `PRC_ADMINS` in `/etc/ignite-pr-checker/env` to their TeamCity usernames, comma-separated, and
+restart the service.
 
 ### Releases
 

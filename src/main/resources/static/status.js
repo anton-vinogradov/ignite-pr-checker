@@ -380,10 +380,10 @@ function logTime(t) {
 }
 
 // Without PRC_ADMINS nobody gets the messages, so the page says how to name an operator.
-const NO_OPERATOR = 'No operator is named, so nobody sees the log messages here. To name operators, set'
-    + ' <code>PRC_ADMINS</code> in <code>/etc/ignite-pr-checker/env</code> to their TeamCity usernames, comma-separated,'
-    + ' and restart the service. Until then, the messages are in the service\'s journal:'
-    + ' <code>journalctl -u ignite-pr-checker</code>.';
+const NO_OPERATOR = 'The server setting <code>PRC_ADMINS</code> names no operators, so nobody sees the log messages'
+    + ' here. To name operators, set <code>PRC_ADMINS</code> in <code>/etc/ignite-pr-checker/env</code> to their'
+    + ' TeamCity usernames, comma-separated, and restart the service. Until then, the messages are in the service\'s'
+    + ' journal: <code>journalctl -u ignite-pr-checker</code>.';
 
 // Only the operators get the messages; the others see how many there are on the card above. The server's start time,
 // not the browser's clock, sets this run's problems apart from earlier ones.
