@@ -481,11 +481,11 @@ from its own GitHub account, the app account.
   beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
   turn it amber. What GitHub does not say is shown as unknown, not as fine.
 - The **Standing options**, **PR commands** and **Tests added to suites** cards say when their job last started a
-  pass, and **Last refresh** says the same for the build watcher. Before the first pass after a start, a card says
-  when it is due, for example "first sweep in 3m". If the pass has not started a minute after that, the card says
-  "never" in amber: the job may be stuck.
+  pass. **Last refresh** says the same for the build watcher. Before the first pass after a start, a card says when
+  it is due, for example "first sweep in 3m". If the pass has not started a minute after that, the card says "never"
+  in amber: the job may be stuck.
 - Signed-in viewers also see what the check found and the settings in effect.
-- Operators, the users `PRC_ADMINS` names, also see the log messages, who restarted or flushed last,
+- Operators are the users `PRC_ADMINS` names. They also see the log messages, who restarted or flushed last,
   **Restart service**, **Flush caches** and the **Users** tab. Other viewers see only how many warnings and errors
   were logged. Without `PRC_ADMINS` nobody sees these, and the page says how to name operators.
 
