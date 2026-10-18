@@ -110,6 +110,7 @@ class PrTestRunsTest {
         assertThat(answer.classes()).isEmpty();
         assertThat(answer.note()).isNull();
         verifyNoInteractions(tc);
+        verify(github, never()).prOutcome(PR);
     }
 
     @Test
