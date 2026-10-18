@@ -36,7 +36,8 @@ public record PrTests(long buildId, List<TestClass> classes, String note, SuiteC
 
     /**
      * One run of a test: TeamCity's status (SUCCESS, FAILURE, or UNKNOWN for an ignored test), how long it took,
-     * and how many master runs of it there are on record, null when not looked up.
+     * and how many master runs of it there are on record, null when not looked up. {@code muted}: TeamCity muted the
+     * test in this run, so the verdict does not judge its failure.
      */
     public record Run(
         // A TeamCity test-name id is a 64-bit hash that overflows JS number precision; serialize as a string.
@@ -48,7 +49,8 @@ public record PrTests(long buildId, List<TestClass> classes, String note, SuiteC
         String occurrenceId,
         String status,
         long durationMs,
-        Integer masterRuns
+        Integer masterRuns,
+        boolean muted
     ) {
     }
 

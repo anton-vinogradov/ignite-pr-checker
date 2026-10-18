@@ -96,15 +96,22 @@ public final class TcModel {
     }
 
     /**
-     * One run of a test; {@code duration} is in milliseconds, null when not asked for, and then left out of the runs
-     * kept on disk.
+     * One run of a test; {@code duration} is in milliseconds. {@code muted}: TeamCity muted the test in that run, so
+     * its failure did not fail the build. Each is null when not asked for, and then left out of the runs kept on disk.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Long duration) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Long duration,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean muted) {
         /** A run without its duration, in the shape callers used before it was read. */
         public TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details) {
-            this(id, name, status, test, build, details, null);
+            this(id, name, status, test, build, details, null, null);
+        }
+
+        /** A run without whether it was muted, in the shape callers used before that was read. */
+        public TestOccurrence(String id, String name, String status, TestRef test, BuildRef build, String details,
+            Long duration) {
+            this(id, name, status, test, build, details, duration, null);
         }
     }
 

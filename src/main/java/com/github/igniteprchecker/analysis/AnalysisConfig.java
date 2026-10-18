@@ -3,7 +3,10 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,6 +27,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   <li>{@code backgroundExecutor} also fans out the computes the standing sweep, early re-runs and the auto
  *   visa act on; the auto visa's first try after a chain finished recomputes as ↻ does.</li>
  *   <li>{@code causesExecutor} clusters the "Top causes".</li>
+ *   <li>{@code prTestsExecutor} asks GitHub for the PR's head and Ignite's check of it while TeamCity says how the
+ *   PR's test classes ran, and looks up the master histories of their failed tests side by side.</li>
  *   <li>{@code earlyRerunExecutor}, one thread, re-runs a suite that failed while its chain still runs, and
  *   {@code settleExecutor}, one thread, settles a PR whose chain or re-run just finished: both off the rerun
  *   tracker's timer, which announces them. {@code visaPosterExecutor}, one thread, posts the one-shot auto
@@ -116,6 +121,18 @@ public class AnalysisConfig {
     @Bean(destroyMethod = "shutdown")
     ExecutorService causesExecutor() {
         return Executors.newFixedThreadPool(6, named("causes-"));
+    }
+
+    /**
+     * Asks, for one answer about a PR's own tests, what does not depend on each other at the same time; up to four
+     * threads, since one answer has at most one GitHub lookup and 20 master histories in it, and most histories are
+     * in the analysis cache already. Nothing waits in a queue: there, one PR's answer would wait for another PR's
+     * TeamCity lookups. With every thread busy, the thread that asked does the task itself.
+     */
+    @Bean(destroyMethod = "shutdown")
+    ExecutorService prTestsExecutor() {
+        return new ThreadPoolExecutor(0, 4, 60, TimeUnit.SECONDS, new SynchronousQueue<>(), named("pr-tests-"),
+            (task, pool) -> task.run());
     }
 
     private static ThreadFactory named(String prefix) {
