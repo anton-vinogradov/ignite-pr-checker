@@ -31,7 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * On PR 13335 "This PR's tests" came seconds after the verdict, with "master history was looked up for 20 of 67
+ * On PR 13335 "This PR's tests" came late, after the verdict, with "master history was looked up for 20 of 67
  * tests of changed classes". The server asked TeamCity for those 20 histories one after another, though the card
  * shows master history only for a failed test, and the analysis behind the verdict has already looked up every
  * failure. One answer now asks TeamCity once when the analysis knows the failures, and what does not wait for

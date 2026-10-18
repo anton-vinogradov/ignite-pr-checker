@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 
 /**
- * On PR 13335 "This PR's tests" came seconds after the verdict. The page asked for it only once it had drawn the
+ * On PR 13335 "This PR's tests" came late, after the verdict. The page asked for it only once it had drawn the
  * verdict and asked for the delta, the pending commits and the auto visa. It is now asked first, the verdict does not
  * wait for it, and a new verdict of the same run says anew what it did with the failed tests without asking again.
  */
