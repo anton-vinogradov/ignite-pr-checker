@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.github;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -19,6 +20,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -84,7 +86,8 @@ public class GithubClient implements SnapshotCache {
             String scopes = answer.getHeaders().getFirst(AppAccountChecks.SCOPES);
 
             return java.util.Optional.of(new TokenOwner(u, scopes == null ? null : Arrays.stream(scopes.split(","))
-                .map(String::strip).filter(x -> !x.isEmpty()).toList()));
+                .map(String::strip).filter(x -> !x.isEmpty()).toList(),
+                answer.getHeaders().getFirst(AppAccountChecks.EXPIRATION)));
         }
         catch (RuntimeException e) {
             if (refusesToken(e))
@@ -94,8 +97,20 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
-    /** The account a token belongs to, and the scopes of a classic token; null {@code scopes}: GitHub named none. */
-    public record TokenOwner(GhUser user, List<String> scopes) {
+    /**
+     * The account a token belongs to, and the scopes of a classic token; null {@code scopes}: GitHub named none.
+     * {@code expiration}: when the token expires, as GitHub wrote it; null when the token never expires.
+     */
+    public record TokenOwner(GhUser user, List<String> scopes, String expiration) {
+        /** The owner of a token that never expires. */
+        public TokenOwner(GhUser user, List<String> scopes) {
+            this(user, scopes, null);
+        }
+
+        /** When the token expires; empty when it never does or when GitHub wrote a date the checker cannot read. */
+        public Optional<Instant> expiresAt() {
+            return expiration == null ? Optional.empty() : Optional.ofNullable(AppAccountChecks.expiresAt(expiration));
+        }
     }
 
     /**
@@ -1273,16 +1288,38 @@ public class GithubClient implements SnapshotCache {
                 checks.stream().map(c -> new Check(c.level(), null)).toList());
         }
 
+        /**
+         * What a signed-in viewer who is not an operator may see: the day the token expires is for the operators, who
+         * replace the token.
+         */
+        public AppAccount withoutDates() {
+            return new AppAccount(state, login, canPush, id, checks.stream().map(Check::withoutDate).toList());
+        }
+
         /** Whether GitHub refuses the token. */
         public boolean refused() {
             return REFUSED.equals(state);
         }
 
-        /** One thing found of the token or its account: {@code level} "ok", "unknown", "warn" or "error". */
-        public record Check(String level, String text) {
+        /**
+         * One thing found of the token or its account: {@code level} "ok", "unknown", "warn" or "error".
+         * {@code dateless}: the text for viewers who are not operators, without the day the token expires; null when
+         * {@code text} names no day.
+         */
+        public record Check(String level, String text, @JsonIgnore String dateless) {
             public static final String WARN = "warn";
 
             public static final String ERROR = "error";
+
+            /** A check whose text names no day. */
+            public Check(String level, String text) {
+                this(level, text, null);
+            }
+
+            /** The check as a viewer who is not an operator reads it. */
+            Check withoutDate() {
+                return dateless == null ? this : new Check(level, dateless);
+            }
 
             static Check ok(String text) {
                 return new Check("ok", text);

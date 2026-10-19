@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.health;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.GithubClient;
@@ -149,7 +150,7 @@ public class ServiceHealth {
         return app.checks().stream()
             .filter(c -> c.level().equals(GithubClient.AppAccount.Check.WARN)
                 || c.level().equals(GithubClient.AppAccount.Check.ERROR))
-            .map(c -> new Problem(c.level(), c.text())).toList();
+            .map(c -> new Problem(c.level(), c.text(), c.dateless())).toList();
     }
 
     /**
@@ -211,10 +212,23 @@ public class ServiceHealth {
         public List<Problem> levelsOnly() {
             return problems.stream().map(p -> new Problem(p.level(), null)).toList();
         }
+
+        /** What a signed-in viewer who is not an operator reads: the problems without the day GITHUB_TOKEN expires. */
+        public List<Problem> withoutDates() {
+            return problems.stream().map(p -> p.dateless() == null ? p : new Problem(p.level(), p.dateless())).toList();
+        }
     }
 
-    /** One thing wrong now; {@code level} is "warn" or "error". */
-    public record Problem(String level, String text) {
+    /**
+     * One thing wrong now; {@code level} is "warn" or "error". {@code dateless}: the text for viewers who are not
+     * operators, without the day GITHUB_TOKEN expires; null when {@code text} names no day.
+     */
+    public record Problem(String level, String text, @JsonIgnore String dateless) {
+        /** A problem whose text names no day. */
+        public Problem(String level, String text) {
+            this(level, text, null);
+        }
+
         static Problem warn(String text) {
             return new Problem("warn", text);
         }

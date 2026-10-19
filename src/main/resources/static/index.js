@@ -2974,6 +2974,7 @@ async function loadSettings() {
         if (!r.ok) { lockSettings('Could not load your settings — close ⚙ and open it again.'); return; }
         renderSettings(await r.json());
         $('settingsMsg').textContent = '';
+        loadExpiries(standingSettings);
     } catch (e) {
         lockSettings('Could not reach the service — close ⚙ and open it again.');
     }
@@ -3043,6 +3044,85 @@ function renderAccess(st) {
     $('ghTokenState').textContent = st.ghStored ? 'saved' + (st.ghTokenKind ? ', ' + st.ghTokenKind : '')
         : st.ghTokenRejected ? 'rejected' : 'not saved';
     $('ghTokenBtn').textContent = st.ghStored ? 'Replace' : 'Save';
+    if (!st.jiraStored) $('jiraExpiry').classList.add('hidden');
+    if (!st.ghStored) $('ghTokenExpiry').classList.add('hidden');
+}
+
+// How long each token has left goes after its state. The server asks TeamCity, JIRA and GitHub about a token at most
+// once an hour, so ⚙ asks at each opening.
+const EXPIRY_SOON_DAYS = 14;
+const EXPIRY = {
+    teamcity: { span: 'tcExpiry', name: 'TeamCity', lead: ', token ', act: 'log in with a new one',
+        then: 'Then you have to log in again, and your options pause until you do.',
+        revoke: 'in TeamCity', several: 'TeamCity does not say which one you logged in with.' },
+    jira: { span: 'jiraExpiry', name: 'JIRA', lead: ', ', act: 'replace it', stored: 'jiraStored',
+        then: 'Then Visa my runs in JIRA goes off until you save a new token and switch it on again.',
+        revoke: 'in your JIRA profile', several: 'JIRA does not say which one you saved here.',
+        refused: 'Visa my runs in JIRA goes off when it next tries to post a visa.' },
+    github: { span: 'ghTokenExpiry', name: 'GitHub', lead: ', ', act: 'replace it', stored: 'ghStored',
+        then: 'Then the options that commit with it go off until you save a new token and switch them on again.',
+        revoke: 'on GitHub', refused: 'The options that commit with it go off when they next try to commit.' },
+};
+
+function loadExpiries(st) {
+    for (const [service, x] of Object.entries(EXPIRY)) {
+        if (!x.stored || st[x.stored]) loadExpiry(service);
+    }
+}
+
+async function loadExpiry(service) {
+    const el = $(EXPIRY[service].span);
+    try {
+        const r = await api('/api/token-expiry?service=' + service);
+        if (r.status === 401) return loggedOut(r);
+        const answer = r.ok ? await r.json() : null;
+        const stored = EXPIRY[service].stored;
+        paintExpiry(el, service, stored && !(standingSettings || {})[stored] ? null : answer);
+    } catch (e) {
+        paintExpiry(el, service, null);
+    }
+}
+
+// `x` is the server's answer; null hides the line, as when the server stores no such token.
+function paintExpiry(el, service, x) {
+    const said = x && expiryOf(EXPIRY[service], x);
+    el.classList.toggle('hidden', !said);
+    el.classList.toggle('expiry-soon', !!(said && said.soon));
+    el.classList.toggle('hint', !!(said && said.title));
+    el.textContent = said ? EXPIRY[service].lead + said.text : '';
+    el.title = (said && said.title) || '';
+}
+
+// What the reader needs is in the text: a tooltip does not open by touch or from the keyboard.
+function expiryOf(s, x) {
+    if (x.state === 'never') {
+        return { text: 'never expires: give the next one an expiry, say 90 days',
+            title: `Anyone who gets this token can use it until you revoke it ${s.revoke}.` };
+    }
+    if (x.state === 'refused' && s.refused) {
+        return { soon: true, text: `${s.name} refused it when the checker asked: ${s.act}`, title: s.refused };
+    }
+    if (x.state === 'unknown') return expiryUnknown(s, x);
+    if (x.state !== 'expires') return null;
+    const left = x.expiresAt - Date.now();
+    const on = fmtDay(x.expiresAt).replace(/ (\d\d:\d\d)$/, ' at $1');
+    if (left <= 0) return { soon: true, text: `expired: ${s.act}`, title: `It expired on ${on}.` };
+    const days = Math.floor(left / 86400000);
+    const text = 'expires in ' + (days === 0 ? 'less than a day' : countOf(days, 'day'));
+    if (days > EXPIRY_SOON_DAYS) return { text, title: `It expires on ${on}.` };
+    return { soon: true, text: `${text}: ${s.act} before then`, title: `It expires on ${on}. ${s.then}` };
+}
+
+function expiryUnknown(s, x) {
+    if (x.why === 'several') {
+        return { text: `expiry unknown: you have ${x.tokens} tokens that expire at different times`,
+            title: s.several };
+    }
+    if (x.why === 'unreadable') {
+        return { text: `expiry unknown: ${s.name} wrote the date in a form the checker cannot read` };
+    }
+    if (x.why === 'no-answer') return { text: `expiry unknown: ${s.name} did not answer` };
+    return { text: `expiry unknown: ${s.name} did not list your tokens` };
 }
 
 // The checker writes in PRs from its own account, named where the PR comment says so. Without one the options that
@@ -3239,6 +3319,8 @@ async function setOption(name, on, githubToken, jiraToken) {
             return;
         }
         renderSettings(res);
+        if (jiraToken) loadExpiry('jira');
+        if (githubToken) loadExpiry('github');
         const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
             res.style && 'checkstyle autofix', res.commands && 'PR commands', res.suites && 'tests to suites']
             .filter(Boolean);

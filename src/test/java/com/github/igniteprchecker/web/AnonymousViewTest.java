@@ -225,6 +225,37 @@ class AnonymousViewTest {
         assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains("scopes beyond public_repo (repo)");
     }
 
+    /**
+     * The card and the problem of the server's GitHub token named the day it expires and the days it had left to every
+     * signed-in viewer. The operators replace the token, so only they get the day; the others, whether it is two weeks
+     * away or less.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void statusNamesTheDayTheAppTokenExpiresToTheOperatorsOnly() throws Exception {
+        when(github.appAccount()).thenReturn(new GithubClient.AppAccount("ok", "ignite-pr-checker", false, 234567L,
+            List.of(new GithubClient.AppAccount.Check("warn", "GITHUB_TOKEN expires on 2026-10-28, in 9 days: make a"
+                + " new one", "GITHUB_TOKEN expires in 14 days or less: an operator has to replace it"))));
+        StatusController checked = new StatusController(mock(Metrics.class), mock(AnalysisCache.class), warmer, github,
+            logs, new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store, config, github),
+            mock(RerunTracker.class), mock(StandingVisas.class), mock(PrCommands.class), auth, admin, store, config,
+            mock(ObjectProvider.class));
+
+        String operator = mapper.writeValueAsString(checked.status(signedIn()));
+        String stranger = mapper.writeValueAsString(checked.status(signedInAs("stranger")));
+
+        assertThat(operator).contains("\"text\":\"GITHUB_TOKEN expires on 2026-10-28, in 9 days: make a new one\"")
+            .doesNotContain("dateless");
+        assertThat(stranger).doesNotContain("2026-10-28", "9 days", "dateless")
+            .contains("\"checks\":[{\"level\":\"warn\",\"text\":\"GITHUB_TOKEN expires in 14 days or less: an"
+                + " operator has to replace it\"}]");
+        assertThat((List<ServiceHealth.Problem>)checked.status(signedInAs("stranger")).get("healthProblems"))
+            .containsExactly(new ServiceHealth.Problem("warn", "GITHUB_TOKEN expires in 14 days or less: an operator"
+                + " has to replace it"));
+        assertThat(mapper.writeValueAsString(checked.status(new MockHttpServletRequest())))
+            .doesNotContain("GITHUB_TOKEN expires");
+    }
+
     @Test
     void prListNamesWhoTriggeredARunToSignedInViewersOnly() {
         GithubClient github = mock(GithubClient.class);

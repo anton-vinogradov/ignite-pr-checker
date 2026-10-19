@@ -300,6 +300,16 @@ GitHub token it needs while it is on.
 When you switch on an option without what it needs, ⚙ says what is missing in one sentence and opens the form or
 shows the button that gives it.
 
+The state line of each token also says how long the token has left: `expires in 43 days`, `never expires` or
+`expiry unknown`. The TeamCity line is about the token you logged in with. From `expires in 14 days` on, the line turns
+amber and says what to do before then. TeamCity and JIRA list your tokens without their values, so the checker cannot
+tell which one it holds. It names an expiry only when all your tokens that still work expire at the same time.
+Otherwise the line says `expiry unknown` and why. GitHub names the expiry of the token itself. If JIRA or GitHub
+refuses the saved token, the line says so in amber. A token without an expiry works as well, and its line suggests an
+expiry for the next one, say 90 days. The checker asks each service about a token at most once an hour: when you open
+⚙ or save a token. A JIRA or GitHub token that the server no longer keeps, after a change of the server key or a
+restore from an old copy, has no such line until you save it again.
+
 When the operator changes the server key, the checker can no longer read the tokens it stored, and drops them. Your
 options stay on and wait for new tokens. ⚙ says that the server key was changed and opens the form of each token to save
 again; a login stores the TeamCity token. Until you log in again, a `/run-all` gets a reply that says the server key was
@@ -566,7 +576,8 @@ from its own GitHub account, the app account.
   pass. **Last refresh** says the same for the build watcher. Before the first pass after the service starts, a card
   says when that pass is due, for example "first sweep in 3m". The **Warmer** card says when the first warm cycle is
   due. If the pass has not started a minute after that, the card says "never" in amber: the job may be stuck.
-- Signed-in viewers also see what the check found and the settings in effect.
+- Signed-in viewers also see what the check found and the settings in effect. Only operators see when `GITHUB_TOKEN`
+  expires and in how many days. Other signed-in viewers see only whether it expires within 14 days.
 - Operators are the users `PRC_ADMINS` names. They also see the log messages, who restarted or flushed last, the
   operators' names in the settings, **Restart service**, **Flush caches** and the **Users** tab. After a change of the
   server key, they see the **New tokens wanted** card: how many users' options still wait for new tokens. Other

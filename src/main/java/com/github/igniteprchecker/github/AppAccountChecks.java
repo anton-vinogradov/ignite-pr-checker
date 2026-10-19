@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import com.github.igniteprchecker.github.GithubClient.AppAccount.Check;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -22,6 +23,9 @@ import org.springframework.http.HttpHeaders;
 final class AppAccountChecks {
     /** How long before the token expires the operator is warned. */
     static final Duration EXPIRY_WARNING = Duration.ofDays(14);
+
+    /** {@link #EXPIRY_WARNING} in words. */
+    private static final String EXPIRY_DAYS = EXPIRY_WARNING.toDays() + " days";
 
     /** The scopes of a classic token, which GitHub sends with every answer to it. */
     static final String SCOPES = "X-OAuth-Scopes";
@@ -86,22 +90,36 @@ final class AppAccountChecks {
                 + "a new one with an expiry, say 90 days");
         }
 
-        Matcher m = WHEN.matcher(header.strip());
-        if (!m.matches())
-            return Check.unknown("GitHub named an expiry of GITHUB_TOKEN the checker cannot read: " + header.strip());
+        String unreadable = "GitHub named an expiry of GITHUB_TOKEN the checker cannot read";
+        Instant at = expiresAt(header);
+        if (at == null)
+            return new Check("unknown", unreadable + ": " + header.strip(), unreadable);
 
-        String zone = m.group(3) == null || m.group(3).equals("UTC") ? "Z" : m.group(3);
-        Instant at = LocalDateTime.parse(m.group(1) + "T" + m.group(2)).toInstant(ZoneOffset.of(zone));
         LocalDate day = at.atOffset(ZoneOffset.UTC).toLocalDate();
         Duration left = Duration.between(Instant.ofEpochMilli(nowMs), at);
-        if (left.compareTo(EXPIRY_WARNING) > 0)
-            return Check.ok("expires on " + day);
-
         long days = Math.max(0, left.toDays());
         String when = days == 0 ? "in less than a day" : "in " + days + (days == 1 ? " day" : " days");
+        if (days > EXPIRY_WARNING.toDays())
+            return new Check("ok", "expires on " + day + ", " + when, "expires in more than " + EXPIRY_DAYS);
 
-        return Check.warn("GITHUB_TOKEN expires on " + day + ", " + when + ": make a new one and replace it in the "
-            + "service's environment, or the app account stops replying");
+        return new Check(Check.WARN, "GITHUB_TOKEN expires on " + day + ", " + when + ": make a new one and replace "
+            + "it in the service's environment, or the app account stops replying", "GITHUB_TOKEN expires in "
+            + EXPIRY_DAYS + " or less: an operator has to replace it, or the app account stops replying");
+    }
+
+    /** The moment the {@value #EXPIRATION} header names; null when the checker cannot read it. */
+    static Instant expiresAt(String header) {
+        Matcher m = WHEN.matcher(header.strip());
+        if (!m.matches())
+            return null;
+
+        String zone = m.group(3) == null || m.group(3).equals("UTC") ? "Z" : m.group(3);
+        try {
+            return LocalDateTime.parse(m.group(1) + "T" + m.group(2)).toInstant(ZoneOffset.of(zone));
+        }
+        catch (DateTimeException e) {
+            return null;
+        }
     }
 
     private static Check push(Boolean can, String repo, String risk) {

@@ -190,6 +190,13 @@ class ContextStartsTest {
         assertThat(app).containsEntry("firstCycleAt", 0);
     }
 
+    /** How long a user's tokens have left is theirs to see: without a login the answer is a 401. */
+    @Test
+    void theExpiryOfTokensNeedsALogin() {
+        assertThat(http.getForEntity("/api/token-expiry?service=teamcity", String.class).getStatusCode().value())
+            .isEqualTo(401);
+    }
+
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */
     @Test
     void automationOffReachesTheJobs() {

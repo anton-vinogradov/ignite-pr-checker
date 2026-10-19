@@ -5,10 +5,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,6 +31,7 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import com.github.igniteprchecker.web.TokenExpiryController;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -205,6 +208,24 @@ class RestoredWithoutTokensTest {
         assertThat(settled.state()).as("the visa stays owed").isEqualTo(StandingVisas.VisaLine.JIRA_TOKEN_REMOVED);
         assertThat(restored.visaLine(FIXER, PR, RUN_ALL, () -> going, false))
             .isEqualTo(new StandingVisas.VisaLine(StandingVisas.VisaLine.ON, AUTHOR, false, null, null, false));
+    }
+
+    /**
+     * ⚙ asks how long each stored token has left. The copy kept no JIRA or GitHub token: the answer is that the server
+     * has none, while the options wait for them, and no service is asked about a token that is not there.
+     */
+    @Test
+    void aTokenTheCopyLackedHasNoExpiryToAskAbout() {
+        TokenExpiryController expiry = new TokenExpiryController(tc, jira, github, restored);
+        clearInvocations(jira, github);
+
+        assertThat(expiry.expiry("jira", AUTHOR, "author-tc").getBody())
+            .isEqualTo(new TokenExpiryController.Expiry("none", null, null, null));
+        assertThat(expiry.expiry("github", FIXER, "dave-tc").getBody())
+            .isEqualTo(new TokenExpiryController.Expiry("none", null, null, null));
+        assertThat(restored.settings(AUTHOR).tokensRemoved()).containsExactly("jira");
+        verifyNoInteractions(jira);
+        verify(github, never()).tokenOwner(anyString());
     }
 
     @Test

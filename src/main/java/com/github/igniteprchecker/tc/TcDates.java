@@ -26,6 +26,11 @@ public final class TcDates {
         }
     }
 
+    /** The timestamp as an instant; throws {@link DateTimeParseException} when it is not one. */
+    public static Instant instant(String tcDate) {
+        return OffsetDateTime.parse(tcDate, TC_DATE).toInstant();
+    }
+
     /** Epoch seconds as a TeamCity timestamp in UTC, for locator dimensions such as {@code finishDate}. */
     public static String format(long epochSeconds) {
         return TC_DATE.format(Instant.ofEpochSecond(epochSeconds).atOffset(ZoneOffset.UTC));

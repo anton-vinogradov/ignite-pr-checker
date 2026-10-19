@@ -150,6 +150,16 @@ public final class TcModel {
     public record User(String username) {
     }
 
+    /** The access tokens of a user, without their values. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Tokens(List<Token> token) {
+    }
+
+    /** An access token: {@code expirationTime} is null for a token that never expires. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Token(String name, String expirationTime) {
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ProblemOccurrences(List<ProblemOccurrence> problemOccurrence) {
     }
