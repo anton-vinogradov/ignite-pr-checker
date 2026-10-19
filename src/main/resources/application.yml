@@ -42,8 +42,8 @@ spring:
   mvc:
     formcontent:
       filter:
-        # No endpoint takes a form. The filter parses the form body of every PUT, PATCH and DELETE on any path before
-        # the checks of the request, and a broken one ended as an error of the service.
+        # No endpoint takes a form. The filter would parse the form body of every PUT, PATCH and DELETE on any path
+        # before the request is checked, and a broken body would end the request as an error of the service.
         enabled: false
   task:
     scheduling:

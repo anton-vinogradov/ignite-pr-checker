@@ -78,9 +78,9 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   and the server keeps a list of them without tokens. **Log out** ends the login of the browser where the user clicks
   it. ⚙ lists the user's logins and can end any of the others. A login left unused for 400 days ends too, and a
   user's 51st login ends an older one. A copy of a browser's session cookie is the same login: it works until that
-  login ends. A copy taken before the update to v1.40.0 can be a login of its own: **Log out everywhere else** ends
-  it, **Log out** does not. The options in ⚙ belong to the account: they are the same in every login, and no
-  logout changes them.
+  login ends. A copy of a cookie taken before the update to v1.40.0 can be a login of its own:
+  **Log out everywhere else** ends it, **Log out** does not. The options in ⚙ belong to the account: they are the same
+  in every login, and no logout changes them.
   TeamCity may reject 3 login attempts from one network address in 10 minutes. For all users together, the checker
   checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from the server's address, and if
   ci2 blocks that address, the checker stops for everyone. Past either limit, the login form says how long to wait.
