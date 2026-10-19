@@ -187,7 +187,7 @@ and the visa.
 
 ## Reading the verdict
 
-![The PR page of #13696: the verdict card "1 blocker in 1 suite" and the cards under it](img/pr-page.jpg)
+![The PR page of #13694: the verdict card "1 blocker in 1 suite, all on 1 run", the "Blockers" and "This PR's tests" cards](img/pr-page.jpg)
 
 The page answers one question: which tests did this PR break? The verdict card answers it first, in the words of the
 PR comment and the visa. The [cards](#cards-on-the-pr-page) under it go from what makes the run unreliable (suites that
