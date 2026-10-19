@@ -31,6 +31,8 @@ each label means and what to do about it.
   account, and a checkstyle fix and tests added to suites need a GitHub token for commits. The options work while the
   page is closed. When something is missing, ⚙ and the PR replies say what to do. See
   [Standing options](docs/features.md#standing-options).
+- **In Russian.** Choose Русский under **Language** in ⚙: the PR page, the login form and ⚙ then show in Russian in
+  every browser you log in from. PR comments and visas stay in English. See [Language](docs/features.md#language).
 - **PR commands.** With **PR commands** on and your GitHub account linked once with **Link GitHub**, a `/run-all`
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See
@@ -330,7 +332,7 @@ each boot, or the tokens can stay in the swap file.
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
 | `problems.json` | Recent warnings and errors for the status page. |
-| `users.json` | Who used the service and when, and when each user last ended all their other logins. The server refuses session cookies that an earlier version of the checker issued before that moment. Names only, no tokens. |
+| `users.json` | Who used the service and when, when each user last ended all their other logins, and the language each chose for the pages. The server refuses session cookies that an earlier version of the checker issued before that moment. Names only, no tokens. |
 | `logins.json` | Each user's logins: the browser and its system, when it logged in and when it was last seen. No tokens and no IP addresses. If the file loses a browser's login, that browser goes to the login form. |
 | `journal.json` | Each user's journal in ⚙: each change of their settings and the browser it came from, each token a service refused or the checker could not read, each visa posted or edited with their JIRA token. The last 100 switches of options, the last 100 saved tokens and the last 100 other entries of each user. No tokens. |
 | `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
