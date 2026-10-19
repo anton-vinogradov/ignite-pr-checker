@@ -63,7 +63,7 @@ class PrTabsPageTest {
         assertThat(out.get("tabs").get(1).get("title").asText())
             .isEqualTo("Lists the open PRs your linked GitHub account created.");
         assertThat(out.get("tabs").get(2).get("title").asText())
-            .isEqualTo("Lists other people's open PRs where you were asked to review, reviewed or commented.");
+            .isEqualTo("Lists other people's open PRs where someone asked you to review, you reviewed or you commented.");
         assertThat(out.get("tabs").get(0).get("title").asText())
             .isEqualTo("Lists the 50 most recently updated open PRs.");
         assertThat(out.get("asked").asInt()).isEqualTo(1);
@@ -154,10 +154,10 @@ class PrTabsPageTest {
         assertThat(out.get("mine").get("note").asText()).isEqualTo("You have no open PRs.");
         assertThat(out.get("mine").get("count").asText()).isEmpty();
         assertThat(out.get("involved").asText())
-            .isEqualTo("No open PRs of others where you were asked to review, reviewed or commented.");
+            .isEqualTo("There are no open PRs by other people where someone asked for your review, you reviewed or you commented.");
         assertThat(out.get("filtered").asBoolean()).as("one line says the tab is empty, not two").isTrue();
         assertThat(out.get("filteredNote").asText())
-            .isEqualTo("No open PRs of others where you were asked to review, reviewed or commented.");
+            .isEqualTo("There are no open PRs by other people where someone asked for your review, you reviewed or you commented.");
     }
 
     @Test

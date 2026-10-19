@@ -215,12 +215,12 @@ const YOUR_PRS_KEEP_MS = 60000;
 const PR_TAB_TITLES = {
     all: phrase('Lists the 50 most recently updated open PRs.'),
     mine: phrase('Lists the open PRs your linked GitHub account created.'),
-    involved: phrase('Lists other people\'s open PRs where you were asked to review, reviewed or commented.'),
+    involved: phrase('Lists other people\'s open PRs where someone asked you to review, you reviewed or you commented.'),
 };
 const PR_TAB_LOCKED = phrase('Link your GitHub account in ⚙ to use this tab. A click opens ⚙.');
 const PR_TAB_EMPTY = {
     mine: phrase('You have no open PRs.'),
-    involved: phrase('No open PRs of others where you were asked to review, reviewed or commented.'),
+    involved: phrase('There are no open PRs by other people where someone asked for your review, you reviewed or you commented.'),
 };
 const YOUR_PRS_PROBLEMS = {
     NO_ACCOUNT: phrase('This checker has no GitHub account, so it cannot search GitHub for these PRs.'),

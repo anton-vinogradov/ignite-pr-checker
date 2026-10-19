@@ -184,9 +184,9 @@ and the visa.
 - **Mine** and **Involved** need your GitHub account linked in ⚙ ([GitHub account](#github-account)). Without the link
   they look disabled, and a click on one opens ⚙. The list opens on the tab you last chose in this browser. Until you
   choose one, it opens on **Mine** if your GitHub account is linked, else on **All**.
-- The filter (**Filter, or a PR number**) narrows the chosen tab by number or title. A number that is not in the list is
-  offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/` jumps to it
-  from anywhere on the page.
+- The filter (**Filter, or a PR number**) narrows the list on the chosen tab by number or title. A number that is not in
+  the list is offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/`
+  jumps to it from anywhere on the page.
 - Each PR in the list is a link (`?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
   address, also one that is not in the list.
 - Drag the divider to resize the pane, double-click it to reset, and fold the pane with `‹` / `›`. On a screen
