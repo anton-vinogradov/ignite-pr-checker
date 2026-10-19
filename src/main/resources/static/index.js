@@ -224,7 +224,7 @@ const RUN_ROW = {
 
 function paintRunRow() {
     const row = RUN_ROW[selectedRepo ? 'client' : 'ignite'];
-    $('runAllLabel').textContent = selectedRepo ? clientSuite + ':'
+    $('runAllLabel').textContent = selectedRepo ? T`“${clientSuite}”:`
         : runAllSuites ? T`RunAll (~${runAllSuites} suites):` : T('RunAll:');
     for (const b of document.querySelectorAll('#actions .act[data-act]'))
         b.title = T(b.dataset.top === 'true' ? row.top : row.run);

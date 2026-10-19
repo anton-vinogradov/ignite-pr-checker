@@ -29,14 +29,15 @@ import org.springframework.web.client.RestClientResponseException;
 /**
  * The verdicts the checker's page shows for the PRs of the Python thin client. A PR's verdict is that of the newest
  * finished run of the client's suite on the PR's branch that tested the PR's own commit: a run someone started on the
- * branch without a commit tested the client's master. When the run before it tested the same commits of the client and
- * of Ignite, as an auto re-run does, the verdict counts the failed tests of both, as the verdict comment of a {@code
- * /run-all} does. It is judged as {@link BlockerAnalyzer#analyzeSuiteRun} judges the run of a {@code /run-all}, and
- * kept by the newest run's build like a RunAll's verdict. Which run is the newest is asked of
- * TeamCity by the warm cycle, and by a view at most every {@value #LOOK_EVERY_MS} ms: opening the page again costs
- * ci2 nothing. A view, the page's ↻ and the warm cycle that want the verdict of the same run while it is computed wait
- * for that one compute, and the warm cycle yields to a view that waits for one. The verdicts are not written to disk:
- * the client has a few open PRs, and the first warm cycle after a start computes them again.
+ * branch without a commit tested the client's master. When the run before the newest one tested the same commits of the
+ * client and of Ignite, the verdict counts the failed tests of both, as the verdict comment of a {@code /run-all} does.
+ * For example, an auto re-run tests the same commits as the run it re-runs. The verdict is judged as
+ * {@link BlockerAnalyzer#analyzeSuiteRun} judges the run of a {@code /run-all}, and kept by the newest run's build like
+ * a RunAll's verdict. Which run is the newest is asked of TeamCity by the warm cycle, and by a view at most every
+ * {@value #LOOK_EVERY_MS} ms: opening the page again costs ci2 nothing. A view, the page's ↻ and the warm cycle that
+ * want the verdict of the same run while it is computed wait for that one compute, and the warm cycle yields to a view
+ * that waits for one. The verdicts are not written to disk: the client has a few open PRs, and the first warm cycle
+ * after a start computes them again.
  */
 @Component
 public class ClientVerdicts {

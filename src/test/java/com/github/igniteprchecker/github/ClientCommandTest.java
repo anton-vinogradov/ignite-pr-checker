@@ -123,8 +123,9 @@ class ClientCommandTest {
         verify(github).appReact(CLIENT_REPO, PR, "author", 1L, "rocket");
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued** — [build"
             + " 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d` against Ignite"
-            + " master at `1f2e3d4`. Live progress and verdict: [Ignite PR Checker](" + PAGE + "). When the run"
-            + " finishes, the checker posts the verdict in a new comment and deletes this one.");
+            + " master at `1f2e3d4`. The checker's page shows the run's live progress and its verdict: [Ignite PR"
+            + " Checker](" + PAGE + "). When the run finishes, the checker posts the verdict in a new comment and"
+            + " deletes this one.");
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
         verify(github, never()).appComment(anyInt(), any(), anyString());
         verify(github, never()).appReact(anyInt(), any(), anyLong(), anyString());
@@ -248,14 +249,14 @@ class ClientCommandTest {
         clientComment(1L, "/run-all", "Author");
         clientComment(2L, "/run-all", "Author");
 
-        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. Live progress"
-            + " and verdict: [Ignite PR Checker](" + PAGE + "). The checker cancelled your previous run. This run"
-            + " replaces it. When the run finishes, the checker posts the verdict in a new comment and deletes this"
-            + " one."));
-        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. Live progress"
-            + " and verdict: [Ignite PR Checker](" + PAGE + "). The checker cancelled your previous runs. This run"
-            + " replaces them. When the run finishes, the checker posts the verdict in a new comment and deletes this"
-            + " one."));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. The checker's"
+            + " page shows the run's live progress and its verdict: [Ignite PR Checker](" + PAGE + "). The checker"
+            + " cancelled your previous run. This run replaces it. When the run finishes, the checker posts the verdict"
+            + " in a new comment and deletes this one."));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. The checker's"
+            + " page shows the run's live progress and its verdict: [Ignite PR Checker](" + PAGE + "). The checker"
+            + " cancelled your previous runs. This run replaces them. When the run finishes, the checker posts the"
+            + " verdict in a new comment and deletes this one."));
     }
 
     @Test
@@ -348,8 +349,8 @@ class ClientCommandTest {
         verify(github, never()).appReact(anyString(), anyInt(), any(), anyLong(), eq("confused"));
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued, but not at the"
             + " top** — [build 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d`"
-            + " against Ignite master at `1f2e3d4`. Live progress and verdict: [Ignite PR Checker](" + PAGE + ")."
-            + " TeamCity refused to move it up (HTTP 403): your ci2 account may not"
+            + " against Ignite master at `1f2e3d4`. The checker's page shows the run's live progress and its verdict:"
+            + " [Ignite PR Checker](" + PAGE + "). TeamCity refused to move it up (HTTP 403): your ci2 account may not"
             + " have the permission to reorder the build queue. When the run finishes, the checker posts the verdict in"
             + " a new comment and deletes this one.");
     }

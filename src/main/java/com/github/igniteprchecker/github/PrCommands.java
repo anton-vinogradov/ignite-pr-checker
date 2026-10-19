@@ -413,8 +413,8 @@ public class PrCommands implements SnapshotCache {
             String ack = "🚀 **" + Markup.text(suite) + " queued"
                 + (belowTop ? ", but not at the top" : cmd.top() ? " at the top of the queue" : "") + "** — " + link
                 + ": this PR's head `" + shortSha(clientSha(queued.pinned())) + "` against Ignite master at `"
-                + shortSha(igniteSha(queued.pinned())) + "`. Live progress and verdict: [Ignite PR Checker]("
-                + PythonClientRuns.pageUrl(publicUrl, pr.number()) + ")."
+                + shortSha(igniteSha(queued.pinned())) + "`. The checker's page shows the run's live progress and its"
+                + " verdict: [Ignite PR Checker](" + PythonClientRuns.pageUrl(publicUrl, pr.number()) + ")."
                 + (belowTop ? " " + notMovedUp("it", queued.belowTop()) + "." : "")
                 + (cancelled == 0 ? ""
                     : cancelled == 1 ? " The checker cancelled your previous run. This run replaces it."

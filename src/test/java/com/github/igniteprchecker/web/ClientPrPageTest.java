@@ -84,7 +84,7 @@ class ClientPrPageTest {
         assertThat(out.get("client").asBoolean()).isTrue();
         assertThat(out.get("prTests").asBoolean()).isTrue();
         assertThat(out.get("filtered").asBoolean()).isTrue();
-        assertThat(out.get("label").asText()).isEqualTo("Thin client: Python:");
+        assertThat(out.get("label").asText()).isEqualTo("“Thin client: Python”:");
         assertThat(out.get("again").asText()).isEqualTo("Run the suite");
         assertThat(out.get("force").asText()).isEqualTo("Queues the suite although GitHub reports merge conflicts in"
             + " this PR. Asks first.");
@@ -131,6 +131,22 @@ class ClientPrPageTest {
         String narrow = css.substring(css.indexOf("@media (max-width: 768px) {"));
 
         assertThat(narrow).contains("\n            #freshText .nowrap { white-space: normal; }");
+    }
+
+    /**
+     * The title of the group's head began "Run on such a PR queues": a reader took "Run" for an order until the word
+     * "queues". The title names the Run button.
+     */
+    @Test
+    void theGroupsTitleNamesTheRunButton() throws Exception {
+        String title = "The open PRs of the Python thin client. For such a PR, the Run button queues the client's suite"
+            + " with the PR's head and Ignite master.";
+
+        assertThat(Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8))
+            .contains("<summary title=\"" + title + "\">Python client ");
+        assertThat(Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8)).contains("\"" + title
+            + "\": \"Открытые PR тонкого клиента Python. Для такого PR кнопка «Запустить» ставит в очередь сьюту"
+            + " клиента с последним коммитом PR и master проекта Ignite.\"");
     }
 
     /**
@@ -291,6 +307,26 @@ class ClientPrPageTest {
 
         assertThat(out.get("status").asText()).isEqualTo("No run of the suite tested this PR's code yet. Start one with"
             + " Run above, or post /run-all in the PR.");
+    }
+
+    /**
+     * The Russian page told to start "его" when no run had tested the PR's code: the nearest word was the PR. It says to
+     * start a run.
+     */
+    @Test
+    void theRussianPageSaysToStartARunWhenNoneTestedThePr() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + "const CATALOG = "
+            + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
+            page.route('/ru.json', { body: CATALOG });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            page.route('/api/client/analyze', { status: 404, body: { error: 'no run of the suite tested this PR\\'s own'
+                + ' commit', noRun: true } });
+            await page.load('?repo=python&pr=69');
+            report({ status: page.text('status') });
+            """);
+
+        assertThat(out.get("status").asText()).isEqualTo("Ни один прогон сьюты ещё не проверял код этого PR. Запусти"
+            + " прогон кнопкой «Запустить» выше или напиши /run-all в PR.");
     }
 
     /** Ignite's PR #69 opened while the client's PR #69 was still loading: the client's late answer is not drawn. */
@@ -530,6 +566,7 @@ class ClientPrPageTest {
         assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск сьюты на тех же коммитах: вердикт ниже"
             + " может измениться, когда он закончится.");
         assertThat(texts.get("pendingRerun").asText()).isEqualTo("Запустить сьюту");
+        assertThat(texts.get("runAllLabel").asText()).isEqualTo("«Thin client: Python»:");
         assertThat(out.get("question").asText()).startsWith("Поставить «Thin client: Python» для PR #69 клиента Python"
             + " в начало очереди ci2");
     }
