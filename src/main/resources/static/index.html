@@ -337,6 +337,8 @@
                 <button id="jiraTokenBtn" class="act" type="button">Save</button></p>
             <p id="jiraTokenGone" class="caveat hidden">⚠ JIRA rejected your saved token, so Visa my runs in JIRA went
                 off: save a new token and switch it on again.</p>
+            <p id="jiraTokenRemoved" class="caveat hidden">⚠ The checker's state was restored from a backup older than
+                2 days, which keeps no tokens. Visa my runs in JIRA is paused until you save your JIRA token again.</p>
             <div id="settingsJira" class="settings-form hidden">
                 <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">Create a token in your ASF JIRA profile</a>
                 that expires in 90 days: it has all the rights of your JIRA account.
@@ -371,6 +373,9 @@
                 <button id="ghTokenBtn" class="act" type="button">Save</button></p>
             <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so the options that commit
                 with it went off: save a new token and switch them on again.</p>
+            <p id="ghTokenRemoved" class="caveat hidden">⚠ The checker's state was restored from a backup older than
+                2 days, which keeps no tokens. The options that commit are paused until you save your GitHub token for
+                commits again.</p>
             <p id="ghTokenNote" class="muted hidden"></p>
             <div id="settingsGh" class="settings-form hidden">
                 Create a <a href="https://github.com/settings/personal-access-tokens/new" target="_self" rel="noopener">fine-grained token</a>
@@ -434,7 +439,7 @@
                         The host's swap can write that memory to the disk.</li>
                     <li>After login, the ⚙ menu has options that work while this page is closed. While one is on, the
                         server stores the token encrypted, until you turn them all off. Copies stay in server backups
-                        until the backups are replaced. With any option other than PR commands on, the server also
+                        for 2 days. With any option other than PR commands on, the server also
                         keeps using the token to read from TeamCity, to check open PRs for everyone.</li>
                     <li>Your login ends when you log out (in every browser at once) or after 400 days without use.</li>
                 </ul>

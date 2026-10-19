@@ -35,7 +35,7 @@ class TokenNotesPageTest {
             .contains("The server keeps it in memory for up to an hour after your last request, or until you log out. "
                 + "The host's swap can write that memory to the disk.")
             .contains("While one is on, the server stores the token encrypted, until you turn them all off. Copies "
-                + "stay in server backups until the backups are replaced. With any option other than PR commands on, "
+                + "stay in server backups for 2 days. With any option other than PR commands on, "
                 + "the server also keeps using the token to read from TeamCity, to check open PRs for everyone.");
         assertThat(new WarmProperties(null, null, null, null).tokenTtlMinutes()).as("about an hour").isEqualTo(60);
     }

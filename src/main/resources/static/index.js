@@ -3085,15 +3085,17 @@ function renderSettings(st) {
     renderAccess(st);
     renderLogin(st);
     showTokenNotes(st);
+    showRemovedTokens(st);
     renderGithubAccount(st);
 }
 
 // Each group opens with the state of what its options need. The options run on the tokens the server holds; this
-// browser's session may carry a JIRA token too.
+// browser's session may carry a JIRA token too, but a visa paused for a removed token waits for one the server keeps.
 function renderAccess(st) {
     $('tcState').textContent = myUsername || 'logged in';
+    const removed = (st.tokensRemoved || []).includes('jira') && !jiraPasted;
     const jira = st.jiraStored ? 'saved' : st.jiraTokenRejected && !jiraPasted ? 'rejected'
-        : hasJira ? 'saved' : 'not saved';
+        : hasJira && !removed ? 'saved' : 'not saved';
     $('jiraState').textContent = jira;
     $('jiraTokenBtn').textContent = jira === 'saved' ? 'Replace' : 'Save';
     $('ghTokenState').textContent = st.ghStored ? 'saved' + (st.ghTokenKind ? ', ' + st.ghTokenKind : '')
@@ -3148,6 +3150,13 @@ function showTokenNotes(st) {
     $('jiraTokenGone').classList.toggle('hidden', !jiraGone);
     if (jiraGone) $('settingsJira').classList.remove('hidden');
     $('tcTokenGone').classList.toggle('hidden', !st.tcTokenRejected);
+}
+
+// A token missing from a restored backup leaves its options on but paused: the user only has to save it again.
+function showRemovedTokens(st) {
+    const removed = st.tokensRemoved || [];
+    $('jiraTokenRemoved').classList.toggle('hidden', !removed.includes('jira'));
+    $('ghTokenRemoved').classList.toggle('hidden', !removed.includes('github'));
 }
 
 function tokenAvailable(need) {
@@ -3223,7 +3232,7 @@ $('tcRelogin').onclick = async () => {
 // What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,
 // the server's backups and this browser's cookie.
 const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
-    + 'token until the visa is posted or you cancel it. Copies in the server\'s backups go as the backups rotate, '
+    + 'token until the visa is posted or you cancel it. Copies of the tokens stay in the server\'s backups for 2 days, '
     + 'and your session cookie keeps the TeamCity and JIRA tokens you pasted until you log out.';
 
 // The checkstyle fix runs only from a PR command, so it goes on only with PR commands and off with them.

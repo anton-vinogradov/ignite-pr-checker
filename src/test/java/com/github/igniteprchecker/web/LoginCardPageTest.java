@@ -73,8 +73,8 @@ class LoginCardPageTest {
                 + "disk.")
             .doesNotContain("everyone's PRs")
             .contains("After login, the ⚙ menu has options that work while this page is closed. While one is on, the "
-                + "server stores the token encrypted, until you turn them all off. Copies stay in server backups until "
-                + "the backups are replaced. With any option other than PR commands on, the server also keeps using "
+                + "server stores the token encrypted, until you turn them all off. Copies stay in server backups for 2 "
+                + "days. With any option other than PR commands on, the server also keeps using "
                 + "the token to read from TeamCity, to check open PRs for everyone.")
             .contains("Your login ends when you log out (in every browser at once) or after 400 days without use.");
     }

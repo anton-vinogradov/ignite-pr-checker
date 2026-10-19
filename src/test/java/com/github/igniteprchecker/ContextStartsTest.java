@@ -4,10 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
+import com.github.igniteprchecker.metrics.HeapDumpExpiry;
+import com.github.igniteprchecker.persist.CacheStore;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -26,6 +30,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.config.FixedDelayTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -60,6 +67,9 @@ class ContextStartsTest {
 
     @Autowired
     private PrCommands commands;
+
+    @Autowired
+    private ScheduledTaskHolder scheduled;
 
     @LocalServerPort
     private int port;
@@ -133,6 +143,22 @@ class ContextStartsTest {
 
             assertThat(res.statusCode()).as(path).isEqualTo(403);
         }
+    }
+
+    /**
+     * A heap dump and the tokens in old copies of the state go on time only while a job looks for them every 10
+     * minutes: without the job they stay on disk, and nothing else fails.
+     */
+    @Test
+    void oldDumpsAndTokensInCopiesAreLookedForEveryTenMinutes() {
+        Map<String, Duration> every = new HashMap<>();
+        for (ScheduledTask task : scheduled.getScheduledTasks()) {
+            if (task.getTask() instanceof FixedDelayTask t)
+                every.put(t.toString(), t.getIntervalDuration());
+        }
+
+        assertThat(every).containsEntry(HeapDumpExpiry.class.getName() + ".deleteExpired", Duration.ofMinutes(10))
+            .containsEntry(CacheStore.class.getName() + ".removeOldTokens", Duration.ofMinutes(10));
     }
 
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */

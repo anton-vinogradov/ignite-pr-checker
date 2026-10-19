@@ -40,6 +40,6 @@ class StatusMemoryTest {
 
         assertThat((long) jvm.get("heapPeakMb")).isPositive();
         assertThat((long) jvm.get("hostMemMb")).isPositive();
-        assertThat(jvm).containsKeys("rssMb", "rssPeakMb");
+        assertThat(jvm).containsKeys("rssMb", "rssPeakMb", "heapDump");
     }
 }
