@@ -88,6 +88,9 @@ public class PrCommands implements SnapshotCache {
     private static final String NEAR_MISS_HINT = "💡 _Nothing was run: a command has to be the very first word of"
         + " the comment, as is — `/run-all`, `/run-all top` or `/top`. Post it that way in a new comment._";
 
+    /** The forms of the word that queues a run on a PR with merge conflicts; others close to it are typos. */
+    private static final List<String> FORCE = List.of("force", "--force");
+
     /** At most this many replies on what a person lacks for a command go to one person in any 24 hours. */
     private static final int EXPLAINED_PER_DAY = 3;
 
@@ -101,7 +104,7 @@ public class PrCommands implements SnapshotCache {
     private static final long EXPLAINED_MEMORY_MS = 30 * 24 * 3600_000L;
 
     /** A /top command. */
-    private static final Cmd TOP = new Cmd("/top", true);
+    private static final Cmd TOP = new Cmd("/top", true, false);
 
     /** How long a reaction or reply that GitHub did not take is tried again: a day later it would only confuse. */
     private static final long OUTBOX_MS = 24 * 3600_000L;
@@ -309,6 +312,11 @@ public class PrCommands implements SnapshotCache {
 
             return;
         }
+        if (!cmd.force() && reportsConflicts(pr)) {
+            conflicts(pr, c, actor.get().username(), cmd);
+
+            return;
+        }
         if (!pr.ignite()) {
             runClient(c, actor.get(), pr, cmd);
 
@@ -451,6 +459,27 @@ public class PrCommands implements SnapshotCache {
 
     private static String shortSha(String sha) {
         return sha == null ? "" : sha.substring(0, Math.min(7, sha.length()));
+    }
+
+    /** Whether GitHub reports merge conflicts between the PR and its base branch, in whichever repo it is. */
+    private boolean reportsConflicts(PrRef pr) {
+        return pr.ignite() ? github.reportsConflicts(pr.number()) : github.reportsConflicts(pr.repo(), pr.number());
+    }
+
+    /**
+     * A /run-all on a PR that GitHub reports merge conflicts for queues nothing: the PR has to change before it can be
+     * merged. The reply says how to queue the run all the same: RunAll, or the client's suite in a PR of the client.
+     */
+    private void conflicts(PrRef pr, GithubClient.IssueComment c, String user, Cmd cmd) {
+        String again = cmd.top() ? "/run-all top" : "/run-all";
+        String typo = forceTypo(c.body());
+        String run = pr.ignite() ? "RunAll" : "the suite **" + Markup.text(python.suiteLabel()) + "**";
+        react(pr, user, c.id(), "confused");
+        explain(pr, user, c, "🚀 _Nothing was queued: GitHub reports merge conflicts between this PR and its base"
+            + " branch. Resolve them and post `" + again + "` again, or post `" + again + " force` to queue " + run
+            + " on the PR as it is."
+            + (typo == null ? "" : " " + Markup.code(typo) + " does not count as `force`.") + "_");
+        log.info("{} by {} for PR {} not run: GitHub reports merge conflicts", cmd.name(), c.user().login(), pr);
     }
 
     /**
@@ -640,7 +669,40 @@ public class PrCommands implements SnapshotCache {
         if (!words[0].equals("/run-all") && !words[0].equals("/runall"))
             return null;
 
-        return new Cmd("/run-all", Arrays.stream(words).skip(1).anyMatch(w -> w.equals("top") || w.equals("--top")));
+        return new Cmd("/run-all", Arrays.stream(words).skip(1).anyMatch(w -> w.equals("top") || w.equals("--top")),
+            Arrays.stream(words).skip(1).anyMatch(FORCE::contains));
+    }
+
+    /**
+     * The first word after the command, as typed, that is one edit away from {@code force} or is {@code force} after
+     * dashes other than "--"; null when there is none.
+     */
+    private static String forceTypo(String body) {
+        return Arrays.stream(firstLine(body).split("\\s+")).skip(1)
+            .filter(w -> !FORCE.contains(w.toLowerCase(Locale.ROOT))
+                && oneEditApart(w.toLowerCase(Locale.ROOT).replaceFirst("^[-–—]+", ""), "force"))
+            .findFirst().orElse(null);
+    }
+
+    /**
+     * Whether {@code a} turns into {@code b} by at most one edit: a character added, removed or changed, or two
+     * neighbours swapped.
+     */
+    private static boolean oneEditApart(String a, String b) {
+        if (a.equals(b))
+            return true;
+        if (Math.abs(a.length() - b.length()) > 1)
+            return false;
+
+        int i = 0;
+        while (i < Math.min(a.length(), b.length()) && a.charAt(i) == b.charAt(i))
+            i++;
+        if (a.length() != b.length())
+            return a.length() > b.length() ? a.substring(i + 1).equals(b.substring(i))
+                : a.substring(i).equals(b.substring(i + 1));
+
+        return a.substring(i + 1).equals(b.substring(i + 1)) || i + 1 < a.length() && a.charAt(i) == b.charAt(i + 1)
+            && a.charAt(i + 1) == b.charAt(i) && a.substring(i + 2).equals(b.substring(i + 2));
     }
 
     private static String firstLine(String body) {
@@ -1873,7 +1935,7 @@ public class PrCommands implements SnapshotCache {
     private record Judged(AnalysisResult verdict, ClientVerdict.Rerun rerun) {
     }
 
-    /** A parsed command: the canonical name and whether "top" was asked for. */
-    private record Cmd(String name, boolean top) {
+    /** A parsed command: the canonical name, whether "top" was asked for, and whether "force" was. */
+    private record Cmd(String name, boolean top, boolean force) {
     }
 }

@@ -38,6 +38,7 @@ function sayStatus(text, { html = false, err = false, busy = false, aloud = fals
     el.classList.toggle('err', err);
     el.classList.toggle('busy', busy);
     $('statusRetry').classList.add('hidden');
+    $('statusForce').classList.add('hidden');
     if (aloud) sayAloud(el.textContent);
 }
 
@@ -2479,8 +2480,8 @@ async function freshRuns(pr) {
 }
 
 // RunAll queues the whole chain, so it always asks first; a RunAll of the viewer's own that is still
-// going is replaced rather than doubled.
-async function doTrigger(act, top, btn) {
+// going is replaced rather than doubled. On a PR with merge conflicts the server queues nothing unless `force`.
+async function doTrigger(act, top, btn, force = false) {
     if (!selectedPr) return;
     const pr = selectedPr;
     const atTop = String(top) === 'true';
@@ -2489,15 +2490,17 @@ async function doTrigger(act, top, btn) {
     try {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.runAll && b.mine);
-        if (!confirm(runAllQuestion(pr, atTop, mine))) return;
+        const conflicts = force ? T('GitHub reports merge conflicts in this PR.') + ' ' : '';
+        if (!confirm(conflicts + runAllQuestion(pr, atTop, mine))) return;
         sayStatus(mine.length ? T('Replacing your RunAll…') : T('Queuing RunAll…'), { busy: true });
-        const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : ''),
-            { method: 'POST' });
+        const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : '')
+            + (force ? '&force=true' : ''), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             sayStatus(notDone(T('Not queued'), res.error), { err: true, aloud: true });
+            if (res.conflicts) offerForce(pr, atTop);
             if (res.replaced) loadRuns(pr);
             return;
         }
@@ -2510,6 +2513,14 @@ async function doTrigger(act, top, btn) {
         btn.disabled = false;
         refocus();
     }
+}
+
+// Run anyway, next to the answer that the PR has merge conflicts: the same RunAll again, with `force`.
+let forcedRun = null;
+
+function offerForce(pr, top) {
+    forcedRun = { pr, top };
+    $('statusForce').classList.remove('hidden');
 }
 
 function runAllQuestion(pr, top, mine) {
@@ -3103,6 +3114,9 @@ $('statusRetry').onclick = () => {
     if (!selectedPr) return;
     analyzeRetries = 0;
     analyze(selectedPr);
+};
+$('statusForce').onclick = () => {
+    if (forcedRun && forcedRun.pr === selectedPr) doTrigger('trigger', forcedRun.top, $('statusForce'), true);
 };
 
 // The visa of a run comes only from Visa my runs in JIRA of whoever started it. The line in the verdict's heading says

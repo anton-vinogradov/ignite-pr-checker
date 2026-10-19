@@ -70,6 +70,14 @@ public class PythonClientRuns {
         return props.repo();
     }
 
+    /**
+     * The suite's name for a reply that comes before TeamCity is asked: the name ci2 gives the default suite, or the
+     * id of another suite set up in its place.
+     */
+    public String suiteLabel() {
+        return props.suite().equals(PythonClientProperties.DEFAULT_SUITE) ? "Thin client: Python" : props.suite();
+    }
+
     /** The branch TeamCity files the runs of a PR of the client under: the client's VCS root names it so. */
     static String branch(int pr) {
         return "pull/" + pr;

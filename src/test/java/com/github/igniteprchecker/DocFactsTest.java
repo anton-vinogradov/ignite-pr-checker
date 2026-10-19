@@ -151,6 +151,18 @@ class DocFactsTest {
         assertThat(collapsed(Path.of("README.ru.md"))).contains("Jar версии v1.38.0 или более ранней");
     }
 
+    /**
+     * GitHub's {@code mergeable} says whether the PR conflicts with its base branch, and the reply names that branch.
+     * The tour named the client's master instead, which is wrong for a PR of the client into a release branch.
+     */
+    @Test
+    void theTourNamesTheBranchMergeConflictsAreWith() throws IOException {
+        assertThat(collapsed(TOUR)).doesNotContain("conflicts between the PR and the client's master")
+            .contains("When GitHub reports merge conflicts between the PR and its base branch, `/run-all` and");
+        assertThat(collapsed(TOUR_RU)).doesNotContain("конфликтах слияния между PR и master клиента")
+            .contains("Когда GitHub сообщает о конфликтах слияния между PR и его базовой веткой, `/run-all` и");
+    }
+
     /** The login limits LoginThrottle keeps; DocParityTest holds the Russian numbers to the English ones. */
     @Test
     void theDocsStateTheLoginLimits() throws IOException {

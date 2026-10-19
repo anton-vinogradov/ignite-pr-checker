@@ -134,6 +134,7 @@ and the visa.
 | `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
+| **Run anyway** | **Run**, **Run at top** and **Run RunAll** queue nothing on a PR that GitHub reports merge conflicts for. The status line says so, and this button appears next to it. It asks first, then queues that RunAll anyway. | Resolve the conflicts and run RunAll again. |
 | **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
 | `Visa: posted to IGNITE-12345` | The visa of this run is in the ticket. The key links to the comment. | — |
@@ -280,6 +281,11 @@ own tests, and what was not blamed on the PR.
   first and say how big the chain is. If your own RunAll of the PR is still going, OK cancels it and queues the new
   one; someone else's RunAll stays. ci2 lets only some accounts reorder its queue: for anyone else TeamCity queues the
   chain at the end, and the page says so.
+- On a PR that GitHub reports merge conflicts for, **Run**, **Run at top** and **Run RunAll** queue nothing and say
+  why. **Run anyway** next to that answer asks again and queues the RunAll. **Run**, **Run at top** and **Run RunAll**
+  queue RunAll as usual until GitHub has worked out whether the PR has conflicts. While fewer than a fifth of the
+  checker's hourly GitHub calls are left, the page does not ask GitHub about conflicts and queues RunAll as usual.
+  Merge conflicts do not stop **Rerun**: it re-runs suites of a run the PR already has.
 - **Rerun** and **Rerun at top** re-run one suite, every suite of a section or a group of broken suites. Each suite
   row has its own pair of small text buttons. A section's button says how many suites it re-runs. A pair that would
   re-run what the pair above it re-runs is left out, and one button is filled as the next step, except on a merged
@@ -526,6 +532,7 @@ from its own GitHub account, the app account.
 | `/run-all` (also `/runall`) | Queues the whole RunAll chain under your own TeamCity account. |
 | `/run-all top` (also `--top`) | The same, at the top of the ci2 queue; if ci2 does not let your account reorder the queue, at its end, and the ack says so. |
 | `/top` | Moves the RunAll your `/run-all` started on this PR to the top of the queue, while it still waits; the run's story says so. |
+| `/run-all force`, `/run-all top force` (also `--force`) | The same as `/run-all` and `/run-all top`, also on a PR that GitHub reports merge conflicts for. |
 
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
   A comment written more than an hour ago is not run. An edited comment is not run either: anyone with write access
@@ -546,6 +553,11 @@ from its own GitHub account, the app account.
   comment, and the story's comment is deleted, so the run leaves one comment of the checker in the PR.
 - A command that is not the first word ("Please /run-all") gets 😕 and a reply with a hint saying how to write it. A
   `/run-all` that failed is answered why, in words.
+- On a PR that GitHub reports merge conflicts for, `/run-all` and `/run-all top` queue nothing. Such a PR has to
+  change before it can be merged. The command gets 😕 and a reply that says what to do: resolve the conflicts and post
+  it again, or add `force`. Until GitHub has worked out whether the PR has conflicts, the command runs as usual. A
+  word that differs from `force` by one character, such as `forse` or `-force`, does not count as `force`. The reply
+  names such a word.
 - A new `/run-all` supersedes your previous one: your queued or running chain on the PR and its re-runs are cancelled
   first, nobody else's. The old story ends with `🛑 Superseded by a newer /run-all`, and the ack says what was
   cancelled.
@@ -568,6 +580,9 @@ The commands also work in the pull requests of
 - `/run-all` queues the suite under your TeamCity account. The run tests the PR's head commit against the commit
   Ignite master has at the moment of the command. The checker gives TeamCity both commits when it queues the run, so
   a run that waits in the queue still tests them. `/run-all top` and `/top` work as in Ignite's PRs.
+- When GitHub reports merge conflicts between the PR and its base branch, `/run-all` and `/run-all top` queue
+  nothing, as in Ignite's PRs. To queue the suite anyway, add `force`, as in `/run-all force` or `/run-all top force`.
+  Merge conflicts do not stop the auto re-run: it re-runs a run the PR already has.
 - The checker judges the failed tests the same way as in a RunAll: by the suite's runs on master, its runs in
   other Ignite PRs, and its runs in this PR. Two runs of this PR count as the same code only when both commits match,
   the client's and Ignite's. The suite takes the client's code from its parameter `OVERRIDDEN_BRANCH`, and `/run-all`

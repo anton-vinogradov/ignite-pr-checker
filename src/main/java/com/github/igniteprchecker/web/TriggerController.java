@@ -26,6 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api")
 public class TriggerController {
+    /** Why a RunAll was not queued on a PR with merge conflicts, and how to queue it all the same. */
+    static final String CONFLICTS = "GitHub reports merge conflicts between this PR and its base branch. Resolve them"
+        + " and run RunAll again, or press Run anyway to queue RunAll on the PR as it is";
+
     private final TcClient tc;
     private final BlockerAnalyzer analyzer;
     private final RerunTracker reruns;
@@ -47,13 +51,17 @@ public class TriggerController {
      * Queue the whole RunAll chain. {@code top} puts it at the head of the queue; {@code replace} first
      * cancels the user's own RunAll chains of the PR, and a refusal to cancel queues nothing, so the
      * user never ends up with two chains. Queuing after the cancel can still fail, and then the answer
-     * says the previous chain is gone.
+     * says the previous chain is gone. A PR that GitHub reports merge conflicts for gets 409 with {@code conflicts},
+     * and nothing is cancelled or queued, unless {@code force}.
      */
     @PostMapping("/trigger")
     public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
-        @RequestParam(defaultValue = "false") boolean replace,
+        @RequestParam(defaultValue = "false") boolean replace, @RequestParam(defaultValue = "false") boolean force,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        if (!force && heads.conflicts(pr))
+            return ResponseEntity.status(409).body(Map.of("error", CONFLICTS, "conflicts", true));
+
         int replaced = replace
             ? tc.cancelOwnBuilds(token, pr, username, b -> runAllBuildType.equals(b.buildTypeId()))
             : 0;

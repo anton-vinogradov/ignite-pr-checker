@@ -40,9 +40,11 @@ each label means and what to do about it.
   [Language](docs/features.md#language).
 - **PR commands.** With **PR commands** on and your GitHub account linked once with **Link GitHub**, a `/run-all`
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
-  comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See
+  comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. On a PR with merge
+  conflicts, `/run-all` queues RunAll only with `force`, as in `/run-all force`. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
-  `/run-all` runs the client's suite against Ignite master, and the auto re-run and the JIRA visa work there too. See
+  `/run-all` runs the client's suite against Ignite master. There, too, `/run-all` on a PR with merge conflicts
+  needs `force`. The auto re-run and the JIRA visa work there as well. See
   [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
@@ -129,6 +131,7 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   someone revokes it. When GitHub makes its writes wait (a secondary rate limit) they go out later, and
   so do the writes past 40 an hour to one PR or 60 for one user; the status page shows writes that wait or that GitHub
   refuses. The PR page checks whether a running build tests the PR's head and whether the head moved since a run.
+  Before it queues RunAll, it checks whether the PR has merge conflicts.
   Once GitHub names a PR's head, the checker reuses it for 30 seconds. While fewer than a fifth of the token's hourly
   calls are left, these checks do not ask GitHub. The checker's own work, such as PR commands, comments and visas,
   needs the rest. Without the token the options that write to GitHub are off. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers

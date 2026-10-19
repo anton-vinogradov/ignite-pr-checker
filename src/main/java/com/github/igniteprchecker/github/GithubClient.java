@@ -504,6 +504,31 @@ public class GithubClient implements SnapshotCache {
         String title) {
     }
 
+    /** See {@link #reportsConflicts(String, int)}: a PR of the configured repo. */
+    public boolean reportsConflicts(int prNumber) {
+        return reportsConflicts(props.repo(), prNumber);
+    }
+
+    /**
+     * Whether GitHub reports merge conflicts between the PR and its base branch: one call. GitHub works this out in
+     * the background after the first question about the PR, and names no answer until then. That, a PR GitHub does
+     * not have and a call that failed all count as no conflicts: a run is never held back by what GitHub did not say.
+     */
+    public boolean reportsConflicts(String repo, int prNumber) {
+        try {
+            java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
+                props.apiUrl() + "/repos/" + repo + "/pulls/" + prNumber).body(java.util.Map.class));
+
+            return pr != null && Boolean.FALSE.equals(pr.get("mergeable"));
+        }
+        catch (RuntimeException e) {
+            log.info("GitHub did not say whether PR {} of {} has merge conflicts, taken as none: {}", prNumber, repo,
+                e.toString());
+
+            return false;
+        }
+    }
+
     /** How many commits {@code head} is ahead of {@code base}, and the head's short sha — for staleness. */
     public Ahead compareAhead(String base, String head) {
         if (base == null || head == null || base.equals(head))
