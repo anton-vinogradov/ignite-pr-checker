@@ -89,7 +89,7 @@ class ConflictingClientPrCommandTest {
         verify(github).appReact(CLIENT_REPO, PR, "author", 1L, "confused");
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: GitHub reports merge"
             + " conflicts between this PR and its base branch. Resolve them and post `/run-all` again, or post"
-            + " `/run-all force` to queue **Thin client: Python** on the PR as it is._");
+            + " `/run-all force` to queue the suite **Thin client: Python** on the PR as it is._");
         verify(github, never()).reportsConflicts(anyInt());
     }
 
@@ -100,7 +100,7 @@ class ConflictingClientPrCommandTest {
         verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: GitHub reports merge"
             + " conflicts between this PR and its base branch. Resolve them and post `/run-all top` again, or post"
-            + " `/run-all top force` to queue **Thin client: Python** on the PR as it is._");
+            + " `/run-all top force` to queue the suite **Thin client: Python** on the PR as it is._");
     }
 
     @Test
@@ -110,7 +110,7 @@ class ConflictingClientPrCommandTest {
         verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: GitHub reports merge"
             + " conflicts between this PR and its base branch. Resolve them and post `/run-all` again, or post"
-            + " `/run-all force` to queue **Thin client: Python** on the PR as it is. `forse` does not count as"
+            + " `/run-all force` to queue the suite **Thin client: Python** on the PR as it is. `forse` does not count as"
             + " `force`._");
     }
 
@@ -123,7 +123,7 @@ class ConflictingClientPrCommandTest {
 
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: GitHub reports merge"
             + " conflicts between this PR and its base branch. Resolve them and post `/run-all` again, or post"
-            + " `/run-all force` to queue **PythonThinClient_Tests** on the PR as it is._");
+            + " `/run-all force` to queue the suite **PythonThinClient_Tests** on the PR as it is._");
     }
 
     @ParameterizedTest

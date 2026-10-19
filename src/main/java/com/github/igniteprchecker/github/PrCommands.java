@@ -473,7 +473,7 @@ public class PrCommands implements SnapshotCache {
     private void conflicts(PrRef pr, GithubClient.IssueComment c, String user, Cmd cmd) {
         String again = cmd.top() ? "/run-all top" : "/run-all";
         String typo = forceTypo(c.body());
-        String run = pr.ignite() ? "RunAll" : "**" + Markup.text(python.suiteLabel()) + "**";
+        String run = pr.ignite() ? "RunAll" : "the suite **" + Markup.text(python.suiteLabel()) + "**";
         react(pr, user, c.id(), "confused");
         explain(pr, user, c, "🚀 _Nothing was queued: GitHub reports merge conflicts between this PR and its base"
             + " branch. Resolve them and post `" + again + "` again, or post `" + again + " force` to queue " + run

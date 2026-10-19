@@ -43,8 +43,8 @@ each label means and what to do about it.
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. On a PR with merge
   conflicts, `/run-all` queues RunAll only with `force`, as in `/run-all force`. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
-  `/run-all` runs the client's suite against Ignite master. There, too, a PR with merge conflicts needs `force`, and
-  the auto re-run and the JIRA visa work. See
+  `/run-all` runs the client's suite against Ignite master. There, too, `/run-all` on a PR with merge conflicts
+  needs `force`. The auto re-run and the JIRA visa work there as well. See
   [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
