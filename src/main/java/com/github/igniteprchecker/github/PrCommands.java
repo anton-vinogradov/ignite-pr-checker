@@ -477,7 +477,8 @@ public class PrCommands implements SnapshotCache {
         react(pr, user, c.id(), "confused");
         explain(pr, user, c, "🚀 _Nothing was queued: GitHub reports merge conflicts between this PR and its base"
             + " branch. Resolve them and post `" + again + "` again, or post `" + again + " force` to queue " + run
-            + " on the PR as it is." + (typo == null ? "" : " `" + typo + "` does not count as `force`.") + "_");
+            + " on the PR as it is."
+            + (typo == null ? "" : " " + Markup.code(typo) + " does not count as `force`.") + "_");
         log.info("{} by {} for PR {} not run: GitHub reports merge conflicts", cmd.name(), c.user().login(), pr);
     }
 

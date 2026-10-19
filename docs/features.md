@@ -580,7 +580,7 @@ The commands also work in the pull requests of
 - `/run-all` queues the suite under your TeamCity account. The run tests the PR's head commit against the commit
   Ignite master has at the moment of the command. The checker gives TeamCity both commits when it queues the run, so
   a run that waits in the queue still tests them. `/run-all top` and `/top` work as in Ignite's PRs.
-- When GitHub reports merge conflicts between the PR and the client's master, `/run-all` and `/run-all top` queue
+- When GitHub reports merge conflicts between the PR and its base branch, `/run-all` and `/run-all top` queue
   nothing, as in Ignite's PRs. The reply names the suite and says what to do: resolve the conflicts and post the
   command again, or add `force`, as in `/run-all force`. Merge conflicts do not stop the auto re-run of a run that is
   already queued.

@@ -4,11 +4,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Text from TeamCity, such as a test's name, why a suite broke or a ci2 user's name, written into a PR comment in
- * GitHub's markdown or into a visa in JIRA's wiki markup so that it reads as written. A PR's own code names its tests
- * and can print what TeamCity reports as a build problem, and whoever registers on ci2 picks their own name. Written as
- * is, a name with two backticks in a row ends its code span, and the rest of it makes links, mentions and HTML in a
- * comment the checker's account posts.
+ * Text from TeamCity or a PR comment, such as a test's name, why a suite broke, a ci2 user's name or a word of a
+ * command, written into a PR comment in GitHub's markdown or into a visa in JIRA's wiki markup so that it reads as
+ * written. A PR's own code names its tests and can print what TeamCity reports as a build problem, whoever registers on
+ * ci2 picks their own name, and whoever posts a command types any word in it. Written as is, a name with two backticks
+ * in a row ends its code span, and the rest of it makes links, mentions and HTML in a comment the checker's account
+ * posts.
  */
 public final class Markup {
     /** A line break or another control character: after a line break, a list item can go on with a heading. */
@@ -48,7 +49,7 @@ public final class Markup {
      * A code span in GitHub's markdown that holds {@code s} whole: its fence is one backtick longer than any run of
      * backticks in it.
      */
-    static String code(String s) {
+    public static String code(String s) {
         String line = oneLine(s);
         int longest = 0;
         for (int i = 0, run = 0; i < line.length(); i++) {

@@ -3,6 +3,7 @@ package com.github.igniteprchecker.github;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
@@ -129,6 +130,18 @@ class ConflictingPrCommandTest {
         verify(github).appComment(PR, "author", "@Author 🚀 _Nothing was queued: GitHub reports merge conflicts"
             + " between this PR and its base branch. Resolve them and post `" + again + "` again, or post `" + again
             + " force` to queue RunAll on the PR as it is. `" + typo + "` does not count as `force`._");
+    }
+
+    /** A backtick in the typo does not end the code span that names it, so the reply stays one italic line. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {"/run-all force` | `` force` ``", "/run-all `force | `` `force ``",
+        "/run-all top --force` | `` --force` ``"})
+    void aTypoWithABacktickStaysInItsCodeSpan(String typed, String named) {
+        comment(1L, typed);
+
+        verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
+        verify(github).appComment(eq(PR), eq("author"), endsWith(" on the PR as it is. " + named
+            + " does not count as `force`._"));
     }
 
     @ParameterizedTest
