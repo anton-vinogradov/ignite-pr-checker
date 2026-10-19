@@ -60,6 +60,11 @@
         .catval small { color: var(--muted); }
         /* Most settings' names are longer than the 120 px of the other lists: the names take one column, as wide as the
            longest, so no value stands over its name. */
+        /* A chart's names share one column as wide as the longest, each on one line, so the bars start together. */
+        .chart { display: grid; grid-template-columns: max-content 1fr auto; column-gap: 0.6rem; }
+        .chart > * { grid-column: 1 / -1; }
+        .chart .catrow { grid-template-columns: subgrid; }
+        .chart .catname { white-space: nowrap; }
         #configList { display: grid; grid-template-columns: max-content 1fr; }
         #configList > * { grid-column: 1 / -1; }
         #configList .catrow { grid-template-columns: subgrid; }
@@ -154,7 +159,7 @@
         <h2>Analysis &amp; requests</h2>
         <div class="cards" id="appCards"></div>
         <div class="subhead">Served requests by endpoint · own latency, last hour</div>
-        <div class="section"><div id="httpCats" class="cats"></div></div>
+        <div class="section"><div id="httpCats" class="cats chart"></div></div>
 
         <h2>Cache warmer
             <button id="flushBtn" class="mini-btn" type="button" hidden
@@ -179,19 +184,19 @@
             <div id="tcByStatus" class="bystatus"></div>
         </div>
         <div class="subhead">Calls by category · last hour</div>
-        <div class="section"><div id="tcCats" class="cats"></div></div>
+        <div class="section"><div id="tcCats" class="cats chart"></div></div>
 
         <h2>GitHub</h2>
         <div class="cards" id="ghCards"></div>
         <div class="subhead">App (server) token · last hour <span class="muted">· PRs, files, checks, comment poll; every comment, edit &amp; reaction</span></div>
-        <div class="section"><div id="ghCatsApp" class="cats"></div></div>
+        <div class="section"><div id="ghCatsApp" class="cats chart"></div></div>
         <div class="subhead">Users' own PATs · last hour <span class="muted">· token checks, GitHub account links, fix commits</span></div>
-        <div class="section"><div id="ghCatsPat" class="cats"></div></div>
+        <div class="section"><div id="ghCatsPat" class="cats chart"></div></div>
 
         <h2>JIRA <span class="muted" style="font-weight:400;font-size:0.8rem">· all calls run under users' own PATs (visas, token checks)</span></h2>
         <div class="cards" id="jiraCards"></div>
         <div class="subhead">Calls by category · last hour</div>
-        <div class="section"><div id="jiraCats" class="cats"></div></div>
+        <div class="section"><div id="jiraCats" class="cats chart"></div></div>
 
         <h2>Logs &amp; errors</h2>
         <div class="cards" id="logCards"></div>
