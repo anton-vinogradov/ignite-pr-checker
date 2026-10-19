@@ -385,12 +385,15 @@ public class PrCommands implements SnapshotCache {
         String user = actor.username();
         PythonClientRuns.Queued queued = null;
         try {
-            int cancelled = standing.asUser(user, () -> python.cancelOwn(actor.tcToken(), user, pr.number()));
-            String why = "Ignite PR Checker: /run-all by @" + c.user().login() + " in " + pullUrl(pr);
-            queued = standing.asUser(user, () -> python.queue(actor.tcToken(), pr.number(), cmd.top(), why));
+            int cancelled;
+            synchronized (superseding) {
+                cancelled = standing.asUser(user, () -> python.cancelOwn(actor.tcToken(), user, pr.number()));
+                String why = "Ignite PR Checker: /run-all by @" + c.user().login() + " in " + pullUrl(pr);
+                queued = standing.asUser(user, () -> python.queue(actor.tcToken(), pr.number(), cmd.top(), why));
+                endStoriesOf(user, pr, "\n🛑 _Superseded by "
+                    + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._");
+            }
             TcModel.Build build = queued.build();
-            endStoriesOf(user, pr, "\n🛑 _Superseded by "
-                + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._");
             handledTotal.incrementAndGet();
             react(pr, user, c.id(), "rocket");
 
@@ -936,10 +939,21 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Long, Long> visaTries = new ConcurrentHashMap<>();
 
     /**
-     * The verdicts of runs of the Python thin client's suite whose visa is tried again, by command comment: each try
-     * would judge the run again, with TeamCity requests, for the same verdict.
+     * The verdicts of runs of the Python thin client's suite whose visa is tried again, by command comment, with what
+     * became of the auto re-run: each try would judge the run again, with TeamCity requests, for the same verdict, and
+     * could queue a re-run the held verdict does not count.
      */
-    private final ConcurrentMap<Long, AnalysisResult> heldVerdicts = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, Judged> heldVerdicts = new ConcurrentHashMap<>();
+
+    /** The stage of a story whose verdict waits while the checker tries its visa again. */
+    private static final String VISA_TRIED_AGAIN = "visa tried again";
+
+    /**
+     * Held while a new {@code /run-all} in a PR of the Python thin client cancels the commander's runs there and ends
+     * their stories, and while a look queues an auto re-run. So a re-run goes in before that cancel, which takes it off
+     * the queue, or finds its story ended and does not go in.
+     */
+    private final Object superseding = new Object();
 
     /** The time the visa tries are counted by. */
     private LongSupplier clock = System::currentTimeMillis;
@@ -1078,34 +1092,16 @@ public class PrCommands implements SnapshotCache {
     /**
      * One look at a run of the Python thin client's suite: its stage and estimate while it waits and runs, then those
      * of its auto re-run. Once the run finished, and its re-run if it has one, a new comment that mentions the
-     * commander brings the verdict, and the story's comment goes, as a RunAll's does.
+     * commander brings the verdict, and the story's comment goes, as a RunAll's does. A run TeamCity no longer has ends
+     * the story; a re-run it no longer has leaves the verdict of the run alone.
      */
     private void lookClient(CommandRun run, StandingVisas.GhActor actor) {
         CommandRun now = current(run);
-        long watched = now.rerunId() != 0 ? now.rerunId() : now.buildId();
         try {
-            TcModel.Build b = standing.asUser(now.username(), () -> tc.getBuildState(actor.tcToken(), watched));
-            if (b == null)
-                return;
-
-            boolean finished = "finished".equalsIgnoreCase(b.state());
-            boolean cancelled = finished && "UNKNOWN".equalsIgnoreCase(b.status());
-            long finishAt = finished ? -1 : clientFinishAt(actor.tcToken(), b);
-            String suite = PythonClientRuns.suiteName(b, now.pinned());
-            if (now.rerunId() == 0) {
-                if (cancelled)
-                    end(now, "\n🛑 _Run cancelled._");
-                else if (finished)
-                    finishClientRun(now, actor, suite, null);
-                else
-                    tellProgress(now, "queued".equalsIgnoreCase(b.state()), finishAt, actor.tz());
-            }
-            else if (finished) {
-                finishClientRun(now, actor, suite, cancelled ? ClientVerdict.Rerun.cancelled(watched)
-                    : ClientVerdict.Rerun.counted(watched));
-            }
+            if (now.rerunId() == 0)
+                lookRun(now, actor);
             else
-                tellRerun(now, b, finishAt, actor.tz());
+                lookRerun(now, actor);
         }
         catch (RestClientResponseException e) {
             if (e.getStatusCode().value() != 404) {
@@ -1114,10 +1110,7 @@ public class PrCommands implements SnapshotCache {
                 return;
             }
 
-            if (now.rerunId() == 0)
-                end(run, "\n🛑 _TeamCity no longer has build " + run.buildId() + ", so this story ends here._");
-            else
-                finishClientRun(now, actor, now.pinned().suite(), ClientVerdict.Rerun.gone(watched));
+            end(run, "\n🛑 _TeamCity no longer has build " + run.buildId() + ", so this story ends here._");
         }
         catch (RuntimeException e) {
             log.warn("ETA update for PR {} failed: {}", run.of(), e.toString());
@@ -1125,15 +1118,113 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * Shows that the run finished and that its auto re-run, {@code rerun}, waits in the queue or runs, and when it is
-     * expected to finish ({@code finishAt}, epoch seconds; -1 when unknown) in the commander's time zone.
+     * One look at the client's run while it has no auto re-run: its stage and estimate, then its verdict. A run
+     * TeamCity cancelled by itself gets its auto re-run instead, as a RunAll's suite does; any other cancelled run ends
+     * the story.
+     */
+    private void lookRun(CommandRun run, StandingVisas.GhActor actor) {
+        TcModel.Build b = standing.asUser(run.username(), () -> tc.getBuildState(actor.tcToken(), run.buildId()));
+        if (b == null)
+            return;
+
+        if (!"finished".equalsIgnoreCase(b.state()))
+            tellProgress(run, "queued".equalsIgnoreCase(b.state()), clientFinishAt(actor.tcToken(), b), actor.tz());
+        else if ("UNKNOWN".equalsIgnoreCase(b.status()))
+            runCancelled(run, actor);
+        else
+            finishClientRun(run, actor, PythonClientRuns.suiteName(b, run.pinned()), null);
+    }
+
+    /**
+     * The client's run was cancelled. When TeamCity cancelled it by itself and the commander's auto re-run acts on it,
+     * the suite is queued once more on the same commits, and that re-run gives the verdict: the run has no result of
+     * its own. Otherwise the story ends.
+     */
+    private void runCancelled(CommandRun run, StandingVisas.GhActor actor) {
+        TcModel.Build b = standing.asUser(run.username(), () -> tc.suiteRun(actor.tcToken(), run.buildId()));
+        if (b == null || !PythonClientRuns.worthRerunning(b)
+            || !standing.rerunActsOn(run.username(), TcDates.epochSeconds(b.finishDate()) * 1000)) {
+            end(run, "\n🛑 _Run cancelled._");
+
+            return;
+        }
+
+        queueRerun(run, actor, true).ifPresent(notQueued -> end(run, "\n🛑 _TeamCity cancelled the run by itself. The"
+            + " checker could not queue an auto re-run: " + notQueued.why() + "._"));
+    }
+
+    /**
+     * One look at the client's run once its auto re-run is queued: the re-run's stage and estimate, then the verdict,
+     * which says what became of the re-run. Only TeamCity's 404 for the re-run itself means that it is gone.
+     */
+    private void lookRerun(CommandRun run, StandingVisas.GhActor actor) {
+        long rerunId = run.rerunId();
+        Optional<TcModel.Build> rerun = rerunState(run, actor);
+        if (rerun.isEmpty()) {
+            settleRerun(run, actor, null, ClientVerdict.Rerun.gone(rerunId));
+
+            return;
+        }
+
+        TcModel.Build b = rerun.get();
+        if (!"finished".equalsIgnoreCase(b.state()))
+            tellRerun(run, b, clientFinishAt(actor.tcToken(), b), actor.tz());
+        else if ("UNKNOWN".equalsIgnoreCase(b.status()))
+            settleRerun(run, actor, b, ClientVerdict.Rerun.cancelled(rerunId));
+        else {
+            settleRerun(run, actor, b, run.rerunStandsIn() ? ClientVerdict.Rerun.standsIn(rerunId)
+                : ClientVerdict.Rerun.counted(rerunId));
+        }
+    }
+
+    /** The state of the run's auto re-run; empty when TeamCity no longer has it. */
+    private Optional<TcModel.Build> rerunState(CommandRun run, StandingVisas.GhActor actor) {
+        try {
+            TcModel.Build b = standing.asUser(run.username(), () -> tc.getBuildState(actor.tcToken(), run.rerunId()));
+            if (b == null)
+                throw new IllegalStateException("TeamCity sent no build " + run.rerunId());
+
+            return Optional.of(b);
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 404)
+                throw e;
+
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * The verdict once the auto re-run is over, with what became of it, {@code rerun}. {@code b}: the re-run's build,
+     * which names the suite; null when TeamCity no longer has it, and the run's build names the suite then. A re-run in
+     * place of a run TeamCity cancelled gives no verdict when it does not count, and the story ends.
+     */
+    private void settleRerun(CommandRun run, StandingVisas.GhActor actor, TcModel.Build b, ClientVerdict.Rerun rerun) {
+        if (run.rerunStandsIn() && !rerun.counted()) {
+            end(run, "\n🛑 _TeamCity cancelled the run by itself. Its auto re-run [build " + rerun.buildId() + "]("
+                + tcBaseUrl + "/build/" + rerun.buildId() + ") " + rerun.why() + ", so there is no verdict._");
+
+            return;
+        }
+
+        TcModel.Build named = b != null ? b
+            : standing.asUser(run.username(), () -> tc.getBuildState(actor.tcToken(), run.buildId()));
+        if (named != null)
+            finishClientRun(run, actor, PythonClientRuns.suiteName(named, run.pinned()), rerun);
+    }
+
+    /**
+     * Shows that the run finished, or that TeamCity cancelled it by itself, and that its auto re-run, {@code rerun},
+     * waits in the queue or runs, and when it is expected to finish ({@code finishAt}, epoch seconds; -1 when unknown)
+     * in the commander's time zone.
      */
     private void tellRerun(CommandRun run, TcModel.Build rerun, long finishAt, String tz) {
         boolean queued = !"running".equalsIgnoreCase(rerun.state());
         String stage = queued ? "re-run queued" : "re-run running";
         String link = rerun.webUrl() == null || rerun.webUrl().isBlank() ? "build " + rerun.id()
             : "[build " + rerun.id() + "](" + rerun.webUrl() + ")";
-        if (worthEditing(run, stage, finishAt) && narrate(run, run.baseBody() + "\n🏁 _Run finished._ ♻️ _Auto re-run "
+        if (worthEditing(run, stage, finishAt) && narrate(run, run.baseBody() + (run.rerunStandsIn()
+            ? "\n🛑 _TeamCity cancelled the run by itself._" : "\n🏁 _Run finished._") + " ♻️ _Auto re-run "
             + link + " runs the suite again on the same commits — " + (queued ? "queued" : "running")
             + (finishAt < 0 ? ", no finish estimate yet._" : ", expected to finish **≈ " + wallClock(finishAt, tz)
                 + "**._")))
@@ -1166,8 +1257,9 @@ public class PrCommands implements SnapshotCache {
      * blames something a re-run can settle, the suite is queued once more on the same commits first, and the verdict
      * waits for that re-run. Then the commander's "Visa my runs in JIRA" posts the visa, and the comment says what
      * became of it. While a verdict that TeamCity errors left incomplete is computed again, the story says the run is
-     * being analysed. A verdict GitHub did not take now goes at a later look. {@code suiteName}: the suite's name in
-     * TeamCity; {@code rerun}: what became of the run's auto re-run, null while none was queued.
+     * being analysed, and while a failed visa is tried again, it says so. A verdict GitHub did not take now goes at a
+     * later look. {@code suiteName}: the suite's name in TeamCity; {@code rerun}: what became of the run's auto re-run,
+     * null while none was queued.
      */
     private void finishClientRun(CommandRun run, StandingVisas.GhActor actor, String suiteName,
         ClientVerdict.Rerun rerun) {
@@ -1175,39 +1267,27 @@ public class PrCommands implements SnapshotCache {
         if (now.readyId() == 0) {
             String body = verdictBodies.get(now.commentId());
             if (body == null) {
-                long counted = rerun != null && rerun.counted() ? rerun.buildId() : 0;
-                AnalysisResult held = heldVerdicts.get(now.commentId());
-                Optional<AnalysisResult> verdict = held != null ? Optional.of(held) : standing.asUser(now.username(),
-                    () -> python.verdict(actor.tcToken(), now.pr(), now.buildId(), counted));
-                if (verdict.isEmpty()) {
-                    if (worthEditing(now, ANALYSING, -1) && narrate(now, now.baseBody() + "\n🏁 _Run finished —"
-                        + " analysing; the verdict follows in a new comment._"))
-                        shown.put(now.commentId(), new Shown(now.buildId(), ANALYSING, -1));
-
+                Judged held = heldVerdicts.get(now.commentId());
+                Optional<Judged> judged = held != null ? Optional.of(held) : judge(now, actor, rerun);
+                if (judged.isEmpty())
                     return;
-                }
 
-                ClientVerdict.Rerun done = rerun;
-                if (rerun == null && PythonClientRuns.worthRerunning(verdict.get())
-                    && standing.rerunActsOn(now.username(), verdict.get().finishedAt() * 1000)) {
-                    Optional<ClientVerdict.Rerun> notQueued = queueRerun(now, actor);
-                    if (notQueued.isEmpty())
-                        return;
-
-                    done = notQueued.get();
-                }
-
+                AnalysisResult verdict = judged.get().verdict();
+                ClientVerdict.Rerun done = judged.get().rerun();
                 Optional<ClientVisa> visa = now.visa() != null ? Optional.of(now.visa())
-                    : decidedVisa(now, suiteName, verdict.get(), done);
+                    : decidedVisa(now, suiteName, verdict, done);
                 if (visa.isEmpty()) {
-                    heldVerdicts.put(now.commentId(), verdict.get());
+                    heldVerdicts.put(now.commentId(), judged.get());
+                    if (worthEditing(now, VISA_TRIED_AGAIN, -1) && narrate(now, now.baseBody() + "\n🏁 _Run finished"
+                        + " — the checker tries again to post the JIRA visa; the verdict follows in a new comment._"))
+                        shown.put(now.commentId(), new Shown(now.buildId(), VISA_TRIED_AGAIN, -1));
 
                     return;
                 }
                 heldVerdicts.remove(now.commentId());
 
                 body = python.verdictComment(standing.ghLoginOf(now.username()), now.pr(), now.buildId(), suiteName,
-                    now.pinned(), verdict.get(), done, visa.get());
+                    now.pinned(), verdict, done, visa.get());
                 if (readsAsCommand(body))
                     throw new IllegalStateException("the checker must never post a comment that reads as a command");
 
@@ -1232,27 +1312,60 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * Queues the run's auto re-run on the same commits, and the story tells it; the verdict waits for the re-run.
-     * Empty when it went in, else what the verdict says of the re-run TeamCity did not queue. A token TeamCity refused
-     * stops the look: the story waits for a login, and the re-run goes in once the token works again.
+     * The verdict of the run, and what became of its auto re-run, which may be queued now. Empty while the verdict
+     * waits: TeamCity errors left it incomplete, the re-run went in now, or a newer {@code /run-all} ended the story.
+     * {@code rerun}: what became of the re-run queued earlier, null when none was.
      */
-    private Optional<ClientVerdict.Rerun> queueRerun(CommandRun run, StandingVisas.GhActor actor) {
+    private Optional<Judged> judge(CommandRun run, StandingVisas.GhActor actor, ClientVerdict.Rerun rerun) {
+        long counted = rerun != null && rerun.counted() ? rerun.buildId() : 0;
+        Optional<AnalysisResult> verdict = standing.asUser(run.username(),
+            () -> python.verdict(actor.tcToken(), run.pr(), run.buildId(), counted));
+        if (verdict.isEmpty()) {
+            if (worthEditing(run, ANALYSING, -1) && narrate(run, run.baseBody() + "\n🏁 _Run finished —"
+                + " analysing; the verdict follows in a new comment._"))
+                shown.put(run.commentId(), new Shown(run.buildId(), ANALYSING, -1));
+
+            return Optional.empty();
+        }
+
+        if (rerun == null && PythonClientRuns.worthRerunning(verdict.get())
+            && standing.rerunActsOn(run.username(), verdict.get().finishedAt() * 1000)) {
+            return queueRerun(run, actor, false).map(notQueued -> new Judged(verdict.get(), notQueued));
+        }
+
+        return Optional.of(new Judged(verdict.get(), rerun));
+    }
+
+    /**
+     * Queues the run's auto re-run on the same commits, and the story tells it; the verdict waits for the re-run.
+     * {@code standsIn}: the re-run takes the place of a run TeamCity cancelled by itself. Empty when it went in, or when
+     * a newer {@code /run-all} ended the story first; else what the verdict says of the re-run TeamCity did not queue. A
+     * token TeamCity refused stops the look: the story waits for a login, and the re-run goes in once the token works
+     * again.
+     */
+    private Optional<ClientVerdict.Rerun> queueRerun(CommandRun run, StandingVisas.GhActor actor, boolean standsIn) {
         PythonClientRuns.Queued queued;
-        try {
-            queued = standing.asUser(run.username(),
-                () -> python.rerun(actor.tcToken(), run.pr(), run.buildId(), run.pinned()));
+        CommandRun rerunning;
+        synchronized (superseding) {
+            CommandRun live = watching.get(run.commentId());
+            if (live == null || live.ending() != null)
+                return Optional.empty();
+
+            try {
+                queued = standing.asUser(run.username(),
+                    () -> python.rerun(actor.tcToken(), run.pr(), run.buildId(), run.pinned()));
+            }
+            catch (RuntimeException e) {
+                if (StandingVisas.tcRefused(e))
+                    throw e;
+
+                log.warn("auto re-run of build {} on PR {} not queued: {}", run.buildId(), run.of(), e.toString());
+
+                return Optional.of(ClientVerdict.Rerun.notQueued(e instanceof RestClientResponseException rest
+                    ? "TeamCity answered HTTP " + rest.getStatusCode().value() : "an error stopped it"));
+            }
+            rerunning = watching.computeIfPresent(run.commentId(), (k, r) -> r.rerunAs(queued.build().id(), standsIn));
         }
-        catch (RuntimeException e) {
-            if (StandingVisas.tcRefused(e))
-                throw e;
-
-            log.warn("auto re-run of build {} on PR {} not queued: {}", run.buildId(), run.of(), e.toString());
-
-            return Optional.of(ClientVerdict.Rerun.notQueued(e instanceof RestClientResponseException rest
-                ? "TeamCity answered HTTP " + rest.getStatusCode().value() : "an error stopped it"));
-        }
-
-        CommandRun rerunning = watching.computeIfPresent(run.commentId(), (k, r) -> r.rerunAs(queued.build().id()));
         if (rerunning != null)
             tellRerun(rerunning, queued.build(), -1, actor.tz());
         log.info("auto re-run of build {} on PR {} queued: build {}{}", run.buildId(), run.of(), queued.build().id(),
@@ -1668,51 +1781,52 @@ public class PrCommands implements SnapshotCache {
      * of v1.20.11's snapshot, which has it in no field. {@code repo}: the Python thin client's for a run of its suite,
      * null for a RunAll of the repo the checker lists; {@code pinned}: the commits and parameters the client's run was
      * queued with, null for a RunAll. {@code rerunId}: the client's run's auto re-run, 0 while none is queued; {@code
-     * visa}: what became of the client's run's visa, null until it is decided. Records of earlier versions have
-     * neither.
+     * visa}: what became of the client's run's visa, null until it is decided; {@code rerunStandsIn}: TeamCity
+     * cancelled the client's run by itself, and its auto re-run gives the verdict. Records of earlier versions have
+     * none of the three.
      */
     private record CommandRun(long commentId, String baseBody, long buildId, String username,
         long narrationId, boolean app, int pr, String note, String ending, long readyId, String repo,
-        PinnedRun pinned, long rerunId, ClientVisa visa) {
+        PinnedRun pinned, long rerunId, ClientVisa visa, boolean rerunStandsIn) {
         CommandRun(long commentId, String baseBody, long buildId, String username, long narrationId, boolean app,
             int pr, String note, String ending, long readyId, String repo, PinnedRun pinned) {
             this(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId, repo, pinned, 0,
-                null);
+                null, false);
         }
 
         CommandRun ofPr(int number) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, number, note, ending,
-                readyId, repo, pinned, rerunId, visa);
+                readyId, repo, pinned, rerunId, visa, rerunStandsIn);
         }
 
         CommandRun postedAs(long id) {
             return new CommandRun(commentId, baseBody, buildId, username, id, app, pr, note, ending, readyId, repo,
-                pinned, rerunId, visa);
+                pinned, rerunId, visa, rerunStandsIn);
         }
 
         CommandRun withBase(String body) {
             return new CommandRun(commentId, body, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, rerunId, visa);
+                repo, pinned, rerunId, visa, rerunStandsIn);
         }
 
         CommandRun endingWith(String line) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, line, readyId,
-                repo, pinned, rerunId, visa);
+                repo, pinned, rerunId, visa, rerunStandsIn);
         }
 
         CommandRun readyAs(long id) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, id, repo,
-                pinned, rerunId, visa);
+                pinned, rerunId, visa, rerunStandsIn);
         }
 
-        CommandRun rerunAs(long id) {
+        CommandRun rerunAs(long id, boolean standsIn) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, id, visa);
+                repo, pinned, id, visa, standsIn);
         }
 
         CommandRun withVisa(ClientVisa decided) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, rerunId, decided);
+                repo, pinned, rerunId, decided, rerunStandsIn);
         }
 
         /** The PR the run is for. */
@@ -1753,6 +1867,10 @@ public class PrCommands implements SnapshotCache {
 
     /** What a narration last showed: for which chain, at which stage, with which estimate (-1: none). */
     private record Shown(long buildId, String stage, long estimateEpochSec) {
+    }
+
+    /** The verdict of a client's run and what became of its auto re-run, null when none was due. */
+    private record Judged(AnalysisResult verdict, ClientVerdict.Rerun rerun) {
     }
 
     /** A parsed command: the canonical name and whether "top" was asked for. */

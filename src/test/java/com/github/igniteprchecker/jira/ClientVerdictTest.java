@@ -151,6 +151,29 @@ class ClientVerdictTest {
                 + " suite again on the same commits.\n\n_This run");
     }
 
+    /**
+     * TeamCity cancelled build 9424005 by itself, and the auto re-run 9424010 ran the suite in its place: the comment
+     * and the visa name the re-run as the build that ran, and say that the run was cancelled.
+     */
+    @Test
+    void aVerdictOfTheRerunOfACancelledRunSaysSo() {
+        AnalysisResult r = result(List.of(), List.of(), List.of());
+
+        assertThat(ClientVerdict.markdown("https://ci2.example/", "Author", RUN, r,
+            ClientVerdict.Rerun.standsIn(9424010L), ClientVisa.NONE))
+            .startsWith("@Author the verdict of your `/run-all`: **Thin client: Python** [build 9424010]"
+                + "(https://ci2.example/build/9424010) ran this PR's head")
+            .contains("\n\n♻️ TeamCity cancelled the run, [build 9424005](https://ci2.example/build/9424005), by"
+                + " itself. The checker ran the suite again on the same commits, and this verdict is of that re-run."
+                + "\n\n<sub>");
+        assertThat(ClientVerdict.wiki("https://ci2.example/", RUN, r, ClientVerdict.Rerun.standsIn(9424010L)))
+            .contains("\n\n*Thin client: Python* [build 9424010|https://ci2.example/build/9424010] tested the PR's"
+                + " head")
+            .contains("\n\n♻️ TeamCity cancelled the run, [build 9424005|https://ci2.example/build/9424005], by"
+                + " itself. The checker ran the suite again on the same commits, and this verdict is of that re-run."
+                + "\n\n_This run");
+    }
+
     /** The re-run did not give a result: the verdict says why it counts the first run only. */
     @Test
     void aVerdictWithoutTheRerunSaysWhy() {

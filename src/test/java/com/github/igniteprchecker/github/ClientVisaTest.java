@@ -5,7 +5,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -295,7 +297,10 @@ class ClientVisaTest {
             + " JIRA token, so the checker dropped it and switched off **Visa my runs in JIRA**."));
     }
 
-    /** With the auto re-run on too, the visa waits for the re-run, goes out once, and counts both runs. */
+    /**
+     * With the auto re-run on too, the visa waits for the re-run and goes out once. The re-run passed the test the run
+     * failed, so the visa judges both runs and blames nothing.
+     */
     @Test
     void theVisaWaitsForTheRerunAndCountsBothRuns() {
         standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
@@ -303,13 +308,65 @@ class ClientVisaTest {
 
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
 
-        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "FAILURE"));
-        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(RUN));
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(passedOnRerun(RUN));
         commands.updateEtas();
         commands.updateEtas();
 
-        verify(jira, times(1)).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains("\n\n♻️ Settled after one auto"
-            + " re-run: [build 9424010|https://ci2.example/build/9424010] ran the suite again on the same commits."));
+        ArgumentCaptor<String> visa = ArgumentCaptor.forClass(String.class);
+        verify(jira, times(1)).addCommentWithId(eq("jira-pat"), eq(ISSUE), visa.capture());
+        assertThat(visa.getValue()).contains("(/) *No blockers*").doesNotContain("(x)")
+            .contains("- {{test_sql.test_sql_fields_query}} — flaky on branch: passed on the re-run")
+            .contains("\n\n♻️ Settled after one auto re-run: [build 9424010|https://ci2.example/build/9424010] ran the"
+                + " suite again on the same commits.");
+    }
+
+    /**
+     * TeamCity failed the request of the re-run, and JIRA failed the visa. While the visa is tried again, the checker
+     * does not queue the re-run again: the verdict it holds counts the first run only, and says so.
+     */
+    @Test
+    void aRerunTeamCityDidNotQueueIsNotQueuedWhileTheVisaIsTriedAgain() {
+        standing.change("author", "tc", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
+        when(tc.queuePinned(eq("tc"), any(), eq(true), startsWith("Ignite PR Checker: auto")))
+            .thenThrow(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR))
+            .thenReturn(build(RERUN, "queued", null));
+        when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString()))
+            .thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE))
+            .thenReturn(new JiraClient.PostedComment("18000001", COMMENT_URL));
+
+        runFinished(1L, RUN);
+        clock.addAndGet(60_000);
+        commands.updateEtas();
+
+        String notQueued = "♻️ The checker could not queue the auto re-run: TeamCity answered HTTP 500. This verdict"
+            + " counts the first run only.";
+        verify(tc, times(1)).queuePinned(anyString(), any(), anyBoolean(), startsWith("Ignite PR Checker: auto"));
+        verify(jira, times(2)).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains(notQueued));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains(notQueued));
+    }
+
+    /**
+     * The run finished while JIRA was down. The verdict waits for the visa, and the story says so: the run is over,
+     * though the story said it was running.
+     */
+    @Test
+    void theStorySaysTheVisaIsTriedAgainWhileTheVerdictWaits() {
+        when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString()))
+            .thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+        when(github.recentIssueComments(eq(CLIENT_REPO), anyString())).thenReturn(List.of(comment(1L)));
+        commands.poll();
+        when(tc.getBuildState("tc", RUN)).thenReturn(build(RUN, "running", null));
+        commands.updateEtas();
+        when(tc.getBuildState("tc", RUN)).thenReturn(build(RUN, "finished", "FAILURE"));
+
+        commands.updateEtas();
+        clock.addAndGet(60_000);
+        commands.updateEtas();
+
+        verify(github, times(1)).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith("\n🏁 _Run finished —"
+            + " the checker tries again to post the JIRA visa; the verdict follows in a new comment._"));
+        verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(PR), any(), anyString());
     }
 
     /**
@@ -408,6 +465,17 @@ class ClientVisaTest {
 
     private static AnalysisResult verdict(long buildId) {
         return verdict(buildId, Instant.now().plusSeconds(60).getEpochSecond());
+    }
+
+    /** The same run once its re-run passed the test master never failed: that test is flaky now, not a blocker. */
+    private static AnalysisResult passedOnRerun(long buildId) {
+        TestVerdict flaky = new TestVerdict(502L, "test_sql.test_sql_fields_query", SUITE, buildId,
+            "Thin client: Python", "o2", false, false, "flaky on branch: passed on the re-run", "F", 1);
+
+        return new AnalysisResult(PR, buildId, "pull/69", System.currentTimeMillis(), List.of(), List.of(),
+            List.of(flaky), List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0,
+            Instant.now().plusSeconds(60).getEpochSecond(), 0, List.of(), List.of(), List.of(), 0, IGNITE + "+" + CLIENT,
+            0);
     }
 
     /** A test master never failed, which failed the run, and one master fails too; the run finished at {@code at}. */

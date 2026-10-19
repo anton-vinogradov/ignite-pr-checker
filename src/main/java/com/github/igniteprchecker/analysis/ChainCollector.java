@@ -263,6 +263,16 @@ public class ChainCollector {
         return new SuiteRun(failed, again.broken(), again.unstable(), again.shrunk());
     }
 
+    /**
+     * Whether TeamCity cancelled the suite run by itself, as {@link CancelledSuite#byTeamCity()} tells it, and not
+     * because a run it needed failed: a RunAll's wave re-runs such a suite, since a re-run is what gets it a result.
+     */
+    public static boolean cancelledByTeamCity(TcModel.Build run) {
+        TcModel.CanceledInfo info = run.canceledInfo();
+
+        return info != null && (info.user() == null || info.user().username() == null) && failedUpstream(run) == null;
+    }
+
     /** What one suite run says: see {@link #collectForSuiteRun}. {@code broken} and {@code unstable} may be null. */
     public record SuiteRun(List<FailedTest> failedTests, BrokenSuite broken, BrokenSuite unstable,
         List<ShrunkSuite> shrunk) {

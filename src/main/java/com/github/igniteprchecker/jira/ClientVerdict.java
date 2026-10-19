@@ -44,24 +44,30 @@ public final class ClientVerdict {
     /**
      * The run's auto re-run on the same commits: its build, 0 when none was queued, whether the verdict counts its
      * results ({@code counted}), and why it does not, in words that follow the build: it was cancelled, or TeamCity no
-     * longer has it. For a re-run never queued, {@code why} says what TeamCity answered.
+     * longer has it. For a re-run never queued, {@code why} says what TeamCity answered. {@code standsIn}: TeamCity
+     * cancelled the run by itself, so the run has no result, and the re-run gives the verdict.
      */
-    public record Rerun(long buildId, boolean counted, String why) {
+    public record Rerun(long buildId, boolean counted, String why, boolean standsIn) {
         /** A re-run that finished: the verdict counts the failed tests of both runs. */
         public static Rerun counted(long buildId) {
-            return new Rerun(buildId, true, null);
+            return new Rerun(buildId, true, null, false);
+        }
+
+        /** A re-run that finished in place of a run TeamCity cancelled by itself: the verdict is the re-run's. */
+        public static Rerun standsIn(long buildId) {
+            return new Rerun(buildId, true, null, true);
         }
 
         public static Rerun cancelled(long buildId) {
-            return new Rerun(buildId, false, "was cancelled");
+            return new Rerun(buildId, false, "was cancelled", false);
         }
 
         public static Rerun gone(long buildId) {
-            return new Rerun(buildId, false, "is gone from TeamCity");
+            return new Rerun(buildId, false, "is gone from TeamCity", false);
         }
 
         public static Rerun notQueued(String why) {
-            return new Rerun(0, false, why);
+            return new Rerun(0, false, why, false);
         }
     }
 
@@ -74,19 +80,21 @@ public final class ClientVerdict {
     }
 
     /**
-     * The verdict comment, with what became of the run's auto re-run, null when none was due, and of its visa.
+     * The verdict comment, with what became of the run's auto re-run, null when none was due, and of its visa. A re-run
+     * that stands in for a run TeamCity cancelled is the build the verdict names as the one that ran.
      */
     public static String markdown(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
         ClientVisa visa) {
         Ink ink = Ink.MARKDOWN;
+        long ran = ran(run, rerun);
         StringBuilder b = new StringBuilder();
         b.append(login == null || login.isBlank() ? "The verdict of a `/run-all`" : "@" + login
             + " the verdict of your `/run-all`").append(": ").append(ink.bold(ink.text(run.suiteName()))).append(' ')
-            .append(ink.link("build " + run.buildId(), tcBase + "build/" + run.buildId()))
+            .append(ink.link("build " + ran, tcBase + "build/" + ran))
             .append(" ran this PR's head ").append(clientCommit(ink, run))
             .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(".\n\n");
-        body(ink, tcBase, run, r, b);
-        rerunLine(ink, tcBase, rerun, b);
+        body(ink, tcBase, ran, r, b);
+        rerunLine(ink, tcBase, run, rerun, b);
         visaLine(visa, b);
 
         return b.append("<sub>").append(FOOTER).append(ink.link("verdict glossary", VisaService.GLOSSARY))
@@ -99,23 +107,32 @@ public final class ClientVerdict {
      */
     public static String wiki(String tcBase, Run run, AnalysisResult r, Rerun rerun) {
         Ink ink = Ink.WIKI;
+        long ran = ran(run, rerun);
         StringBuilder b = new StringBuilder();
         b.append("Ignite PR Checker verdict for ")
             .append(ink.link("PR " + run.pr() + " of " + run.clientRepo(), pullUrl(run)))
             .append(" · ").append(ink.bold("one suite only, not a RunAll")).append("\n\n")
             .append(ink.bold(ink.text(run.suiteName()))).append(' ')
-            .append(ink.link("build " + run.buildId(), tcBase + "build/" + run.buildId()))
+            .append(ink.link("build " + ran, tcBase + "build/" + ran))
             .append(" tested the PR's head ").append(clientCommit(ink, run))
             .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(". No other suite ran.\n\n");
-        body(ink, tcBase, run, r, b);
-        rerunLine(ink, tcBase, rerun, b);
+        body(ink, tcBase, ran, r, b);
+        rerunLine(ink, tcBase, run, rerun, b);
 
         return b.append('_').append(FOOTER).append(ink.link("verdict glossary", VisaService.GLOSSARY)).append("._")
             .toString();
     }
 
-    /** What failed and why, the verdict's standing, the tests not blamed, and what the tags of the lists mean. */
-    private static void body(Ink ink, String tcBase, Run run, AnalysisResult r, StringBuilder b) {
+    /** The build the verdict names as the one that ran: the run's, or the re-run that stands in for it. */
+    private static long ran(Run run, Rerun rerun) {
+        return rerun != null && rerun.standsIn() ? rerun.buildId() : run.buildId();
+    }
+
+    /**
+     * What failed and why, the verdict's standing, the tests not blamed, and what the tags of the lists mean; past the
+     * tests a list shows, it links those of build {@code ran}.
+     */
+    private static void body(Ink ink, String tcBase, long ran, AnalysisResult r, StringBuilder b) {
         r.brokenSuites().forEach(s -> b.append(ink.icon("⚠️", "(!)")).append(' ')
             .append(ink.bold("The suite has no reliable result:")).append(' ').append(ink.text(problems(s)))
             .append(".\n\n"));
@@ -127,7 +144,7 @@ public final class ClientVerdict {
             .append(ink.bold("The suite ran fewer tests than on master:")).append(' ').append(ranOf(ink, s))
             .append(". Tests that never ran can't fail.\n\n"));
 
-        String tests = tcBase + "build/" + run.buildId() + "?buildTab=tests";
+        String tests = tcBase + "build/" + ran + "?buildTab=tests";
         if (!r.blockers().isEmpty()) {
             b.append(ink.icon("❌", "(x)")).append(' ').append(ink.bold(count(r.blockers().size(), "blocker") + ":"))
                 .append('\n').append(list(ink, tcBase, r.blockers(), tests)).append('\n');
@@ -177,14 +194,19 @@ public final class ClientVerdict {
     }
 
     /** What became of the run's auto re-run, when one was due; nothing when none was. */
-    private static void rerunLine(Ink ink, String tcBase, Rerun rerun, StringBuilder b) {
+    private static void rerunLine(Ink ink, String tcBase, Run run, Rerun rerun, StringBuilder b) {
         if (rerun == null)
             return;
 
         String build = rerun.buildId() == 0 ? null
             : ink.link("build " + rerun.buildId(), tcBase + "build/" + rerun.buildId());
         b.append("♻️ ");
-        if (rerun.counted())
+        if (rerun.standsIn()) {
+            b.append("TeamCity cancelled the run, ").append(ink.link("build " + run.buildId(), tcBase + "build/"
+                + run.buildId())).append(", by itself. The checker ran the suite again on the same commits, and this"
+                + " verdict is of that re-run.");
+        }
+        else if (rerun.counted())
             b.append("Settled after one auto re-run: ").append(build)
                 .append(" ran the suite again on the same commits.");
         else if (build != null)

@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.ChainCollector;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PythonClientProperties;
@@ -175,6 +176,14 @@ public class PythonClientRuns {
     public static boolean worthRerunning(AnalysisResult r) {
         return !r.blockers().isEmpty() || !r.watch().isEmpty()
             || r.brokenSuites().stream().anyMatch(s -> !s.compileError());
+    }
+
+    /**
+     * Whether the run TeamCity reports {@code cancelled} is worth an auto re-run on the same commits: TeamCity cancelled
+     * it by itself, not a person, and no run it needed failed. A RunAll's wave re-runs such a suite too.
+     */
+    public static boolean worthRerunning(TcModel.Build cancelled) {
+        return ChainCollector.cancelledByTeamCity(cancelled);
     }
 
     /** Whether PR {@code pr} of the client is open, and its title; empty when GitHub has no such PR. */
