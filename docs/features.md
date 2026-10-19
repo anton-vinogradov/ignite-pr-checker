@@ -471,7 +471,8 @@ log in from. The journal lists each change. A page that opens without a login is
   [Russian tour](features.ru.md). The **?** links lead to the Russian tour.
 - PR comments, visas in JIRA, the copied AI prompts, the logs and the API stay in English: the Ignite community and
   scripts read them.
-- The status page and the flaky board have no login form: they take the language of your login in this browser.
+- The status page and the flaky board have no login form: they use your account's language if you are logged in to
+  the checker in this browser.
 - A page that last opened in Russian waits up to 2 s, until it knows the language, so it does not show English first.
 - If you log in on a page in another language, the page opens again in your account's language.
 
