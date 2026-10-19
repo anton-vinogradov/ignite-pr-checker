@@ -879,6 +879,7 @@ async function loadMe() {
         await useLanguage(lang);
         checkUpdate();
         await enterApp(username);
+        if (askedToOfferCommands()) offerCommands();
     } else {
         await loggedOut(r);
     }
@@ -894,6 +895,11 @@ async function login() {
         if (r.ok) {
             const { username, admin, jiraInCookie, lang } = await r.json();
             $('token').value = '';
+            if (speaksOtherThan(lang)) {
+                offerCommandsOnReopening();
+                reopenIn(lang);
+                return;
+            }
             canAdmin = !!admin;
             jiraInCookieUnused = !!jiraInCookie;
             await useLanguage(lang);
@@ -3055,30 +3061,36 @@ $('settingsBtn').onclick = () => {
     p.classList.toggle('hidden');
     if (p.classList.contains('hidden')) return;
     $('langSelect').value = LANG;
+    $('langSave').disabled = true;
     $('langMsg').textContent = '';
     loadSettings();
     loadLogins();
     loadJournal();
 };
 
-// The language is the account's: a change goes to the server, and the page opens again in it.
-$('langSelect').onchange = async () => {
-    const sel = $('langSelect'), msg = $('langMsg');
-    sel.disabled = true;
+// The language is the account's: Save sends it to the server, and the page opens again in it. Picking a language alone
+// changes nothing: the arrow keys pick one on a closed select.
+$('langSelect').onchange = () => {
+    $('langSave').disabled = $('langSelect').value === LANG;
+    $('langMsg').textContent = '';
+};
+$('langSave').onclick = async () => {
+    const lang = $('langSelect').value, btn = $('langSave'), msg = $('langMsg');
+    const refocus = keepFocus(btn);
+    btn.disabled = true;
     try {
-        const r = await api('/api/language', { method: 'POST', body: JSON.stringify({ lang: sel.value }) });
+        const r = await api('/api/language', { method: 'POST', body: JSON.stringify({ lang }) });
         if (r.status === 401) return loggedOut(r);
         if (r.ok) {
-            location.reload();
+            reopenIn(lang);
             return;
         }
         msg.textContent = T('could not change the language — try again');
     } catch (e) {
         msg.textContent = T('could not reach the service — try again');
-    } finally {
-        sel.disabled = false;
     }
-    sel.value = LANG;
+    btn.disabled = false;
+    refocus();
 };
 
 function lockSettings(message) {
@@ -3580,6 +3592,22 @@ async function offerCommands() {
         if (r.ok && !(await r.json()).commands) $('cmdHint').classList.remove('hidden');
     } catch (e) { /* only a hint */ }
 }
+
+// A login in another language opens the page again: the hint waits for the page in that language.
+function offerCommandsOnReopening() {
+    try { sessionStorage.setItem('offerCommands', '1'); } catch (e) { /* private mode */ }
+}
+
+function askedToOfferCommands() {
+    try {
+        const asked = sessionStorage.getItem('offerCommands') === '1';
+        sessionStorage.removeItem('offerCommands');
+        return asked;
+    } catch (e) {
+        return false;
+    }
+}
+
 $('cmdHintOpen').onclick = () => {
     $('cmdHint').classList.add('hidden');
     if ($('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();

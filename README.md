@@ -31,8 +31,8 @@ each label means and what to do about it.
   account, and a checkstyle fix and tests added to suites need a GitHub token for commits. The options work while the
   page is closed. When something is missing, ⚙ and the PR replies say what to do. See
   [Standing options](docs/features.md#standing-options).
-- **In Russian.** Choose Русский under **Language** in ⚙: the PR page, the login form and ⚙ then show in Russian in
-  every browser you log in from. PR comments and visas stay in English. See [Language](docs/features.md#language).
+- **In Russian.** Choose Русский under **Language** in ⚙ and press **Save**: the PR page and ⚙ then show in Russian
+  in every browser you log in from. PR comments and visas stay in English. See [Language](docs/features.md#language).
 - **PR commands.** With **PR commands** on and your GitHub account linked once with **Link GitHub**, a `/run-all`
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See

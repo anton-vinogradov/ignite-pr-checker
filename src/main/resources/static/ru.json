@@ -506,7 +506,8 @@
   },
   "settings": {
     "Language": "Язык",
-    "The pages use it in every browser you log in from. PR comments and visas stay in English.": "Страницы будут на этом языке во всех браузерах, где ты входишь. Комментарии в PR и визы остаются на английском.",
+    "Saves the language for your account. The page then opens again in it.": "Сохраняет язык для твоего аккаунта. Потом страница открывается заново на этом языке.",
+    "The PR page and ⚙ use it in every browser you log in from. The status page, the flaky board, PR comments and visas stay in English.": "Страница PR и ⚙ будут на этом языке во всех браузерах, где ты входишь. Страница статуса, доска флаки, комментарии в PR и визы остаются на английском.",
     "could not change the language — try again": "не удалось сменить язык — попробуй ещё раз",
     "TeamCity login": "Вход в TeamCity",
     "⚠ TeamCity no longer accepts the token your options use, so they are paused: log in again with a fresh token.": "⚠ TeamCity больше не принимает токен, на котором работают твои опции, поэтому они на паузе: войди снова со свежим токеном.",
@@ -711,8 +712,8 @@
     "The checker dropped your stored {0}: it could not read them. Your options wait until you store new ones.": "Чекер удалил сохранённые токены: {0}. Он не смог их прочитать. Твои опции ждут, пока ты сохранишь новые.",
     "Posted a visa to {0} for PR #{1}, RunAll {2}.": "Отправлена виза в {0} для PR #{1}, RunAll {2}.",
     "Edited the visa in {0} for PR #{1}, RunAll {2}.": "Исправлена виза в {0} для PR #{1}, RunAll {2}.",
-    "Switched the pages to Russian.": "Язык страниц переключён на русский.",
-    "Switched the pages to English.": "Язык страниц переключён на английский.",
+    "Switched the language to Russian.": "Язык переключён на русский.",
+    "Switched the language to English.": "Язык переключён на английский.",
     "A change this version of the checker cannot describe.": "Изменение, которое эта версия чекера не умеет описать."
   },
   "server: reasons": {
@@ -861,6 +862,7 @@
     "GitHub rejected the token — paste a new one": "GitHub отверг токен — вставь новый",
     "this option needs your GitHub token for commits": "этой опции нужен твой токен GitHub для коммитов",
     "PR commands need your linked GitHub account": "Командам в PR нужен твой привязанный аккаунт GitHub",
+    "Fix checkstyle before my commanded runs needs PR commands: switch them on first": "Опции «Чинить checkstyle перед моими прогонами по команде» нужна опция «Команды в PR»: сначала включи её",
     "this classic token has {0}: with it, anyone who reads it could administer, delete repositories or change workflows, and the checker only commits. Create one without them: a fine-grained token for your fork, or a classic one with public_repo": "у этого classic токена есть {0}: с ним любой, кто его прочитает, сможет администрировать, удалять репозитории или менять workflow, а чекеру нужно только коммитить. Создай токен без них: fine-grained токен для своего форка или classic с public_repo",
     "this classic token has no public_repo scope, so it cannot commit to your PR's branch: create a fine-grained token for your fork, or a classic one with public_repo": "у этого classic токена нет права public_repo, поэтому он не может коммитить в ветку твоего PR: создай fine-grained токен для своего форка или classic с public_repo",
     "Your saved token is a classic one: it can push to every public repository you can push to, apache/ignite too if you are a committer. A fine-grained token for your fork can push there only.": "Твой сохранённый токен — classic: он может пушить в любой публичный репозиторий, куда можешь пушить ты, в том числе в apache/ignite, если ты коммитер. Fine-grained токен для твоего форка может пушить только туда.",

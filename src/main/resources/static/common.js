@@ -16,6 +16,7 @@ let RU_SERVER = [];
 let languageSettled;
 // Settles once the page knows its language: what the page draws before that would stay English.
 const languageReady = new Promise(done => { languageSettled = done; });
+let languageKnown = false;
 // The catalog once asked for; see prefetchLanguage.
 let ruCatalog = null;
 
@@ -180,7 +181,8 @@ function prefetchLanguage() {
 }
 
 // The language of the signed-in user, or of nobody: English. Russian translates what the page holds; the page draws
-// the rest in it. The choice is kept for the next opening, which stays hidden until it knows its language.
+// the rest in it. A page keeps the language it learned first: see speaksOtherThan. The choice is kept for the next
+// opening, which stays hidden until it knows its language.
 async function useLanguage(lang) {
     if (lang === 'ru' && !RU) {
         const catalog = await (ruCatalog || (ruCatalog = fetchCatalog()));
@@ -191,12 +193,30 @@ async function useLanguage(lang) {
             translateDom(document.body);
         }
     }
+    keepLanguage(lang);
+    document.documentElement.removeAttribute('data-lang-hint');
+    languageKnown = true;
+    languageSettled();
+}
+
+// The language for the next opening of the page, which waits hidden for Russian (theme.js).
+function keepLanguage(lang) {
     try {
         if (lang === 'ru') localStorage.setItem('lang', 'ru');
         else localStorage.removeItem('lang');
     } catch (e) { /* private mode */ }
-    document.documentElement.removeAttribute('data-lang-hint');
-    languageSettled();
+}
+
+// Whether the page already speaks a language other than lang. It cannot switch in place: its own HTML is translated
+// where it stands, and what it drew in the old language stays so.
+function speaksOtherThan(lang) {
+    return languageKnown && (lang === 'ru') !== (LANG === 'ru');
+}
+
+// Opens the page again in lang.
+function reopenIn(lang) {
+    keepLanguage(lang);
+    location.reload();
 }
 
 // A name that opens a group of ⚙, such as "Токен JIRA", as a sentence says it: "токен JIRA".

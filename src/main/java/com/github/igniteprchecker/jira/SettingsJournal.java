@@ -194,8 +194,8 @@ public class SettingsJournal implements SnapshotCache {
                 e.build());
             case Entry.VISA_EDITED -> Texts.t(lang, "Edited the visa in {0} for PR #{1}, RunAll {2}.", e.issue(),
                 e.pr(), e.build());
-            case Entry.LANGUAGE -> Lang.of(e.lang()) == Lang.RU
-                ? Texts.t(lang, "Switched the pages to Russian.") : Texts.t(lang, "Switched the pages to English.");
+            case Entry.LANGUAGE -> Lang.of(e.lang()) == Lang.RU ? Texts.t(lang, "Switched the language to Russian.")
+                : Texts.t(lang, "Switched the language to English.");
             default -> Texts.t(lang, "A change this version of the checker cannot describe.");
         };
     }

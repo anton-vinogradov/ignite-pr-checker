@@ -53,16 +53,33 @@ class LanguageChoiceTest {
         assertThat(users.language(USER)).isEqualTo(Lang.RU);
         assertThat(journal.views(USER, "laptop", "Firefox on Linux")).as("the second choice of the same changed nothing")
             .extracting(SettingsJournal.View::text, SettingsJournal.View::from)
-            .containsExactly(tuple("Switched the pages to Russian.", "from this browser"));
+            .containsExactly(tuple("Switched the language to Russian.", "from this browser"));
         assertThat(journal.views(USER, "desk", "Chrome on Windows", Lang.RU))
             .extracting(SettingsJournal.View::text, SettingsJournal.View::from)
-            .containsExactly(tuple("Язык страниц переключён на русский.", "из Firefox на Linux"));
+            .containsExactly(tuple("Язык переключён на русский.", "из Firefox на Linux"));
 
         language.choose(new LanguageController.Choice("en"), USER, request("laptop"));
 
         assertThat(users.language(USER)).isEqualTo(Lang.EN);
         assertThat(journal.views(USER, "laptop", "Firefox on Linux").get(0).text())
-            .isEqualTo("Switched the pages to English.");
+            .isEqualTo("Switched the language to English.");
+    }
+
+    /**
+     * The journal is the one text the server writes in its reader's language: ⚙ asks /api/journal, and alice, who chose
+     * Russian, reads her entries in Russian, while bob reads his in English.
+     */
+    @Test
+    void theJournalComesInItsReadersLanguage() {
+        JournalController controller = new JournalController(journal, users);
+        language.choose(new LanguageController.Choice("ru"), USER, request("laptop"));
+        journal.add("bob", SettingsJournal.Entry.language(SettingsJournal.By.of("desk", "Firefox on Linux"), Lang.EN));
+
+        assertThat(controller.journal(USER, "laptop", request("laptop")).entries())
+            .extracting(SettingsJournal.View::text, SettingsJournal.View::from)
+            .containsExactly(tuple("Язык переключён на русский.", "из этого браузера"));
+        assertThat(controller.journal("bob", "desk", request("desk")).entries())
+            .extracting(SettingsJournal.View::text).containsExactly("Switched the language to English.");
     }
 
     /** A login in another browser learns the language with the user's name, and the page opens in it. */

@@ -463,8 +463,9 @@ journal.
 
 ### Language
 
-⚙ starts with **Language**: English or Русский. The choice is your account's: the PR page, the login form and ⚙ show
-in it in every browser you log in from, and the journal lists each change. Without a login, the pages are English.
+⚙ starts with **Language**: pick English or Русский and press **Save**. The page then opens again in that language.
+The choice is your account's: the PR page and ⚙ show in it in every browser you log in from, and the journal lists
+each change. A page that opens without a login is in English.
 
 - On the Russian page, the cards, buttons, reasons and answers of the server are in Russian, in the words of the
   [Russian tour](features.ru.md). The **?** links lead to the Russian tour.
@@ -472,6 +473,7 @@ in it in every browser you log in from, and the journal lists each change. Witho
   scripts read them.
 - The status page and the flaky board are in English.
 - A page that last opened in Russian waits up to 2 s, until it knows the language, so it does not show English first.
+- A login on a page in the other language opens the page again in yours.
 
 ## Visas and PR comments
 

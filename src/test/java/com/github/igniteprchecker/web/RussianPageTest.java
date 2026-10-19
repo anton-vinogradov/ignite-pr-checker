@@ -40,7 +40,8 @@ class RussianPageTest {
     private static final List<String> NAMES = List.of("Apache Ignite", "Open Census",
         "Machine Learning", "Thin client: Node.js", "Thin client: PHP", "Thin client: Python", "Platform .NET",
         "Platform C++", "Firefox on Linux", "Chrome on Windows", "Move MDC to JUnit", "Check marshalled kind",
-        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Ignite PR Checker");
+        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Ignite PR Checker",
+        "Access Tokens");
 
     private static String russian() throws IOException {
         return PageScript.SIGNED_IN + "const CATALOG = " + Files.readString(Path.of("src/main/resources/static/ru.json"),
@@ -152,7 +153,7 @@ class RussianPageTest {
         assertThat(texts.get("tcExpiry").asText()).isEqualTo(", токен истекает через 3 дня: войди с новым до этого");
         assertThat(texts.get("ghTokenState").asText()).isEqualTo("сохранён, classic");
         assertThat(texts.get("loginsState").asText()).isEqualTo("2 браузера");
-        assertThat(texts.get("journalList").asText()).contains("Язык страниц переключён на русский.",
+        assertThat(texts.get("journalList").asText()).contains("Язык переключён на русский.",
             "из этого браузера");
         assertThat(texts.get("tokensUnread").asText()).startsWith("⚠ Ключ сервера сменили, поэтому чекер больше не может "
             + "прочитать сохранённые токены: токен GitHub для коммитов.");
@@ -223,25 +224,183 @@ class RussianPageTest {
         assertThat(out.get("language").asText()).isEqualTo("en");
     }
 
-    /** The choice in ⚙ goes to the server, which keeps it for the account, and the page opens again in it. */
+    /**
+     * The choice in ⚙ goes to the server, which keeps it for the account, and the page opens again in it: a Russian
+     * page asks for the catalog at once and stays hidden until it is Russian. Picking a language alone sends nothing:
+     * on a closed select the arrow keys pick one, and the page would reload under a reader who only looked.
+     */
     @Test
-    void choosingALanguageInSettingsTellsTheServerAndReloads() throws Exception {
+    void savingALanguageInSettingsTellsTheServerAndOpensThePageInIt() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/language', { body: { lang: 'ru' } }, 'POST');
             await page.load('');
-            page.run('location.reload = () => { window.reloaded = true; }');
+            page.run('location.reload = () => { window.reopened = localStorage.getItem("lang"); }');
             await page.el('settingsBtn').onclick();
             await page.settle();
-            const shown = page.el('langSelect').value;
+            const shown = { lang: page.el('langSelect').value, save: page.el('langSave').disabled };
             page.el('langSelect').value = 'ru';
-            await page.el('langSelect').onchange();
+            page.el('langSelect').onchange();
             await page.settle();
-            report({ shown, sent: page.fetches('/api/language').map(f => f.body), reloaded: page.run('!!window.reloaded') });
+            const picked = { sent: page.fetches('/api/language').length, save: page.el('langSave').disabled };
+            await page.el('langSave').onclick();
+            await page.settle();
+            report({ shown, picked, sent: page.fetches('/api/language').map(f => f.body),
+                reopened: page.run('window.reopened') });
             """);
 
-        assertThat(out.get("shown").asText()).isEqualTo("en");
+        assertThat(out.get("shown").get("lang").asText()).isEqualTo("en");
+        assertThat(out.get("shown").get("save").asBoolean()).as("nothing to save yet").isTrue();
+        assertThat(out.get("picked").get("sent").asInt()).isZero();
+        assertThat(out.get("picked").get("save").asBoolean()).isFalse();
         assertThat(out.get("sent").toString()).isEqualTo("[\"{\\\"lang\\\":\\\"ru\\\"}\"]");
-        assertThat(out.get("reloaded").asBoolean()).isTrue();
+        assertThat(out.get("reopened").asText()).as("kept for the page opened again").isEqualTo("ru");
+    }
+
+    /** Back to English from a Russian page: the page opens again in English and does not wait for Russian. */
+    @Test
+    void savingEnglishOpensThePageInEnglish() throws Exception {
+        JsonNode out = PageScript.run("index.html", russian() + """
+            page.route('/api/language', { body: { lang: 'en' } }, 'POST');
+            await page.load('');
+            page.run('location.reload = () => { window.reopened = { stored: localStorage.getItem("lang") }; }');
+            await page.el('settingsBtn').onclick();
+            page.el('langSelect').value = 'en';
+            page.el('langSelect').onchange();
+            await page.el('langSave').onclick();
+            await page.settle();
+            report({ reopened: page.run('window.reopened') });
+            """);
+
+        assertThat(out.get("reopened").get("stored").isNull()).isTrue();
+    }
+
+    /**
+     * A new browser shows the login form in English. The page drew its RunAll line before it knew the language, and a
+     * translation in place would leave that line English: a login of a user who chose Russian opens the page again,
+     * which then waits for Russian. The hint at PR commands, which a login brings, waits for the page opened again.
+     */
+    @Test
+    void aLoginInRussianOpensAnEnglishPageAgain() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
+                starCount: 1, refreshAfterSeconds: 120, runAllSuites: 135 } });
+            page.route('/api/me', { status: 401, body: {} });
+            page.route('/api/login', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } },
+                'POST');
+            await page.load('?pr=13575');
+            page.run('location.reload = () => { window.reopened = { lang: localStorage.getItem("lang"), '
+                + 'offer: sessionStorage.getItem("offerCommands") }; }');
+            page.el('token').value = 'a-token';
+            await page.el('loginBtn').onclick();
+            await page.settle();
+            report({ reopened: page.run('window.reopened || null'), verdicts: page.fetches('/api/analyze').length });
+            """);
+
+        assertThat(out.get("reopened").get("lang").asText()).isEqualTo("ru");
+        assertThat(out.get("reopened").get("offer").asText()).isEqualTo("1");
+        assertThat(out.get("verdicts").asInt()).as("nothing drawn on the page that goes").isZero();
+    }
+
+    /**
+     * alice reads Russian and logs out; bob logs in at the same tab. He never chose Russian, so the page opens again
+     * in English. alice logging in again keeps the Russian page as it is.
+     */
+    @Test
+    void aLoginInEnglishOpensARussianPageAgain() throws Exception {
+        String scenario = russian() + """
+            page.route('/api/login', { body: { username: 'WHO', admin: false, jiraInCookie: false,
+                lang: 'THEIR_LANG' } }, 'POST');
+            await page.load('?pr=13575');
+            page.run('location.reload = () => { window.reopened = { stored: localStorage.getItem("lang") }; }');
+            await page.el('logout').onclick();
+            await page.settle();
+            page.el('token').value = 'a-token';
+            await page.el('loginBtn').onclick();
+            await page.settle();
+            report({ reopened: page.run('window.reopened || null'), lang: page.run('LANG'),
+                stored: page.run('localStorage.getItem("lang")'), user: page.el('username').textContent });
+            """;
+        JsonNode bob = PageScript.run("index.html", scenario.replace("WHO", "bob").replace("THEIR_LANG", "en"));
+        JsonNode alice = PageScript.run("index.html", scenario.replace("WHO", "alice").replace("THEIR_LANG", "ru"));
+
+        assertThat(bob.get("reopened").get("stored").isNull()).as("reopened, and waits for no Russian").isTrue();
+        assertThat(alice.get("reopened").isNull()).isTrue();
+        assertThat(alice.get("lang").asText()).isEqualTo("ru");
+        assertThat(alice.get("stored").asText()).isEqualTo("ru");
+        assertThat(alice.get("user").asText()).isEqualTo("alice");
+    }
+
+    /** The page opened again for a login points at PR commands, as the login would have; a plain opening does not. */
+    @Test
+    void thePageOpenedAgainForALoginOffersPrCommands() throws Exception {
+        String scenario = russian() + """
+            page.route('/api/auto-visa-all', { body: { commands: false } });
+            ASK
+            await page.load('?pr=13575');
+            report({ hint: !page.el('cmdHint').classList.contains('hidden'),
+                left: page.run('sessionStorage.getItem("offerCommands")') });
+            """;
+        JsonNode asked = PageScript.run("index.html",
+            scenario.replace("ASK", "page.run('sessionStorage.setItem(\"offerCommands\", \"1\")');"));
+        JsonNode plain = PageScript.run("index.html", scenario.replace("ASK", ""));
+
+        assertThat(asked.get("hint").asBoolean()).isTrue();
+        assertThat(asked.get("left").isNull()).as("once").isTrue();
+        assertThat(plain.get("hint").asBoolean()).isFalse();
+    }
+
+    /**
+     * The RunAll line and the Update button come from answers that may arrive before the page knows its language: they
+     * wait for it, or they would stay English, or flash English, on a Russian page.
+     */
+    @Test
+    void whatComesBeforeTheLanguageWaitsForIt() throws Exception {
+        JsonNode out = PageScript.run("index.html", russian() + """
+            page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
+                starCount: 1, refreshAfterSeconds: 120, runAllSuites: 135 } });
+            page.route('/api/me', { body: { username: 'alice', admin: true, jiraInCookie: false, lang: 'ru' } });
+            const ticks = async n => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+            page.route('/api/version', async () => {
+                while (!page.fetches('/ru.json').length) await ticks(1);
+                return { body: { updateAvailable: true, latest: '1.37.0', current: '1.36.0' } };
+            });
+            page.route('/ru.json', async () => { await ticks(20); return { body: CATALOG }; });
+            const btn = page.el('updateBtn'), painted = [];
+            const text = Object.getOwnPropertyDescriptor(btn, 'textContent');
+            Object.defineProperty(btn, 'textContent', { get: text.get,
+                set(v) { painted.push(String(v)); text.set.call(this, v); } });
+            await page.load('?pr=13575');
+            await page.settle();
+            await page.settle();
+            report({ label: page.el('runAllLabel').textContent, painted });
+            """);
+
+        assertThat(out.get("label").asText()).isEqualTo("RunAll (~135 сьют):");
+        assertThat(out.get("painted").toString()).contains("Обновить до v1.37.0").doesNotContain("Update to");
+    }
+
+    /**
+     * A Russian reader opens a PR: the page's own HTML, the login form, ⚙, the top bar and the cards, says nothing in
+     * English but names, and each link into the docs leads to the Russian tour.
+     */
+    @Test
+    void thePagesOwnHtmlIsRussianOnceItKnowsTheLanguage() throws Exception {
+        JsonNode out = PageScript.run("index.html", russian() + """
+            await page.load('?pr=13575');
+            const attrs = ['title', 'aria-label', 'placeholder'];
+            const said = page.staticElements(e => attrs.some(a => e.getAttribute(a) !== null))
+                .flatMap(e => attrs.map(a => e.getAttribute(a)).filter(v => v !== null));
+            report({ texts: Object.assign({ page: page.text(page.run('document.body')) },
+                Object.fromEntries(said.map((v, i) => ['attribute ' + i, v]))),
+                docs: page.staticElements(e => /\\/docs\\//.test(e.getAttribute('href') || ''))
+                    .map(e => e.getAttribute('href')) });
+            """);
+
+        assertThat(untranslated(out.get("texts"), "")).isEmpty();
+        assertThat(out.get("texts").get("page").asText()).contains("Войти", "Перезапускать упавшие сьюты моих прогонов",
+            "Блокеры");
+        assertThat(out.get("docs")).hasSizeGreaterThan(5)
+            .allSatisfy(href -> assertThat(href.asText()).contains("/docs/features.ru.md#"));
     }
 
     /**

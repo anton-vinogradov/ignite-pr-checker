@@ -13,6 +13,7 @@ import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.github.CommitTokens;
 import com.github.igniteprchecker.jira.StandingVisas;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,9 +21,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.ResourceAccessException;
 
@@ -30,8 +33,10 @@ import org.springframework.web.client.ResourceAccessException;
  * The server writes its texts in English: the reasons and caveats of a verdict, kept in the analysis cache and quoted
  * by PR comments and visas, and the answers of the endpoints the PR page, the login form and ⚙ use. The Russian page
  * puts each into Russian with the catalog's templates of the server's texts. Each text here comes from the server's own
- * code where the code can be called; a reason, which only an analysis makes, is written as BlockerAnalyzer puts it
- * together. A broken suite's problem in TeamCity's own words stays as TeamCity wrote it.
+ * code: called where it can be, read from the source where it is made of literals, and written out with its values
+ * where it has some, in a sample that must still carry each fixed part of the source. A reason, which only an analysis
+ * makes, is written as BlockerAnalyzer puts it together. A broken suite's problem in TeamCity's own words stays as
+ * TeamCity wrote it.
  */
 class ServerTextsInRussianTest {
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -44,9 +49,32 @@ class ServerTextsInRussianTest {
     private static final List<String> NAMES = List.of("Check java code", "Run abandoned tests checks", "Bad Gateway",
         "Licenses Headers");
 
+    /** The server's code that answers the PR page, the login form and ⚙. */
+    private static final List<Path> SERVER_CODE = List.of(Path.of("src/main/java/com/github/igniteprchecker/web"),
+        Path.of("src/main/java/com/github/igniteprchecker/jira"));
+
+    /** Where a text for a page starts: the error of an answer, or why an option or an action was refused. */
+    private static final Pattern TEXT_STARTS =
+        Pattern.compile("Map\\.of\\(\"error\",|new Refusal\\((?:\"\\w+\"|null|\\d+),");
+
+    /** One Java string literal and nothing else. */
+    private static final Pattern LITERAL = Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"");
+
+    /** The texts in the server's code that none of these pages shows, and why. */
+    private static final Map<String, String> NOT_SHOWN = Map.of(
+        "Only the operator can see who uses the service.", "the status page's",
+        "Only the operator can ", "the status page's; Update shows to an operator only",
+        "no such language: the pages speak en and ru", "⚙ sends en or ru only",
+        "no such service: ", "⚙ asks about TeamCity, JIRA and GitHub only",
+        "no title known for PR ", "the PR page shows no failed title");
+
     @Test
     void everyTextTheServerSendsThePagesReadsInRussian() throws Exception {
         List<String> texts = new ArrayList<>(samples());
+        for (CodeText t : textsInCode()) {
+            if (t.whole() != null && !NOT_SHOWN.containsKey(t.whole()) && !texts.contains(t.whole()))
+                texts.add(t.whole());
+        }
         String catalog = Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8);
         JsonNode out = PageFunctions.run("common.js", "const CATALOG = " + catalog + ";\n"
             + "const TEXTS = " + JSON.writeValueAsString(texts) + ";\n" + """
@@ -70,6 +98,29 @@ class ServerTextsInRussianTest {
 
         assertThat(left).isEmpty();
         assertThat(texts).as("the texts checked").hasSizeGreaterThan(60);
+    }
+
+    /**
+     * A text with values in it is checked on a sample written out here. Reworded in the code, "TeamCity could not check
+     * the token (HTTP …)" must not stay green on its old sample: the sample must still carry each fixed part.
+     */
+    @Test
+    void eachSampleStillMatchesItsTextInTheCode() throws Exception {
+        Set<String> samples = samples();
+        List<CodeText> inCode = textsInCode();
+        List<String> lost = new ArrayList<>();
+        for (CodeText t : inCode) {
+            for (String part : t.parts()) {
+                if (part.chars().anyMatch(Character::isLetter) && !NOT_SHOWN.containsKey(part)
+                    && samples.stream().noneMatch(sample -> sample.contains(part)))
+                    lost.add(t.where() + ": " + part);
+            }
+        }
+
+        assertThat(lost).isEmpty();
+        assertThat(inCode).extracting(CodeText::whole).as("the texts read from the code")
+            .contains("no suites to re-run", "token required", "GitHub rejected the token — paste a new one");
+        assertThat(inCode).filteredOn(t -> !t.parts().isEmpty()).as("the texts with values").hasSizeGreaterThan(5);
     }
 
     /** The server's texts, from its own code where it can be called. */
@@ -114,14 +165,10 @@ class ServerTextsInRussianTest {
         out.add(CommitTokens.note(classic, List.of("repo")));
         out.add(CommitTokens.refusal(classic, List.of("repo", "delete_repo", "workflow")).orElseThrow());
         out.add(CommitTokens.refusal(classic, List.of("gist")).orElseThrow());
-        out.addAll(List.of("token required", "TeamCity rejected this token",
-            "TeamCity could not check the token (HTTP 503) — try again in a moment", "no RunAll build found for PR 13575",
-            "no suites to re-run", "Link GitHub is not set up on this checker",
-            "JIRA could not check the token right now — try again in a minute",
-            "JIRA rejected the token — paste a new one", "Visa my runs in JIRA needs your JIRA token",
+        out.addAll(List.of("TeamCity could not check the token (HTTP 503) — try again in a moment",
+            "no RunAll build found for PR 13575", "JIRA could not check the token right now — try again in a minute",
             "this token is of @ignite-pr-checker, the checker's own GitHub account — paste a token of your own account",
-            "GitHub rejected the token — paste a new one", "this option needs your GitHub token for commits",
-            "PR commands need your linked GitHub account"));
+            "TeamCity answered 500 — try again in a moment", "update failed: HTTP 404"));
 
         for (int[] counts : new int[][] {{2, 0, 1, 0}, {0, 1, 0, 0}, {0, 0, 3, 0}, {0, 0, 0, 1}, {1, 1, 1, 1}, {3, 0, 0, 0}})
             out.add(privateText(StandingVisas.class, "suitesLabel", counts[0], counts[1], counts[2], counts[3]));
@@ -156,6 +203,116 @@ class ServerTextsInRussianTest {
             "could not verify (TeamCity error: 502 Bad Gateway)"));
 
         return out;
+    }
+
+    /**
+     * A text for a page in the server's code, at {@code where}: the {@code whole} of it when it is made of literals
+     * alone, else the literal {@code parts} between its values.
+     */
+    private record CodeText(String where, String whole, List<String> parts) {
+    }
+
+    /** The texts for the pages in the server's code, each branch of a {@code ?:} a text of its own. */
+    private static List<CodeText> textsInCode() throws IOException {
+        List<CodeText> out = new ArrayList<>();
+        for (Path dir : SERVER_CODE) {
+            List<Path> files;
+            try (Stream<Path> walk = Files.walk(dir)) {
+                files = walk.filter(f -> f.toString().endsWith(".java")).sorted().toList();
+            }
+            for (Path f : files) {
+                String code = Files.readString(f, UTF_8);
+                Matcher m = TEXT_STARTS.matcher(code);
+                while (m.find())
+                    collect(f.getFileName().toString(), argument(code, m.end()), out);
+            }
+        }
+
+        return out;
+    }
+
+    private static void collect(String where, String expr, List<CodeText> out) {
+        List<Integer> asks = topLevel(expr, "?");
+        if (!asks.isEmpty()) {
+            int colon = elseOf(expr, asks.get(0));
+            collect(where, expr.substring(asks.get(0) + 1, colon), out);
+            collect(where, expr.substring(colon + 1), out);
+            return;
+        }
+
+        List<String> operands = new ArrayList<>();
+        int from = 0;
+        for (int plus : topLevel(expr, "+")) {
+            operands.add(expr.substring(from, plus).strip());
+            from = plus + 1;
+        }
+        operands.add(expr.substring(from).strip());
+        List<String> literals = operands.stream().filter(o -> LITERAL.matcher(o).matches())
+            .map(o -> o.substring(1, o.length() - 1).replace("\\\"", "\"").replace("\\\\", "\\")).toList();
+        if (literals.isEmpty())
+            return;
+
+        out.add(literals.size() == operands.size() ? new CodeText(where, String.join("", literals), List.of())
+            : new CodeText(where, null, literals));
+    }
+
+    /** The source of the argument that starts at {@code from}: up to the comma or the bracket that ends it. */
+    private static String argument(String code, int from) {
+        int depth = 0;
+        for (int i = from; i < code.length(); i++) {
+            char c = code.charAt(i);
+            if (c == '"' || c == '\'')
+                i = endOfLiteral(code, i);
+            else if ("([{".indexOf(c) >= 0)
+                depth++;
+            else if (")]}".indexOf(c) >= 0 && depth-- == 0 || c == ',' && depth == 0)
+                return code.substring(from, i);
+        }
+
+        throw new IllegalStateException("no end of the argument at " + from);
+    }
+
+    /** Where the {@code :} of the {@code ?} at {@code ask} stands. */
+    private static int elseOf(String expr, int ask) {
+        int open = 0;
+        for (int at : topLevel(expr, "?:")) {
+            if (at <= ask)
+                continue;
+            if (expr.charAt(at) == '?')
+                open++;
+            else if (open-- == 0)
+                return at;
+        }
+
+        throw new IllegalStateException("no : for the ? in " + expr);
+    }
+
+    /** Where the signs of {@code signs} stand in {@code expr} outside literals and brackets. */
+    private static List<Integer> topLevel(String expr, String signs) {
+        List<Integer> out = new ArrayList<>();
+        int depth = 0;
+        for (int i = 0; i < expr.length(); i++) {
+            char c = expr.charAt(i);
+            if (c == '"' || c == '\'')
+                i = endOfLiteral(expr, i);
+            else if ("([{".indexOf(c) >= 0)
+                depth++;
+            else if (")]}".indexOf(c) >= 0)
+                depth--;
+            else if (depth == 0 && signs.indexOf(c) >= 0)
+                out.add(i);
+        }
+
+        return out;
+    }
+
+    private static int endOfLiteral(String code, int start) {
+        for (int i = start + 1; ; i++) {
+            if (code.charAt(i) == '\\')
+                i++;
+            else if (code.charAt(i) == code.charAt(start))
+                return i;
+        }
     }
 
     /** A verdict whose run left gaps: suites that never ran, that ran fewer tests, unchecked tests, a newer run. */
