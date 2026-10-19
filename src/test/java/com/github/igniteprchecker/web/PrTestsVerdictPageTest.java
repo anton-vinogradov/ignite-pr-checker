@@ -107,6 +107,33 @@ class PrTestsVerdictPageTest {
     }
 
     /**
+     * In Russian, the class line of IgniteCacheGroupsTest read "1 упал (не вменено)" beside "1 не вменён" and "3 упали
+     * (ни одно не вменено этому PR)" in the same card: each says it of a test, so each takes its gender.
+     */
+    @Test
+    void theRussianClassLineSpeaksOfATest() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL + "const CATALOG = "
+            + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
+            page.route('/ru.json', { body: CATALOG });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            await page.load('?pr=13575');
+            const summaryOf = classRuns => {
+                const card = { buildId: 9001, note: null, runsKnown: true,
+                    classes: [Object.assign({}, ssl, { runs: classRuns })] };
+                page.run('renderPrTests')(card, verdict({ filtered: classRuns.map(r => judged(r,
+                    { reason: 'pre-existing: fails 3/100 on master' })) }));
+                return /<div class="reason">(\\d+ упа[^(]*\\([^)]*\\))/.exec(page.el('prTests').innerHTML)[1];
+            };
+            const more = [prRun('31', 'GridCommandHandlerSslTest.testOne'),
+                prRun('32', 'GridCommandHandlerSslTest.testTwo')];
+            report({ one: summaryOf([runs.filtered]), all: summaryOf([runs.filtered, ...more]) });
+            """);
+
+        assertThat(out.get("one").asText()).isEqualTo("1 упал (не вменён)");
+        assertThat(out.get("all").asText()).isEqualTo("3 упали (ни один не вменён этому PR)");
+    }
+
+    /**
      * Snapshots 6 timed out in the RunAll, and the checker re-ran it: the re-run passed. The verdict, final now, no
      * longer lists the suite as broken and does not judge the failure from the RunAll, so the line promises no check.
      * While the verdict can still change, the line says "not checked yet": the RunAll or a newer one is still going,
@@ -134,6 +161,56 @@ class PrTestsVerdictPageTest {
         assertThat(out.get("running").asText()).isEqualTo("not checked yet | 1 failed (not checked yet)");
         assertThat(out.get("newerRunGoing").asText()).isEqualTo("not checked yet | 1 failed (not checked yet)");
         assertThat(out.get("incomplete").asText()).isEqualTo("not checked yet | 1 failed (not checked yet)");
+    }
+
+    /**
+     * PR 13575 was merged while its verdict was incomplete after TeamCity errors, or while a RunAll was going. The page
+     * says that no run changes this verdict, so a failure it did not judge is "not checked", not "not checked yet".
+     */
+    @Test
+    void aMergedPrsVerdictPromisesNoCheck() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL + """
+            await page.load('?pr=13575');
+            const card = { buildId: 9001, note: null, runsKnown: true,
+                classes: [Object.assign({}, ssl, { runs: [runs.later] })] };
+            const merged = page.now() / 1000 - 3600;
+            const said = {};
+            const states = { incomplete: { mergedAt: merged, incompleteSince: page.now() - 60000 },
+                running: { mergedAt: merged, live: true, liveBuildId: 9001 } };
+            for (const [name, over] of Object.entries(states)) {
+                page.run('renderPrTests')(card, verdict(over));
+                const html = page.el('prTests').innerHTML;
+                said[name] = lineOf(html, 'testLater') + ' | '
+                    + /<div class="reason">(1 failed \\([^)]*\\))/.exec(html)[1];
+            }
+            report(said);
+            """);
+
+        assertThat(out.get("incomplete").asText()).isEqualTo("not checked | 1 failed (not checked)");
+        assertThat(out.get("running").asText()).isEqualTo("not checked | 1 failed (not checked)");
+    }
+
+    /**
+     * A RunAll of PR 13575 is still going, and two failures of GridCommandHandlerSslTest wait for its verdict. Each
+     * says "not checked yet", and the class line says the same as with one failure; a muted failure stays "not
+     * checked".
+     */
+    @Test
+    void theClassLineCountsTheFailuresNotCheckedYet() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SSL + """
+            await page.load('?pr=13575');
+            const later = prRun('28', 'GridCommandHandlerSslTest.testLaterToo');
+            const summaryOf = classRuns => {
+                const card = { buildId: 9001, note: null, runsKnown: true,
+                    classes: [Object.assign({}, ssl, { runs: classRuns })] };
+                page.run('renderPrTests')(card, verdict({ live: true, liveBuildId: 9001 }));
+                return /<div class="reason">(\\d+ failed \\([^)]*\\))/.exec(page.el('prTests').innerHTML)[1];
+            };
+            report({ two: summaryOf([runs.later, later]), mixed: summaryOf([runs.later, later, runs.muted]) });
+            """);
+
+        assertThat(out.get("two").asText()).isEqualTo("2 failed (2 not checked yet)");
+        assertThat(out.get("mixed").asText()).isEqualTo("3 failed (2 not checked yet, 1 not checked)");
     }
 
     /**
@@ -266,7 +343,8 @@ class PrTestsVerdictPageTest {
             String text = Files.readString(tour, UTF_8);
             for (String line : List.of("`blocks this PR`", "`recently started failing: …`", "`could not be checked`",
                 "`not blamed: …`", "`not checked: its suite broke`", "`not checked: TeamCity muted it`",
-                "`not checked yet`", "`not checked`", "`3 failed (none blamed on this PR)`"))
+                "`not checked yet`", "`not checked`", "`3 failed (none blamed on this PR)`",
+                "`2 failed (2 not checked yet)`"))
                 assertThat(text).as(tour.toString()).contains(line);
         }
     }

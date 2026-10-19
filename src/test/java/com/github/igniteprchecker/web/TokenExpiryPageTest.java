@@ -1,7 +1,10 @@
 package com.github.igniteprchecker.web;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
@@ -20,9 +23,11 @@ class TokenExpiryPageTest {
         page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
         const expires = (service, ms) => page.route('/api/token-expiry?service=' + service,
             { body: { state: 'expires', expiresAt: page.now() + ms } });
-        const line = id => ({ text: page.el(id).textContent, title: page.el(id).title,
-            amber: page.el(id).classList.contains('expiry-soon'), hidden: page.el(id).classList.contains('hidden'),
-            hint: page.el(id).classList.contains('hint') });
+        const line = id => ({ text: page.text(id), title: page.el(id + 'Text').title,
+            amber: page.el(id + 'Text').classList.contains('expiry-soon'),
+            hidden: page.el(id).classList.contains('hidden'),
+            hint: page.el(id + 'Text').classList.contains('hint'), lead: page.el(id + 'Lead').textContent,
+            outer: page.el(id).classList.contains('expiry-soon') || page.el(id).classList.contains('hint') });
         """;
 
     private static final String OPEN = """
@@ -39,8 +44,8 @@ class TokenExpiryPageTest {
             page.route('/api/token-expiry?service=github', { body: { state: 'never' } });
             """ + OPEN + """
             report({ tc: line('tcExpiry'), jira: line('jiraExpiry'), github: line('ghTokenExpiry'),
-                tcLine: page.el('tcState').textContent + page.el('tcExpiry').textContent,
-                ghLine: page.el('ghTokenState').textContent + page.el('ghTokenExpiry').textContent });
+                tcLine: page.el('tcState').textContent + page.text('tcExpiry'),
+                ghLine: page.el('ghTokenState').textContent + page.text('ghTokenExpiry') });
             """);
 
         assertThat(out.get("tcLine").asText()).isEqualTo("alice, token expires in 43 days");
@@ -136,6 +141,62 @@ class TokenExpiryPageTest {
         assertThat(out.at("/jira/title").asText()).isEqualTo("Visa my runs in JIRA goes off when it next tries to post"
             + " a visa.");
         assertThat(out.at("/jira/amber").asBoolean()).isTrue();
+    }
+
+    /**
+     * The amber of "expires in 5 days" and the dotted line of its tooltip started at the comma after "saved": the
+     * comma read as part of the warning. They start at the expiry's words.
+     */
+    @Test
+    void theAmberStartsAtTheExpirysWords() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            expires('teamcity', 5 * DAY);
+            expires('jira', 5 * DAY);
+            page.route('/api/token-expiry?service=github', { body: { state: 'never' } });
+            """ + OPEN + """
+            report({ tc: line('tcExpiry'), jira: line('jiraExpiry'), github: line('ghTokenExpiry') });
+            """);
+
+        for (String service : new String[] {"tc", "jira", "github"})
+            assertThat(out.at("/" + service + "/outer").asBoolean()).as(service).isFalse();
+        assertThat(out.at("/tc/lead").asText()).isEqualTo(", token ");
+        assertThat(out.at("/tc/amber").asBoolean()).isTrue();
+        assertThat(out.at("/jira/lead").asText()).isEqualTo(", ");
+        assertThat(out.at("/jira/amber").asBoolean()).isTrue();
+        assertThat(out.at("/github/hint").asBoolean()).isTrue();
+    }
+
+    /**
+     * In Russian ⚙, the TeamCity line read "alice, токен срок неизвестен: …", and the JIRA lines said "JIRA отверг его"
+     * and "JIRA не ответил" while the rest of ⚙ says "JIRA отвергла". The TeamCity line says "срок токена неизвестен",
+     * and JIRA takes the feminine.
+     */
+    @Test
+    void theRussianExpiryLinesAgree() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + "const CATALOG = "
+            + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
+            page.route('/ru.json', { body: CATALOG });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            page.route('/api/token-expiry?service=teamcity', { body: { state: 'unknown', why: 'several', tokens: 2 } });
+            page.route('/api/token-expiry?service=jira', { body: { state: 'refused' } });
+            page.route('/api/token-expiry?service=github', { body: { state: 'unknown', why: 'no-answer' } });
+            """ + OPEN + """
+            const first = { tc: page.el('tcState').textContent + page.text('tcExpiry'), jira: page.text('jiraExpiry'),
+                github: page.text('ghTokenExpiry') };
+            page.route('/api/token-expiry?service=teamcity', { body: { state: 'unknown', why: 'no-answer' } });
+            page.route('/api/token-expiry?service=jira', { body: { state: 'unknown', why: 'no-answer' } });
+            await page.el('settingsBtn').onclick();
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            report(Object.assign(first, { tc2: page.text('tcExpiry'), jira2: page.text('jiraExpiry') }));
+            """);
+
+        assertThat(out.get("tc").asText()).isEqualTo("alice, срок токена неизвестен: у тебя 2 токена, которые истекают"
+            + " в разное время");
+        assertThat(out.get("tc2").asText()).isEqualTo(", срок токена неизвестен: TeamCity не ответил");
+        assertThat(out.get("jira").asText()).isEqualTo(", JIRA отвергла его, когда чекер спросил: замени его");
+        assertThat(out.get("jira2").asText()).isEqualTo(", срок неизвестен: JIRA не ответила");
+        assertThat(out.get("github").asText()).isEqualTo(", срок неизвестен: GitHub не ответил");
     }
 
     /** An answer kept for an hour can be about a token that has expired since. */

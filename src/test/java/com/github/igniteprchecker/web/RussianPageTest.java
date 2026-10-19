@@ -138,8 +138,8 @@ class RussianPageTest {
             const ids = ['tokensUnread', 'tcState', 'tcExpiry', 'jiraState', 'jiraExpiry', 'ghLoginState',
                 'ghTokenState', 'ghTokenExpiry', 'ghTokenNote', 'ghCommentApp', 'loginsState', 'loginsList',
                 'journalState', 'journalList', 'settingsMsg', 'settingsGhMsg'];
-            report({ texts: Object.fromEntries(ids.map(id => [id, page.el(id).textContent])),
-                titles: ['tcExpiry', 'jiraExpiry', 'ghTokenExpiry'].map(id => page.el(id).title).join('\\n'),
+            report({ texts: Object.fromEntries(ids.map(id => [id, page.text(id)])),
+                titles: ['tcExpiry', 'jiraExpiry', 'ghTokenExpiry'].map(id => page.el(id + 'Text').title).join('\\n'),
                 language: page.el('langSelect').value });
             """);
 

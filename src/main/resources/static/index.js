@@ -1831,6 +1831,7 @@ function chainRunning(res) {
 
 async function loadPrTests(res) {
     if (!lastPrTests || lastPrTests.pr !== res.prNumber) $('prTestsCard').classList.add('hidden');
+    else if (lastPrTests.buildId !== res.buildId) showPreviousPrTests();
     holdLateCards(res.prNumber);
     try {
         const r = await api('/api/pr-tests?pr=' + res.prNumber + '&build=' + res.buildId
@@ -1841,9 +1842,26 @@ async function loadPrTests(res) {
             lastPrTests = { pr: res.prNumber, buildId: res.buildId, body };
             // A quiet look may have brought a new verdict of the same run while the answer was on its way.
             renderPrTests(body, lastResult);
+        } else {
+            dropPreviousPrTests();
         }
-    } catch (e) { /* the PR's own tests are a bonus; never block the result */ }
+    } catch (e) {
+        // The PR's own tests are a bonus; never block the result.
+        if (stillShown(res)) dropPreviousPrTests();
+    }
     showLateCards(res.prNumber);
+}
+
+// A newer RunAll of the PR is on screen, and its tests are on the way. Until they come, the card keeps its place with
+// the tests of the run before, but not with what that run's verdict did with them: the verdict on screen is another.
+function showPreviousPrTests() {
+    lastPrTests.previous = true;
+    renderPrTests(lastPrTests.body, null);
+}
+
+// The tests of the RunAll on screen did not come: the previous RunAll's would stand in for them.
+function dropPreviousPrTests() {
+    if (lastPrTests && lastPrTests.previous) $('prTestsCard').classList.add('hidden');
 }
 
 // "Crashed near the end of the run" and "Not blamed on this PR" stand under "This PR's tests", whose answer comes
@@ -1879,6 +1897,7 @@ function repaintPrTests(res) {
         renderPrTests(lastPrTests.body, res);
 }
 
+// `res` is the verdict of the RunAll whose tests `t` lists; null while a newer RunAll's tests are on the way.
 function renderPrTests(t, res) {
     const classes = t.classes || [];
     const check = t.suiteCheck || null;
@@ -1886,6 +1905,7 @@ function renderPrTests(t, res) {
     const known = t.runsKnown !== false;
     const elsewhere = check && check.state === 'FAILED' ? check.elsewhere || [] : [];
     $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
+    $('prTestsPrevious').classList.toggle('hidden', !!res);
     const runs = classes.flatMap(c => c.runs);
     $('prTestsCount').textContent = !classes.length ? ''
         : known ? T`(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})`
@@ -1895,15 +1915,16 @@ function renderPrTests(t, res) {
         slow ? esc(T`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
     $('prTestsWarn').classList.toggle('hidden', !warns.length);
     $('prTestsWarn').innerHTML = warns.join(' ');
-    const key = res.prNumber + '|' + res.buildId;
+    const key = res ? res.prNumber + '|' + res.buildId : prTestsOpen.key;
     if (prTestsOpen.key !== key) prTestsOpen = { key, names: new Set() };
     $('prTests').innerHTML = classes.map((c, i) => prTestClass(c, i, res, check, known)).join('')
         + elsewhere.map(notInSuiteElsewhere).join('');
     for (const b of $('prTests').querySelectorAll('.prt-all')) b.onclick = () => togglePrTestClass(b);
     wireSeenAt($('prTests'));
-    const untold = !known || chainRunning(res) || checkTold(check) ? 0
+    const untold = !res || !known || chainRunning(res) || checkTold(check) ? 0
         : classes.filter(c => !c.runs.length && !c.notInSuite).length;
-    const said = suiteCheckNote(check, untold, classes.length) || (known ? noRunsNote(classes, res, check) : '');
+    const said = !res ? ''
+        : suiteCheckNote(check, untold, classes.length) || (known ? noRunsNote(classes, res, check) : '');
     $('prTestsCheck').classList.toggle('hidden', !said);
     $('prTestsCheck').textContent = said;
     $('prTestsNote').classList.toggle('hidden', !t.note);
@@ -1985,19 +2006,20 @@ function prTestClass(c, i, res, check, known) {
         + `</span>${toggle}</div>`;
     const todo = c.notInSuite ? notInSuiteTodo() : '';
     if (!c.runs.length) {
-        const why = known ? `<div class="reason">${esc(noRunsOf(c, res, check))}</div>` : '';
+        const why = known && res ? `<div class="reason">${esc(noRunsOf(c, res, check))}</div>` : '';
         return `<li>${head}${why}${todo}</li>`;
     }
     const failed = c.runs.filter(r => r.status === 'FAILURE');
     const passed = c.runs.filter(r => r.status === 'SUCCESS').length;
     const ignored = c.runs.filter(r => r.status === 'UNKNOWN').length;
     const parts = [passed ? T`${passed} passed` : '',
-        failed.length ? T`${failed.length} failed (${failedOutcome(failed, res)})` : '',
+        !failed.length ? '' : !res ? T`${failed.length} failed`
+            : T`${failed.length} failed (${failedOutcome(failed, res)})`,
         ignored ? T`${ignored} ignored` : ''].filter(Boolean).map(esc);
     const suites = [...new Map(c.runs.filter(r => r.suite || r.suiteName).map(r => [r.suite || r.suiteName, r])).values()];
-    const longest = Math.max(...c.runs.map(r => r.durationMs));
+    const slowest = `<span class="time-of">${esc(fmtTestTime(Math.max(...c.runs.map(r => r.durationMs))))}</span>`;
     const summary = (suites.length ? T`${parts.join(', ')} in ${suites.map(suiteRunLink).join(', ')}` : parts.join(', '))
-        + esc(T` · slowest test ${fmtTestTime(longest)}`);
+        + T` · slowest test ${slowest}`;
     return `<li>${head}<div class="reason">${summary}</div>${todo}`
         + `<ul id="${listId}" class="suite-tests">${prTestRows(c, open, res)}</ul></li>`;
 }
@@ -2024,7 +2046,7 @@ function prTestRows(c, open, res) {
     const byName = (a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
     const tests = [...c.runs].sort((a, b) => rank(a) - rank(b)
         || (rank(a) === 1 ? b.durationMs - a.durationMs : 0) || byName(a, b));
-    const verdicts = verdictsOf(res);
+    const verdicts = res && verdictsOf(res);
     return (open ? tests : flaggedOf(tests)).map(r => prTestRow(r, verdicts, res)).join('');
 }
 
@@ -2039,7 +2061,7 @@ function togglePrTestClass(btn) {
     btn.textContent = classToggleLabel(c, open);
     btn.title = classToggleTitle(flaggedOf(c.runs).length, open);
     const list = $(btn.getAttribute('aria-controls'));
-    list.innerHTML = prTestRows(c, open, lastResult);
+    list.innerHTML = prTestRows(c, open, lastPrTests.previous ? null : lastResult);
     wireSeenAt(list);
 }
 
@@ -2060,7 +2082,7 @@ function prTestRow(r, verdicts, res) {
     return `<li class="test-row"><span class="tname">${name}</span><span class="tacts">`
         + `<span class="tag-doubt">${esc(PR_TEST_STATUS[r.status] ? T(PR_TEST_STATUS[r.status]) : String(r.status).toLowerCase())}</span>${time}`
         + (failed && r.masterRuns === 0 ? `<span class="tag-doubt">${T('no master history')}</span>` : '')
-        + '</span>' + (failed ? `<div class="reason">${verdictLine(r, verdicts, res)}</div>` : '') + '</li>';
+        + '</span>' + (failed && res ? `<div class="reason">${verdictLine(r, verdicts, res)}</div>` : '') + '</li>';
 }
 
 function suiteRunLink(r) {
@@ -2100,13 +2122,14 @@ function testKey(t) {
 // What the verdict did with a failed run of a PR's test. The verdict does not judge a test of a suite that timed out
 // or crashed, nor a failure TeamCity muted. Any other failure a later verdict may still judge while this one can
 // change: a RunAll is still going, or missed TeamCity lookups make the checker compute it again. A final verdict
-// leaves it unjudged for good, as when a suite broke and a re-run of the suite settled it.
+// leaves it unjudged for good, as when a suite broke and a re-run of the suite settled it. So does the verdict a PR
+// had when it was merged: it keeps the live and incomplete marks of that moment, but no run changes it.
 function outcomeOf(r, verdicts, res) {
     const v = verdicts.get(testKey(r));
     if (v) return v;
     if (r.muted) return { place: 'muted' };
     if ((res.brokenSuites || []).some(s => s.suite === r.suite)) return { place: 'broken' };
-    return { place: res.live || res.incompleteSince > 0 ? 'later' : 'unjudged' };
+    return { place: !res.mergedAt && (res.live || res.incompleteSince > 0) ? 'later' : 'unjudged' };
 }
 
 function verdictLine(r, verdicts, res) {
@@ -2129,19 +2152,21 @@ function seenAt(place, t, suite = t ? t.suite : '') {
 }
 
 // What the verdict did with a class's failed tests, as their count says it: "none blamed on this PR" when it put
-// all of them under Not blamed on this PR.
+// all of them under Not blamed on this PR. The failures a later verdict may still judge are "not checked yet", as
+// under each of them.
 function failedOutcome(failed, res) {
     const verdicts = verdictsOf(res);
     const places = failed.map(r => outcomeOf(r, verdicts, res).place);
-    const unchecked = p => p === 'muted' || p === 'later' || p === 'unjudged' || p === 'broken';
+    const unchecked = p => p === 'muted' || p === 'unjudged' || p === 'broken';
     if (failed.length === 1)
-        return unchecked(places[0]) ? (places[0] === 'later' ? T('not checked yet') : T('not checked'))
+        return places[0] === 'later' ? T('not checked yet') : unchecked(places[0]) ? T('not checked')
             : T(VERDICT_PLACES[places[0]].said);
     if (places.every(p => p === 'filtered')) return T('none blamed on this PR');
     const count = test => places.filter(test).length;
     return [[count(p => p === 'blockers'), n => n === 1 ? T`${n} blocks this PR` : T`${n} block this PR`],
         [count(p => p === 'watch'), n => T`${n} recently started failing`],
         [count(p => p === 'unverified'), n => T`${n} could not be checked`],
+        [count(p => p === 'later'), n => T`${n} not checked yet`],
         [count(unchecked), n => T`${n} not checked`],
         [count(p => p === 'filtered'), n => T`${n} not blamed`]]
         .filter(([n]) => n).map(([n, said]) => said(n)).join(', ');
@@ -3173,19 +3198,36 @@ function renderAccess(st) {
 }
 
 // How long each token has left goes after its state. The server asks TeamCity, JIRA and GitHub about a token at most
-// once an hour, so ⚙ asks at each opening.
+// once an hour, so ⚙ asks at each opening. Each service has its own sentences: Russian says them in the gender of
+// the service's name.
 const EXPIRY_SOON_DAYS = 14;
 const EXPIRY = {
-    teamcity: { span: 'tcExpiry', name: 'TeamCity', lead: phrase(', token '), act: phrase('log in with a new one'),
+    teamcity: { span: 'tcExpiry', lead: phrase(', token '), act: phrase('log in with a new one'),
         then: phrase('Then you have to log in again, and your options pause until you do.'),
-        revoke: phrase('in TeamCity'), several: phrase('TeamCity does not say which one you logged in with.') },
-    jira: { span: 'jiraExpiry', name: 'JIRA', lead: ', ', act: phrase('replace it'), stored: 'jiraStored',
+        revoke: phrase('in TeamCity'), several: phrase('TeamCity does not say which one you logged in with.'),
+        // "token" opens these sentences: the lead's ", token " would leave the Russian "токен срок неизвестен".
+        unknownLead: ', ',
+        unknown: { several: phrase('token expiry unknown: you have {0} tokens that expire at different times'),
+            unreadable: phrase('token expiry unknown: TeamCity wrote the date in a form the checker cannot read'),
+            'no-answer': phrase('token expiry unknown: TeamCity did not answer'),
+            unlisted: phrase('token expiry unknown: TeamCity did not list your tokens') } },
+    jira: { span: 'jiraExpiry', lead: ', ', act: phrase('replace it'), stored: 'jiraStored',
         then: phrase('Then Visa my runs in JIRA goes off until you save a new token and switch it on again.'),
         revoke: phrase('in your JIRA profile'), several: phrase('JIRA does not say which one you saved here.'),
-        refused: phrase('Visa my runs in JIRA goes off when it next tries to post a visa.') },
-    github: { span: 'ghTokenExpiry', name: 'GitHub', lead: ', ', act: phrase('replace it'), stored: 'ghStored',
+        refusedSays: phrase('JIRA refused it when the checker asked: {0}'),
+        refused: phrase('Visa my runs in JIRA goes off when it next tries to post a visa.'),
+        unknown: { several: phrase('expiry unknown: you have {0} tokens that expire at different times'),
+            unreadable: phrase('expiry unknown: JIRA wrote the date in a form the checker cannot read'),
+            'no-answer': phrase('expiry unknown: JIRA did not answer'),
+            unlisted: phrase('expiry unknown: JIRA did not list your tokens') } },
+    github: { span: 'ghTokenExpiry', lead: ', ', act: phrase('replace it'), stored: 'ghStored',
         then: phrase('Then the options that commit with it go off until you save a new token and switch them on again.'),
-        revoke: phrase('on GitHub'), refused: phrase('The options that commit with it go off when they next try to commit.') },
+        revoke: phrase('on GitHub'), refusedSays: phrase('GitHub refused it when the checker asked: {0}'),
+        refused: phrase('The options that commit with it go off when they next try to commit.'),
+        unknown: { several: phrase('expiry unknown: you have {0} tokens that expire at different times'),
+            unreadable: phrase('expiry unknown: GitHub wrote the date in a form the checker cannot read'),
+            'no-answer': phrase('expiry unknown: GitHub did not answer'),
+            unlisted: phrase('expiry unknown: GitHub did not list your tokens') } },
 };
 
 function loadExpiries(st) {
@@ -3207,14 +3249,17 @@ async function loadExpiry(service) {
     }
 }
 
-// `x` is the server's answer; null hides the line, as when the server stores no such token.
+// `x` is the server's answer; null hides the line, as when the server stores no such token. The amber and the dotted
+// line of a tooltip start at the expiry's words, not at the comma before them.
 function paintExpiry(el, service, x) {
     const said = x && expiryOf(EXPIRY[service], x);
     el.classList.toggle('hidden', !said);
-    el.classList.toggle('expiry-soon', !!(said && said.soon));
-    el.classList.toggle('hint', !!(said && said.title));
-    el.textContent = said ? T(EXPIRY[service].lead) + said.text : '';
-    el.title = (said && said.title) || '';
+    $(el.id + 'Lead').textContent = said ? T(said.lead || EXPIRY[service].lead) : '';
+    const text = $(el.id + 'Text');
+    text.classList.toggle('expiry-soon', !!(said && said.soon));
+    text.classList.toggle('hint', !!(said && said.title));
+    text.textContent = said ? said.text : '';
+    text.title = (said && said.title) || '';
 }
 
 // What the reader needs is in the text: a tooltip does not open by touch or from the keyboard.
@@ -3223,9 +3268,8 @@ function expiryOf(s, x) {
         return { text: T('never expires: give the next one an expiry, say 90 days'),
             title: T`Anyone who gets this token can use it until you revoke it ${T(s.revoke)}.` };
     }
-    if (x.state === 'refused' && s.refused) {
-        return { soon: true, text: T`${s.name} refused it when the checker asked: ${T(s.act)}`, title: T(s.refused) };
-    }
+    if (x.state === 'refused' && s.refused)
+        return { soon: true, text: T(s.refusedSays, T(s.act)), title: T(s.refused) };
     if (x.state === 'unknown') return expiryUnknown(s, x);
     if (x.state !== 'expires') return null;
     const left = x.expiresAt - Date.now();
@@ -3238,15 +3282,9 @@ function expiryOf(s, x) {
 }
 
 function expiryUnknown(s, x) {
-    if (x.why === 'several') {
-        return { text: T`expiry unknown: you have ${x.tokens} tokens that expire at different times`,
-            title: T(s.several) };
-    }
-    if (x.why === 'unreadable') {
-        return { text: T`expiry unknown: ${s.name} wrote the date in a form the checker cannot read` };
-    }
-    if (x.why === 'no-answer') return { text: T`expiry unknown: ${s.name} did not answer` };
-    return { text: T`expiry unknown: ${s.name} did not list your tokens` };
+    const lead = s.unknownLead;
+    if (x.why === 'several') return { lead, text: T(s.unknown.several, x.tokens), title: T(s.several) };
+    return { lead, text: T(s.unknown[x.why] || s.unknown.unlisted) };
 }
 
 // The checker writes in PRs from its own account, named where the PR comment says so. Without one the options that

@@ -27,7 +27,8 @@
         .card { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--card-bg); padding: 0.7rem 0.9rem; }
         .card .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
         .card .v { font-size: 1.35rem; font-weight: 600; margin-top: 0.15rem; }
-        .card .v small { font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+        /* A path in an error has no spaces: it breaks anywhere rather than run past the card. */
+        .card .v small { font-size: 0.8rem; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
         /* A label breaks only between its " · " chunks, so a number keeps its unit. */
         .card .v small .seg { display: inline-block; max-width: 100%; }
         .card[title] { cursor: help; }
@@ -57,6 +58,11 @@
         .catfill { background: var(--accent); height: 100%; }
         .catval { white-space: nowrap; }
         .catval small { color: var(--muted); }
+        /* Most settings' names are longer than the 120 px of the other lists: the names take one column, as wide as the
+           longest, so no value stands over its name. */
+        #configList { display: grid; grid-template-columns: max-content 1fr; }
+        #configList > * { grid-column: 1 / -1; }
+        #configList .catrow { grid-template-columns: subgrid; }
         .hdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 0.35rem; vertical-align: middle; background: #bbb; }
         .hdot.ok { background: var(--ok); }
         .hdot.warn { background: var(--warn); }
@@ -76,6 +82,9 @@
         .problems:empty { display: none; }
         .problem { border-left: 3px solid var(--warn); padding: 0.3rem 0.6rem; font-size: 0.85rem; }
         .problem.error { border-left-color: var(--bad); }
+        /* Until the first status comes, the cards and the problems have no height: shown then, they would push every
+           section down as it comes. The page waits for it, 2 s at most, as a Russian page waits for its language. */
+        body.awaits-status .wrap { visibility: hidden; animation: lang-wait 0s 2s forwards; }
 
         @media (max-width: 768px) {
             .wrap { padding: 0 0.75rem; }
@@ -84,12 +93,15 @@
             .loglist { gap: 0.6rem; }
             .logrow { grid-template-columns: 62px 46px 1fr; row-gap: 0.1rem; }
             .loglogger { grid-column: 1 / -1; grid-row: 2; }
-            /* The Russian line about a user is half as long again as the English one: it wraps beside the name. */
-            html[lang="ru"] #usersView .catval { white-space: normal; }
+            /* A line about a user, a setting's address or path, would run past the screen: a value wraps. */
+            .catval { white-space: normal; overflow-wrap: anywhere; }
+            /* A setting's value goes under its name. */
+            #configList { grid-template-columns: minmax(0, 1fr); }
+            #configList .catrow { row-gap: 0.1rem; }
         }
     </style>
 </head>
-<body>
+<body class="awaits-status">
     <header class="topbar">
         <a class="brand" href="/" title="Start page">Ignite PR Checker</a>
         <nav class="menu" aria-label="Pages">

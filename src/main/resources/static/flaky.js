@@ -72,9 +72,9 @@ function columnHeads() {
     return `<span class="lbcol lbcol-head">${T('Master fail rate')}</span><span class="lbcol lbcol-prs lbcol-head">${prsLast()}</span>`;
 }
 
-// "PRs, last 14 days": what the column of PRs counts.
-function prsLast() {
-    return T`PRs, last ${prDays} days`;
+// "PRs, last 14 days": what the column of PRs counts; "PR, last 14 days" beside a count of 1.
+function prsLast(count) {
+    return count === 1 ? T`PR, last ${prDays} days` : T`PRs, last ${prDays} days`;
 }
 
 // One test in one suite: `rank` in its group, `i` its place in the list the buttons look it up in.
@@ -101,7 +101,7 @@ function flakyRow(b, rank, i) {
         ? T`This test failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}.`
         : T`This test did not fail in any PR in the last ${prDays} days.`;
     // On a phone the column headings are gone, so the cell says what it counts; wide, the heading says it.
-    const prsCell = b.prCount ? `${b.prCount}<small>${prsLast()}</small>`
+    const prsCell = b.prCount ? `${b.prCount}<small>${prsLast(b.prCount)}</small>`
         : `<span class="prs-none">—</span><small>${T`no PRs, last ${prDays} days`}</small>`;
     return `<div class="lbrow" data-key="${esc(rowKey(b))}">
             <div class="lbhead">

@@ -76,13 +76,14 @@ class RussianCatalogTest {
     /**
      * A key no page and no server code writes is left from a change of the words. A template of the server's texts
      * stands for a sentence its code puts together from parts, so it counts as written while the code's strings still
-     * hold each of its words and three of them in a row.
+     * hold each of its words and three of them in a row. The server's code here includes update.sh, which install.sh
+     * writes: the page shows why an update failed in its words.
      */
     @Test
     void theCatalogKeepsNoStringNothingShows() throws IOException {
         Set<String> shown = new LinkedHashSet<>(pageKeys());
         shown.addAll(serverKeys());
-        String javaText = javaLiterals();
+        String javaText = javaLiterals() + updateReasons();
         List<String> unused = new ArrayList<>();
         sections().forEach((section, entries) -> entries.keySet().forEach(key -> {
             boolean used = section.startsWith("server") ? writtenBy(javaText, key) : shown.contains(key);
@@ -298,6 +299,16 @@ class RussianCatalogTest {
         }
 
         return false;
+    }
+
+    /** Why an update failed, as update.sh writes it for the service to show: each {@code fail "…"} of install.sh. */
+    private static String updateReasons() throws IOException {
+        Matcher fail = Pattern.compile("\\bfail \"([^\"]*)\"").matcher(Files.readString(Path.of("install.sh"), UTF_8));
+        StringBuilder out = new StringBuilder();
+        while (fail.find())
+            out.append(fail.group(1)).append('\u0000');
+
+        return out.toString();
     }
 
     /** Every string literal of the server's code, one after another. */

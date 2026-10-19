@@ -154,6 +154,22 @@ class FlakyBoardPageTest {
     }
 
     /**
+     * On a phone, the PRs cell of RebalanceTest, which failed in PR 13655 alone, read "1 PRs, last 14 days". A count of
+     * one takes "PR".
+     */
+    @Test
+    void aCountOfOnePrSaysPr() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", BOARD + """
+            report({ html: page.el('flaky').innerHTML });
+            """);
+
+        assertThat(out.get("html").asText())
+            .contains("<span class=\"lbcol lbcol-prs\" title=\"This test failed in these PRs in the last 14 days: "
+                + "#13655.\">1<small>PR, last 14 days</small></span>")
+            .contains(">3<small>PRs, last 14 days</small></span>");
+    }
+
+    /**
      * The row's TC opens the newest failed master run; the older failed master runs are in the panel, so a board of
      * 40 rows no longer shows 200 chips. A row with one failed master run has no such line.
      */

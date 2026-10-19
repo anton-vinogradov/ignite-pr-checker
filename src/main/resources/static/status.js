@@ -575,6 +575,7 @@ async function tick() {
         // keep the cards, and let the next poll clear this. Alarm only when there's nothing to show.
         $('err').textContent = last ? T('connection lost — retrying…') : T`status unavailable: ${e.message}`;
     }
+    document.body.classList.remove('awaits-status');
 }
 
 function redrawChart() {

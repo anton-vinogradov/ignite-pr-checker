@@ -58,7 +58,9 @@
             .lbcol-prs small { display: inline; }
             .lbcol-prs .prs-none { display: none; }
             .details { margin-left: 0; }
-            html[lang="ru"] .live { white-space: normal; }
+            /* The Russian chip is longer, so it wraps, but between its words: it sits in the test's name, which
+               breaks anywhere. */
+            html[lang="ru"] .live { white-space: normal; word-break: normal; }
         }
     </style>
 </head>
