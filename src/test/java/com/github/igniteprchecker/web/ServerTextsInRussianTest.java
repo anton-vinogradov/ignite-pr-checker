@@ -64,7 +64,7 @@ class ServerTextsInRussianTest {
     private static final Map<String, String> NOT_SHOWN = Map.of(
         "Only the operator can see who uses the service.", "the status page's",
         "Only the operator can ", "the status page's; Update shows to an operator only",
-        "no such language: the pages speak en and ru", "⚙ sends en or ru only",
+        "no such language: use en or ru", "⚙ sends en or ru only",
         "no such service: ", "⚙ asks about TeamCity, JIRA and GitHub only",
         "no title known for PR ", "the PR page shows no failed title");
 

@@ -54,7 +54,7 @@ class JournalInRussianTest {
 
         assertThat(left).isEmpty();
         assertThat(SettingsJournal.text(entries.get(0), Lang.RU))
-            .isEqualTo("Включено: «Ставить визу моим прогонам в JIRA». Новый токен JIRA.");
+            .isEqualTo("Включено: «Ставить визу моим прогонам в JIRA». Сохранён новый токен JIRA.");
         assertThat(SettingsJournal.text(entries.get(8), Lang.RU)).isEqualTo("Аккаунт GitHub @alice-gh отвязан. "
             + "Выключено: «Команды в PR», «Чинить checkstyle перед моими прогонами по команде» и «Добавлять в сьюты тесты "
             + "моего PR, которые не запускает ни одна сьюта». Чекер удалил и твой токен GitHub для коммитов.");
@@ -74,7 +74,7 @@ class JournalInRussianTest {
         journal.add("alice", SettingsJournal.Entry.switchedOn(SettingsJournal.By.of("laptop", null), "gh", null));
 
         assertThat(journal.views("alice", "laptop", "Firefox on Linux", Lang.RU)).extracting(SettingsJournal.View::from)
-            .containsExactly("из неизвестного браузера, во входе этого браузера", "сделал чекер",
+            .containsExactly("из неизвестного браузера, с тем же входом, что в этом браузере", "сделал чекер",
                 "из браузера на Windows", "из этого браузера");
     }
 }

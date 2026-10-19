@@ -103,7 +103,7 @@ class RussianPageTest {
         assertThat(texts.get("filteredCount").asText()).isEqualTo("(1 сьюта, 3 теста)");
         assertThat(texts.get("verdictLines").asText()).startsWith("Этот прогон покрывает PR не полностью: у 64 сьют нет "
             + "надёжного результата (60× сбой ci2: артефакты недоступны;");
-        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск №1 из не более чем 2: перезапускаю 3 "
+        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск №1 из 2 возможных: перезапускаю 3 "
             + "сьюты (2 с блокерами, 1 битая), закончится через ~20 мин. Вердикт ниже может измениться, когда они "
             + "закончатся.");
         assertThat(texts.get("filtered").asText()).contains("было и раньше: падает 1/4 на master на JDK 17",
@@ -150,7 +150,8 @@ class RussianPageTest {
 
         JsonNode texts = out.get("texts");
         assertThat(untranslated(texts, out.get("titles").asText())).isEmpty();
-        assertThat(texts.get("tcExpiry").asText()).isEqualTo(", токен истекает через 3 дня: войди с новым до этого");
+        assertThat(texts.get("tcExpiry").asText())
+            .isEqualTo(", токен истекает через 3 дня: войди с новым до этого срока");
         assertThat(texts.get("ghTokenState").asText()).isEqualTo("сохранён, classic");
         assertThat(texts.get("loginsState").asText()).isEqualTo("2 браузера");
         assertThat(texts.get("journalList").asText()).contains("Язык переключён на русский.",

@@ -35,7 +35,7 @@ public class LanguageController {
     public ResponseEntity<?> choose(@RequestBody(required = false) Choice choice,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String user, HttpServletRequest req) {
         if (choice == null || choice.lang() == null || !Lang.of(choice.lang()).code().equals(choice.lang()))
-            return ResponseEntity.badRequest().body(Map.of("error", "no such language: the pages speak en and ru"));
+            return ResponseEntity.badRequest().body(Map.of("error", "no such language: use en or ru"));
 
         Lang lang = Lang.of(choice.lang());
         if (users.language(user) != lang) {

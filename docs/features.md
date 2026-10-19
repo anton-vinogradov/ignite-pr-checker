@@ -464,16 +464,16 @@ journal.
 ### Language
 
 ⚙ starts with **Language**: pick English or Русский and press **Save**. The page then opens again in that language.
-The choice is your account's: the PR page and ⚙ show in it in every browser you log in from, and the journal lists
-each change. A page that opens without a login is in English.
+The server keeps the choice for your account: the PR page and ⚙ show in that language in every browser you log in
+from. The journal lists each change. A page that opens without a login is in English.
 
-- On the Russian page, the cards, buttons, reasons and answers of the server are in Russian, in the words of the
+- On the Russian page, the cards, buttons, reasons and server answers are in Russian. They use the same words as the
   [Russian tour](features.ru.md). The **?** links lead to the Russian tour.
 - PR comments, visas in JIRA, the copied AI prompts, the logs and the API stay in English: the Ignite community and
   scripts read them.
 - The status page and the flaky board are in English.
 - A page that last opened in Russian waits up to 2 s, until it knows the language, so it does not show English first.
-- A login on a page in the other language opens the page again in yours.
+- If you log in on a page in another language, the page opens again in your account's language.
 
 ## Visas and PR comments
 
