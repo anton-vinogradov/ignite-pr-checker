@@ -1141,6 +1141,9 @@ public class GithubClient implements SnapshotCache {
 
     private volatile long cacheTs;
 
+    /** The open PRs of other repos, such as the Python thin client's, by repo. */
+    private final Map<String, Listed> otherLists = new java.util.concurrent.ConcurrentHashMap<>();
+
     private volatile int starCount = -1;
 
     private volatile String releaseTag;
@@ -1286,6 +1289,41 @@ public class GithubClient implements SnapshotCache {
         catch (Exception e) {
             return cached != null ? cached : List.of();
         }
+    }
+
+    /**
+     * The open PRs of {@code repo}, such as the Python thin client's, most recently updated first, up to 50: one call,
+     * kept as long as the list of the checker's repo. Unlike that list, an empty answer stands: such a repo may have no
+     * open PR. Returns the last good answer, or an empty list, when GitHub is unavailable.
+     */
+    public List<PrSummary> openPrs(String repo) {
+        if (repo.equals(props.repo()))
+            return openPrs();
+
+        long now = System.currentTimeMillis();
+        Listed kept = otherLists.get(repo);
+        if (kept != null && now - kept.at() < ttlMs)
+            return kept.prs();
+
+        try {
+            GhPr[] prs = recorded("prs", () -> appGet(props.apiUrl() + "/repos/" + repo
+                + "/pulls?state=open&sort=updated&direction=desc&per_page=50").body(GhPr[].class));
+            if (prs == null)
+                return kept != null ? kept.prs() : List.of();
+
+            List<PrSummary> listed = Arrays.stream(prs).map(p -> new PrSummary(p.number(), p.title(), p.htmlUrl(), null,
+                null, null, p.head() == null ? null : p.head().sha(), null)).toList();
+            otherLists.put(repo, new Listed(listed, now));
+
+            return listed;
+        }
+        catch (RuntimeException e) {
+            return kept != null ? kept.prs() : List.of();
+        }
+    }
+
+    /** The open PRs of a repo as GitHub listed them {@code at}, epoch milliseconds. */
+    private record Listed(List<PrSummary> prs, long at) {
     }
 
     /**

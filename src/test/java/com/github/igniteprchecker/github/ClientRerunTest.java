@@ -169,6 +169,34 @@ class ClientRerunTest {
     }
 
     /**
+     * The checker's page of the PR tells while the story of the {@code /run-all} still settles its verdict: it decides
+     * on the re-run, waits for it, and only its verdict comment ends that. A run no story follows is final.
+     */
+    @Test
+    void thePageReadsTheVerdictFinalOnlyOnceTheStoryPostedIt() {
+        clientComment(1L, "/run-all");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));
+
+        StandingVisas.Phase deciding = commands.clientPhase(PR, RUN);
+        commands.updateEtas();
+        StandingVisas.Phase rerunning = commands.clientPhase(PR, RUN);
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(false));
+        commands.updateEtas();
+        commands.updateEtas();
+
+        assertThat(deciding.phase()).isEqualTo("settling");
+        assertThat(deciding.wave()).isZero();
+        assertThat(rerunning.phase()).isEqualTo("settling");
+        assertThat(rerunning.wave()).isEqualTo(1);
+        assertThat(rerunning.what()).isEqualTo("Thin client: Python");
+        assertThat(commands.clientPhase(PR, RERUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(OTHER_PR, OTHER_RUN).phase()).isEqualTo("final");
+    }
+
+    /**
      * GitHub reports merge conflicts in the PR, and the author forced the run. The auto re-run is part of that run,
      * not a new one: the conflicts do not hold it back, and GitHub is not asked about them again.
      */

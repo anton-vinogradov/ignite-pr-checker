@@ -606,6 +606,22 @@ public class TcClient {
     }
 
     /**
+     * The suite's finished, not cancelled runs on a branch, newest first (up to 100), each with the suite's name, who
+     * started it, the commit of each of its VCS roots and its value of build parameter {@code name}. One request.
+     */
+    public List<TcModel.BranchRun> finishedRuns(String token, String buildTypeId, String branch, String name) {
+        TcModel.BranchRuns list = get("findBuild", token, url("app/rest/builds", query(
+            "locator", "buildType:(id:" + buildTypeId + "),branch:(name:" + branch + "),state:finished,canceled:false,"
+                + "failedToStart:any,count:100",
+            "fields", "build(id,buildType(name),triggered(type,user(username)),"
+                + "revisions(revision(version,vcs-root-instance(id,vcs-root-id))),"
+                + "resultingProperties($locator(name:" + name + "),property(name,value)))")),
+            TcModel.BranchRuns.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
      * The test's latest runs in one suite on every branch but the default one, newest first (up to 200),
      * with the conditions each build ran under: how the test does on other PRs' branches, which run the
      * way this PR's do. Master runs differ: the nightly RunAll runs at test scale factor 1.0, PR chains at
@@ -891,7 +907,8 @@ public class TcClient {
         return currentUserBuilds(token, prBranch(prNumber));
     }
 
-    private List<TcModel.Build> currentUserBuilds(String token, String branch) {
+    /** The same on any branch, by the name TeamCity gives it, such as {@code pull/69} of a Python thin client PR. */
+    public List<TcModel.Build> currentUserBuilds(String token, String branch) {
         List<TcModel.Build> builds = new ArrayList<>();
         builds.addAll(userBuildsInState(token, branch, "running"));
         builds.addAll(userBuildsInState(token, branch, "queued"));

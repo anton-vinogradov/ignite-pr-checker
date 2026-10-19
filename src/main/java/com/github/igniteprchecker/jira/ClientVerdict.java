@@ -13,8 +13,8 @@ import java.util.stream.Stream;
  * The verdict of a run of the Python thin client's suite for a PR of the client: in GitHub's markdown for the PR, and
  * in JIRA's wiki markup for the visa. It names the commits the run tested, then what failed, and why each failure is
  * or is not blamed on the PR, by the rules of a suite of a RunAll. The visa opens by saying it is of this one suite:
- * read as the visa of a RunAll, it would vouch for suites that never ran. Its links go to TeamCity and GitHub only:
- * the checker's page has no PRs of the client.
+ * read as the visa of a RunAll, it would vouch for suites that never ran. Its links go to TeamCity and GitHub, and
+ * the comment's also to the checker's page of the PR.
  */
 public final class ClientVerdict {
     /** Tests a list names; the rest are counted, with a link to the run's tests in TeamCity. */
@@ -34,11 +34,16 @@ public final class ClientVerdict {
     }
 
     /**
-     * What the verdict says of the run: its build and suite, the PR, and the commits of Ignite and of the client it
-     * ran on.
+     * What the verdict says of the run: its build and suite, the PR, the commits of Ignite and of the client it ran on,
+     * and the checker's page of the PR, null when the verdict does not link it.
      */
     public record Run(long buildId, String suiteName, String igniteRepo, String igniteSha, String clientRepo, int pr,
-        String clientSha) {
+        String clientSha, String page) {
+        /** A run whose verdict does not link the checker's page. */
+        public Run(long buildId, String suiteName, String igniteRepo, String igniteSha, String clientRepo, int pr,
+            String clientSha) {
+            this(buildId, suiteName, igniteRepo, igniteSha, clientRepo, pr, clientSha, null);
+        }
     }
 
     /**
@@ -92,7 +97,9 @@ public final class ClientVerdict {
             + " the verdict of your `/run-all`").append(": ").append(ink.bold(ink.text(run.suiteName()))).append(' ')
             .append(ink.link("build " + ran, tcBase + "build/" + ran))
             .append(" ran this PR's head ").append(clientCommit(ink, run))
-            .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(".\n\n");
+            .append(" against Ignite master at ").append(igniteCommit(ink, run)).append('.');
+        pageLine(ink, run, r, b);
+        b.append("\n\n");
         body(ink, tcBase, ran, r, b);
         rerunLine(ink, tcBase, run, rerun, b);
         visaLine(visa, b);
@@ -217,6 +224,17 @@ public final class ClientVerdict {
                 .append(". This verdict counts the first run only.");
         }
         b.append("\n\n");
+    }
+
+    /** The sentence on where the checker's page of the PR shows the verdict; none when the verdict does not link it. */
+    private static void pageLine(Ink ink, Run run, AnalysisResult r, StringBuilder b) {
+        if (run.page() == null)
+            return;
+
+        boolean failed = Stream.of(r.blockers(), r.watch(), r.unverified(), r.filtered()).anyMatch(l -> !l.isEmpty());
+        b.append(failed ? " The checker's page shows each failed test with its failure message: "
+                : " The checker's page shows this verdict and the PR's runs: ")
+            .append(ink.link("Ignite PR Checker", run.page())).append('.');
     }
 
     /** What became of the run's visa, for the commander; nothing when their option does not act on the run. */

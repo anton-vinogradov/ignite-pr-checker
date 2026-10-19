@@ -263,6 +263,21 @@ class ClientVisaTest {
         verify(analyzer, times(1)).analyzeSuiteRun("tc", PR, "pull/69", RUN);
     }
 
+    /**
+     * While JIRA fails the visa, the verdict is decided and only waits for the visa: the checker's page of the PR reads
+     * it final, not as still settling.
+     */
+    @Test
+    void theVerdictHeldForItsVisaIsFinalOnThePage() {
+        when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString()))
+            .thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
+
+        runFinished(1L, RUN);
+
+        verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(PR), any(), anyString());
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+    }
+
     /** JIRA kept failing for 10 minutes: the verdict goes without the visa, and says what failed. */
     @Test
     void aVisaJiraKeepsFailingIsGivenUpAfterTenMinutes() {

@@ -164,6 +164,13 @@
         .act-note.err { color: var(--bad); }
         /* No run changes a merged PR's verdict, so its cards do not say that a re-run would change it. */
         #results.merged .rerun-advice { display: none; }
+        /* A PR of the Python thin client runs one suite, which Run queues again: the cards have no Rerun of their own,
+           and the AI prompts, written for Ignite's Java code, are left out. */
+        #results.client .rerun-advice, #results.client .sect-act, #results.client .suite-runs,
+        #results.client .group-rerun, #results.client .why.ai, #results.client .ai-suite, #results.client .ai-cause { display: none; }
+        .client-group { border-top: 1px solid var(--line); }
+        #freshText .nowrap { white-space: nowrap; }
+        .client-group > summary { padding: 0.5rem 0.9rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
         .filtered-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
         .filtered-line .sect-act { margin-left: 0.3rem; }
         /* Run RunAll follows the text of the older-code line, not the far edge of the row. */
@@ -562,6 +569,10 @@
                 <ul id="prList" class="pr-list"></ul>
                 <p id="prNone" class="pr-none muted hidden">No open PR matches.</p>
                 <p id="prTabNote" class="pr-none muted hidden"></p>
+                <details id="clientGroup" class="client-group hidden" open>
+                    <summary title="The open PRs of the Python thin client. Run on such a PR queues the client's suite with the PR's head and Ignite master.">Python client <span id="clientCount"></span></summary>
+                    <ul id="clientList" class="pr-list"></ul>
+                </details>
             </aside>
 
             <div class="resizer" id="paneResizer" title="Drag to resize · double-click to reset"></div>

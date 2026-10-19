@@ -77,6 +77,9 @@ class ClientCommandTest {
 
     private static final String CLIENT = "a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4";
 
+    /** The checker's page of the client's PR #69: Ignite's PR #69 has the page {@code ?pr=69}. */
+    private static final String PAGE = "https://checker.example/?repo=python&pr=69";
+
     private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
@@ -120,8 +123,8 @@ class ClientCommandTest {
         verify(github).appReact(CLIENT_REPO, PR, "author", 1L, "rocket");
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued** — [build"
             + " 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d` against Ignite"
-            + " master at `1f2e3d4`. When the run finishes, the checker posts the verdict in a new comment and deletes"
-            + " this one.");
+            + " master at `1f2e3d4`. Live progress and verdict: [Ignite PR Checker](" + PAGE + "). When the run"
+            + " finishes, the checker posts the verdict in a new comment and deletes this one.");
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
         verify(github, never()).appComment(anyInt(), any(), anyString());
         verify(github, never()).appReact(anyInt(), any(), anyLong(), anyString());
@@ -166,7 +169,9 @@ class ClientCommandTest {
                 + SUITE + "/9424005?buildTab=tests&expandedTest=o2#testNameId502)")
             .contains("**1 failing test is not blamed on this PR:**\n- `test_cache_config.test_get` — pre-existing:"
                 + " fails 3/100 on master · [TC](")
-            .doesNotContain("checker.example");
+            .contains(" against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite/commit/" + IGNITE + ")."
+                + " The checker's page shows each failed test with its failure message: [Ignite PR Checker](" + PAGE
+                + ").\n\n");
         verify(github).appDelete(CLIENT_REPO, PR, "author", 88L);
     }
 
@@ -243,12 +248,14 @@ class ClientCommandTest {
         clientComment(1L, "/run-all", "Author");
         clientComment(2L, "/run-all", "Author");
 
-        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. The checker"
-            + " cancelled your previous run. This run replaces it. When the run finishes, the checker posts the verdict"
-            + " in a new comment and deletes this one."));
-        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. The checker"
-            + " cancelled your previous runs. This run replaces them. When the run finishes, the checker posts the"
-            + " verdict in a new comment and deletes this one."));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. Live progress"
+            + " and verdict: [Ignite PR Checker](" + PAGE + "). The checker cancelled your previous run. This run"
+            + " replaces it. When the run finishes, the checker posts the verdict in a new comment and deletes this"
+            + " one."));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. Live progress"
+            + " and verdict: [Ignite PR Checker](" + PAGE + "). The checker cancelled your previous runs. This run"
+            + " replaces them. When the run finishes, the checker posts the verdict in a new comment and deletes this"
+            + " one."));
     }
 
     @Test
@@ -341,7 +348,8 @@ class ClientCommandTest {
         verify(github, never()).appReact(anyString(), anyInt(), any(), anyLong(), eq("confused"));
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued, but not at the"
             + " top** — [build 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d`"
-            + " against Ignite master at `1f2e3d4`. TeamCity refused to move it up (HTTP 403): your ci2 account may not"
+            + " against Ignite master at `1f2e3d4`. Live progress and verdict: [Ignite PR Checker](" + PAGE + ")."
+            + " TeamCity refused to move it up (HTTP 403): your ci2 account may not"
             + " have the permission to reorder the build queue. When the run finishes, the checker posts the verdict in"
             + " a new comment and deletes this one.");
     }

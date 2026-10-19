@@ -1269,9 +1269,9 @@ public class StandingVisas implements SnapshotCache {
     public record Phase(String phase, int wave, int of, String what, Long etaEpochSec) {
         static final String RUNNING = "running";
 
-        static final String SETTLING = "settling";
+        public static final String SETTLING = "settling";
 
-        static final String FINAL = "final";
+        public static final String FINAL = "final";
     }
 
     /**
@@ -1394,6 +1394,28 @@ public class StandingVisas implements SnapshotCache {
             return VisaLine.of(VisaLine.JIRA_TOKEN_REMOVED, viewer, true);
 
         return VisaLine.of(settled ? VisaLine.RETRYING : VisaLine.DUE, viewer, true);
+    }
+
+    /**
+     * Where the visa of a run of the Python thin client's suite stands, for the line on the checker's page of PR {@code
+     * pr} of {@code repo}: the visa of the run {@code buildId} itself, else the newest visa of the PR of the same
+     * commits, {@code revision}, as an auto re-run that stood in for a cancelled run has. Such a visa comes only with a
+     * {@code /run-all}, so a run with none has state null, and the page says nothing.
+     */
+    public VisaLine clientVisaLine(String viewer, String repo, int pr, long buildId, String revision) {
+        RunVisa v = runVisas.get(buildId);
+        if (v == null || !repo.equals(v.repo()) || v.pr() != pr) {
+            v = revision == null ? null : runVisas.descendingMap().values().stream()
+                .filter(r -> repo.equals(r.repo()) && r.pr() == pr && revision.equals(r.sha())).findFirst()
+                .orElse(null);
+        }
+        if (v == null)
+            return VisaLine.of(null, null, false);
+        if (v.commentId() == null)
+            return VisaLine.of(VisaLine.NO_TICKET, v.by(), v.by().equals(viewer));
+
+        return new VisaLine(VisaLine.POSTED, v.by(), v.by().equals(viewer), v.issue(),
+            jira.commentUrl(v.issue(), v.commentId()), false);
     }
 
     /**

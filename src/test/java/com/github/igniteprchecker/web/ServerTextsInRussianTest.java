@@ -177,6 +177,17 @@ class ServerTextsInRussianTest {
         out.add(ApiExceptionHandler.QUEUE_FORBIDDEN);
         out.add(ApiExceptionHandler.PREVIOUS_RUNALL_CANCELLED + " — try RunAll again");
         out.add(ApiExceptionHandler.PREVIOUS_RUNALL_CANCELLED + ": " + ApiExceptionHandler.FORBIDDEN);
+        out.add(ClientPrsController.PREVIOUS_RUN_CANCELLED + " — press Run again");
+        out.add(ClientPrsController.PREVIOUS_RUN_CANCELLED + ": " + ApiExceptionHandler.FORBIDDEN);
+        out.add(ClientPrsController.PREVIOUS_RUN_CANCELLED
+            + ": TeamCity has no suite IgniteTests24Java8_WiPThinClientPython");
+        out.add(ClientPrsController.CONFLICTS);
+        out.add(ClientPrsController.NO_RUN);
+        out.addAll(List.of("GitHub returned no head commit for this PR",
+            "GitHub returned no head commit of master in apache/ignite",
+            "TeamCity has no suite IgniteTests24Java8_WiPThinClientPython",
+            "suite IgniteTests24Java8_WiPThinClientPython has no VCS root GitHubApacheIgnite or"
+                + " GitHubApacheIgnitePythonThinClient in TeamCity"));
         out.add(ApiExceptionHandler.BAD_JSON);
         out.add(ApiExceptionHandler.BAD_PARAMETERS);
         out.add(String.valueOf(new ApiExceptionHandler(null, null)
@@ -234,6 +245,11 @@ class ServerTextsInRussianTest {
             "not seen failing in 50 master runs; failed all 3 runs on this branch; fails 3/40 in 4 other PRs",
             "failed the latest run; TeamCity gave no commit for it, so the 1 earlier run does not count",
             "failed the only run on commit 3fdf446; the 3 earlier runs were on other code",
+            "failed the only run on commits 1f2e3d4 and a1b2c3d; the 2 earlier runs were on other code",
+            "not seen failing in 100 master runs; failed all 2 runs on commits 1f2e3d4 and a1b2c3d",
+            "failed the last 2 of 3 runs on commits 1f2e3d4 and a1b2c3d, after a pass on the same commits",
+            "flaky on branch: failed only the latest of 2 runs on commits 1f2e3d4 and a1b2c3d (an earlier run on the"
+                + " same code passed)",
             "failed the last 2 of 3 runs, after a pass; TeamCity gave no commits to prove that was the same code",
             "flaky on branch: failed only the latest of 4 runs (passed just before, but TeamCity gave no commits to "
                 + "prove that was the same code)",

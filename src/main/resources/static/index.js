@@ -10,6 +10,12 @@ let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll yo
 let canAdmin = false; // an operator: may update the service
 let allPrs = []; // the PRs the list shows now, those of the chosen tab, for the list filter
 let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
+// The open PR is a PR of the Python thin client when this is CLIENT_REPO, the name the address gives its repo
+// (?repo=python&pr=69), and of Ignite when null: the two repos' PR numbers overlap.
+const CLIENT_REPO = 'python';
+let selectedRepo = null;
+let clientGithubRepo = 'apache/ignite-python-thin-client'; // from /api/config
+let clientSuite = 'Thin client: Python'; // the client's suite as ci2 names it, from /api/config
 
 async function api(path, opts = {}) {
     return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -64,10 +70,13 @@ function show(view) {
 // and where to read the verdict without an account.
 function paintLoginPr() {
     const pr = prFromUrl();
+    const repo = repoFromUrl();
     $('loginPr').classList.toggle('hidden', !pr);
     if (!pr) return;
-    $('loginPrHead').textContent = T`Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
-    const open = `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">${T`open #${esc(pr)} on GitHub`}</a>`;
+    $('loginPrHead').textContent = repo
+        ? T`Log in to see Python client PR #${pr}: which test failures are its own, and how its runs are going.`
+        : T`Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
+    const open = `<a href="${esc(prUrlOf(pr, repo))}" target="_self" rel="noopener">${T`open #${esc(pr)} on GitHub`}</a>`;
     $('loginPrNote').innerHTML = T('No ci2 account? The verdict may also be posted as a comment on the pull request — '
         + '{0}.', open);
 }
@@ -105,6 +114,19 @@ function signedOut() {
 }
 
 function prUrl(number) { return 'https://github.com/' + githubRepo + '/pull/' + number; }
+function prUrlOf(number, repo) {
+    return repo ? 'https://github.com/' + clientGithubRepo + '/pull/' + number : prUrl(number);
+}
+
+// The page's address of a PR, and the server's path of what the page asks about it.
+function prAddress(number, repo) { return (repo ? '?repo=' + repo + '&pr=' : '?pr=') + number; }
+function prApi(path, number, repo = selectedRepo) { return (repo ? '/api/client/' : '/api/') + path + '?pr=' + number; }
+
+// Whether the PR a request was made for is still the one open: an answer for Ignite's #69 is not the client's #69.
+function isOpen(number, repo) { return number === selectedPr && (repo || null) === selectedRepo; }
+
+// "#13575", or "python#69" for a PR of the Python thin client, as the filter takes it.
+function prTag(number, repo) { return (repo ? repo : '') + '#' + number; }
 function ago(ts) {
     if (!ts) return T('just now');
     const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -153,13 +175,14 @@ const ISSUE_KEY = /\bIGNITE-\d{4,}\b/i;
 function setPrTitle(number, title, url) {
     shownTitle = [number, title, url];
     lastIssueKey = title == null ? null : ((title.match(ISSUE_KEY) || [''])[0]).toUpperCase();
-    const href = url || prUrl(number);
+    const href = url || prUrlOf(number, selectedRepo);
     $('prTitle').classList.remove('muted');
     const linked = title ? esc(title).replace(new RegExp(ISSUE_KEY.source, 'gi'), m => {
         const key = m.toUpperCase();
         return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="${T`Open ${key} in JIRA`}">${m}</a>`;
     }) : '';
-    $('prTitle').innerHTML = `<a href="${esc(href)}" target="_self" rel="noopener" title="${T`Open PR #${esc(number)} on GitHub`}">#${esc(number)}</a>`
+    $('prTitle').innerHTML = (selectedRepo ? `<span class="tag">${T('Python client')}</span> ` : '')
+        + `<a href="${esc(href)}" target="_self" rel="noopener" title="${T`Open PR #${esc(number)} on GitHub`}">#${esc(number)}</a>`
         + (linked ? ' ' + linked : '');
 }
 
@@ -171,12 +194,12 @@ async function loadConfig() {
         await languageReady;
         if (cfg.githubRepo) githubRepo = cfg.githubRepo;
         if (cfg.jiraUrl) jiraBase = cfg.jiraUrl.replace(/\/+$/, '');
+        if (cfg.clientRepo) clientGithubRepo = cfg.clientRepo;
+        if (cfg.clientSuite) clientSuite = cfg.clientSuite;
         if (shownTitle && shownTitle[0] === selectedPr) setPrTitle(...shownTitle);
         if (cfg.refreshAfterSeconds >= 0) refreshAfterMs = cfg.refreshAfterSeconds * 1000;
-        if (cfg.runAllSuites > 0) {
-            runAllSuites = cfg.runAllSuites;
-            $('runAllLabel').textContent = T`RunAll (~${runAllSuites} suites):`;
-        }
+        if (cfg.runAllSuites > 0) runAllSuites = cfg.runAllSuites;
+        paintRunRow();
         const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
         tcBase = base;
         $('tokenLink').href = base + 'profile.html?item=accessTokens';
@@ -185,6 +208,28 @@ async function loadConfig() {
         if (typeof cfg.starCount === 'number' && cfg.starCount >= 0)
             $('starCount').textContent = cfg.starCount; // always show the project's star count, incl. 0
     } catch { /* ignore */ }
+}
+
+// The run row names what Run queues: RunAll for a PR of Ignite, the client's suite for a PR of the Python thin client.
+const RUN_ROW = {
+    ignite: { run: phrase('Queue the whole RunAll chain for this PR'),
+        top: phrase('Queue the whole RunAll chain for this PR, at the top of the queue'), again: phrase('Run RunAll'),
+        force: phrase('Queues RunAll although GitHub reports merge conflicts in this PR. Asks first.') },
+    client: { run: phrase('Queues the suite with this PR\'s head and Ignite master, as /run-all in the PR does.'),
+        top: phrase('Queues the suite with this PR\'s head and Ignite master at the top of the ci2 queue, as /run-all top '
+            + 'in the PR does.'),
+        again: phrase('Run the suite'),
+        force: phrase('Queues the suite although GitHub reports merge conflicts in this PR. Asks first.') },
+};
+
+function paintRunRow() {
+    const row = RUN_ROW[selectedRepo ? 'client' : 'ignite'];
+    $('runAllLabel').textContent = selectedRepo ? clientSuite + ':'
+        : runAllSuites ? T`RunAll (~${runAllSuites} suites):` : T('RunAll:');
+    for (const b of document.querySelectorAll('#actions .act[data-act]'))
+        b.title = T(b.dataset.top === 'true' ? row.top : row.run);
+    $('pendingRerun').textContent = T(row.again);
+    $('statusForce').title = T(row.force);
 }
 
 async function loadPrs() {
@@ -252,6 +297,7 @@ function showPrTab(tab) {
     prTab = tab;
     paintPrTabs();
     if (tab !== 'all' && !yourPrsAsking && Date.now() - yourPrsAt >= YOUR_PRS_KEEP_MS) loadYourPrs();
+    if (tab !== 'all' && !clientPrsAsking && Date.now() - clientPrsAt >= YOUR_PRS_KEEP_MS) loadClientYourPrs();
     renderPrList();
 }
 
@@ -272,8 +318,9 @@ function renderPrList() {
     allPrs = prs;
     for (const p of prs) delete p.shown; // a row drawn anew shows the badge the server gave
     $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
-    $('prList').innerHTML = prs.map(prRow).join('');
+    $('prList').innerHTML = prs.map(p => prRow(p)).join('');
     for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
+    renderClientList();
     markMine();
     paintPrTabNote();
     applyPrFilter();
@@ -283,7 +330,7 @@ function renderPrList() {
 // What Mine or Involved says when it lists no PR: that they are coming, why they did not, or that there are none.
 function paintPrTabNote() {
     const prs = tabPrs[prTab];
-    const note = prTab === 'all' || prs && prs.length ? ''
+    const note = prTab === 'all' || prs && prs.length || (clientTabPrs[prTab] || []).length ? ''
         : prs ? T(PR_TAB_EMPTY[prTab])
         : yourPrsProblem ? T(YOUR_PRS_PROBLEMS[yourPrsProblem]) : T('Loading the PRs…');
     $('prTabNote').textContent = note;
@@ -338,9 +385,15 @@ function resetPrTabs(linked) {
     yourPrsAt = 0;
     yourPrsProblem = null;
     prTabNoteSaid = null;
+    clientTabPrs.mine = clientTabPrs.involved = null;
+    clientPrsAt = 0;
+    clientPrsAsking = false;
     prTab = startTab();
     paintPrTabs();
-    if (prTab !== 'all') loadYourPrs();
+    if (prTab !== 'all') {
+        loadYourPrs();
+        loadClientYourPrs();
+    }
     renderPrList();
 }
 
@@ -350,22 +403,92 @@ function followGithubLink(login) {
     resetPrTabs(!!login);
 }
 
+// The open PRs of the Python thin client stand in a group of their own under Ignite's, by the same tabs: All from
+// /api/client/prs, Mine and Involved from /api/client/your-prs. A tab's PRs are null until they come.
+const clientTabPrs = { all: null, mine: null, involved: null };
+let clientPrs = []; // the client's PRs the group shows now, for the list filter
+let clientPrsAt = 0; // when the client's Mine and Involved came; 0: they are due
+let clientPrsAsking = false;
+
+async function loadClientPrs() {
+    try {
+        const r = await api('/api/client/prs');
+        if (!r.ok) return;
+        clientTabPrs.all = await r.json();
+    } catch (e) {
+        return; // the group stays as it was; the next opening of the page asks again
+    }
+    if (prTab === 'all') renderPrList();
+}
+
+// A failed search leaves the group as it was: the note of the tab already says why Ignite's PRs did not come.
+async function loadClientYourPrs() {
+    const round = yourPrsRound;
+    clientPrsAsking = true;
+    let answer = null;
+    try {
+        const r = await api('/api/client/your-prs');
+        if (r.ok) answer = await r.json();
+    } catch (e) {
+        /* as for a failed answer */
+    }
+    if (round !== yourPrsRound) return;
+    clientPrsAsking = false;
+    if (answer && answer.login && !answer.problem) {
+        clientTabPrs.mine = answer.mine;
+        clientTabPrs.involved = answer.involved;
+        clientPrsAt = Date.now();
+    }
+    if (prTab !== 'all') renderPrList();
+}
+
+// The group shows only while the chosen tab has PRs of the client in it.
+function renderClientList() {
+    const prs = clientTabPrs[prTab] || [];
+    clientPrs = prs;
+    $('clientCount').textContent = prs.length ? '(' + prs.length + ')' : '';
+    $('clientList').innerHTML = prs.map(p => prRow(p, CLIENT_REPO)).join('');
+    $('clientGroup').classList.toggle('hidden', !prs.length);
+    for (const li of $('clientList').children) li.classList.toggle('sel', !!selectedRepo && +li.dataset.num === selectedPr);
+}
+
+function findClientLi(number) {
+    return [...$('clientList').children].find(li => +li.dataset.num === number);
+}
+
+// What the filter keeps of the client's PRs, and the client's PR to open that the group does not hold. "python#69"
+// (or "python 69") names the client's PR #69 and keeps no PR of Ignite; any other text filters both lists alike, and a
+// bare number opens Ignite's PR.
+function clientMatches(prs, query) {
+    const named = /^\s*python\s*#?\s*(\d*)\s*$/i.exec(query);
+    if (!named) return { ...prMatches(prs, query), open: null, only: false };
+    const n = named[1];
+    const nums = prs.filter(p => !n || String(p.number).includes(n)).map(p => p.number);
+    const exact = nums.find(x => String(x) === n);
+    const open = n && exact === undefined ? +n : null;
+    return { nums, open, first: exact ?? open ?? nums[0] ?? null, only: true };
+}
+
 // The ticket key a PR title starts with, and what follows it.
 const TITLE_KEY = /^\s*(IGNITE-\d+)[\s:.,\-–]*/;
 
 // The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
 const MY_RUN_TITLE = phrase('You started its latest RunAll. The PR may be someone else\'s.');
+const CLIENT_MY_RUN_TITLE = phrase('You started its latest run of the suite. The PR may be someone else\'s.');
 
 // A row of the list: the number, the ticket key, the badge and your tag on the first line, the title without the key
 // under them. The link's title and data-title keep the whole title: the head and the visa take the key from there.
-function prRow(p) {
+// A row of the Python thin client's group names its `repo`.
+function prRow(p, repo = null) {
     const title = p.title || '';
     const key = title.match(TITLE_KEY);
     const rest = key ? title.slice(key[0].length) : '';
+    const of = repo ? ` data-repo="${repo}"` : '';
+    const mineTitle = T(repo ? CLIENT_MY_RUN_TITLE : MY_RUN_TITLE);
     return `
-        <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
-            <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(title)}">
-            <span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${T(MY_RUN_TITLE)}">${T('my run')}</span>
+        <li data-num="${esc(p.number)}"${of} data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
+            <a class="pr-link" href="${prAddress(esc(p.number), repo)}" data-num="${esc(p.number)}"${of} title="${esc(title)}">
+            <span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${mineTitle}">${T('my run')}</span>
             <span class="pr-ttl">${esc(rest || title)}</span></a>
         </li>`;
 }
@@ -383,24 +506,37 @@ function prMatches(prs, query) {
 }
 
 function applyPrFilter() {
-    const { nums, open } = prMatches(allPrs, $('prFilter').value);
+    const query = $('prFilter').value;
+    const client = clientMatches(clientPrs, query);
+    const { nums, open } = client.only ? { nums: [], open: null } : prMatches(allPrs, query);
     for (const li of $('prList').children)
         li.classList.toggle('hidden', !!nums && !nums.includes(+li.dataset.num));
+    for (const li of $('clientList').children)
+        li.classList.toggle('hidden', !!client.nums && !client.nums.includes(+li.dataset.num));
+    $('clientGroup').classList.toggle('hidden', !clientPrs.length || !!client.nums && !client.nums.length);
     const any = $('prOpenAny');
-    any.classList.toggle('hidden', open == null);
+    const opens = open ?? client.open;
+    any.classList.toggle('hidden', opens == null);
     if (open != null) {
         any.href = '?pr=' + open;
         any.dataset.num = open;
+        delete any.dataset.repo;
         any.textContent = T`Open PR #${open} →`;
+    } else if (client.open != null) {
+        any.href = prAddress(client.open, CLIENT_REPO);
+        any.dataset.num = client.open;
+        any.dataset.repo = CLIENT_REPO;
+        any.textContent = T`Open Python client PR #${client.open} →`;
     }
-    $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null
-        || !$('prTabNote').classList.contains('hidden'));
+    $('prNone').classList.toggle('hidden', !nums && !client.only || nums && nums.length > 0 || opens != null
+        || client.nums && client.nums.length > 0 || !$('prTabNote').classList.contains('hidden'));
 }
 
-// Flag PRs whose latest RunAll you triggered (matched by TeamCity username).
+// Flag PRs whose latest RunAll, or latest run of the Python client's suite, you triggered (matched by TeamCity
+// username).
 function markMine() {
     const me = (myUsername || '').trim().toLowerCase();
-    for (const li of $('prList').children)
+    for (const li of [...$('prList').children, ...$('clientList').children])
         li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
 }
 
@@ -451,13 +587,18 @@ function findLi(number) {
     return [...$('prList').children].find(li => +li.dataset.num === number);
 }
 
-// Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it.
-function openPr(number, push) {
+// Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it. `repo` is CLIENT_REPO
+// for a PR of the Python thin client.
+function openPr(number, push, repo = null) {
     selectedPr = number;
+    selectedRepo = repo || null;
     narrowListOpen = false;
     syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
-    for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
-    const li = findLi(number);
+    for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number && !selectedRepo);
+    for (const el of $('clientList').children) el.classList.toggle('sel', +el.dataset.num === number && !!selectedRepo);
+    paintRunRow();
+    $('results').classList.toggle('client', !!selectedRepo);
+    const li = selectedRepo ? findClientLi(number) : findLi(number);
     setPrTitle(number, li ? li.dataset.title : null, li ? li.dataset.url : null);
     if (!li) loadPrTitle(number);
     $('actions').classList.remove('hidden');
@@ -476,7 +617,8 @@ function openPr(number, push) {
     detailsCache.clear();
     resetStaleLook();
     stopRunsPoll();
-    if (push) history.pushState({ pr: number }, '', '?pr=' + number);
+    if (push) history.pushState(selectedRepo ? { pr: number, repo: selectedRepo } : { pr: number }, '',
+        prAddress(number, selectedRepo));
     analyze(number);
     loadRuns(number);
 }
@@ -484,11 +626,12 @@ function openPr(number, push) {
 // A PR off the open list (merged, closed, or past the 50 the list holds) gets its title from the server: the head names
 // its ticket, and the visa line can say where the visa goes. An answer for a PR no longer open on the page is dropped.
 async function loadPrTitle(number) {
+    const repo = selectedRepo;
     try {
-        const r = await api('/api/pr-title?pr=' + number);
+        const r = await api(prApi('pr-title', number, repo));
         if (!r.ok) return;
         const { title } = await r.json();
-        if (number !== selectedPr || typeof title !== 'string') return;
+        if (!isOpen(number, repo) || typeof title !== 'string') return;
         setPrTitle(number, title, null);
         loadVisaLine(number);
     } catch (e) { /* the head keeps the number alone, and the visa line stays hidden */ }
@@ -509,7 +652,7 @@ const ASK_FROM_SUITES = 5;
 
 // `note` is the line under the buttons that answers the click; the status line gets a copy.
 async function rerunSuites(suites, top, btn, note) {
-    if (!selectedPr || !suites.length) return;
+    if (!selectedPr || selectedRepo || !suites.length) return;
     const pr = selectedPr;
     if (suites.length >= ASK_FROM_SUITES && !confirm(top
         ? T('Re-run {0} suites of PR #{1} at the top of the ci2 queue, ahead of everyone else\'s builds?', suites.length, pr)
@@ -722,22 +865,24 @@ function schedulePoll() {
 }
 
 async function loadRuns(number) {
+    const repo = selectedRepo;
     let r;
     try {
-        r = await api('/api/runs?pr=' + number);
+        r = await api(prApi('runs', number, repo));
     }
     catch (e) {
         r = null; // network blip: the next poll asks again
     }
-    if (number !== selectedPr) return false;
+    if (!isOpen(number, repo)) return false;
     if (r && r.status === 401) { await loggedOut(r); return false; }
     if (!r || !r.ok) { schedulePoll(); return false; }
     const runs = await r.json();
     runsNow = runs;
     // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
-    // so suite chips light up individually while the chain grinds through them.
-    const rr = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
-    if (number !== selectedPr) return false;
+    // so suite chips light up individually while the chain grinds through them. The tracker knows Ignite's PRs only.
+    const rr = repo ? []
+        : await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
+    if (!isOpen(number, repo)) return false;
     lastRuns = runs.concat(rr.filter(x => x.pr === number)
         .map(x => ({ buildId: x.buildId, btId: x.buildTypeId, state: x.state, webUrl: x.webUrl, pct: x.pct,
             leftSec: x.leftSec, startSec: x.startSec, waitedSec: x.waitedSec, elapsedSec: x.elapsedSec })));
@@ -751,7 +896,8 @@ async function loadRuns(number) {
     // Same visual language as the suite rows: the name is a plain link, the state is a .live chip. A running build
     // that started before the latest push tests older code; a queued one has no commit yet (TeamCity picks it at
     // the start).
-    const revTag = b => b.onHead === true
+    const revTag = b => b.pinned ? ''
+        : b.onHead === true
         ? `<span class="rev-ok" title="${T('This run tests the PR\'s latest commit.')}">${T('on latest commit')}</span>`
         : b.onHead === false
             ? `<span class="rev-stale" title="${T`Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.`}">${T`⚠ old commit ${esc(b.rev)}`}</span>`
@@ -774,7 +920,7 @@ async function loadRuns(number) {
     // When the runs we were watching have all finished, refresh the analysis to pick up their results.
     // Until a verdict of the finished run comes, each poll looks again: after a failed refresh, or while
     // the server still serves the unfinished one as it recomputes, that one would stay on screen for good.
-    if (runs.length === 0 && number === selectedPr) {
+    if (runs.length === 0 && isOpen(number, repo)) {
         if (runsWere > 0) {
             verdictDue = true;
             refresh();
@@ -807,13 +953,13 @@ async function loadSettling(number) {
     }
     let phase;
     try {
-        const r = await api('/api/settling?pr=' + number + '&build=' + res.buildId);
+        const r = await api(prApi('settling', number, res.repo) + '&build=' + res.buildId);
         phase = r.ok ? await r.json() : undefined;
     }
     catch (e) {
         phase = undefined;
     }
-    if (number !== selectedPr || lastResult !== res) return;
+    if (!isOpen(number, res.repo) || lastResult !== res) return;
     // A failed answer leaves the run where it was last known to be; the next poll asks again.
     if (phase === undefined) phase = phaseNow && phaseNow.pr === number && phaseNow.build === res.buildId
         ? phaseNow : null;
@@ -863,7 +1009,7 @@ function waitingForFinal() {
 // The tab's title and icon say how the open PR's run stands, so a reader on another tab sees it finish.
 function paintTab() {
     const st = tabState();
-    const pr = selectedPr ? ' · #' + selectedPr + ' — Ignite PR Checker' : '';
+    const pr = selectedPr ? ' · ' + prTag(selectedPr, selectedRepo) + ' — Ignite PR Checker' : '';
     let title = T(BASE_TITLE), color = null;
     if (st && st.kind === 'running') {
         color = TAB_COLORS.running;
@@ -883,7 +1029,7 @@ function paintTab() {
             : st.verdict === 'watch' ? T('⚠ started failing') : T('⚠ not proven clean')) + pr;
     }
     else if (selectedPr && !$('analyzeView').classList.contains('hidden'))
-        title = '#' + selectedPr + ' — Ignite PR Checker';
+        title = prTag(selectedPr, selectedRepo) + ' — Ignite PR Checker';
     document.title = title;
     const icon = document.querySelector('link[rel="icon"]');
     if (icon) icon.href = color ? 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns='
@@ -903,7 +1049,7 @@ function notificationsOn() {
 
 function paintNotify(st) {
     const btn = $('notifyBtn');
-    const armed = !!notifyFor && notifyFor.pr === selectedPr;
+    const armed = !!notifyFor && isOpen(notifyFor.pr, notifyFor.repo);
     btn.classList.toggle('hidden', !notificationsOn() || !st || st.kind === 'final');
     btn.textContent = armed ? T('🔔 Will notify') : T('🔔 Notify me');
     btn.setAttribute('aria-pressed', String(armed));
@@ -913,23 +1059,24 @@ function paintNotify(st) {
 }
 
 async function toggleNotify() {
-    if (notifyFor && notifyFor.pr === selectedPr) {
+    if (notifyFor && isOpen(notifyFor.pr, notifyFor.repo)) {
         notifyFor = null;
         paintTab();
         return;
     }
     const pr = selectedPr;
+    const repo = selectedRepo;
     const st = tabState();
     const chain = runsNow.find(b => b.runAll);
     const build = chain ? chain.buildId : lastResult && lastResult.prNumber === pr ? lastResult.buildId : 0;
     let permission = Notification.permission;
     if (permission === 'default') permission = await Notification.requestPermission();
-    if (permission === 'granted' && pr === selectedPr && st && st.kind !== 'final') notifyFor = { pr, build };
+    if (permission === 'granted' && isOpen(pr, repo) && st && st.kind !== 'final') notifyFor = { pr, repo, build };
     paintTab();
 }
 
 function notifyIfFinal(st) {
-    if (!notifyFor || notifyFor.pr !== selectedPr || !st || st.kind !== 'final'
+    if (!notifyFor || !isOpen(notifyFor.pr, notifyFor.repo) || !st || st.kind !== 'final'
         || st.res.buildId < notifyFor.build)
         return;
     const n = st.res.blockers.length, w = (st.res.watch || []).length;
@@ -940,8 +1087,11 @@ function notifyIfFinal(st) {
         : T('no blockers found, not proven clean. Open the page to see why.');
     notifyFor = null;
     try {
-        const note = new Notification(`PR #${selectedPr}: ${head}`, {
-            body: T`The verdict of RunAll ${st.res.buildId} is final.`, tag: 'prc-' + selectedPr });
+        const title = selectedRepo ? T`Python client PR #${selectedPr}: ${head}` : `PR #${selectedPr}: ${head}`;
+        const note = new Notification(title, {
+            body: selectedRepo ? T`The verdict of build ${st.res.buildId} is final.`
+                : T`The verdict of RunAll ${st.res.buildId} is final.`,
+            tag: 'prc-' + (selectedRepo ? prTag(selectedPr, selectedRepo) : selectedPr) });
         note.onclick = () => { window.focus(); note.close(); };
     } catch (e) { /* a browser that refuses page notifications still has the tab title */ }
 }
@@ -949,6 +1099,10 @@ function notifyIfFinal(st) {
 // What /api/settling says, in words; empty unless re-runs still settle the verdict.
 function settlingText(phase) {
     if (!phase || phase.phase !== 'settling') return '';
+    if (selectedRepo) {
+        return phase.wave ? T('♻︎ Auto re-run of the suite on the same commits: the verdict below may change when it '
+            + 'finishes.') : T('♻︎ Deciding whether to run the suite again. The verdict below may still change.');
+    }
     if (!phase.wave) return T('♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.');
     const left = phase.etaEpochSec ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
     const what = tr(phase.what);
@@ -958,11 +1112,18 @@ function settlingText(phase) {
             phase.wave, phase.of, what);
 }
 
+// The same of a PR of the Python thin client, whose run is the client's suite.
+function clientNoRun(run) {
+    return !run ? T('No run of the suite tested this PR\'s code yet. Start one with Run above, or post /run-all in the PR.')
+        : run.state === 'running' ? T('The suite is running for this PR. Its verdict shows up here when it finishes.')
+        : T('The suite is queued for this PR. Its verdict shows up here when it finishes.');
+}
+
 // A PR with nothing to analyse yet: say whether a RunAll is already on its way rather than offer
 // to start one next to it.
 function showNoRun() {
     const chain = runsNow.find(b => b.runAll);
-    noRunNote = !chain
+    noRunNote = selectedRepo ? clientNoRun(chain) : !chain
         ? T('No RunAll run for this PR yet — start one with Run in the RunAll row above. (TeamCity may have cleaned up an old one.)')
         : chain.state === 'running'
             ? T('RunAll is running for this PR — its first results show up here shortly.')
@@ -977,6 +1138,11 @@ function prFromUrl() {
     return v && /^\d+$/.test(v) ? +v : null;
 }
 
+// CLIENT_REPO when the address names the Python thin client's repo, else null: Ignite's PR.
+function repoFromUrl() {
+    return new URLSearchParams(location.search).get('repo') === CLIENT_REPO ? CLIENT_REPO : null;
+}
+
 async function enterApp(username, linked) {
     myUsername = username || '';
     resetPrTabs(linked);
@@ -985,15 +1151,16 @@ async function enterApp(username, linked) {
     show('analyze');
     $('actions').classList.add('hidden');
     $('runsRow').classList.add('hidden');
-    await loadPrs();
+    await Promise.all([loadPrs(), loadClientPrs()]);
     const pr = prFromUrl();
-    if (pr) openPr(pr, false);
+    if (pr) openPr(pr, false, repoFromUrl());
     else goHome(false);
     await showLinkOutcome();
 }
 
 function goHome(push) {
     selectedPr = null;
+    selectedRepo = null;
     lastResult = null;
     syncListBadge();
     runsNow = [];
@@ -1003,7 +1170,7 @@ function goHome(push) {
     paintTab();
     stopRunsPoll();
     if (push) history.pushState({}, '', location.pathname);
-    for (const li of $('prList').children) li.classList.remove('sel');
+    for (const li of [...$('prList').children, ...$('clientList').children]) li.classList.remove('sel');
     $('prTitle').classList.add('muted');
     $('prTitle').textContent = T('Pick a PR on the left, or type its number in the filter.');
     $('actions').classList.add('hidden');
@@ -1076,10 +1243,11 @@ let analyzeRetries = 0;
 // nothing redrawn unless the verdict changed, and a failure waits for the next poll.
 async function analyze(number, quiet) {
     if (!number) return;
+    const repo = selectedRepo;
     const progTimer = quiet ? null : startAnalyzing(number);
     let r;
     try {
-        r = await api('/api/analyze?pr=' + encodeURIComponent(number));
+        r = await api(prApi('analyze', number, repo));
     }
     catch (e) {
         r = null; // network error: treat like a restart blip below
@@ -1087,15 +1255,15 @@ async function analyze(number, quiet) {
     finally {
         clearInterval(progTimer);
     }
-    if (number !== selectedPr) return; // a newer selection superseded this one
+    if (!isOpen(number, repo)) return; // a newer selection superseded this one
     if (r && r.status === 401) return loggedOut(r);
     if (quiet && (!r || !r.ok)) return;
     if (!r || !r.ok) {
-        const { error } = r ? await r.json().catch(() => ({})) : {};
+        const { error, noRun } = r ? await r.json().catch(() => ({})) : {};
         // A real "this PR has no run" answer comes with our own message; anything else
         // (Spring's bare "Not Found", 502/503, network failure) is almost always a deploy
         // restart — keep calm and retry instead of flashing a scary error.
-        if (/no RunAll build/i.test(error || '')) {
+        if (noRun || /no RunAll build/i.test(error || '')) {
             showNoRun();
             return;
         }
@@ -1104,7 +1272,7 @@ async function analyze(number, quiet) {
             analyzeRetries++;
             sayStatus(why ? T`Could not analyze this PR: ${tr(why)}. Retrying…`
                 : T('The service may be busy or restarting. Retrying…'), { busy: true });
-            setTimeout(() => { if (number === selectedPr) analyze(number); }, 4000);
+            setTimeout(() => { if (isOpen(number, repo)) analyze(number); }, 4000);
             return;
         }
         sayStatus(why ? T`Could not analyze this PR: ${tr(why)}.`
@@ -1115,7 +1283,7 @@ async function analyze(number, quiet) {
     }
     analyzeRetries = 0;
     const res = await r.json();
-    if (number !== selectedPr) return;
+    if (!isOpen(number, repo)) return;
     clearFailedRefresh();
     verdictDue = false;
     if (quiet && sameVerdict(lastResult, res)) {
@@ -1133,11 +1301,12 @@ async function analyze(number, quiet) {
 // cold analysis of a fresh run takes a while, and a silent spinner reads as "broken". The first
 // viewer fills the cache for everyone.
 function startAnalyzing(number) {
-    sayStatus(T('Analyzing the latest RunAll…'), { busy: true });
+    sayStatus(selectedRepo ? T('Analyzing the latest run…') : T('Analyzing the latest RunAll…'), { busy: true });
     clearFreshness();
     $('results').classList.add('hidden');
     $('pendingRow').classList.add('hidden');
     $('settlingRow').classList.add('hidden');
+    if (selectedRepo) return null; // the suite's verdict has no progress to tell
     return setInterval(async () => {
         try {
             const pr = await api('/api/progress?pr=' + number);
@@ -1635,7 +1804,8 @@ function runWhen(res) {
     const when = text => res.finishedAt ? T`finished ${text}` : T`started ${text}`;
     const old = Date.now() - at > OLD_RUN_DAYS * 86400000;
     const tip = [runCost(res), when(new Date(at).toLocaleString(LANG === 'ru' ? 'ru-RU' : undefined)),
-        old ? T('Over a week old: master and this PR have likely changed. A new RunAll tells more.') : '']
+        !old ? '' : res.repo ? T('Over a week old: Ignite master and this PR have likely changed. A new run tells more.')
+            : T('Over a week old: master and this PR have likely changed. A new RunAll tells more.')]
         .filter(Boolean).join(' · ');
     return ` · <span class="hint${old ? ' old-run' : ''}" title="${esc(tip)}">${when(`${fmtDay(at)} (${ago(at)})`)}</span>`;
 }
@@ -1660,7 +1830,7 @@ function suitesRanLabel(res) {
 // "verdict computed" and the rest of the line.
 function renderFreshness(res) {
     const build = T`RunAll build ${esc(res.buildId)}`;
-    const buildLabel = tcBase
+    const buildLabel = res.repo ? clientRunLabel(res) : tcBase
         ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="${T('Open this RunAll build in TeamCity')}">${build}</a>` : build;
     const liveTag = res.live
         ? ' · ' + (res.liveBuildId && tcBase
@@ -1673,6 +1843,24 @@ function renderFreshness(res) {
         + T`verdict computed ${esc(ago(res.computedAt))}` + '</span>';
     $('freshMore').innerHTML = suitesRanLabel(res) + liveTag;
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
+}
+
+// The run of the Python thin client's suite: its build, the later run of the same commits the verdict counts too, and
+// the commits of the client and of Ignite it tested.
+function clientRunLabel(res) {
+    const link = (text, href, title) => href
+        ? `<a class="nowrap" href="${esc(href)}" target="_self" rel="noopener" title="${title}">${text}</a>` : text;
+    const build = id => tcBase ? tcBase + 'build/' + id : '';
+    const run = link(T`${esc(res.suiteName || clientSuite)} build ${esc(res.buildId)}`, build(res.buildId),
+        T('Open this build in TeamCity'));
+    const rerun = res.rerunId ? ' · ' + link(T`re-run build ${esc(res.rerunId)}`, build(res.rerunId),
+        T('Opens the later run of the same commits in TeamCity. The verdict counts its failed tests too.')) : '';
+    const commit = (sha, href) => link(esc(shortSha(sha)), href, T('Opens this commit on GitHub.'));
+    const client = `https://github.com/${res.clientRepo || clientGithubRepo}/pull/${res.prNumber}/commits/`;
+    const ignite = `https://github.com/${res.igniteRepo || githubRepo}/commit/`;
+    const tested = res.clientSha && res.igniteSha ? ' · ' + T('tested the PR at {0} against Ignite master at {1}',
+        commit(res.clientSha, client + res.clientSha), commit(res.igniteSha, ignite + res.igniteSha)) : '';
+    return run + rerun + tested;
 }
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
@@ -1717,7 +1905,7 @@ function lookAgainIfStale(res) {
     if (staleLook.spent || !isStale(res)) return;
     staleLook.spent = true;
     staleLook.timer = setTimeout(() => {
-        if (selectedPr === res.prNumber) analyze(res.prNumber, true);
+        if (isOpen(res.prNumber, res.repo)) analyze(res.prNumber, true);
     }, STALE_LOOK_MS);
 }
 
@@ -1725,12 +1913,13 @@ function lookAgainIfStale(res) {
 // the head-moved note costs a TeamCity and a GitHub call, so it is asked for again only when the
 // build changed, or when `force`d by the reader.
 function renderResult(res, { quiet = false, force = false } = {}) {
-    const prev = lastResult && lastResult.prNumber === res.prNumber ? lastResult : null;
+    const prev = lastResult && resKey(lastResult) === resKey(res) ? lastResult : null;
     const kept = prev ? openState() : null;
     lastResult = res;
     // The PR's tests take the server seconds, and drawing the verdict takes the page milliseconds: they go first.
     const asksTests = !prev || prev.buildId !== res.buildId || prev.live !== res.live || force;
-    if (asksTests) loadPrTests(res);
+    if (asksTests && res.repo) noPrTests(res);
+    else if (asksTests) loadPrTests(res);
     noRunNote = '';
     if (!quiet || !prev) sayStatus(''); // a first verdict replaces "no run yet"
     renderFreshness(res);
@@ -1792,7 +1981,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     wireSectActs('watchActs', suitesOfTests(watch));
     wireSectActs('filteredActs', suitesOfTests(res.filtered));
     loadVisaLine(selectedPr);
-    const tabsOn = res.blockers.length >= 2;
+    const tabsOn = res.blockers.length >= 2 && !res.repo;
     $('blockerTabs').classList.toggle('hidden', !tabsOn);
     if (causesCache.key !== causesKey(res)) {
         causesCache = { key: causesKey(res), data: null };
@@ -1802,9 +1991,9 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     if (tabsOn) updateCauseCount();
     if (kept) restoreOpen(kept);
     if (!prev || prev.buildId !== res.buildId) clearDelta(); // or the previous run's comparison stands as this run's
-    loadDelta(res);
+    if (!res.repo) loadDelta(res);
     paintPrimary();
-    if (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force) loadPending(res);
+    if (!res.repo && (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force)) loadPending(res);
     if (!asksTests) repaintPrTests(res);
     if (!prev || prev.buildId !== res.buildId || force) loadSettling(res.prNumber);
 }
@@ -1884,9 +2073,12 @@ function verdictLines(res, standing) {
         return [T('Nothing in this run looks caused by your PR. You don\'t need to fix or re-run anything.')];
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
-        return [T`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
+        const next = res.mergedAt ? '' : res.repo
+            ? ' ' + T('A new run shows whether these tests are blockers, if this PR\'s head and Ignite master are still at '
+                + 'the same commits.')
             : ' ' + T('Re-run their suites under “Recently started failing”: the re-run shows whether these tests are '
-                + 'blockers.'))]
+                + 'blockers.');
+        return [T`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + next]
             .concat(caveats.length ? [T`This run also can't prove the PR is clean: ${listed}`] : []);
     }
     return caveats.length ? [T`This run can't prove the PR is clean: ${listed}`] : [];
@@ -1938,8 +2130,11 @@ function paintPending() {
     const now = p.rewritten ? T`the PR branch was rebased or force-pushed to ${esc(p.headSha)}`
         : p.ahead > 0 ? T`the PR is now at ${esc(p.headSha)}, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later`
         : T`the PR is now at ${esc(p.headSha)}`;
+    const going = !chain ? '' : selectedRepo
+        ? (chain.state === 'running' ? T('A new run of the suite is running.') : T('A new run of the suite is queued.'))
+        : chain.state === 'running' ? T('A new RunAll is running.') : T('A new RunAll is queued.');
     $('pending').innerHTML = T`<b>⚠ The verdict is for older code:</b> this run tested ${esc(p.builtSha)}, and ${now}.`
-        + (chain ? ' ' + (chain.state === 'running' ? T('A new RunAll is running.') : T('A new RunAll is queued.')) : '');
+        + (going ? ' ' + going : '');
     $('pendingRerun').classList.toggle('hidden', !!chain);
     paintPrimary();
 }
@@ -1953,7 +2148,7 @@ function syncListBadge() {
     const page = res ? standingOf(res) : 'CHECKING';
     for (const listed of allPrs) {
         if (!HEAD_STANDINGS.includes(listed.standing)) continue;
-        const open = listed.number === selectedPr;
+        const open = listed.number === selectedPr && !selectedRepo;
         if (open && HEAD_STANDINGS.includes(page)) listed.known = page;
         const known = listed.known || listed.standing;
         showListBadge(listed, open && page === 'CHECKING' && known === 'CLEAN' ? 'CHECKING' : known);
@@ -2017,6 +2212,19 @@ function dropPreviousPrTests() {
     if (lastPrTests && lastPrTests.previous) $('prTestsCard').classList.add('hidden');
 }
 
+// The open PR's verdict by its PR: a number for Ignite's, "python#69" for the Python thin client's.
+function resKey(res) {
+    return res.repo ? prTag(res.prNumber, res.repo) : res.prNumber;
+}
+
+// A PR of the Python thin client has no "This PR's tests": its tests are not Java classes. The cards it would stand
+// over show at once.
+function noPrTests(res) {
+    $('prTestsCard').classList.add('hidden');
+    lastPrTests = null;
+    showLateCards(resKey(res));
+}
+
 // "Crashed near the end of the run" and "Not blamed on this PR" stand under "This PR's tests", whose answer comes
 // seconds after the verdict. They wait for it, so the card does not push them down when it comes; a PR whose answer
 // does not come shows them after LATE_CARDS_WAIT_MS.
@@ -2030,7 +2238,7 @@ function holdLateCards(pr) {
 }
 
 function showLateCards(pr) {
-    const onScreen = !!lastResult && lastResult.prNumber === pr;
+    const onScreen = !!lastResult && resKey(lastResult) === pr;
     if (!onScreen && lateCards.waitFor !== pr) return;
     clearTimeout(lateCards.timer);
     // A PR the reader left ends its wait unshown: a return to it waits anew, not for an answer that may never come.
@@ -2039,7 +2247,7 @@ function showLateCards(pr) {
 }
 
 function paintLateCards() {
-    const shown = !!lastResult && lateCards.shownFor === lastResult.prNumber;
+    const shown = !!lastResult && lateCards.shownFor === resKey(lastResult);
     $('unstableCard').classList.toggle('hidden', !shown || !(lastResult.unstableSuites || []).length);
     $('filteredCard').classList.toggle('hidden', !shown);
 }
@@ -2436,11 +2644,12 @@ function clearFailedRefresh() {
 async function refresh() {
     if (!selectedPr) return;
     const pr = selectedPr;
+    const repo = selectedRepo;
     const icon = $('refreshBtn');
     if (icon) icon.classList.add('spin');
     let r;
     try {
-        r = await api('/api/refresh?pr=' + pr, { method: 'POST' });
+        r = await api(prApi('refresh', pr, repo), { method: 'POST' });
     }
     catch (e) {
         r = null;
@@ -2448,11 +2657,11 @@ async function refresh() {
     finally {
         if (icon) icon.classList.remove('spin');
     }
-    if (pr !== selectedPr) return; // a newer selection superseded this one
+    if (!isOpen(pr, repo)) return; // a newer selection superseded this one
     if (r && r.status === 401) return loggedOut(r);
     if (!r || !r.ok) {
-        const { error } = r ? await r.json().catch(() => ({ error: T('refresh failed') })) : {};
-        if (/no RunAll build/i.test(error || '')) {
+        const { error, noRun } = r ? await r.json().catch(() => ({ error: T('refresh failed') })) : {};
+        if (noRun || /no RunAll build/i.test(error || '')) {
             verdictDue = false;
             showNoRun();
             paintTab();
@@ -2462,7 +2671,7 @@ async function refresh() {
         failedRefresh = lastResult ? notDone(T('Verdict not recomputed'), error) : '';
         sayStatus(failedRefresh || T('The service may be busy or restarting. Retrying…'),
             { err: !!failedRefresh, busy: !failedRefresh });
-        setTimeout(() => { if (pr === selectedPr) analyze(pr, !!lastResult); }, 4000);
+        setTimeout(() => { if (isOpen(pr, repo)) analyze(pr, !!lastResult); }, 4000);
         return;
     }
     verdictDue = false;
@@ -2484,6 +2693,7 @@ async function freshRuns(pr) {
 async function doTrigger(act, top, btn, force = false) {
     if (!selectedPr) return;
     const pr = selectedPr;
+    const repo = selectedRepo;
     const atTop = String(top) === 'true';
     const refocus = keepFocus(btn);
     btn.disabled = true;
@@ -2491,12 +2701,13 @@ async function doTrigger(act, top, btn, force = false) {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.runAll && b.mine);
         const conflicts = force ? T('GitHub reports merge conflicts in this PR.') + ' ' : '';
-        if (!confirm(conflicts + runAllQuestion(pr, atTop, mine))) return;
-        sayStatus(mine.length ? T('Replacing your RunAll…') : T('Queuing RunAll…'), { busy: true });
-        const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : '')
+        if (!confirm(conflicts + (repo ? clientRunQuestion(pr, atTop, mine) : runAllQuestion(pr, atTop, mine)))) return;
+        sayStatus(repo ? (mine.length ? T('Replacing your run…') : T('Queuing the suite…'))
+            : mine.length ? T('Replacing your RunAll…') : T('Queuing RunAll…'), { busy: true });
+        const r = await api(prApi(act, pr, repo) + '&top=' + atTop + (mine.length ? '&replace=true' : '')
             + (force ? '&force=true' : ''), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
-        if (pr !== selectedPr) return;
+        if (!isOpen(pr, repo)) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
             sayStatus(notDone(T('Not queued'), res.error), { err: true, aloud: true });
@@ -2505,9 +2716,10 @@ async function doTrigger(act, top, btn, force = false) {
             return;
         }
         const n = (res.triggered || []).length;
+        const replaced = !res.replaced ? '' : ' ' + (repo ? T('Your previous run was cancelled.')
+            : T('Your previous RunAll was cancelled.'));
         sayStatus(T`Queued ${n} build${n === 1 ? '' : 's'}: ${queuedLinks(res.triggered)}`
-            + belowTopTail(res.triggered) + (res.replaced ? ' ' + T('Your previous RunAll was cancelled.') : ''),
-            { html: true, aloud: true });
+            + belowTopTail(res.triggered) + replaced, { html: true, aloud: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -2519,8 +2731,22 @@ async function doTrigger(act, top, btn, force = false) {
 let forcedRun = null;
 
 function offerForce(pr, top) {
-    forcedRun = { pr, top };
+    forcedRun = { pr, top, repo: selectedRepo };
     $('statusForce').classList.remove('hidden');
+}
+
+// What Run asks on a PR of the Python thin client: it queues the client's suite with the PR's head and Ignite master.
+function clientRunQuestion(pr, top, mine) {
+    const going = b => runState(b.state) + chipEta(b);
+    const theirs = runsNow.filter(b => b.runAll && !b.mine);
+    return (top ? T`Queue “${clientSuite}” for Python client PR #${pr} at the top of the ci2 queue, ahead of everyone else's builds?`
+        : T`Queue “${clientSuite}” for Python client PR #${pr}?`)
+        + ' ' + T('It tests the PR\'s head against Ignite master as it is now.')
+        + (mine.length === 1 ? '\n\n' + T`Your run for this PR is still ${going(mine[0])}. OK cancels it and queues the new one.`
+            : mine.length > 1 ? '\n\n' + T`Your ${mine.length} runs for this PR are still going. OK cancels them and queues the new one.`
+            : '')
+        + theirs.map(b => '\n\n' + (b.by ? T`${b.by}'s run for this PR is ${going(b)}; it stays, and yours runs alongside it.`
+            : T`Someone else's run for this PR is ${going(b)}; it stays, and yours runs alongside it.`)).join('');
 }
 
 function runAllQuestion(pr, top, mine) {
@@ -2542,6 +2768,7 @@ function runAllQuestion(pr, top, mine) {
 async function cancelMine() {
     if (!selectedPr) return;
     const pr = selectedPr;
+    const repo = selectedRepo;
     const btn = $('cancelMine');
     const refocus = keepFocus(btn);
     btn.disabled = true;
@@ -2551,9 +2778,10 @@ async function cancelMine() {
         if (!mine.length) { sayStatus(T('None of your runs of this PR is still going.'), { aloud: true }); return; }
         if (!confirm(cancelQuestion(pr, mine))) return;
         sayStatus(T('Cancelling your runs…'), { busy: true });
-        const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
+        const r = await api(prApi('cancel-all', pr, repo) + '&ids=' + mine.map(b => b.buildId).join(','),
+            { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
-        if (pr !== selectedPr) return;
+        if (!isOpen(pr, repo)) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) { sayStatus(notDone(T('Not cancelled'), res.error), { err: true, aloud: true }); return; }
         const n = res.cancelled || 0;
@@ -2567,14 +2795,15 @@ async function cancelMine() {
 
 function cancelQuestion(pr, mine) {
     const theirs = runsNow.length - mine.length;
-    return T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?` + '\n'
+    return (selectedRepo ? T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of Python client PR #${pr}?`
+        : T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?`) + '\n'
         + mine.map(b => `\n• ${b.name || T('build')}: ${runState(b.state)}${chipEta(b)}`).join('')
         + (theirs ? '\n\n' + T`Runs started by other people (${theirs}) keep going.` : '');
 }
 
 // Re-run a single suite (buildType) for the current PR; the answer goes under the suite's row.
 async function rerunSuite(suite, top, btn) {
-    if (!selectedPr) return;
+    if (!selectedPr || selectedRepo) return;
     const pr = selectedPr;
     const note = rowNote(btn);
     const refocus = keepFocus(btn);
@@ -3116,7 +3345,7 @@ $('statusRetry').onclick = () => {
     analyze(selectedPr);
 };
 $('statusForce').onclick = () => {
-    if (forcedRun && forcedRun.pr === selectedPr) doTrigger('trigger', forcedRun.top, $('statusForce'), true);
+    if (forcedRun && isOpen(forcedRun.pr, forcedRun.repo)) doTrigger('trigger', forcedRun.top, $('statusForce'), true);
 };
 
 // The visa of a run comes only from Visa my runs in JIRA of whoever started it. The line in the verdict's heading says
@@ -3134,13 +3363,13 @@ async function loadVisaLine(number) {
         paintVisaLine();
         return;
     }
-    const key = number + ':' + res.buildId;
+    const key = prTag(number, res.repo) + ':' + res.buildId;
     if (!visaLines.has(key)) visaLines.set(key, null);
     while (visaLines.size > VISA_LINES_KEPT) visaLines.delete(visaLines.keys().next().value);
     paintVisaLine();
     let line;
     try {
-        const r = await api(`/api/visa?pr=${number}&build=${res.buildId}`);
+        const r = await api(prApi('visa', number, res.repo) + '&build=' + res.buildId);
         line = r.ok ? await r.json() : undefined;
     } catch (e) {
         line = undefined;
@@ -3148,7 +3377,7 @@ async function loadVisaLine(number) {
     // A failed answer leaves the line as it was for this run, or takes "Visa: …" away; the next poll asks again.
     if (line !== undefined) visaLines.set(key, line);
     else if (visaLines.get(key) === null) visaLines.set(key, false);
-    if (number !== selectedPr || lastResult !== res) return;
+    if (!isOpen(number, res.repo) || lastResult !== res) return;
     paintVisaLine();
 }
 
@@ -3156,7 +3385,7 @@ async function loadVisaLine(number) {
 // below do not move when the answer comes.
 function paintVisaLine() {
     const res = lastResult, el = $('visaLine');
-    const v = res ? visaLines.get(res.prNumber + ':' + res.buildId) : undefined;
+    const v = res ? visaLines.get(prTag(res.prNumber, res.repo) + ':' + res.buildId) : undefined;
     const html = lastIssueKey === '' ? T('Visa: the PR title names no IGNITE ticket')
         : !lastIssueKey || v === undefined || v === false ? null
         : v === null ? T('Visa: …') : visaLineText(v, lastIssueKey);
@@ -3957,7 +4186,7 @@ window.addEventListener('popstate', () => {
         return;
     }
     const pr = prFromUrl();
-    if (pr) openPr(pr, false);
+    if (pr) openPr(pr, false, repoFromUrl());
     else goHome(false);
 });
 // A hidden tab stops polling once the verdict is final; coming back asks for the runs at once instead of
@@ -4060,7 +4289,7 @@ document.querySelector('.pr-pane').addEventListener('click', e => {
     const link = e.target.closest('a[data-num]');
     if (!link || !plainClick(e)) return;
     e.preventDefault();
-    openPr(+link.dataset.num, true);
+    openPr(+link.dataset.num, true, link.dataset.repo || null);
 });
 // The brand and the PRs item of the menu both lead to the start page; signed in, that needs no reload.
 for (const id of ['brand', 'navPrs']) $(id).addEventListener('click', e => {
@@ -4077,11 +4306,13 @@ $('prFilter').addEventListener('keydown', e => {
         return;
     }
     if (e.key !== 'Enter') return;
-    const { first } = prMatches(allPrs, $('prFilter').value);
+    const client = clientMatches(clientPrs, $('prFilter').value);
+    const ignite = client.only ? null : prMatches(allPrs, $('prFilter').value).first;
+    const first = ignite ?? client.first;
     if (first == null) return;
     $('prFilter').value = '';
     applyPrFilter();
-    openPr(first, true);
+    openPr(first, true, ignite == null ? CLIENT_REPO : null);
 });
 document.addEventListener('keydown', e => {
     if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || $('analyzeView').classList.contains('hidden')) return;
