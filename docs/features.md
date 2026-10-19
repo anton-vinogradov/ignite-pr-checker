@@ -238,7 +238,9 @@ own tests, and what was not blamed on the PR.
   card that lists it and opens that card if it is folded. The card can appear a moment after the verdict. Two cards
   are under it: **Crashed near the end of the run** and **Not blamed on this PR**. They wait for the server's answer
   about the PR's tests, so the card does not push them down. If the answer does not come in 20 s, they appear without
-  it.
+  it. When the verdict of a newer RunAll comes, the card keeps its place with the previous RunAll's tests until the
+  new ones come. It says so and leaves out what the old verdict did with them. If the new tests do not come, the page
+  hides the card.
 - **✓ No blockers** heads the verdict card only for the verdict the PR list ticks: a run of the PR's current head that
   covered everything and blamed nothing on it. Otherwise, when tests started failing on the code the run tested, the
   heading reads **No proven blockers yet**. In other cases it reads **No blockers found — not proven clean**. The amber
