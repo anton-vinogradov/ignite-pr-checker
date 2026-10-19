@@ -18,8 +18,10 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +33,12 @@ import org.springframework.mock.web.MockHttpServletRequest;
  * (a WAF 403, a 503 during a TeamCity restart) was reported as "TeamCity rejected this token".
  */
 class LoginRateLimitTest {
+    /** The token TeamCity accepts whatever {@link #answer} says. */
+    private static final String USER_TOKEN = "user-token";
+
     private final AtomicInteger whoami = new AtomicInteger();
+
+    private final AtomicLong now = new AtomicLong(1_000_000);
 
     private volatile int answer = 401;
 
@@ -44,9 +51,11 @@ class LoginRateLimitTest {
         teamcity = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         teamcity.createContext("/app/rest/users/current", ex -> {
             whoami.incrementAndGet();
-            byte[] body = (answer == 200 ? "{\"username\":\"avinogradov\"}" : "{}").getBytes(UTF_8);
+            boolean user = ("Bearer " + USER_TOKEN).equals(ex.getRequestHeaders().getFirst("Authorization"));
+            int status = user ? 200 : answer;
+            byte[] body = (status == 200 ? "{\"username\":\"avinogradov\"}" : "{}").getBytes(UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
-            ex.sendResponseHeaders(answer, body.length);
+            ex.sendResponseHeaders(status, body.length);
             ex.getResponseBody().write(body);
             ex.close();
         });
@@ -58,7 +67,7 @@ class LoginRateLimitTest {
         SessionProperties session = new SessionProperties(true, "test-secret");
 
         login = new LoginController(tc, new SessionCodec(session, mapper), session, mock(Warmer.class),
-            new UserDirectory(mapper), new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper),
+            new UserDirectory(mapper), new LoginThrottle(now::get), new AdminActions(new AdminProperties(null), mapper),
             mock(StandingVisas.class));
     }
 
@@ -79,14 +88,92 @@ class LoginRateLimitTest {
         return login.login(new LoginController.LoginRequest(token), from(client)).getStatusCode().value();
     }
 
+    private static String error(ResponseEntity<?> res) {
+        return String.valueOf(((Map<?, ?>)res.getBody()).get("error"));
+    }
+
     @Test
     void aFloodFromOneAddressStopsReachingTeamCity() {
         for (int i = 0; i < 15; i++)
             post("guess-" + i, "203.0.113.7");
 
-        assertThat(whoami).hasValue(10);
+        assertThat(whoami).hasValue(3);
         assertThat(post("guess-15", "203.0.113.7")).isEqualTo(429);
         assertThat(post("guess-16", "198.51.100.1")).as("another address").isEqualTo(401);
+    }
+
+    /**
+     * The wait read "Too many login attempts from your address", without the limit: a user who shares the address
+     * with others could not tell why one attempt was too many.
+     */
+    @Test
+    void theWaitSaysTheLimitOfTheAddressAndHowLong() {
+        for (int i = 0; i < 3; i++)
+            post("guess-" + i, "203.0.113.7");
+
+        ResponseEntity<?> res = login.login(new LoginController.LoginRequest("guess-3"), from("203.0.113.7"));
+
+        assertThat(res.getStatusCode().value()).isEqualTo(429);
+        assertThat(res.getHeaders().getFirst("Retry-After")).isIn("599", "600");
+        assertThat(error(res)).isEqualTo("TeamCity rejected 3 tokens from your network address in the last 10"
+            + " minutes. Try again in 10 minutes.");
+    }
+
+    /**
+     * Every login TeamCity checked used an attempt of its address, the ones that worked too: four people behind one
+     * office address logging in within 10 minutes left the fourth waiting with a good token.
+     */
+    @Test
+    void loginsThatWorkCostTheirAddressNothing() {
+        for (int i = 0; i < 5; i++)
+            assertThat(post(USER_TOKEN, "203.0.113.7")).as("login " + i).isEqualTo(200);
+
+        for (int i = 0; i < 3; i++)
+            assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(401);
+        assertThat(post("guess-3", "203.0.113.7")).isEqualTo(429);
+    }
+
+    /** A check TeamCity did not answer is no rejection: the address keeps the attempt for when TeamCity is back. */
+    @Test
+    void aCheckTeamCityDoesNotAnswerCostsNothing() {
+        answer = 503;
+        for (int i = 0; i < 4; i++)
+            assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(502);
+
+        answer = 401;
+        for (int i = 4; i < 7; i++)
+            assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(401);
+    }
+
+    @Test
+    void theSharedWaitSaysItCountsEveryone() {
+        for (int i = 0; i < 30; i++)
+            assertThat(post("guess-" + i, "203.0.113." + i)).isEqualTo(401);
+
+        ResponseEntity<?> res = login.login(new LoginController.LoginRequest("guess-30"), from("198.51.100.1"));
+
+        assertThat(whoami).hasValue(30);
+        assertThat(res.getStatusCode().value()).isEqualTo(429);
+        assertThat(error(res)).isEqualTo("The checker checks the tokens of at most 30 logins a minute with TeamCity, for"
+            + " all users together. Logins in the last minute used all 30: try again in a minute.");
+    }
+
+    /**
+     * A login the shared checks turned away still used one of its address's 3 attempts. 30 addresses that kept the
+     * shared checks used up for 3 minutes locked out a user who tried again each minute, as told, for 7 minutes more.
+     */
+    @Test
+    void aUserWhoWaitsOutTheSharedLimitAsToldLogsInWhenTheFloodStops() {
+        for (int minute = 0; minute < 3; minute++) {
+            for (int i = 0; i < 30; i++)
+                assertThat(post("guess-" + minute + "-" + i, "203.0.113." + (minute * 10 + i / 3))).isEqualTo(401);
+
+            assertThat(post(USER_TOKEN, "192.0.2.50")).isEqualTo(429);
+            now.addAndGet(Duration.ofMinutes(1).toMillis());
+        }
+
+        assertThat(post(USER_TOKEN, "192.0.2.50")).isEqualTo(200);
+        assertThat(whoami).hasValue(91);
     }
 
     @Test

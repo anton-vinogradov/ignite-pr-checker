@@ -20,15 +20,22 @@ class LoginThrottleTest {
         now.addAndGet(d.toMillis());
     }
 
+    /**
+     * At 10 attempts per address, about 30 addresses kept the shared 30 TeamCity checks a minute used up, and nobody
+     * could log in. At 3 it takes about 100.
+     */
     @Test
-    void aClientGetsTenAttemptsPerTenMinutes() {
-        for (int i = 0; i < 10; i++)
+    void aClientGetsThreeAttemptsPerTenMinutes() {
+        for (int i = 0; i < 3; i++)
             assertThat(throttle.admitAttempt("203.0.113.7")).isNull();
 
         assertThat(throttle.admitAttempt("203.0.113.7")).isEqualTo(Duration.ofMinutes(10));
         assertThat(throttle.admitAttempt("198.51.100.1")).as("another client").isNull();
 
-        after(Duration.ofMinutes(10));
+        after(Duration.ofMinutes(4));
+        assertThat(throttle.admitAttempt("203.0.113.7")).isEqualTo(Duration.ofMinutes(6));
+
+        after(Duration.ofMinutes(6));
 
         assertThat(throttle.admitAttempt("203.0.113.7")).isNull();
     }
@@ -36,13 +43,51 @@ class LoginThrottleTest {
     @Test
     void teamCityChecksAreCappedAcrossClients() {
         for (int i = 0; i < 30; i++)
-            assertThat(throttle.admitCheck()).isNull();
+            assertThat(throttle.admitCheck("203.0.113." + i)).isNull();
 
-        assertThat(throttle.admitCheck()).isEqualTo(Duration.ofMinutes(1));
+        assertThat(throttle.admitCheck("198.51.100.1")).isEqualTo(new LoginThrottle.Wait(Duration.ofMinutes(1), true));
 
         after(Duration.ofMinutes(1));
 
-        assertThat(throttle.admitCheck()).isNull();
+        assertThat(throttle.admitCheck("198.51.100.1")).isNull();
+    }
+
+    /**
+     * A login the shared checks turned away used one of its client's 3 attempts, so other clients' logins could use up
+     * the attempts of a user who retried as told.
+     */
+    @Test
+    void aLoginTheSharedChecksTurnAwayCostsItsClientNoAttempt() {
+        for (int i = 0; i < 30; i++)
+            throttle.admitCheck("203.0.113." + i);
+
+        for (int i = 0; i < 5; i++)
+            assertThat(throttle.admitCheck("192.0.2.50")).extracting(LoginThrottle.Wait::shared).isEqualTo(true);
+
+        after(Duration.ofMinutes(1));
+
+        for (int i = 0; i < 3; i++)
+            assertThat(throttle.admitCheck("192.0.2.50")).isNull();
+
+        assertThat(throttle.admitCheck("192.0.2.50")).isEqualTo(new LoginThrottle.Wait(Duration.ofMinutes(10), false));
+        assertThat(throttle.admitAttempt("192.0.2.50")).as("a granted check is an attempt")
+            .isEqualTo(Duration.ofMinutes(10));
+    }
+
+    /** Each granted check used an attempt even when TeamCity accepted the token, so a fourth good login waited. */
+    @Test
+    void aRefundGivesTheLastAttemptBack() {
+        for (int i = 0; i < 5; i++) {
+            assertThat(throttle.admitCheck("203.0.113.7")).isNull();
+            throttle.refund("203.0.113.7");
+        }
+
+        for (int i = 0; i < 3; i++)
+            assertThat(throttle.admitCheck("203.0.113.7")).isNull();
+        assertThat(throttle.admitCheck("203.0.113.7")).isEqualTo(new LoginThrottle.Wait(Duration.ofMinutes(10), false));
+
+        throttle.refund("198.51.100.1");
+        assertThat(throttle.admitCheck("198.51.100.1")).as("a refund without a check gives nothing").isNull();
     }
 
     @Test

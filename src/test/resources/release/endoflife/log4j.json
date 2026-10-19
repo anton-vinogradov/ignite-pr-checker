@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.2.1",
+  "generated_at": "2026-10-18T00:08:26+00:00",
+  "last_modified": "2026-09-24T07:44:41+00:00",
+  "result": {
+    "name": "log4j",
+    "aliases": [
+      "apache_log4j",
+      "apache-log4j"
+    ],
+    "label": "Apache Log4j",
+    "category": "framework",
+    "tags": [
+      "framework",
+      "java-runtime"
+    ],
+    "versionCommand": null,
+    "labels": {
+      "eoas": null,
+      "discontinued": null,
+      "eol": "Supported",
+      "eoes": null
+    },
+    "links": {
+      "icon": "https://cdn.jsdelivr.net/npm/simple-icons/icons/apache.svg",
+      "html": "https://endoflife.date/log4j",
+      "releasePolicy": "https://logging.apache.org/security.html"
+    },
+    "releases": [
+      {
+        "name": "2",
+        "codename": null,
+        "label": "2",
+        "releaseDate": "2014-07-12",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": null,
+        "isMaintained": true,
+        "latest": {
+          "name": "2.26.1",
+          "date": "2026-07-02",
+          "link": "https://logging.apache.org/log4j/2.0/release-notes.html#release-notes-2-26-1"
+        },
+        "custom": null
+      },
+      {
+        "name": "2.12",
+        "codename": null,
+        "label": "2.12",
+        "releaseDate": "2019-06-26",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": true,
+        "eolFrom": "2021-12-14",
+        "isMaintained": false,
+        "latest": {
+          "name": "2.12.4",
+          "date": "2021-12-28",
+          "link": "https://github.com/apache/logging-log4j2/blob/rel/2.12.4/RELEASE-NOTES.md"
+        },
+        "custom": null
+      },
+      {
+        "name": "2.3",
+        "codename": null,
+        "label": "2.3",
+        "releaseDate": "2015-05-10",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": true,
+        "eolFrom": "2015-09-20",
+        "isMaintained": false,
+        "latest": {
+          "name": "2.3.2",
+          "date": "2021-12-29",
+          "link": "https://github.com/apache/logging-log4j2/blob/rel/2.3.2/RELEASE-NOTES.txt"
+        },
+        "custom": null
+      }
+    ]
+  }
+}

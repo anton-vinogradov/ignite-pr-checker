@@ -72,7 +72,11 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   from TeamCity, to pre-analyse open PRs for everyone. Any standing option keeps the token there while the option is
   on, unless PR commands is the only option on. When the host moves the server's memory to swap, the token goes to the
   disk with it, in plain text unless the swap is encrypted. A login lasts until the user logs out, which ends it in
-  every browser, or leaves it unused for 400 days.
+  every browser, or leaves it unused for 400 days. TeamCity may reject 3 tokens from one network address in 10 minutes.
+  For all users together, the checker checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from
+  the server's address, and if ci2 blocks that address, the checker stops for everyone. Past either limit, the login
+  form says how long to wait. Only a rejected token counts against its address: a login that works, or that the
+  shared limit stops, does not.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies of these tokens stay in the backups of the
@@ -376,6 +380,14 @@ git tag v1.24.0 && git push origin v1.24.0
 The release workflow runs all the tests and publishes the jar as `ignite-pr-checker.jar`. Its notes are made of the
 **What changes for users** section of each PR merged since the previous tag, with a warning when `TestVerdict.RULES`
 changed: every verdict is then computed again after the update.
+
+After **What changes for users**, the notes have a **Dependencies to update** section, and GitHub's list of the merged
+PRs comes last. The section names the platforms and libraries of the checker whose free support has ended or ends within
+90 days. The support end dates come from endoflife.date. It checks Spring Boot, Spring Framework, Gradle, Java (Eclipse
+Temurin), Tomcat and Log4j. It also lists the open Dependabot PRs. When endoflife.date or GitHub does not answer, the
+section says "could not check", and the release still comes out. Updates skipped on purpose are under `ignore` in
+`.github/dependabot.yml`, each with its reason. For example, Dependabot offers no new major version of checkstyle, since
+the checker keeps the version Ignite's own build runs.
 
 For the maintainer: fill **What changes for users** in each PR (the template has it), release a change of the verdict
 rules as a minor version, and put small PRs into one release.

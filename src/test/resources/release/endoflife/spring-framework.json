@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.2.1",
+  "generated_at": "2026-10-18T00:08:26+00:00",
+  "last_modified": "2026-10-10T08:46:22+00:00",
+  "result": {
+    "name": "spring-framework",
+    "aliases": [
+      "spring"
+    ],
+    "label": "Spring Framework",
+    "category": "framework",
+    "tags": [
+      "framework",
+      "java-runtime",
+      "vmware"
+    ],
+    "versionCommand": null,
+    "labels": {
+      "eoas": null,
+      "discontinued": null,
+      "eol": "OSS support",
+      "eoes": "Commercial Support"
+    },
+    "links": {
+      "icon": "https://cdn.jsdelivr.net/npm/simple-icons/icons/spring.svg",
+      "html": "https://endoflife.date/spring-framework",
+      "releasePolicy": "https://github.com/spring-projects/spring-framework/wiki/Spring-Framework-Versions"
+    },
+    "releases": [
+      {
+        "name": "7.0",
+        "codename": null,
+        "label": "7.0",
+        "releaseDate": "2025-11-30",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2027-07-31",
+        "isEoes": false,
+        "eoesFrom": "2028-07-31",
+        "isMaintained": true,
+        "latest": {
+          "name": "7.0.9",
+          "date": "2026-08-20",
+          "link": "https://github.com/spring-projects/spring-framework/releases/tag/v7.0.9"
+        },
+        "custom": {
+          "supportedJavaVersions": "17 - 25",
+          "supportedJakartaEEVersions": "11 - 12"
+        }
+      },
+      {
+        "name": "6.2",
+        "codename": null,
+        "label": "6.2",
+        "releaseDate": "2024-11-30",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": true,
+        "eolFrom": "2026-06-30",
+        "isEoes": false,
+        "eoesFrom": "2032-06-30",
+        "isMaintained": true,
+        "latest": {
+          "name": "6.2.19",
+          "date": "2026-06-08",
+          "link": "https://github.com/spring-projects/spring-framework/releases/tag/v6.2.19"
+        },
+        "custom": {
+          "supportedJavaVersions": "17 - 25",
+          "supportedJakartaEEVersions": "9 - 10"
+        }
+      },
+      {
+        "name": "6.1",
+        "codename": null,
+        "label": "6.1",
+        "releaseDate": "2023-11-30",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": true,
+        "eolFrom": "2025-06-30",
+        "isEoes": false,
+        "eoesFrom": "2032-06-30",
+        "isMaintained": true,
+        "latest": {
+          "name": "6.1.21",
+          "date": "2025-06-12",
+          "link": "https://github.com/spring-projects/spring-framework/releases/tag/v6.1.21"
+        },
+        "custom": {
+          "supportedJavaVersions": "17 - 23",
+          "supportedJakartaEEVersions": "9 - 10"
+        }
+      }
+    ]
+  }
+}

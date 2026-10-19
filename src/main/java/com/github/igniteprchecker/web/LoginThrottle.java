@@ -25,7 +25,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class LoginThrottle {
-    static final int ATTEMPTS_PER_CLIENT = 10;
+    /** With 3 per 10 minutes, keeping the shared {@link #CHECKS_PER_MINUTE} used up takes about 100 addresses. */
+    static final int ATTEMPTS_PER_CLIENT = 3;
 
     static final Duration CLIENT_WINDOW = Duration.ofMinutes(10);
 
@@ -58,20 +59,52 @@ public class LoginThrottle {
         this.nowMs = nowMs;
     }
 
+    /** How long a login waits, and whether for the TeamCity checks all clients share rather than its own attempts. */
+    public record Wait(Duration time, boolean shared) {
+    }
+
     /** Counts one login attempt from {@code client}; null when it may go ahead, else how long to wait. */
     public synchronized Duration admitAttempt(String client) {
         long now = nowMs.getAsLong();
-        if (attempts.size() >= MAX_TRACKED)
-            forgetIdleClients(now);
+        Deque<Long> times = attemptsOf(client, now);
+        Duration wait = waitFor(times, ATTEMPTS_PER_CLIENT, CLIENT_WINDOW.toMillis(), now);
+        if (wait == null)
+            times.addLast(now);
 
-        Deque<Long> times = attempts.computeIfAbsent(client, k -> new ArrayDeque<>());
-
-        return admit(times, ATTEMPTS_PER_CLIENT, CLIENT_WINDOW.toMillis(), now);
+        return wait;
     }
 
-    /** Takes one TeamCity check from the budget shared by all clients; null when granted, else how long to wait. */
-    public synchronized Duration admitCheck() {
-        return admit(checks, CHECKS_PER_MINUTE, MINUTE_MS, nowMs.getAsLong());
+    /**
+     * Admits a login from {@code client} to a TeamCity check: null when granted, else the wait. Only a granted check
+     * counts as an attempt of the client: a login the shared checks turn away costs it nothing, so the logins of
+     * others cannot use up the attempts of a user who retries as told. A check whose token TeamCity accepts, or that
+     * TeamCity does not answer, gives the attempt back ({@link #refund}).
+     */
+    public synchronized Wait admitCheck(String client) {
+        long now = nowMs.getAsLong();
+        Deque<Long> times = attemptsOf(client, now);
+        Duration wait = waitFor(times, ATTEMPTS_PER_CLIENT, CLIENT_WINDOW.toMillis(), now);
+        if (wait != null)
+            return new Wait(wait, false);
+
+        wait = waitFor(checks, CHECKS_PER_MINUTE, MINUTE_MS, now);
+        if (wait != null)
+            return new Wait(wait, true);
+
+        times.addLast(now);
+        checks.addLast(now);
+
+        return null;
+    }
+
+    /**
+     * Gives {@code client} back the attempt of its last granted check: only a token TeamCity rejects costs an attempt,
+     * so people behind one office address can log in one after another.
+     */
+    public synchronized void refund(String client) {
+        Deque<Long> times = attempts.get(client);
+        if (times != null && !times.isEmpty())
+            times.removeLast();
     }
 
     /** Whether TeamCity rejected this very token a short while ago. */
@@ -110,16 +143,19 @@ public class LoginThrottle {
         return hops[hops.length - 1].trim();
     }
 
-    private static Duration admit(Deque<Long> times, int limit, long windowMs, long now) {
+    private Deque<Long> attemptsOf(String client, long now) {
+        if (attempts.size() >= MAX_TRACKED)
+            forgetIdleClients(now);
+
+        return attempts.computeIfAbsent(client, k -> new ArrayDeque<>());
+    }
+
+    /** Drops the times out of the window; null when another fits under {@code limit}, else how long until one does. */
+    private static Duration waitFor(Deque<Long> times, int limit, long windowMs, long now) {
         while (!times.isEmpty() && now - times.peekFirst() >= windowMs)
             times.pollFirst();
 
-        if (times.size() >= limit)
-            return Duration.ofMillis(times.peekFirst() + windowMs - now);
-
-        times.addLast(now);
-
-        return null;
+        return times.size() >= limit ? Duration.ofMillis(times.peekFirst() + windowMs - now) : null;
     }
 
     private void forgetIdleClients(long now) {

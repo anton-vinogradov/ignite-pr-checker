@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.2.1",
+  "generated_at": "2026-10-18T00:08:26+00:00",
+  "last_modified": "2026-10-08T00:10:03+00:00",
+  "result": {
+    "name": "eclipse-temurin",
+    "aliases": [
+      "temurin"
+    ],
+    "label": "Eclipse Temurin",
+    "category": "lang",
+    "tags": [
+      "eclipse",
+      "java-distribution",
+      "lang"
+    ],
+    "versionCommand": "java -version",
+    "labels": {
+      "eoas": null,
+      "discontinued": null,
+      "eol": "Security Support",
+      "eoes": null
+    },
+    "links": {
+      "icon": "https://cdn.jsdelivr.net/npm/simple-icons/icons/eclipseadoptium.svg",
+      "html": "https://endoflife.date/eclipse-temurin",
+      "releasePolicy": "https://adoptium.net/support/"
+    },
+    "releases": [
+      {
+        "name": "25",
+        "codename": null,
+        "label": "25 (LTS)",
+        "releaseDate": "2025-09-22",
+        "isLts": true,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2031-09-30",
+        "isMaintained": true,
+        "latest": {
+          "name": "25.0.4.1+1",
+          "date": "2026-08-19",
+          "link": "https://github.com/adoptium/temurin25-binaries/releases/tag/jdk-25.0.4.1+1"
+        },
+        "custom": null
+      },
+      {
+        "name": "21",
+        "codename": null,
+        "label": "21 (LTS)",
+        "releaseDate": "2023-10-10",
+        "isLts": true,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2029-12-31",
+        "isMaintained": true,
+        "latest": {
+          "name": "21.0.12.1+1",
+          "date": "2026-08-19",
+          "link": "https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.12.1+1"
+        },
+        "custom": null
+      },
+      {
+        "name": "17",
+        "codename": null,
+        "label": "17 (LTS)",
+        "releaseDate": "2021-09-22",
+        "isLts": true,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2027-10-31",
+        "isMaintained": true,
+        "latest": {
+          "name": "17.0.20.1+1",
+          "date": "2026-08-19",
+          "link": "https://github.com/adoptium/temurin17-binaries/releases/tag/jdk-17.0.20.1+1"
+        },
+        "custom": null
+      }
+    ]
+  }
+}

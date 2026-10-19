@@ -4,6 +4,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Checkstyle follows the version Ignite's own build runs, so the style autofix finds the violations Ignite's
+      # build reports (#240). Bump the major version by hand when Ignite's build moves to it.
+      - dependency-name: com.puppycrawl.tools:checkstyle
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: github-actions
     directory: /
     schedule:
