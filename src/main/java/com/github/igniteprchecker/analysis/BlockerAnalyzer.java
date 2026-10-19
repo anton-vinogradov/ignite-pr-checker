@@ -104,6 +104,12 @@ public class BlockerAnalyzer {
      */
     private static final long HOLD_INCOMPLETE_MS = 1_200_000;
 
+    /**
+     * How long the branch runs a suite run's verdict read are kept for its next try: longer than the 20 minutes such a
+     * verdict is tried for while TeamCity errors leave it incomplete.
+     */
+    private static final long KEPT_RUNS_MS = 2 * HOLD_INCOMPLETE_MS;
+
     private final TcClient tc;
     private final ChainCollector chains;
     private final AnalysisProperties cfg;
@@ -119,6 +125,9 @@ public class BlockerAnalyzer {
 
     /** Builds whose branch was found unmoved lately, so another view does not ask again so soon. */
     private final TtlCache<Long, Boolean> lookedAt = new TtlCache<>(LOOK_EVERY_MS);
+
+    /** Per suite run judged on its own (see {@link #analyzeSuiteRun}), the branch runs its last try read. */
+    private final TtlCache<Long, KeptRuns> keptRuns = new TtlCache<>(KEPT_RUNS_MS);
 
     /** In-flight computes per build id, so concurrent requests for the same build share one run
      * instead of piling duplicate full recomputes onto the pool (a page reload during a cold
@@ -430,10 +439,11 @@ public class BlockerAnalyzer {
         return r.incompleteSince() > 0 && System.currentTimeMillis() - r.incompleteSince() < HOLD_INCOMPLETE_MS;
     }
 
-    /** Sweeps out expired "branch unmoved" marks (see TtlCache.evictExpired). */
+    /** Sweeps out expired "branch unmoved" marks and kept branch runs (see TtlCache.evictExpired). */
     @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)
     void evictExpired() {
         lookedAt.evictExpired();
+        keptRuns.evictExpired();
     }
 
     /**
@@ -594,8 +604,9 @@ public class BlockerAnalyzer {
      * Python thin client runs the client's suite on {@code branch}, such as {@code pull/69}, pinned to the PR's head
      * and to Ignite's master. Its failed tests are judged against master's runs of the suite, other Ignite PRs' runs of
      * it and its own runs on that branch. Two of those runs are the same code only when the commit of every VCS root
-     * matches. Nothing is cached: a finished run is judged once, when its PR is told the verdict. TeamCity errors that
-     * left tests unchecked set {@code incompleteSince}.
+     * matches, and a run that did not test the client at its own commit does not count (see {@link #clientRuns}).
+     * The result is not cached. TeamCity errors that left tests unchecked set {@code incompleteSince}, and the caller
+     * computes the verdict again; that try reuses the branch runs the last one read.
      */
     public AnalysisResult analyzeSuiteRun(String token, int prNumber, String branch, long buildId) {
         TcModel.Build run = tc.suiteRun(token, buildId);
@@ -603,7 +614,8 @@ public class BlockerAnalyzer {
             throw new IllegalStateException("TeamCity sent no build " + buildId);
 
         ChainCollector.SuiteRun suite = chains.collectForSuiteRun(token, run);
-        Subject subject = new Subject(0, t -> tc.branchRuns(token, branch, t.testId(), t.suite()), true);
+        Subject subject = new Subject(0, suite.failedTests().isEmpty() ? t -> List.of()
+            : clientRuns(token, branch, run), true);
         FailedLookups failedLookups = new FailedLookups();
         List<Classified> classified = Parallel.run(bgPool, suite.failedTests().stream()
             .<Callable<Classified>>map(t -> () -> classify(token, subject, t, failedLookups)).toList());
@@ -632,6 +644,60 @@ public class BlockerAnalyzer {
             1, 0, false, 0, false, 0, TcDates.epochSeconds(run.queuedDate()), TcDates.epochSeconds(run.startDate()),
             TcDates.epochSeconds(run.finishDate()), 0, unstable, List.of(), unverified,
             failedLookups.count() == 0 ? 0 : now, everyRevision(run.revisions()), 0);
+    }
+
+    /**
+     * The runs of each failed test of {@code run} on its branch of the Python thin client, oldest first: only those
+     * that tested the client at one of their own commits (see {@link #testedItsCommit}). One request lists the
+     * suite's builds on the branch. While the list is the one the last try of this run's verdict read, the runs that
+     * try read are reused. A verdict TeamCity errors left incomplete is tried again every few minutes while ci2 fails,
+     * and asking again for the runs of every failed test would add one request per test each time. When the list
+     * fails, every test is left unchecked.
+     */
+    private Function<FailedTest, List<TcModel.TestOccurrence>> clientRuns(String token, String branch,
+        TcModel.Build run) {
+        Map<Long, String> checkouts;
+        try {
+            checkouts = tc.finishedRunsParameter(token, run.buildTypeId(), branch, TcModel.OVERRIDDEN_BRANCH);
+        }
+        catch (RuntimeException e) {
+            return t -> {
+                throw e;
+            };
+        }
+
+        KeptRuns kept = keptRuns.peek(run.id()).filter(k -> k.builds().equals(checkouts.keySet()))
+            .orElseGet(() -> new KeptRuns(Set.copyOf(checkouts.keySet()), new ConcurrentHashMap<>()));
+        keptRuns.put(run.id(), kept);
+
+        return t -> {
+            List<TcModel.TestOccurrence> runs = kept.runs().get(t.testId());
+            if (runs == null) {
+                runs = tc.branchRuns(token, branch, t.testId(), t.suite()).stream()
+                    .filter(o -> testedItsCommit(o.build(), checkouts)).toList();
+                kept.runs().put(t.testId(), runs);
+            }
+
+            return runs;
+        };
+    }
+
+    /**
+     * Whether a run on a branch of the Python thin client tested the client at one of the run's own commits. The
+     * suite's first step checks the client out at OVERRIDDEN_BRANCH, the build's value in {@code checkouts}. It is
+     * master unless the run was queued with a commit, so a run someone started on the PR's branch without it tested
+     * the client's master, and its pass would clear the PR's failure. A build TeamCity named no OVERRIDDEN_BRANCH of is
+     * taken by its commits. A build missing from {@code checkouts} finished after they were listed, or before the
+     * newest 100, and does not count.
+     */
+    private static boolean testedItsCommit(TcModel.BuildRef build, Map<Long, String> checkouts) {
+        if (build == null || !checkouts.containsKey(build.id()))
+            return false;
+
+        String checkout = checkouts.get(build.id());
+
+        return checkout == null || build.revisions() != null && build.revisions().revision() != null
+            && build.revisions().revision().stream().anyMatch(r -> checkout.equals(r.version()));
     }
 
     /**
@@ -1213,6 +1279,13 @@ public class BlockerAnalyzer {
         static Subject ofPr(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs) {
             return new Subject(pr, runs, false);
         }
+    }
+
+    /**
+     * The runs of a suite run's failed tests on its branch, by test id, as a try of its verdict read them while the
+     * suite's finished builds on the branch were {@code builds}.
+     */
+    private record KeptRuns(Set<Long> builds, ConcurrentMap<Long, List<TcModel.TestOccurrence>> runs) {
     }
 
     /** What a test's verdict leans on besides its runs on the branch, noted while the test is judged. */

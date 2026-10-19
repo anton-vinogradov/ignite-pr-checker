@@ -16,11 +16,22 @@ public final class TcModel {
     /** The build parameter Ignite tests scale their workloads by. */
     public static final String TEST_SCALE_FACTOR = "TEST_SCALE_FACTOR";
 
+    /**
+     * The build parameter that the first step of the Python thin client's suite checks the client out at, over the
+     * commit TeamCity picked: without it the suite tests the client's master.
+     */
+    public static final String OVERRIDDEN_BRANCH = "OVERRIDDEN_BRANCH";
+
     private TcModel() {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildList(List<Build> build) {
+    }
+
+    /** Builds with the few parameters asked for by name. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BuildRefs(List<BuildRef> build) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

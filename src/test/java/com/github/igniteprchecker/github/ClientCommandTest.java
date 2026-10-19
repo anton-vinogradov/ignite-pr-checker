@@ -33,16 +33,19 @@ import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.PinnedRun;
+import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -50,6 +53,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -266,6 +270,112 @@ class ClientCommandTest {
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("ran this PR's head [`a1b2c3d`]"
             + "(https://github.com/" + CLIENT_REPO + "/pull/69/commits/" + CLIENT + ") against Ignite master at"
             + " [`1f2e3d4`](https://github.com/apache/ignite/commit/" + IGNITE + ")."));
+    }
+
+    @Test
+    void aRunAllTopInAClientPrAsksForTheTop() {
+        clientComment(1L, "/run-all top", "Author");
+
+        verify(tc).queuePinned(eq("tc"), any(), eq(true), anyString());
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"),
+            startsWith("@Author 🚀 **Thin client: Python queued at the top of the queue** — [build 9424005]"));
+    }
+
+    /**
+     * The author's ci2 account may not reorder the build queue: TeamCity queued the run, then refused to move it to the
+     * top. The run counts as queued, and the story says where it waits and why.
+     */
+    @Test
+    void aRunAllTopTeamCityQueuedAtTheEndIsAcceptedAndSaysWhy() {
+        when(tc.queuePinned(eq("tc"), any(), eq(true), anyString())).thenThrow(new QueuedBelowTopException(
+            run("queued", null), HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", HttpHeaders.EMPTY,
+                new byte[0], StandardCharsets.UTF_8)));
+
+        clientComment(1L, "/run-all top", "Author");
+
+        verify(github).appReact(CLIENT_REPO, PR, "author", 1L, "rocket");
+        verify(github, never()).appReact(anyString(), anyInt(), any(), anyLong(), eq("confused"));
+        verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued, but not at the"
+            + " top** — [build 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d`"
+            + " against Ignite master at `1f2e3d4`. TeamCity refused to move it up (HTTP 403): your ci2 account may not"
+            + " have the permission to reorder the build queue. When the run finishes, a new comment brings you the"
+            + " verdict, and this story goes.");
+    }
+
+    /**
+     * A person whose GitHub account is not linked writes /run-all in Ignite's PR #69 and then in the client's PR #69.
+     * Those are two PRs, so the reply on what to do goes to each: one reply per person and PR keeps the threads quiet.
+     */
+    @Test
+    void aStrangerToldInIgnitesPrIsToldInTheClientsPrOfTheSameNumber() {
+        igniteComment(1L, "/run-all", "Someone");
+        clientComment(2L, "/run-all", "Someone");
+
+        verify(github).appComment(eq(PR), eq("@someone"), endsWith("`/run-all` here queues RunAll under your ci2"
+            + " account."));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("@someone"), endsWith("`/run-all` here queues the Python"
+            + " thin client suite under your ci2 account."));
+    }
+
+    /**
+     * GitHub failed only the poll of the client's repo, ten minutes after the last good poll of both. The /run-all
+     * written in the client's PR five minutes ago runs at the next poll: the client's window moves on only when the
+     * client's own poll works, whatever Ignite's poll did.
+     */
+    @Test
+    void aClientCommandWrittenWhileOnlyTheClientsPollFailedRuns(@TempDir Path dir) throws Exception {
+        long now = System.currentTimeMillis();
+        Path file = dir.resolve("pr-commands.json");
+        Files.writeString(file, mapper.writeValueAsString(Map.of("sinceMs", now - 600_000L, "clientSinceMs",
+            now - 600_000L, "handledTotal", 0)));
+        commands.loadFrom(file);
+        GithubClient.IssueComment runAll = new GithubClient.IssueComment(1L, "/run-all", "https://github.com/"
+            + CLIENT_REPO + "/pull/69#issuecomment-1", Instant.ofEpochMilli(now - 300_000L).toString(),
+            GhUsers.of("Author"));
+        AtomicBoolean down = new AtomicBoolean(true);
+        when(github.recentIssueComments(eq(CLIENT_REPO), anyString())).thenAnswer(inv -> {
+            if (down.get())
+                throw new ResourceAccessException("I/O error on GET request for \"https://api.github.com/...\"");
+
+            return Instant.parse(inv.getArgument(1, String.class)).toEpochMilli() <= now - 300_000L
+                ? List.of(runAll) : List.of();
+        });
+        commands.poll();
+        down.set(false);
+
+        commands.poll();
+
+        verify(tc).queuePinned(eq("tc"), any(), eq(false), anyString());
+    }
+
+    /**
+     * GitHub asked the checker's account to wait, so the reply to a stranger's /run-all in the client's PR was still
+     * to go at a restart. pr-commands.json keeps it apart from Ignite's, and after the restart it goes to the client's
+     * PR #69.
+     */
+    @Test
+    void aReplyStillToGoAtARestartGoesToTheClientsPr(@TempDir Path dir) throws Exception {
+        when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("@someone"), anyString()))
+            .thenThrow(new GithubClient.WriteDeferred("GitHub asked to wait 60 s"))
+            .thenReturn(new GithubClient.PostedComment(90L, null));
+        clientComment(1L, "/run-all", "Someone");
+        Path file = dir.resolve("pr-commands.json");
+        commands.saveTo(file);
+
+        JsonNode saved = mapper.readTree(file.toFile());
+        assertThat(saved.get("outbox")).isEmpty();
+        assertThat(saved.get("clientOutbox")).singleElement().satisfies(r -> {
+            assertThat(r.get("repo").asString()).isEqualTo(CLIENT_REPO);
+            assertThat(r.get("pr").asInt()).isEqualTo(PR);
+        });
+
+        PrCommands restarted = commands();
+        restarted.loadFrom(file);
+        restarted.poll();
+
+        verify(github, times(2)).appComment(eq(CLIENT_REPO), eq(PR), eq("@someone"), endsWith("queues the Python thin"
+            + " client suite under your ci2 account."));
+        verify(github, never()).appComment(anyInt(), any(), anyString());
     }
 
     @Test

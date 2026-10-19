@@ -431,7 +431,7 @@ public class PrCommands implements SnapshotCache {
 
     /** The client's commit a run of the Python thin client's suite was pinned to. */
     private static String clientSha(PinnedRun run) {
-        return run.properties().get(PythonClientRuns.OVERRIDDEN_BRANCH);
+        return run.properties().get(TcModel.OVERRIDDEN_BRANCH);
     }
 
     /** Ignite's commit a run of the Python thin client's suite was pinned to: the commit of its other VCS root. */

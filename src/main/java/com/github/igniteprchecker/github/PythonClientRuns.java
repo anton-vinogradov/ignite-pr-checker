@@ -26,12 +26,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class PythonClientRuns {
-    /**
-     * The build parameter that the suite's first step checks the client out at, over the commit TeamCity picked:
-     * without it the suite would test the client's master.
-     */
-    static final String OVERRIDDEN_BRANCH = "OVERRIDDEN_BRANCH";
-
     /** The shortest wait before a verdict that TeamCity errors left incomplete is computed again. */
     private static final long RETRY_WAIT_MS = 120_000;
 
@@ -106,7 +100,7 @@ public class PythonClientRuns {
         PinnedRun run = new PinnedRun(props.suite(), branch(pr), List.of(
             new PinnedRun.Pin(roots.get(props.igniteVcsRoot()), baseBranch, igniteSha),
             new PinnedRun.Pin(roots.get(props.clientVcsRoot()), "refs/pull/" + pr + "/head", clientSha)),
-            Map.of(OVERRIDDEN_BRANCH, clientSha));
+            Map.of(TcModel.OVERRIDDEN_BRANCH, clientSha));
         try {
             return new Queued(tc.queuePinned(token, run, top, comment), run, 0);
         }
@@ -150,7 +144,7 @@ public class PythonClientRuns {
      * has it, for its suite's name; {@code pinned}, what it was queued with.
      */
     public String verdictComment(String login, int pr, TcModel.Build build, PinnedRun pinned, AnalysisResult r) {
-        String clientSha = pinned.properties().get(OVERRIDDEN_BRANCH);
+        String clientSha = pinned.properties().get(TcModel.OVERRIDDEN_BRANCH);
         String igniteSha = pinned.revisions().stream().map(PinnedRun.Pin::version)
             .filter(v -> !v.equals(clientSha)).findFirst().orElse(null);
         String suite = build.buildType() != null && build.buildType().name() != null ? build.buildType().name()

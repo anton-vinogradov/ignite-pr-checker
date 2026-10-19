@@ -582,6 +582,30 @@ public class TcClient {
     }
 
     /**
+     * The suite's finished, not cancelled builds on a branch, newest first (up to 100), each with the value it ran with
+     * of build parameter {@code name}: null when TeamCity named none. The Python thin client's suite takes the client's
+     * code from {@link TcModel#OVERRIDDEN_BRANCH}, not from the commit of its VCS root. One request.
+     */
+    public Map<Long, String> finishedRunsParameter(String token, String buildTypeId, String branch, String name) {
+        TcModel.BuildRefs list = get("branchRuns", token, url("app/rest/builds", query(
+            "locator", "buildType:(id:" + buildTypeId + "),branch:(name:" + branch + "),state:finished,count:100",
+            "fields", "build(id,resultingProperties($locator(name:" + name + "),property(name,value)))")),
+            TcModel.BuildRefs.class);
+
+        Map<Long, String> values = new LinkedHashMap<>();
+        if (list == null || list.build() == null)
+            return values;
+
+        for (TcModel.BuildRef b : list.build()) {
+            List<TcModel.Property> props = b.resultingProperties() == null ? null : b.resultingProperties().property();
+            values.put(b.id(), props == null ? null : props.stream().filter(p -> name.equals(p.name()))
+                .map(TcModel.Property::value).findFirst().orElse(null));
+        }
+
+        return values;
+    }
+
+    /**
      * The test's latest runs in one suite on every branch but the default one, newest first (up to 200),
      * with the conditions each build ran under: how the test does on other PRs' branches, which run the
      * way this PR's do. Master runs differ: the nightly RunAll runs at test scale factor 1.0, PR chains at
