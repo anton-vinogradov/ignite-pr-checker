@@ -63,7 +63,7 @@
     "Register an account on": "Зарегистрируй аккаунт на",
     ", the TeamCity of Apache Ignite.": ", TeamCity проекта Apache Ignite.",
     "Create an access token there: Profile → Access Tokens (“Create a token” above opens it).": "Создай там токен доступа: Profile → Access Tokens (ссылка «Создать токен» выше открывает эту страницу).",
-    "The token acts with your account's rights. Reading verdicts needs only view access. “Run” and “Rerun” need the right to run builds. “Run at top” and “Rerun at top” also need the right to reorder the build queue. Without it, TeamCity queues them at the end. “Cancel my runs” needs the right to stop builds and remove them from the queue.": "Токен действует с правами твоего аккаунта. Чтобы читать вердикты, хватает права на просмотр. «Запустить» и «Перезапустить» требуют права запускать сборки. «Запустить в начало очереди» и «В начало очереди» требуют ещё права переставлять очередь сборок. Без него TeamCity ставит их в конец очереди. «Отменить мои прогоны» требует права останавливать сборки и убирать их из очереди.",
+    "The token acts with your account's rights. Reading verdicts needs only view access. “Run” and “Rerun” need the right to run builds. “Run at top” and “Rerun at top” also need the right to reorder the build queue. Without it, TeamCity queues them at the end. “Cancel my runs” needs the right to stop builds and remove them from the queue.": "Токен действует с правами твоего аккаунта. Чтобы читать вердикты, хватает права на просмотр. «Запустить» и «Перезапустить» требуют права запускать сборки. «Запустить в начало очереди» и кнопка «В начало очереди» рядом с «Перезапустить» требуют ещё права переставлять очередь сборок. Без него TeamCity ставит их в конец очереди. «Отменить мои прогоны» требует права останавливать сборки и убирать их из очереди.",
     "An open-source developer tool for": "Инструмент разработчика с открытым кодом для участников",
     "contributors (source on": "(исходники на",
     "). It reads test results from Ignite's CI server, TeamCity (ci2).": "). Он читает результаты тестов с CI-сервера Ignite, TeamCity (ci2).",
@@ -422,7 +422,7 @@
     "{0} of {1} class{2} did not run": "Не {0|запускался|запускались|запускались} {0} из {1} {1|класса|классов|классов}",
     ", 1 of them with no reason in its row": ", у 1 из них нет причины в строке",
     ", {0} of them with no reason in their rows": ", у {0} из них нет причины в строке",
-    ". Possible reasons: a class's suite did not run or broke, the class is a base or @Ignore class, or it was added to a suite after this run.": ". Возможные причины: сьюта класса не запускалась или сломалась, это базовый класс или класс с @Ignore, или его добавили в набор после этого прогона.",
+    ". Possible reasons: a class's suite did not run or broke, the class is a base or @Ignore class, or it was added to a suite after this run.": ". Возможные причины: сьюта класса не запускалась или сломалась, это базовый класс или класс с @Ignore, или его добавили в сьюту после этого прогона.",
     "{0} s": "{0} с",
     "{0} m {1} s": "{0} мин {1} с"
   },
