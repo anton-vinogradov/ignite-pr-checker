@@ -105,7 +105,7 @@ class RussianPageTest {
         assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск №1 из не более чем 2: перезапускаю 3 "
             + "сьюты (2 с блокерами, 1 битая), закончится через ~20 мин. Вердикт ниже может измениться, когда они "
             + "закончатся.");
-        assertThat(texts.get("filtered").asText()).contains("уже было: падает 1/4 на master на JDK 17",
+        assertThat(texts.get("filtered").asText()).contains("было и раньше: падает 1/4 на master на JDK 17",
             "флаки на ветке: упал только в последнем из 2 прогонов на коммите 3fdf446 (более ранний прогон на том же "
                 + "коде прошёл)");
         assertThat(out.get("lang").asText()).isEqualTo("ru");
@@ -177,9 +177,9 @@ class RussianPageTest {
 
         assertThat(out.get("before").asText()).isEqualTo("ru");
         assertThat(out.get("after").isNull()).isTrue();
-        assertThat(out.get("note").asText()).isEqualTo("Ты вышел в этом браузере. В 2 других браузерах ты по-прежнему во "
-            + "входе. Твои опции в ⚙ остаются включёнными и продолжают пользоваться твоим токеном TeamCity, который сервер "
-            + "для них хранит. Чтобы это прекратить, войди и выключи их.");
+        assertThat(out.get("note").asText()).isEqualTo("Выход в этом браузере выполнен. В 2 других браузерах вход "
+            + "сохраняется. Твои опции в ⚙ остаются включёнными и продолжают пользоваться твоим токеном TeamCity, который "
+            + "сервер для них хранит. Чтобы это прекратить, войди и выключи их.");
         assertThat(out.get("head").asText()).startsWith("Войди, чтобы увидеть PR #13575");
     }
 
