@@ -2,10 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.github.igniteprchecker.Jackson2Defaults;
@@ -13,6 +10,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -22,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
@@ -31,8 +30,9 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * alice had only Visa my runs in JIRA on. 90 days later JIRA refused her token, and the visa went off with it, the last
  * option she had. Her TeamCity token stayed in standing-visas.json and in the daily backups, every sweep lent it to the
- * background reads, and Log out told her that her options keep using it, though ⚙ showed them all off. The same
- * happened when GitHub refused the token of the only option that commits, and when a token went missing.
+ * background reads, and Log out told her that her options keep using it, though ⚙ showed them all off. The token lent
+ * before the refusal stayed in the pool of the background reads for up to an hour. The same happened when GitHub
+ * refused the token of the only option that commits, and when a token went missing.
  */
 class NoOptionNoTeamCityTokenTest {
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
@@ -43,7 +43,8 @@ class NoOptionNoTeamCityTokenTest {
 
     private final JiraClient jira = mock(JiraClient.class);
 
-    private final Warmer warmer = mock(Warmer.class);
+    private final Warmer warmer = new Warmer(mock(BlockerAnalyzer.class), github,
+        new WarmProperties(false, null, null, null), mock(ExecutorService.class));
 
     private final StandingVisas standing = new StandingVisas(mapper, codec, mock(TcClient.class), github,
         mock(BlockerAnalyzer.class), jira, mock(VisaService.class), mock(RerunTracker.class), warmer,
@@ -54,6 +55,7 @@ class NoOptionNoTeamCityTokenTest {
         when(jira.myself(anyString())).thenReturn(Optional.of("alice"));
         standing.change("alice", "alice-tc", "alice-jira", null,
             new StandingVisas.OptionChange(true, false, false, false, false));
+        lentBySweep();
 
         standing.dropJiraToken("alice");
 
@@ -67,6 +69,7 @@ class NoOptionNoTeamCityTokenTest {
             new GithubClient.GhUser("alice-gh", 77), null)));
         standing.change("alice", "alice-tc", null, "github_pat_alice",
             new StandingVisas.OptionChange(false, false, false, false, false, true));
+        lentBySweep();
 
         standing.dropGhToken("alice");
 
@@ -85,9 +88,12 @@ class NoOptionNoTeamCityTokenTest {
         ((ObjectNode)state.get("enrollments").get(0)).remove("jiraToken");
         mapper.writeValue(file.toFile(), state);
         StandingVisas restarted = restarted(file);
+        restarted.donateOnStartup();
+        assertThat(warmer.borrowToken()).isEqualTo("alice-tc");
 
         restarted.ensureGhLogins();
 
+        assertThat(warmer.pooledTokens()).isZero();
         assertThat(restarted.visaOn("alice")).isFalse();
         assertThat(restarted.keepsTcToken("alice")).isFalse();
         assertThat(restarted.lendsTcToken("alice", "alice-tc")).isFalse();
@@ -123,12 +129,50 @@ class NoOptionNoTeamCityTokenTest {
         when(jira.myself(anyString())).thenReturn(Optional.of("alice"));
         standing.change("alice", "alice-tc", "alice-jira", null,
             new StandingVisas.OptionChange(true, true, false, false, false));
+        lentBySweep();
 
         standing.dropJiraToken("alice");
 
         assertThat(standing.rerunOn("alice")).isTrue();
         assertThat(standing.keepsTcToken("alice")).isTrue();
         assertThat(standing.lendsTcToken("alice", "alice-tc")).isTrue();
+        assertThat(warmer.borrowToken()).isEqualTo("alice-tc");
+    }
+
+    /** PR commands lend their token to nothing: once the refusal leaves them alone on, the token leaves the pool. */
+    @Test
+    void theTokenLeavesThePoolWhenPrCommandsAloneStayOn() {
+        when(jira.myself(anyString())).thenReturn(Optional.of("alice"));
+        standing.linkGhLogin("alice", "alice-tc", new GithubClient.GhUser("alice-gh", 77));
+        standing.change("alice", "alice-tc", "alice-jira", null,
+            new StandingVisas.OptionChange(true, false, false, false, true));
+        lentBySweep();
+
+        standing.dropJiraToken("alice");
+
+        assertThat(standing.settings("alice").commands()).isTrue();
+        assertThat(standing.keepsTcToken("alice")).isTrue();
+        assertThat(warmer.pooledTokens()).isZero();
+    }
+
+    /** alice's browser sent the same TeamCity token: it stays in the pool for her login after the refusal. */
+    @Test
+    void theTokenALoginOfferedStaysAfterTheRefusal() {
+        when(jira.myself(anyString())).thenReturn(Optional.of("alice"));
+        standing.change("alice", "alice-tc", "alice-jira", null,
+            new StandingVisas.OptionChange(true, false, false, false, false));
+        lentBySweep();
+        warmer.offerToken("alice", "alice-tc", "alice-laptop");
+
+        standing.dropJiraToken("alice");
+
+        assertThat(warmer.borrowToken()).isEqualTo("alice-tc");
+    }
+
+    /** A sweep lends the token of alice's options to the background reads. */
+    private void lentBySweep() {
+        standing.donateOnStartup();
+        assertThat(warmer.borrowToken()).isEqualTo("alice-tc");
     }
 
     /**
@@ -140,9 +184,9 @@ class NoOptionNoTeamCityTokenTest {
         assertThat(s.visa() || s.rerun() || s.gh() || s.style() || s.commands() || s.suites()).isFalse();
         assertThat(standing.keepsTcToken("alice")).isFalse();
         assertThat(standing.lendsTcToken("alice", "alice-tc")).isFalse();
-        clearInvocations(warmer);
+        assertThat(warmer.pooledTokens()).as("the background reads borrow it no more").isZero();
         standing.donateOnStartup();
-        verify(warmer, never()).offerToken("alice", "alice-tc");
+        assertThat(warmer.pooledTokens()).isZero();
 
         standing.tcTokenOffered("alice", "alice-tc");
         standing.tcTokenAccepted("alice", "alice-tc");

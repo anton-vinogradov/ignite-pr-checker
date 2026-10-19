@@ -26,13 +26,17 @@ import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * PR 13335 was open, but not among the 50 most recently updated PRs the sweep lists. avinogradov, with Visa my runs in
@@ -61,10 +65,7 @@ class UnlistedRunVisaTest {
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
-    private final StandingVisas standing = new StandingVisas(mapper, new SessionCodec(new SessionProperties(false,
-        "test-secret"), mapper), tc, github, analyzer, jira, new VisaService(new TeamcityProperties(
-        "https://ci2.example/"), "https://checker.example"), mock(RerunTracker.class), mock(Warmer.class),
-        mock(PendingCommits.class));
+    private final StandingVisas standing = started();
 
     private final long finished = System.currentTimeMillis() + 60_000;
 
@@ -152,7 +153,7 @@ class UnlistedRunVisaTest {
         visaOn();
         when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()),
             Optional.of(Map.of()), Optional.of(Map.of()), Optional.of(Map.of()), Optional.of(Map.of()),
-            Optional.of(Map.of(PR, Set.of(USER))), Optional.of(Map.of()));
+            Optional.of(Map.of()), Optional.of(Map.of(PR, Set.of(USER))));
 
         for (int i = 0; i < 7; i++)
             standing.sweep();
@@ -160,13 +161,57 @@ class UnlistedRunVisaTest {
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString());
     }
 
+    /**
+     * A release restarted the service. The RunAll had finished 10 minutes before the start, after the last sweep before
+     * the stop: of the sweeps after the start, only the first one can hear of it.
+     */
+    @Test
+    void aRunThatFinishedWhileTheServiceWasStoppedGetsItsVisa(@TempDir Path dir) throws IOException {
+        visaOn();
+        Path file = dir.resolve("standing-visas.json");
+        standing.saveTo(file);
+        long started = System.currentTimeMillis();
+        switchedOnAt(file, started - 3_600_000);
+        StandingVisas restarted = started();
+        restarted.loadFrom(file);
+        long finishedMeanwhile = started - 600_000;
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(new TcModel.Build(RUN_ALL, "SUCCESS",
+            "finished", "pull/13335/head", null, null, null, null, TcDates.format(finishedMeanwhile / 1000), null, null,
+            null, new TcModel.Triggered("user", new TcModel.User(USER)), null, null, null, null, null)));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenAnswer(ask -> ask.<Long>getArgument(1) * 1000
+            < finishedMeanwhile ? Optional.of(Map.of(PR, Set.of(USER))) : Optional.of(Map.of()));
+
+        for (int i = 0; i < 3; i++)
+            restarted.sweep();
+
+        verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString());
+    }
+
+    /** The service as it starts, with the same TeamCity, GitHub and JIRA. */
+    private StandingVisas started() {
+        return new StandingVisas(mapper, new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc,
+            github, analyzer, jira, new VisaService(new TeamcityProperties("https://ci2.example/"),
+            "https://checker.example"), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
+    }
+
+    /** Moves when the options in the state {@code file} were switched on to {@code at}. */
+    private void switchedOnAt(Path file, long at) throws IOException {
+        ObjectNode state = (ObjectNode)mapper.readTree(file.toFile());
+        ObjectNode enrollment = (ObjectNode)state.get("enrollments").get(0);
+        enrollment.put("enabledAt", at);
+        ObjectNode onSince = (ObjectNode)enrollment.get("onSince");
+        onSince.propertyNames().forEach(option -> onSince.put(option, at));
+        mapper.writeValue(file.toFile(), state);
+    }
+
     private void visaOn() {
         standing.change(USER, "tc", "jira-pat", null, new StandingVisas.OptionChange(true, false, false, false, null));
     }
 
-    /** The first sweep asks TeamCity nothing; the second hears of {@code prs}, the later ones of nothing. */
+    /** The second sweep hears of {@code prs}, the others of nothing. */
     private void finishedAtTheSecondSweep(Map<Integer, Set<String>> prs) {
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(prs), Optional.of(Map.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()), Optional.of(prs),
+            Optional.of(Map.of()));
     }
 
     private static AnalysisResult verdict(long buildId) {

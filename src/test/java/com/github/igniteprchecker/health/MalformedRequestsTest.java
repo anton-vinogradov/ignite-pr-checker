@@ -55,7 +55,7 @@ class MalformedRequestsTest {
     private Logins logins;
 
     @Test
-    void aBrokenEscapeInTheQueryIsTheCallersMistake(CapturedOutput output) throws Exception {
+    void aBrokenEscapeInTheQueryIsNoErrorOfTheService(CapturedOutput output) throws Exception {
         LogTracker.Snapshot before = logs.snapshot();
 
         String answer = send("GET /api/top-flaky?limit=5&x=%zz HTTP/1.1\r\n", "");
@@ -67,7 +67,7 @@ class MalformedRequestsTest {
     }
 
     @Test
-    void bytesThatAreNotUtf8InTheQueryAreTheCallersMistake() throws Exception {
+    void bytesThatAreNotUtf8InTheQueryAreNoErrorOfTheService() throws Exception {
         LogTracker.Snapshot before = logs.snapshot();
 
         String answer = send("GET /api/github/callback?code=%C0%AF&state=s HTTP/1.1\r\n", "");

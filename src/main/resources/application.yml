@@ -30,8 +30,8 @@ logging:
     sun.net.www.protocol.http.HttpURLConnection: INFO
     org.apache.coyote.http11.Http11InputBuffer: INFO
     org.apache.tomcat.util.http.Rfc6265CookieProcessor: INFO
-    # This one stays at WARN: Tomcat writes a form body it cannot parse into the log at INFO, with its value. A token
-    # sent with a form type is such a body.
+    # This one stays at WARN: Tomcat writes a form body it cannot parse into the log at DEBUG and TRACE, with its
+    # value. A token sent with a form type is such a body.
     org.apache.tomcat.util.http.Parameters: WARN
 
 spring:

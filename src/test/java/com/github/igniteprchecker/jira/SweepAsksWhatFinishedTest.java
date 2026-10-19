@@ -84,7 +84,7 @@ class SweepAsksWhatFinishedTest {
     @Test
     void onlyThePrsWhoseRunAllFinishedAreLookedUpAgain() {
         when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()),
-            Optional.of(Map.of(OTHERS, Set.of("someone"))));
+            Optional.of(Map.of()), Optional.of(Map.of(OTHERS, Set.of("someone"))));
 
         long first = System.currentTimeMillis();
         standing.sweep();
@@ -96,8 +96,10 @@ class SweepAsksWhatFinishedTest {
         verify(tc, times(1)).findRunAllBuildForPr("tc", NO_RUN);
 
         ArgumentCaptor<Long> since = ArgumentCaptor.forClass(Long.class);
-        verify(tc, times(2)).prsWithChainsFinishedAfter(eq("tc"), since.capture());
-        assertThat(since.getAllValues().get(0)).as("from 5 minutes before the first sweep")
+        verify(tc, times(3)).prsWithChainsFinishedAfter(eq("tc"), since.capture());
+        assertThat(since.getAllValues().get(0)).as("the first sweep: from a day before it")
+            .isBetween((first - 86_400_000) / 1000, (first - 86_400_000) / 1000 + 5);
+        assertThat(since.getAllValues().get(1)).as("from 5 minutes before the first sweep")
             .isBetween((first - 300_000) / 1000, (first - 300_000) / 1000 + 5);
     }
 
@@ -124,7 +126,7 @@ class SweepAsksWhatFinishedTest {
             standing.sweep();
 
         verify(tc, times(2)).findRunAllBuildForPr("tc", OWN);
-        verify(tc, times(6)).prsWithChainsFinishedAfter(eq("tc"), anyLong());
+        verify(tc, times(7)).prsWithChainsFinishedAfter(eq("tc"), anyLong());
     }
 
     /** Its re-runs settle the run: nothing finished as a RunAll, yet the sweep has to go on looking at the PR. */
@@ -153,8 +155,8 @@ class SweepAsksWhatFinishedTest {
      */
     @Test
     void aCommentStillToBeMarkedKeepsItsPrLookedUp() {
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of(OWN, Set.of(USER))),
-            Optional.of(Map.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()),
+            Optional.of(Map.of(OWN, Set.of(USER))), Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
         when(github.appComment(eq(OWN), anyString(), anyString()))

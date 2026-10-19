@@ -146,6 +146,12 @@ public class StandingVisas implements SnapshotCache {
      */
     private static final long SWEEP_OVERLAP_MS = 300_000;
 
+    /**
+     * How far back the first sweep after a start asks for the RunAll chains that finished. The service may have been
+     * stopped for hours, and nothing else tells it of a chain that finished meanwhile on a PR out of the list.
+     */
+    private static final long FIRST_SWEEP_LOOKBACK_MS = 86_400_000;
+
     /** Every this many sweeps (once an hour) every listed PR is looked up, whatever TeamCity says finished. */
     private static final int FULL_SWEEP_EVERY = 6;
 
@@ -797,6 +803,7 @@ public class StandingVisas implements SnapshotCache {
      */
     private void dropGhTokenIf(String username, java.util.function.Predicate<Enrollment> refused) {
         Options[] was = {null};
+        String lent = lentTcToken(username);
         boolean dropped = changed(username, e -> {
             if (!refused.test(e))
                 return e;
@@ -807,6 +814,7 @@ public class StandingVisas implements SnapshotCache {
                 .withTcOnlyWhileOn();
         });
         if (dropped) {
+            lentNoMore(username, lent);
             journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.GITHUB,
                 offWith(was[0], Option.STYLE_FIX, Option.SUITE_FIX)));
             log.warn("GitHub token of {} was rejected by GitHub: dropped, the checkstyle autofix and tests to suites "
@@ -823,6 +831,7 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         Options[] was = {null};
+        String lent = lentTcToken(username);
         boolean dropped = changed(username, e -> {
             if (e.jira().token() == null)
                 return e;
@@ -833,6 +842,7 @@ public class StandingVisas implements SnapshotCache {
                 .withTcOnlyWhileOn();
         });
         if (dropped) {
+            lentNoMore(username, lent);
             journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.JIRA, offWith(was[0],
                 Option.VISA)));
             log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
@@ -853,6 +863,22 @@ public class StandingVisas implements SnapshotCache {
             log.warn("TeamCity rejected the stored token of {}: their options pause until a working token comes",
                 username);
         }
+    }
+
+    /** The TeamCity token the user's options lend to the background reads; null when they lend none. */
+    private String lentTcToken(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e == null ? null : backgroundToken(e).orElse(null);
+    }
+
+    /**
+     * Takes the token the user's options {@code lent} out of the pool of the background reads when they lend it no
+     * more: a refused or missing JIRA or GitHub token turned off the options that lent it.
+     */
+    private void lentNoMore(String username, String lent) {
+        if (lent != null && !lendsTcToken(username, lent))
+            warmer.forgetLent(lent);
     }
 
     /** Whether the user's options lend this TeamCity token to the background reads; see {@link #backgroundToken}. */
@@ -1494,11 +1520,14 @@ public class StandingVisas implements SnapshotCache {
      * its options: ⚙ asks the user for a new one.
      */
     private void switchOffOptionsWithoutTokens() {
+        Map<String, String> lent = new ConcurrentHashMap<>();
         enrolled.replaceAll((u, e) -> {
             boolean ghGone = e.options().needsGh() && e.gh().token() == null && !e.gh().waits();
             boolean jiraGone = e.options().autoVisa() && e.jira().token() == null && !e.jira().waits();
             if (!ghGone && !jiraGone)
                 return e;
+
+            backgroundToken(e).ifPresent(t -> lent.put(u, t));
 
             if (ghGone) {
                 journal.add(u, SettingsJournal.Entry.noToken(SettingsJournal.Entry.GITHUB,
@@ -1521,6 +1550,7 @@ public class StandingVisas implements SnapshotCache {
 
             return next.withTcOnlyWhileOn();
         });
+        lent.forEach(this::lentNoMore);
     }
 
     /**
@@ -1857,19 +1887,18 @@ public class StandingVisas implements SnapshotCache {
     /**
      * The PRs with a RunAll chain finished since the last sweep, with who started the chains, by one TeamCity call
      * across all branches. Looking each PR up cost 50 calls a sweep, nearly all of them to learn that nothing changed.
-     * The sweep that looks every PR up asks too: a PR out of its list has no other way to tell a finished run.
+     * The sweeps that look every PR up ask too: a PR out of the list has no other way to tell a finished run. The first
+     * sweep after a start asks for {@link #FIRST_SWEEP_LOOKBACK_MS} back, over the stop and the last sweep before it.
      */
     private Finished chainsFinishedSinceLastSweep(long now) {
         long since = sweptUpTo;
         sweptUpTo = now;
-        if (since == 0)
-            return Finished.UNKNOWN;
-
-        boolean everyPr = ++sweepsSinceFull >= FULL_SWEEP_EVERY;
+        boolean everyPr = since == 0 || ++sweepsSinceFull >= FULL_SWEEP_EVERY;
         if (everyPr)
             sweepsSinceFull = 0;
+        long after = since == 0 ? now - FIRST_SWEEP_LOOKBACK_MS : since - SWEEP_OVERLAP_MS;
         try {
-            return lookup(token -> tc.prsWithChainsFinishedAfter(token, (since - SWEEP_OVERLAP_MS) / 1000))
+            return lookup(token -> tc.prsWithChainsFinishedAfter(token, after / 1000))
                 .map(prs -> new Finished(everyPr, prs)).orElse(Finished.UNKNOWN);
         }
         catch (RuntimeException e) {
