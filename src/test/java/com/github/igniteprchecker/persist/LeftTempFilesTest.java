@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.List;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,8 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * The service stopped in the middle of the daily backup and left backups/cache-2026-10-10.zip.tmp with the stored
  * tokens in it. The scrub of tokens and the prune of the backups look only at finished zips, so 9 days later it still
- * held the TeamCity token. The start deletes such files, and the temp file of a save stopped before its rename.
+ * held the TeamCity token. The start deletes such files, and the temp file of a save stopped before its rename. A
+ * backup that fails while the service runs deletes its own.
  */
 class LeftTempFilesTest {
     private static final String STANDING = "{\"enrollments\":[{\"username\":\"alice\",\"tcToken\":\"tc-cipher\","
@@ -50,5 +52,38 @@ class LeftTempFilesTest {
         assertThat(save).doesNotExist();
         assertThat(notTemp).exists();
         assertThat(fresh).as("written since the JVM started").exists();
+    }
+
+    /** The disk filled up in the middle of the daily backup, while the service ran on. */
+    @Test
+    void aBackupThatFailsLeavesNoTempFile(@TempDir Path dir) throws IOException {
+        Files.writeString(dir.resolve("standing-visas.json"), STANDING);
+        Files.createDirectories(dir.resolve("unreadable.json"));
+        CacheStore store = new CacheStore(List.of(cache("standing-visas.json"), cache("unreadable.json")),
+            new PersistProperties(true, dir.toString(), 5), "1.42.0");
+        store.init();
+
+        store.snapshot();
+        store.onShutdown();
+
+        try (Stream<Path> backups = Files.list(dir.resolve("backups"))) {
+            assertThat(backups).isEmpty();
+        }
+        assertThat(store.status().failingSaves()).containsKey("backups");
+    }
+
+    /** A cache whose file stays as the test wrote it. */
+    private static SnapshotCache cache(String file) {
+        return new SnapshotCache() {
+            @Override public String fileName() {
+                return file;
+            }
+
+            @Override public void saveTo(Path f) {
+            }
+
+            @Override public void loadFrom(Path f) {
+            }
+        };
     }
 }

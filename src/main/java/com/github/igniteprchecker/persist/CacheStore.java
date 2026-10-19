@@ -412,6 +412,10 @@ public class CacheStore {
         }
     }
 
+    /**
+     * Zips the snapshot files into today's backup, once a day. A backup that fails deletes what it wrote: its temp file
+     * holds the tokens of the state, and neither the scrub nor the prune of the backups looks at it.
+     */
     private synchronized void backUpOncePerDay() {
         String name = "cache-" + LocalDate.now(ZoneOffset.UTC) + ".zip";
         Path backups = dir.resolve(BACKUPS);
@@ -419,9 +423,9 @@ public class CacheStore {
         if (Files.exists(zip))
             return;
 
+        Path tmp = backups.resolve(name + ".tmp");
         try {
             Files.createDirectories(backups);
-            Path tmp = backups.resolve(name + ".tmp");
             try (OutputStream out = Files.newOutputStream(tmp); ZipOutputStream entries = new ZipOutputStream(out)) {
                 for (SnapshotCache c : caches) {
                     Path f = dir.resolve(c.fileName());
@@ -442,6 +446,12 @@ public class CacheStore {
         catch (IOException e) {
             if (failing.put(BACKUPS, e.toString()) == null)
                 log.warn("could not back up the snapshots to {}: {}", zip, e.toString());
+            try {
+                Files.deleteIfExists(tmp);
+            }
+            catch (IOException left) {
+                log.warn("could not delete {}, which holds the stored tokens: {}", tmp, left.toString());
+            }
         }
     }
 

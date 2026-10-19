@@ -347,7 +347,7 @@ each boot, or the tokens can stay in the swap file.
 
 State is written within a second of a change, the caches every 5 minutes, and everything at shutdown. Each file is
 written to a `.tmp` file first and then renamed. A stop in the middle of a write or a backup leaves the `.tmp` file,
-which may hold tokens, and the next start deletes it.
+which may hold tokens, and the next start deletes it. A backup that fails deletes its `.tmp` file at once.
 
 Backups and the `.before-` and `.bad-` files keep their tokens for 2 days after they are made. Then the service takes
 the tokens out of them and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a
