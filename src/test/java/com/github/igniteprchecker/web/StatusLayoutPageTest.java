@@ -88,6 +88,15 @@ class StatusLayoutPageTest {
             .contains("visibility: hidden", "animation: lang-wait 0s 2s forwards");
     }
 
+    /**
+     * Endpoint and category names, setting keys and user names took the colour of links, though a click on them does
+     * nothing: "alice" on the Users tab read as a link to her profile.
+     */
+    @Test
+    void namesAreTextNotLinks() throws Exception {
+        assertThat(rule(Files.readString(PAGE, UTF_8), ".catname")).doesNotContain("--accent").doesNotContain("color");
+    }
+
     private static String rule(String css, String selector) {
         Matcher m = Pattern.compile("\\n\\s*" + Pattern.quote(selector) + " \\{([^}]*)}").matcher(css);
         assertThat(m.find()).as(selector).isTrue();
