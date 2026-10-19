@@ -434,6 +434,10 @@ checker kept this list says so instead of a date. The server keeps the list with
 - A copy of a browser's session cookie is the same login: the list does not show it as a separate line, and it works
   until that login ends. **Log out everywhere else** keeps a copy of this browser's cookie logged in. To end it, use
   **Log out** in this browser, then log in again.
+- A copy taken before the update to v1.40.0, the first version with this list, can be a login of its own. Earlier
+  versions issued the cookie anew each day, so a copy of an older one is not the cookie of this browser. Such a copy is
+  not in the list until its first request. **Log out** in this browser does not end it, but
+  **Log out everywhere else** does.
 - A login also ends after 400 days without use: the browser then drops its cookie.
 - You have at most 50 logins. A new login past that ends the one with the same browser and system that was seen
   longest ago. So a script that logs in with curl on every run ends its own earlier login, not a browser's. When no

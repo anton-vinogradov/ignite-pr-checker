@@ -218,10 +218,9 @@ class LogoutTokenPoolTest {
 
     /**
      * The state was restored from a backup older than 2 days, which keeps no tokens: alice's re-run option is on and
-     * waits for a TeamCity token. Her phone opens the page and logs out: that gives the option no token, the note says
-     * nothing of options running on a stored token, and the option stays on. A login she ended in ⚙ gives it none
-     * either. The next request of her laptop, whose login goes on, does, and then her logout leaves that token to the
-     * option.
+     * waits for a TeamCity token. A login she ended in ⚙ gives it none. Her phone opens the page, which gives the option
+     * the phone's token, as any request of a login that goes on does; the phone's logout then leaves that token to the
+     * option, and so does the logout of her laptop.
      */
     @Test
     void optionsRestoredWithoutATokenTakeOneOnlyFromALoginThatGoesOn(@TempDir Path dir) throws Exception {
@@ -238,23 +237,25 @@ class LogoutTokenPoolTest {
         String phone = loggedIn("alice", "alice-phone-tc");
         String laptop = loggedIn("alice", "alice-tc");
 
-        assertThat(login.me(request(phone)).getStatusCode().value()).isEqualTo(200);
-        ResponseEntity<Map<String, Object>> phoneOut = login.logout(request(phone));
-
-        assertThat(phoneOut.getBody()).containsEntry("note",
-            "You are logged out of this browser. You are still logged in on 1 other browser.");
-        assertThat(warmer.pooledTokens()).isZero();
-        assertThat(standing.rerunOn("alice")).isTrue();
         assertThat(auth.preHandle(request(desktop), new MockHttpServletResponse(), new Object())).isFalse();
         assertThat(standing.keepsTcToken("alice")).as("no token from a login that ended").isFalse();
 
-        assertThat(auth.preHandle(request(laptop), new MockHttpServletResponse(), new Object())).isTrue();
+        assertThat(login.me(request(phone)).getStatusCode().value()).isEqualTo(200);
         assertThat(standing.keepsTcToken("alice")).isTrue();
+        ResponseEntity<Map<String, Object>> phoneOut = login.logout(request(phone));
+
+        assertThat(phoneOut.getBody()).containsEntry("note", LoginController.LOGGED_OUT_HERE + " "
+            + LoginController.othersGoOn(1) + " " + LoginController.OPTIONS_GO_ON);
+        assertThat(warmer.borrowToken()).isEqualTo("alice-phone-tc");
+        assertThat(standing.rerunOn("alice")).isTrue();
+
+        assertThat(auth.preHandle(request(laptop), new MockHttpServletResponse(), new Object())).isTrue();
         ResponseEntity<Map<String, Object>> laptopOut = login.logout(request(laptop));
 
         assertThat(laptopOut.getBody()).containsEntry("note",
             LoginController.LOGGED_OUT_HERE + " " + LoginController.OPTIONS_GO_ON);
-        assertThat(warmer.borrowToken()).isEqualTo("alice-tc");
+        assertThat(warmer.pooledTokens()).isEqualTo(1);
+        assertThat(warmer.borrowToken()).isEqualTo("alice-phone-tc");
     }
 
     /** A request of a logged-in browser, which offers its token to the pool; its login is the request's attribute. */

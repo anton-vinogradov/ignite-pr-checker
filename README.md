@@ -78,7 +78,9 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   and the server keeps a list of them without tokens. **Log out** ends the login of the browser where the user clicks
   it. ⚙ lists the user's logins and can end any of the others. A login left unused for 400 days ends too, and a
   user's 51st login ends an older one. A copy of a browser's session cookie is the same login: it works until that
-  login ends. The options in ⚙ belong to the account: they are the same in every login, and no logout changes them.
+  login ends. A copy taken before the update to v1.40.0 can be a login of its own: **Log out everywhere else** ends
+  it, **Log out** does not. The options in ⚙ belong to the account: they are the same in every login, and no
+  logout changes them.
   TeamCity may reject 3 login attempts from one network address in 10 minutes. For all users together, the checker
   checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from the server's address, and if
   ci2 blocks that address, the checker stops for everyone. Past either limit, the login form says how long to wait.
@@ -354,17 +356,17 @@ again. Until the user saves the JIRA token, the comment that brings the verdict 
 GitHub token, so does the story of a `/run-all` whose checkstyle fix waits for it. A `.bad-` file that is not JSON
 keeps its tokens: the log names it, so delete it once you no longer need it.
 
-The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Next to them
-`standing-visas.json` keeps a fingerprint of the key: an HMAC of a fixed text, which reveals nothing of the key.
-Changing the secret logs everyone out. At the next start the fingerprint does not match the new key, so the checker
-drops each stored token it can no longer read. The options stay on and wait for new tokens. ⚙ and the journal of each
-such user say that the server key was changed and which tokens to save again. Logging in again stores a new TeamCity
-token; a new JIRA or GitHub token goes into the form ⚙ opens for it. Until the user logs in again, the checker replies
-to a `/run-all` that the key was changed, and the story of a running `/run-all` waits and says so. Until the user saves
-a new JIRA token, the comment that brings the verdict says why no visa came. The status page shows the operators how
-many users still wait. The first command from each linked GitHub account after the change gets the line
-`ℹ️ First command from @x for ci2 user y` in the PR again. When the key did not change but the checker cannot read a
-stored token, it drops that token the same way. ⚙ then says that the checker could not read it. A state restored from
+The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Next to them `standing-visas.json`
+keeps a fingerprint of the key: an HMAC of a fixed text, which reveals nothing of the key. Changing the secret logs
+everyone out, and ⚙ lists only the logins made after the change. At the next start the fingerprint does not match the
+new key, so the checker drops each stored token it can no longer read. The options stay on and wait for new tokens. ⚙
+and the journal of each such user say that the server key was changed and which tokens to save again. Logging in again
+stores a new TeamCity token; a new JIRA or GitHub token goes into the form ⚙ opens for it. Until the user logs in again,
+the checker replies to a `/run-all` that the key was changed, and the story of a running `/run-all` waits and says so.
+Until the user saves a new JIRA token, the comment that brings the verdict says why no visa came. The status page shows
+the operators how many users still wait. The first command from each linked GitHub account after the change gets the
+line `ℹ️ First command from @x for ci2 user y` in the PR again. When the key did not change but the checker cannot read
+a stored token, it drops that token the same way. ⚙ then says that the checker could not read it. A state restored from
 a copy without tokens under the same key is another case: ⚙ says that the state was restored from a backup, and the
 status page does not count those users. A copy made before the key change reads as a key change: its users store new
 tokens, and the status page counts them. Change the secret only if it leaked.
