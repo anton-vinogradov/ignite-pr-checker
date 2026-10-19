@@ -1,4 +1,5 @@
 watchForDeploy();
+prefetchLanguage();
 
 let githubRepo = 'apache/ignite';
 let jiraBase = 'https://issues.apache.org/jira'; // from /api/config, as the visa uses it
@@ -16,7 +17,7 @@ async function api(path, opts = {}) {
 // Our own API errors are meaningful ('no RunAll build…', 'TeamCity rejected…'); anything else
 // (Spring's bare 'Not Found', proxy 502 text) is a restart blip and shouldn't be shown raw.
 function friendly(error, fallback) {
-    return genericError(error) ? fallback + ' — the service may be restarting, try again in a moment' : error;
+    return genericError(error) ? T`${fallback} — the service may be restarting, try again in a moment` : tr(error);
 }
 function genericError(error) {
     return !error || /^(Not Found|Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)$/i.test(error.trim());
@@ -24,7 +25,8 @@ function genericError(error) {
 // "⚠ Not queued: ci2 refused…" for the PR page, where an error starts with what did not happen; without a usable
 // answer, "⚠ Not queued. The service may be restarting. Try again in a moment."
 function notDone(what, error) {
-    return genericError(error) ? `⚠ ${what}. The service may be restarting. Try again in a moment.` : `⚠ ${what}: ${error}`;
+    return genericError(error) ? T`⚠ ${what}. The service may be restarting. Try again in a moment.`
+        : `⚠ ${what}: ${tr(error)}`;
 }
 // The status line under the run line: what the page is doing now (busy), or how the last action went; an error is
 // red. Every note goes through here, so a new one always clears the look of the last. `aloud` marks the answer to a
@@ -63,9 +65,10 @@ function paintLoginPr() {
     const pr = prFromUrl();
     $('loginPr').classList.toggle('hidden', !pr);
     if (!pr) return;
-    $('loginPrHead').textContent = `Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
-    $('loginPrNote').innerHTML = 'No ci2 account? The verdict may also be posted as a comment on the pull request — '
-        + `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">open #${esc(pr)} on GitHub</a>.`;
+    $('loginPrHead').textContent = T`Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
+    const open = `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">${T`open #${esc(pr)} on GitHub`}</a>`;
+    $('loginPrNote').innerHTML = T('No ci2 account? The verdict may also be posted as a comment on the pull request — '
+        + '{0}.', open);
 }
 
 // A 401 is the guard: no session, TeamCity refusing the saved token, or this browser's login ended. The last two must
@@ -76,7 +79,7 @@ async function loggedOut(r) {
     if (body.tokenRejected)
         await api('/api/logout', { method: 'POST' }).catch(() => {});
     if (body.tokenRejected || body.sessionEnded)
-        loginMsg(body.error, body.tokenRejected);
+        loginMsg(tr(body.error), body.tokenRejected);
     signedOut();
 }
 
@@ -88,8 +91,10 @@ function loginMsg(text, isError) {
     el.classList.toggle('muted', !isError);
 }
 
-// Nothing of the ended session may keep polling, or offer what only a signed-in user may do.
+// Nothing of the ended session may keep polling, or offer what only a signed-in user may do. The next opening of the
+// page is English, as for anyone not signed in; this one keeps its language.
 function signedOut() {
+    useLanguage(null);
     stopRunsPoll();
     canAdmin = false;
     $('updateBtn').classList.add('hidden');
@@ -100,24 +105,41 @@ function signedOut() {
 
 function prUrl(number) { return 'https://github.com/' + githubRepo + '/pull/' + number; }
 function ago(ts) {
-    if (!ts) return 'just now';
+    if (!ts) return T('just now');
     const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-    if (s < 10) return 'just now';
-    if (s < 60) return s + 's ago';
+    if (s < 10) return T('just now');
+    if (s < 60) return T`${s}s ago`;
     const m = Math.round(s / 60);
-    if (m < 60) return m + 'm ago';
+    if (m < 60) return T`${m}m ago`;
     const h = Math.round(m / 60);
-    return h < 48 ? h + 'h ago' : Math.round(h / 24) + 'd ago';
+    return h < 48 ? T`${h}h ago` : T`${Math.round(h / 24)}d ago`;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// "15 Sep 21:05" in the viewer's time zone; the year only when it is not this one.
+// "15 Sep 21:05" in the viewer's time zone; the year only when it is not this one. In Russian "15 сентября в 21:05".
 function fmtDay(ms) {
+    return LANG === 'ru' ? fmtDayAt(ms) : `${fmtDate(ms)} ${clockOf(ms)}`;
+}
+
+// "15 Sep at 21:05": a moment named in a sentence.
+function fmtDayAt(ms) {
+    return T`${fmtDate(ms)} at ${clockOf(ms)}`;
+}
+
+// "15 Sep", or "15 Sep 2025" in another year; in Russian "15 сентября", "15 сентября 2025 г.".
+function fmtDate(ms) {
     const d = new Date(ms);
-    const year = d.getFullYear() === new Date(Date.now()).getFullYear() ? '' : ' ' + d.getFullYear();
-    const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-    return `${d.getDate()} ${MONTHS[d.getMonth()]}${year} ${hm}`;
+    const otherYear = d.getFullYear() !== new Date(Date.now()).getFullYear();
+    if (LANG === 'ru')
+        return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', ...(otherYear ? { year: 'numeric' } : {}) });
+    return `${d.getDate()} ${MONTHS[d.getMonth()]}${otherYear ? ' ' + d.getFullYear() : ''}`;
+}
+
+// "21:05".
+function clockOf(ms) {
+    const d = new Date(ms);
+    return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
 let shownTitle = null; // what setPrTitle last drew, to redraw once /api/config names the hosts
@@ -134,9 +156,9 @@ function setPrTitle(number, title, url) {
     $('prTitle').classList.remove('muted');
     const linked = title ? esc(title).replace(new RegExp(ISSUE_KEY.source, 'gi'), m => {
         const key = m.toUpperCase();
-        return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="Open ${key} in JIRA">${m}</a>`;
+        return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="${T`Open ${key} in JIRA`}">${m}</a>`;
     }) : '';
-    $('prTitle').innerHTML = `<a href="${esc(href)}" target="_self" rel="noopener" title="Open PR #${esc(number)} on GitHub">#${esc(number)}</a>`
+    $('prTitle').innerHTML = `<a href="${esc(href)}" target="_self" rel="noopener" title="${T`Open PR #${esc(number)} on GitHub`}">#${esc(number)}</a>`
         + (linked ? ' ' + linked : '');
 }
 
@@ -145,13 +167,14 @@ async function loadConfig() {
         const r = await api('/api/config');
         if (!r.ok) return;
         const cfg = await r.json();
+        await languageReady;
         if (cfg.githubRepo) githubRepo = cfg.githubRepo;
         if (cfg.jiraUrl) jiraBase = cfg.jiraUrl.replace(/\/+$/, '');
         if (shownTitle && shownTitle[0] === selectedPr) setPrTitle(...shownTitle);
         if (cfg.refreshAfterSeconds >= 0) refreshAfterMs = cfg.refreshAfterSeconds * 1000;
         if (cfg.runAllSuites > 0) {
             runAllSuites = cfg.runAllSuites;
-            $('runAllLabel').textContent = `RunAll (~${runAllSuites} suites):`;
+            $('runAllLabel').textContent = T`RunAll (~${runAllSuites} suites):`;
         }
         const base = cfg.teamcityUrl.endsWith('/') ? cfg.teamcityUrl : cfg.teamcityUrl + '/';
         tcBase = base;
@@ -181,7 +204,7 @@ async function loadPrs() {
 const TITLE_KEY = /^\s*(IGNITE-\d+)[\s:.,\-–]*/;
 
 // The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
-const MY_RUN_TITLE = 'You started its latest RunAll. The PR may be someone else\'s.';
+const MY_RUN_TITLE = phrase('You started its latest RunAll. The PR may be someone else\'s.');
 
 // A row of the list: the number, the ticket key, the badge and your tag on the first line, the title without the key
 // under them. The link's title and data-title keep the whole title: the head and the visa take the key from there.
@@ -192,7 +215,7 @@ function prRow(p) {
     return `
         <li data-num="${esc(p.number)}" data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
             <a class="pr-link" href="?pr=${esc(p.number)}" data-num="${esc(p.number)}" title="${esc(title)}">
-            <span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${MY_RUN_TITLE}">my run</span>
+            <span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${T(MY_RUN_TITLE)}">${T('my run')}</span>
             <span class="pr-ttl">${esc(rest || title)}</span></a>
         </li>`;
 }
@@ -218,7 +241,7 @@ function applyPrFilter() {
     if (open != null) {
         any.href = '?pr=' + open;
         any.dataset.num = open;
-        any.textContent = `Open PR #${open} →`;
+        any.textContent = T`Open PR #${open} →`;
     }
     $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null);
 }
@@ -236,22 +259,23 @@ function markMine() {
 // item names the badge to a screen reader, which would read the bare mark.
 // WATCH comes before the check of the code, so a "!" may stand on a run of older code.
 const STANDING_BADGES = {
-    WATCH: ['watch', '!', 'No blockers yet, but some tests started failing on the code the run tested. A re-run shows '
-        + 'whether they are blockers.', 'started failing'],
-    UNPROVEN: ['unproven', '?', 'No blockers found, but the run can\'t prove the PR clean: it was interrupted, suites '
-        + 'broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still '
-        + 'going.', 'not proven clean'],
-    OLD_CODE: ['unproven', '?', 'No blockers found, but commits were pushed after this run.', 'not proven clean'],
-    UNKNOWN_CODE: ['unproven', '?', 'No blockers found, but it is not known whether this run tested the PR\'s latest '
-        + 'commit.', 'not proven clean'],
-    CHECKING: ['checking', '…', 'No blockers found. The page is checking that this run tested the PR\'s latest commit.',
-        'checking'],
+    WATCH: ['watch', '!', phrase('No blockers yet, but some tests started failing on the code the run tested. A re-run '
+        + 'shows whether they are blockers.'), phrase('started failing')],
+    UNPROVEN: ['unproven', '?', phrase('No blockers found, but the run can\'t prove the PR clean: it was interrupted, '
+        + 'suites broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still '
+        + 'going.'), phrase('not proven clean')],
+    OLD_CODE: ['unproven', '?', phrase('No blockers found, but commits were pushed after this run.'),
+        phrase('not proven clean')],
+    UNKNOWN_CODE: ['unproven', '?', phrase('No blockers found, but it is not known whether this run tested the PR\'s '
+        + 'latest commit.'), phrase('not proven clean')],
+    CHECKING: ['checking', '…', phrase('No blockers found. The page is checking that this run tested the PR\'s latest '
+        + 'commit.'), phrase('checking')],
 };
-const CLEAN_BADGE_TITLE = 'A clean run of the PR\'s current code.';
+const CLEAN_BADGE_TITLE = phrase('A clean run of the PR\'s current code.');
 
 // The legend has one "?" for the three standings that draw it, so its title names all three.
-const UNPROVEN_LEGEND_TITLE = 'No blockers found, but the PR is not proven clean. The run can\'t prove it, commits were '
-    + 'pushed after the run, or it is not known whether the run tested the PR\'s latest commit.';
+const UNPROVEN_LEGEND_TITLE = phrase('No blockers found, but the PR is not proven clean. The run can\'t prove it, '
+    + 'commits were pushed after the run, or it is not known whether the run tested the PR\'s latest commit.');
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
 // "!" for tests that started failing, a question mark when nothing was blamed but the run couldn't prove
@@ -259,13 +283,13 @@ const UNPROVEN_LEGEND_TITLE = 'No blockers found, but the PR is not proven clean
 function blockerBadge(n, proven, standing) {
     if (n == null) return '';
     if (n > 0) {
-        const count = `${n} blocker${n === 1 ? '' : 's'}`;
+        const count = T`${n} blocker${n === 1 ? '' : 's'}`;
         return `<span class="pr-badge bad" title="${count}" ${badgeName(count)}>${n}</span>`;
     }
     const badge = STANDING_BADGES[standing] || (proven === false ? STANDING_BADGES.UNPROVEN : null);
     if (badge)
-        return `<span class="pr-badge ${badge[0]}" title="${esc(badge[2])}" ${badgeName(badge[3])}>${badge[1]}</span>`;
-    return `<span class="pr-badge ok" title="${esc(CLEAN_BADGE_TITLE)}" ${badgeName('clean')}>✓</span>`;
+        return `<span class="pr-badge ${badge[0]}" title="${esc(T(badge[2]))}" ${badgeName(T(badge[3]))}>${badge[1]}</span>`;
+    return `<span class="pr-badge ok" title="${esc(T(CLEAN_BADGE_TITLE))}" ${badgeName(T('clean'))}>✓</span>`;
 }
 
 function badgeName(words) {
@@ -336,12 +360,13 @@ const ASK_FROM_SUITES = 5;
 async function rerunSuites(suites, top, btn, note) {
     if (!selectedPr || !suites.length) return;
     const pr = selectedPr;
-    if (suites.length >= ASK_FROM_SUITES && !confirm(`Re-run ${suites.length} suites of PR #${pr} `
-        + (top ? 'at the top of the ci2 queue, ahead of everyone else\'s builds?' : 'at the end of the ci2 queue?')))
+    if (suites.length >= ASK_FROM_SUITES && !confirm(top
+        ? T('Re-run {0} suites of PR #{1} at the top of the ci2 queue, ahead of everyone else\'s builds?', suites.length, pr)
+        : T('Re-run {0} suites of PR #{1} at the end of the ci2 queue?', suites.length, pr)))
         return;
     const refocus = keepFocus(btn);
     btn.disabled = true;
-    sayStatus('Queuing ' + suites.length + ' suite' + (suites.length === 1 ? '' : 's') + '…', { busy: true });
+    sayStatus(T`Queuing ${suites.length} suite${suites.length === 1 ? '' : 's'}…`, { busy: true });
     try {
         const r = await api('/api/rerun-suites?pr=' + pr + '&top=' + top
             + '&suites=' + encodeURIComponent(suites.join(',')), { method: 'POST' });
@@ -349,8 +374,8 @@ async function rerunSuites(suites, top, btn, note) {
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
-            answerRerun(note, notDone('Not queued', res.error), true);
-            sayStatus(notDone('Not queued', res.error), { err: true, aloud: true });
+            answerRerun(note, notDone(T('Not queued'), res.error), true);
+            sayStatus(notDone(T('Not queued'), res.error), { err: true, aloud: true });
             return;
         }
         showQueued(res.triggered);
@@ -395,9 +420,14 @@ function showQueued(triggered, suite) {
 
 // "Queued #501 · #502": each build a link.
 function queuedLine(triggered) {
-    const links = (triggered || []).map(b =>
-        `<a href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this build in TeamCity">#${esc(b.buildId)}</a>`);
-    return links.length ? 'Queued ' + links.join(' · ') : 'Queued';
+    const links = queuedLinks(triggered);
+    return links ? T`Queued ${links}` : T('Queued');
+}
+
+// "#501 · #502".
+function queuedLinks(triggered) {
+    return (triggered || []).map(b => `<a href="${esc(b.webUrl)}" target="_self" rel="noopener" `
+        + `title="${T('Open this build in TeamCity')}">#${esc(b.buildId)}</a>`).join(' · ');
 }
 
 // TeamCity queues a build before it moves it to the top, and ci2 lets only some accounts reorder the queue: a refused
@@ -407,22 +437,25 @@ function belowTop(triggered) {
     if (!below.length) return null;
     return { partial: below.length < all.length ? below.length : 0,
         why: below[0].topRefusal === 403
-            ? `ci2 did not let your account move ${below.length === 1 ? 'it' : 'them'} to the top.`
-            : `TeamCity refused to move ${below.length === 1 ? 'it' : 'them'} to the top.` };
+            ? (below.length === 1 ? T('ci2 did not let your account move it to the top.')
+                : T('ci2 did not let your account move them to the top.'))
+            : below.length === 1 ? T('TeamCity refused to move it to the top.')
+                : T('TeamCity refused to move them to the top.') };
 }
 
 // The end of the status line: ", at the end of the queue: …" or "; 2 of them at the end of the queue: …".
 function belowTopTail(triggered) {
     const b = belowTop(triggered);
     if (!b) return '.';
-    return b.partial ? `; ${b.partial} of them at the end of the queue: ${b.why}` : `, at the end of the queue: ${b.why}`;
+    return b.partial ? T`; ${b.partial} of them at the end of the queue: ${b.why}` : T`, at the end of the queue: ${b.why}`;
 }
 
 // The line under the buttons, when the builds did not get to the top.
 function belowTopLine(triggered) {
     const b = belowTop(triggered);
     if (!b) return '';
-    return b.partial ? `${b.partial} of them queued at the end of the queue: ${b.why}` : `Queued at the end of the queue: ${b.why}`;
+    return b.partial ? T`${b.partial} of them queued at the end of the queue: ${b.why}`
+        : T`Queued at the end of the queue: ${b.why}`;
 }
 
 // What each section's Rerun pair re-runs, and its Rerun button, by the pair's container id: paintPrimary picks the
@@ -441,8 +474,8 @@ function wireSectActs(containerId, suites) {
     for (const b of c.querySelectorAll('button')) {
         const top = b.dataset.top === 'true';
         b.classList.remove('primary');
-        b.textContent = top ? 'Rerun at top' : `Rerun ${n} suite${n === 1 ? '' : 's'}`;
-        b.title = rerunTitle(`the ${n} suite${n === 1 ? '' : 's'} of this section`, n === 1, top);
+        b.textContent = top ? T('Rerun at top') : T`Rerun ${n} suite${n === 1 ? '' : 's'}`;
+        b.title = rerunTitle(T`the ${n} suite${n === 1 ? '' : 's'} of this section`, n === 1, top);
         b.onclick = (e) => { e.stopPropagation(); e.preventDefault(); rerunSuites(suites, top, b, note); };
         if (!top) rerun = b;
     }
@@ -451,10 +484,10 @@ function wireSectActs(containerId, suites) {
 
 // What a click on a Rerun button does. A merged PR keeps the verdict of its merge, so there the results join nothing.
 function rerunTitle(what, one, top) {
-    const queued = `Queues ${what} on ci2${top ? ', at the top of the queue' : ''}.`;
+    const queued = top ? T`Queues ${what} on ci2, at the top of the queue.` : T`Queues ${what} on ci2.`;
     if (lastResult && lastResult.mergedAt) return queued;
-    return queued + (one ? ' Its result joins the verdict when it finishes.'
-        : ' Their results join the verdict when they finish.');
+    return queued + ' ' + (one ? T('Its result joins the verdict when it finishes.')
+        : T('Their results join the verdict when they finish.'));
 }
 
 function sameSuites(a, b) {
@@ -465,8 +498,8 @@ function sameSuites(a, b) {
 // above re-runs exactly this one suite.
 function suiteRowActs(suite, above) {
     if (!suite || (above && above.length === 1 && above[0] === suite)) return '';
-    return `<span class="suite-runs"><button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="false" title="${esc(rerunTitle('this suite', true, false))}">Rerun</button>`
-        + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="${esc(rerunTitle('this suite', true, true))}">Rerun at top</button></span>`;
+    return `<span class="suite-runs"><button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="false" title="${esc(rerunTitle(T('this suite'), true, false))}">${T('Rerun')}</button>`
+        + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="${esc(rerunTitle(T('this suite'), true, true))}">${T('Rerun at top')}</button></span>`;
 }
 
 // The one filled button, the next step. None on a merged PR, whose verdict no run changes, and none while auto re-runs
@@ -514,9 +547,23 @@ function annotateSuiteChips() {
         const seen = new Set();
         el.innerHTML = runs.filter(b => !b.buildId || !seen.has(b.buildId) && seen.add(b.buildId))
             .sort((a, b) => (a.state === 'running' ? 0 : 1) - (b.state === 'running' ? 0 : 1))
-            .map(run => `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${esc(run.webUrl)}" target="_self" rel="noopener" title="This suite's run on TeamCity${run.pct >= 0 ? ' · ' + run.pct + '% complete' : ''}${run.state === 'running' && run.waitedSec > 0 ? ' · waited ' + fmtSpent(run.waitedSec) + ' in the queue before starting' : ''}">${esc(run.state)}${chipEta(run)}</a>`)
+            .map(run => `<a class="live ${run.state === 'running' ? 'running' : 'queued'}" href="${esc(run.webUrl)}" target="_self" rel="noopener" title="${runTitle(T('This suite\'s run on TeamCity'), run)}">${esc(runState(run.state))}${chipEta(run)}</a>`)
             .join('');
     }
+}
+
+// The states of a run TeamCity names, as the chips show them.
+const RUN_STATES = { queued: phrase('queued'), running: phrase('running') };
+
+function runState(state) {
+    return RUN_STATES[state] ? T(RUN_STATES[state]) : state;
+}
+
+// A chip's title: what it opens, how far the run got, and how long it waited before it started.
+function runTitle(what, run) {
+    return what + (run.pct >= 0 ? T` · ${run.pct}% complete` : '')
+        + (run.state === 'running' && run.waitedSec > 0
+            ? T` · waited ${fmtSpent(run.waitedSec)} in the queue before starting` : '');
 }
 
 function stopRunsPoll() {
@@ -561,17 +608,19 @@ async function loadRuns(number) {
     // that started before the latest push tests older code; a queued one has no commit yet (TeamCity picks it at
     // the start).
     const revTag = b => b.onHead === true
-        ? `<span class="rev-ok" title="This run tests the PR's latest commit.">on latest commit</span>`
+        ? `<span class="rev-ok" title="${T('This run tests the PR\'s latest commit.')}">${T('on latest commit')}</span>`
         : b.onHead === false
-            ? `<span class="rev-stale" title="Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.">⚠ old commit ${esc(b.rev)}</span>`
+            ? `<span class="rev-stale" title="${T`Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.`}">${T`⚠ old commit ${esc(b.rev)}`}</span>`
             : b.state === 'queued'
-                ? `<span class="rev-queued" title="TeamCity picks the commit when the run starts: the PR's latest commit at that moment.">takes latest commit at start</span>`
+                ? `<span class="rev-queued" title="${T('TeamCity picks the commit when the run starts: the PR\'s latest commit at that moment.')}">${T('takes latest commit at start')}</span>`
                 : '';
-    const byTag = b => b.mine ? ''
-        : `<span class="run-by" title="Started by ${esc(b.by || 'someone else')} — Cancel my runs leaves it alone">by ${esc(b.by || 'someone else')}</span>`;
-    $('runs').innerHTML = runs.length
-        ? 'On ci2 now: ' + runs.map(b => `<span class="run-item">${esc(b.name || 'build')}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="Open this run on TeamCity${b.pct >= 0 ? ' · ' + b.pct + '% complete' : ''}${b.state === 'running' && b.waitedSec > 0 ? ' · waited ' + fmtSpent(b.waitedSec) + ' in the queue before starting' : ''}">${esc(b.state)}${chipEta(b)}</a>${revTag(b)}</span>`).join('')
-        : '';
+    const byTag = b => {
+        if (b.mine) return '';
+        const who = esc(b.by || T('someone else'));
+        return `<span class="run-by" title="${T`Started by ${who} — Cancel my runs leaves it alone`}">${T`by ${who}`}</span>`;
+    };
+    const items = runs.map(b => `<span class="run-item">${esc(b.name || T('build'))}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="${runTitle(T('Open this run on TeamCity'), b)}">${esc(runState(b.state))}${chipEta(b)}</a>${revTag(b)}</span>`).join('');
+    $('runs').innerHTML = runs.length ? T`On ci2 now: ${items}` : '';
     $('runsRow').classList.toggle('hidden', runs.length === 0);
     $('cancelMine').classList.toggle('hidden', !runs.some(b => b.mine));
     if (!$('pendingRow').classList.contains('hidden')) paintPending();
@@ -671,23 +720,23 @@ function waitingForFinal() {
 function paintTab() {
     const st = tabState();
     const pr = selectedPr ? ' · #' + selectedPr + ' — Ignite PR Checker' : '';
-    let title = BASE_TITLE, color = null;
+    let title = T(BASE_TITLE), color = null;
     if (st && st.kind === 'running') {
         color = TAB_COLORS.running;
-        title = (st.analysing ? '⌛ analysing' : st.queued ? '⏳ queued'
-            : st.leftSec >= 0 ? '⏱ ' + fmtLeft(st.leftSec) + ' left' : '▶ running') + pr;
+        title = (st.analysing ? T('⌛ analysing') : st.queued ? T('⏳ queued')
+            : st.leftSec >= 0 ? T`⏱ ${fmtLeft(st.leftSec)} left` : T('▶ running')) + pr;
     }
     else if (st && st.kind === 'settling') {
         color = TAB_COLORS.settling;
         const left = st.phase.etaEpochSec ? ' ' + fmtLeft(st.phase.etaEpochSec - Date.now() / 1000) : '';
-        title = (st.phase.wave ? `♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : '♻️ deciding on re-run') + pr;
+        title = (st.phase.wave ? T`♻️ re-run ${st.phase.wave}/${st.phase.of}${left}` : T('♻️ deciding on re-run')) + pr;
     }
     else if (st && st.kind === 'final') {
         color = TAB_COLORS[st.verdict];
         const n = st.res.blockers.length;
-        title = (st.verdict === 'blockers' ? `❌ ${n} blocker${n === 1 ? '' : 's'}`
-            : st.verdict === 'clean' ? '✅ no blockers'
-            : st.verdict === 'watch' ? '⚠ started failing' : '⚠ not proven clean') + pr;
+        title = (st.verdict === 'blockers' ? T`❌ ${n} blocker${n === 1 ? '' : 's'}`
+            : st.verdict === 'clean' ? T('✅ no blockers')
+            : st.verdict === 'watch' ? T('⚠ started failing') : T('⚠ not proven clean')) + pr;
     }
     else if (selectedPr && !$('analyzeView').classList.contains('hidden'))
         title = '#' + selectedPr + ' — Ignite PR Checker';
@@ -712,11 +761,11 @@ function paintNotify(st) {
     const btn = $('notifyBtn');
     const armed = !!notifyFor && notifyFor.pr === selectedPr;
     btn.classList.toggle('hidden', !notificationsOn() || !st || st.kind === 'final');
-    btn.textContent = armed ? '🔔 Will notify' : '🔔 Notify me';
+    btn.textContent = armed ? T('🔔 Will notify') : T('🔔 Notify me');
     btn.setAttribute('aria-pressed', String(armed));
-    btn.title = armed ? 'A notification comes when the verdict is final — keep this tab open. Click to cancel.'
-        : 'Show a desktop notification when the verdict of this PR is final, after its run and auto re-runs'
-            + ' (keep this tab open)';
+    btn.title = armed ? T('A notification comes when the verdict is final — keep this tab open. Click to cancel.')
+        : T('Show a desktop notification when the verdict of this PR is final, after its run and auto re-runs'
+            + ' (keep this tab open)');
 }
 
 async function toggleNotify() {
@@ -740,15 +789,15 @@ function notifyIfFinal(st) {
         || st.res.buildId < notifyFor.build)
         return;
     const n = st.res.blockers.length, w = (st.res.watch || []).length;
-    const head = st.verdict === 'blockers' ? `${n} blocker${n === 1 ? '' : 's'}`
-        : st.verdict === 'clean' ? 'no blockers'
+    const head = st.verdict === 'blockers' ? T`${n} blocker${n === 1 ? '' : 's'}`
+        : st.verdict === 'clean' ? T('no blockers')
         : st.verdict === 'watch'
-            ? `${w} test${w === 1 ? '' : 's'} started failing. A re-run shows whether they are blockers.`
-        : 'no blockers found, not proven clean. Open the page to see why.';
+            ? T`${w} test${w === 1 ? '' : 's'} started failing. A re-run shows whether they are blockers.`
+        : T('no blockers found, not proven clean. Open the page to see why.');
     notifyFor = null;
     try {
         const note = new Notification(`PR #${selectedPr}: ${head}`, {
-            body: `The verdict of RunAll ${st.res.buildId} is final.`, tag: 'prc-' + selectedPr });
+            body: T`The verdict of RunAll ${st.res.buildId} is final.`, tag: 'prc-' + selectedPr });
         note.onclick = () => { window.focus(); note.close(); };
     } catch (e) { /* a browser that refuses page notifications still has the tab title */ }
 }
@@ -756,10 +805,13 @@ function notifyIfFinal(st) {
 // What /api/settling says, in words; empty unless re-runs still settle the verdict.
 function settlingText(phase) {
     if (!phase || phase.phase !== 'settling') return '';
-    if (!phase.wave) return '♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.';
+    if (!phase.wave) return T('♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.');
     const left = phase.etaEpochSec ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
-    return `♻︎ Auto re-run #${phase.wave} of up to ${phase.of}: re-running ${phase.what}` + (left ? `, done in ${left}` : '')
-        + '. The verdict below may change when they finish.';
+    const what = tr(phase.what);
+    return left ? T('♻︎ Auto re-run #{0} of up to {1}: re-running {2}, done in {3}. The verdict below may change when '
+        + 'they finish.', phase.wave, phase.of, what, left)
+        : T('♻︎ Auto re-run #{0} of up to {1}: re-running {2}. The verdict below may change when they finish.',
+            phase.wave, phase.of, what);
 }
 
 // A PR with nothing to analyse yet: say whether a RunAll is already on its way rather than offer
@@ -767,11 +819,12 @@ function settlingText(phase) {
 function showNoRun() {
     const chain = runsNow.find(b => b.runAll);
     noRunNote = !chain
-        ? 'No RunAll run for this PR yet — start one with Run in the RunAll row above. (TeamCity may have cleaned up an old one.)'
+        ? T('No RunAll run for this PR yet — start one with Run in the RunAll row above. (TeamCity may have cleaned up an old one.)')
         : chain.state === 'running'
-            ? 'RunAll is running for this PR — its first results show up here shortly.'
-            : 'RunAll is queued for this PR' + (chain.startSec >= 0 ? ', starts ' + fmtLeft(chain.startSec) : '')
-                + ' — the verdict shows up here once it starts.';
+            ? T('RunAll is running for this PR — its first results show up here shortly.')
+            : chain.startSec >= 0
+                ? T`RunAll is queued for this PR, starts ${fmtLeft(chain.startSec)} — the verdict shows up here once it starts.`
+                : T('RunAll is queued for this PR — the verdict shows up here once it starts.');
     sayStatus(noRunNote);
 }
 
@@ -807,7 +860,7 @@ function goHome(push) {
     if (push) history.pushState({}, '', location.pathname);
     for (const li of $('prList').children) li.classList.remove('sel');
     $('prTitle').classList.add('muted');
-    $('prTitle').textContent = 'Pick a PR on the left, or type its number in the filter.';
+    $('prTitle').textContent = T('Pick a PR on the left, or type its number in the filter.');
     $('actions').classList.add('hidden');
     sayStatus('');
     clearFreshness();
@@ -818,11 +871,12 @@ function goHome(push) {
 }
 
 async function loadMe() {
-    const r = await api('/api/me');
+    const r = await api('/api/me').catch(e => { useLanguage(null); throw e; });
     if (r.ok) {
-        const { username, admin, jiraInCookie } = await r.json();
+        const { username, admin, jiraInCookie, lang } = await r.json();
         jiraInCookieUnused = !!jiraInCookie;
         canAdmin = !!admin;
+        await useLanguage(lang);
         checkUpdate();
         await enterApp(username);
     } else {
@@ -833,21 +887,22 @@ async function loadMe() {
 async function login() {
     loginMsg('', false);
     const token = $('token').value.trim();
-    if (!token) { loginMsg('Enter a token.', true); return; }
+    if (!token) { loginMsg(T('Enter a token.'), true); return; }
     $('loginBtn').disabled = true;
     try {
         const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
         if (r.ok) {
-            const { username, admin, jiraInCookie } = await r.json();
+            const { username, admin, jiraInCookie, lang } = await r.json();
             $('token').value = '';
             canAdmin = !!admin;
             jiraInCookieUnused = !!jiraInCookie;
+            await useLanguage(lang);
             checkUpdate();
             await enterApp(username);
             offerCommands();
         } else {
             const { error } = await r.json().catch(() => ({ error: 'login failed' }));
-            loginMsg(error || 'login failed', true);
+            loginMsg(tr(error) || T('login failed'), true);
         }
     } finally {
         $('loginBtn').disabled = false;
@@ -861,7 +916,7 @@ async function logout() {
     const r = await api('/api/logout', { method: 'POST' });
     const { note, error } = await r.json().catch(() => ({}));
     signedOut();
-    if (note || error) loginMsg(note || error, !note);
+    if (note || error) loginMsg(tr(note || error), !note);
 }
 
 let analyzeRetries = 0;
@@ -896,12 +951,13 @@ async function analyze(number, quiet) {
         const why = genericError(error) ? null : error;
         if (analyzeRetries < 6) {
             analyzeRetries++;
-            sayStatus(why ? `Could not analyze this PR: ${why}. Retrying…`
-                : 'The service may be busy or restarting. Retrying…', { busy: true });
+            sayStatus(why ? T`Could not analyze this PR: ${tr(why)}. Retrying…`
+                : T('The service may be busy or restarting. Retrying…'), { busy: true });
             setTimeout(() => { if (number === selectedPr) analyze(number); }, 4000);
             return;
         }
-        sayStatus(`Could not analyze this PR${why ? ': ' + why : ' (' + (r ? 'HTTP ' + r.status : 'network error') + ')'}.`,
+        sayStatus(why ? T`Could not analyze this PR: ${tr(why)}.`
+            : r ? T`Could not analyze this PR (HTTP ${r.status}).` : T('Could not analyze this PR (network error).'),
             { err: true });
         $('statusRetry').classList.remove('hidden');
         return;
@@ -926,7 +982,7 @@ async function analyze(number, quiet) {
 // cold analysis of a fresh run takes a while, and a silent spinner reads as "broken". The first
 // viewer fills the cache for everyone.
 function startAnalyzing(number) {
-    sayStatus('Analyzing the latest RunAll…', { busy: true });
+    sayStatus(T('Analyzing the latest RunAll…'), { busy: true });
     clearFreshness();
     $('results').classList.add('hidden');
     $('pendingRow').classList.add('hidden');
@@ -937,8 +993,8 @@ function startAnalyzing(number) {
             if (!pr.ok || number !== selectedPr) return;
             const p = await pr.json().catch(() => null);
             if (p && p.total > 0 && $('results').classList.contains('hidden'))
-                sayStatus(`Analyzing a new run: ${p.done} of ${p.total} failed tests checked. `
-                    + 'Only the first view of a new run waits for this.', { busy: true });
+                sayStatus(T('Analyzing a new run: {0} of {1} failed tests checked. Only the first view of a new run '
+                    + 'waits for this.', p.done, p.total), { busy: true });
         } catch (e) { /* progress is decoration */ }
     }, 2500);
 }
@@ -957,7 +1013,7 @@ function renderBroken(el, suites) {
     const victims = suites.filter(isVictim);
     const rows = roots.map(s => brokenRow(s)).join('');
     const victimLine = victims.length
-        ? `<li><div class="reason">+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed</div></li>`
+        ? `<li><div class="reason">${T`+ ${victims.length} suite${victims.length === 1 ? '' : 's'} failed only because a dependency failed`}</div></li>`
         : '';
     el.innerHTML = rows + victimLine;
     for (const b of el.querySelectorAll('.suite-rerun'))
@@ -970,16 +1026,16 @@ function renderBroken(el, suites) {
 function brokenRow(s, rerun = true, above = []) {
     const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
     const head = esc(s.suiteName || s.suite)
-        + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+        + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="${T('Open this run in TeamCity')}">TC</a>` : '');
     const btns = rerun ? suiteRowActs(s.suite, above) : '';
     // The count belongs under the cause: on its own "ran 33 of master's 67" reads as
     // "tests disappeared" and hides the timeout that emptied the suite. When the count was all
     // TeamCity reported, the server makes it the suite's one problem, and it is not said twice.
     const ran = s.tests && s.baseline && s.tests < s.baseline ? `ran ${s.tests} of master's ${s.baseline} tests` : '';
-    const short = ran && !(s.problems || []).includes(ran) ? ` — ${ran}` : '';
+    const short = ran && !(s.problems || []).includes(ran) ? ' — ' + T`ran ${s.tests} of master's ${s.baseline} tests` : '';
     return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
         + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
-        + `<div class="reason">${esc((s.problems || []).join(' · '))}${esc(short)}</div></li>`;
+        + `<div class="reason">${esc((s.problems || []).map(tr).join(' · '))}${esc(short)}</div></li>`;
 }
 
 // The broken suites as the server groups them (BrokenGroup): a failed Build with the suites it kept from
@@ -1009,10 +1065,11 @@ function brokenGroupHtml(g, i, kept, sectionRerun) {
     const names = list => `<div class="reason">${list.map(s => esc(s.suiteName || s.suite)).join(', ')}</div>`;
     if (g.kind === 'UPSTREAM') {
         const victims = suites.concat(neverRan);
-        if (!g.upstream) return `<li class="broken-group">${fold(g.title, names(victims))}</li>`;
+        if (!g.upstream) return `<li class="broken-group">${fold(tr(g.title), names(victims))}</li>`;
         const n = victims.length;
-        const summary = `${n} suite${n === 1 ? '' : 's'}` + (g.root ? ` that need${n === 1 ? 's' : ''} it did not run` : '');
-        return `<li class="broken-group"><div class="root-title">${esc(g.title)}</div>`
+        const summary = g.root ? T`${n} suite${n === 1 ? '' : 's'} that need${n === 1 ? 's' : ''} it did not run`
+            : T`${n} suite${n === 1 ? '' : 's'}`;
+        return `<li class="broken-group"><div class="root-title">${esc(tr(g.title))}</div>`
             + (g.root ? `<ul class="tests">${brokenRow(g.root, (g.rerun || []).length > 0, sectionRerun)}</ul>` : '')
             + (n ? fold(summary, names(victims)) : '')
             + '</li>';
@@ -1023,23 +1080,23 @@ function brokenGroupHtml(g, i, kept, sectionRerun) {
     const n = rerunSet.length;
     const own = n > 0 && !sameSuites(rerunSet, sectionRerun);
     const btns = own
-        ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="${esc(rerunTitle(`the ${n} suites of this group`, false, false))}">Rerun ${n} suites</button>`
-            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="${esc(rerunTitle(`the ${n} suites of this group`, false, true))}">Rerun at top</button></span>`
+        ? `<span class="suite-runs"><button class="act group-rerun" type="button" data-g="${i}" data-top="false" title="${esc(rerunTitle(T`the ${n} suites of this group`, false, false))}">${T`Rerun ${n} suites`}</button>`
+            + `<button class="act group-rerun" type="button" data-g="${i}" data-top="true" title="${esc(rerunTitle(T`the ${n} suites of this group`, false, true))}">${T('Rerun at top')}</button></span>`
         : '';
     const above = own ? rerunSet : sectionRerun;
     const why = g.kind === 'ARTIFACTS'
-        ? '<div class="reason">ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.</div>'
+        ? `<div class="reason">${T('ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.')}</div>`
         : '';
-    return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(g.title)}</span>${btns}</div>${why}`
-        + fold(`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s), above)).join('')}</ul>`) + '</li>';
+    return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(tr(g.title))}</span>${btns}</div>${why}`
+        + fold(T`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s), above)).join('')}</ul>`) + '</li>';
 }
 
 // What the Broken suites card asks for. A suite that failed to compile (compileError from the server) has no Rerun.
 function brokenAdvice(groups) {
     const compile = groups.some(g => [g.root, ...(g.suites || [])].some(s => s && s.compileError));
-    return (rerunOfGroups(groups).length ? 'Re-run these first: the verdict above can\'t see their tests.'
-        : 'The verdict above can\'t see their tests.')
-        + (compile ? ' A suite that failed to compile has no “Rerun”: it needs a code fix.' : '');
+    return (rerunOfGroups(groups).length ? T('Re-run these first: the verdict above can\'t see their tests.')
+        : T('The verdict above can\'t see their tests.'))
+        + (compile ? ' ' + T('A suite that failed to compile has no “Rerun”: it needs a code fix.') : '');
 }
 
 // What the broken groups re-run between them, each suite once: never the suites a failed Build kept from running.
@@ -1065,17 +1122,17 @@ function renderCancelled(el, suites, buildId) {
     const rows = own.map(s => {
         const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
         const head = esc(s.suiteName || s.suite)
-            + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+            + (url ? `<a class="ext" href="${esc(url)}" target="_self" rel="noopener" title="${T('Open this run in TeamCity')}">TC</a>` : '');
         const btns = suiteRowActs(s.suite, above);
         return `<li><div class="suite-head"><span class="suite-name">${head}`
             + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
-            + `<div class="reason">cancelled${s.byTeamCity ? ' by TeamCity' : ''}${s.reason ? ': ' + esc(s.reason) : ''}</div></li>`;
+            + `<div class="reason">${s.byTeamCity ? T('cancelled by TeamCity') : T('cancelled')}${s.reason ? ': ' + esc(tr(s.reason)) : ''}</div></li>`;
     });
     const byPerson = new Map();
     for (const s of suites.filter(s => s.cancelledBy))
         byPerson.set(s.cancelledBy, [...(byPerson.get(s.cancelledBy) || []), s.suiteName || s.suite]);
     for (const [who, names] of byPerson)
-        rows.push(`<li><details data-who="${esc(who)}"${kept.has(who) ? ' open' : ''}><summary>${names.length} suite${names.length === 1 ? '' : 's'} cancelled by ${esc(who)}</summary>`
+        rows.push(`<li><details data-who="${esc(who)}"${kept.has(who) ? ' open' : ''}><summary>${T`${names.length} suite${names.length === 1 ? '' : 's'} cancelled by ${esc(who)}`}</summary>`
             + `<div class="reason">${names.map(esc).join(', ')}</div></details></li>`);
     el.dataset.build = buildId;
     el.innerHTML = rows.join('');
@@ -1090,11 +1147,11 @@ function renderShrunk(el, suites) {
     el.innerHTML = suites.map(s => {
         const url = tcBase && s.suiteBuildId ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${s.suiteBuildId}` : '';
         const head = esc(s.suiteName || s.suite)
-            + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="Open this run in TeamCity">TC</a>` : '');
+            + (url ? `<a class="ext" href="${url}" target="_self" rel="noopener" title="${T('Open this run in TeamCity')}">TC</a>` : '');
         const btns = suiteRowActs(s.suite, above);
         return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'shrunk')}`
             + `<span class="suite-live" data-btid="${esc(s.suite)}"></span></span>${btns}</div>`
-            + `<div class="reason">ran <b>${s.tests}</b> of master's <b>${s.baseline}</b> tests (<b>−${s.dropPct}%</b>)</div></li>`;
+            + `<div class="reason">${T`ran <b>${s.tests}</b> of master's <b>${s.baseline}</b> tests (<b>−${s.dropPct}%</b>)`}</div></li>`;
     }).join('');
     for (const b of el.querySelectorAll('.suite-rerun'))
         b.onclick = () => rerunSuite(b.dataset.suite, b.dataset.top === 'true', b);
@@ -1105,12 +1162,14 @@ function renderShrunk(el, suites) {
 // fewer tests than master. These never reach a single test's stacktrace, so the prompt points
 // at the run, what TeamCity said about it, and how to tell a PR breakage from a master one.
 function suiteAiBtn(s, kind) {
-    const why = kind === 'broken' ? 'has no reliable result' : 'ran fewer tests than on master';
+    const title = kind === 'broken'
+        ? T('Copies a prompt for an AI coding assistant to find why this suite has no reliable result.')
+        : T('Copies a prompt for an AI coding assistant to find why this suite ran fewer tests than on master.');
     return ` <button class="why ai-suite" data-kind="${kind}" data-suite="${esc(s.suite || '')}"`
         + ` data-suitename="${esc(s.suiteName || s.suite || '')}" data-buildid="${s.suiteBuildId || 0}"`
         + ` data-problems="${esc((s.problems || []).join(' · '))}" data-tests="${s.tests || 0}"`
         + ` data-baseline="${s.baseline || 0}" data-drop="${s.dropPct || 0}"`
-        + ` title="Copies a prompt for an AI coding assistant to find why this suite ${why}.">${AI_PROMPT}</button>`;
+        + ` title="${title}">${T(AI_PROMPT)}</button>`;
 }
 
 function wireSuiteAi(el) {
@@ -1175,7 +1234,7 @@ async function aiSuitePrompt(btn) {
             '5. Remember tests that never ran cannot fail: a green suite here means nothing until the count is back.',
         ],
     });
-    await copyText(prompt, btn, AI_PROMPT);
+    await copyText(prompt, btn, T(AI_PROMPT));
 }
 
 // Blockers per RunAll build, oldest to newest: one bar each, red while blockers remain, from three runs on.
@@ -1186,9 +1245,9 @@ function renderTrend(history) {
     el.innerHTML = history.map(h => {
         const hpx = Math.max(4, Math.round(16 * h.blockers / max));
         const clean = h.blockers === 0 && h.brokenSuites === 0;
-        const day = h.at > 0 ? ', ' + fmtDay(h.at).replace(/ \d\d:\d\d$/, '') : '';
-        const tip = `RunAll ${h.buildId}${day}: ${h.blockers} blocker${h.blockers === 1 ? '' : 's'}`
-            + (h.brokenSuites ? `, ${h.brokenSuites} broken suite${h.brokenSuites === 1 ? '' : 's'}` : '');
+        const day = h.at > 0 ? ', ' + fmtDate(h.at) : '';
+        const tip = T`RunAll ${h.buildId}${day}: ${h.blockers} blocker${h.blockers === 1 ? '' : 's'}`
+            + (h.brokenSuites ? T`, ${h.brokenSuites} broken suite${h.brokenSuites === 1 ? '' : 's'}` : '');
         const href = tcBase ? `${tcBase}build/${h.buildId}` : '#';
         return `<a class="${clean ? 'clean' : ''}" style="--h:${hpx}px" href="${href}" target="_self" rel="noopener" title="${esc(tip)}"></a>`;
     }).join('');
@@ -1201,17 +1260,17 @@ function deltaText(d) {
     // the tooltip says which suite each entry is.
     const names = list => list.map(t => shortTestName(t.name) + ' — ' + (t.suiteName || t.suite)).slice(0, 12).join('\n');
     const parts = [];
-    if (d.appeared.length) parts.push(`<span class="delta-new" title="${esc(names(d.appeared))}">${d.appeared.length} new</span>`);
-    else if (d.fixed.length || d.persisting) parts.push('no new');
+    if (d.appeared.length) parts.push(`<span class="delta-new" title="${esc(names(d.appeared))}">${T`${d.appeared.length} new`}</span>`);
+    else if (d.fixed.length || d.persisting) parts.push(T('no new'));
     if (d.fixed.length)
-        parts.push(`<span class="delta-fixed" title="${esc('No longer blockers: passed, moved to another list, or did not run.\n'
-            + names(d.fixed))}">${d.fixed.length} dropped out</span>`);
-    if (d.persisting) parts.push(`${d.persisting} still blocking`);
+        parts.push(`<span class="delta-fixed" title="${esc(T('No longer blockers: passed, moved to another list, or did not run.') + '\n'
+            + names(d.fixed))}">${T`${d.fixed.length} dropped out`}</span>`);
+    if (d.persisting) parts.push(T`${d.persisting} still blocking`);
     if (!parts.length) return '';
     const prev = tcBase
-        ? `<a href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="Open the previous RunAll build in TeamCity">previous RunAll</a>`
-        : 'previous RunAll';
-    return `Blockers since the ${prev}: ` + parts.join(' · ');
+        ? `<a href="${tcBase}build/${d.prevBuildId}" target="_self" rel="noopener" title="${T('Open the previous RunAll build in TeamCity')}">${T('previous RunAll')}</a>`
+        : T('previous RunAll');
+    return T`Blockers since the ${prev}: ${parts.join(' · ')}`;
 }
 
 // Is the verdict on screen the one `res` was asked for? A PR opened or a run finished while the answer was on its way.
@@ -1236,7 +1295,7 @@ async function loadDelta(res) {
         const d = body.delta;
         // only meaningful when the delta's latest run is the one on screen
         const text = d && d.latestBuildId === res.buildId && d.prevBuildId ? deltaText(d) : '';
-        $('delta').innerHTML = text ? text + (hasTrend ? ' · per RunAll:' : '') : hasTrend ? 'Blockers per RunAll:' : '';
+        $('delta').innerHTML = text ? text + (hasTrend ? T(' · per RunAll:') : '') : hasTrend ? T('Blockers per RunAll:') : '';
         $('deltaRow').classList.toggle('hidden', !hasTrend && !text);
     } catch (e) { /* the delta line is a bonus; never block the result */ }
 }
@@ -1305,7 +1364,7 @@ async function updateCauseCount() {
         const n = visibleCauses(d).length;
         if (!n) return;
         const approx = d.sampled < d.total || (d.noMessage || []).length || (d.unread || []).length ? '≥' : '';
-        $('tabCauses').textContent = `Root causes (${approx}${n})`;
+        $('tabCauses').textContent = T`Root causes (${approx}${n})`;
     } catch (e) { /* the count is a bonus; the tab stays without it */ }
 }
 
@@ -1329,12 +1388,12 @@ async function renderCausesView() {
     const key = causesKey(lastResult);
     let d = causesCache.key === key ? causesCache.data : null;
     if (!d) {
-        el.innerHTML = '<p class="busy">Grouping by failure message…</p>';
+        el.innerHTML = `<p class="busy">${T('Grouping by failure message…')}</p>`;
         try {
             d = await causesData();
         } catch (e) {
-            el.innerHTML = '<p class="err">Could not group the failures. The service may be busy. '
-                + '<button class="act retry-causes" type="button">Retry</button></p>';
+            el.innerHTML = `<p class="err">${T('Could not group the failures. The service may be busy.')} `
+                + `<button class="act retry-causes" type="button">${T('Retry')}</button></p>`;
             wireRetryCauses(el);
             return;
         }
@@ -1353,7 +1412,7 @@ async function renderCausesView() {
         for (const t of tests) used.add(blockerKey(t));
         return tests;
     };
-    const count = tests => `<span class="cnt">${tests.length} test${tests.length === 1 ? '' : 's'}</span>`;
+    const count = tests => `<span class="cnt">${T`${tests.length} test${tests.length === 1 ? '' : 's'}`}</span>`;
     const blocks = [];
     for (const c of d.clusters) {
         const tests = onScreen(c.tests);
@@ -1362,7 +1421,7 @@ async function renderCausesView() {
         blocks.push({
             sig: c.signature, ai: true, note: false, title: suites.join(', '),
             head: `${count(tests)} · <span class="sig">${esc(c.signature)}</span>`
-                + (suites.length > 1 ? ` · ${suites.length} suites` : ''),
+                + (suites.length > 1 ? T` · ${suites.length} suites` : ''),
             tests, open: blocks.length === 0
         });
     }
@@ -1373,19 +1432,19 @@ async function renderCausesView() {
                 head: `${count(tests)} · <span class="sig">${what}</span> — ${esc(why)}` });
     };
     const silent = onScreen(d.noMessage);
-    apart(' silent', silent, 'no failure message', silentNote(silent, d.runStartedAt), false);
-    apart(' unread', onScreen(d.unread), 'message not loaded', 'TeamCity did not answer.', true);
+    apart(' silent', silent, T('no failure message'), silentNote(silent, d.runStartedAt), false);
+    apart(' unread', onScreen(d.unread), T('message not loaded'), T('TeamCity did not answer.'), true);
     const rest = lastResult.blockers.filter(t => !used.has(blockerKey(t)));
-    apart('', rest, 'message not requested', `The checker asks TeamCity for the failure messages of only ${d.sampled} `
-        + `of ${d.total} blockers, taken in turn from each suite.`, false);
+    apart('', rest, T('message not requested'), T('The checker asks TeamCity for the failure messages of only {0} of {1} '
+        + 'blockers, taken in turn from each suite.', d.sampled, d.total), false);
     el.dataset.key = key;
     el.innerHTML = blocks.map((b, i) =>
         `<details class="cause${b.note ? ' cause-note' : ''}" data-sig="${esc(b.sig)}"${(kept ? kept.has(b.sig) : b.open) ? ' open' : ''}>`
         + `<summary${b.title ? ` title="${esc(b.title)}"` : ''}>${b.head}`
-        + (b.ai ? ` <button class="why ai-cause" data-i="${i}" title="Copies one prompt that asks an AI coding assistant to fix this cause in all its tests.">copy AI prompt</button>` : '')
-        + (b.retry ? ' <button class="act retry-causes" type="button">Retry</button>' : '')
+        + (b.ai ? ` <button class="why ai-cause" data-i="${i}" title="${T('Copies one prompt that asks an AI coding assistant to fix this cause in all its tests.')}">${T('copy AI prompt')}</button>` : '')
+        + (b.retry ? ` <button class="act retry-causes" type="button">${T('Retry')}</button>` : '')
         + `</summary><ul class="tests" id="causeTests${i}"></ul></details>`).join('')
-        || '<p class="muted">nothing to group</p>';
+        || `<p class="muted">${T('nothing to group')}</p>`;
     blocks.forEach((b, i) => renderList($('causeTests' + i), b.tests, false, suitesOfTests(lastResult.blockers)));
     for (const b of el.querySelectorAll('.ai-cause')) {
         b.onclick = e => { e.preventDefault(); aiCausePrompt(b, blocks[+b.dataset.i]); };
@@ -1403,13 +1462,16 @@ function wireRetryCauses(el) {
 // TeamCity drops the failure messages of old runs; a re-run of the suite brings the message back.
 function silentNote(tests, startedAt) {
     const suites = new Set(tests.map(t => t.suite)).size;
-    const rerun = `re-run the suite${suites === 1 ? '' : 's'} to see why ${tests.length === 1 ? 'it fails' : 'they fail'}`;
+    const one = tests.length === 1;
+    const rerun = suites === 1
+        ? (one ? T('re-run the suite to see why it fails') : T('re-run the suite to see why they fail'))
+        : one ? T('re-run the suites to see why it fails') : T('re-run the suites to see why they fail');
     const at = tests.map(t => (startedAt || {})[t.suiteBuildId]).filter(x => x > 0).sort((a, b) => a - b);
-    if (!at.length) return `TeamCity has no failure message for these runs — ${rerun}`;
-    const days = [...new Set(at.map(sec => fmtDay(sec * 1000).replace(/ \d\d:\d\d$/, '')))].join(', ');
+    if (!at.length) return T`TeamCity has no failure message for these runs — ${rerun}`;
+    const days = [...new Set(at.map(sec => fmtDate(sec * 1000)))].join(', ');
     return Date.now() - at[0] * 1000 > OLD_RUN_DAYS * 86400000
-        ? `TeamCity no longer keeps the failure messages of runs from ${days} — ${rerun}`
-        : `TeamCity has no failure message for these runs (from ${days}) — ${rerun}`;
+        ? T`TeamCity no longer keeps the failure messages of runs from ${days} — ${rerun}`
+        : T`TeamCity has no failure message for these runs (from ${days}) — ${rerun}`;
 }
 
 // A run older than this has likely been overtaken by master and by the PR itself.
@@ -1419,43 +1481,45 @@ const OLD_RUN_DAYS = 7;
 function runWhen(res) {
     const at = (res.finishedAt || res.startedAt) * 1000;
     if (!at) return '';
-    const what = res.finishedAt ? 'finished' : 'started';
+    const when = text => res.finishedAt ? T`finished ${text}` : T`started ${text}`;
     const old = Date.now() - at > OLD_RUN_DAYS * 86400000;
-    const tip = [runCost(res), `${what} ${new Date(at).toLocaleString()}`,
-        old ? 'Over a week old: master and this PR have likely changed. A new RunAll tells more.' : '']
+    const tip = [runCost(res), when(new Date(at).toLocaleString(LANG === 'ru' ? 'ru-RU' : undefined)),
+        old ? T('Over a week old: master and this PR have likely changed. A new RunAll tells more.') : '']
         .filter(Boolean).join(' · ');
-    return ` · <span class="hint${old ? ' old-run' : ''}" title="${esc(tip)}">${what} ${fmtDay(at)} (${ago(at)})</span>`;
+    return ` · <span class="hint${old ? ' old-run' : ''}" title="${esc(tip)}">${when(`${fmtDay(at)} (${ago(at)})`)}</span>`;
 }
 
 // What the analysed run cost: how long it ran, and how long it sat in the queue first.
 function runCost(res) {
     if (!res.startedAt || !res.finishedAt || res.finishedAt < res.startedAt) return '';
     const waited = res.queuedAt && res.startedAt > res.queuedAt ? fmtSpent(res.startedAt - res.queuedAt) : '';
-    return `ran ${fmtSpent(res.finishedAt - res.startedAt)}` + (waited ? ` after ${waited} in the agent queue` : '');
+    const ran = fmtSpent(res.finishedAt - res.startedAt);
+    return waited ? T`ran ${ran} after ${waited} in the agent queue` : T`ran ${ran}`;
 }
 
 // "135 suites ran, 12 reused from earlier runs": said when TeamCity reused some, or while the run still goes.
 function suitesRanLabel(res) {
     if (!(res.suitesReused > 0) && !res.live) return '';
-    const ran = `${res.suitesRan} suite${res.suitesRan === 1 ? '' : 's'} ran`;
-    const reused = res.suitesReused > 0 ? `, ${res.suitesReused} reused from earlier runs` : '';
-    return ` · <span class="hint" title="TeamCity took the results of reused suites from earlier runs of the same code instead of running them again.">${ran}${reused}</span>`;
+    const ran = T`${res.suitesRan} suite${res.suitesRan === 1 ? '' : 's'} ran`;
+    const reused = res.suitesReused > 0 ? T`, ${res.suitesReused} reused from earlier runs` : '';
+    return ` · <span class="hint" title="${T('TeamCity took the results of reused suites from earlier runs of the same code instead of running them again.')}">${ran}${reused}</span>`;
 }
 
 // Redrawn by itself every half minute, so "verdict computed …" and the run's age never freeze. ↻ stands between
 // "verdict computed" and the rest of the line.
 function renderFreshness(res) {
-    const build = `RunAll build ${esc(res.buildId)}`;
+    const build = T`RunAll build ${esc(res.buildId)}`;
     const buildLabel = tcBase
-        ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="Open this RunAll build in TeamCity">${build}</a>` : build;
+        ? `<a href="${tcBase}build/${res.buildId}" target="_self" rel="noopener" title="${T('Open this RunAll build in TeamCity')}">${build}</a>` : build;
     const liveTag = res.live
         ? ' · ' + (res.liveBuildId && tcBase
-            ? `<a class="live-tag" href="${tcBase}build/${res.liveBuildId}" target="_self" rel="noopener" title="Includes results from a RunAll that is still running — click to open that run in TeamCity">● includes an unfinished run</a>`
-            : '<span class="live-tag" title="Includes results from a RunAll that is still running — failures from the suites that did finish are folded in">● includes an unfinished run</span>')
+            ? `<a class="live-tag" href="${tcBase}build/${res.liveBuildId}" target="_self" rel="noopener" title="${T('Includes results from a RunAll that is still running — click to open that run in TeamCity')}">${T('● includes an unfinished run')}</a>`
+            : `<span class="live-tag" title="${T('Includes results from a RunAll that is still running — failures from the suites that did finish are folded in')}">${T('● includes an unfinished run')}</span>`)
         : '';
-    $('freshText').innerHTML = buildLabel + runWhen(res) + ' · <span class="hint" title="When the checker last computed '
-        + 'this verdict from the run and master\'s history.' + (res.mergedAt ? '' : ' ↻ computes it again.')
-        + '">verdict computed ' + esc(ago(res.computedAt)) + '</span>';
+    const computed = T('When the checker last computed this verdict from the run and master\'s history.')
+        + (res.mergedAt ? '' : ' ' + T('↻ computes it again.'));
+    $('freshText').innerHTML = buildLabel + runWhen(res) + ` · <span class="hint" title="${computed}">`
+        + T`verdict computed ${esc(ago(res.computedAt))}` + '</span>';
     $('freshMore').innerHTML = suitesRanLabel(res) + liveTag;
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
@@ -1467,9 +1531,9 @@ function renderMerged(res) {
     $('mergedNote').classList.toggle('hidden', !merged);
     $('results').classList.toggle('merged', merged);
     if (!merged) return;
-    $('mergedNote').textContent = `Merged ${fmtDay(res.mergedAt * 1000)}. This is the verdict as it stood at `
-        + 'the merge. It is not recomputed: master\'s history now holds this PR\'s own runs. New runs do not change '
-        + 'this verdict.';
+    $('mergedNote').textContent = T('Merged {0}. This is the verdict as it stood at the merge. It is not recomputed: '
+        + 'master\'s history now holds this PR\'s own runs. New runs do not change this verdict.',
+        fmtDay(res.mergedAt * 1000));
 }
 
 function clearFreshness() {
@@ -1535,12 +1599,14 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     $('interruptedBanner').classList.toggle('hidden', !interrupted);
     if (interrupted) {
         const build = tcBase
-            ? `<a href="${esc(tcBase + 'build/' + res.buildId)}" target="_self" rel="noopener" title="Open this RunAll build in TeamCity">this RunAll</a>`
-            : 'this RunAll';
-        const one = notRun === 1;
-        $('interruptedText').innerHTML = `${esc(notRun)} suite${one ? '' : 's'} of ${build} ${one ? 'was' : 'were'} cancelled `
-            + `and never ran, so the verdict above says nothing about ${one ? 'it' : 'them'}.`
-            + (res.mergedAt ? '' : ' A finished re-run takes a suite off this list.');
+            ? `<a href="${esc(tcBase + 'build/' + res.buildId)}" target="_self" rel="noopener" title="${T('Open this RunAll build in TeamCity')}">${T('this RunAll')}</a>`
+            : T('this RunAll');
+        $('interruptedText').innerHTML = (notRun === 1
+            ? T('{0} suite of {1} was cancelled and never ran, so the verdict above says nothing about it.', esc(notRun),
+                build)
+            : T('{0} suites of {1} were cancelled and never ran, so the verdict above says nothing about them.',
+                esc(notRun), build))
+            + (res.mergedAt ? '' : ' ' + T('A finished re-run takes a suite off this list.'));
     }
     renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
     // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
@@ -1579,7 +1645,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     $('blockerTabs').classList.toggle('hidden', !tabsOn);
     if (causesCache.key !== causesKey(res)) {
         causesCache = { key: causesKey(res), data: null };
-        $('tabCauses').textContent = 'Root causes';
+        $('tabCauses').textContent = T('Root causes');
     }
     setBlockerView(tabsOn && blockerView === 'causes' ? 'causes' : 'suites');
     if (tabsOn) updateCauseCount();
@@ -1617,8 +1683,8 @@ function listOf(el) {
 // from the analysis when the server's PR list already shows them.
 function caveatsOf(res, standing) {
     const ahead = aheadOf(res);
-    return (res.caveats || []).concat(ahead > 0 ? ['it tested older code (see the note at the top)'] : [])
-        .concat(standing === 'UNKNOWN_CODE' ? ['could not check whether the PR changed since this run'] : []);
+    return (res.caveats || []).map(tr).concat(ahead > 0 ? [T('it tested older code (see the note at the top)')] : [])
+        .concat(standing === 'UNKNOWN_CODE' ? [T('could not check whether the PR changed since this run')] : []);
 }
 
 // How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run is CLEAN only once it
@@ -1644,35 +1710,35 @@ function verdictTitle(res, standing) {
     const n = res.blockers.length;
     if (n) {
         const suites = suitesOfTests(res.blockers).length || new Set(res.blockers.map(t => t.suiteBuildId)).size;
-        return `${n} blocker${n === 1 ? '' : 's'} in ${suites} suite${suites === 1 ? '' : 's'}` + onOneRun(res.blockers);
+        return T`${n} blocker${n === 1 ? '' : 's'} in ${suites} suite${suites === 1 ? '' : 's'}` + onOneRun(res.blockers);
     }
-    return standing === 'CLEAN' ? '✓ No blockers'
-        : standing === 'WATCH' ? 'No proven blockers yet'
-        : standing === 'CHECKING' ? 'No blockers found'
-        : 'No blockers found — not proven clean';
+    return standing === 'CLEAN' ? T('✓ No blockers')
+        : standing === 'WATCH' ? T('No proven blockers yet')
+        : standing === 'CHECKING' ? T('No blockers found')
+        : T('No blockers found — not proven clean');
 }
 
 // ", all on 1 run" / ", 31 of them on 1 run", as the visa says it: such a blocker is not proven yet.
 function onOneRun(blockers) {
     const k = blockers.filter(oneRun).length;
-    return k === 0 ? '' : k === blockers.length ? ', all on 1 run' : `, ${k} of them on 1 run`;
+    return k === 0 ? '' : k === blockers.length ? T(', all on 1 run') : T`, ${k} of them on 1 run`;
 }
 
 function verdictLines(res, standing) {
     const caveats = caveatsOf(res, standing);
     const listed = caveats.join('; ') + '.';
-    if (res.blockers.length) return caveats.length ? [`This run doesn't cover the PR fully: ${listed}`] : [];
-    if (standing === 'CHECKING') return ['Checking that this run tested the PR\'s latest commit…'];
+    if (res.blockers.length) return caveats.length ? [T`This run doesn't cover the PR fully: ${listed}`] : [];
+    if (standing === 'CHECKING') return [T('Checking that this run tested the PR\'s latest commit…')];
     if (standing === 'CLEAN')
-        return ['Nothing in this run looks caused by your PR. You don\'t need to fix or re-run anything.'];
+        return [T('Nothing in this run looks caused by your PR. You don\'t need to fix or re-run anything.')];
     if (standing === 'WATCH') {
         const n = (res.watch || []).length;
-        return [`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
-            : ' Re-run their suites under “Recently started failing”: '
-                + 'the re-run shows whether these tests are blockers.')]
-            .concat(caveats.length ? [`This run also can't prove the PR is clean: ${listed}`] : []);
+        return [T`${n} test${n === 1 ? '' : 's'} started failing on the code this run tested.` + (res.mergedAt ? ''
+            : ' ' + T('Re-run their suites under “Recently started failing”: the re-run shows whether these tests are '
+                + 'blockers.'))]
+            .concat(caveats.length ? [T`This run also can't prove the PR is clean: ${listed}`] : []);
     }
-    return caveats.length ? [`This run can't prove the PR is clean: ${listed}`] : [];
+    return caveats.length ? [T`This run can't prove the PR is clean: ${listed}`] : [];
 }
 
 // Whether the analysed run tested the PR's head, as /api/pending last said for it, or as the analysis did when the
@@ -1710,16 +1776,19 @@ function paintPending() {
     const p = pendingOf.pushed;
     if (!p || $('pendingRow').classList.contains('hidden')) return;
     if (lastResult && lastResult.prNumber === selectedPr && lastResult.mergedAt) {
-        $('pending').textContent = `This run tested ${p.builtSha}. The PR was merged at its commit ${p.headSha}`
-            + (!p.rewritten && p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later.` : '.');
+        $('pending').textContent = !p.rewritten && p.ahead > 0
+            ? T('This run tested {0}. The PR was merged at its commit {1}, {2} commit{3} later.', p.builtSha, p.headSha,
+                p.ahead, p.ahead === 1 ? '' : 's')
+            : T`This run tested ${p.builtSha}. The PR was merged at its commit ${p.headSha}.`;
         $('pendingRerun').classList.add('hidden');
         return;
     }
     const chain = runsNow.find(b => b.runAll);
-    const now = p.rewritten ? `the PR branch was rebased or force-pushed to ${esc(p.headSha)}`
-        : `the PR is now at ${esc(p.headSha)}` + (p.ahead > 0 ? `, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later` : '');
-    $('pending').innerHTML = `<b>⚠ The verdict is for older code:</b> this run tested ${esc(p.builtSha)}, and ${now}.`
-        + (chain ? ` A new RunAll is ${chain.state === 'running' ? 'running' : 'queued'}.` : '');
+    const now = p.rewritten ? T`the PR branch was rebased or force-pushed to ${esc(p.headSha)}`
+        : p.ahead > 0 ? T`the PR is now at ${esc(p.headSha)}, ${p.ahead} commit${p.ahead === 1 ? '' : 's'} later`
+        : T`the PR is now at ${esc(p.headSha)}`;
+    $('pending').innerHTML = T`<b>⚠ The verdict is for older code:</b> this run tested ${esc(p.builtSha)}, and ${now}.`
+        + (chain ? ' ' + (chain.state === 'running' ? T('A new RunAll is running.') : T('A new RunAll is queued.')) : '');
     $('pendingRerun').classList.toggle('hidden', !!chain);
     paintPrimary();
 }
@@ -1819,11 +1888,12 @@ function renderPrTests(t, res) {
     const elsewhere = check && check.state === 'FAILED' ? check.elsewhere || [] : [];
     $('prTestsCard').classList.toggle('hidden', !classes.length && !t.note);
     const runs = classes.flatMap(c => c.runs);
-    $('prTestsCount').textContent = classes.length ? `(${classes.length} class${classes.length === 1 ? '' : 'es'}`
-        + (known ? `, ${runs.length} test${runs.length === 1 ? '' : 's'}` : '') + ')' : '';
+    $('prTestsCount').textContent = !classes.length ? ''
+        : known ? T`(${classes.length} class${classes.length === 1 ? '' : 'es'}, ${runs.length} test${runs.length === 1 ? '' : 's'})`
+        : T`(${classes.length} class${classes.length === 1 ? '' : 'es'})`;
     const slow = runs.filter(r => r.durationMs > SLOW_TEST_MS).length;
     const warns = [notInSuiteWarn(classes.filter(c => c.notInSuite).length + elsewhere.length, check),
-        slow ? esc(`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
+        slow ? esc(T`⚠ ${slow} test${slow === 1 ? '' : 's'} ran longer than 60 s.`) : ''].filter(Boolean);
     $('prTestsWarn').classList.toggle('hidden', !warns.length);
     $('prTestsWarn').innerHTML = warns.join(' ');
     const key = res.prNumber + '|' + res.buildId;
@@ -1838,23 +1908,28 @@ function renderPrTests(t, res) {
     $('prTestsCheck').classList.toggle('hidden', !said);
     $('prTestsCheck').textContent = said;
     $('prTestsNote').classList.toggle('hidden', !t.note);
-    $('prTestsNote').textContent = t.note ? 'Not complete: ' + t.note + '.' : '';
+    $('prTestsNote').textContent = t.note ? T`Not complete: ${tr(t.note)}.` : '';
 }
 
 // Ignite's own check (GitHub Actions, "Check java code") fails on a test class no suite holds: CI never runs it.
-const NOT_IN_SUITE_TAG = '<span class="tag-doubt">not in any suite</span>';
-const NOT_IN_SUITE_TODO = '<div class="caveat">CI never runs it: add it to a test suite or mark it @Ignore.</div>';
+function notInSuiteTag() {
+    return `<span class="tag-doubt">${T('not in any suite')}</span>`;
+}
+
+function notInSuiteTodo() {
+    return `<div class="caveat">${T('CI never runs it: add it to a test suite or mark it @Ignore.')}</div>`;
+}
 
 function suiteCheckName(check) {
-    const name = 'Ignite\'s abandoned-tests check';
+    const name = T('Ignite\'s abandoned-tests check');
     return check.url ? `<a href="${esc(check.url)}" target="_self" rel="noopener">${name}</a>` : name;
 }
 
 function notInSuiteWarn(n, check) {
     if (!n) return '';
-    const one = n === 1;
-    return esc(`⚠ ${n} test class${one ? ' is' : 'es are'} in no test suite, so CI never runs ${one ? 'it' : 'them'}`)
-        + ` (${suiteCheckName(check)} on ${esc(shortSha(check.sha))}).`;
+    return esc(n === 1 ? T('⚠ 1 test class is in no test suite, so CI never runs it')
+        : T`⚠ ${n} test classes are in no test suite, so CI never runs them`)
+        + T` (${suiteCheckName(check)} on ${esc(shortSha(check.sha))}).`;
 }
 
 // Ignite's check of the head said which classes are in a suite: it passed, or it named the ones in none.
@@ -1866,20 +1941,25 @@ function checkTold(check) {
 // that did not run, the note leads with them: without the check, nobody can say why they did not run.
 function suiteCheckNote(check, untold, total) {
     if (checkTold(check) || !check) return '';
-    const on = check.sha ? ' on ' + shortSha(check.sha) : '';
-    const reason = check.reason || 'GitHub did not say';
+    const on = check.sha ? T` on ${shortSha(check.sha)}` : '';
+    const reason = tr(check.reason) || T('GitHub did not say');
     if (!untold) {
-        if (check.state === 'RUNNING') return `Ignite's abandoned-tests check is still running${on}.`;
-        if (check.state === 'SKIPPED') return `Ignite's abandoned-tests check did not run${on}: ${check.reason}.`;
-        return `Ignite's abandoned-tests check could not be read${on}: ${reason}.`;
+        if (check.state === 'RUNNING') return T`Ignite's abandoned-tests check is still running${on}.`;
+        if (check.state === 'SKIPPED') return T`Ignite's abandoned-tests check did not run${on}: ${tr(check.reason)}.`;
+        return T`Ignite's abandoned-tests check could not be read${on}: ${reason}.`;
     }
-    const lead = `${untold} of ${total} class${total === 1 ? '' : 'es'} did not run. `;
-    const name = 'Ignite\'s abandoned-tests check (it finds test classes in no suite)';
-    if (check.state === 'RUNNING') return `${lead}${name} is still running${on}, so we can't tell yet why. Reload the page later.`;
-    if (check.state === 'SKIPPED') return `${lead}${name} did not run${on}: ${check.reason}. So we can't tell why.`;
+    const lead = T`${untold} of ${total} class${total === 1 ? '' : 'es'} did not run.` + ' ';
+    if (check.state === 'RUNNING')
+        return lead + T('Ignite\'s abandoned-tests check (it finds test classes in no suite) is still running{0}, so we '
+            + 'can\'t tell yet why. Reload the page later.', on);
+    if (check.state === 'SKIPPED')
+        return lead + T('Ignite\'s abandoned-tests check (it finds test classes in no suite) did not run{0}: {1}. So we '
+            + 'can\'t tell why.', on, tr(check.reason));
     if (/approve/.test(check.reason || ''))
-        return `${lead}${name}${on} waits for a maintainer to approve its run, so we can't tell yet why. Reload the page later.`;
-    return `${lead}Could not read ${name}${on}: ${reason}. So we can't tell why.`;
+        return lead + T('Ignite\'s abandoned-tests check (it finds test classes in no suite){0} waits for a maintainer to '
+            + 'approve its run, so we can\'t tell yet why. Reload the page later.', on);
+    return lead + T('Could not read Ignite\'s abandoned-tests check (it finds test classes in no suite){0}: {1}. So we '
+        + 'can\'t tell why.', on, reason);
 }
 
 function shortSha(sha) {
@@ -1888,8 +1968,8 @@ function shortSha(sha) {
 
 function notInSuiteElsewhere(name) {
     const simple = name.slice(name.lastIndexOf('.') + 1);
-    return `<li><div class="suite-head"><span class="suite-name" title="${esc(name)}">${esc(simple)}${NOT_IN_SUITE_TAG}`
-        + '</span></div>' + NOT_IN_SUITE_TODO + '</li>';
+    return `<li><div class="suite-head"><span class="suite-name" title="${esc(name)}">${esc(simple)}${notInSuiteTag()}`
+        + '</span></div>' + notInSuiteTodo() + '</li>';
 }
 
 function prTestClass(c, i, res, check, known) {
@@ -1902,22 +1982,23 @@ function prTestClass(c, i, res, check, known) {
             + `aria-expanded="${open}" title="${esc(classToggleTitle(shown, open))}">${esc(classToggleLabel(c, open))}</button>`
         : '';
     const head = `<div class="suite-head"><span class="suite-name" title="${esc(c.path)}">${esc(name)}`
-        + `<span class="tag-doubt">${c.added ? 'new' : 'changed'}</span>${c.notInSuite ? NOT_IN_SUITE_TAG : ''}`
+        + `<span class="tag-doubt">${c.added ? T('new') : T('changed')}</span>${c.notInSuite ? notInSuiteTag() : ''}`
         + `</span>${toggle}</div>`;
-    const todo = c.notInSuite ? NOT_IN_SUITE_TODO : '';
+    const todo = c.notInSuite ? notInSuiteTodo() : '';
     if (!c.runs.length) {
         const why = known ? `<div class="reason">${esc(noRunsOf(c, res, check))}</div>` : '';
         return `<li>${head}${why}${todo}</li>`;
     }
     const failed = c.runs.filter(r => r.status === 'FAILURE');
-    const parts = [[c.runs.filter(r => r.status === 'SUCCESS').length, 'passed'],
-        [failed.length, 'failed', failed.length ? ` (${failedOutcome(failed, res)})` : ''],
-        [c.runs.filter(r => r.status === 'UNKNOWN').length, 'ignored']]
-        .filter(([n]) => n).map(([n, what, outcome = '']) => esc(`${n} ${what}${outcome}`));
+    const passed = c.runs.filter(r => r.status === 'SUCCESS').length;
+    const ignored = c.runs.filter(r => r.status === 'UNKNOWN').length;
+    const parts = [passed ? T`${passed} passed` : '',
+        failed.length ? T`${failed.length} failed (${failedOutcome(failed, res)})` : '',
+        ignored ? T`${ignored} ignored` : ''].filter(Boolean).map(esc);
     const suites = [...new Map(c.runs.filter(r => r.suite || r.suiteName).map(r => [r.suite || r.suiteName, r])).values()];
     const longest = Math.max(...c.runs.map(r => r.durationMs));
-    const summary = parts.join(', ') + (suites.length ? ' in ' + suites.map(suiteRunLink).join(', ') : '')
-        + esc(` · slowest test ${fmtTestTime(longest)}`);
+    const summary = (suites.length ? T`${parts.join(', ')} in ${suites.map(suiteRunLink).join(', ')}` : parts.join(', '))
+        + esc(T` · slowest test ${fmtTestTime(longest)}`);
     return `<li>${head}<div class="reason">${summary}</div>${todo}`
         + `<ul id="${listId}" class="suite-tests">${prTestRows(c, open, res)}</ul></li>`;
 }
@@ -1929,12 +2010,12 @@ function flaggedOf(runs) {
 }
 
 function classToggleLabel(c, open) {
-    return `all ${c.runs.length} test${c.runs.length === 1 ? '' : 's'} ${open ? '▾' : '▸'}`;
+    return T`all ${c.runs.length} test${c.runs.length === 1 ? '' : 's'}` + (open ? ' ▾' : ' ▸');
 }
 
 function classToggleTitle(shown, open) {
-    if (!open) return 'Shows every test of this class in this RunAll, with its status and time.';
-    return shown ? 'Shows only the tests that failed or ran longer than 60 s.' : 'Hides the tests of this class.';
+    if (!open) return T('Shows every test of this class in this RunAll, with its status and time.');
+    return shown ? T('Shows only the tests that failed or ran longer than 60 s.') : T('Hides the tests of this class.');
 }
 
 // A class's tests in its list: the failed ones, then those over 60 s, slowest first, then the rest by name. Folded,
@@ -1963,7 +2044,7 @@ function togglePrTestClass(btn) {
     wireSeenAt(list);
 }
 
-const PR_TEST_STATUS = { SUCCESS: 'passed', FAILURE: 'failed', UNKNOWN: 'ignored' };
+const PR_TEST_STATUS = { SUCCESS: phrase('passed'), FAILURE: phrase('failed'), UNKNOWN: phrase('ignored') };
 
 // One test of the PR's class: its name opens its run in TeamCity; its status and time; under a failed one, what the
 // verdict did with it.
@@ -1971,36 +2052,37 @@ function prTestRow(r, verdicts, res) {
     const url = testRunUrl(r.suite, r);
     const short = esc(shortTestName(r.name));
     const name = url
-        ? `<a href="${esc(url)}" target="_self" rel="noopener" title="Opens this test's run in TeamCity.">${short}</a>`
+        ? `<a href="${esc(url)}" target="_self" rel="noopener" title="${T('Opens this test\'s run in TeamCity.')}">${short}</a>`
         : short;
     const slow = r.durationMs > SLOW_TEST_MS;
     const time = r.status === 'UNKNOWN' ? ''
         : `<span class="${slow ? 'tag-doubt' : 'test-time'}">${esc(fmtTestTime(r.durationMs))}</span>`;
     const failed = r.status === 'FAILURE';
     return `<li class="test-row"><span class="tname">${name}</span><span class="tacts">`
-        + `<span class="tag-doubt">${esc(PR_TEST_STATUS[r.status] || String(r.status).toLowerCase())}</span>${time}`
-        + (failed && r.masterRuns === 0 ? '<span class="tag-doubt">no master history</span>' : '')
+        + `<span class="tag-doubt">${esc(PR_TEST_STATUS[r.status] ? T(PR_TEST_STATUS[r.status]) : String(r.status).toLowerCase())}</span>${time}`
+        + (failed && r.masterRuns === 0 ? `<span class="tag-doubt">${T('no master history')}</span>` : '')
         + '</span>' + (failed ? `<div class="reason">${verdictLine(r, verdicts, res)}</div>` : '') + '</li>';
 }
 
 function suiteRunLink(r) {
     const name = esc(r.suiteName || r.suite);
     const url = runUrlOf(r.suite, r.suiteBuildId);
-    return url ? `<a href="${esc(url)}" target="_self" rel="noopener" title="Opens this suite's run in TeamCity.">${name}</a>`
+    return url ? `<a href="${esc(url)}" target="_self" rel="noopener" title="${T('Opens this suite\'s run in TeamCity.')}">${name}</a>`
         : name;
 }
 
 // The cards that judge failed tests: where a test's row stands in each, what the card's line under a PR's test says,
 // and whether it says the test's reason there too.
 const VERDICT_PLACES = {
-    blockers: { card: 'blockersCard', lists: ['blockers', 'oneRunBlockers'], said: 'blocks this PR', name: 'Blockers' },
-    watch: { card: 'watchCard', lists: ['watch'], said: 'recently started failing', name: 'Recently started failing',
-        reason: true },
-    unverified: { card: 'unverifiedCard', lists: ['unverified'], said: 'could not be checked',
-        name: 'Could not be checked' },
-    filtered: { card: 'filteredCard', lists: ['filtered'], said: 'not blamed', name: 'Not blamed on this PR',
-        reason: true },
-    broken: { card: 'brokenCard', lists: [], said: 'its suite broke', name: 'Broken suites' },
+    blockers: { card: 'blockersCard', lists: ['blockers', 'oneRunBlockers'], said: phrase('blocks this PR'),
+        name: phrase('Blockers') },
+    watch: { card: 'watchCard', lists: ['watch'], said: phrase('recently started failing'),
+        name: phrase('Recently started failing'), reason: true },
+    unverified: { card: 'unverifiedCard', lists: ['unverified'], said: phrase('could not be checked'),
+        name: phrase('Could not be checked') },
+    filtered: { card: 'filteredCard', lists: ['filtered'], said: phrase('not blamed'),
+        name: phrase('Not blamed on this PR'), reason: true },
+    broken: { card: 'brokenCard', lists: [], said: phrase('its suite broke'), name: phrase('Broken suites') },
 };
 
 // The verdict's word on each failed test, by test and suite: the card that lists it, and the test as listed there.
@@ -2030,20 +2112,21 @@ function outcomeOf(r, verdicts, res) {
 
 function verdictLine(r, verdicts, res) {
     const { place, t } = outcomeOf(r, verdicts, res);
-    if (place === 'muted') return 'not checked: TeamCity muted it';
-    if (place === 'later') return 'not checked yet';
-    if (place === 'unjudged') return 'not checked';
-    if (place === 'broken') return 'not checked: ' + seenAt('broken', null, r.suite);
+    if (place === 'muted') return T('not checked: TeamCity muted it');
+    if (place === 'later') return T('not checked yet');
+    if (place === 'unjudged') return T('not checked');
+    if (place === 'broken') return T`not checked: ${seenAt('broken', null, r.suite)}`;
     const where = VERDICT_PLACES[place];
-    return seenAt(place, t) + (where.reason && t.reason ? esc(': ' + t.reason) : '');
+    return seenAt(place, t) + (where.reason && t.reason ? esc(': ' + tr(t.reason)) : '');
 }
 
 // The words of a card's line under a PR's test, as a link to the test's row in that card, or to its suite's row.
 function seenAt(place, t, suite = t ? t.suite : '') {
     const where = VERDICT_PLACES[place];
     const test = t ? ` data-name="${esc(t.name)}"` : '';
+    const title = t ? T`Shows this test in “${T(where.name)}”.` : T`Shows its suite in “${T(where.name)}”.`;
     return `<a class="seen-at" href="#${where.card}" data-place="${place}"${test} data-suite="${esc(suite || '')}" `
-        + `title="${esc(`Shows ${t ? 'this test' : 'its suite'} in “${where.name}”.`)}">${esc(where.said)}</a>`;
+        + `title="${esc(title)}">${esc(T(where.said))}</a>`;
 }
 
 // What the verdict did with a class's failed tests, as their count says it: "none blamed on this PR" when it put
@@ -2053,16 +2136,16 @@ function failedOutcome(failed, res) {
     const places = failed.map(r => outcomeOf(r, verdicts, res).place);
     const unchecked = p => p === 'muted' || p === 'later' || p === 'unjudged' || p === 'broken';
     if (failed.length === 1)
-        return unchecked(places[0]) ? (places[0] === 'later' ? 'not checked yet' : 'not checked')
-            : VERDICT_PLACES[places[0]].said;
-    if (places.every(p => p === 'filtered')) return 'none blamed on this PR';
+        return unchecked(places[0]) ? (places[0] === 'later' ? T('not checked yet') : T('not checked'))
+            : T(VERDICT_PLACES[places[0]].said);
+    if (places.every(p => p === 'filtered')) return T('none blamed on this PR');
     const count = test => places.filter(test).length;
-    return [[count(p => p === 'blockers'), n => n === 1 ? 'blocks this PR' : 'block this PR'],
-        [count(p => p === 'watch'), () => 'recently started failing'],
-        [count(p => p === 'unverified'), () => 'could not be checked'],
-        [count(unchecked), () => 'not checked'],
-        [count(p => p === 'filtered'), () => 'not blamed']]
-        .filter(([n]) => n).map(([n, said]) => `${n} ${said(n)}`).join(', ');
+    return [[count(p => p === 'blockers'), n => n === 1 ? T`${n} blocks this PR` : T`${n} block this PR`],
+        [count(p => p === 'watch'), n => T`${n} recently started failing`],
+        [count(p => p === 'unverified'), n => T`${n} could not be checked`],
+        [count(unchecked), n => T`${n} not checked`],
+        [count(p => p === 'filtered'), n => T`${n} not blamed`]]
+        .filter(([n]) => n).map(([n, said]) => said(n)).join(', ');
 }
 
 function wireSeenAt(el) {
@@ -2110,18 +2193,18 @@ function rowOfBrokenSuite(suite) {
 }
 
 const NO_RUNS_AT_RUN = {
-    ABSENT: 'no runs in this RunAll: added under this name by a commit pushed after it',
-    IN_NO_SUITE: 'no runs in this RunAll: it was in no test suite then; a commit pushed after it fixed that',
-    PASSED_CHECK: 'no runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class',
+    ABSENT: phrase('no runs in this RunAll: added under this name by a commit pushed after it'),
+    IN_NO_SUITE: phrase('no runs in this RunAll: it was in no test suite then; a commit pushed after it fixed that'),
+    PASSED_CHECK: phrase('no runs in this RunAll: its suite did not run or broke, or it is a base or @Ignore class'),
 };
 
 // Why a class did not run, as far as Ignite's checks and the files changed since the run tell it. Without the check's
 // word, the card's note above the list says why nobody can tell; when they tell nothing more, it says the reasons that
 // stay open, once for all such classes.
 function noRunsOf(c, res, check) {
-    if (chainRunning(res)) return 'no runs yet: this RunAll is still going';
-    if (c.notInSuite || !checkTold(check)) return 'no runs in this RunAll';
-    return NO_RUNS_AT_RUN[c.atRun] || 'no runs in this RunAll';
+    if (chainRunning(res)) return T('no runs yet: this RunAll is still going');
+    if (c.notInSuite || !checkTold(check)) return T('no runs in this RunAll');
+    return NO_RUNS_AT_RUN[c.atRun] ? T(NO_RUNS_AT_RUN[c.atRun]) : T('no runs in this RunAll');
 }
 
 // The reasons that stay open for the classes noRunsOf gives none for, said once above the list.
@@ -2130,18 +2213,23 @@ function noRunsNote(classes, res, check) {
     const idle = classes.filter(c => !c.runs.length);
     const open = idle.filter(c => !c.notInSuite && !NO_RUNS_AT_RUN[c.atRun]).length;
     if (!open) return '';
-    const lead = `${idle.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} did not run`;
-    const mixed = open < idle.length
-        ? `, ${open} of them with no reason in ${open === 1 ? 'its row' : 'their rows'}` : '';
-    return lead + mixed + '. Possible reasons: a class\'s suite did not run or broke, '
-        + 'the class is a base or @Ignore class, or it was added to a suite after this run.';
+    const lead = T`${idle.length} of ${classes.length} class${classes.length === 1 ? '' : 'es'} did not run`;
+    const mixed = open >= idle.length ? '' : open === 1 ? T(', 1 of them with no reason in its row')
+        : T`, ${open} of them with no reason in their rows`;
+    return lead + mixed + T('. Possible reasons: a class\'s suite did not run or broke, the class is a base or @Ignore '
+        + 'class, or it was added to a suite after this run.');
 }
 
 // "0.4 s", "12 s", "4 m 58 s": how long a test ran.
 function fmtTestTime(ms) {
-    if (ms < 10000) return (Math.round(ms / 100) / 10) + ' s';
+    if (ms < 10000) return T`${fraction(Math.round(ms / 100) / 10)} s`;
     const sec = Math.round(ms / 1000);
-    return sec < 60 ? sec + ' s' : `${Math.floor(sec / 60)} m ${sec % 60} s`;
+    return sec < 60 ? T`${sec} s` : T`${Math.floor(sec / 60)} m ${sec % 60} s`;
+}
+
+// "0.4", in Russian "0,4".
+function fraction(n) {
+    return LANG === 'ru' ? String(n).replace('.', ',') : String(n);
 }
 
 // Has the PR head moved since the analysed run? Then the verdict is for older code — say so
@@ -2191,7 +2279,7 @@ async function refresh() {
     if (pr !== selectedPr) return; // a newer selection superseded this one
     if (r && r.status === 401) return loggedOut(r);
     if (!r || !r.ok) {
-        const { error } = r ? await r.json().catch(() => ({ error: 'refresh failed' })) : {};
+        const { error } = r ? await r.json().catch(() => ({ error: T('refresh failed') })) : {};
         if (/no RunAll build/i.test(error || '')) {
             verdictDue = false;
             showNoRun();
@@ -2199,8 +2287,8 @@ async function refresh() {
             return;
         }
         // With a verdict on screen, keep it and look again quietly; with none, retry visibly.
-        failedRefresh = lastResult ? notDone('Verdict not recomputed', error) : '';
-        sayStatus(failedRefresh || 'The service may be busy or restarting. Retrying…',
+        failedRefresh = lastResult ? notDone(T('Verdict not recomputed'), error) : '';
+        sayStatus(failedRefresh || T('The service may be busy or restarting. Retrying…'),
             { err: !!failedRefresh, busy: !failedRefresh });
         setTimeout(() => { if (pr === selectedPr) analyze(pr, !!lastResult); }, 4000);
         return;
@@ -2215,7 +2303,7 @@ async function refresh() {
 async function freshRuns(pr) {
     if (await loadRuns(pr)) return true;
     if (pr === selectedPr && $('loginView').classList.contains('hidden'))
-        sayStatus('⚠ Could not check the runs of this PR. Try again in a moment.', { err: true, aloud: true });
+        sayStatus(T('⚠ Could not check the runs of this PR. Try again in a moment.'), { err: true, aloud: true });
     return false;
 }
 
@@ -2231,20 +2319,20 @@ async function doTrigger(act, top, btn) {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.runAll && b.mine);
         if (!confirm(runAllQuestion(pr, atTop, mine))) return;
-        sayStatus(mine.length ? 'Replacing your RunAll…' : 'Queuing RunAll…', { busy: true });
+        sayStatus(mine.length ? T('Replacing your RunAll…') : T('Queuing RunAll…'), { busy: true });
         const r = await api('/api/' + act + '?pr=' + pr + '&top=' + atTop + (mine.length ? '&replace=true' : ''),
             { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
-            sayStatus(notDone('Not queued', res.error), { err: true, aloud: true });
+            sayStatus(notDone(T('Not queued'), res.error), { err: true, aloud: true });
             if (res.replaced) loadRuns(pr);
             return;
         }
         const n = (res.triggered || []).length;
-        sayStatus(`Queued ${n} build${n === 1 ? '' : 's'}: ` + queuedLine(res.triggered).replace(/^Queued ?/, '')
-            + belowTopTail(res.triggered) + (res.replaced ? ' Your previous RunAll was cancelled.' : ''),
+        sayStatus(T`Queued ${n} build${n === 1 ? '' : 's'}: ${queuedLinks(res.triggered)}`
+            + belowTopTail(res.triggered) + (res.replaced ? ' ' + T('Your previous RunAll was cancelled.') : ''),
             { html: true, aloud: true });
         loadRuns(pr);
     } finally {
@@ -2254,15 +2342,17 @@ async function doTrigger(act, top, btn) {
 }
 
 function runAllQuestion(pr, top, mine) {
-    const going = b => b.state + chipEta(b);
+    const going = b => runState(b.state) + chipEta(b);
     const theirs = runsNow.filter(b => b.runAll && !b.mine);
-    return `Queue RunAll for PR #${pr}${top ? ' at the top of the ci2 queue, ahead of everyone else\'s builds' : ''}?`
-        + ` That is the whole chain${runAllSuites ? ', ~' + runAllSuites + ' suites' : ''}`
-        + ' (suites already run on this code may be reused).'
-        + (mine.length === 1 ? `\n\nYour RunAll for this PR is still ${going(mine[0])}. OK cancels it and queues the new one.`
-            : mine.length > 1 ? `\n\nYour ${mine.length} RunAll chains for this PR are still going. OK cancels them and queues the new one.`
+    return (top ? T`Queue RunAll for PR #${pr} at the top of the ci2 queue, ahead of everyone else's builds?`
+        : T`Queue RunAll for PR #${pr}?`)
+        + ' ' + (runAllSuites ? T('That is the whole chain, ~{0} suites (suites already run on this code may be reused).',
+            runAllSuites) : T('That is the whole chain (suites already run on this code may be reused).'))
+        + (mine.length === 1 ? '\n\n' + T`Your RunAll for this PR is still ${going(mine[0])}. OK cancels it and queues the new one.`
+            : mine.length > 1 ? '\n\n' + T`Your ${mine.length} RunAll chains for this PR are still going. OK cancels them and queues the new one.`
             : '')
-        + theirs.map(b => `\n\n${b.by || 'Someone else'}'s RunAll for this PR is ${going(b)}; it stays, and yours runs alongside it.`).join('');
+        + theirs.map(b => '\n\n' + (b.by ? T`${b.by}'s RunAll for this PR is ${going(b)}; it stays, and yours runs alongside it.`
+            : T`Someone else's RunAll for this PR is ${going(b)}; it stays, and yours runs alongside it.`)).join('');
 }
 
 // Only the viewer's own runs, and only those the question listed: ci2 lets anyone stop anyone's
@@ -2276,16 +2366,16 @@ async function cancelMine() {
     try {
         if (!await freshRuns(pr)) return;
         const mine = runsNow.filter(b => b.mine);
-        if (!mine.length) { sayStatus('None of your runs of this PR is still going.', { aloud: true }); return; }
+        if (!mine.length) { sayStatus(T('None of your runs of this PR is still going.'), { aloud: true }); return; }
         if (!confirm(cancelQuestion(pr, mine))) return;
-        sayStatus('Cancelling your runs…', { busy: true });
+        sayStatus(T('Cancelling your runs…'), { busy: true });
         const r = await api('/api/cancel-all?pr=' + pr + '&ids=' + mine.map(b => b.buildId).join(','), { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { sayStatus(notDone('Not cancelled', res.error), { err: true, aloud: true }); return; }
+        if (!r.ok) { sayStatus(notDone(T('Not cancelled'), res.error), { err: true, aloud: true }); return; }
         const n = res.cancelled || 0;
-        sayStatus(`Cancelled ${n} run${n === 1 ? '' : 's'}.`, { aloud: true });
+        sayStatus(T`Cancelled ${n} run${n === 1 ? '' : 's'}.`, { aloud: true });
         loadRuns(pr);
     } finally {
         btn.disabled = false;
@@ -2295,9 +2385,9 @@ async function cancelMine() {
 
 function cancelQuestion(pr, mine) {
     const theirs = runsNow.length - mine.length;
-    return `Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?\n`
-        + mine.map(b => `\n• ${b.name || 'build'}: ${b.state}${chipEta(b)}`).join('')
-        + (theirs ? `\n\nRuns started by other people (${theirs}) keep going.` : '');
+    return T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?` + '\n'
+        + mine.map(b => `\n• ${b.name || T('build')}: ${runState(b.state)}${chipEta(b)}`).join('')
+        + (theirs ? '\n\n' + T`Runs started by other people (${theirs}) keep going.` : '');
 }
 
 // Re-run a single suite (buildType) for the current PR; the answer goes under the suite's row.
@@ -2315,8 +2405,8 @@ async function rerunSuite(suite, top, btn) {
         if (pr !== selectedPr) return;
         const res = await r.json().catch(() => ({}));
         if (!r.ok) {
-            answerRerun(note, notDone('Not queued', res.error), true);
-            sayStatus(notDone('Not queued', res.error), { err: true, aloud: true });
+            answerRerun(note, notDone(T('Not queued'), res.error), true);
+            sayStatus(notDone(T('Not queued'), res.error), { err: true, aloud: true });
             return;
         }
         showQueued(res.triggered, suite);
@@ -2335,7 +2425,7 @@ async function rerunSuite(suite, top, btn) {
 function countLabel(list) {
     const suites = new Set(list.map(suiteKey)).size;
     const n = list.length;
-    return `(${suites} suite${suites === 1 ? '' : 's'}, ${n} test${n === 1 ? '' : 's'})`;
+    return T`(${suites} suite${suites === 1 ? '' : 's'}, ${n} test${n === 1 ? '' : 's'})`;
 }
 
 function suiteKey(t) {
@@ -2352,24 +2442,27 @@ function runStrip(runs, codeRuns, atLeast = 1) {
     const older = codeRuns > 0 && codeRuns < n ? n - codeRuns : 0;
     const bars = [...runs].map((c, i) =>
         `<span class="run run-${c === 'F' ? 'f' : 'p'}${i < older ? ' run-old' : ''}"></span>`).join('');
-    const title = `${n} run${n === 1 ? '' : 's'} on this PR's branch, ${failed} failed` + (n > 1 ? ' (oldest → newest).' : '.')
-        + (!older ? '' : codeRuns === 1 ? ' The bright bar is the newest run. No other run tested the same code.'
-            : ` The bright bars are the last ${codeRuns} runs, all on the same code as the newest run.`);
+    const title = (n > 1 ? T`${n} runs on this PR's branch, ${failed} failed (oldest → newest).`
+        : T`1 run on this PR's branch, ${failed} failed.`)
+        + (!older ? '' : ' ' + (codeRuns === 1 ? T('The bright bar is the newest run. No other run tested the same code.')
+            : T`The bright bars are the last ${codeRuns} runs, all on the same code as the newest run.`));
     return `<span class="strip" title="${esc(title)}">${bars}</span>`;
 }
 
 // What a blocker or watch verdict rests on short of proof (TestVerdict.Doubt on the server).
 const DOUBTS = {
-    ONE_RUN: ['1 run', 'The test ran once on this code and failed. A re-run of its suite confirms or clears the test\'s verdict.'],
-    NO_MASTER_HISTORY: ['new test / no master history',
-        'Master has no runs of this test on this JDK to compare with: a new test, or one master does not run'],
-    UNCHECKED: ['unverified', 'A TeamCity error kept part of the check from being made; the checker tries again'],
+    ONE_RUN: [phrase('1 run'), phrase('The test ran once on this code and failed. A re-run of its suite confirms or '
+        + 'clears the test\'s verdict.')],
+    NO_MASTER_HISTORY: [phrase('new test / no master history'),
+        phrase('Master has no runs of this test on this JDK to compare with: a new test, or one master does not run')],
+    UNCHECKED: [phrase('unverified'),
+        phrase('A TeamCity error kept part of the check from being made; the checker tries again')],
 };
 
 // The test's tags; `said` is the doubt the heading over the list already states, left out.
 function doubtTags(t, said) {
     return (t.doubts || []).filter(d => DOUBTS[d] && d !== said)
-        .map(d => `<span class="tag-doubt" title="${esc(DOUBTS[d][1])}">${esc(DOUBTS[d][0])}</span>`).join('');
+        .map(d => `<span class="tag-doubt" title="${esc(T(DOUBTS[d][1]))}">${esc(T(DOUBTS[d][0]))}</span>`).join('');
 }
 
 function oneRun(t) {
@@ -2420,13 +2513,13 @@ function renderList(el, tests, withReason, above, oneRunSaid = false) {
     el.innerHTML = [...groups.values()].map(g => {
         const newest = runUrlOf(g.btId, g.buildId);
         const head = esc(g.name)
-            + (newest ? `<a class="ext" href="${newest}" target="_self" rel="noopener" title="Open the newest run of this suite in TeamCity.">TC</a>` : '');
+            + (newest ? `<a class="ext" href="${newest}" target="_self" rel="noopener" title="${T('Open the newest run of this suite in TeamCity.')}">TC</a>` : '');
         const byReason = withReason ? reasonGroups(g.items, oneRunSaid) : [['', g.items]];
-        const shared = byReason.length === 1 && byReason[0][0] ? `<li class="reason-head">${esc(byReason[0][0])}</li>` : '';
+        const shared = byReason.length === 1 && byReason[0][0] ? `<li class="reason-head">${esc(tr(byReason[0][0]))}</li>` : '';
         const rows = byReason.map(([reason, items]) => {
             const own = byReason.length > 1 && items.length === 1 ? reason : '';
             const grouped = byReason.length > 1 && items.length > 1;
-            const subhead = grouped ? `<li class="reason-head">${items.length} tests: ${esc(reason)}</li>` : '';
+            const subhead = grouped ? `<li class="reason-head">${T`${items.length} tests: ${esc(tr(reason))}`}</li>` : '';
             return subhead + items.map(t => testRow(t, g.btId, withReason, own, oneRunSaid, grouped)).join('');
         }).join('');
         return `<li><div class="suite-head"><span class="suite-name">${head}<span class="suite-live" data-btid="${esc(g.btId || '')}"></span></span>${suiteRowActs(g.btId, above)}</div>`
@@ -2439,7 +2532,7 @@ function renderList(el, tests, withReason, above, oneRunSaid = false) {
     for (const b of el.querySelectorAll('.why.ai'))
         b.onclick = () => aiFixPrompt(b);
     for (const b of el.querySelectorAll('.details .copy'))
-        b.onclick = () => copyDetails(b, 'copy failure');
+        b.onclick = () => copyDetails(b, T('copy failure'));
 }
 
 // The reasons of `tests` as their rows show them, each with its tests, the biggest group first.
@@ -2481,7 +2574,7 @@ function testRunUrl(btId, t) {
 function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
     const testUrl = testRunUrl(btId, t);
     const tc = testUrl
-        ? `<a class="ext" href="${testUrl}" target="_self" rel="noopener" title="Open this test in TeamCity.">TC</a>` : '';
+        ? `<a class="ext" href="${testUrl}" target="_self" rel="noopener" title="${T('Open this test in TeamCity.')}">TC</a>` : '';
     const verdict = t.blocker ? (t.reason ? 'BLOCKER — ' + t.reason : 'BLOCKER')
         : t.watch ? 'RECENTLY STARTED FAILING — too few runs of this code to tell a break from a flake'
         : (t.reason ? 'FILTERED (' + t.reason + ')' : 'failing test');
@@ -2489,23 +2582,23 @@ function testRow(t, btId, withReason, own, oneRunSaid, grouped = false) {
         + ` data-suite="${esc(t.suite || '')}" data-suitename="${esc(t.suiteName || t.suite || '')}"`
         + ` data-buildid="${t.suiteBuildId || 0}" data-strip="${esc(t.branchRuns || '')}"`
         + ` data-verdict="${esc(verdict)}" data-samecode="${esc(sameCodeRuns(t))}"`
-        + ` title="Copies a prompt that asks an AI coding assistant to fix this test.">${AI_PROMPT}</button>`;
+        + ` title="${T('Copies a prompt that asks an AI coding assistant to fix this test.')}">${T(AI_PROMPT)}</button>`;
     // A fail->pass transition means it flapped — but only when both runs were on the
     // SAME revision. Across a push those are two different programs, not a flap.
     const sameCode = t.codeRuns > 0 ? (t.branchRuns || '').slice(-t.codeRuns) : (t.branchRuns || '');
     const flaky = /FP/.test(sameCode)
-        ? `<span class="tag-flaky" title="passed and failed across this branch's runs on the same code">flaky?</span>` : '';
+        ? `<span class="tag-flaky" title="${T('passed and failed across this branch\'s runs on the same code')}">${T('flaky?')}</span>` : '';
     const toggle = t.occurrenceId
-        ? `<button class="why toggle" data-occ="${esc(t.occurrenceId)}" aria-expanded="false" title="${FAILURE_CLOSED[1]}">${FAILURE_CLOSED[0]}</button>`
+        ? `<button class="why toggle" data-occ="${esc(t.occurrenceId)}" aria-expanded="false" title="${T(FAILURE_CLOSED[1])}">${T(FAILURE_CLOSED[0])}</button>`
         : '';
     const panel = t.occurrenceId
         ? `<div class="details hidden" data-occ="${esc(t.occurrenceId)}" data-samecode="${esc(sameCodeRuns(t))}"><div class="details-acts">`
-            + `<button class="why copy" type="button" title="Copy the failure message.">copy failure</button>${ai}</div><pre></pre></div>`
+            + `<button class="why copy" type="button" title="${T('Copy the failure message.')}">${T('copy failure')}</button>${ai}</div><pre></pre></div>`
         : '';
-    const title = withReason && own !== (t.reason || '') ? ` title="${esc(t.reason)}"` : '';
+    const title = withReason && own !== (t.reason || '') ? ` title="${esc(tr(t.reason))}"` : '';
     return `<li class="test-row${grouped ? ' grouped' : ''}"${title}><span class="tname" title="${esc(t.name)}">${esc(shortTestName(t.name))}</span>`
         + `<span class="tacts">${runStrip(t.branchRuns, t.codeRuns, oneRunSaid ? 2 : 1)}${flaky}${doubtTags(t, oneRunSaid ? 'ONE_RUN' : null)}${tc}${toggle || ai}</span>`
-        + (own ? `<div class="reason">${esc(own)}</div>` : '') + panel + '</li>';
+        + (own ? `<div class="reason">${esc(tr(own))}</div>` : '') + panel + '</li>';
 }
 
 // "copy AI prompt" on a test: assemble EVERYTHING a coding assistant needs to fix this failure — the PR, the suite,
@@ -2516,7 +2609,8 @@ async function aiFixPrompt(btn) {
     const [failure, tested] = await Promise.all([
         btn.dataset.occ ? testFailure(btn.dataset.occ).catch(() => NO_FAILURE) : NO_FAILURE,
         testedRun(selectedPr, +btn.dataset.buildid)]);
-    const kind = failure.details ? kindLabel(failure.kind, failedEveryCodeRun(btn.dataset.samecode)) : null;
+    const kind = failure.details ? inEnglish(() => kindLabel(failure.kind, failedEveryCodeRun(btn.dataset.samecode)))
+        : null;
     const platform = platformOf(btn.dataset.suite, btn.dataset.name);
     const runUrl = btn.dataset.buildid > 0
         ? `${tcBase}buildConfiguration/${encodeURIComponent(btn.dataset.suite)}/${btn.dataset.buildid}` : '';
@@ -2539,7 +2633,7 @@ async function aiFixPrompt(btn) {
             '4. Fix accordingly (production code fix preferred over weakening the test), keep the Apache Ignite code style, and re-run the test to verify it passes.',
         ],
     });
-    await copyText(prompt, btn, AI_PROMPT);
+    await copyText(prompt, btn, T(AI_PROMPT));
 }
 
 // "copy AI prompt" on a root cause: one prompt covering the whole cluster — the shared failure signature,
@@ -2574,7 +2668,7 @@ async function aiCausePrompt(btn, block) {
             '4. Re-run a few of the affected tests from different suites to verify the whole group is fixed.',
         ],
     });
-    await copyText(prompt, btn, AI_PROMPT);
+    await copyText(prompt, btn, T(AI_PROMPT));
 }
 
 // Everything quoted from the PR and its run may carry text written to steer the assistant.
@@ -2705,17 +2799,17 @@ async function openDetails(box) {
     paintToggle(box, true);
     const pre = box.querySelector('pre');
     if (pre.dataset.loaded) return;
-    pre.textContent = 'loading…';
+    pre.textContent = T('loading…');
     try {
         const { details, kind } = await testFailure(box.dataset.occ);
         const label = details ? kindLabel(kind, failedEveryCodeRun(box.dataset.samecode)) : null;
         pre.dataset.raw = details;
         pre.textContent = details.trim()
             ? (label ? label + '\n\n' : '') + details
-            : '(no failure message available)';
+            : T('(no failure message available)');
         pre.dataset.loaded = '1';
     } catch (e) {
-        pre.textContent = 'failed to load details';
+        pre.textContent = T('failed to load details');
     }
 }
 
@@ -2749,7 +2843,7 @@ function testFailure(occ) {
 // it pass then.
 function failedEveryCodeRun(sameCode) {
     const runs = sameCode || '';
-    return runs.length >= 2 && !runs.includes('P') ? `all ${runs.length} runs of this code` : '';
+    return runs.length >= 2 && !runs.includes('P') ? T`all ${runs.length} runs of this code` : '';
 }
 
 // The runs of this test known to be on the code of its latest run: the ones that say whether it fails there for
@@ -2766,11 +2860,12 @@ async function checkUpdate() {
         const r = await fetch('/api/version', { cache: 'no-store' });
         if (!r.ok) return;
         const v = await r.json();
+        await languageReady;
         if (v.updateAvailable && canAdmin) {
             updateTarget = v.latest;
             const failed = v.updateFailed && v.updateFailed.version === v.latest;
-            $('updateBtn').textContent = (failed ? 'Retry update to v' : 'Update to v') + v.latest;
-            $('updateBtn').title = failed ? updateFailedText(v, v.latest) : 'A new version is available';
+            $('updateBtn').textContent = failed ? T`Retry update to v${v.latest}` : T`Update to v${v.latest}`;
+            $('updateBtn').title = failed ? updateFailedText(v, v.latest) : T('A new version is available');
             $('updateBtn').classList.remove('hidden');
             showUpdateNotes(v.notesUrl);
         } else {
@@ -2786,14 +2881,14 @@ function showUpdateNotes(url) {
 }
 
 async function doUpdate() {
-    if (!confirm('Update the app to the latest release? It will restart (a few seconds of downtime).')) return;
+    if (!confirm(T('Update the app to the latest release? It will restart (a few seconds of downtime).'))) return;
     const btn = $('updateBtn');
-    btn.textContent = 'Updating…';
+    btn.textContent = T('Updating…');
     const r = await api('/api/update', { method: 'POST' });
     if (r.status === 401) return loggedOut(r);
     if (!r.ok) {
         const { error } = await r.json().catch(() => ({ error: 'update failed' }));
-        btn.textContent = error || 'update failed';
+        btn.textContent = tr(error) || T('update failed');
         return;
     }
     waitForRestart(updateTarget);
@@ -2802,7 +2897,7 @@ async function doUpdate() {
 // The server restarts and installs the release before it starts. Back on that release: reload. Back on the old
 // one after being down: the update failed, and the server says why. Still up on the old one: not restarted yet.
 function waitForRestart(target) {
-    $('updateBtn').textContent = 'Restarting…';
+    $('updateBtn').textContent = T('Restarting…');
     let tries = 0, wentDown = false;
     const iv = setInterval(async () => {
         tries++;
@@ -2814,14 +2909,14 @@ function waitForRestart(target) {
         if (!v) wentDown = true;
         else if (v.current === target) { clearInterval(iv); location.reload(); return; }
         else if (wentDown) { clearInterval(iv); $('updateBtn').textContent = updateFailedText(v, target); return; }
-        if (tries > 60) { clearInterval(iv); $('updateBtn').textContent = 'Update is taking long — reload the page'; }
+        if (tries > 60) { clearInterval(iv); $('updateBtn').textContent = T('Update is taking long — reload the page'); }
     }, 2000);
 }
 
 function updateFailedText(v, target) {
     const f = v.updateFailed;
-    return f && f.version === target ? `Update to v${target} failed: ${f.reason}`
-        : `Still v${v.current} after the restart: the update to v${target} did not happen`;
+    return f && f.version === target ? T`Update to v${target} failed: ${tr(f.reason)}`
+        : T`Still v${v.current} after the restart: the update to v${target} did not happen`;
 }
 
 $('loginBtn').onclick = login;
@@ -2877,9 +2972,9 @@ async function loadVisaLine(number) {
 function paintVisaLine() {
     const res = lastResult, el = $('visaLine');
     const v = res ? visaLines.get(res.prNumber + ':' + res.buildId) : undefined;
-    const html = lastIssueKey === '' ? 'Visa: the PR title names no IGNITE ticket'
+    const html = lastIssueKey === '' ? T('Visa: the PR title names no IGNITE ticket')
         : !lastIssueKey || v === undefined || v === false ? null
-        : v === null ? 'Visa: …' : visaLineText(v, lastIssueKey);
+        : v === null ? T('Visa: …') : visaLineText(v, lastIssueKey);
     if (html === visaLinePainted) return;
     visaLinePainted = html;
     el.innerHTML = html || '';
@@ -2891,40 +2986,43 @@ function paintVisaLine() {
 // posted one, the ticket it went to.
 function visaLineText(v, key) {
     const who = esc(v.starter || '');
-    const option = 'Visa my runs in JIRA';
     switch (v.state) {
-        case 'posted':
-            return v.url ? `Visa: posted to <a href="${esc(v.url)}" target="_self" rel="noopener" `
-                + `title="Opens the visa in JIRA.">${esc(v.issue)}</a>` : `Visa: posted to ${esc(v.issue || key)}`;
+        case 'posted': {
+            const issue = v.url ? `<a href="${esc(v.url)}" target="_self" rel="noopener" `
+                + `title="${T('Opens the visa in JIRA.')}">${esc(v.issue)}</a>` : esc(v.issue || key);
+            return T`Visa: posted to ${issue}`;
+        }
         case 'due':
-            return `Visa: will be posted to ${esc(key)} when the run settles`;
+            return T`Visa: will be posted to ${esc(key)} when the run settles`;
         case 'retrying':
-            return 'Visa: JIRA did not take it, the checker tries again every 10 minutes';
+            return T('Visa: JIRA did not take it, the checker tries again every 10 minutes');
         case 'on':
-            return `Visa: ${who}, who started this run, has ${option} on`;
+            return T`Visa: ${who}, who started this run, has Visa my runs in JIRA on`;
         case 'off':
             return v.mine
-                ? `Visa: ${option} is off in ⚙` + (v.jiraRefused ? ', because JIRA rejected your token' : '')
-                : `Visa: none, ${who} started this run and has ${option} off`;
+                ? (v.jiraRefused ? T('Visa: Visa my runs in JIRA is off in ⚙, because JIRA rejected your token')
+                    : T('Visa: Visa my runs in JIRA is off in ⚙'))
+                : T`Visa: none, ${who} started this run and has Visa my runs in JIRA off`;
         case 'paused':
-            return 'Visa: waits until you log in again, because TeamCity refused the token your options use';
+            return T('Visa: waits until you log in again, because TeamCity refused the token your options use');
         case 'jira-token-removed':
-            return 'Visa: waits until you save your JIRA token in ⚙ again';
+            return T('Visa: waits until you save your JIRA token in ⚙ again');
         case 'late':
-            return `Visa: none, this run finished before you switched on ${option}`;
+            return T('Visa: none, this run finished before you switched on Visa my runs in JIRA');
         case 'no-ticket':
-            return 'Visa: none, the PR title named no IGNITE ticket when the run settled';
+            return T('Visa: none, the PR title named no IGNITE ticket when the run settled');
         case 'cancelled':
-            return 'Visa: none, this run was cancelled';
+            return T('Visa: none, this run was cancelled');
         case 'replaced':
-            return 'Visa: none for this run, a newer RunAll replaces it';
+            return T('Visa: none for this run, a newer RunAll replaces it');
         case 'closed':
-            return 'Visa: none, the PR is closed';
+            return T('Visa: none, the PR is closed');
         case 'unknown':
-            return 'Visa: unknown, TeamCity does not say who started this run';
+            return T('Visa: unknown, TeamCity does not say who started this run');
         case 'waits':
-            return 'Visa: waits for a new JIRA token in ⚙, because ' + (v.unread === 'key-changed'
-                ? 'the server key was changed' : 'the checker could not read the stored one');
+            return v.unread === 'key-changed'
+                ? T('Visa: waits for a new JIRA token in ⚙, because the server key was changed')
+                : T('Visa: waits for a new JIRA token in ⚙, because the checker could not read the stored one');
         default:
             return null;
     }
@@ -2942,9 +3040,9 @@ function zoneParam(sep) {
 const OPTION_TOGGLES = { visa: 'standingVisaToggle', rerun: 'autoRerunToggle', gh: 'ghCommentToggle',
     style: 'styleFixToggle', commands: 'commandsToggle', suites: 'suiteFixToggle' };
 const OPTION_NEEDS = { visa: 'jira', style: 'github', commands: 'login', suites: 'github' };
-const OPTION_NAMES = { visa: 'Visa my runs in JIRA', rerun: 'Re-run failed suites of my runs',
-    gh: 'Post my runs\' verdicts in the PR', style: 'Fix checkstyle before my commanded runs', commands: 'PR commands',
-    suites: 'Add my PR\'s tests that no suite runs' };
+const OPTION_NAMES = { visa: phrase('Visa my runs in JIRA'), rerun: phrase('Re-run failed suites of my runs'),
+    gh: phrase('Post my runs\' verdicts in the PR'), style: phrase('Fix checkstyle before my commanded runs'),
+    commands: phrase('PR commands'), suites: phrase('Add my PR\'s tests that no suite runs') };
 // The options that write to GitHub, from the checker's own account: none goes on without one.
 const GITHUB_OPTIONS = ['gh', 'style', 'commands', 'suites'];
 // The options that commit with the user's GitHub token.
@@ -2956,9 +3054,31 @@ $('settingsBtn').onclick = () => {
     const p = $('settingsPanel');
     p.classList.toggle('hidden');
     if (p.classList.contains('hidden')) return;
+    $('langSelect').value = LANG;
+    $('langMsg').textContent = '';
     loadSettings();
     loadLogins();
     loadJournal();
+};
+
+// The language is the account's: a change goes to the server, and the page opens again in it.
+$('langSelect').onchange = async () => {
+    const sel = $('langSelect'), msg = $('langMsg');
+    sel.disabled = true;
+    try {
+        const r = await api('/api/language', { method: 'POST', body: JSON.stringify({ lang: sel.value }) });
+        if (r.status === 401) return loggedOut(r);
+        if (r.ok) {
+            location.reload();
+            return;
+        }
+        msg.textContent = T('could not change the language — try again');
+    } catch (e) {
+        msg.textContent = T('could not reach the service — try again');
+    } finally {
+        sel.disabled = false;
+    }
+    sel.value = LANG;
 };
 
 function lockSettings(message) {
@@ -2967,16 +3087,16 @@ function lockSettings(message) {
 }
 
 async function loadSettings() {
-    lockSettings('Loading your settings…');
+    lockSettings(T('Loading your settings…'));
     try {
         const r = await api('/api/auto-visa-all');
         if (r.status === 401) return loggedOut(r);
-        if (!r.ok) { lockSettings('Could not load your settings — close ⚙ and open it again.'); return; }
+        if (!r.ok) { lockSettings(T('Could not load your settings — close ⚙ and open it again.')); return; }
         renderSettings(await r.json());
         $('settingsMsg').textContent = '';
         loadExpiries(standingSettings);
     } catch (e) {
-        lockSettings('Could not reach the service — close ⚙ and open it again.');
+        lockSettings(T('Could not reach the service — close ⚙ and open it again.'));
     }
 }
 
@@ -3006,17 +3126,17 @@ function renderUnread(st) {
         el.textContent = '';
         return;
     }
-    const names = [unread.includes('teamcity') && 'TeamCity token', unread.includes('jira') && 'JIRA token',
-        unread.includes('github') && 'GitHub token for commits'].filter(Boolean);
-    const forms = names.filter(n => n !== 'TeamCity token');
-    const why = st.tokensUnreadWhy === 'key-changed'
-        ? 'The server key was changed, so the checker could no longer read' : 'The checker could not read';
-    el.textContent = `⚠ ${why} your stored ${listed(names)}.`
-        + (unread.includes('teamcity') ? ' Your options stay on and wait until you log in again.' : '')
-        + (unread.includes('jira') ? ' ' + waitsFor(['visa'], 'JIRA token') : '')
-        + (unread.includes('github') ? ' ' + waitsFor(COMMIT_OPTIONS.filter(name => st[name]), 'GitHub token for'
-            + ' commits') : '')
-        + (forms.length === 1 ? ' Save it below.' : forms.length ? ' Save the new tokens below.' : '');
+    const names = [unread.includes('teamcity') && T('TeamCity token'), unread.includes('jira') && T('JIRA token'),
+        unread.includes('github') && T('GitHub token for commits')].filter(Boolean).map(inSentence);
+    const forms = unread.filter(service => service !== 'teamcity');
+    el.textContent = (st.tokensUnreadWhy === 'key-changed'
+        ? T`⚠ The server key was changed, so the checker could no longer read your stored ${listed(names)}.`
+        : T`⚠ The checker could not read your stored ${listed(names)}.`)
+        + (unread.includes('teamcity') ? ' ' + T('Your options stay on and wait until you log in again.') : '')
+        + (unread.includes('jira') ? ' ' + waitsFor(['visa'], inSentence(T('JIRA token'))) : '')
+        + (unread.includes('github') ? ' ' + waitsFor(COMMIT_OPTIONS.filter(name => st[name]),
+            inSentence(T('GitHub token for commits'))) : '')
+        + (forms.length === 1 ? ' ' + T('Save it below.') : forms.length ? ' ' + T('Save the new tokens below.') : '');
     if (unread.includes('jira')) $('settingsJira').classList.remove('hidden');
     if (unread.includes('github')) {
         pendingOption = COMMIT_OPTIONS.find(name => st[name]) || pendingOption;
@@ -3025,25 +3145,29 @@ function renderUnread(st) {
 }
 
 function waitsFor(options, token) {
-    const names = listed(options.map(name => OPTION_NAMES[name]));
-    return options.length > 1 ? `${names} stay on. They wait for a new ${token}.`
-        : `${names} stays on and waits for a new ${token}.`;
+    const names = listed(options.map(name => optionName(name)));
+    return options.length > 1 ? T`${names} stay on. They wait for a new ${token}.`
+        : T`${names} stays on and waits for a new ${token}.`;
+}
+
+// The name of an option in ⚙ as a sentence names it: in Russian, in quotes.
+function optionName(name) {
+    return LANG === 'ru' ? `«${T(OPTION_NAMES[name])}»` : OPTION_NAMES[name];
 }
 
 // "a", "a and b", "a, b and c".
 function listed(names) {
-    return names.length <= 1 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    return names.length <= 1 ? names.join('') : T`${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 // Each group opens with the state of what its options need: the tokens the server holds for them.
 function renderAccess(st) {
-    $('tcState').textContent = myUsername || 'logged in';
-    const jira = st.jiraStored ? 'saved' : st.jiraTokenRejected ? 'rejected' : 'not saved';
-    $('jiraState').textContent = jira;
-    $('jiraTokenBtn').textContent = jira === 'saved' ? 'Replace' : 'Save';
-    $('ghTokenState').textContent = st.ghStored ? 'saved' + (st.ghTokenKind ? ', ' + st.ghTokenKind : '')
-        : st.ghTokenRejected ? 'rejected' : 'not saved';
-    $('ghTokenBtn').textContent = st.ghStored ? 'Replace' : 'Save';
+    $('tcState').textContent = myUsername || T('logged in');
+    $('jiraState').textContent = st.jiraStored ? T('saved') : st.jiraTokenRejected ? T('rejected') : T('not saved');
+    $('jiraTokenBtn').textContent = st.jiraStored ? T('Replace') : T('Save');
+    $('ghTokenState').textContent = st.ghStored ? (st.ghTokenKind ? T`saved, ${tr(st.ghTokenKind)}` : T('saved'))
+        : st.ghTokenRejected ? T('rejected') : T('not saved');
+    $('ghTokenBtn').textContent = st.ghStored ? T('Replace') : T('Save');
     if (!st.jiraStored) $('jiraExpiry').classList.add('hidden');
     if (!st.ghStored) $('ghTokenExpiry').classList.add('hidden');
 }
@@ -3052,16 +3176,16 @@ function renderAccess(st) {
 // once an hour, so ⚙ asks at each opening.
 const EXPIRY_SOON_DAYS = 14;
 const EXPIRY = {
-    teamcity: { span: 'tcExpiry', name: 'TeamCity', lead: ', token ', act: 'log in with a new one',
-        then: 'Then you have to log in again, and your options pause until you do.',
-        revoke: 'in TeamCity', several: 'TeamCity does not say which one you logged in with.' },
-    jira: { span: 'jiraExpiry', name: 'JIRA', lead: ', ', act: 'replace it', stored: 'jiraStored',
-        then: 'Then Visa my runs in JIRA goes off until you save a new token and switch it on again.',
-        revoke: 'in your JIRA profile', several: 'JIRA does not say which one you saved here.',
-        refused: 'Visa my runs in JIRA goes off when it next tries to post a visa.' },
-    github: { span: 'ghTokenExpiry', name: 'GitHub', lead: ', ', act: 'replace it', stored: 'ghStored',
-        then: 'Then the options that commit with it go off until you save a new token and switch them on again.',
-        revoke: 'on GitHub', refused: 'The options that commit with it go off when they next try to commit.' },
+    teamcity: { span: 'tcExpiry', name: 'TeamCity', lead: phrase(', token '), act: phrase('log in with a new one'),
+        then: phrase('Then you have to log in again, and your options pause until you do.'),
+        revoke: phrase('in TeamCity'), several: phrase('TeamCity does not say which one you logged in with.') },
+    jira: { span: 'jiraExpiry', name: 'JIRA', lead: ', ', act: phrase('replace it'), stored: 'jiraStored',
+        then: phrase('Then Visa my runs in JIRA goes off until you save a new token and switch it on again.'),
+        revoke: phrase('in your JIRA profile'), several: phrase('JIRA does not say which one you saved here.'),
+        refused: phrase('Visa my runs in JIRA goes off when it next tries to post a visa.') },
+    github: { span: 'ghTokenExpiry', name: 'GitHub', lead: ', ', act: phrase('replace it'), stored: 'ghStored',
+        then: phrase('Then the options that commit with it go off until you save a new token and switch them on again.'),
+        revoke: phrase('on GitHub'), refused: phrase('The options that commit with it go off when they next try to commit.') },
 };
 
 function loadExpiries(st) {
@@ -3089,47 +3213,47 @@ function paintExpiry(el, service, x) {
     el.classList.toggle('hidden', !said);
     el.classList.toggle('expiry-soon', !!(said && said.soon));
     el.classList.toggle('hint', !!(said && said.title));
-    el.textContent = said ? EXPIRY[service].lead + said.text : '';
+    el.textContent = said ? T(EXPIRY[service].lead) + said.text : '';
     el.title = (said && said.title) || '';
 }
 
 // What the reader needs is in the text: a tooltip does not open by touch or from the keyboard.
 function expiryOf(s, x) {
     if (x.state === 'never') {
-        return { text: 'never expires: give the next one an expiry, say 90 days',
-            title: `Anyone who gets this token can use it until you revoke it ${s.revoke}.` };
+        return { text: T('never expires: give the next one an expiry, say 90 days'),
+            title: T`Anyone who gets this token can use it until you revoke it ${T(s.revoke)}.` };
     }
     if (x.state === 'refused' && s.refused) {
-        return { soon: true, text: `${s.name} refused it when the checker asked: ${s.act}`, title: s.refused };
+        return { soon: true, text: T`${s.name} refused it when the checker asked: ${T(s.act)}`, title: T(s.refused) };
     }
     if (x.state === 'unknown') return expiryUnknown(s, x);
     if (x.state !== 'expires') return null;
     const left = x.expiresAt - Date.now();
-    const on = fmtDay(x.expiresAt).replace(/ (\d\d:\d\d)$/, ' at $1');
-    if (left <= 0) return { soon: true, text: `expired: ${s.act}`, title: `It expired on ${on}.` };
+    const on = fmtDayAt(x.expiresAt);
+    if (left <= 0) return { soon: true, text: T`expired: ${T(s.act)}`, title: T`It expired on ${on}.` };
     const days = Math.floor(left / 86400000);
-    const text = 'expires in ' + (days === 0 ? 'less than a day' : countOf(days, 'day'));
-    if (days > EXPIRY_SOON_DAYS) return { text, title: `It expires on ${on}.` };
-    return { soon: true, text: `${text}: ${s.act} before then`, title: `It expires on ${on}. ${s.then}` };
+    const text = days === 0 ? T('expires in less than a day') : T`expires in ${countOf(days, 'day')}`;
+    if (days > EXPIRY_SOON_DAYS) return { text, title: T`It expires on ${on}.` };
+    return { soon: true, text: T`${text}: ${T(s.act)} before then`, title: T`It expires on ${on}.` + ' ' + T(s.then) };
 }
 
 function expiryUnknown(s, x) {
     if (x.why === 'several') {
-        return { text: `expiry unknown: you have ${x.tokens} tokens that expire at different times`,
-            title: s.several };
+        return { text: T`expiry unknown: you have ${x.tokens} tokens that expire at different times`,
+            title: T(s.several) };
     }
     if (x.why === 'unreadable') {
-        return { text: `expiry unknown: ${s.name} wrote the date in a form the checker cannot read` };
+        return { text: T`expiry unknown: ${s.name} wrote the date in a form the checker cannot read` };
     }
-    if (x.why === 'no-answer') return { text: `expiry unknown: ${s.name} did not answer` };
-    return { text: `expiry unknown: ${s.name} did not list your tokens` };
+    if (x.why === 'no-answer') return { text: T`expiry unknown: ${s.name} did not answer` };
+    return { text: T`expiry unknown: ${s.name} did not list your tokens` };
 }
 
 // The checker writes in PRs from its own account, named where the PR comment says so. Without one the options that
 // write to GitHub can only go off.
 function renderGithubAccount(st) {
     $('ghCommentApp').textContent = !st.appLogin ? ''
-        : ' @' + st.appLogin + (st.appPushes === false ? ', which cannot push to the repo,' : '');
+        : ' @' + st.appLogin + (st.appPushes === false ? T(', which cannot push to the repo,') : '');
     const off = st.githubAvailable === false;
     for (const name of GITHUB_OPTIONS) {
         if (githubLocked(name, st)) $(OPTION_TOGGLES[name]).disabled = true;
@@ -3137,7 +3261,7 @@ function renderGithubAccount(st) {
     $('githubOff').classList.toggle('hidden', !off);
     $('ghTokenBtn').classList.toggle('hidden', off && !st.ghStored);
     $('ghTokenNote').classList.toggle('hidden', !st.ghTokenNote);
-    $('ghTokenNote').textContent = st.ghTokenNote || '';
+    $('ghTokenNote').textContent = tr(st.ghTokenNote) || '';
 }
 
 // An option that writes to GitHub, off while the checker has no account to write with, cannot go on.
@@ -3150,14 +3274,17 @@ function githubLocked(name, st) {
 function renderLogin(st) {
     const proven = !!st.login && !st.loginUnproven;
     const linkable = !!st.githubLinkable;
-    $('ghLoginState').textContent = !st.login ? 'not linked' : '@' + st.login
-        + (st.loginUnproven ? ', not proven' : st.linkedAt ? linkedWhen(st)
-            : st.ghStored ? ', linked by your GitHub token for commits' : '');
+    $('ghLoginState').textContent = !st.login ? T('not linked') : '@' + st.login
+        + (st.loginUnproven ? T(', not proven') : st.linkedAt ? linkedWhen(st)
+            : st.ghStored ? T(', linked by your GitHub token for commits') : '');
     $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
-    $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' is not proven: an earlier version of '
-        + 'the checker kept it without proof that it is yours. ' + (st.commands ? 'Your PR commands do nothing'
-            : 'The verdict comments do not mention you') + ' until you '
-        + (linkable ? 'press Link GitHub.' : 'save a GitHub token for commits of that account.') : '';
+    $('ghLoginUnproven').textContent = st.loginUnproven ? T`⚠ @${st.login} is not proven: an earlier version of the checker kept it without proof that it is yours.`
+        + ' ' + (st.commands
+            ? (linkable ? T('Your PR commands do nothing until you press Link GitHub.')
+                : T('Your PR commands do nothing until you save a GitHub token for commits of that account.'))
+            : linkable ? T('The verdict comments do not mention you until you press Link GitHub.')
+            : T('The verdict comments do not mention you until you save a GitHub token for commits of that account.'))
+        : '';
     $('ghLink').classList.toggle('hidden', proven || !linkable);
     $('ghLinkOff').classList.toggle('hidden', proven || linkable || st.githubAvailable === false);
     $('ghUnlink').classList.toggle('hidden', !st.login);
@@ -3166,7 +3293,22 @@ function renderLogin(st) {
 
 // When and from which browser the user linked their GitHub account: a link they did not make shows here.
 function linkedWhen(st) {
-    return ', linked ' + fmtDay(st.linkedAt) + (st.linkedFrom ? ' from ' + st.linkedFrom : '');
+    return st.linkedFrom ? T`, linked ${fmtDay(st.linkedAt)} ${fromBrowser(st.linkedFrom)}`
+        : T`, linked ${fmtDay(st.linkedAt)}`;
+}
+
+// "from Firefox on Linux": where something came from, by the label the server gives a browser.
+function fromBrowser(label) {
+    const parts = /^(a browser|.+) on (.+)$/.exec(label || '');
+    if (!parts) return label === 'unknown browser' ? T('from unknown browser') : T`from ${label}`;
+    return parts[1] === 'a browser' ? T`from a browser on ${parts[2]}` : T`from ${parts[1]} on ${parts[2]}`;
+}
+
+// The label the server gives a browser from its User-Agent ("Firefox on Windows"), in the page's language.
+function browserLabel(label) {
+    const parts = /^(a browser|.+) on (.+)$/.exec(label || '');
+    if (!parts) return label === 'unknown browser' ? T('unknown browser') : label;
+    return parts[1] === 'a browser' ? T`a browser on ${parts[2]}` : T`${parts[1]} on ${parts[2]}`;
 }
 
 // A token the service refused takes its options down with it, so the panel must show the
@@ -3201,15 +3343,14 @@ async function askForToken(need, option, why) {
     if (need === 'login' && !(standingSettings || {}).githubLinkable) {
         askForLinkingToken();
     } else if (need === 'login') {
-        $('ghLinkMsg').textContent = 'press Link GitHub: PR commands go on once GitHub confirms your account';
+        $('ghLinkMsg').textContent = T('press Link GitHub: PR commands go on once GitHub confirms your account');
     } else if (need === 'jira') {
         await openJiraForm();
-        $('settingsJiraMsg').textContent = why || OPTION_NAMES[option] + ' needs your JIRA token: paste it here and'
-            + ' press Save.';
+        $('settingsJiraMsg').textContent = tr(why) || T`${optionName(option)} needs your JIRA token: paste it here and press Save.`;
     } else {
         openGhForm();
-        $('settingsGhMsg').textContent = why || OPTION_NAMES[option] + ' needs your GitHub token for commits: paste'
-            + ' it here and press Save.';
+        $('settingsGhMsg').textContent = tr(why)
+            || T`${optionName(option)} needs your GitHub token for commits: paste it here and press Save.`;
     }
 }
 
@@ -3218,8 +3359,8 @@ async function askForToken(need, option, why) {
 function askForLinkingToken() {
     pendingOption = null;
     openGhForm();
-    $('settingsGhMsg').textContent = 'PR commands need your linked GitHub account: paste a GitHub token for commits'
-        + ' here and switch on Add my PR\'s tests that no suite runs, which links it.';
+    $('settingsGhMsg').textContent = T('PR commands need your linked GitHub account: paste a GitHub token for commits'
+        + ' here and switch on Add my PR\'s tests that no suite runs, which links it.');
 }
 
 async function openJiraForm() {
@@ -3254,16 +3395,17 @@ $('ghTokenBtn').onclick = () => {
 $('tcRelogin').onclick = async () => {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     signedOut();
-    loginMsg('Log in with a fresh TeamCity token: your options resume with it.', false);
+    loginMsg(T('Log in with a fresh TeamCity token: your options resume with it.'), false);
 };
 
 // What the server drops when every option goes off, and what still holds a token: the server's backups and this
 // browser's cookie.
-const ALL_OFF = 'All off — the server no longer keeps tokens for your options. Copies of the tokens stay in the '
-    + 'server\'s backups for 2 days. Your session cookie keeps your TeamCity token until you log out.';
+const ALL_OFF = phrase('All off — the server no longer keeps tokens for your options. Copies of the tokens stay in the '
+    + 'server\'s backups for 2 days. Your session cookie keeps your TeamCity token until you log out.');
 
 // The checkstyle fix runs only from a PR command, so it goes on only with PR commands and off with them.
-const AUTOFIX_NEEDS_COMMANDS = 'Fix checkstyle before my commanded runs needs PR commands: switch them on first.';
+const AUTOFIX_NEEDS_COMMANDS = phrase('Fix checkstyle before my commanded runs needs PR commands: switch them on '
+    + 'first.');
 
 // A JIRA or GitHub token goes with the switch it is pasted for, in the request's body: no cookie carries it. It leaves
 // the form's field only when the switch goes to the server, so a switch refused here keeps it there. True when the
@@ -3274,7 +3416,7 @@ async function setOption(name, on, githubToken, jiraToken) {
     if (!on && pendingOption === name) pendingOption = null;
     if (name === 'style' && on && !(standingSettings || {}).commands) {
         toggle.checked = false;
-        msg.textContent = AUTOFIX_NEEDS_COMMANDS;
+        msg.textContent = T(AUTOFIX_NEEDS_COMMANDS);
         $('commandsToggle').focus();
         return;
     }
@@ -3306,7 +3448,7 @@ async function setOption(name, on, githubToken, jiraToken) {
         const res = await r.json().catch(() => ({}));
         if (r.status === 412 && res.need === 'commands') {
             undo();
-            msg.textContent = AUTOFIX_NEEDS_COMMANDS;
+            msg.textContent = T(AUTOFIX_NEEDS_COMMANDS);
             return;
         }
         if (r.status === 412) {
@@ -3315,25 +3457,25 @@ async function setOption(name, on, githubToken, jiraToken) {
         }
         if (!r.ok) {
             undo();
-            msg.textContent = friendly(res.error, 'could not change the setting');
+            msg.textContent = friendly(res.error, T('could not change the setting'));
             return;
         }
         renderSettings(res);
         if (jiraToken) loadExpiry('jira');
         if (githubToken) loadExpiry('github');
-        const active = [res.visa && 'JIRA visa', res.rerun && 'auto re-run', res.gh && 'GitHub comment',
-            res.style && 'checkstyle autofix', res.commands && 'PR commands', res.suites && 'tests to suites']
+        const active = [res.visa && T('JIRA visa'), res.rerun && T('auto re-run'), res.gh && T('GitHub comment'),
+            res.style && T('checkstyle autofix'), res.commands && T('PR commands'), res.suites && T('tests to suites')]
             .filter(Boolean);
-        msg.textContent = (active.length ? 'On: ' + active.join(' · ') + '.' : ALL_OFF)
+        msg.textContent = (active.length ? T`On: ${active.join(' · ')}.` : T(ALL_OFF))
             + (before.style && !res.style && name === 'commands'
-                ? ' Fix checkstyle before my commanded runs went off with PR commands.' : '');
+                ? ' ' + T('Fix checkstyle before my commanded runs went off with PR commands.') : '');
         if (name === 'visa' && selectedPr) loadVisaLine(selectedPr);
         if (pendingOption === name) pendingOption = null;
         loadJournal();
         return true;
     } catch (e) {
         undo();
-        msg.textContent = 'could not reach the service — try again';
+        msg.textContent = T('could not reach the service — try again');
     } finally {
         toggle.disabled = githubLocked(name, standingSettings || {});
     }
@@ -3354,13 +3496,13 @@ for (const [name, id] of Object.entries(OPTION_TOGGLES)) {
 $('settingsJiraSave').onclick = async () => {
     const input = $('settingsJiraToken'), m = $('settingsJiraMsg');
     const token = input.value.trim();
-    if (!token) { m.textContent = 'paste the token first'; return; }
-    m.textContent = 'asking JIRA about the token…';
+    if (!token) { m.textContent = T('paste the token first'); return; }
+    m.textContent = T('asking JIRA about the token…');
     $(OPTION_TOGGLES.visa).checked = true;
     if (await setOption('visa', true, undefined, token)) {
         m.textContent = '';
         $('settingsJira').classList.add('hidden');
-    } else if (m.textContent === 'asking JIRA about the token…') {
+    } else if (m.textContent === T('asking JIRA about the token…')) {
         m.textContent = $('settingsMsg').textContent;
     }
 };
@@ -3371,15 +3513,15 @@ $('ghLink').onclick = async () => {
     const m = $('ghLinkMsg');
     let url = '/api/github/link' + zoneParam('?');
     if (selectedPr) url += (url.includes('?') ? '&' : '?') + 'pr=' + selectedPr;
-    m.textContent = 'opening GitHub…';
+    m.textContent = T('opening GitHub…');
     try {
         const r = await api(url, { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok || !res.url) { m.textContent = res.error || 'could not open GitHub — try again'; return; }
+        if (!r.ok || !res.url) { m.textContent = tr(res.error) || T('could not open GitHub — try again'); return; }
         location.href = res.url;
     } catch (e) {
-        m.textContent = 'could not reach the service — try again';
+        m.textContent = T('could not reach the service — try again');
     }
 };
 
@@ -3391,31 +3533,31 @@ $('ghUnlink').onclick = async () => {
         const r = await api('/api/github/unlink', { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
-        if (!r.ok) { m.textContent = friendly(res.error, 'could not unlink — try again'); return; }
+        if (!r.ok) { m.textContent = friendly(res.error, T('could not unlink — try again')); return; }
         pendingOption = null;
         renderSettings(res);
         loadJournal();
-        $('settingsMsg').textContent = 'Unlinked @' + before.login + ': PR commands are off.' + (before.ghStored
-            ? ' Your GitHub token for commits is dropped too, and the options that used it are off: it was of that'
-                + ' account.' : '');
+        $('settingsMsg').textContent = T`Unlinked @${before.login}: PR commands are off.` + (before.ghStored
+            ? ' ' + T('Your GitHub token for commits is dropped too, and the options that used it are off: it was of '
+                + 'that account.') : '');
     } catch (e) {
-        m.textContent = 'could not reach the service — try again';
+        m.textContent = T('could not reach the service — try again');
     }
 };
 
 // How a link ended, by the ?github= the checker sends the browser back with from GitHub.
 const LINK_OUTCOMES = {
-    linked: st => 'Linked ' + (st.login ? '@' + st.login : 'your GitHub account') + ': PR commands are on.',
-    denied: () => 'Nothing was linked: you did not authorize the checker on GitHub.',
-    expired: () => 'Nothing was linked: this link is no longer valid. Press Link GitHub again.',
-    signin: () => 'Nothing was linked: the checker did not see your login when GitHub sent you back. Press Link'
-        + ' GitHub again.',
-    failed: () => 'Nothing was linked: GitHub did not confirm your account. Try again in a minute.',
-    app: () => 'Nothing was linked: that GitHub account is the checker\'s own. Sign in to GitHub as yourself and press'
-        + ' Link GitHub again.',
-    token: st => 'Nothing was linked: your GitHub token for commits is of @' + st.login + ', which stays linked.'
-        + ' Press Unlink first to link another account.',
-    unavailable: () => 'Nothing was linked: this checker has no GitHub account to answer PR commands.',
+    linked: st => st.login ? T`Linked @${st.login}: PR commands are on.` : T('Linked your GitHub account: PR commands are on.'),
+    denied: () => T('Nothing was linked: you did not authorize the checker on GitHub.'),
+    expired: () => T('Nothing was linked: this link is no longer valid. Press Link GitHub again.'),
+    signin: () => T('Nothing was linked: the checker did not see your login when GitHub sent you back. Press Link'
+        + ' GitHub again.'),
+    failed: () => T('Nothing was linked: GitHub did not confirm your account. Try again in a minute.'),
+    app: () => T('Nothing was linked: that GitHub account is the checker\'s own. Sign in to GitHub as yourself and '
+        + 'press Link GitHub again.'),
+    token: st => T('Nothing was linked: your GitHub token for commits is of @{0}, which stays linked. Press Unlink first '
+        + 'to link another account.', st.login),
+    unavailable: () => T('Nothing was linked: this checker has no GitHub account to answer PR commands.'),
 };
 
 // After a link, ⚙ opens and says how it went, and the address loses the outcome, so a reload does not say it again.
@@ -3453,10 +3595,10 @@ async function loadLogins() {
     try {
         const r = await api('/api/logins');
         if (r.status === 401) return loggedOut(r);
-        if (!r.ok) { $('loginsMsg').textContent = 'Could not load your logins — close ⚙ and open it again.'; return; }
+        if (!r.ok) { $('loginsMsg').textContent = T('Could not load your logins — close ⚙ and open it again.'); return; }
         renderLogins(await r.json());
     } catch (e) {
-        $('loginsMsg').textContent = 'Could not reach the service — close ⚙ and open it again.';
+        $('loginsMsg').textContent = T('Could not reach the service — close ⚙ and open it again.');
     }
 }
 
@@ -3470,10 +3612,11 @@ function renderLogins(list) {
 
 // A login of an earlier version does not say when it began.
 function loginRow(l) {
-    const since = l.earlier ? 'logged in with an earlier version of the checker' : 'logged in ' + fmtDay(l.createdAt);
-    if (l.current) return `<li><b>${esc(l.browser)}</b> — this browser, ${since}</li>`;
+    const since = l.earlier ? T('logged in with an earlier version of the checker') : T`logged in ${fmtDay(l.createdAt)}`;
+    const browser = esc(browserLabel(l.browser));
+    if (l.current) return `<li><b>${browser}</b> — ${T`this browser, ${since}`}</li>`;
     return `<li><label class="settings-row"><input type="checkbox" data-login="${esc(l.id)}">`
-        + `<span><b>${esc(l.browser)}</b> — ${since}, last seen ${ago(l.lastSeen)}</span></label></li>`;
+        + `<span><b>${browser}</b> — ${T`${since}, last seen ${ago(l.lastSeen)}`}</span></label></li>`;
 }
 
 $('loginsList').addEventListener('change', e => {
@@ -3489,21 +3632,21 @@ $('loginsList').addEventListener('change', e => {
 async function endLogins(path, body, none, more = '') {
     const msg = $('loginsMsg');
     const answer = text => { msg.textContent = text; sayAloud(text); };
-    msg.textContent = 'Logging out…';
+    msg.textContent = T('Logging out…');
     try {
         const r = await api(path, { method: 'POST', body: body && JSON.stringify(body) });
         if (r.status === 401) return loggedOut(r);
         if (!r.ok) {
             const { error } = await r.json().catch(() => ({}));
             answer(genericError(error)
-                ? 'Nothing was logged out. The service may be restarting. Try again in a moment.' : error);
+                ? T('Nothing was logged out. The service may be restarting. Try again in a moment.') : tr(error));
             return;
         }
         const list = await r.json();
         renderLogins(list);
-        answer([list.ended ? `Logged out ${countOf(list.ended, 'browser')}.` : none, more].filter(Boolean).join(' '));
+        answer([list.ended ? T`Logged out ${countOf(list.ended, 'browser')}.` : none, more].filter(Boolean).join(' '));
     } catch (e) {
-        answer('Could not reach the service — nothing was logged out.');
+        answer(T('Could not reach the service — nothing was logged out.'));
     }
 }
 
@@ -3519,22 +3662,22 @@ async function loadJournal() {
     try {
         const r = await api('/api/journal');
         if (r.status === 401) return loggedOut(r);
-        if (!r.ok) { $('journalMsg').textContent = 'Could not load your journal — close ⚙ and open it again.'; return; }
+        if (!r.ok) { $('journalMsg').textContent = T('Could not load your journal — close ⚙ and open it again.'); return; }
         journal = await r.json();
         renderJournal();
     } catch (e) {
-        $('journalMsg').textContent = 'Could not reach the service — close ⚙ and open it again.';
+        $('journalMsg').textContent = T('Could not reach the service — close ⚙ and open it again.');
     }
 }
 
 function renderJournal() {
     const entries = journal.entries || [];
     const n = entries.length;
-    $('journalState').textContent = !n ? 'nothing yet' : journal.full ? `the last ${n} entries`
-        : n === 1 ? '1 entry' : n + ' entries';
+    $('journalState').textContent = !n ? T('nothing yet') : journal.full ? T`the last ${n} entries`
+        : n === 1 ? T('1 entry') : T`${n} entries`;
     $('journalList').innerHTML = (journalAll ? entries : entries.slice(0, JOURNAL_SHOWN)).map(journalRow).join('');
     $('journalMore').classList.toggle('hidden', n <= JOURNAL_SHOWN);
-    $('journalMore').textContent = journalAll ? 'Show fewer' : `Show all ${n}`;
+    $('journalMore').textContent = journalAll ? T('Show fewer') : T`Show all ${n}`;
     $('journalMore').setAttribute('aria-expanded', String(journalAll));
 }
 
@@ -3543,7 +3686,7 @@ function renderJournal() {
 function journalRow(e) {
     let text = esc(e.text);
     if (e.url && e.linkText) {
-        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="Opens the visa in JIRA.">`
+        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="${T('Opens the visa in JIRA.')}">`
             + `${esc(e.linkText)}</a>`;
         text = text.replace(esc(e.linkText), () => link);
     }
@@ -3556,22 +3699,22 @@ $('journalMore').onclick = () => {
 };
 
 $('loginsEnd').onclick = () => endLogins('/api/logins/end', { ids: [...loginsPicked] },
-    'Those browsers were already logged out.');
+    T('Those browsers were already logged out.'));
 // A copy of this browser's cookie is this browser's login, so it stays: someone who fears a copy must hear that.
-$('loginsEndOthers').onclick = () => endLogins('/api/logins/end-others', null, 'No other browser is logged in now.',
-    "Anyone with a copy of this browser's cookie stays logged in until you press Log out in this browser.");
+$('loginsEndOthers').onclick = () => endLogins('/api/logins/end-others', null, T('No other browser is logged in now.'),
+    T("Anyone with a copy of this browser's cookie stays logged in until you press Log out in this browser."));
 
 // The token goes to the server with the switch that asked for it, and stays in no cookie and no field.
 $('settingsGhSave').onclick = async () => {
     const input = $('settingsGhToken'), m = $('settingsGhMsg');
     const token = input.value.trim();
-    if (!token) { m.textContent = 'paste the token first'; return; }
+    if (!token) { m.textContent = T('paste the token first'); return; }
     const option = pendingOption;
     if (!option) {
-        m.textContent = 'switch on the option below that should use it: the token goes with that switch';
+        m.textContent = T('switch on the option below that should use it: the token goes with that switch');
         return;
     }
-    m.textContent = 'asking GitHub about the token…';
+    m.textContent = T('asking GitHub about the token…');
     pendingOption = null;
     $(OPTION_TOGGLES[option]).checked = true;
     if (await setOption(option, true, token)) {
@@ -3579,7 +3722,7 @@ $('settingsGhSave').onclick = async () => {
         $('settingsGh').classList.add('hidden');
     } else {
         pendingOption = pendingOption || option;
-        if (m.textContent === 'asking GitHub about the token…') m.textContent = $('settingsMsg').textContent;
+        if (m.textContent === T('asking GitHub about the token…')) m.textContent = $('settingsMsg').textContent;
     }
 };
 

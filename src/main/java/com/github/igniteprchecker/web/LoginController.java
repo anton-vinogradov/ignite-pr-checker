@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.i18n.Lang;
 import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -91,9 +92,10 @@ public class LoginController {
     /**
      * {@code admin}: whether this user is an operator; the page shows the operator mark and Update only then.
      * {@code jiraInCookie}: a cookie of theirs carried a JIRA token lately, and Visa my runs in JIRA is off, so ⚙ tells
-     * them how to get visas; see {@link UserDirectory#jiraInCookie}.
+     * them how to get visas; see {@link UserDirectory#jiraInCookie}. {@code lang}: the code of the language they read
+     * the pages in.
      */
-    public record UserResponse(String username, boolean admin, boolean jiraInCookie) {
+    public record UserResponse(String username, boolean admin, boolean jiraInCookie, Lang lang) {
     }
 
     @PostMapping("/login")
@@ -166,7 +168,7 @@ public class LoginController {
             users.sawJiraInCookie(s.username());
 
         return new UserResponse(s.username(), admin.mayAdminister(s.username()),
-            !visaOn && users.jiraInCookie(s.username()));
+            !visaOn && users.jiraInCookie(s.username()), users.language(s.username()));
     }
 
     private static ResponseEntity<?> rejected() {

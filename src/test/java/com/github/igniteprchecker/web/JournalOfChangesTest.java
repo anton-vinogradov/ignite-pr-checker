@@ -80,7 +80,7 @@ class JournalOfChangesTest {
     private final GithubLinkController links = new GithubLinkController(github, standing,
         new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing));
 
-    private final JournalController journalApi = new JournalController(journal);
+    private final JournalController journalApi = new JournalController(journal, users);
 
     private String laptop;
 

@@ -3,6 +3,8 @@ package com.github.igniteprchecker.jira;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.i18n.Lang;
+import com.github.igniteprchecker.i18n.Texts;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import java.io.IOException;
@@ -10,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -17,6 +20,7 @@ import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
@@ -30,7 +34,8 @@ import org.springframework.stereotype.Component;
  * of options, saved tokens and other entries the newest {@link #KEPT_PER_SORT} of each are kept: a switch costs one
  * request, and a hundred of them must not push the link of a GitHub account or a visa out. An entry names options,
  * services and GitHub accounts, never a token or a part of one. The file keeps what happened, not the words: ⚙ gets
- * the words when it asks. Saved within a second ({@code journal.json}), so a restart loses no entry.
+ * the words when it asks, in the language of its reader. Saved within a second ({@code journal.json}), so a restart
+ * loses no entry.
  */
 @Component
 public class SettingsJournal implements SnapshotCache {
@@ -102,7 +107,7 @@ public class SettingsJournal implements SnapshotCache {
     }
 
     private static Sort sortOf(Entry e) {
-        boolean switched = Entry.ON.equals(e.kind()) || Entry.OFF.equals(e.kind());
+        boolean switched = Entry.ON.equals(e.kind()) || Entry.OFF.equals(e.kind()) || Entry.LANGUAGE.equals(e.kind());
         if (switched && e.tokens() == null)
             return Sort.SWITCH;
 
@@ -124,74 +129,134 @@ public class SettingsJournal implements SnapshotCache {
     }
 
     /**
-     * The user's entries as ⚙ shows them, the newest first, to the browser labelled {@code browser} in the login
-     * {@code login}. A copy of a cookie is the same login: when the browser of an entry of this login names itself
-     * otherwise, the entry says so.
+     * The user's entries as ⚙ shows them in English, the newest first, to the browser labelled {@code browser} in the
+     * login {@code login}.
      */
     public List<View> views(String user, String login, String browser) {
-        return of(user).stream().map(e -> view(e, login, browser)).toList();
+        return views(user, login, browser, Lang.EN);
     }
 
-    private static View view(Entry e, String login, String browser) {
+    /**
+     * The user's entries as ⚙ shows them in {@code lang}, the newest first, to the browser labelled {@code browser} in
+     * the login {@code login}. A copy of a cookie is the same login: when the browser of an entry of this login names
+     * itself otherwise, the entry says so.
+     */
+    public List<View> views(String user, String login, String browser, Lang lang) {
+        return of(user).stream().map(e -> view(e, login, browser, lang)).toList();
+    }
+
+    private static View view(Entry e, String login, String browser, Lang lang) {
         boolean here = e.login() != null && e.login().equals(login);
-        String from = e.browser() == null ? "by the checker"
-            : here && e.browser().equals(browser) ? "from this browser"
-            : here ? "from " + e.browser() + ", in the login of this browser" : "from " + e.browser();
+        String from = e.browser() == null ? Texts.t(lang, "by the checker")
+            : here && e.browser().equals(browser) ? Texts.t(lang, "from this browser")
+            : here ? Texts.t(lang, "{0}, in the login of this browser", fromBrowser(lang, e.browser()))
+            : fromBrowser(lang, e.browser());
         boolean linked = e.url() != null && e.issue() != null;
 
-        return new View(e.at(), text(e), from, linked ? e.issue() : null, linked ? e.url() : null);
+        return new View(e.at(), text(e, lang), from, linked ? e.issue() : null, linked ? e.url() : null);
     }
 
-    /** What the entry says happened, in a sentence or two. */
+    /** What the entry says happened, in a sentence or two, in English. */
     static String text(Entry e) {
+        return text(e, Lang.EN);
+    }
+
+    /** What the entry says happened, in a sentence or two, in {@code lang}. */
+    static String text(Entry e, Lang lang) {
         return switch (e.kind()) {
-            case Entry.ON -> "Switched on " + options(e) + (e.tokens() == null ? "" : " with a new " + tokens(e)) + ".";
-            case Entry.OFF -> "Switched off " + options(e) + ".";
-            case Entry.TOKEN -> e.tokens().contains(Entry.TEAMCITY) ? "Saved a new TeamCity token for your options."
-                : "Saved a new " + tokens(e) + ".";
-            case Entry.LINKED -> "Linked GitHub account @" + e.account()
-                + (e.tokens() != null ? " with its GitHub token for commits." : e.options() != null
-                    ? " and switched on " + options(e) + "." : ".");
-            case Entry.UNLINKED -> "Unlinked GitHub account @" + e.account()
-                + (Entry.ALL_OFF.equals(e.why()) ? ", as all your options are off." : ".") + wentOff(e)
-                + (e.tokens() == null ? "" : " The checker dropped your " + tokens(e) + " too.");
-            case Entry.MOVED -> "Another ci2 user linked GitHub account @" + e.account() + ", so it is no longer linked"
-                + " to you." + wentOff(e);
+            case Entry.ON -> e.tokens() == null ? Texts.t(lang, "Switched on {0}.", options(e, lang))
+                : Texts.t(lang, "Switched on {0} with a new {1}.", options(e, lang), tokens(e, lang));
+            case Entry.OFF -> Texts.t(lang, "Switched off {0}.", options(e, lang));
+            case Entry.TOKEN -> e.tokens().contains(Entry.TEAMCITY)
+                ? Texts.t(lang, "Saved a new TeamCity token for your options.")
+                : Texts.t(lang, "Saved a new {0}.", tokens(e, lang));
+            case Entry.LINKED -> e.tokens() != null
+                ? Texts.t(lang, "Linked GitHub account @{0} with its GitHub token for commits.", e.account())
+                : e.options() != null
+                    ? Texts.t(lang, "Linked GitHub account @{0} and switched on {1}.", e.account(), options(e, lang))
+                    : Texts.t(lang, "Linked GitHub account @{0}.", e.account());
+            case Entry.UNLINKED -> joined((Entry.ALL_OFF.equals(e.why())
+                    ? Texts.t(lang, "Unlinked GitHub account @{0}, as all your options are off.", e.account())
+                    : Texts.t(lang, "Unlinked GitHub account @{0}.", e.account())), wentOff(e, lang),
+                e.tokens() == null ? "" : Texts.t(lang, "The checker dropped your {0} too.", tokens(e, lang)));
+            case Entry.MOVED -> joined(Texts.t(lang, "Another ci2 user linked GitHub account @{0}, so it is no longer"
+                + " linked to you.", e.account()), wentOff(e, lang));
             case Entry.REFUSED -> e.tokens().contains(Entry.TEAMCITY)
-                ? "TeamCity refused the token your options use. They wait until you log in again."
-                : (e.tokens().contains(Entry.JIRA) ? "JIRA" : "GitHub") + " refused your " + tokens(e)
-                    + ", so the checker dropped it." + wentOff(e);
-            case Entry.NO_TOKEN -> "The checker had no " + tokens(e) + ", so " + options(e) + " went off.";
-            case Entry.UNREAD -> (Entry.KEY_CHANGED.equals(e.why()) ? "The server key was changed, so the checker"
-                : "The checker") + " dropped your stored " + tokens(e) + ": it could "
-                + (Entry.KEY_CHANGED.equals(e.why()) ? "no longer" : "not") + " read "
-                + (e.tokens().size() == 1 ? "it. Your options wait until you store a new one."
-                    : "them. Your options wait until you store new ones.");
-            case Entry.VISA -> "Posted a visa to " + e.issue() + " for PR #" + e.pr() + ", RunAll " + e.build() + ".";
-            case Entry.VISA_EDITED -> "Edited the visa in " + e.issue() + " for PR #" + e.pr() + ", RunAll "
-                + e.build() + ".";
-            default -> "A change this version of the checker cannot describe.";
+                ? Texts.t(lang, "TeamCity refused the token your options use. They wait until you log in again.")
+                : joined(e.tokens().contains(Entry.JIRA)
+                    ? Texts.t(lang, "JIRA refused your {0}, so the checker dropped it.", tokens(e, lang))
+                    : Texts.t(lang, "GitHub refused your {0}, so the checker dropped it.", tokens(e, lang)),
+                    wentOff(e, lang));
+            case Entry.NO_TOKEN -> Texts.t(lang, "The checker had no {0}, so {1} went off.", tokens(e, lang),
+                options(e, lang));
+            case Entry.UNREAD -> unread(e, lang);
+            case Entry.VISA -> Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}.", e.issue(), e.pr(),
+                e.build());
+            case Entry.VISA_EDITED -> Texts.t(lang, "Edited the visa in {0} for PR #{1}, RunAll {2}.", e.issue(),
+                e.pr(), e.build());
+            case Entry.LANGUAGE -> Lang.of(e.lang()) == Lang.RU
+                ? Texts.t(lang, "Switched the pages to Russian.") : Texts.t(lang, "Switched the pages to English.");
+            default -> Texts.t(lang, "A change this version of the checker cannot describe.");
         };
     }
 
-    private static String wentOff(Entry e) {
-        return e.options() == null ? "" : " " + capitalized(options(e)) + " went off.";
+    private static String unread(Entry e, Lang lang) {
+        boolean one = e.tokens().size() == 1;
+        if (Entry.KEY_CHANGED.equals(e.why())) {
+            return one ? Texts.t(lang, "The server key was changed, so the checker dropped your stored {0}: it could no"
+                + " longer read it. Your options wait until you store a new one.", tokens(e, lang))
+                : Texts.t(lang, "The server key was changed, so the checker dropped your stored {0}: it could no longer"
+                    + " read them. Your options wait until you store new ones.", tokens(e, lang));
+        }
+
+        return one ? Texts.t(lang, "The checker dropped your stored {0}: it could not read it. Your options wait until"
+            + " you store a new one.", tokens(e, lang))
+            : Texts.t(lang, "The checker dropped your stored {0}: it could not read them. Your options wait until you"
+                + " store new ones.", tokens(e, lang));
     }
 
-    private static String options(Entry e) {
-        return listed(e.options().stream().map(o -> OPTIONS.getOrDefault(o, o)).toList());
+    /** The sentences of an entry, one space between them; an empty one is left out. */
+    private static String joined(String... sentences) {
+        return String.join(" ", Arrays.stream(sentences).filter(s -> !s.isEmpty()).toList());
     }
 
-    private static String tokens(Entry e) {
-        return listed(e.tokens().stream().map(t -> TOKENS.getOrDefault(t, t)).toList());
+    private static String wentOff(Entry e, Lang lang) {
+        return e.options() == null ? "" : Texts.t(lang, "{0} went off.", capitalized(options(e, lang)));
+    }
+
+    /** The options of the entry by their names in ⚙; in Russian, each name in quotes, as a name in a sentence. */
+    private static String options(Entry e, Lang lang) {
+        return listed(e.options().stream().map(o -> OPTIONS.getOrDefault(o, o))
+            .map(name -> lang == Lang.RU ? "«" + Texts.t(lang, name) + "»" : name).toList(), lang);
+    }
+
+    /** The tokens of the entry by their names in ⚙, as a sentence says them: in Russian from a small letter. */
+    private static String tokens(Entry e, Lang lang) {
+        return listed(e.tokens().stream().map(t -> Texts.t(lang, TOKENS.getOrDefault(t, t)))
+            .map(name -> lang == Lang.RU ? name.substring(0, 1).toLowerCase(Locale.ROOT) + name.substring(1) : name)
+            .toList(), lang);
     }
 
     /** "a", "a and b", "a, b and c". */
-    private static String listed(List<String> names) {
+    private static String listed(List<String> names, Lang lang) {
         if (names.size() <= 1)
             return String.join("", names);
 
-        return String.join(", ", names.subList(0, names.size() - 1)) + " and " + names.get(names.size() - 1);
+        return Texts.t(lang, "{0} and {1}", String.join(", ", names.subList(0, names.size() - 1)),
+            names.get(names.size() - 1));
+    }
+
+    /** "from Firefox on Linux": where a change came from, by the label {@code BrowserLabel} gave its browser. */
+    private static String fromBrowser(Lang lang, String label) {
+        if (label.equals(By.UNKNOWN))
+            return Texts.t(lang, "from unknown browser");
+        if (label.startsWith("a browser on "))
+            return Texts.t(lang, "from a browser on {0}", label.substring("a browser on ".length()));
+
+        int on = label.indexOf(" on ");
+
+        return on < 0 ? Texts.t(lang, "from {0}", label)
+            : Texts.t(lang, "from {0} on {1}", label.substring(0, on), label.substring(on + 4));
     }
 
     private static String capitalized(String s) {
@@ -283,12 +348,13 @@ public class SettingsJournal implements SnapshotCache {
      * browser}, both null for the checker. The options, the tokens by service, the GitHub {@code account}, the visa's
      * {@code pr}, {@code issue}, {@code build} and the {@code url} of its comment are there for the kinds that name
      * them. {@code why}: why the checker could not read a token, {@link #KEY_CHANGED} or {@link #DAMAGED}; {@link
-     * #ALL_OFF} for an account unlinked with the last option.
+     * #ALL_OFF} for an account unlinked with the last option. {@code lang}: the code of the language the user chose
+     * for the pages.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Entry(long at, String kind, String login, String browser, List<String> options, List<String> tokens,
-        String why, String account, Integer pr, String issue, Long build, String url) {
+        String why, String account, Integer pr, String issue, Long build, String url, String lang) {
         /** Options switched on, with the new token of the first one when it brought one. */
         static final String ON = "on";
 
@@ -321,6 +387,9 @@ public class SettingsJournal implements SnapshotCache {
 
         /** A visa edited in place. */
         static final String VISA_EDITED = "visa-edited";
+
+        /** The language of the pages chosen. */
+        static final String LANGUAGE = "lang";
 
         public static final String TEAMCITY = "teamcity";
 
@@ -379,13 +448,19 @@ public class SettingsJournal implements SnapshotCache {
 
         static Entry visa(boolean edited, int pr, String issue, long build, String url) {
             return new Entry(0, edited ? VISA_EDITED : VISA, null, null, null, null, null, null, pr, issue, build,
-                url);
+                url, null);
+        }
+
+        /** The user chose the language of the pages in ⚙. */
+        public static Entry language(By by, Lang lang) {
+            return new Entry(0, LANGUAGE, by.login(), by.browser(), null, null, null, null, null, null, null, null,
+                lang.code());
         }
 
         private Entry(long at, String kind, By by, List<String> options, List<String> tokens, String why,
             String account) {
             this(at, kind, by == null ? null : by.login(), by == null ? null : by.browser(), options, tokens, why,
-                account, null, null, null, null);
+                account, null, null, null, null, null);
         }
 
         private static List<String> orNull(List<String> list) {
@@ -393,7 +468,8 @@ public class SettingsJournal implements SnapshotCache {
         }
 
         Entry madeAt(long time) {
-            return new Entry(time, kind, login, browser, options, tokens, why, account, pr, issue, build, url);
+            return new Entry(time, kind, login, browser, options, tokens, why, account, pr, issue, build, url,
+                lang);
         }
     }
 }

@@ -1,6 +1,8 @@
 package com.github.igniteprchecker.web;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.i18n.Lang;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -18,10 +20,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Who has been using the tool: usernames seen on authenticated requests, with first/last activity
- * and login counts, when each last ended all their other logins, and when a cookie of theirs last carried a JIRA token
- * the checker does not use. Persisted within a second, so the answer to "who logged in?" and an end of the logins
- * survive restarts: the cookies of earlier versions, which name no login, issued before it stay refused. No tokens
- * here — names only. The logins themselves are {@link Logins}.
+ * and login counts, when each last ended all their other logins, when a cookie of theirs last carried a JIRA token
+ * the checker does not use, and the language each reads the pages in. Persisted within a second, so the answer to "who
+ * logged in?", an end of the logins and a language survive restarts: the cookies of earlier versions, which name no
+ * login, issued before it stay refused. No tokens here — names only. The logins themselves are {@link Logins}.
  */
 @Component
 public class UserDirectory implements SnapshotCache {
@@ -100,11 +102,23 @@ public class UserDirectory implements SnapshotCache {
         }
     }
 
+    /** The language the user reads the pages in: in every browser they log in from, English until they choose. */
+    public Lang language(String username) {
+        Info i = users.get(username);
+
+        return i == null ? Lang.EN : i.language;
+    }
+
+    /** The user chose the language of their pages in ⚙. */
+    public void language(String username, Lang lang) {
+        info(username).language = lang;
+    }
+
     /** Everyone ever seen, most recently active first. */
     public List<UserView> list() {
         List<UserView> out = new ArrayList<>();
         users.forEach((name, i) -> out.add(new UserView(name, i.firstSeen, i.lastSeen, i.logins.get(),
-            i.sessionsEndedAt, i.jiraInCookieAt)));
+            i.sessionsEndedAt, i.jiraInCookieAt, i.language == Lang.EN ? null : i.language.code())));
         out.sort(Comparator.comparingLong(UserView::lastSeen).reversed());
 
         return out;
@@ -141,6 +155,7 @@ public class UserDirectory implements SnapshotCache {
             i.logins.set(u.logins());
             i.sessionsEndedAt = u.sessionsEndedAt();
             i.jiraInCookieAt = u.jiraInCookieAt();
+            i.language = Lang.of(u.language());
             users.put(u.name(), i);
         }
     }
@@ -151,6 +166,7 @@ public class UserDirectory implements SnapshotCache {
         final AtomicLong logins = new AtomicLong();
         volatile long sessionsEndedAt;
         volatile long jiraInCookieAt;
+        volatile Lang language = Lang.EN;
 
         Info(long firstSeen) {
             this.firstSeen = firstSeen;
@@ -158,10 +174,11 @@ public class UserDirectory implements SnapshotCache {
     }
 
     /**
-     * One user of the tool: identity and activity summary (no secrets), when they last ended their sessions, and when
-     * a cookie of theirs last carried a JIRA token (0: never; both absent from the files of earlier versions).
+     * One user of the tool: identity and activity summary (no secrets), when they last ended their sessions, when
+     * a cookie of theirs last carried a JIRA token (0: never; both absent from the files of earlier versions), and the
+     * code of the language they chose for the pages (absent: English, as in the files of earlier versions).
      */
     public record UserView(String name, long firstSeen, long lastSeen, long logins, long sessionsEndedAt,
-        long jiraInCookieAt) {
+        long jiraInCookieAt, @JsonInclude(JsonInclude.Include.NON_NULL) String language) {
     }
 }

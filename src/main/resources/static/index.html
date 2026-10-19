@@ -16,6 +16,9 @@
     <style>
         html, body { height: 100%; margin: 0; }
         body { display: flex; flex-direction: column; }
+        /* A reader who chose Russian sees the page once it is in Russian (theme.js, common.js); 2 s at most. */
+        html[data-lang-hint="ru"] body { visibility: hidden; animation: lang-wait 0s 2s forwards; }
+        @keyframes lang-wait { to { visibility: visible; } }
         .muted { font-size: 0.85rem; }
         .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
@@ -321,6 +324,15 @@
 
     <div id="settingsPanel" class="card settings-panel hidden">
         <p id="tokensUnread" class="caveat hidden"></p>
+        <section id="groupLanguage" class="settings-group">
+            <p class="settings-access"><label for="langSelect"><b>Language</b></label>:
+                <select id="langSelect" class="theme-sel">
+                    <option value="en">English</option>
+                    <option value="ru" lang="ru">Русский</option>
+                </select>
+                <span id="langMsg" class="muted"></span></p>
+            <p class="muted">The pages use it in every browser you log in from. PR comments and visas stay in English.</p>
+        </section>
         <section id="groupTc" class="settings-group">
             <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span><span id="tcExpiry"
                 class="hidden"></span></p>

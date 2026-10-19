@@ -10,15 +10,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The journal in ⚙: what changed in the user's settings, from which browser, and the visas posted with their JIRA
- * token, the newest first.
+ * token, the newest first, in the language the user reads the pages in.
  */
 @RestController
 @RequestMapping("/api")
 public class JournalController {
     private final SettingsJournal journal;
 
-    public JournalController(SettingsJournal journal) {
+    private final UserDirectory users;
+
+    public JournalController(SettingsJournal journal, UserDirectory users) {
         this.journal = journal;
+        this.users = users;
     }
 
     /**
@@ -31,6 +34,7 @@ public class JournalController {
     @GetMapping("/journal")
     public Journal journal(@RequestAttribute(AuthInterceptor.USER_ATTR) String user,
         @RequestAttribute(AuthInterceptor.LOGIN_ATTR) String login, HttpServletRequest req) {
-        return new Journal(journal.views(user, login, AuthInterceptor.browser(req)), journal.full(user));
+        return new Journal(journal.views(user, login, AuthInterceptor.browser(req), users.language(user)),
+            journal.full(user));
     }
 }
