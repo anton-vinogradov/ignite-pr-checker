@@ -62,6 +62,20 @@ class ClientWarmCycleTest {
         assertThat(warmer.cycleTotal()).isEqualTo(4);
     }
 
+    /** Someone waits on the page of a client's PR for its verdict: the cycle leaves ci2 to that compute. */
+    @Test
+    void theCycleYieldsToAViewOfAClientsPr() {
+        when(github.openPrs()).thenReturn(List.of(pr(13636)));
+        when(clients.openPrs()).thenReturn(List.of(pr(69)));
+        when(clients.userWaiting()).thenReturn(true);
+
+        warmer.offerToken("alice", "tok");
+
+        await().atMost(Duration.ofSeconds(10)).until(() -> warmer.cyclesCompleted() == 1);
+        verify(analyzer, never()).warm(anyString(), anyInt());
+        verify(clients, never()).warm(anyString(), anyInt());
+    }
+
     private static PrSummary pr(int number) {
         return new PrSummary(number, "IGNITE-29117 Fix", null, null, null, null);
     }

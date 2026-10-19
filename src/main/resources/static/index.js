@@ -457,8 +457,8 @@ function findClientLi(number) {
 }
 
 // What the filter keeps of the client's PRs, and the client's PR to open that the group does not hold. "python#69"
-// (or "python 69") names the client's PR #69 and keeps no PR of Ignite; any other text filters both lists alike, and a
-// bare number opens Ignite's PR.
+// (or "python 69") names the client's PR #69 and keeps no PR of Ignite. "python" alone keeps the whole group, and
+// filters Ignite's PRs by their titles. Any other text filters both lists alike, and a bare number opens Ignite's PR.
 function clientMatches(prs, query) {
     const named = /^\s*python\s*#?\s*(\d*)\s*$/i.exec(query);
     if (!named) return { ...prMatches(prs, query), open: null, only: false };
@@ -466,7 +466,7 @@ function clientMatches(prs, query) {
     const nums = prs.filter(p => !n || String(p.number).includes(n)).map(p => p.number);
     const exact = nums.find(x => String(x) === n);
     const open = n && exact === undefined ? +n : null;
-    return { nums, open, first: exact ?? open ?? nums[0] ?? null, only: true };
+    return { nums, open, first: exact ?? open ?? nums[0] ?? null, only: !!n };
 }
 
 // The ticket key a PR title starts with, and what follows it.
@@ -1075,9 +1075,14 @@ async function toggleNotify() {
     paintTab();
 }
 
+// A verdict of the Python client's PR counts a re-run on the same commits, `rerunId`, with the run it names.
+function newestBuildOf(res) {
+    return Math.max(res.buildId, res.rerunId || 0);
+}
+
 function notifyIfFinal(st) {
     if (!notifyFor || !isOpen(notifyFor.pr, notifyFor.repo) || !st || st.kind !== 'final'
-        || st.res.buildId < notifyFor.build)
+        || newestBuildOf(st.res) < notifyFor.build)
         return;
     const n = st.res.blockers.length, w = (st.res.watch || []).length;
     const head = st.verdict === 'blockers' ? T`${n} blocker${n === 1 ? '' : 's'}`
@@ -3947,6 +3952,7 @@ $('ghLink').onclick = async () => {
     const m = $('ghLinkMsg');
     let url = '/api/github/link' + zoneParam('?');
     if (selectedPr) url += (url.includes('?') ? '&' : '?') + 'pr=' + selectedPr;
+    if (selectedPr && selectedRepo) url += '&repo=' + selectedRepo;
     m.textContent = T('opening GitHub…');
     try {
         const r = await api(url, { method: 'POST' });
@@ -3999,7 +4005,8 @@ async function showLinkOutcome() {
     const outcome = new URLSearchParams(location.search).get('github');
     if (!outcome || !Object.prototype.hasOwnProperty.call(LINK_OUTCOMES, outcome)) return;
     const pr = prFromUrl();
-    history.replaceState(pr ? { pr } : {}, '', pr ? '?pr=' + pr : location.pathname);
+    const repo = repoFromUrl();
+    history.replaceState(!pr ? {} : repo ? { pr, repo } : { pr }, '', pr ? prAddress(pr, repo) : location.pathname);
     $('settingsPanel').classList.remove('hidden');
     loadLogins();
     loadJournal();

@@ -110,6 +110,43 @@ class ClientPrPageTest {
         assertThat(out.get("posted").asInt()).isZero();
     }
 
+    /**
+     * The head of the client's group spans the PR pane, which scrolls: a focus ring drawn outside the head lost its
+     * sides and looked like two dividers.
+     */
+    @Test
+    void theGroupsHeadDrawsItsFocusRingInside() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
+
+        assertThat(css).contains("\n        .client-group > summary:focus-visible { outline-offset: -2px; }");
+    }
+
+    /**
+     * At 320 px in the Terminal theme, the Russian link "Thin client: Python, сборка 9424794" did not wrap and ran
+     * past the right edge of the page. On a narrow screen the links of the run line wrap.
+     */
+    @Test
+    void theLinksOfTheRunWrapOnANarrowScreen() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
+        String narrow = css.substring(css.indexOf("@media (max-width: 768px) {"));
+
+        assertThat(narrow).contains("\n            #freshText .nowrap { white-space: normal; }");
+    }
+
+    /**
+     * The Russian page calls the group "Клиент Python", and the Russian docs called it only by its English name, which
+     * a reader of the Russian page does not see.
+     */
+    @Test
+    void theRussianDocsNameTheGroupAsTheRussianPageDoes() throws Exception {
+        String named = "«Клиент Python» (**Python client**)";
+
+        assertThat(Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8))
+            .contains("\"Python client\": \"Клиент Python\"");
+        assertThat(Files.readString(Path.of("docs/features.ru.md"), UTF_8)).contains("группе " + named);
+        assertThat(Files.readString(Path.of("README.ru.md"), UTF_8)).contains("группа " + named);
+    }
+
     @Test
     void ignitesPrSixtyNineStaysOnItsAddress() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
@@ -175,6 +212,74 @@ class ClientPrPageTest {
         assertThat(out.get("status").asText()).isEqualTo("Cancelled 1 run.");
     }
 
+    /**
+     * "Notify me" pressed while the auto re-run 9425000 runs: the final verdict counts it with its run, 9424794, and
+     * names the older build first.
+     */
+    @Test
+    void notifyMePressedDuringTheAutoRerunFiresOnItsVerdict() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
+            const shown = [];
+            page.run('window').Notification = class {
+                constructor(title, opts) { shown.push({ title, body: opts.body }); }
+                close() {}
+            };
+            page.run('window').Notification.permission = 'granted';
+            page.run('window').Notification.requestPermission = async () => 'granted';
+            page.route('/api/client/runs', { body: [{ buildId: 9425000, name: 'Thin client: Python', state: 'running',
+                webUrl: 'https://ci2.example/build/9425000', pct: 10, leftSec: 900, by: 'alice', mine: true,
+                runAll: true, pinned: true }] });
+            page.route('/api/client/settling', { body: { phase: 'settling', wave: 1, of: 1,
+                what: 'Thin client: Python' } });
+            await page.load('?repo=python&pr=69');
+            await page.el('notifyBtn').onclick();
+            await page.settle();
+            const armed = page.el('notifyBtn').textContent;
+            page.route('/api/client/runs', { body: [] });
+            page.route('/api/client/refresh', { body: clientVerdict({ rerunId: 9425000 }) }, 'POST');
+            page.route('/api/client/analyze', { body: clientVerdict({ rerunId: 9425000 }) });
+            page.route('/api/client/settling', { body: { phase: 'final', wave: 0, of: 1 } });
+            await page.tick(90000);
+            await page.tick(90000);
+            report({ armed, shown, tab: page.run('document.title') });
+            """);
+
+        assertThat(out.get("armed").asText()).isEqualTo("🔔 Will notify");
+        assertThat(out.get("tab").asText()).isEqualTo("❌ 1 blocker · python#69 — Ignite PR Checker");
+        assertThat(out.get("shown")).hasSize(1);
+        assertThat(out.get("shown").get(0).get("title").asText()).isEqualTo("Python client PR #69: 1 blocker");
+    }
+
+    /** Link GitHub pressed on the client's PR #69 came back to Ignite's PR #69, a different PR with its own verdict. */
+    @Test
+    void linkGithubOnTheClientsPrComesBackToIt() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
+            page.route('/api/auto-visa-all', { body: { commands: false, githubAvailable: true, githubLinkable: true } },
+                'GET');
+            page.route('/api/github/link', { body: { url: 'https://github.com/login/oauth/authorize?state=s1' } },
+                'POST');
+            await page.load('?repo=python&pr=69');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            await page.el('ghLink').onclick();
+            await page.settle();
+            report({ asked: page.fetches('/api/github/link').map(f => f.url) });
+            """);
+        JsonNode back = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
+            const replaced = [];
+            page.run('history').replaceState = (state, title, url) => replaced.push(url);
+            page.route('/api/auto-visa-all', { body: { commands: true, login: 'alice-v' } }, 'GET');
+            await page.load('?repo=python&pr=69&github=linked');
+            report({ replaced, client: page.fetches('/api/client/analyze').map(f => f.url),
+                ignite: page.fetches('/api/analyze').length });
+            """);
+
+        assertThat(out.get("asked").toString()).isEqualTo("[\"/api/github/link?tz=UTC&pr=69&repo=python\"]");
+        assertThat(back.get("replaced").toString()).isEqualTo("[\"?repo=python&pr=69\"]");
+        assertThat(back.get("client").toString()).isEqualTo("[\"/api/client/analyze?pr=69\"]");
+        assertThat(back.get("ignite").asInt()).isZero();
+    }
+
     @Test
     void aPrWithoutARunOfItsCodeSaysHowToStartOne() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
@@ -228,6 +333,28 @@ class ClientPrPageTest {
         assertThat(out.get("shown").asBoolean()).isTrue();
     }
 
+    /** The legend said "my run" means the latest RunAll, which a PR of the client never has. */
+    @Test
+    void theLegendSaysWhatMyRunMeansForAClientsPr() throws Exception {
+        String legend = "page.text('prLegend')";
+        JsonNode en = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
+            await page.load('');
+            report({ legend: %s });
+            """.formatted(legend));
+        JsonNode ru = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + "const CATALOG = "
+            + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
+            page.route('/ru.json', { body: CATALOG });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            await page.load('');
+            report({ legend: %s });
+            """.formatted(legend));
+
+        assertThat(en.get("legend").asText()).contains("my run — you started its latest RunAll, or for a Python client"
+            + " PR, its latest run of the suite");
+        assertThat(ru.get("legend").asText()).contains("мой прогон — последний RunAll запустил ты, а у PR клиента"
+            + " Python — последний прогон сьюты");
+    }
+
     @Test
     void theFilterTakesPythonAndANumber() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
@@ -259,6 +386,35 @@ class ClientPrPageTest {
         assertThat(out.get("listed").toString()).isEqualTo("{\"hidden\":true,\"none\":false,\"group\":true}");
         assertThat(out.get("pushed").toString()).isEqualTo("[\"?repo=python&pr=69\"]");
         assertThat(out.get("asked").toString()).isEqualTo("[\"/api/client/analyze?pr=69\"]");
+    }
+
+    /**
+     * "python" typed into the filter hid Ignite's PR "Python thin client docs" and said no open PR matches. The word
+     * alone keeps the client's group whole and finds Ignite's PRs by their titles, as any other text does: Enter opens
+     * the first of them.
+     */
+    @Test
+    void theWordPythonAloneStillFindsIgnitesPrs() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
+            page.route('/api/prs', { body: [{ number: 13700,
+                title: 'IGNITE-29200 Python thin client docs: fix SQL example',
+                url: 'https://github.com/apache/ignite/pull/13700', triggeredBy: null, blockers: 0, proven: true },
+                { number: 13575, title: 'IGNITE-29049 Move MDC to JUnit',
+                url: 'https://github.com/apache/ignite/pull/13575', triggeredBy: 'alice', blockers: 1, proven: true }] });
+            await page.load('');
+            const filter = page.el('prFilter');
+            filter.value = 'python';
+            page.run('applyPrFilter')();
+            const none = !page.el('prNone').classList.contains('hidden');
+            const group = !page.el('clientGroup').classList.contains('hidden');
+            for (const fn of filter.listeners.keydown) fn({ key: 'Enter' });
+            await page.settle();
+            report({ none, group, pushed: page.pushed });
+            """);
+
+        assertThat(out.get("none").asBoolean()).isFalse();
+        assertThat(out.get("group").asBoolean()).isTrue();
+        assertThat(out.get("pushed").toString()).isEqualTo("[\"?pr=13700\"]");
     }
 
     /** Mine lists the PRs of the user's linked GitHub account in both repos: here the client's one only. */
@@ -317,6 +473,27 @@ class ClientPrPageTest {
         assertThat(out.get("head").asText()).isEqualTo("Log in to see Python client PR #69: which test failures are its"
             + " own, and how its runs are going.");
         assertThat(out.get("note").asText()).contains("https://github.com/apache/ignite-python-thin-client/pull/69");
+    }
+
+    /** Run refused for a suite without both VCS roots: the Russian page kept the English "or" between their names. */
+    @Test
+    void aSuiteWithoutBothRootsIsRefusedInRussian() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + "const CATALOG = "
+            + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
+            page.route('/ru.json', { body: CATALOG });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            await page.load('');
+            const tr = page.run('tr');
+            report({ both: tr('suite IgniteTests24Java8_WiPThinClientPython has no VCS root GitHubApacheIgnite or'
+                    + ' GitHubApacheIgnitePythonThinClient in TeamCity'),
+                one: tr('suite IgniteTests24Java8_WiPThinClientPython has no VCS root GitHubApacheIgnite in'
+                    + ' TeamCity') });
+            """);
+
+        assertThat(out.get("both").asText()).isEqualTo("у сьюты IgniteTests24Java8_WiPThinClientPython в TeamCity нет"
+            + " VCS-корней GitHubApacheIgnite и GitHubApacheIgnitePythonThinClient");
+        assertThat(out.get("one").asText()).isEqualTo("у сьюты IgniteTests24Java8_WiPThinClientPython в TeamCity нет"
+            + " VCS-корня GitHubApacheIgnite");
     }
 
     @Test

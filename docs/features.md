@@ -117,7 +117,7 @@ and the visa.
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
-| **my run** | You started its latest RunAll. The PR may be someone else's. | — |
+| **my run** | You started its latest RunAll, or for a Python client PR, its latest run of the suite. The PR may be someone else's. | — |
 
 ### Runs, buttons and visas
 

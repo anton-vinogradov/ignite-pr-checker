@@ -221,7 +221,7 @@ public class Warmer {
             tasks.add(() -> {
                 // A user blocked on a cold analysis gets the whole TeamCity/CPU budget: skip this PR
                 // for now (the next cycle, or the user's own compute, will cover it).
-                if (analyzer.userWaiting()) {
+                if (analyzer.userWaiting() || clients != null && clients.userWaiting()) {
                     skipped.incrementAndGet();
                     return null;
                 }

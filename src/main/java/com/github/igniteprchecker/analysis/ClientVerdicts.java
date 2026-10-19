@@ -15,10 +15,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * The verdicts the checker's page shows for the PRs of the Python thin client. A PR's verdict is that of the newest
@@ -28,8 +34,9 @@ import org.springframework.stereotype.Component;
  * /run-all} does. It is judged as {@link BlockerAnalyzer#analyzeSuiteRun} judges the run of a {@code /run-all}, and
  * kept by the newest run's build like a RunAll's verdict. Which run is the newest is asked of
  * TeamCity by the warm cycle, and by a view at most every {@value #LOOK_EVERY_MS} ms: opening the page again costs
- * ci2 nothing. The verdicts are not written to disk: the client has a few open PRs, and the first warm cycle after a
- * start computes them again.
+ * ci2 nothing. A view, the page's ↻ and the warm cycle that want the verdict of the same run while it is computed wait
+ * for that one compute, and the warm cycle yields to a view that waits for one. The verdicts are not written to disk:
+ * the client has a few open PRs, and the first warm cycle after a start computes them again.
  */
 @Component
 public class ClientVerdicts {
@@ -53,6 +60,12 @@ public class ClientVerdicts {
     private final LongSupplier clock;
 
     private final TtlCache<Long, AnalysisResult> results;
+
+    /** The computes under way by the newest run's build. */
+    private final ConcurrentMap<Long, CompletableFuture<AnalysisResult>> inFlight = new ConcurrentHashMap<>();
+
+    /** How many views and ↻ wait for a compute now. */
+    private final AtomicInteger usersWaiting = new AtomicInteger();
 
     /** The newest run of each PR as TeamCity last named it, the least recently asked first. */
     private final Map<Integer, Looked> newest = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
@@ -105,7 +118,7 @@ public class ClientVerdicts {
             return Optional.of(new Verdict(kept.get(), looked.run()));
         }
 
-        return Optional.of(new Verdict(compute(token, pr, looked.run()), looked.run()));
+        return Optional.of(new Verdict(computeForUser(token, pr, looked.run()), looked.run()));
     }
 
     /** The verdict kept for the PR's newest run, without asking TeamCity; empty when none is kept. */
@@ -123,7 +136,12 @@ public class ClientVerdicts {
     public Optional<Verdict> fresh(String token, int pr) {
         Run run = lookUp(token, pr).run();
 
-        return run == null ? Optional.empty() : Optional.of(new Verdict(compute(token, pr, run), run));
+        return run == null ? Optional.empty() : Optional.of(new Verdict(computeForUser(token, pr, run), run));
+    }
+
+    /** Whether a view or ↻ waits for a compute now: the warm cycle yields to it. */
+    public boolean userWaiting() {
+        return usersWaiting.get() > 0;
     }
 
     /**
@@ -227,13 +245,56 @@ public class ClientVerdicts {
             .map(TcModel.RootedRevision::version).filter(Objects::nonNull).findFirst().orElse(null);
     }
 
-    private AnalysisResult compute(String token, int pr, Run run) {
-        String branch = PythonClientRuns.branch(pr);
-        AnalysisResult r = run.rerunId() == 0 ? analyzer.analyzeSuiteRun(token, pr, branch, run.buildId())
-            : analyzer.analyzeSuiteRun(token, pr, branch, run.buildId(), run.rerunId());
-        results.put(run.newestId(), r);
+    private AnalysisResult computeForUser(String token, int pr, Run run) {
+        usersWaiting.incrementAndGet();
+        try {
+            return compute(token, pr, run);
+        }
+        finally {
+            usersWaiting.decrementAndGet();
+        }
+    }
 
-        return r;
+    /** Computes the verdict of the run, or waits for the compute of it under way. */
+    private AnalysisResult compute(String token, int pr, Run run) {
+        long key = run.newestId();
+        CompletableFuture<AnalysisResult> mine = new CompletableFuture<>();
+        CompletableFuture<AnalysisResult> underWay = inFlight.putIfAbsent(key, mine);
+        if (underWay != null)
+            return joined(underWay, key);
+
+        try {
+            String branch = PythonClientRuns.branch(pr);
+            AnalysisResult r = run.rerunId() == 0 ? analyzer.analyzeSuiteRun(token, pr, branch, run.buildId())
+                : analyzer.analyzeSuiteRun(token, pr, branch, run.buildId(), run.rerunId());
+            results.put(key, r);
+            inFlight.remove(key, mine);
+            mine.complete(r);
+
+            return r;
+        }
+        catch (RuntimeException | Error e) {
+            inFlight.remove(key, mine);
+            mine.completeExceptionally(e);
+            throw e;
+        }
+    }
+
+    /**
+     * The verdict of a compute begun with another token. TeamCity's answer to that token, perhaps a 401, is not
+     * rethrown as is: the caller would take it as TeamCity's answer to its own token.
+     */
+    private static AnalysisResult joined(CompletableFuture<AnalysisResult> underWay, long key) {
+        try {
+            return underWay.join();
+        }
+        catch (CompletionException e) {
+            if (e.getCause() instanceof RestClientResponseException answer)
+                throw new IllegalStateException("shared compute of build " + key + " failed", answer);
+            if (e.getCause() instanceof RuntimeException re)
+                throw re;
+            throw e;
+        }
     }
 
     private boolean retryDue(AnalysisResult r) {

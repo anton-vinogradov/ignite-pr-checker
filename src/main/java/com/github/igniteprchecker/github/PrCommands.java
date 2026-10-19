@@ -1733,14 +1733,15 @@ public class PrCommands implements SnapshotCache {
      * Whether the verdict of the run {@code buildId} of PR {@code pr} of the Python thin client is final, for the
      * checker's page. The story of a {@code /run-all} settles it after the run finishes: it decides on the one auto
      * re-run, waits for it, and posts the verdict. Until the story judged the run the verdict on the page may change;
-     * a verdict held while its visa is tried again stands.
+     * a verdict held while its visa is tried again stands, and so does a posted one, or one of an ended story, whose
+     * comment the story has yet to delete or end.
      */
     public StandingVisas.Phase clientPhase(int pr, long buildId) {
         CommandRun run = python == null ? null : watching.values().stream()
             .filter(r -> python.repo().equals(r.repo()) && r.pr() == pr
                 && (r.buildId() == buildId || r.rerunId() == buildId))
             .findFirst().orElse(null);
-        if (run == null || heldVerdicts.containsKey(run.commentId()))
+        if (run == null || run.readyId() != 0 || run.ending() != null || heldVerdicts.containsKey(run.commentId()))
             return new StandingVisas.Phase(StandingVisas.Phase.FINAL, 0, 1, null, null);
 
         return run.rerunId() == 0 ? new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 0, 1, null, null)

@@ -1,9 +1,11 @@
 package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -18,10 +20,18 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * The checker's page shows the verdict of PR #69 of apache/ignite-python-thin-client: the newest run of Thin client:
@@ -174,8 +184,107 @@ class ClientVerdictsTest {
         assertThat(clients.head(70)).isNull();
     }
 
+    /**
+     * Two people look at the PR right after its run finished: one opens the page, the other presses ↻. Each began a
+     * whole compute of the same run on ci2. The second now waits for the first, and the warm cycle yields while they
+     * wait.
+     */
+    @Test
+    void aViewAndTheRefreshOfTheSameRunShareOneCompute() throws Exception {
+        runs(run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger computes = new AtomicInteger();
+        when(analyzer.analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong())).thenAnswer(inv -> {
+            computes.incrementAndGet();
+            release.await(10, TimeUnit.SECONDS);
+
+            return verdict(9424200L, 0);
+        });
+
+        Thread view = new Thread(() -> clients.verdict("tc-alice", PR));
+        view.start();
+        await().atMost(Duration.ofSeconds(10)).until(() -> computes.get() == 1);
+        Thread refresh = new Thread(() -> clients.fresh("tc-bob", PR));
+        refresh.start();
+        await().atMost(Duration.ofSeconds(10)).until(() -> refresh.getState() == Thread.State.WAITING
+            || refresh.getState() == Thread.State.TIMED_WAITING);
+        boolean waiting = clients.userWaiting();
+        release.countDown();
+        view.join(10_000);
+        refresh.join(10_000);
+
+        assertThat(computes.get()).isEqualTo(1);
+        assertThat(waiting).isTrue();
+        assertThat(clients.userWaiting()).isFalse();
+        assertThat(clients.kept(PR)).isPresent();
+    }
+
+    /**
+     * TeamCity answered 401 to the token of the view whose compute the warm cycle waited for. The cycle must not take
+     * that 401 for an answer to its own token and drop it from the pool.
+     */
+    @Test
+    void aSharedComputeDoesNotPassOnTeamCitysAnswerToAnotherToken() throws Exception {
+        runs(run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger computes = new AtomicInteger();
+        when(analyzer.analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong())).thenAnswer(inv -> {
+            computes.incrementAndGet();
+            release.await(10, TimeUnit.SECONDS);
+            throw HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "Unauthorized", null, null, null);
+        });
+
+        Thread view = new Thread(() -> {
+            try {
+                clients.verdict("tc-expired", PR);
+            }
+            catch (RuntimeException expected) {
+                // the view's own 401
+            }
+        });
+        view.start();
+        await().atMost(Duration.ofSeconds(10)).until(() -> computes.get() == 1);
+        AtomicReference<Throwable> warmGot = new AtomicReference<>();
+        Thread warm = new Thread(() -> {
+            try {
+                clients.warm("tc-pool", PR);
+            }
+            catch (RuntimeException e) {
+                warmGot.set(e);
+            }
+        });
+        warm.start();
+        await().atMost(Duration.ofSeconds(10)).until(() -> warm.getState() == Thread.State.WAITING
+            || warm.getState() == Thread.State.TIMED_WAITING);
+        release.countDown();
+        view.join(10_000);
+        warm.join(10_000);
+
+        assertThat(computes.get()).isEqualTo(1);
+        assertThat(warmGot.get()).isInstanceOf(IllegalStateException.class)
+            .isNotInstanceOf(RestClientResponseException.class);
+    }
+
+    /** The warm cycle is no view: it does not make itself yield. */
+    @Test
+    void theWarmCycleWaitsForNobody() {
+        runs(run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
+        AtomicInteger waitingWhileWarm = new AtomicInteger();
+        when(analyzer.analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong())).thenAnswer(inv -> {
+            if (clients.userWaiting())
+                waitingWhileWarm.incrementAndGet();
+
+            return verdict(9424200L, 0);
+        });
+
+        clients.warm("tc", PR);
+
+        assertThat(waitingWhileWarm.get()).isZero();
+    }
+
     private void runs(TcModel.BranchRun... runs) {
-        when(tc.finishedRuns("tc", SUITE, "pull/69", "OVERRIDDEN_BRANCH")).thenReturn(List.of(runs));
+        when(tc.finishedRuns(anyString(), eq(SUITE), eq("pull/69"), eq("OVERRIDDEN_BRANCH")))
+            .thenReturn(List.of(runs));
     }
 
     private static TcModel.BranchRun run(long id, String starter, String client, String ignite, String checkout) {

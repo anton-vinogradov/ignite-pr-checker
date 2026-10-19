@@ -255,6 +255,57 @@ class ClientPrPageApiTest {
             .andExpect(jsonPath("$.wave").value(1));
     }
 
+    /**
+     * The visa line asks for the visa of the run on screen, with the commits its kept verdict tested: an auto re-run
+     * that stood in for a cancelled run has the visa of those commits.
+     */
+    @Test
+    void theVisaLineLooksForTheVisaOfTheRunsCommits() throws Exception {
+        ClientVerdicts.Verdict kept = verdict(9424200L, 0, IGNITE + "+" + CLIENT);
+        when(clients.kept(PR)).thenReturn(Optional.of(kept));
+        when(standing.clientVisaLine("alice", CLIENT_REPO, PR, 9424200L, IGNITE + "+" + CLIENT)).thenReturn(
+            new StandingVisas.VisaLine(StandingVisas.VisaLine.POSTED, "alice", true, "IGNITE-29117",
+                "https://jira.example/c/1", false));
+
+        asAlice(get("/api/client/visa").param("build", "9424200"))
+            .andExpect(jsonPath("$.state").value("posted"))
+            .andExpect(jsonPath("$.issue").value("IGNITE-29117"));
+        asAlice(get("/api/client/visa").param("build", "9424300"));
+
+        verify(standing).clientVisaLine("alice", CLIENT_REPO, PR, 9424300L, null);
+    }
+
+    @Test
+    void theTitleOfAListedPrComesFromTheListAndOfAnotherFromGithubOnce() throws Exception {
+        when(clients.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
+            "https://github.com/" + CLIENT_REPO + "/pull/69", null, null, null, CLIENT, null)));
+        when(github.pullState(CLIENT_REPO, 68)).thenReturn(Optional.of(new GithubClient.PullState(
+            "IGNITE-29001 Support Python 3.13", false, true)));
+
+        asAlice(get("/api/client/pr-title")).andExpect(jsonPath("$.title").value("IGNITE-29117 Fix test"));
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(get("/api/client/pr-title").param("pr", "68"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("IGNITE-29001 Support Python 3.13"));
+        }
+
+        verify(github, never()).pullState(CLIENT_REPO, PR);
+        verify(github).pullState(CLIENT_REPO, 68);
+    }
+
+    /** A reader trying PR numbers one after another: GitHub is asked about 60 of them an hour, as for Ignite's PRs. */
+    @Test
+    void gitHubIsAskedAboutSixtyTitlesAnHour() throws Exception {
+        when(github.pullState(eq(CLIENT_REPO), anyInt())).thenReturn(Optional.of(new GithubClient.PullState("Fix",
+            true, false)));
+
+        for (int pr = 1; pr <= 60; pr++)
+            mvc.perform(get("/api/client/pr-title").param("pr", String.valueOf(pr))).andExpect(status().isOk());
+        mvc.perform(get("/api/client/pr-title").param("pr", "61")).andExpect(status().isNotFound());
+
+        verify(github, never()).pullState(CLIENT_REPO, 61);
+    }
+
     private ResultActions asAlice(MockHttpServletRequestBuilder req) throws Exception {
         return mvc.perform(req.param("pr", String.valueOf(PR))
             .requestAttr(AuthInterceptor.TOKEN_ATTR, "tok")
@@ -262,8 +313,14 @@ class ClientPrPageApiTest {
     }
 
     private static ClientVerdicts.Verdict verdict(long buildId, long rerunId) {
+        return verdict(buildId, rerunId, null);
+    }
+
+    /** {@code revision}: the commits the verdict names, null when TeamCity named none. */
+    private static ClientVerdicts.Verdict verdict(long buildId, long rerunId, String revision) {
         return new ClientVerdicts.Verdict(new AnalysisResult(PR, buildId, "pull/69", System.currentTimeMillis(),
-            List.of(), List.of(), List.of(), List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0, 0, 0),
+            List.of(), List.of(), List.of(), List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0, 0, 0, List.of(),
+            List.of(), List.of(), 0, revision, 0),
             new ClientVerdicts.Run(buildId, rerunId, "Thin client: Python", "alice", CLIENT, IGNITE));
     }
 

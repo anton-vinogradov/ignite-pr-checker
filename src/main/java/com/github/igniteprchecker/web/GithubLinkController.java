@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.PythonClientRuns;
 import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -69,14 +70,22 @@ public class GithubLinkController {
         this.clock = clock;
     }
 
+    /** Starts a link on a PR of Ignite; see {@link #link(String, Integer, String, String, String)}. */
+    public ResponseEntity<?> link(String tz, Integer pr, String tcToken, String username) {
+        return link(tz, pr, null, tcToken, username);
+    }
+
     /**
      * Starts a link: answers with the GitHub address the page sends the browser to. {@code tz}, the browser's time
-     * zone, and {@code pr}, the PR the page shows, come back with the user. A 409 when the checker has no GitHub
-     * account to answer commands from, or users cannot link accounts through it ({@link GithubClient#linksAccounts}).
+     * zone, and {@code pr}, the PR the page shows, come back with the user; {@code repo} is {@value
+     * PythonClientRuns#PAGE_REPO} when that PR is the Python thin client's, and any other value is dropped. A 409 when
+     * the checker has no GitHub account to answer commands from, or users cannot link accounts through it ({@link
+     * GithubClient#linksAccounts}).
      */
     @PostMapping("/api/github/link")
     public ResponseEntity<?> link(@RequestParam(required = false) String tz,
         @RequestParam(required = false) Integer pr,
+        @RequestParam(required = false) String repo,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         if (!github.writes())
@@ -89,7 +98,9 @@ public class GithubLinkController {
         String session = sessionKey(username, tcToken);
         pending.values().removeIf(p -> p.session().equals(session) || p.expired(now));
         String state = newState();
-        pending.put(state, new Pending(session, tz, pr != null && pr > 0 ? pr : null, now));
+        boolean shown = pr != null && pr > 0;
+        pending.put(state, new Pending(session, tz, shown ? pr : null,
+            shown && PythonClientRuns.PAGE_REPO.equals(repo) ? repo : null, now));
 
         return ResponseEntity.ok(Map.of("url", github.authorizeUri(state).toString()));
     }
@@ -149,7 +160,8 @@ public class GithubLinkController {
 
     /** The page, told how the link went, on the PR it showed when the link began. */
     private static ResponseEntity<Void> back(String outcome, Pending asked) {
-        String pr = asked == null || asked.pr() == null ? "" : "pr=" + asked.pr() + "&";
+        String pr = asked == null || asked.pr() == null ? ""
+            : (asked.repo() == null ? "" : "repo=" + asked.repo() + "&") + "pr=" + asked.pr() + "&";
 
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create("/?" + pr + "github=" + outcome)).build();
     }
@@ -176,8 +188,11 @@ public class GithubLinkController {
         }
     }
 
-    /** A link under way: whose session began it, the browser's time zone, the PR the page showed, and when. */
-    private record Pending(String session, String tz, Integer pr, long at) {
+    /**
+     * A link under way: whose session began it, the browser's time zone, the PR the page showed and its repo, null for
+     * Ignite's, and when.
+     */
+    private record Pending(String session, String tz, Integer pr, String repo, long at) {
         boolean expired(long now) {
             return now - at > STATE_TTL.toMillis();
         }

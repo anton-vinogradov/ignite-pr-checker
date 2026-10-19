@@ -170,6 +170,46 @@ class ClientVisaTest {
             + " no IGNITE ticket."));
     }
 
+    /**
+     * The checker's page of the PR shows the visa of its run: found by the run's build, or, for a later run of the same
+     * commits, by those commits. A visa of another PR, of Ignite's PR #69 or of other commits is not this run's.
+     */
+    @Test
+    void thePageShowsTheVisaOfTheRunOrOfTheSameCommits() {
+        runFinished(1L, RUN);
+        String commits = IGNITE + "+" + CLIENT;
+
+        StandingVisas.VisaLine byBuild = standing.clientVisaLine("author", CLIENT_REPO, PR, RUN, null);
+        StandingVisas.VisaLine byCommits = standing.clientVisaLine("bob", CLIENT_REPO, PR, SECOND_RUN, commits);
+
+        assertThat(byBuild.state()).isEqualTo(StandingVisas.VisaLine.POSTED);
+        assertThat(byBuild.issue()).isEqualTo(ISSUE);
+        assertThat(byBuild.url()).isEqualTo(COMMENT_URL);
+        assertThat(byBuild.mine()).isTrue();
+        assertThat(byCommits.state()).isEqualTo(StandingVisas.VisaLine.POSTED);
+        assertThat(byCommits.starter()).isEqualTo("author");
+        assertThat(byCommits.mine()).isFalse();
+        assertThat(standing.clientVisaLine("author", "apache/ignite", PR, RUN, commits).state()).isNull();
+        assertThat(standing.clientVisaLine("author", CLIENT_REPO, 70, RUN, commits).state()).isNull();
+        assertThat(standing.clientVisaLine("author", CLIENT_REPO, PR, SECOND_RUN, IGNITE + "+" + "b2c3d4e5")
+            .state()).isNull();
+        assertThat(standing.clientVisaLine("author", CLIENT_REPO, PR, SECOND_RUN, null).state()).isNull();
+    }
+
+    /** The page says no visa went out of a run whose PR title names no ticket. */
+    @Test
+    void thePageSaysTheTitleNamesNoTicket() {
+        when(github.pullState(CLIENT_REPO, PR)).thenReturn(Optional.of(new GithubClient.PullState("Fix test to"
+            + " forcefully use H2 engine", true, false)));
+
+        runFinished(1L, RUN);
+
+        StandingVisas.VisaLine line = standing.clientVisaLine("author", CLIENT_REPO, PR, RUN, null);
+        assertThat(line.state()).isEqualTo(StandingVisas.VisaLine.NO_TICKET);
+        assertThat(line.mine()).isTrue();
+        assertThat(line.issue()).isNull();
+    }
+
     /** The PR was merged before the run's verdict: as for a RunAll, its run gets no visa. */
     @Test
     void aMergedPrGetsNoVisa() {
