@@ -3,8 +3,11 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
@@ -29,6 +32,20 @@ class PrTabsPageTest {
             pressed: page.el(id).getAttribute('aria-pressed'), locked: page.el(id).getAttribute('aria-disabled'),
             title: page.el(id).title }));
         const rows = () => [...page.el('prList').innerHTML.matchAll(/data-num="(\\d+)" data-url/g)].map(m => +m[1]);
+        const note = () => page.el('prTabNote').classList.contains('hidden') ? null : page.el('prTabNote').textContent;
+        const OLD_MINE = { number: 12950, title: 'IGNITE-28000 Old but mine', url: 'u', blockers: null };
+        """;
+
+    /** Bob signs in with the form in the browser where alice just logged out; his account is linked too. */
+    private static final String BOB_SIGNS_IN = """
+        async function bobSignsIn() {
+            await page.run('logout')();
+            page.route('/api/login', { body: { username: 'bob', admin: false, jiraInCookie: false,
+                githubLinked: true } }, 'POST');
+            page.el('token').value = 'tok';
+            await page.run('login')();
+            await page.settle();
+        }
         """;
 
     @Test
@@ -79,9 +96,12 @@ class PrTabsPageTest {
         JsonNode out = PageScript.run("index.html", LINKED + """
             page.run("localStorage.setItem('prTab', 'all')");
             await page.load('');
-            report({ rows: rows(), asked: page.fetches('/api/your-prs').length });
+            report({ tabs: tabs(), rows: rows(), asked: page.fetches('/api/your-prs').length });
             """);
 
+        assertThat(out.get("tabs").get(0).get("pressed").asText()).isEqualTo("true");
+        assertThat(out.get("tabs").get(1).get("pressed").asText()).isEqualTo("false");
+        assertThat(out.get("tabs").get(1).get("locked").isNull()).as("Mine is on, only not chosen").isTrue();
         assertThat(out.get("rows").toString()).isEqualTo("[13575,13461]");
         assertThat(out.get("asked").asInt()).as("All asks GitHub for nobody's PRs").isZero();
     }
@@ -122,8 +142,6 @@ class PrTabsPageTest {
         JsonNode out = PageScript.run("index.html", LINKED + """
             page.route('/api/your-prs', { body: { login: 'alice-gh', problem: null, mine: [], involved: [] } });
             await page.load('');
-            const note = () => page.el('prTabNote').classList.contains('hidden') ? null
-                : page.el('prTabNote').textContent;
             const mine = { note: note(), count: page.el('prCount').textContent };
             page.el('prTabInvolved').listeners.click[0]();
             await page.settle();
@@ -157,7 +175,7 @@ class PrTabsPageTest {
             """);
 
         assertThat(out.get("failed").asText())
-            .isEqualTo("GitHub did not answer the search for your PRs. Click the tab again in a minute.");
+            .isEqualTo("GitHub did not answer the search for these PRs. Click the tab again in a minute.");
         assertThat(out.get("rows").toString()).isEqualTo("[12950]");
         assertThat(out.get("hidden").asBoolean()).isTrue();
     }
@@ -172,7 +190,7 @@ class PrTabsPageTest {
             """);
 
         assertThat(out.get("note").asText())
-            .isEqualTo("This checker has no GitHub account, so it cannot search GitHub for your PRs.");
+            .isEqualTo("This checker has no GitHub account, so it cannot search GitHub for these PRs.");
     }
 
     /** The filter narrows the tab's own PRs; a number that is not among them is still offered to open. */
@@ -203,6 +221,200 @@ class PrTabsPageTest {
         assertThat(out.get("tabs").get(0).get("pressed").asText()).isEqualTo("true");
         assertThat(out.get("tabs").get(1).get("locked").asText()).isEqualTo("true");
         assertThat(out.get("rows").toString()).isEqualTo("[13575,13461]");
+    }
+
+    /** GitHub may take seconds to search: until the PRs come, Mine says they are loading instead of standing empty. */
+    @Test
+    void theFirstOpenOnMineSaysThePrsAreLoading() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + """
+            let release;
+            page.route('/api/your-prs', () => new Promise(done => { release = done; }));
+            await page.load('');
+            const waiting = { note: note(), rows: rows(), pressed: tabs()[1].pressed };
+            release({ body: { login: 'alice-gh', problem: null, mine: [OLD_MINE], involved: [] } });
+            await page.settle();
+            report({ waiting, rows: rows(), note: note() });
+            """);
+
+        assertThat(out.at("/waiting/note").asText()).isEqualTo("Loading the PRs…");
+        assertThat(out.at("/waiting/rows").toString()).isEqualTo("[]");
+        assertThat(out.at("/waiting/pressed").asText()).isEqualTo("true");
+        assertThat(out.get("rows").toString()).isEqualTo("[12950]");
+        assertThat(out.get("note").isNull()).isTrue();
+    }
+
+    /** The search of the new user is slow: their Mine shows none of the PRs of the user who signed in before. */
+    @Test
+    void anotherUsersLoginShowsNoneOfThePreviousUsersPrs() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + BOB_SIGNS_IN + """
+            let release;
+            const answers = [{ body: { login: 'alice-gh', problem: null, mine: [OLD_MINE], involved: [] } }];
+            page.route('/api/your-prs', () => answers.length ? answers.shift()
+                : new Promise(done => { release = done; }));
+            await page.load('');
+            const alice = rows();
+            await bobSignsIn();
+            const waiting = { user: page.el('username').textContent, rows: rows(), note: note(),
+                filtered: page.run('allPrs').map(p => p.number) };
+            release({ body: { login: 'bob-gh', problem: null, mine: [], involved: [] } });
+            await page.settle();
+            report({ alice, waiting, note: note() });
+            """);
+
+        assertThat(out.get("alice").toString()).isEqualTo("[12950]");
+        assertThat(out.at("/waiting/user").asText()).isEqualTo("bob");
+        assertThat(out.at("/waiting/rows").toString()).isEqualTo("[]");
+        assertThat(out.at("/waiting/filtered").toString()).as("Enter in the filter opens none of them").isEqualTo("[]");
+        assertThat(out.at("/waiting/note").asText()).isEqualTo("Loading the PRs…");
+        assertThat(out.get("note").asText()).isEqualTo("You have no open PRs.");
+    }
+
+    /** Alice's search was still running when she logged out; its late answer is not taken as bob's. */
+    @Test
+    void aLateAnswerForThePreviousUserIsDropped() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + BOB_SIGNS_IN + """
+            const waiting = [];
+            page.route('/api/your-prs', () => new Promise(done => waiting.push(done)));
+            await page.load('');
+            await bobSignsIn();
+            waiting[1]({ body: { login: 'bob-gh', problem: null, mine: [], involved: [] } });
+            await page.settle();
+            waiting[0]({ body: { login: 'alice-gh', problem: null, mine: [OLD_MINE], involved: [] } });
+            await page.settle();
+            page.el('prTabInvolved').listeners.click[0]();
+            await page.settle();
+            page.el('prTabMine').listeners.click[0]();
+            await page.settle();
+            report({ user: page.el('username').textContent, rows: rows(), note: note(),
+                asked: page.fetches('/api/your-prs').length });
+            """);
+
+        assertThat(out.get("user").asText()).isEqualTo("bob");
+        assertThat(out.get("rows").toString()).isEqualTo("[]");
+        assertThat(out.get("note").asText()).isEqualTo("You have no open PRs.");
+        assertThat(out.get("asked").asInt()).as("bob's answer is kept a minute").isEqualTo(2);
+    }
+
+    @Test
+    void aLinkedUserSigningInWithTheFormGetsMine() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + """
+            page.route('/api/me', { status: 401, body: { error: 'Unauthorized' } });
+            page.route('/api/login', { body: { username: 'alice', admin: false, jiraInCookie: false,
+                githubLinked: true } }, 'POST');
+            await page.load('');
+            page.el('token').value = 'tok';
+            await page.run('login')();
+            await page.settle();
+            report({ tabs: tabs(), rows: rows(), asked: page.fetches('/api/your-prs').length });
+            """);
+
+        assertThat(out.get("tabs").get(1).get("pressed").asText()).isEqualTo("true");
+        assertThat(out.get("rows").toString()).isEqualTo("[12950,13575]");
+        assertThat(out.get("asked").asInt()).isEqualTo(1);
+    }
+
+    /**
+     * The account was unlinked in another browser: the server's answer names no login, and the list goes back to All
+     * rather than say the user has no open PRs.
+     */
+    @Test
+    void anAnswerWithoutALoginTakesTheListBackToAll() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + """
+            page.route('/api/your-prs', { body: { login: null, problem: null, mine: [], involved: [] } });
+            await page.load('');
+            report({ tabs: tabs(), rows: rows(), note: note() });
+            """);
+
+        assertThat(out.get("tabs").get(0).get("pressed").asText()).isEqualTo("true");
+        assertThat(out.get("tabs").get(1).get("locked").asText()).isEqualTo("true");
+        assertThat(out.get("rows").toString()).isEqualTo("[13575,13461]");
+        assertThat(out.get("note").isNull()).isTrue();
+    }
+
+    /** A link made in ⚙ turns the two tabs on at once, with no reload of the page. */
+    @Test
+    void aLinkInSettingsTurnsTheTabsOn() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + """
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false,
+                githubLinked: false } });
+            page.route('/api/auto-visa-all', { body: { login: 'alice-gh' } });
+            await page.load('');
+            const before = tabs()[1].locked;
+            page.el('settingsBtn').onclick();
+            await page.settle();
+            report({ before, tabs: tabs(), rows: rows() });
+            """);
+
+        assertThat(out.get("before").asText()).isEqualTo("true");
+        assertThat(out.get("tabs").get(1).get("locked").isNull()).isTrue();
+        assertThat(out.get("tabs").get(1).get("pressed").asText()).isEqualTo("true");
+        assertThat(out.get("rows").toString()).isEqualTo("[12950,13575]");
+    }
+
+    @Test
+    void aServiceErrorSaysThePrsDidNotLoad() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + """
+            page.route('/api/your-prs', { status: 500, body: { error: 'Internal Server Error' } });
+            await page.load('');
+            report({ note: note(), rows: rows() });
+            """);
+
+        assertThat(out.get("note").asText()).isEqualTo("Could not load these PRs. Click the tab again in a moment.");
+        assertThat(out.get("rows").toString()).isEqualTo("[]");
+    }
+
+    /**
+     * A screen reader user hears what a click on a tab brought, as it is not in the list: that the tab is empty or that
+     * GitHub did not answer. The notes of a page that just opened are not read out: nobody clicked yet.
+     */
+    @Test
+    void theNoteOfAClickedTabIsReadOut() throws Exception {
+        JsonNode out = PageScript.run("index.html", LINKED + """
+            page.route('/api/your-prs', { body: { login: 'alice-gh', problem: 'NO_ANSWER', mine: null,
+                involved: null } });
+            await page.load('');
+            await page.tick(100);
+            const opened = { note: note(), said: page.el('actAnswer').textContent };
+            page.el('prTabInvolved').listeners.click[0]();
+            await page.settle();
+            await page.tick(100);
+            report({ opened, said: page.el('actAnswer').textContent });
+            """);
+
+        assertThat(out.at("/opened/note").asText()).startsWith("GitHub did not answer");
+        assertThat(out.at("/opened/said").asText()).isEmpty();
+        assertThat(out.get("said").asText())
+            .isEqualTo("GitHub did not answer the search for these PRs. Click the tab again in a minute.");
+    }
+
+    /**
+     * At the narrowest the pane gets, 180 px, the three tabs were wider than the pane: Light, Dark and JetBrains cut
+     * off "Участвую", and in Terminal the pane scrolled sideways. The longest name shrinks there and ends with "…".
+     */
+    @Test
+    void theTabsFitANarrowPane() throws IOException {
+        String css = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
+
+        assertThat(rule(css, ".pr-tabs")).contains("min-width: 0");
+        assertThat(rule(css, "#prTabInvolved")).contains("flex-shrink: 1", "min-width: 0", "overflow: hidden",
+            "text-overflow: ellipsis");
+    }
+
+    /** Terminal takes the underline off a tab under the mouse; an off tab keeps its dotted one there too. */
+    @Test
+    void anOffTabKeepsItsDottedUnderlineUnderTheMouseInTerminal() throws IOException {
+        String css = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
+
+        assertThat(rule(css, ".pr-tabs .act[aria-disabled=\"true\"], "
+            + "html[data-theme=\"terminal\"] .pr-tabs .act[aria-disabled=\"true\"]:hover"))
+            .contains("text-decoration: underline dotted");
+    }
+
+    private static String rule(String css, String selector) {
+        Matcher m = Pattern.compile("\\n\\s*" + Pattern.quote(selector) + " \\{([^}]*)}").matcher(css);
+        assertThat(m.find()).as(selector).isTrue();
+
+        return m.group(1);
     }
 
     @Test

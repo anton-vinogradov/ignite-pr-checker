@@ -858,12 +858,19 @@ public class GithubClient implements SnapshotCache {
             "requested", open + "review-requested:" + login + others,
             "reviewed", open + "reviewed-by:" + login + others,
             "commented", open + "commenter:" + login + others);
-        Searched answer = recorded("prSearch", () -> http.post()
+        return recorded("prSearch", () -> found(login, http.post()
             .uri(URI.create(props.apiUrl() + "/graphql"))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(Map.of("query", PRS_OF, "variables", queries))
-            .retrieve().body(Searched.class));
+            .retrieve().body(Searched.class)));
+    }
+
+    /**
+     * Both lists of GitHub's answer. Throws when GitHub left a search out: it answers so with 200, and the call must
+     * count as failed on the status page.
+     */
+    private static PrsOf found(String login, Searched answer) {
         List<Searched.Pr> mine = answer == null ? null : answer.prs("mine");
         List<Searched.Pr> involved = answer == null ? null
             : both(answer.prs("requested"), both(answer.prs("reviewed"), answer.prs("commented")));

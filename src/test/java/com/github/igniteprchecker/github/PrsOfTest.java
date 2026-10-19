@@ -35,8 +35,10 @@ class PrsOfTest {
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
+    private final Metrics metrics = new Metrics(mapper);
+
     private final GithubClient github = new GithubClient(new GithubProperties("apache/ignite", "app-token", 300),
-        mapper, new Metrics(mapper), http.build());
+        mapper, metrics, http.build());
 
     @Test
     void oneCallFindsTheUsersPrsAndTheOnesTheyTakePartIn() {
@@ -85,7 +87,10 @@ class PrsOfTest {
         server.verify();
     }
 
-    /** GitHub answers a GraphQL call it could not run with 200 and errors in place of the data. */
+    /**
+     * GitHub answers a GraphQL call it could not run with 200 and errors in place of the data. The status page counts
+     * the search as failed: the user got no list.
+     */
     @Test
     void aSearchGithubLeftOutFailsTheCall() {
         server.expect(requestTo("https://api.github.com/graphql")).andRespond(withSuccess("""
@@ -93,6 +98,22 @@ class PrsOfTest {
             """, MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> github.prsOf("alice-gh")).hasMessageContaining("RATE_LIMITED");
+        assertThat(metrics.github().byCategory().get("prSearch"))
+            .extracting(Metrics.Stats::ok, Metrics.Stats::fail).containsExactly(0L, 1L);
+    }
+
+    /**
+     * GitHub ran three searches and timed out on the fourth. Involved without it would lose every PR the user only
+     * commented on, so the call fails and the last good answer stays.
+     */
+    @Test
+    void oneSearchLeftOutFailsTheCall() {
+        server.expect(requestTo("https://api.github.com/graphql")).andRespond(withSuccess("""
+            {"data": {"mine": {"nodes": []}, "requested": {"nodes": []}, "reviewed": {"nodes": []}, "commented": null},
+             "errors": [{"type": "TIMEOUT", "path": ["commented"], "message": "Timeout on search"}]}
+            """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> github.prsOf("alice-gh")).hasMessageContaining("TIMEOUT");
     }
 
     /** A login is put into the search as it is, so one GitHub would not allow could change what is searched. */

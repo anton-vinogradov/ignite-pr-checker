@@ -203,7 +203,11 @@ let prTab = 'all';
 let githubLinked = false;
 let yourPrsAt = 0; // when Mine and Involved came; 0: they are due
 let yourPrsAsking = false;
-let yourPrsProblem = null; // why Mine and Involved did not come: the server's reason, or UNREACHABLE
+let yourPrsProblem = null; // why Mine and Involved did not come: the server's reason, or NOT_LOADED
+// Counts the restarts of the tabs. An answer to a search asked before the last restart is of another user or link.
+let yourPrsRound = 0;
+// The tab note last read out. Null until a tab is clicked: a note is read out as the answer to a click.
+let prTabNoteSaid = null;
 
 // The server keeps GitHub's answer for Mine and Involved a minute: the page asks again no sooner.
 const YOUR_PRS_KEEP_MS = 60000;
@@ -219,9 +223,9 @@ const PR_TAB_EMPTY = {
     involved: phrase('No open PRs of others where you were asked to review, reviewed or commented.'),
 };
 const YOUR_PRS_PROBLEMS = {
-    NO_ACCOUNT: phrase('This checker has no GitHub account, so it cannot search GitHub for your PRs.'),
-    NO_ANSWER: phrase('GitHub did not answer the search for your PRs. Click the tab again in a minute.'),
-    UNREACHABLE: phrase('Could not reach the service. Click the tab again in a moment.'),
+    NO_ACCOUNT: phrase('This checker has no GitHub account, so it cannot search GitHub for these PRs.'),
+    NO_ANSWER: phrase('GitHub did not answer the search for these PRs. Click the tab again in a minute.'),
+    NOT_LOADED: phrase('Could not load these PRs. Click the tab again in a moment.'),
 };
 
 // The tab the list opens on: the one last chosen in this browser, else Mine for a user with a linked GitHub account.
@@ -239,6 +243,7 @@ function pickPrTab(tab) {
         return;
     }
     try { localStorage.setItem('prTab', tab); } catch (e) { /* private mode */ }
+    prTabNoteSaid = ''; // a note already on screen is read out again: it answers this click too
     showPrTab(tab);
 }
 
@@ -279,23 +284,28 @@ function paintPrTabNote() {
     const prs = tabPrs[prTab];
     const note = prTab === 'all' || prs && prs.length ? ''
         : prs ? T(PR_TAB_EMPTY[prTab])
-        : yourPrsProblem ? T(YOUR_PRS_PROBLEMS[yourPrsProblem]) : T('Loading your PRs…');
+        : yourPrsProblem ? T(YOUR_PRS_PROBLEMS[yourPrsProblem]) : T('Loading the PRs…');
     $('prTabNote').textContent = note;
     $('prTabNote').classList.toggle('hidden', !note);
+    if (prTabNoteSaid === null || note === prTabNoteSaid) return;
+    prTabNoteSaid = note;
+    if (note) sayAloud(note);
 }
 
 async function loadYourPrs() {
+    const round = yourPrsRound;
     yourPrsAsking = true;
+    let r = null;
     let answer = null;
     try {
-        const r = await api('/api/your-prs');
-        if (r.status === 401) return loggedOut(r);
+        r = await api('/api/your-prs');
         if (r.ok) answer = await r.json();
     } catch (e) {
-        /* the tab says the service was not reached */
-    } finally {
-        yourPrsAsking = false;
+        /* the tab says the PRs did not load */
     }
+    if (round !== yourPrsRound) return;
+    yourPrsAsking = false;
+    if (r && r.status === 401) return loggedOut(r);
     takeYourPrs(answer);
 }
 
@@ -312,7 +322,7 @@ function takeYourPrs(answer) {
         yourPrsAt = Date.now();
         yourPrsProblem = null;
     } else {
-        yourPrsProblem = answer ? answer.problem : 'UNREACHABLE';
+        yourPrsProblem = answer ? answer.problem : 'NOT_LOADED';
     }
     paintPrTabs();
     if (shown !== 'all') renderPrList();
@@ -320,20 +330,23 @@ function takeYourPrs(answer) {
 
 // A new user on the page: the tabs start over, and Mine and Involved are theirs.
 function resetPrTabs(linked) {
+    yourPrsRound++;
+    yourPrsAsking = false;
     githubLinked = !!linked;
     tabPrs.mine = tabPrs.involved = null;
     yourPrsAt = 0;
     yourPrsProblem = null;
+    prTabNoteSaid = null;
     prTab = startTab();
     paintPrTabs();
     if (prTab !== 'all') loadYourPrs();
+    renderPrList();
 }
 
 // The account linked or unlinked in ⚙: the tabs follow.
 function followGithubLink(login) {
     if (!!login === githubLinked) return;
     resetPrTabs(!!login);
-    renderPrList();
 }
 
 // The ticket key a PR title starts with, and what follows it.

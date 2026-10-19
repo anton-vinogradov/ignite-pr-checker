@@ -26,7 +26,8 @@ each label means and what to do about it.
 - **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
-- **Your PRs.** Tabs over the PR list show **All** open PRs, **Mine** and **Involved**: other people's PRs where
+- **Your PRs.** Three tabs over the PR list choose which PRs it shows. **All** lists the 50 most recently updated
+  open PRs. **Mine** lists your open PRs, also those outside the 50. **Involved** lists other people's open PRs where
   someone asked you to review, you reviewed or you commented. Mine and Involved need your GitHub account linked in ⚙.
   See [Finding your PR](docs/features.md#finding-your-pr).
 - **Standing options.** ⚙ groups them by what they need. Auto re-run of failed suites and a PR comment for each of

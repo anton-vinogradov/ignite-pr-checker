@@ -118,10 +118,10 @@
     "Link your GitHub account in ⚙ to use this tab. A click opens ⚙.": "Чтобы пользоваться этой вкладкой, привяжи аккаунт GitHub в ⚙. Щелчок открывает ⚙.",
     "You have no open PRs.": "У тебя нет открытых PR.",
     "No open PRs of others where you were asked to review, reviewed or commented.": "Нет чужих открытых PR, где тебя позвали на ревью, ты ревьюил или комментировал.",
-    "This checker has no GitHub account, so it cannot search GitHub for your PRs.": "У этого чекера нет аккаунта GitHub, поэтому он не может искать твои PR на GitHub.",
-    "GitHub did not answer the search for your PRs. Click the tab again in a minute.": "GitHub не ответил на поиск твоих PR. Нажми на вкладку снова через минуту.",
-    "Could not reach the service. Click the tab again in a moment.": "Не удалось связаться с сервисом. Нажми на вкладку снова чуть позже.",
-    "Loading your PRs…": "Загружаю твои PR…"
+    "This checker has no GitHub account, so it cannot search GitHub for these PRs.": "У этого чекера нет аккаунта GitHub, поэтому он не может искать эти PR на GitHub.",
+    "GitHub did not answer the search for these PRs. Click the tab again in a minute.": "GitHub не ответил на поиск этих PR. Нажми на вкладку снова через минуту.",
+    "Could not load these PRs. Click the tab again in a moment.": "Не удалось загрузить эти PR. Нажми на вкладку снова чуть позже.",
+    "Loading the PRs…": "Загружаю PR…"
   },
   "pr head": {
     "Pick a PR on the left, or type its number in the filter.": "Выбери PR слева или введи его номер в фильтре.",

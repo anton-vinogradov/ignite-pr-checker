@@ -182,7 +182,7 @@ and the visa.
   someone asked you to review, you reviewed or you commented. The checker finds Mine and Involved with GitHub's search,
   at most once a minute for each user. A PR that is not among the 50 gets its badge once someone opens it here.
 - **Mine** and **Involved** need your GitHub account linked in ⚙ ([GitHub account](#github-account)). Without the link
-  they look off, and a click on one opens ⚙. The list opens on the tab you last chose in this browser. Until you
+  they look disabled, and a click on one opens ⚙. The list opens on the tab you last chose in this browser. Until you
   choose one, it opens on **Mine** if your GitHub account is linked, else on **All**.
 - The filter (**Filter, or a PR number**) narrows the chosen tab by number or title. A number that is not in the list is
   offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/` jumps to it
