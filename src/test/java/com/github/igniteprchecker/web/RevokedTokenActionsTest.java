@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -111,8 +112,8 @@ class RevokedTokenActionsTest {
             assertThat(send(get("/api/auto-visa-all"), token).getContentAsString()).contains(AuthInterceptor.REVOKED);
         }
         verify(github, never()).authorizeUri(anyString());
-        verify(standing, never()).unlinkGhLogin(anyString());
-        verify(standing, never()).change(anyString(), anyString(), any(), any(), any(), any());
+        verify(standing, never()).unlinkGhLogin(anyString(), any());
+        verify(standing, never()).change(anyString(), anyString(), any(), any(), any(), any(), any());
         verify(update, never()).restart();
         verify(update, never()).performUpdate();
         verifyNoInteractions(jira);
@@ -142,7 +143,7 @@ class RevokedTokenActionsTest {
         assertThat(send(post("/api/flush-caches"), "live-tc").getStatus()).isEqualTo(200);
 
         verify(tc, times(2)).tokenRejected("live-tc");
-        verify(standing).unlinkGhLogin(USER);
+        verify(standing).unlinkGhLogin(eq(USER), any());
         verify(cache).clear();
     }
 

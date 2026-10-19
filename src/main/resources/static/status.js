@@ -209,6 +209,16 @@ function lastRefreshCard(w) {
     return card('Last refresh', '—', passText('refresh', 0, w.firstRefreshAt));
 }
 
+// For the operator only: the users whose options wait for new tokens since the server key was changed. No card while
+// nobody waits.
+function keyChangeCard(n) {
+    if (!n) return '';
+    return card('New tokens wanted', n, `user${n === 1 ? ' whose options wait' : 's whose options wait'}`, 'warn',
+        'The server key was changed, so the checker could no longer read the tokens it stored. The options of '
+        + (n === 1 ? 'this user wait' : 'these users wait') + ' until they log in again and save the tokens ⚙ asks'
+        + ' them for.');
+}
+
 // Paused: users with the option on whom the last sweep did not act for. Before the first sweep nobody counts as paused.
 function suiteFixCard(f) {
     if (!f) return '';
@@ -298,6 +308,7 @@ function render(d) {
         card('PR commands', w.prCommands ?? 0,
             `/run-all handled · ${passText('poll', w.prCommandsLastPollAt, w.prCommandsFirstPollAt)}`),
         suiteFixCard(w.suiteFix),
+        keyChangeCard(w.waitingAfterKeyChange),
     ].join('');
 
     $('warmerCards').innerHTML = [
@@ -380,8 +391,8 @@ function logTime(t) {
 // Without PRC_ADMINS nobody gets the messages, so the page says how to name an operator.
 const NO_OPERATOR = 'The server setting <code>PRC_ADMINS</code> names no operators, so nobody sees the log messages'
     + ' here. To name operators, set <code>PRC_ADMINS</code> in <code>/etc/ignite-pr-checker/env</code> to their'
-    + ' TeamCity usernames, comma-separated, and restart the service. Until then, the messages are in the service\'s'
-    + ' journal: <code>journalctl -u ignite-pr-checker</code>.';
+    + ' TeamCity usernames, comma-separated, and restart the service. Until then, read the messages on the server with'
+    + ' <code>journalctl -u ignite-pr-checker</code>.';
 
 // Only the operators get the messages; the others see how many there are on the card above. The server's start time,
 // not the browser's clock, sets this run's problems apart from earlier ones.

@@ -4,12 +4,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Text from TeamCity, such as a test's name or why a suite broke, written into a PR comment in GitHub's markdown or
- * into a visa in JIRA's wiki markup so that it reads as written. A PR's own code names its tests and can print what
- * TeamCity reports as a build problem. Written as is, a name with two backticks in a row ends its code span, and the
- * rest of it makes links, mentions and HTML in a comment the checker's account posts.
+ * Text from TeamCity, such as a test's name, why a suite broke or a ci2 user's name, written into a PR comment in
+ * GitHub's markdown or into a visa in JIRA's wiki markup so that it reads as written. A PR's own code names its tests
+ * and can print what TeamCity reports as a build problem, and whoever registers on ci2 picks their own name. Written as
+ * is, a name with two backticks in a row ends its code span, and the rest of it makes links, mentions and HTML in a
+ * comment the checker's account posts.
  */
-final class Markup {
+public final class Markup {
     /** A line break or another control character: after a line break, a list item can go on with a heading. */
     private static final Pattern BREAK = Pattern.compile("[\\p{Cc}\\u2028\\u2029]");
 
@@ -38,7 +39,7 @@ final class Markup {
     }
 
     /** Plain text in GitHub's markdown. */
-    static String text(String s) {
+    public static String text(String s) {
         return MARKDOWN.matcher(unlinked(oneLine(s).strip()))
             .replaceAll(m -> Matcher.quoteReplacement("\\" + m.group()));
     }

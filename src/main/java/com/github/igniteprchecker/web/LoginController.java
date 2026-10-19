@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
@@ -134,7 +135,8 @@ public class LoginController {
         long issuedAt = System.currentTimeMillis();
         SessionCodec.Session session = sessionOf(username.get(), token, http);
         warmer.offerVerifiedToken(username.get(), token, session.login()); // TeamCity just accepted it
-        standing.tcTokenAccepted(username.get(), token);
+        standing.tcTokenAccepted(username.get(), token,
+            SettingsJournal.By.of(session.login(), AuthInterceptor.browser(http)));
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, cookies(http, sessionCookie(codec.encode(session, issuedAt))))

@@ -185,6 +185,8 @@ public class StatusController {
         watcher.put("prCommandsFirstPollAt", firstPassAt(com.github.igniteprchecker.github.PrCommands.FIRST_POLL_MS));
         if (suiteFix != null)
             watcher.put("suiteFix", suiteFixStats());
+        if (operator)
+            watcher.put("waitingAfterKeyChange", standing.waitingAfterKeyChange());
         out.put("watcher", watcher);
         out.put("app", app);
         out.put("persistence", viewer.isPresent() ? store.status() : store.summary());

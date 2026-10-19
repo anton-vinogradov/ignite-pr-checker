@@ -70,6 +70,7 @@ class RunStoryLinksTest {
     @BeforeEach
     void setUp() {
         standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
+        standing.firstCommand("author"); // told already: this test follows the run, not the line on a new link
         standing.change("author", "tc", null, null, new StandingVisas.OptionChange(false, false, true, false, true));
         when(github.appComment(eq(PR), any(), anyString())).thenReturn(new GithubClient.PostedComment(77L,
             PR_URL + "#issuecomment-77"));

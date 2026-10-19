@@ -34,6 +34,7 @@ public class WebConfig implements WebMvcConfigurer {
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling", "/api/logins", "/api/logins/end", "/api/logins/end-others");
         registry.addInterceptor(auth).addPathPatterns("/api/pr-tests", "/api/pr-title");
+        registry.addInterceptor(auth).addPathPatterns("/api/journal");
         registry.addInterceptor(live).addPathPatterns(LIVE_TOKEN_ACTIONS);
     }
 }

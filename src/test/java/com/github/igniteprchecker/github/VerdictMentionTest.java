@@ -127,6 +127,7 @@ class VerdictMentionTest {
     @Test
     void aCancelledRunIsNoVerdict() {
         standing.linkGhLogin("newcomer", "tc", GhUsers.of("Newcomer"));
+        standing.firstCommand("newcomer"); // told already: this test follows the run, not the line on a new link
         when(github.appComment(eq(PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(77L, "https://github.com/apache/ignite/pull/13800#c77"));
         command("Newcomer");

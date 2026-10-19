@@ -76,6 +76,7 @@ public class StandingVisas implements SnapshotCache {
     private final RerunTracker rerunTracker;
     private final Warmer warmer;
     private final PendingCommits pending;
+    private final SettingsJournal journal;
     private final ConcurrentMap<String, Enrollment> enrolled = new ConcurrentHashMap<>();
     /**
      * Auto re-run waves per RunAll chain: each chain keeps its own, so re-runs of a chain still going never
@@ -129,6 +130,12 @@ public class StandingVisas implements SnapshotCache {
     /** How often the sweep goes through the open PRs. */
     private static final long SWEEP_MS = 600_000;
 
+    /**
+     * Why a token is gone while its options wait, next to the reasons of an unread one: the state was restored from a
+     * copy old enough to have had its tokens taken out.
+     */
+    public static final String TOKEN_REMOVED = "removed";
+
     /** How long after the start the first sweep is due. */
     public static final long FIRST_SWEEP_MS = 180_000;
 
@@ -171,7 +178,7 @@ public class StandingVisas implements SnapshotCache {
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
         PendingCommits pending, @Qualifier("earlyRerunExecutor") ExecutorService earlyPool,
-        @Qualifier("settleExecutor") ExecutorService settler) {
+        @Qualifier("settleExecutor") ExecutorService settler, SettingsJournal journal) {
         this.mapper = mapper;
         this.codec = codec;
         this.tc = tc;
@@ -184,14 +191,31 @@ public class StandingVisas implements SnapshotCache {
         this.pending = pending;
         this.earlyPool = earlyPool;
         this.settler = settler;
+        this.journal = journal;
+    }
+
+    /** Standing options with a journal of their own. */
+    public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
+        PendingCommits pending, ExecutorService earlyPool, ExecutorService settler) {
+        this(mapper, codec, tc, github, analyzer, jira, visas, rerunTracker, warmer, pending, earlyPool, settler,
+            new SettingsJournal(mapper));
     }
 
     /** Standing options whose early re-runs and settles run on daemon threads of their own. */
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
         PendingCommits pending) {
+        this(mapper, codec, tc, github, analyzer, jira, visas, rerunTracker, warmer, pending,
+            new SettingsJournal(mapper));
+    }
+
+    /** Standing options that write to {@code journal}, with early re-runs and settles on daemon threads. */
+    public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
+        PendingCommits pending, SettingsJournal journal) {
         this(mapper, codec, tc, github, analyzer, jira, visas, rerunTracker, warmer, pending, daemon("early-rerun"),
-            daemon("settle"));
+            daemon("settle"), journal);
     }
 
     private static ExecutorService daemon(String name) {
@@ -254,8 +278,18 @@ public class StandingVisas implements SnapshotCache {
      */
     public Optional<Refusal> change(String username, String tcToken, String offeredJira, String offeredGh,
         OptionChange change, String browserTz) {
+        return change(username, tcToken, offeredJira, offeredGh, change, browserTz, SettingsJournal.By.of(null, null));
+    }
+
+    /**
+     * See {@link #change(String, String, String, String, OptionChange, String)}; the journal names {@code by} as who
+     * made the change.
+     */
+    public Optional<Refusal> change(String username, String tcToken, String offeredJira, String offeredGh,
+        OptionChange change, String browserTz, SettingsJournal.By by) {
         Enrollment prev = enrolled.get(username);
-        Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
+        Options before = prev == null ? Options.NONE : prev.options();
+        Options after = before.apply(change);
         if (Boolean.TRUE.equals(change.style()) && !after.commands())
             return Optional.of(new Refusal("commands",
                 "Fix checkstyle before my commanded runs needs PR commands: switch them on first"));
@@ -263,6 +297,11 @@ public class StandingVisas implements SnapshotCache {
             return Optional.of(Refusal.UNAVAILABLE);
         if (!after.any()) {
             disable(username);
+            journalSwitches(username, before, Options.NONE, by, false, false);
+            if (prev != null && prev.ghAccount() != null) {
+                journal.add(username, SettingsJournal.Entry.unlinkedAllOff(by, prev.ghLogin(),
+                    prev.gh().token() != null || prev.gh().unread() != null));
+            }
 
             return Optional.empty();
         }
@@ -346,9 +385,13 @@ public class StandingVisas implements SnapshotCache {
         long now = System.currentTimeMillis();
 
         // A settings change must not forget which builds were already handled (or their comments),
-        // nor a GitHub login proven before (the one the offered token proves now replaces it).
+        // nor a GitHub login proven before (the one the offered token proves now replaces it). A token of the account
+        // linked already is no new link: the link keeps its date and browser, as the journal names no new one.
+        Options[] was = {Options.NONE};
+        boolean[] newLink = {false};
         Enrollment e = enrolled.compute(username, (u, cur) -> {
             Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc);
+            was[0] = cur == null ? Options.NONE : cur.options();
             Options options = base.options().apply(change);
             if (!options.any())
                 return null;
@@ -360,11 +403,21 @@ public class StandingVisas implements SnapshotCache {
             next = jiraNext == null ? next : next.withJira(jiraNext);
             next = ghNext == null ? next : next.withGh(ghNext);
             next = tzNext == null ? next : next.withTz(tzNext);
+            if (loginNext == null)
+                return next;
 
-            return loginNext == null ? next : next.withGhAccount(GhAccount.of(loginNext));
+            newLink[0] = !base.ghLoginProven() || !base.ghAccount().is(loginNext);
+
+            return next.withGhAccount(newLink[0] ? GhAccount.linked(base.ghAccount(), loginNext, by, now)
+                : base.ghAccount().renamedTo(loginNext));
         });
         if (loginNext != null && e != null)
             releaseLogin(loginNext, username);
+        if (newLink[0] && e != null)
+            journal.add(username, SettingsJournal.Entry.linked(by, loginNext.login(), List.of(), true));
+        journalSwitches(username, was[0], e == null ? Options.NONE : e.options(), by,
+            e != null && jiraNext != null && jiraNext.token() != null,
+            e != null && ghNext != null && ghNext.token() != null);
         log.info("standing options for {}: {} (gh login {}, tz {})", username, e == null ? "off" : e.options(),
             e == null ? null : e.ghLogin(), e == null ? null : e.tz());
         donateWarmTokens();
@@ -375,6 +428,42 @@ public class StandingVisas implements SnapshotCache {
             });
 
         return Optional.empty();
+    }
+
+    /**
+     * Writes the options switched on and off between {@code was} and {@code now} into the user's journal, with the
+     * JIRA or GitHub token that the switch of an option saved for it. A token saved with no switch of an option that
+     * uses it is an entry of its own: a replaced token.
+     */
+    private void journalSwitches(String username, Options was, Options now, SettingsJournal.By by, boolean jiraSaved,
+        boolean ghSaved) {
+        boolean jiraTold = false;
+        boolean ghTold = false;
+        for (Option o : Option.values()) {
+            boolean on = now.on().contains(o);
+            if (on == was.on().contains(o))
+                continue;
+            if (!on) {
+                journal.add(username, SettingsJournal.Entry.switchedOff(by, o.key));
+
+                continue;
+            }
+
+            String token = null;
+            if (o == Option.VISA && jiraSaved && !jiraTold) {
+                token = SettingsJournal.Entry.JIRA;
+                jiraTold = true;
+            }
+            else if ((o == Option.STYLE_FIX || o == Option.SUITE_FIX) && ghSaved && !ghTold) {
+                token = SettingsJournal.Entry.GITHUB;
+                ghTold = true;
+            }
+            journal.add(username, SettingsJournal.Entry.switchedOn(by, o.key, token));
+        }
+        if (jiraSaved && !jiraTold)
+            journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.JIRA));
+        if (ghSaved && !ghTold)
+            journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.GITHUB));
     }
 
     /**
@@ -406,12 +495,15 @@ public class StandingVisas implements SnapshotCache {
         }
 
         Options o = e.options();
+        GhAccount gh = e.ghAccount();
+        List<String> unread = unreadTokens(e);
 
         return new Settings(o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), o.commands(), e.ghLogin(),
             e.jira().token() != null, e.gh().token() != null, e.jira().rejected(), e.gh().rejected(),
             e.tc().rejected(), o.suiteFix(), e.ghLogin() != null && !e.ghLoginProven(), github.writes(), app,
             appPushes, e.gh().token() == null ? null : e.gh().note(), linkable,
-            decrypt(e.gh()).map(CommitTokens::kind).orElse(null), tokensRemoved(e));
+            decrypt(e.gh()).map(CommitTokens::kind).orElse(null), tokensRemoved(e), gh == null ? null : gh.linkedAt(),
+            gh == null ? null : gh.linkedFrom(), unread, unread.isEmpty() ? null : unreadWhy(e));
     }
 
     /** The tokens a restored copy of the state lacked that options still wait for. */
@@ -423,6 +515,63 @@ public class StandingVisas implements SnapshotCache {
             removed.add("github");
 
         return removed;
+    }
+
+    /**
+     * The tokens the checker could not read and dropped that the user's options wait for, by service: the TeamCity
+     * token for any option, the JIRA token for the visa, the GitHub token for the options that commit.
+     */
+    private static List<String> unreadTokens(Enrollment e) {
+        List<String> out = new ArrayList<>();
+        if (e.tc().unread() != null)
+            out.add(SettingsJournal.Entry.TEAMCITY);
+        if (e.jira().unread() != null && e.options().autoVisa())
+            out.add(SettingsJournal.Entry.JIRA);
+        if (e.gh().unread() != null && e.options().needsGh())
+            out.add(SettingsJournal.Entry.GITHUB);
+
+        return out;
+    }
+
+    /** Why the checker could not read the user's tokens: the server key was changed, or else they are damaged. */
+    private static String unreadWhy(Enrollment e) {
+        return java.util.stream.Stream.of(e.tc(), e.jira(), e.gh())
+            .anyMatch(c -> SettingsJournal.Entry.KEY_CHANGED.equals(c.unread()))
+            ? SettingsJournal.Entry.KEY_CHANGED : SettingsJournal.Entry.DAMAGED;
+    }
+
+    /**
+     * How many users' options wait for tokens the checker could not read after a change of the server key: until
+     * they log in again, or save a new JIRA or GitHub token. Decrypts no token.
+     */
+    public int waitingAfterKeyChange() {
+        return (int)enrolled.values().stream()
+            .filter(e -> !unreadTokens(e).isEmpty() && SettingsJournal.Entry.KEY_CHANGED.equals(unreadWhy(e)))
+            .count();
+    }
+
+    /**
+     * Why the user's stored token of the {@code service} is gone while an option of theirs waits for it: {@link
+     * #TOKEN_REMOVED}, {@link SettingsJournal.Entry#KEY_CHANGED} or {@link SettingsJournal.Entry#DAMAGED}; empty when
+     * none waits.
+     */
+    public Optional<String> waitingToken(String username, String service) {
+        Enrollment e = enrolled.get(username);
+        if (e == null)
+            return Optional.empty();
+
+        Credential c = switch (service) {
+            case SettingsJournal.Entry.TEAMCITY -> e.tc();
+            case SettingsJournal.Entry.JIRA -> e.options().autoVisa() ? e.jira() : Credential.NONE;
+            default -> e.options().needsGh() ? e.gh() : Credential.NONE;
+        };
+
+        return Optional.ofNullable(whyGone(c));
+    }
+
+    /** Why the token is gone while its options wait, {@link #TOKEN_REMOVED} or why it was unread; else null. */
+    private static String whyGone(Credential c) {
+        return c.removed() ? TOKEN_REMOVED : c.unread();
     }
 
     /** A settings change: each option is switched on, off, or left as it is (null). */
@@ -471,20 +620,25 @@ public class StandingVisas implements SnapshotCache {
      * {@code ghTokenKind}: what kind of token the server holds, {@link CommitTokens#kind}; null when none.
      * {@code tokensRemoved}: the tokens ("jira", "github") the state was restored without, whose options pause until
      * the user saves them again.
+     * {@code linkedAt} and {@code linkedFrom}: when the user linked the GitHub account and the label of the browser
+     * they did it from; null when not known. {@code tokensUnread}: the tokens, by service, that the checker could not
+     * read and dropped, which options wait for; {@code tokensUnreadWhy}: why, {@link SettingsJournal.Entry#KEY_CHANGED}
+     * or {@link SettingsJournal.Entry#DAMAGED}, null when none waits.
      */
     public record Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
         boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
         boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
         Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind,
-        List<String> tokensRemoved) {
-        /** The settings with no token missing from a restored copy of the state. */
+        List<String> tokensRemoved, Long linkedAt, String linkedFrom, List<String> tokensUnread,
+        String tokensUnreadWhy) {
+        /** The settings of a user whose GitHub link is not dated and whose stored tokens are all there. */
         public Settings(boolean visa, boolean rerun, boolean gh, boolean style, boolean commands, String login,
             boolean jiraStored, boolean ghStored, boolean jiraTokenRejected, boolean ghTokenRejected,
             boolean tcTokenRejected, boolean suites, boolean loginUnproven, boolean githubAvailable, String appLogin,
             Boolean appPushes, String ghTokenNote, boolean githubLinkable, String ghTokenKind) {
             this(visa, rerun, gh, style, commands, login, jiraStored, ghStored, jiraTokenRejected, ghTokenRejected,
                 tcTokenRejected, suites, loginUnproven, githubAvailable, appLogin, appPushes, ghTokenNote,
-                githubLinkable, ghTokenKind, List.of());
+                githubLinkable, ghTokenKind, List.of(), null, null, List.of(), null);
         }
 
         /**
@@ -523,7 +677,7 @@ public class StandingVisas implements SnapshotCache {
                 continue;
 
             // The login as GitHub spells it now, a rename included.
-            GhAccount now = GhAccount.of(author);
+            GhAccount now = held.renamedTo(author);
             if (!now.equals(held))
                 enrolled.computeIfPresent(en.getKey(), (u, e) -> held.equals(e.ghAccount()) ? e.withGhAccount(now) : e);
 
@@ -560,8 +714,11 @@ public class StandingVisas implements SnapshotCache {
             GhAccount held = e.ghAccount();
             if (held == null)
                 continue;
-            if (held.proven() && held.is(author))
-                return NoActor.TOKEN_UNREADABLE;
+            if (held.proven() && held.is(author)) {
+                return e.tc().removed() ? NoActor.TOKEN_REMOVED
+                    : SettingsJournal.Entry.KEY_CHANGED.equals(e.tc().unread()) ? NoActor.KEY_CHANGED
+                    : NoActor.TOKEN_UNREADABLE;
+            }
             unproven |= !held.proven() && held.login().equalsIgnoreCase(author.login());
         }
 
@@ -577,7 +734,13 @@ public class StandingVisas implements SnapshotCache {
         UNPROVEN,
 
         /** The user who linked the account has a TeamCity token the checker can no longer decrypt. */
-        TOKEN_UNREADABLE
+        TOKEN_UNREADABLE,
+
+        /** The server key was changed, so the checker could not read the TeamCity token of the user who linked it. */
+        KEY_CHANGED,
+
+        /** The state was restored from a copy without the TeamCity token of the user who linked the account. */
+        TOKEN_REMOVED
     }
 
     /** The stored token in clear; empty when there is none or the session secret has changed since. */
@@ -610,11 +773,21 @@ public class StandingVisas implements SnapshotCache {
      * that commit with it. Leaving them on would promise work the checker can no longer do.
      */
     private void dropGhTokenIf(String username, java.util.function.Predicate<Enrollment> refused) {
-        boolean dropped = changed(username, e -> !refused.test(e) ? e
-            : e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh()));
-        if (dropped)
+        Options[] was = {null};
+        boolean dropped = changed(username, e -> {
+            if (!refused.test(e))
+                return e;
+
+            was[0] = e.options();
+
+            return e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh());
+        });
+        if (dropped) {
+            journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.GITHUB,
+                offWith(was[0], Option.STYLE_FIX, Option.SUITE_FIX)));
             log.warn("GitHub token of {} was rejected by GitHub: dropped, the checkstyle autofix and tests to suites "
                 + "switched off until a fresh token is saved", username);
+        }
     }
 
     /**
@@ -625,11 +798,21 @@ public class StandingVisas implements SnapshotCache {
         if (username == null)
             return;
 
-        boolean dropped = changed(username, e -> e.jira().token() == null ? e
-            : e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa()));
-        if (dropped)
+        Options[] was = {null};
+        boolean dropped = changed(username, e -> {
+            if (e.jira().token() == null)
+                return e;
+
+            was[0] = e.options();
+
+            return e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa());
+        });
+        if (dropped) {
+            journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.JIRA, offWith(was[0],
+                Option.VISA)));
             log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
                 username);
+        }
     }
 
     /**
@@ -640,9 +823,11 @@ public class StandingVisas implements SnapshotCache {
     public void markTcRejected(String username) {
         long now = System.currentTimeMillis();
         boolean marked = changed(username, e -> e.tc().rejected() ? e : e.withTc(refused(e.tc(), now)));
-        if (marked)
+        if (marked) {
+            journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.TEAMCITY, List.of()));
             log.warn("TeamCity rejected the stored token of {}: their options pause until a working token comes",
                 username);
+        }
     }
 
     /** Whether the user's options lend this TeamCity token to the background reads; see {@link #backgroundToken}. */
@@ -675,16 +860,28 @@ public class StandingVisas implements SnapshotCache {
      * user replaces an expired token, and it used to leave the dead one in charge of their options.
      */
     public void tcTokenAccepted(String username, String token) {
+        tcTokenAccepted(username, token, SettingsJournal.By.of(null, null));
+    }
+
+    /** See {@link #tcTokenAccepted(String, String)}: a login {@code by}, which the journal names for a new token. */
+    public void tcTokenAccepted(String username, String token, SettingsJournal.By by) {
         boolean wasRejected = tcTokenRejected(username);
         Credential accepted = new Credential(codec.encryptString(token), 0);
-        changed(username, e -> !e.tc().rejected() && decrypt(e.tc()).filter(token::equals).isPresent() ? e
-            : e.withTc(accepted));
+        boolean replaced = changed(username, e -> !e.tc().rejected()
+            && decrypt(e.tc()).filter(token::equals).isPresent() ? e : e.withTc(accepted));
+        if (replaced)
+            journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.TEAMCITY));
         if (wasRejected)
             log.info("TeamCity token of {} renewed at login: their options resume", username);
     }
 
     /** The token a logged-in request carries replaces a stored one TeamCity refused; see {@link #tcKept}. */
     public void tcTokenOffered(String username, String token) {
+        tcTokenOffered(username, token, SettingsJournal.By.of(null, null));
+    }
+
+    /** See {@link #tcTokenOffered(String, String)}: a request of the login {@code by}, which the journal names. */
+    public void tcTokenOffered(String username, String token, SettingsJournal.By by) {
         Enrollment e = enrolled.get(username);
         if (e == null || tcKept(e.tc(), token) == e.tc())
             return;
@@ -694,9 +891,11 @@ public class StandingVisas implements SnapshotCache {
 
             return kept == cur.tc() ? cur : cur.withTc(kept);
         });
-        if (replaced)
+        if (replaced) {
+            journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.TEAMCITY));
             log.info("refused or unreadable TeamCity token of {} replaced by the one of their session: options resume",
                 username);
+        }
     }
 
     /**
@@ -809,6 +1008,15 @@ public class StandingVisas implements SnapshotCache {
      * GitHub account to answer commands from).
      */
     public String linkGhLogin(String username, String tcToken, GithubClient.GhUser proven, String browserTz) {
+        return linkGhLogin(username, tcToken, proven, browserTz, SettingsJournal.By.of(null, null));
+    }
+
+    /**
+     * See {@link #linkGhLogin(String, String, GithubClient.GhUser, String)}; the link is made from the login {@code
+     * by}, which the journal and the GitHub account's line in ⚙ name.
+     */
+    public String linkGhLogin(String username, String tcToken, GithubClient.GhUser proven, String browserTz,
+        SettingsJournal.By by) {
         if (!github.writes())
             return "unavailable";
         if (github.isAppAccount(proven))
@@ -819,6 +1027,7 @@ public class StandingVisas implements SnapshotCache {
         Credential sessionTc = new Credential(codec.encryptString(tcToken), 0);
         long now = System.currentTimeMillis();
         String[] result = {"ok"};
+        boolean[] commandsOn = {false};
         enrolled.compute(username, (u, cur) -> {
             Enrollment base = cur != null ? cur : Enrollment.fresh(sessionTc).withEnabledAt(now);
             if (base.gh().token() != null && base.ghLoginProven() && !base.ghAccount().is(proven)) {
@@ -827,18 +1036,32 @@ public class StandingVisas implements SnapshotCache {
                 return cur;
             }
 
+            commandsOn[0] = !base.options().commands();
+
             return base.withTc(tcKept(base.tc(), tcToken))
-                .withGhAccount(GhAccount.of(proven))
+                .withGhAccount(GhAccount.linked(base.ghAccount(), proven, by, now))
                 .withTz(tz == null ? base.tz() : tz)
                 .withOptions(base.options().withCommands());
         });
         if (result[0].equals("ok")) {
             releaseLogin(proven, username);
+            journal.add(username, SettingsJournal.Entry.linked(by, proven.login(),
+                commandsOn[0] ? List.of(Option.COMMANDS.key) : List.of(), false));
             log.info("PR commands on for {} as GitHub user {} (id {}), linked through GitHub", username,
                 proven.login(), proven.id());
         }
 
         return result[0];
+    }
+
+    /**
+     * Whether a command from the user's linked GitHub account is the first since the user linked it, or since a change
+     * of the server key; true once per link and once per key. A link older than this check has none until the key
+     * changes.
+     */
+    public boolean firstCommand(String username) {
+        return changed(username, e -> e.ghAccount() == null || !e.ghAccount().firstCommandDue() ? e
+            : e.withGhAccount(e.ghAccount().commandTold()));
     }
 
     /**
@@ -848,21 +1071,43 @@ public class StandingVisas implements SnapshotCache {
      * and the enrollment goes when none is left.
      */
     public void unlinkGhLogin(String username) {
-        boolean[] unlinked = {false};
+        unlinkGhLogin(username, SettingsJournal.By.of(null, null));
+    }
+
+    /** See {@link #unlinkGhLogin(String)}; the journal names {@code by} as who unlinked it. */
+    public void unlinkGhLogin(String username, SettingsJournal.By by) {
+        Enrollment[] was = {null};
         enrolled.computeIfPresent(username, (u, cur) -> {
             if (cur.ghAccount() == null && !cur.options().commands())
                 return cur;
 
-            unlinked[0] = true;
+            was[0] = cur;
             Options left = cur.options().with(Option.COMMANDS, false).withoutGh();
             if (!left.any())
                 return null;
 
             return cur.withGhAccount(null).withOptions(left).withGh(new Credential(null, cur.gh().rejectedAt()));
         });
-        if (unlinked[0])
-            log.info("GitHub account of {} unlinked: PR commands, the checkstyle autofix and tests to suites are off",
-                username);
+        if (was[0] == null)
+            return;
+
+        log.info("GitHub account of {} unlinked: PR commands, the checkstyle autofix and tests to suites are off",
+            username);
+        if (was[0].ghAccount() != null) {
+            journal.add(username, SettingsJournal.Entry.unlinked(by, was[0].ghLogin(),
+                offWith(was[0].options(), Option.COMMANDS, Option.STYLE_FIX, Option.SUITE_FIX),
+                was[0].gh().token() != null || was[0].gh().unread() != null));
+        }
+        else
+            journal.add(username, SettingsJournal.Entry.switchedOff(by, Option.COMMANDS.key));
+    }
+
+    /** The keys of those of {@code going} that are on in {@code on}, in the order of the switches. */
+    private static List<String> offWith(Options on, Option... going) {
+        Set<Option> gone = EnumSet.noneOf(Option.class);
+        gone.addAll(List.of(going));
+
+        return on.on().stream().filter(gone::contains).sorted().map(o -> o.key).toList();
     }
 
     private boolean heldByAnother(GithubClient.GhUser account, String username) {
@@ -883,10 +1128,12 @@ public class StandingVisas implements SnapshotCache {
             if (u.equals(owner) || e.ghAccount() == null || !e.ghAccount().is(account))
                 return;
 
+            Options[] was = {null};
             enrolled.computeIfPresent(u, (k, cur) -> {
                 if (cur.ghAccount() == null || !cur.ghAccount().is(account))
                     return cur;
 
+                was[0] = cur.options();
                 Options left = cur.options().with(Option.COMMANDS, false).consistent();
                 if (!left.any())
                     return null;
@@ -895,6 +1142,11 @@ public class StandingVisas implements SnapshotCache {
 
                 return left.needsGh() ? released : released.withGh(new Credential(null, cur.gh().rejectedAt()));
             });
+            if (was[0] == null)
+                return;
+
+            journal.add(u, SettingsJournal.Entry.moved(account.login(),
+                offWith(was[0], Option.COMMANDS, Option.STYLE_FIX)));
             log.warn("GitHub login {} moved from {} to {}: a GitHub token of {} proves the account; PR commands of {} "
                 + "switched off", account.login(), u, owner, owner, u);
         });
@@ -1071,7 +1323,7 @@ public class StandingVisas implements SnapshotCache {
         if (r.cancelled())
             return VisaLine.of(VisaLine.CANCELLED, r.starter(), mine);
         Enrollment e = enrolled.get(r.starter());
-        if (e == null || !e.options().autoVisa() || e.jira().token() == null && !e.jira().removed())
+        if (e == null || !e.options().autoVisa() || e.jira().token() == null && !e.jira().waits())
             return new VisaLine(VisaLine.OFF, r.starter(), mine, null, null, mine && e != null && e.jira().rejected());
         if (!mine)
             return VisaLine.of(VisaLine.ON, r.starter(), false);
@@ -1082,6 +1334,8 @@ public class StandingVisas implements SnapshotCache {
             : r.finishedMs() > 0 && e.since(Option.VISA) > r.finishedMs();
         if (late)
             return VisaLine.of(VisaLine.LATE, viewer, true);
+        if (e.jira().unread() != null)
+            return new VisaLine(VisaLine.WAITS, viewer, true, null, null, false, e.jira().unread());
         if (e.tc().rejected())
             return VisaLine.of(VisaLine.PAUSED, viewer, true);
         if (e.jira().removed())
@@ -1121,9 +1375,11 @@ public class StandingVisas implements SnapshotCache {
      * See {@link #visaLine}. {@code starter}: whose option the line is about, null when it is about none. {@code
      * issue} and {@code url}: the ticket and the comment of the posted visa, null for the other states and when the
      * ticket is not known. {@code mine}: the viewer is the starter. {@code jiraRefused}: JIRA refused the viewer's own
-     * token, which switched their option off.
+     * token, which switched their option off. {@code unread}: why the checker could not read the viewer's JIRA token,
+     * {@link SettingsJournal.Entry#KEY_CHANGED} or {@link SettingsJournal.Entry#DAMAGED}, for {@link #WAITS} only.
      */
-    public record VisaLine(String state, String starter, boolean mine, String issue, String url, boolean jiraRefused) {
+    public record VisaLine(String state, String starter, boolean mine, String issue, String url, boolean jiraRefused,
+        String unread) {
         /** The visa of the run is in the ticket. */
         public static final String POSTED = "posted";
 
@@ -1166,6 +1422,14 @@ public class StandingVisas implements SnapshotCache {
         /** TeamCity did not say who started the run. */
         public static final String UNKNOWN = "unknown";
 
+        /** The viewer's option waits for a new JIRA token: the checker could not read the one it stored. */
+        public static final String WAITS = "waits";
+
+        /** A line that names no unread token. */
+        public VisaLine(String state, String starter, boolean mine, String issue, String url, boolean jiraRefused) {
+            this(state, starter, mine, issue, url, jiraRefused, null);
+        }
+
         static VisaLine of(String state, String starter, boolean mine) {
             return new VisaLine(state, starter, mine, null, null, false);
         }
@@ -1200,14 +1464,22 @@ public class StandingVisas implements SnapshotCache {
      * An option whose credential is gone is switched off. A token can leave without a 401 — dropped
      * as unusable when saved, made undecryptable by a rotated secret, or lost by an older build that
      * only dropped the token — and a switch left on then promises work that silently never happens.
-     * A token taken out of a restored copy of the state only pauses its options: ⚙ asks the user for it.
+     * A token taken out of a restored copy of the state, or one the checker could not read at the start, only pauses
+     * its options: ⚙ asks the user for a new one.
      */
     private void switchOffOptionsWithoutTokens() {
         enrolled.replaceAll((u, e) -> {
-            boolean ghGone = e.options().needsGh() && e.gh().token() == null && !e.gh().removed();
-            boolean jiraGone = e.options().autoVisa() && e.jira().token() == null && !e.jira().removed();
+            boolean ghGone = e.options().needsGh() && e.gh().token() == null && !e.gh().waits();
+            boolean jiraGone = e.options().autoVisa() && e.jira().token() == null && !e.jira().waits();
             if (!ghGone && !jiraGone)
                 return e;
+
+            if (ghGone) {
+                journal.add(u, SettingsJournal.Entry.noToken(SettingsJournal.Entry.GITHUB,
+                    offWith(e.options(), Option.STYLE_FIX, Option.SUITE_FIX)));
+            }
+            if (jiraGone)
+                journal.add(u, SettingsJournal.Entry.noToken(SettingsJournal.Entry.JIRA, List.of(Option.VISA.key)));
 
             log.warn("options of {} switched off for want of a token: {}{}", u,
                 ghGone ? "checkstyle autofix/suite fix " : "", jiraGone ? "auto-visa" : "");
@@ -1751,8 +2023,8 @@ public class StandingVisas implements SnapshotCache {
                     rests = true;
                     return 0;
                 }
-                if (e.tc().rejected() || e.tc().removed())
-                    return 0; // a refused or removed token pauses its owner's options until a working one comes
+                if (e.tc().rejected() || e.tc().waits())
+                    return 0; // a refused, removed or unread token pauses its owner's options until a working one comes
 
                 Long last = e.handled().posted().get(pr.number());
                 if (last != null && last == buildId) {
@@ -1779,9 +2051,9 @@ public class StandingVisas implements SnapshotCache {
 
                 Optional<String> tcToken = decrypt(e.tc());
                 Optional<String> jiraToken = decrypt(e.jira());
-                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty() && !e.jira().removed())) {
+                if (tcToken.isEmpty() || (e.options().autoVisa() && jiraToken.isEmpty() && !e.jira().waits())) {
                     enrolled.remove(who);
-                    log.warn("standing options for {} dropped: tokens undecryptable (secret rotated?)", who);
+                    log.warn("standing options for {} dropped: no TeamCity token, or no JIRA token for auto-visa", who);
                     rests = true;
                     return 0;
                 }
@@ -1958,7 +2230,8 @@ public class StandingVisas implements SnapshotCache {
         Retry done = waves.get(buildId);
         Owed due = new Owed(buildId, acting.autoVisa(), acting.ghComment(), done == null ? null : done.history(),
             done == null ? null : done.note());
-        // A JIRA token a restored copy of the state lacked: the visa stays owed until the user saves one.
+        // A JIRA token a restored copy of the state lacked, or one the checker could not read: the visa stays owed
+        // until the user saves a new one.
         int posted = deliver(who, e, pr, due, due.visa() && jiraToken != null, due.comment(), res, tcToken, jiraToken);
         settled(e, pr.number(), buildId);
 
@@ -2035,6 +2308,8 @@ public class StandingVisas implements SnapshotCache {
                 md = md + "\n\n_" + note + "_";
             if (e.options().autoVisa() && ticketless.contains(buildId))
                 md = md + "\n\n_No JIRA visa: the PR title names no IGNITE ticket._";
+            else if (owed.visa() && !visa && e.options().autoVisa() && e.jira().waits())
+                md = md + "\n\n_" + visaWaits(whyGone(e.jira())) + "_";
             if (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS)
                 md = md + NEXT_STEP;
             commentIn = upsertGhComment(who, e, pr.number(), buildId, md);
@@ -2055,6 +2330,35 @@ public class StandingVisas implements SnapshotCache {
      */
     private static String mention(Enrollment e) {
         return e.ghLoginProven() ? "@" + e.ghLogin() + " " : "";
+    }
+
+    /**
+     * What the comment that brings the verdict of the user's run {@code buildId} of PR {@code pr} says of its visa: it
+     * waits for a JIRA token, as a restored copy of the state lacked it or the checker could not read the stored one.
+     * Empty when the visa of the run does not wait for that.
+     */
+    public Optional<String> visaWaiting(String username, int pr, long buildId) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || !e.options().autoVisa() || !e.jira().waits())
+            return Optional.empty();
+
+        Owed owed = e.handled().owed().get(pr);
+
+        return owed != null && owed.buildId() == buildId && owed.visa() ? Optional.of(visaWaits(whyGone(e.jira())))
+            : Optional.empty();
+    }
+
+    /** What the PR comment says of a visa that waits for a JIRA token, by why the stored one is gone. */
+    static String visaWaits(String why) {
+        if (TOKEN_REMOVED.equals(why)) {
+            return "No JIRA visa yet: the checker's state was restored from a backup older than 2 days, which keeps no"
+                + " tokens. The visa goes out once whoever started the run saves their JIRA token in ⚙ again.";
+        }
+
+        return "No JIRA visa yet: " + (SettingsJournal.Entry.KEY_CHANGED.equals(why)
+            ? "the server key was changed, so the checker could no longer read the JIRA token it stored."
+            : "the checker could not read the JIRA token it stored.")
+            + " The visa goes out once whoever started the run saves a new token in ⚙.";
     }
 
     /** What became of a visa: it went out, there was none to post, or it is still to go out. */
@@ -2283,8 +2587,10 @@ public class StandingVisas implements SnapshotCache {
 
                 return;
             }
-            if (pendingAt(body.get()) >= 0)
+            if (pendingAt(body.get()) >= 0) {
                 jira.updateComment(token.get(), issue, t.commentId(), withLastLine(body.get(), line));
+                journalVisa(user, true, pr.number(), issue, t.buildId(), t.commentId());
+            }
             e.handled().jiraThreads().replace(pr.number(), t, t.ended());
             log.info("living visa {} of PR {} (build {}) ended", t.commentId(), pr.number(), t.buildId());
         }
@@ -2412,7 +2718,7 @@ public class StandingVisas implements SnapshotCache {
         Map<Long, List<String>> early = new HashMap<>();
         earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
         Snapshots.writeAtomic(mapper, file, new Snapshot(snap, newestPerPr(), early, new HashMap<>(waves),
-            new HashMap<>(runVisas)));
+            new HashMap<>(runVisas), codec.keyCheck()));
     }
 
     /**
@@ -2434,10 +2740,12 @@ public class StandingVisas implements SnapshotCache {
 
         Persisted[] enrollments;
         Map<Long, RunVisa> visasOfRuns = null;
+        String keyCheck = null;
         try {
             Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
             enrollments = s.enrollments() == null ? new Persisted[0] : s.enrollments().toArray(new Persisted[0]);
             visasOfRuns = s.visas();
+            keyCheck = s.keyCheck();
             if (s.waves() != null)
                 s.waves().forEach((build, r) -> waves.put(build, r.mergingEarlyWaves()));
             if (s.retries() != null)
@@ -2451,15 +2759,63 @@ public class StandingVisas implements SnapshotCache {
             enrollments = mapper.readValue(file.toFile(), Persisted[].class);
         }
 
+        boolean keyChanged = keyCheck != null && !keyCheck.equals(codec.keyCheck());
         for (Persisted p : enrollments) {
             Enrollment e = p.enrollment();
             boolean refusedKept = e.tc().rejected() && e.tc().token() != null;
-            enrolled.put(p.username(), refusedKept ? e.withTc(refused(e.tc(), e.tc().rejectedAt())) : e);
+            Enrollment loaded = withUnreadDropped(p.username(),
+                refusedKept ? e.withTc(refused(e.tc(), e.tc().rejectedAt())) : e, keyChanged);
+            enrolled.put(p.username(), keyChanged ? withFirstCommandDue(loaded) : loaded);
         }
         if (visasOfRuns != null)
             visasOfRuns.forEach(this::keepRunVisa);
         else
             keepPostedVisasOf(enrollments);
+    }
+
+    /**
+     * The enrollment with each stored token the server's key cannot read dropped and marked so: its options stay on
+     * and wait for a new token. The file names the key its tokens were encrypted with, so a key other than the
+     * server's means the key was changed; under the same key, or in a file of an earlier version, which names none,
+     * the token is damaged. The user's journal says which tokens went.
+     */
+    private Enrollment withUnreadDropped(String user, Enrollment e, boolean keyChanged) {
+        String why = keyChanged ? SettingsJournal.Entry.KEY_CHANGED : SettingsJournal.Entry.DAMAGED;
+        List<String> dropped = new ArrayList<>();
+        Enrollment next = e;
+        if (unreadable(e.tc())) {
+            next = next.withTc(Credential.unread(why));
+            dropped.add(SettingsJournal.Entry.TEAMCITY);
+        }
+        if (unreadable(e.jira())) {
+            next = next.withJira(Credential.unread(why));
+            dropped.add(SettingsJournal.Entry.JIRA);
+        }
+        if (unreadable(e.gh())) {
+            next = next.withGh(Credential.unread(why));
+            dropped.add(SettingsJournal.Entry.GITHUB);
+        }
+        if (dropped.isEmpty())
+            return e;
+
+        journal.add(user, SettingsJournal.Entry.unread(dropped, why));
+        log.warn("stored tokens of {} could not be read ({}): {} dropped, their options wait for new ones", user,
+            keyChanged ? "the server key was changed" : "damaged", dropped);
+
+        return next;
+    }
+
+    /**
+     * The enrollment whose proven GitHub account has its first command due again. Whoever had the old key could make a
+     * cookie of any user and link their own account to it: the first command after a change of the key names in the
+     * PR whose ci2 account the commands of the account run under.
+     */
+    private static Enrollment withFirstCommandDue(Enrollment e) {
+        return e.ghLoginProven() ? e.withGhAccount(e.ghAccount().commandDue()) : e;
+    }
+
+    private boolean unreadable(Credential c) {
+        return c.token() != null && decrypt(c).isEmpty();
     }
 
     /** The visas of a snapshot written before the visas of runs were kept apart: those its enrollments still edit. */
@@ -2564,11 +2920,47 @@ public class StandingVisas implements SnapshotCache {
      * The GitHub account the user's PR comments come from: its {@code login}, its {@code id} once known, and whether
      * GitHub named it to a token of the user ({@code proven}). Only a proven account's comments are their commands: a
      * login typed in by hand, as earlier versions took it, could be anyone's. {@code askToken}: an earlier version
-     * kept the login next to the user's GitHub token, which is yet to be asked whether it names that login.
+     * kept the login next to the user's GitHub token, which is yet to be asked whether it names that login. {@code
+     * linkedAt} and {@code linkedFrom}: when the user linked it, and the label of the browser they linked it from;
+     * null for a link older than these fields and for one an earlier version kept. {@code firstCommandDue}: no command
+     * came from the account since a link made it the user's, or since a change of the server key.
      */
-    private record GhAccount(String login, Long id, boolean proven, boolean askToken) {
+    private record GhAccount(String login, Long id, boolean proven, boolean askToken, Long linkedAt, String linkedFrom,
+        boolean firstCommandDue) {
+        GhAccount(String login, Long id, boolean proven, boolean askToken) {
+            this(login, id, proven, askToken, null, null, false);
+        }
+
         static GhAccount of(GithubClient.GhUser user) {
             return new GhAccount(user.login(), user.id() > 0 ? user.id() : null, true, false);
+        }
+
+        /**
+         * The account {@code user}, linked {@code at} from the browser of {@code by}, in place of {@code held}. The
+         * account a user links is new to them unless it is the proven one they hold: then its first command is told
+         * already, or still due, as before.
+         */
+        static GhAccount linked(GhAccount held, GithubClient.GhUser user, SettingsJournal.By by, long at) {
+            boolean same = held != null && held.proven() && held.is(user);
+
+            return new GhAccount(user.login(), user.id() > 0 ? user.id() : null, true, false, at,
+                by == null ? null : by.browser(), !same || held.firstCommandDue());
+        }
+
+        /** The same proven account, under the login GitHub spells it with now. */
+        GhAccount renamedTo(GithubClient.GhUser user) {
+            return new GhAccount(user.login(), user.id() > 0 ? user.id() : null, true, false, linkedAt, linkedFrom,
+                firstCommandDue);
+        }
+
+        /** The account once its first command since the link is told. */
+        GhAccount commandTold() {
+            return new GhAccount(login, id, proven, askToken, linkedAt, linkedFrom, false);
+        }
+
+        /** The account whose next command is told in the PR as its first. */
+        GhAccount commandDue() {
+            return new GhAccount(login, id, proven, askToken, linkedAt, linkedFrom, true);
         }
 
         static GhAccount unproven(String login) {
@@ -2585,13 +2977,16 @@ public class StandingVisas implements SnapshotCache {
      * A stored token (encrypted; null once dropped), when its service last refused it (0: never), and what the user
      * should know of it ({@code note}, null when nothing). Of a TeamCity token TeamCity refused only its SHA-256
      * ({@code hash}) stays, to know the dead token when a session brings it again. {@code removed}: the state was
-     * restored from a copy old enough to have lost the token ({@link com.github.igniteprchecker.persist.TokenScrub}),
-     * and the options that need it pause until the user brings a new one.
+     * restored from a copy old enough to have lost the token ({@link com.github.igniteprchecker.persist.TokenScrub}).
+     * {@code unread}: why the checker could not read the stored token at the start and dropped it, {@link
+     * SettingsJournal.Entry#KEY_CHANGED} or {@link SettingsJournal.Entry#DAMAGED}; null when it dropped none. These are
+     * two causes, and the user is told each as it is; either way the options that need the token wait for a new one.
      */
-    private record Credential(String token, long rejectedAt, String note, String hash, boolean removed) {
+    private record Credential(String token, long rejectedAt, String note, String hash, boolean removed,
+        String unread) {
         static final Credential NONE = new Credential(null, 0);
 
-        static final Credential REMOVED = new Credential(null, 0, null, null, true);
+        static final Credential REMOVED = new Credential(null, 0, null, null, true, null);
 
         Credential(String token, long rejectedAt) {
             this(token, rejectedAt, null);
@@ -2602,7 +2997,17 @@ public class StandingVisas implements SnapshotCache {
         }
 
         Credential(String token, long rejectedAt, String note, String hash) {
-            this(token, rejectedAt, note, hash, false);
+            this(token, rejectedAt, note, hash, false, null);
+        }
+
+        /** A token the checker could not read, and why. */
+        static Credential unread(String why) {
+            return new Credential(null, 0, null, null, false, why);
+        }
+
+        /** Whether the token is gone, taken out of a restored copy or unread, and its options wait for a new one. */
+        boolean waits() {
+            return removed || unread != null;
         }
 
         static Credential refusedAt(long at) {
@@ -2618,9 +3023,15 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** A standing switch. */
+    /** A standing switch, and its {@code key}: its name in the settings the page reads and in the journal. */
     private enum Option {
-        VISA, RERUN, GH_COMMENT, STYLE_FIX, COMMANDS, SUITE_FIX
+        VISA("visa"), RERUN("rerun"), GH_COMMENT("gh"), STYLE_FIX("style"), COMMANDS("commands"), SUITE_FIX("suites");
+
+        final String key;
+
+        Option(String key) {
+            this.key = key;
+        }
     }
 
     /** The standing switches that are on, independent of each other. */
@@ -2863,10 +3274,12 @@ public class StandingVisas implements SnapshotCache {
      * The snapshot on disk: enrollments plus the auto re-run bookkeeping (so a restart can't grant extra
      * attempts or lose a wave). {@code waves} holds every chain's; {@code retries}, one per PR, its newest
      * chain's, is what v1.20.11 and before read. {@code visas}, what the settle of each run did with its visa, is
-     * absent from the files of earlier versions: their posted visas are those the enrollments still edit.
+     * absent from the files of earlier versions: their posted visas are those the enrollments still edit. {@code
+     * keyCheck} names the key the tokens were encrypted with, {@link SessionCodec#keyCheck}; the files of earlier
+     * versions have none.
      */
     private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries,
-        Map<Long, List<String>> earlyReruns, Map<Long, Retry> waves, Map<Long, RunVisa> visas) {
+        Map<Long, List<String>> earlyReruns, Map<Long, Retry> waves, Map<Long, RunVisa> visas, String keyCheck) {
     }
 
     /** Each PR's newest chain's waves, keyed by the PR as v1.20.11 keyed them. */
@@ -2891,6 +3304,7 @@ public class StandingVisas implements SnapshotCache {
                 jira.updateComment(jiraToken, issueKey, t.commentId(), body);
                 e.handled().jiraThreads().put(pr, new JiraThread(buildId, t.commentId(), issueKey, sha, verdict, true));
                 keepRunVisa(buildId, new RunVisa(pr, who, issueKey, t.commentId()));
+                journalVisa(who, true, pr, issueKey, buildId, t.commentId());
                 log.info("standing visa updated in place for PR {} (build {}, by {})", pr, buildId, who);
 
                 return true;
@@ -2917,9 +3331,15 @@ public class StandingVisas implements SnapshotCache {
         }
         e.handled().jiraThreads().put(pr, new JiraThread(buildId, posted.id(), issueKey, sha, verdict, true));
         keepRunVisa(buildId, new RunVisa(pr, who, issueKey, posted.id()));
+        journalVisa(who, false, pr, issueKey, buildId, posted.id());
         log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr, buildId, who, posted.url());
 
         return true;
+    }
+
+    /** Writes a visa the checker posted, or edited, with the user's JIRA token into their journal. */
+    private void journalVisa(String user, boolean edited, int pr, String issue, long buildId, String commentId) {
+        journal.add(user, SettingsJournal.Entry.visa(edited, pr, issue, buildId, jira.commentUrl(issue, commentId)));
     }
 
     /**
@@ -3071,7 +3491,10 @@ public class StandingVisas implements SnapshotCache {
      * the option's name, so a snapshot that names an option this version does not know still loads. Snapshots without
      * {@code tcRefusedHash} kept the ciphertext of a TeamCity token TeamCity refused; it is hashed at load. A token
      * taken out of a copy of the state is marked {@code tcTokenRemoved}, {@code jiraTokenRemoved} or {@code
-     * ghTokenRemoved}, and its refusal time there was set for builds that do not know the mark.
+     * ghTokenRemoved}, and its refusal time there was set for builds that do not know the mark. {@code ghLinkedAt},
+     * {@code ghLinkedFrom} and {@code ghFirstCommandDue} are absent for a link made before they were kept: its date is
+     * not known, and it has no first command to tell. {@code tcTokenUnread}, {@code jiraTokenUnread} and {@code
+     * ghTokenUnread} say why the checker dropped a token it could not read; absent when it dropped none.
      */
     private record Persisted(String username, String tcToken, String jiraToken, String ghToken, String ghLogin,
         String tz, long enabledAt, Map<Integer, Long> posted, Map<Integer, GhThread> ghThreads,
@@ -3079,7 +3502,9 @@ public class StandingVisas implements SnapshotCache {
         Boolean autoVisa, boolean autoRerun, Boolean ghComment, Boolean styleFix,
         Long ghRejectedAt, Long jiraRejectedAt, Long tcRejectedAt, Boolean commands, Map<String, Long> onSince,
         Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven, String ghTokenNote,
-        String tcRefusedHash, Boolean tcTokenRemoved, Boolean jiraTokenRemoved, Boolean ghTokenRemoved) {
+        String tcRefusedHash, Boolean tcTokenRemoved, Boolean jiraTokenRemoved, Boolean ghTokenRemoved,
+        Long ghLinkedAt, String ghLinkedFrom, Boolean ghFirstCommandDue, String tcTokenUnread, String jiraTokenUnread,
+        String ghTokenUnread) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -3092,7 +3517,10 @@ public class StandingVisas implements SnapshotCache {
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
                 e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()),
                 gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven(), e.gh().note(),
-                e.tc().hash(), e.tc().removed(), e.jira().removed(), e.gh().removed());
+                e.tc().hash(), e.tc().removed(), e.jira().removed(), e.gh().removed(),
+                gh == null ? null : gh.linkedAt(), gh == null ? null : gh.linkedFrom(),
+                gh != null && gh.firstCommandDue() ? Boolean.TRUE : null, e.tc().unread(), e.jira().unread(),
+                e.gh().unread());
         }
 
         /**
@@ -3149,14 +3577,19 @@ public class StandingVisas implements SnapshotCache {
                 log.info("GitHub token of {} dropped: no option of theirs commits, and the checker's account posts"
                     + " their PR comments", username);
             GhAccount account = ghLogin == null ? null : ghLoginProven != null && !ask
-                ? new GhAccount(ghLogin, ghId, ghLoginProven, false) : new GhAccount(ghLogin, null, false, ask);
+                ? new GhAccount(ghLogin, ghId, ghLoginProven, false, ghLinkedAt, ghLinkedFrom,
+                    Boolean.TRUE.equals(ghFirstCommandDue))
+                : new GhAccount(ghLogin, null, false, ask);
 
             return new Enrollment(
                 Boolean.TRUE.equals(tcTokenRemoved) ? Credential.REMOVED
+                    : tcTokenUnread != null ? Credential.unread(tcTokenUnread)
                     : new Credential(tcToken, tcRejectedAt == null ? 0 : tcRejectedAt, null, tcRefusedHash),
                 Boolean.TRUE.equals(jiraTokenRemoved) && options.autoVisa() ? Credential.REMOVED
+                    : jiraTokenUnread != null ? Credential.unread(jiraTokenUnread)
                     : new Credential(jiraToken, jiraRejectedAt == null ? 0 : jiraRejectedAt),
                 Boolean.TRUE.equals(ghTokenRemoved) && options.needsGh() ? Credential.REMOVED
+                    : ghTokenUnread != null && options.needsGh() ? Credential.unread(ghTokenUnread)
                     : new Credential(ghKept ? ghToken : null, ghRejectedAt == null ? 0 : ghRejectedAt,
                         ghKept ? ghTokenNote : null), account, tz, enabledAt, options, h,
                 Collections.unmodifiableMap(since));

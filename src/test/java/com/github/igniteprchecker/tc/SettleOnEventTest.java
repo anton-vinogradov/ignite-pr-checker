@@ -23,6 +23,7 @@ import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.jira.JiraClient;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -117,7 +118,7 @@ class SettleOnEventTest {
         for (String pool : List.of("earlyRerunExecutor", "settleExecutor"))
             context.registerBean(pool, ExecutorService.class, () -> Executors.newSingleThreadExecutor(),
                 bd -> bd.setDestroyMethodName("shutdown"));
-        context.register(RerunTracker.class, StandingVisas.class);
+        context.register(RerunTracker.class, StandingVisas.class, SettingsJournal.class);
         context.refresh();
 
         stubs();

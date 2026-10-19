@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.HttpServletRequest;
@@ -98,7 +99,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (session.get().carriesJira() && !standing.visaOn(user))
             users.sawJiraInCookie(user);
         warmer.offerToken(user, token, login.get().id());
-        standing.tcTokenOffered(user, token);
+        standing.tcTokenOffered(user, token, by(req));
 
         return true;
     }
@@ -126,6 +127,15 @@ public class AuthInterceptor implements HandlerInterceptor {
     /** The label of the request's browser, for a login made for it; see {@link BrowserLabel}. */
     static String browser(HttpServletRequest req) {
         return BrowserLabel.of(req.getHeader(HttpHeaders.USER_AGENT));
+    }
+
+    /**
+     * Who made a change, as the journal of the user's settings names them: the login of the request, and the label of
+     * the browser the request came from. A copy of a cookie is the same login, but its browser may name itself
+     * otherwise.
+     */
+    static SettingsJournal.By by(HttpServletRequest req) {
+        return SettingsJournal.By.of((String)req.getAttribute(LOGIN_ATTR), browser(req));
     }
 
     static void refuse(HttpServletResponse resp, String json) throws IOException {

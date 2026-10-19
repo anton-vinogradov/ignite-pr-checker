@@ -154,6 +154,7 @@ class GlossaryTest {
             "JIRA did not take it, the checker tries again every 10 minutes", "is off in ⚙",
             "because JIRA rejected your token",
             "Visa: waits until you log in again", "Visa: waits until you save your JIRA token in ⚙ again",
+            "Visa: waits for a new JIRA token in ⚙",
             "Visa: none for this run, a newer RunAll replaces it",
             "Visa: none, the PR is closed", "Visa: unknown, TeamCity does not say who started this run",
             "Visa: the PR title names no IGNITE ticket", "who started this run, has ",

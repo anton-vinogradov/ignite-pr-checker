@@ -1,7 +1,9 @@
 package com.github.igniteprchecker.persist;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.core.JsonPointer;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -61,6 +63,8 @@ class ReleaseSnapshotsTest {
 
     static Stream<SnapshotCache> stateOfTheRelease() {
         SessionCodec codec = mock(SessionCodec.class);
+        // The key the release encrypted the sample's tokens with: each of them reads.
+        when(codec.decryptString(anyString())).thenReturn(Optional.of("token"));
         TcClient tc = mock(TcClient.class);
         GithubClient github = mock(GithubClient.class);
         BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);

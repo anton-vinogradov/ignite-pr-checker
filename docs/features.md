@@ -144,6 +144,7 @@ and the visa.
 | `Visa: none, bob started this run and has Visa my runs in JIRA off` | Only the option of whoever started a run posts its visa, and bob's is off. | Start a RunAll yourself with the option on. |
 | `Visa: waits until you log in again` | You started the run, and TeamCity refused the token your options use, so they pause. The visa goes out after a login with a fresh token, unless a newer RunAll replaced the run. | Log in again. |
 | `Visa: waits until you save your JIRA token in ⚙ again` | You started the run, and the checker's state was restored from a backup older than 2 days, which keeps no tokens. Your option stays on and waits for your JIRA token. The visa goes out once you save it, unless a newer RunAll replaced the run. | Save your JIRA token in ⚙. |
+| `Visa: waits for a new JIRA token in ⚙` | You started the run, and the checker could not read the JIRA token your Visa my runs in JIRA stored: the server key was changed, or the token got damaged. The option stays on. The visa goes out once you save a new token, unless a newer RunAll replaced the run. | Save a new JIRA token in ⚙. |
 | `Visa: none, this run finished before you switched on Visa my runs in JIRA` | The option acts only on runs that finish after it goes on. | Run RunAll again. |
 | `Visa: none, the PR title named no IGNITE ticket when the run settled` | Adding the key to the title after the run settled does not post this run's visa. | Run RunAll again. |
 | `Visa: none, this run was cancelled` | A cancelled run gets no visa. The page shows a cancelled run only when every finished run of the PR was cancelled. | Run RunAll again. |
@@ -299,6 +300,17 @@ GitHub token it needs while it is on.
 When you switch on an option without what it needs, ⚙ says what is missing in one sentence and opens the form or
 shows the button that gives it.
 
+When the operator changes the server key, the checker can no longer read the tokens it stored, and drops them. Your
+options stay on and wait for new tokens. ⚙ says that the server key was changed and opens the form of each token to save
+again; a login stores the TeamCity token. Until then a `/run-all` gets a reply that says the server key was changed. The
+run's story says what the checkstyle fix waits for. The comment that brings the verdict says why no visa came. A stored
+token that got damaged is dropped the same way, and ⚙ says that the checker could not read it.
+
+When the operator restores the checker's state from a copy older than 2 days, the copy has no tokens. Your options stay
+on and wait for the tokens too. ⚙, the reply to a `/run-all`, the run's story and the verdict comment then say that the
+state was restored from a backup, not that the key was changed. Opening the page while logged in gives the checker your
+TeamCity token again.
+
 ### TeamCity login
 
 Your login is all these two options need.
@@ -341,7 +353,9 @@ The checker does not use a JIRA token from your login cookie. If one was there a
 
 ### GitHub account
 
-The state reads not linked, the login, or not proven.
+The state reads not linked, the login, or not proven. If the checker knows when a linked account was linked, its line
+says so, such as `@alice-gh, linked 19 Oct 14:02 from Firefox on Linux`. The line names the browser only if the checker
+knows it.
 
 - **Link GitHub** links your account: GitHub asks you to let the checker see your public profile, then sends you
   back. The checker keeps the login and the account's id; the token GitHub gave for it is revoked at once. A link
@@ -349,6 +363,7 @@ The state reads not linked, the login, or not proven.
   commits links the account as well, and on a checker whose operator did not set up **Link GitHub** it is the only way.
   The checker's own account cannot be linked.
 - **Unlink** forgets the account: **PR commands** go off, and so do the options that commit, with your GitHub token.
+  Switching off your last option forgets the account too, and the journal says so.
 - **PR commands** lets you start RunAll from a PR comment ([commands](#working-from-the-pr-commands)). It stores only
   your GitHub login, your GitHub account's id and your TeamCity token; on its own, it lends the token to no background
   work. A comment is your command only when it comes from the linked account, by its id, so a login you give up is no
@@ -415,6 +430,25 @@ checker kept this list says so instead of a date. The server keeps the list with
 Your options belong to your account: ⚙ shows the same options in every login, and no logout changes them. When a
 login ends, background warming stops using its TeamCity token, unless a standing option keeps that token in use.
 
+### Journal
+
+⚙ ends with **Journal**: what happened to your settings, the newest first. It shows 10 entries, and **Show all** shows
+the rest. The checker keeps your last 100 switches of options, your last 100 saved tokens and your last 100 other
+entries, such as links and visas. So switching options many times in a row does not push a link or a visa out of the
+journal.
+
+- Each change of your settings is an entry: an option switched on or off, a JIRA or GitHub token saved, a GitHub account
+  linked or unlinked, your options switched to the TeamCity token of a login. It says when, and from which browser: this
+  browser, or another one by its label, as in **Your logins**.
+- A browser is named as its User-Agent names it. A copy of this browser's cookie is the same login as this browser. An
+  entry made in this login by a browser with another name says `in the login of this browser`.
+- What the checker changes itself is an entry by the checker: a token JIRA, GitHub or TeamCity refused, a token the
+  checker could not read, your GitHub account that another ci2 user linked.
+- Each visa the checker posts or edits with your JIRA token is an entry: the PR, the ticket, the RunAll and when. The
+  ticket links to the comment in JIRA. A RunAll someone started in TeamCity with your ci2 token gets a visa from your
+  **Visa my runs in JIRA** too, and the journal shows it.
+- An entry names options, services and GitHub accounts, never a token or a part of one.
+
 ## Visas and PR comments
 
 - **The visa** of a run comes only from **Visa my runs in JIRA** of whoever started it. A line under the verdict
@@ -455,6 +489,12 @@ from its own GitHub account, the app account.
 - The command has to be the first word of the comment. Commands are picked up within a minute, on any pull request.
   A comment written more than an hour ago is not run. An edited comment is not run either: anyone with write access
   may edit your comment. The checker answers 😕 and asks you to post the command in a new comment.
+- The first command from a GitHub account since its link gets one line from the app account, such as
+  `ℹ️ First command from @alice-gh for ci2 user alice: Ignite PR Checker runs the commands of @alice-gh under that ci2 account.`
+  So the thread shows whose ci2 account the commands of that GitHub account run under, and anyone who reads the thread
+  sees a link nobody expected. One line per link: after you press **Link GitHub** again for the account already linked,
+  its next command does not get the line again. After a change of the server key the first command of each linked
+  account gets the line again: whoever had the old key could link an account to any user.
 - 🚀 means accepted, 😕 refused. Then a comment of the app account, which mentions you, tells the story of the run:
   the queued build, then `⏱ Queued — expected to finish ≈ 21:05 MSK` in your browser's time zone, which ⚙ sends with
   every change, and in UTC until it has. It is edited when the stage changes or the estimate moves by 10 minutes or
@@ -469,9 +509,9 @@ from its own GitHub account, the app account.
   first, nobody else's. The old story ends with `🛑 Superseded by a newer /run-all`, and the ack says what was
   cancelled.
 - A command that cannot run gets 😕 and a short reply from the app account that says what is missing and what to
-  press in ⚙: a GitHub account nobody linked, **PR commands** off, a stored TeamCity token that no longer works, a
-  login an earlier version kept without proof. A `/top` with no waiting run of your command, or one ci2 does not let your
-  account move, is answered the same way. The same reply goes once per person and PR, at most 3 replies a day to one
+  press in ⚙: a GitHub account nobody linked, **PR commands** off, a stored TeamCity token that no longer works, that
+  the checker could not read after a change of the server key, or that a restored copy of the state lacked, a login an
+  earlier version kept without proof. A `/top` with no waiting run of your command, or one ci2 does not let your account move, is answered the same way. The same reply goes once per person and PR, at most 3 replies a day to one
   person and 5 a day to all the accounts nobody linked; a repeat gets only the 😕. A reply quotes nothing of the
   comment.
 - When GitHub makes the app account wait, or its writes reach 40 an hour to one PR or 60 for one user, reactions,
@@ -526,8 +566,10 @@ from its own GitHub account, the app account.
   due. If the pass has not started a minute after that, the card says "never" in amber: the job may be stuck.
 - Signed-in viewers also see what the check found and the settings in effect.
 - Operators are the users `PRC_ADMINS` names. They also see the log messages, who restarted or flushed last, the
-  operators' names in the settings, **Restart service**, **Flush caches** and the **Users** tab. Other viewers see
-  only how many warnings and errors were logged. Signed-in viewers among them also see how many operators there are.
+  operators' names in the settings, **Restart service**, **Flush caches** and the **Users** tab. After a change of the
+  server key, they see the **New tokens wanted** card: how many users' options still wait for new tokens. Other
+  viewers see only how many warnings and errors were logged. Signed-in viewers among them also see how many operators
+  there are.
   Without `PRC_ADMINS` nobody is an operator. The status page then says how to name operators.
 
 ## Everything else

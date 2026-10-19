@@ -68,7 +68,7 @@ class AutomationThreadsTest {
             context.registerBean(JiraClient.class, () -> mock(JiraClient.class));
             context.registerBean(VisaService.class, () -> mock(VisaService.class));
             context.registerBean(PendingCommits.class, () -> mock(PendingCommits.class));
-            context.register(AnalysisConfig.class, StandingVisas.class);
+            context.register(AnalysisConfig.class, StandingVisas.class, SettingsJournal.class);
             context.refresh();
 
             Map<String, ExecutorService> beans = context.getBeansOfType(ExecutorService.class);

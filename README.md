@@ -320,7 +320,7 @@ each boot, or the tokens can stay in the swap file.
 
 | File | What it holds |
 |---|---|
-| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; for a TeamCity token that TeamCity refused, only its SHA-256, to recognize that token again), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the ticket and comment of the visa of each of the last 2000 settled runs, the re-run waves. |
+| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; for a TeamCity token that TeamCity refused, only its SHA-256, to recognize that token again), GitHub logins and account ids, when and from which browser each account was linked, the comments and visas the options follow, the visas and comments a refused token held back, the ticket and comment of the visa of each of the last 2000 settled runs, the re-run waves, and a fingerprint of the key that encrypted the tokens. |
 | `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply, the reactions and replies GitHub has not taken yet. |
 | `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |
 | `reruns.json` | Queued and running builds the page and the options follow. |
@@ -328,6 +328,7 @@ each boot, or the tokens can stay in the swap file.
 | `problems.json` | Recent warnings and errors for the status page. |
 | `users.json` | Who used the service and when, and when each user last ended all their other logins. The server refuses session cookies that an earlier version of the checker issued before that moment. Names only, no tokens. |
 | `logins.json` | Each user's logins: the browser and its system, when it logged in and when it was last seen. No tokens and no IP addresses. If the file loses a browser's login, that browser goes to the login form. |
+| `journal.json` | Each user's journal in ⚙: each change of their settings and the browser it came from, each token a service refused or the checker could not read, each visa posted or edited with their JIRA token. The last 100 switches of options, the last 100 saved tokens and the last 100 other entries of each user. No tokens. |
 | `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
 | `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
@@ -340,14 +341,21 @@ Backups and the `.before-` and `.bad-` files keep their tokens for 2 days after 
 the tokens out of them and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a
 copy, each user's options stay on but pause until the user brings the missing tokens. The TeamCity token comes back
 when the user opens the checker or logs in. ⚙ asks the user to save the JIRA token and the GitHub token for commits
-again. A `.bad-` file that is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
+again. Until then the reply to a `/run-all` and the comment that brings the verdict say that the state was restored
+from a backup. A `.bad-` file that is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
 
-The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Changing the secret logs
-everyone out and makes the stored tokens unreadable. The standing options do not wait
-for their owner: when a run of a user with auto re-run, auto-visa or the PR comment on finishes, the checker drops all
-their options, the linked GitHub login included, if it cannot read their TeamCity token, or their JIRA token while
-auto-visa is on. A user stores a fresh TeamCity token by logging in again, and a fresh JIRA or GitHub token by
-switching auto-visa, the autofix or tests to suites off and on with the new token. Change the secret only if it leaked, and ask the users to do both before their next run finishes.
+The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Next to them
+`standing-visas.json` keeps a fingerprint of the key: an HMAC of a fixed text, which reveals nothing of the key.
+Changing the secret logs everyone out. At the next start the fingerprint does not match the new key, so the checker
+drops each stored token it can no longer read. The options stay on and wait for new tokens. ⚙ and the journal of each
+such user say that the server key was changed and which tokens to save again. Logging in again stores a new TeamCity
+token; a new JIRA or GitHub token goes into the form ⚙ opens for it. Until then the checker replies to a `/run-all` that
+the key was changed, and the comment that brings the verdict says why no visa came. The status page shows the operators
+how many users still wait. The first command from each linked GitHub account after the change gets the line
+`ℹ️ First command from @x for ci2 user y` in the PR again. When the key did not change but the checker cannot read a
+stored token, it drops that token the same way. ⚙ then says that the checker could not read it. A state restored from
+a copy without tokens is another case: ⚙ says that the state was restored from a backup, and the status page does not
+count those users. Change the secret only if it leaked.
 
 ### If a secret leaked
 
@@ -360,7 +368,9 @@ can make a session cookie for any user.
    again, not a configuration someone pushed through its admin API.
 2. Ask every user in `users.json` to make new TeamCity, JIRA and GitHub tokens and to revoke the old ones in ci2, JIRA
    and GitHub. Changing the secret logs everyone out; [The cache directory](#the-cache-directory) says what it does to
-   the stored tokens.
+   the stored tokens. The **New tokens wanted** card on the status page counts the users whose options still wait for
+   new tokens. Ask the users to check the line of their GitHub account and the journal in ⚙, and to press **Unlink**
+   if the account there is not theirs: with the secret, anyone could link their own account to any user.
 3. If you like, delete the copies of the state whose modification time is within the last 2 days: the files in
    `cache/backups/`, `*.before-*` and `*.bad-*`. They hold the old tokens, encrypted with the old `SESSION_SECRET`.
    Also delete each copy the log names after "could not take the tokens out of": it may still hold its tokens. The
@@ -376,7 +386,8 @@ logged-in users see how many warnings and errors were logged, but not the messag
 there are, but not who. Every press is logged with the operator's name.
 
 Without `PRC_ADMINS`, nobody is an operator. Nobody can restart the service, update it or flush its caches from the
-pages. Nobody sees the log messages on the status page either: they stay in the journal and in the service's own log.
+pages. Nobody sees the log messages on the status page either: read them on the server with
+`journalctl -u ignite-pr-checker` or in the service's own log.
 To name operators, set `PRC_ADMINS` in `/etc/ignite-pr-checker/env` to their TeamCity usernames, comma-separated, and
 restart the service.
 
