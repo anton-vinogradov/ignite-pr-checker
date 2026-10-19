@@ -302,14 +302,16 @@ shows the button that gives it.
 
 When the operator changes the server key, the checker can no longer read the tokens it stored, and drops them. Your
 options stay on and wait for new tokens. ⚙ says that the server key was changed and opens the form of each token to save
-again; a login stores the TeamCity token. Until then a `/run-all` gets a reply that says the server key was changed. The
-run's story says what the checkstyle fix waits for. The comment that brings the verdict says why no visa came. A stored
-token that got damaged is dropped the same way, and ⚙ says that the checker could not read it.
+again; a login stores the TeamCity token. Until you log in again, a `/run-all` gets a reply that says the server key was
+changed, and the story of a running `/run-all` waits and says so. After the login, the run's story says what the
+checkstyle fix waits for, and the comment that brings the verdict says why no visa came. A stored token that got
+damaged is dropped the same way, and ⚙ says that the checker could not read it.
 
 When the operator restores the checker's state from a copy older than 2 days, the copy has no tokens. Your options stay
 on and wait for the tokens too. ⚙, the reply to a `/run-all`, the run's story and the verdict comment then say that the
 state was restored from a backup, not that the key was changed. Opening the page while logged in gives the checker your
-TeamCity token again.
+TeamCity token again. A copy made before a change of the server key reads as that change: save new tokens, not the old
+ones.
 
 ### TeamCity login
 

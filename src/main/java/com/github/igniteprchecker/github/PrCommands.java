@@ -780,6 +780,9 @@ public class PrCommands implements SnapshotCache {
     /** The stage of a story that waits for a token TeamCity accepts. */
     private static final String TOKEN_REFUSED = "token refused";
 
+    /** The stage of a story that waits for a TeamCity token the checker no longer has, followed by why it is gone. */
+    private static final String TOKEN_GONE = "token gone: ";
+
     /** An estimate has to move this much before the comment is edited for it. */
     private static final long ETA_SHIFT_SEC = 10 * 60;
 
@@ -803,7 +806,11 @@ public class PrCommands implements SnapshotCache {
         int pr = run.pr();
         Optional<StandingVisas.GhActor> actor = standing.actor(run.username());
         if (actor.isEmpty()) {
-            end(run, "\n🛑 _No longer followed: the options of the user who started it were switched off._");
+            Optional<String> gone = standing.waitingToken(run.username(), SettingsJournal.Entry.TEAMCITY);
+            if (gone.isPresent())
+                waitForTokenBack(run, gone.get());
+            else
+                end(run, "\n🛑 _No longer followed: the options of the user who started it were switched off._");
 
             return;
         }
@@ -898,6 +905,27 @@ public class PrCommands implements SnapshotCache {
             + "the token the checker stores for you, so this story waits. The run itself goes on in TeamCity. Log in at "
             + publicUrl + " with a fresh TeamCity token to continue the story._"))
             shown.put(run.commentId(), new Shown(run.buildId(), TOKEN_REFUSED, -1));
+    }
+
+    /**
+     * Says once that the story waits for the commander's TeamCity token, which the checker no longer has: a restored
+     * copy of the state lacked it, or the checker could not read it. The commander's options wait for it too, so the
+     * next look after a login tells the run again.
+     */
+    private void waitForTokenBack(CommandRun run, String why) {
+        String stage = TOKEN_GONE + why;
+        String line = StandingVisas.TOKEN_REMOVED.equals(why)
+            ? "The checker's state was restored from a backup older than 2 days, which keeps no tokens. This story"
+                + " waits for your TeamCity token; the run itself goes on in TeamCity. Open " + publicUrl
+                + " while logged in, or log in there again, and the story goes on."
+            : (SettingsJournal.Entry.KEY_CHANGED.equals(why)
+                ? "The server key of the checker was changed, so it could no longer read the TeamCity token it stored"
+                    + " for you."
+                : "The checker can no longer read the TeamCity token it stores for you.")
+                + " This story waits for a new one; the run itself goes on in TeamCity. Log in at " + publicUrl
+                + " again, and the story goes on.";
+        if (worthEditing(run, stage, -1) && narrate(run, run.baseBody() + "\n⏸ _" + line + "_"))
+            shown.put(run.commentId(), new Shown(run.buildId(), stage, -1));
     }
 
     /** The run as the story keeps it now: posting its comment gives it an id. */

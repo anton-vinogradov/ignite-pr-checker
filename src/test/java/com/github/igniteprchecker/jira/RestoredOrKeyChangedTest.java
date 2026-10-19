@@ -39,9 +39,9 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Two batches made options wait for tokens instead of dropping them: a state restored from a copy older than two days,
  * which keeps no tokens, and a start under a changed server key, which cannot read them. They are not the same news:
- * after a restore nobody has to replace a token, and after a key change everyone should. The operator restored such a
- * copy of avinogradov's state after the key change, and nothing may call that a key change; nor may a key change read
- * as a restore.
+ * after a restore nobody has to replace a token, and after a key change everyone should. A restore may not read as a
+ * key change, nor a key change as a restore. But when the operator restored a copy made before the key change, ⚙ asked
+ * avinogradov to save his JIRA token again, the one the leaked key could decrypt: such a copy reads as a key change.
  */
 class RestoredOrKeyChangedTest {
     private static final String AUTHOR = "avinogradov";
@@ -85,8 +85,8 @@ class RestoredOrKeyChangedTest {
     }
 
     @Test
-    void aCopyRestoredUnderTheNewKeyIsARestoreNotAKeyChange() throws IOException {
-        StandingVisas restored = standing("new-secret", journal);
+    void aCopyRestoredUnderTheSameKeyIsARestoreNotAKeyChange() throws IOException {
+        StandingVisas restored = standing("old-secret", journal);
 
         restored.loadFrom(copy);
 
@@ -101,6 +101,46 @@ class RestoredOrKeyChangedTest {
         assertThat(restored.waitingToken(AUTHOR, SettingsJournal.Entry.GITHUB)).contains(StandingVisas.TOKEN_REMOVED);
         assertThat(restored.visaLine(AUTHOR, PR, RUN, () -> new StandingVisas.Run(AUTHOR, false, 0), false).state())
             .isEqualTo(StandingVisas.VisaLine.JIRA_TOKEN_REMOVED);
+    }
+
+    /** The key changed after the copy was made, so its tokens may have leaked: the user stores new ones. */
+    @Test
+    void aCopyRestoredUnderTheNewKeyAsksForNewTokens() throws IOException {
+        StandingVisas restored = standing("new-secret", journal);
+
+        restored.loadFrom(copy);
+
+        StandingVisas.Settings st = restored.settings(AUTHOR);
+        assertThat(st.tokensRemoved()).isEmpty();
+        assertThat(st.tokensUnread()).containsExactly("teamcity", "jira", "github");
+        assertThat(st.tokensUnreadWhy()).isEqualTo(SettingsJournal.Entry.KEY_CHANGED);
+        assertThat(restored.waitingAfterKeyChange()).as("the operator's count of a key change").isEqualTo(1);
+        assertThat(journal.of(AUTHOR)).singleElement().extracting(SettingsJournal::text)
+            .isEqualTo("The server key was changed, so the checker dropped your stored TeamCity token, JIRA token and"
+                + " GitHub token for commits: it could no longer read them. Your options wait until you store new"
+                + " ones.");
+        assertThat(restored.whyNoActor(GhUsers.of("anton-vinogradov"))).isEqualTo(StandingVisas.NoActor.KEY_CHANGED);
+        assertThat(restored.waitingToken(AUTHOR, SettingsJournal.Entry.GITHUB))
+            .contains(SettingsJournal.Entry.KEY_CHANGED);
+        assertThat(restored.visaLine(AUTHOR, PR, RUN, () -> new StandingVisas.Run(AUTHOR, false, 0), false).state())
+            .isEqualTo(StandingVisas.VisaLine.WAITS);
+    }
+
+    /** The next start under the same new key finds the marks of the key change and writes no second entry. */
+    @Test
+    void aRestartAfterTheRestoreUnderTheNewKeyKeepsTheKeyChange(@TempDir Path dir) throws IOException {
+        StandingVisas restored = standing("new-secret", journal);
+        restored.loadFrom(copy);
+        Path saved = dir.resolve("standing-visas.json");
+        restored.saveTo(saved);
+        SettingsJournal next = new SettingsJournal(mapper);
+        StandingVisas restarted = standing("new-secret", next);
+
+        restarted.loadFrom(saved);
+
+        assertThat(restarted.settings(AUTHOR).tokensUnreadWhy()).isEqualTo(SettingsJournal.Entry.KEY_CHANGED);
+        assertThat(restarted.waitingAfterKeyChange()).isEqualTo(1);
+        assertThat(next.of(AUTHOR)).isEmpty();
     }
 
     @Test

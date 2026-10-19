@@ -340,22 +340,26 @@ State is written within a second of a change, the caches every 5 minutes, and ev
 Backups and the `.before-` and `.bad-` files keep their tokens for 2 days after they are made. Then the service takes
 the tokens out of them and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a
 copy, each user's options stay on but pause until the user brings the missing tokens. The TeamCity token comes back
-when the user opens the checker or logs in. ⚙ asks the user to save the JIRA token and the GitHub token for commits
-again. Until then the reply to a `/run-all` and the comment that brings the verdict say that the state was restored
-from a backup. A `.bad-` file that is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
+when the user opens the checker or logs in. Until then the reply to a `/run-all` and the story of a running `/run-all`
+say that the state was restored from a backup. ⚙ asks the user to save the JIRA token and the GitHub token for commits
+again. Until the user saves the JIRA token, the comment that brings the verdict says so too. Until the user saves the
+GitHub token, so does the story of a `/run-all` whose checkstyle fix waits for it. A `.bad-` file that is not JSON
+keeps its tokens: the log names it, so delete it once you no longer need it.
 
 The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Next to them
 `standing-visas.json` keeps a fingerprint of the key: an HMAC of a fixed text, which reveals nothing of the key.
 Changing the secret logs everyone out. At the next start the fingerprint does not match the new key, so the checker
 drops each stored token it can no longer read. The options stay on and wait for new tokens. ⚙ and the journal of each
 such user say that the server key was changed and which tokens to save again. Logging in again stores a new TeamCity
-token; a new JIRA or GitHub token goes into the form ⚙ opens for it. Until then the checker replies to a `/run-all` that
-the key was changed, and the comment that brings the verdict says why no visa came. The status page shows the operators
-how many users still wait. The first command from each linked GitHub account after the change gets the line
+token; a new JIRA or GitHub token goes into the form ⚙ opens for it. Until the user logs in again, the checker replies
+to a `/run-all` that the key was changed, and the story of a running `/run-all` waits and says so. Until the user saves
+a new JIRA token, the comment that brings the verdict says why no visa came. The status page shows the operators how
+many users still wait. The first command from each linked GitHub account after the change gets the line
 `ℹ️ First command from @x for ci2 user y` in the PR again. When the key did not change but the checker cannot read a
 stored token, it drops that token the same way. ⚙ then says that the checker could not read it. A state restored from
-a copy without tokens is another case: ⚙ says that the state was restored from a backup, and the status page does not
-count those users. Change the secret only if it leaked.
+a copy without tokens under the same key is another case: ⚙ says that the state was restored from a backup, and the
+status page does not count those users. A copy made before the key change reads as a key change: its users store new
+tokens, and the status page counts them. Change the secret only if it leaked.
 
 ### If a secret leaked
 

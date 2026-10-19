@@ -2777,21 +2777,23 @@ public class StandingVisas implements SnapshotCache {
      * The enrollment with each stored token the server's key cannot read dropped and marked so: its options stay on
      * and wait for a new token. The file names the key its tokens were encrypted with, so a key other than the
      * server's means the key was changed; under the same key, or in a file of an earlier version, which names none,
-     * the token is damaged. The user's journal says which tokens went.
+     * the token is damaged. A token taken out of a restored copy is marked the same way when the key changed since the
+     * copy: the key changes only when it leaked, so the user has to store a new token, not the same one again. The
+     * user's journal says which tokens went.
      */
     private Enrollment withUnreadDropped(String user, Enrollment e, boolean keyChanged) {
         String why = keyChanged ? SettingsJournal.Entry.KEY_CHANGED : SettingsJournal.Entry.DAMAGED;
         List<String> dropped = new ArrayList<>();
         Enrollment next = e;
-        if (unreadable(e.tc())) {
+        if (unreadable(e.tc(), keyChanged)) {
             next = next.withTc(Credential.unread(why));
             dropped.add(SettingsJournal.Entry.TEAMCITY);
         }
-        if (unreadable(e.jira())) {
+        if (unreadable(e.jira(), keyChanged)) {
             next = next.withJira(Credential.unread(why));
             dropped.add(SettingsJournal.Entry.JIRA);
         }
-        if (unreadable(e.gh())) {
+        if (unreadable(e.gh(), keyChanged)) {
             next = next.withGh(Credential.unread(why));
             dropped.add(SettingsJournal.Entry.GITHUB);
         }
@@ -2814,8 +2816,9 @@ public class StandingVisas implements SnapshotCache {
         return e.ghLoginProven() ? e.withGhAccount(e.ghAccount().commandDue()) : e;
     }
 
-    private boolean unreadable(Credential c) {
-        return c.token() != null && decrypt(c).isEmpty();
+    /** Whether the token goes as unread: it does not decrypt, or a restored copy lost it before the key changed. */
+    private boolean unreadable(Credential c, boolean keyChanged) {
+        return c.token() != null && decrypt(c).isEmpty() || keyChanged && c.removed();
     }
 
     /** The visas of a snapshot written before the visas of runs were kept apart: those its enrollments still edit. */
