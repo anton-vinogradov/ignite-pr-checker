@@ -66,8 +66,9 @@ class GithubLoginTest {
     void aLinkIsAllPrCommandsNeed() {
         assertThat(link("newcomer", "tc-3", GhUsers.of("Newcomer"))).isEqualTo("linked");
 
-        assertThat(standing.settings("newcomer")).isEqualTo(new StandingVisas.Settings(false, false, false, false,
-            true, "Newcomer", false, false, false, false, false, false, false, true, null, null, null, true, null));
+        assertThat(standing.settings("newcomer")).usingRecursiveComparison().ignoringFields("linkedAt", "linkedFrom")
+            .isEqualTo(new StandingVisas.Settings(false, false, false, false, true, "Newcomer", false, false, false,
+                false, false, false, false, true, null, null, null, true, null));
         assertThat(standing.actorByGhUser(GhUsers.of("Newcomer")))
             .hasValueSatisfying(a -> assertThat(a.tcToken()).isEqualTo("tc-3"));
     }
@@ -210,7 +211,7 @@ class GithubLoginTest {
     void unlinkForgetsTheAccountAndPrCommands() {
         link("nsamelchev", "tc-1", GhUsers.of("NSAmelchev"));
 
-        StandingVisas.Settings st = links.unlink("nsamelchev");
+        StandingVisas.Settings st = links.unlink("nsamelchev", new MockHttpServletRequest());
 
         assertThat(st.login()).isNull();
         assertThat(st.commands()).isFalse();
@@ -231,7 +232,7 @@ class GithubLoginTest {
         standing.change("avinogradov", "tc-2", null, null,
             new StandingVisas.OptionChange(null, null, null, true, null, null));
 
-        StandingVisas.Settings st = links.unlink("avinogradov");
+        StandingVisas.Settings st = links.unlink("avinogradov", new MockHttpServletRequest());
         standing.ensureGhLogins();
 
         assertThat(st.login()).isNull();
@@ -248,7 +249,7 @@ class GithubLoginTest {
     void unlinkingTheLastOptionEndsTheEnrollment() {
         link("newcomer", "tc-3", GhUsers.of("Newcomer"));
 
-        links.unlink("newcomer");
+        links.unlink("newcomer", new MockHttpServletRequest());
 
         assertThat(standing.enabled("newcomer")).isFalse();
     }

@@ -60,6 +60,7 @@ class AutofixNoteTest {
         when(github.tokenOwner("gh-pat")).thenReturn(Optional.of(new GithubClient.TokenOwner(GhUsers.of("Author"),
             null)));
         standing.change("author", "tc", null, "gh-pat", new StandingVisas.OptionChange(false, false, false, true, true));
+        standing.firstCommand("author"); // told already: this test follows the run, not the line on a new link
         when(styleFix.fixForCommand(eq(PR), any(), eq("Author"))).thenReturn(NOTE);
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(9400000L, null, "queued",
             "pull/13800/head", "IgniteTests24Java8_RunAll", null, null, null, null, null, null, null, null, null, null,

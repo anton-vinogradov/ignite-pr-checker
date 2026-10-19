@@ -107,8 +107,8 @@ class OperatorPagesTest {
         assertThat(out.get("tabs").asBoolean()).isFalse();
         assertThat(out.get("log").asText()).isEqualTo("The server setting PRC_ADMINS names no operators, so nobody "
             + "sees the log messages here. To name operators, set PRC_ADMINS in /etc/ignite-pr-checker/env to their "
-            + "TeamCity usernames, comma-separated, and restart the service. Until then, the messages are in the "
-            + "service's journal: journalctl -u ignite-pr-checker.");
+            + "TeamCity usernames, comma-separated, and restart the service. Until then, read the messages on the "
+            + "server with journalctl -u ignite-pr-checker.");
         assertThat(out.get("anonymous").asText()).isEqualTo(out.get("log").asText());
     }
 

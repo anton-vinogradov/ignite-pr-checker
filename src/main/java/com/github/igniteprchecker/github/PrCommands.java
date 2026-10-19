@@ -2,6 +2,8 @@ package com.github.igniteprchecker.github;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.jira.Markup;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -249,6 +251,8 @@ public class PrCommands implements SnapshotCache {
 
             return;
         }
+        if (standing.firstCommand(actor.get().username()))
+            firstCommand(pr, c, actor.get().username());
         if (cmd.name().equals("/top")) {
             top(c, actor.get(), pr);
 
@@ -266,7 +270,8 @@ public class PrCommands implements SnapshotCache {
             // Style first, trigger second: the fix commit must be the revision the chain builds. It is pushed with the
             // user's own token, the one thing the checker does with it.
             String styleNote = actor.get().ghToken() != null && standing.styleFixOn(user)
-                ? styleFix.fixForCommand(pr, actor.get(), c.user().login()) : null;
+                ? styleFix.fixForCommand(pr, actor.get(), c.user().login())
+                : standing.styleFixOn(user) ? styleFixWaits(user) : null;
 
             QueuedBelowTopException belowTop = null;
             try {
@@ -311,6 +316,35 @@ public class PrCommands implements SnapshotCache {
                 explain(pr, user, c, "🚀 _Nothing was queued: " + queueFailure(e) + "._");
             }
         }
+    }
+
+    /**
+     * The one line on the first command from a GitHub account since its link to a ci2 user: the thread shows whose
+     * ci2 account the commands of that GitHub account now run under, so a link nobody expected gets seen.
+     */
+    private void firstCommand(int pr, GithubClient.IssueComment c, String user) {
+        reply(pr, user, "first:" + c.id(), "ℹ️ First command from @" + c.user().login() + " for ci2 user "
+            + Markup.text(user) + ": [Ignite PR Checker](" + publicUrl + ") runs the commands of @" + c.user().login()
+            + " under that ci2 account.");
+        log.info("first command from GitHub user {} for {}: told in PR {}", c.user().login(), user, pr);
+    }
+
+    /**
+     * The note of a commanded run whose checkstyle fix waits for a GitHub token for commits: a restored copy of the
+     * state lacked it, or the checker could not read the one it stored. Null when the fix has no such reason to wait.
+     */
+    private String styleFixWaits(String user) {
+        return standing.waitingToken(user, SettingsJournal.Entry.GITHUB)
+            .map(why -> StandingVisas.TOKEN_REMOVED.equals(why)
+                ? "🎨 _Fix checkstyle before my commanded runs waits for your GitHub token for commits: the checker's"
+                    + " state was restored from a backup older than 2 days, which keeps no tokens. Save the token in ⚙"
+                    + " at " + publicUrl + " again._"
+                : "🎨 _Fix checkstyle before my commanded runs waits for a new GitHub token for commits: "
+                    + (SettingsJournal.Entry.KEY_CHANGED.equals(why)
+                        ? "the server key was changed, so the checker could no longer read the stored one."
+                        : "the checker could not read the stored one.")
+                    + " Save a new token in ⚙ at " + publicUrl + "._")
+            .orElse(null);
     }
 
     /** What the ack says of the commander's chains and re-runs the new run cancelled; empty when there were none. */
@@ -571,6 +605,13 @@ public class PrCommands implements SnapshotCache {
             case TOKEN_UNREADABLE -> lacking(pr, c, stranger, cmd, "tc-unreadable", lead(cmd) + ": the checker can no"
                 + " longer read the TeamCity token it stores for you. Log in at " + publicUrl + " again, and it keeps"
                 + " the new one.");
+            case KEY_CHANGED -> lacking(pr, c, stranger, cmd, "tc-key", lead(cmd) + ": the server key of the checker"
+                + " was changed, so it could no longer read the TeamCity token it stored for you. Log in at "
+                + publicUrl + " again: the checker stores the token of that login, and your commands work again.");
+            case TOKEN_REMOVED -> lacking(pr, c, stranger, cmd, "tc-removed", lead(cmd) + ": the checker's state was"
+                + " restored from a backup older than 2 days, which keeps no tokens. Open " + publicUrl + " while"
+                + " logged in, or log in there again: the checker takes the TeamCity token of that login, and your"
+                + " commands work again.");
             default -> lacking(pr, c, stranger, cmd, UNLINKED, lead(cmd) + ": this GitHub account is not linked to a"
                 + " ci2 account in [Ignite PR Checker](" + publicUrl + "). Log in there with a [TeamCity access token]("
                 + tcBaseUrl + "/profile.html?item=accessTokens), " + linkSteps() + " After that, `/run-all` here"
@@ -739,6 +780,9 @@ public class PrCommands implements SnapshotCache {
     /** The stage of a story that waits for a token TeamCity accepts. */
     private static final String TOKEN_REFUSED = "token refused";
 
+    /** The stage of a story that waits for a TeamCity token the checker no longer has, followed by why it is gone. */
+    private static final String TOKEN_GONE = "token gone: ";
+
     /** An estimate has to move this much before the comment is edited for it. */
     private static final long ETA_SHIFT_SEC = 10 * 60;
 
@@ -762,7 +806,11 @@ public class PrCommands implements SnapshotCache {
         int pr = run.pr();
         Optional<StandingVisas.GhActor> actor = standing.actor(run.username());
         if (actor.isEmpty()) {
-            end(run, "\n🛑 _No longer followed: the options of the user who started it were switched off._");
+            Optional<String> gone = standing.waitingToken(run.username(), SettingsJournal.Entry.TEAMCITY);
+            if (gone.isPresent())
+                waitForTokenBack(run, gone.get());
+            else
+                end(run, "\n🛑 _No longer followed: the options of the user who started it were switched off._");
 
             return;
         }
@@ -859,6 +907,27 @@ public class PrCommands implements SnapshotCache {
             shown.put(run.commentId(), new Shown(run.buildId(), TOKEN_REFUSED, -1));
     }
 
+    /**
+     * Says once that the story waits for the commander's TeamCity token, which the checker no longer has: a restored
+     * copy of the state lacked it, or the checker could not read it. The commander's options wait for it too, so the
+     * next look after a login tells the run again.
+     */
+    private void waitForTokenBack(CommandRun run, String why) {
+        String stage = TOKEN_GONE + why;
+        String line = StandingVisas.TOKEN_REMOVED.equals(why)
+            ? "The checker's state was restored from a backup older than 2 days, which keeps no tokens. This story"
+                + " waits for your TeamCity token; the run itself goes on in TeamCity. Open " + publicUrl
+                + " while logged in, or log in there again, and the story goes on."
+            : (SettingsJournal.Entry.KEY_CHANGED.equals(why)
+                ? "The server key of the checker was changed, so it could no longer read the TeamCity token it stored"
+                    + " for you."
+                : "The checker can no longer read the TeamCity token it stores for you.")
+                + " This story waits for a new one; the run itself goes on in TeamCity. Log in at " + publicUrl
+                + " again, and the story goes on.";
+        if (worthEditing(run, stage, -1) && narrate(run, run.baseBody() + "\n⏸ _" + line + "_"))
+            shown.put(run.commentId(), new Shown(run.buildId(), stage, -1));
+    }
+
     /** The run as the story keeps it now: posting its comment gives it an id. */
     private CommandRun current(CommandRun run) {
         CommandRun now = watching.get(run.commentId());
@@ -895,7 +964,8 @@ public class PrCommands implements SnapshotCache {
             + " the verdict of your `/run-all`") + " is ready: RunAll [" + run.buildId() + "](" + tcBaseUrl + "/build/"
             + run.buildId() + ") — " + verdictLink(run, run.pr(), "see the verdict") + "."
             + (standing.visaOn(run.username()) && standing.settledWithoutTicket(run.buildId())
-                ? " No JIRA visa: the PR title names no IGNITE ticket." : "")
+                ? " No JIRA visa: the PR title names no IGNITE ticket."
+                : standing.visaWaiting(run.username(), run.pr(), run.buildId()).map(line -> " " + line).orElse(""))
             + (run.note() == null ? "" : "\n\n" + run.note());
         if (readsAsCommand(body))
             throw new IllegalStateException("the checker must never post a comment that reads as a command");

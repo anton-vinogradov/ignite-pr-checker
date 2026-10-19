@@ -54,6 +54,7 @@ class CommandsOnlyTest {
     @BeforeEach
     void setUp() {
         standing.linkGhLogin("newcomer", "commands-tc", GhUsers.of("Newcomer"));
+        standing.firstCommand("newcomer"); // told already: this test follows the run, not the line on a new link
     }
 
     @Test

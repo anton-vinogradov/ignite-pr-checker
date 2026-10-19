@@ -6,13 +6,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Optional;
 import javax.crypto.Cipher;
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -37,13 +40,43 @@ public class SessionCodec {
     private static final int IV_LEN = 12;
     private static final int TAG_BITS = 128;
 
+    /** What {@link #keyCheck} signs: a fixed text, so the fingerprint names the key and nothing else. */
+    private static final byte[] KEY_CHECK_TEXT = "ignite-pr-checker key check".getBytes(StandardCharsets.UTF_8);
+
+    /** How many bytes of the signature {@link #keyCheck} keeps. */
+    private static final int KEY_CHECK_BYTES = 8;
+
     private final SecretKey key;
+
+    private final String keyCheck;
     private final ObjectMapper mapper;
     private final SecureRandom random = new SecureRandom();
 
     public SessionCodec(SessionProperties props, ObjectMapper mapper) {
         this.mapper = mapper;
         this.key = deriveKey(props.secret());
+        this.keyCheck = keyCheckOf(key);
+    }
+
+    /**
+     * A short fingerprint of the key: the start of an HMAC-SHA256 of a fixed text, in hex. Kept next to the stored
+     * tokens, it tells that they were encrypted with another key from tokens that got damaged; it reveals nothing of
+     * the key itself.
+     */
+    public String keyCheck() {
+        return keyCheck;
+    }
+
+    private static String keyCheckOf(SecretKey key) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(key.getEncoded(), "HmacSHA256"));
+
+            return HexFormat.of().formatHex(Arrays.copyOf(mac.doFinal(KEY_CHECK_TEXT), KEY_CHECK_BYTES));
+        }
+        catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** @return the cookie value carrying a new session: the TeamCity token alone. */

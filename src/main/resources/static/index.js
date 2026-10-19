@@ -2922,6 +2922,9 @@ function visaLineText(v, key) {
             return 'Visa: none, the PR is closed';
         case 'unknown':
             return 'Visa: unknown, TeamCity does not say who started this run';
+        case 'waits':
+            return 'Visa: waits for a new JIRA token in ⚙, because ' + (v.unread === 'key-changed'
+                ? 'the server key was changed' : 'the checker could not read the stored one');
         default:
             return null;
     }
@@ -2955,6 +2958,7 @@ $('settingsBtn').onclick = () => {
     if (p.classList.contains('hidden')) return;
     loadSettings();
     loadLogins();
+    loadJournal();
 };
 
 function lockSettings(message) {
@@ -2987,6 +2991,47 @@ function renderSettings(st) {
     showTokenNotes(st);
     showRemovedTokens(st);
     renderGithubAccount(st);
+    renderUnread(st);
+}
+
+// The checker could not read the tokens it stored, after a change of the server key or because they got damaged. It
+// dropped them, and the options that use them stay on and wait. ⚙ names each token and the options that wait for it,
+// and opens the forms of the tokens to save; Save there sends the token with the option that waits for it.
+function renderUnread(st) {
+    const unread = st.tokensUnread || [];
+    const el = $('tokensUnread');
+    el.classList.toggle('hidden', !unread.length);
+    if (!unread.length) {
+        el.textContent = '';
+        return;
+    }
+    const names = [unread.includes('teamcity') && 'TeamCity token', unread.includes('jira') && 'JIRA token',
+        unread.includes('github') && 'GitHub token for commits'].filter(Boolean);
+    const forms = names.filter(n => n !== 'TeamCity token');
+    const why = st.tokensUnreadWhy === 'key-changed'
+        ? 'The server key was changed, so the checker could no longer read' : 'The checker could not read';
+    el.textContent = `⚠ ${why} your stored ${listed(names)}.`
+        + (unread.includes('teamcity') ? ' Your options stay on and wait until you log in again.' : '')
+        + (unread.includes('jira') ? ' ' + waitsFor(['visa'], 'JIRA token') : '')
+        + (unread.includes('github') ? ' ' + waitsFor(COMMIT_OPTIONS.filter(name => st[name]), 'GitHub token for'
+            + ' commits') : '')
+        + (forms.length === 1 ? ' Save it below.' : forms.length ? ' Save the new tokens below.' : '');
+    if (unread.includes('jira')) $('settingsJira').classList.remove('hidden');
+    if (unread.includes('github')) {
+        pendingOption = COMMIT_OPTIONS.find(name => st[name]) || pendingOption;
+        $('settingsGh').classList.remove('hidden');
+    }
+}
+
+function waitsFor(options, token) {
+    const names = listed(options.map(name => OPTION_NAMES[name]));
+    return options.length > 1 ? `${names} stay on. They wait for a new ${token}.`
+        : `${names} stays on and waits for a new ${token}.`;
+}
+
+// "a", "a and b", "a, b and c".
+function listed(names) {
+    return names.length <= 1 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 }
 
 // Each group opens with the state of what its options need: the tokens the server holds for them.
@@ -3026,7 +3071,8 @@ function renderLogin(st) {
     const proven = !!st.login && !st.loginUnproven;
     const linkable = !!st.githubLinkable;
     $('ghLoginState').textContent = !st.login ? 'not linked' : '@' + st.login
-        + (st.loginUnproven ? ', not proven' : st.ghStored ? ', linked by your GitHub token for commits' : '');
+        + (st.loginUnproven ? ', not proven' : st.linkedAt ? linkedWhen(st)
+            : st.ghStored ? ', linked by your GitHub token for commits' : '');
     $('ghLoginUnproven').classList.toggle('hidden', !st.loginUnproven);
     $('ghLoginUnproven').textContent = st.loginUnproven ? '⚠ @' + st.login + ' is not proven: an earlier version of '
         + 'the checker kept it without proof that it is yours. ' + (st.commands ? 'Your PR commands do nothing'
@@ -3036,6 +3082,11 @@ function renderLogin(st) {
     $('ghLinkOff').classList.toggle('hidden', proven || linkable || st.githubAvailable === false);
     $('ghUnlink').classList.toggle('hidden', !st.login);
     $('ghLinkMsg').textContent = '';
+}
+
+// When and from which browser the user linked their GitHub account: a link they did not make shows here.
+function linkedWhen(st) {
+    return ', linked ' + fmtDay(st.linkedAt) + (st.linkedFrom ? ' from ' + st.linkedFrom : '');
 }
 
 // A token the service refused takes its options down with it, so the panel must show the
@@ -3148,8 +3199,8 @@ async function setOption(name, on, githubToken, jiraToken) {
         return;
     }
     const before = standingSettings || {};
-    // A refused switch shows the option as the server keeps it: a token that failed to replace the saved one leaves
-    // its option on.
+    // A refused switch shows the option as the server keeps it: a token that failed to replace the saved one, or the
+    // new one an option waits for, leaves its option on.
     const undo = () => { toggle.checked = !on || !!before[name]; };
     const need = OPTION_NEEDS[name];
     const pasted = need === 'github' ? githubToken : need === 'jira' ? jiraToken : undefined;
@@ -3196,6 +3247,7 @@ async function setOption(name, on, githubToken, jiraToken) {
                 ? ' Fix checkstyle before my commanded runs went off with PR commands.' : '');
         if (name === 'visa' && selectedPr) loadVisaLine(selectedPr);
         if (pendingOption === name) pendingOption = null;
+        loadJournal();
         return true;
     } catch (e) {
         undo();
@@ -3260,6 +3312,7 @@ $('ghUnlink').onclick = async () => {
         if (!r.ok) { m.textContent = friendly(res.error, 'could not unlink — try again'); return; }
         pendingOption = null;
         renderSettings(res);
+        loadJournal();
         $('settingsMsg').textContent = 'Unlinked @' + before.login + ': PR commands are off.' + (before.ghStored
             ? ' Your GitHub token for commits is dropped too, and the options that used it are off: it was of that'
                 + ' account.' : '');
@@ -3291,6 +3344,7 @@ async function showLinkOutcome() {
     history.replaceState(pr ? { pr } : {}, '', pr ? '?pr=' + pr : location.pathname);
     $('settingsPanel').classList.remove('hidden');
     loadLogins();
+    loadJournal();
     await loadSettings();
     $('settingsMsg').textContent = LINK_OUTCOMES[outcome](standingSettings || {});
 }
@@ -3370,6 +3424,54 @@ async function endLogins(path, body, none, more = '') {
         answer('Could not reach the service — nothing was logged out.');
     }
 }
+
+// ⚙ ends with the journal: each change of the user's settings and the browser it came from, and each visa the
+// checker posted or edited with their JIRA token, the newest first. It shows the newest JOURNAL_SHOWN entries until
+// the user asks for all.
+const JOURNAL_SHOWN = 10;
+let journal = { entries: [], full: false };
+let journalAll = false;
+
+async function loadJournal() {
+    $('journalMsg').textContent = '';
+    try {
+        const r = await api('/api/journal');
+        if (r.status === 401) return loggedOut(r);
+        if (!r.ok) { $('journalMsg').textContent = 'Could not load your journal — close ⚙ and open it again.'; return; }
+        journal = await r.json();
+        renderJournal();
+    } catch (e) {
+        $('journalMsg').textContent = 'Could not reach the service — close ⚙ and open it again.';
+    }
+}
+
+function renderJournal() {
+    const entries = journal.entries || [];
+    const n = entries.length;
+    $('journalState').textContent = !n ? 'nothing yet' : journal.full ? `the last ${n} entries`
+        : n === 1 ? '1 entry' : n + ' entries';
+    $('journalList').innerHTML = (journalAll ? entries : entries.slice(0, JOURNAL_SHOWN)).map(journalRow).join('');
+    $('journalMore').classList.toggle('hidden', n <= JOURNAL_SHOWN);
+    $('journalMore').textContent = journalAll ? 'Show fewer' : `Show all ${n}`;
+    $('journalMore').setAttribute('aria-expanded', String(journalAll));
+}
+
+// A visa's entry links its ticket to the comment in JIRA. The browser's label comes from its User-Agent, which anyone
+// can write: every part is text, not markup.
+function journalRow(e) {
+    let text = esc(e.text);
+    if (e.url && e.linkText) {
+        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="Opens the visa in JIRA.">`
+            + `${esc(e.linkText)}</a>`;
+        text = text.replace(esc(e.linkText), () => link);
+    }
+    return `<li>${esc(fmtDay(e.at))} — ${text} <span class="muted">${esc(e.from)}</span></li>`;
+}
+
+$('journalMore').onclick = () => {
+    journalAll = !journalAll;
+    renderJournal();
+};
 
 $('loginsEnd').onclick = () => endLogins('/api/logins/end', { ids: [...loginsPicked] },
     'Those browsers were already logged out.');

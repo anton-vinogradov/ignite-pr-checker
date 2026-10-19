@@ -20,6 +20,8 @@
         .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
         .settings-panel { max-width: 820px; margin: 0.6rem 1rem 0 auto; padding: 0.9rem 1.1rem; font-size: 0.85rem; }
+        /* The body is a column as tall as the window: a taller ⚙ would squeeze the PR page under it to nothing. */
+        #settingsPanel { max-height: 60vh; overflow-y: auto; }
         .settings-row { display: flex; gap: 0.6rem; align-items: flex-start; cursor: pointer; }
         .settings-row input { margin: 0.2rem 0 0 0; width: 16px; height: 16px; flex: none; }
         .settings-group + .settings-group { border-top: 1px solid var(--line); margin-top: 0.7rem; padding-top: 0.7rem; }
@@ -317,6 +319,7 @@
     </header>
 
     <div id="settingsPanel" class="card settings-panel hidden">
+        <p id="tokensUnread" class="caveat hidden"></p>
         <section id="groupTc" class="settings-group">
             <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span></p>
             <p id="tcTokenGone" class="caveat hidden">⚠ TeamCity no longer accepts the token your options use, so they
@@ -418,6 +421,18 @@
                 <button id="loginsEndOthers" class="act" type="button"
                     title="Logs out every other browser: each goes to the login form at its next request. A copy of this browser's cookie stays logged in until you press Log out in this browser.">Log out everywhere else</button>
                 <span id="loginsMsg" class="muted"></span>
+            </span>
+        </section>
+        <section id="groupJournal" class="settings-logins">
+            <p class="settings-access"><b>Journal</b>: <span id="journalState"></span></p>
+            <p class="muted">The journal lists each change of your settings and the browser it came from. It also lists
+                each visa the checker posted or edited with your JIRA token. The browser name comes from the browser's
+                User-Agent.</p>
+            <ul id="journalList" class="logins-list"></ul>
+            <span class="row">
+                <button id="journalMore" class="act hidden" type="button" aria-expanded="false"
+                    aria-controls="journalList">Show all</button>
+                <span id="journalMsg" class="muted"></span>
             </span>
         </section>
     </div>

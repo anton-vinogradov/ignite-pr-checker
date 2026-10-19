@@ -50,6 +50,7 @@ class CommandLoopTest {
     @Test
     void theStoryCarriesNothingTheCommanderWrote() {
         standing.linkGhLogin("author", "tc", GhUsers.of("Author"));
+        standing.firstCommand("author"); // told already: this test follows the run, not the line on a new link
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(new TcModel.Build(9400000L, null, "queued",
             "pull/13800/head", null, null, null, null, null, null, null, null, null, null, null, null, null, null));
         when(github.recentIssueComments(anyString())).thenReturn(List.of(new GithubClient.IssueComment(1L,

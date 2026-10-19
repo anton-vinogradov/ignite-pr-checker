@@ -65,7 +65,8 @@ class StandingSettingsTest {
     void aClickChangesOnlyItsOwnSwitchAndKeepsTheSavedTokens() {
         ResponseEntity<?> res = post(null, false, null, null, null, null);
 
-        assertThat(res.getBody()).usingRecursiveComparison().ignoringFields("ghTokenKind").isEqualTo(
+        assertThat(res.getBody()).usingRecursiveComparison()
+            .ignoringFields("ghTokenKind", "linkedAt", "linkedFrom").isEqualTo(
             new StandingVisas.Settings(true, false, true, true, true, "anton-vinogradov", true, true, false, false,
                 false));
     }
@@ -102,7 +103,8 @@ class StandingSettingsTest {
 
         assertThat(res.getStatusCode().value()).isEqualTo(412);
         assertThat(((Map<?, ?>)res.getBody()).get("need")).isEqualTo("jira");
-        assertThat(standing.settings(USER)).usingRecursiveComparison().ignoringFields("ghTokenKind").isEqualTo(
+        assertThat(standing.settings(USER)).usingRecursiveComparison()
+            .ignoringFields("ghTokenKind", "linkedAt", "linkedFrom").isEqualTo(
             new StandingVisas.Settings(false, true, true, true, true, "anton-vinogradov", false, true, false, false,
                 false));
     }

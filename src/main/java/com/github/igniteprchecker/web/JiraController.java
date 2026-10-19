@@ -3,10 +3,12 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.jira.JiraClient;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -82,7 +84,7 @@ public class JiraController {
     public ResponseEntity<?> standingVisa(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands,
         Boolean suites, String tcToken, String username, String jiraToken, String ghToken) {
         return standingVisa(visa, rerun, gh, style, commands, suites, null, new OptionTokens(ghToken, jiraToken),
-            tcToken, username);
+            tcToken, username, null);
     }
 
     /**
@@ -90,8 +92,9 @@ public class JiraController {
      * needs ({@code need}: jira, github or login), a 409 says the checker has no GitHub account for an option that
      * writes to GitHub, a 502 that the service could not check the token. The token an option needs comes in the body,
      * {@code jiraToken} with the visa's switch and {@code githubToken} with that of an option that commits, and goes
-     * into no cookie: the server keeps it while such an option is on. {@code tz} is the browser's time zone. Answers
-     * with the whole state, like the GET.
+     * into no cookie: the server keeps it while such an option is on. {@code tz} is the browser's time zone. The
+     * journal names the login and the browser of {@code req} as who made the change. Answers with the whole state,
+     * like the GET.
      */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
@@ -103,10 +106,12 @@ public class JiraController {
         @RequestParam(required = false) String tz,
         @RequestBody(required = false) OptionTokens tokens,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
+        HttpServletRequest req) {
         Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken,
             tokens == null ? null : pasted(tokens.jiraToken()), tokens == null ? null : pasted(tokens.githubToken()),
-            new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites), tz);
+            new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites), tz,
+            req == null ? SettingsJournal.By.of(null, null) : AuthInterceptor.by(req));
         if (refused.isPresent() && refused.get().need() == null)
             return ResponseEntity.status(502).body(Map.of("error", refused.get().error()));
         if (refused.isPresent() && refused.get().equals(StandingVisas.Refusal.UNAVAILABLE))

@@ -85,10 +85,12 @@ class ThreadEndingTest {
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
+    private final SettingsJournal journal = new SettingsJournal(mapper);
+
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, analyzer,
         jira, new VisaService(new TeamcityProperties("https://ci2.example/"), "https://checker.example"),
-        mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
+        mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class), journal);
 
     @BeforeEach
     void setUp(@TempDir Path dir) throws Exception {
@@ -114,6 +116,22 @@ class ThreadEndingTest {
         verify(github, never()).commentBody(COMMENT);
         verify(github, never()).appEdit(anyInt(), any(), eq(COMMENT), anyString());
         assertThat(standing.waveStatus(PR, OLD)).isEmpty();
+    }
+
+    /** The last line went into the visa with the user's JIRA token: the edit is an entry of their journal. */
+    @Test
+    void theLastLineOfAVisaIsInTheJournal() {
+        listed();
+        when(tc.findRunAllBuildForPr("tc", PR)).thenReturn(Optional.of(finished(NEW, "bob")));
+        when(jira.commentUrl(ISSUE, VISA)).thenReturn("https://issues.example/c18000001");
+
+        standing.sweep();
+        standing.sweep();
+
+        assertThat(journal.views(USER, "laptop", "Firefox on Linux").get(0))
+            .extracting(SettingsJournal.View::text, SettingsJournal.View::url)
+            .containsExactly("Edited the visa in IGNITE-28938 for PR #13427, RunAll " + OLD + ".",
+                "https://issues.example/c18000001");
     }
 
     /**

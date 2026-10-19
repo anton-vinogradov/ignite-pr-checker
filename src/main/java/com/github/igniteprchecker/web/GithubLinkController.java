@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
 import jakarta.servlet.http.HttpServletRequest;
@@ -131,15 +132,17 @@ public class GithubLinkController {
         if (who.isEmpty())
             return back("failed", asked);
 
-        String linked = standing.linkGhLogin(session.get().username(), session.get().token(), who.get(), asked.tz());
+        String linked = standing.linkGhLogin(session.get().username(), session.get().token(), who.get(), asked.tz(),
+            SettingsJournal.By.of(session.get().login(), AuthInterceptor.browser(req)));
 
         return back("ok".equals(linked) ? "linked" : linked, asked);
     }
 
     /** Forgets the user's GitHub account; answers with the whole settings state. */
     @PostMapping("/api/github/unlink")
-    public StandingVisas.Settings unlink(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        standing.unlinkGhLogin(username);
+    public StandingVisas.Settings unlink(@RequestAttribute(AuthInterceptor.USER_ATTR) String username,
+        HttpServletRequest req) {
+        standing.unlinkGhLogin(username, AuthInterceptor.by(req));
 
         return standing.settings(username);
     }

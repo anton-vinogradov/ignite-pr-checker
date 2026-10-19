@@ -3,10 +3,12 @@ package com.github.igniteprchecker.jira;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,10 +37,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The README said that after a change of SESSION_SECRET the standing options stay on and wait for their owner to log
- * in again. They do not wait: the owner's next finished run drops all their options, the GitHub login and PR commands
- * included, when the checker cannot read the TeamCity token, or the JIRA token while auto-visa is on. Runs the
- * options of PR 13335's author through a restart with a new secret.
+ * After a change of SESSION_SECRET the owner's next finished run dropped all their standing options, the GitHub login
+ * and PR commands included, when the checker could not read the TeamCity token, or the JIRA token while auto-visa was
+ * on. The options now stay on and wait for their owner to log in again and save the tokens the checker could not read.
+ * Runs the options of PR 13335's author through a restart with a new secret.
  */
 class SecretRotationTest {
     private static final int PR = 13335;
@@ -80,13 +82,15 @@ class SecretRotationTest {
     }
 
     @Test
-    void aRunThatFinishesBeforeItsOwnerLogsInDropsAllTheirOptions() {
+    void aRunThatFinishesBeforeItsOwnerLogsInWaitsForThem() {
         finishedRunOf("alice");
 
         rotated.sweep();
 
-        assertThat(rotated.enabled("alice")).isFalse();
-        assertThat(rotated.actorByGhUser(GhUsers.of("alice-gh"))).as("PR commands go with the options").isEmpty();
+        assertThat(rotated.rerunOn("alice")).isTrue();
+        assertThat(rotated.commandsOn("alice")).isTrue();
+        assertThat(rotated.ghLoginOf("alice")).isEqualTo("alice-gh");
+        verify(tc, never()).triggerBuildReplacingQueued(anyString(), anyString(), anyInt(), anyBoolean(), anyString());
         assertThat(rotated.rerunOn("bob")).as("bob logged in again").isTrue();
     }
 
@@ -103,13 +107,16 @@ class SecretRotationTest {
     }
 
     @Test
-    void autoVisaNeedsAFreshJiraTokenToo() {
+    void autoVisaWaitsForAFreshJiraToken() {
         rotated.tcTokenAccepted("carol", "carol-tc");
         finishedRunOf("carol");
 
         rotated.sweep();
 
-        assertThat(rotated.enabled("carol")).as("the TeamCity token alone does not save them").isFalse();
+        assertThat(rotated.visaOn("carol")).isTrue();
+        assertThat(rotated.rerunOn("carol")).isTrue();
+        assertThat(rotated.settings("carol").tokensUnread()).as("the TeamCity token came with the login")
+            .containsExactly("jira");
     }
 
     @Test
@@ -128,15 +135,15 @@ class SecretRotationTest {
     }
 
     @Test
-    void bothReadmesSayTheOptionsAreDroppedAtTheNextFinishedRun() throws IOException {
+    void bothReadmesSayTheOptionsWaitForNewTokens() throws IOException {
         assertThat(collapsed("README.md"))
-            .doesNotContain("stay on but do nothing until their owner logs in again")
-            .contains("drops all their options, the linked GitHub login included, if it cannot read their TeamCity "
-                + "token, or their JIRA token while auto-visa is on.");
+            .doesNotContain("drops all their options")
+            .contains("the checker drops each stored token it can no longer read. The options stay on and wait for new"
+                + " tokens.");
         assertThat(collapsed("README.ru.md"))
-            .doesNotContain("остаются включёнными, но ничего не делают")
-            .contains("сбрасывает все его опции вместе с привязанным логином GitHub, если не может прочитать его "
-                + "токен TeamCity или токен JIRA при включённой автовизе.");
+            .doesNotContain("сбрасывает все его опции")
+            .contains("чекер выбрасывает каждый хранимый токен, который больше не может прочитать. Опции остаются"
+                + " включёнными и ждут новых токенов.");
     }
 
     /**
