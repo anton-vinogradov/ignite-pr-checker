@@ -210,7 +210,7 @@ class ClientVisaTest {
 
         verify(jira, times(1)).addCommentWithId(anyString(), anyString(), anyString());
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("📝 No new JIRA visa: your last one"
-            + " in [" + ISSUE + "](" + COMMENT_URL + ") says the same of the same commits."));
+            + " in [" + ISSUE + "](" + COMMENT_URL + ") has the same verdict for the same commits."));
     }
 
     /**

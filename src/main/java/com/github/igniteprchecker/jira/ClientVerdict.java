@@ -202,9 +202,9 @@ public final class ClientVerdict {
             : ink.link("build " + rerun.buildId(), tcBase + "build/" + rerun.buildId());
         b.append("♻️ ");
         if (rerun.standsIn()) {
-            b.append("TeamCity cancelled the run, ").append(ink.link("build " + run.buildId(), tcBase + "build/"
-                + run.buildId())).append(", by itself. The checker ran the suite again on the same commits, and this"
-                + " verdict is of that re-run.");
+            b.append("TeamCity cancelled ").append(ink.link("build " + run.buildId(), tcBase + "build/"
+                + run.buildId())).append(" by itself. The checker ran the suite again on the same commits. This"
+                + " verdict comes from that re-run.");
         }
         else if (rerun.counted())
             b.append("Settled after one auto re-run: ").append(build)
@@ -224,7 +224,7 @@ public final class ClientVerdict {
         String line = switch (visa.state()) {
             case ClientVisa.POSTED -> "The JIRA visa is in [" + visa.issue() + "](" + visa.url() + ").";
             case ClientVisa.SAME -> "No new JIRA visa: your last one in [" + visa.issue() + "](" + visa.url()
-                + ") says the same of the same commits.";
+                + ") has the same verdict for the same commits.";
             case ClientVisa.NO_TICKET -> "No JIRA visa: the PR title names no IGNITE ticket.";
             case ClientVisa.CLOSED -> "No JIRA visa: the PR was " + visa.why() + " before the run's verdict.";
             case ClientVisa.WAITS -> waits(visa.why());

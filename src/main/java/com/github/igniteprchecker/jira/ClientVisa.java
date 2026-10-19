@@ -14,7 +14,7 @@ public record ClientVisa(String state, String issue, String url, String why) {
     /** The visa is in the ticket. */
     public static final String POSTED = "posted";
 
-    /** The commander's last visa of the PR in that ticket says the same of the same commits: none went out. */
+    /** The commander's last visa of the PR in that ticket has the same verdict for the same commits: none went out. */
     public static final String SAME = "same";
 
     /** The PR title names no IGNITE ticket. */

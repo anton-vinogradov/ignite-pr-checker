@@ -1225,8 +1225,8 @@ public class PrCommands implements SnapshotCache {
             : "[build " + rerun.id() + "](" + rerun.webUrl() + ")";
         if (worthEditing(run, stage, finishAt) && narrate(run, run.baseBody() + (run.rerunStandsIn()
             ? "\n🛑 _TeamCity cancelled the run by itself._" : "\n🏁 _Run finished._") + " ♻️ _Auto re-run "
-            + link + " runs the suite again on the same commits — " + (queued ? "queued" : "running")
-            + (finishAt < 0 ? ", no finish estimate yet._" : ", expected to finish **≈ " + wallClock(finishAt, tz)
+            + link + " of the suite on the same commits is " + (queued ? "queued" : "running")
+            + (finishAt < 0 ? ", with no finish estimate yet._" : ", expected to finish **≈ " + wallClock(finishAt, tz)
                 + "**._")))
             shown.put(run.commentId(), new Shown(run.buildId(), stage, finishAt));
     }

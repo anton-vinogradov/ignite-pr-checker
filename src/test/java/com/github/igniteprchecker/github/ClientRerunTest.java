@@ -139,15 +139,15 @@ class ClientRerunTest {
 
         verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
         verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith("\n🏁 _Run finished._ ♻️ _Auto"
-            + " re-run [build 9424010](https://ci2.example/viewLog.html?buildId=9424010) runs the suite again on the"
-            + " same commits — queued, no finish estimate yet._"));
+            + " re-run [build 9424010](https://ci2.example/viewLog.html?buildId=9424010) of the suite on the same"
+            + " commits is queued, with no finish estimate yet._"));
         verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(PR), any(), anyString());
 
         when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "running", null));
         commands.updateEtas();
 
-        verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith(" runs the suite again on the"
-            + " same commits — running, no finish estimate yet._"));
+        verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith(" of the suite on the same"
+            + " commits is running, with no finish estimate yet._"));
 
         when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(false));
@@ -479,8 +479,8 @@ class ClientRerunTest {
 
         verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
         verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith("\n🛑 _TeamCity cancelled the"
-            + " run by itself._ ♻️ _Auto re-run [build 9424010](https://ci2.example/viewLog.html?buildId=9424010) runs"
-            + " the suite again on the same commits — queued, no finish estimate yet._"));
+            + " run by itself._ ♻️ _Auto re-run [build 9424010](https://ci2.example/viewLog.html?buildId=9424010) of"
+            + " the suite on the same commits is queued, with no finish estimate yet._"));
         verify(analyzer, never()).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong());
 
         when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "FAILURE"));
@@ -492,8 +492,8 @@ class ClientRerunTest {
         assertThat(bodies.getAllValues().get(1)).startsWith("@Author the verdict of your `/run-all`: **Thin client:"
                 + " Python** [build 9424010](https://ci2.example/build/9424010)")
             .contains("❌ **1 blocker:**")
-            .contains("\n\n♻️ TeamCity cancelled the run, [build 9424005](https://ci2.example/build/9424005), by"
-                + " itself. The checker ran the suite again on the same commits, and this verdict is of that re-run."
+            .contains("\n\n♻️ TeamCity cancelled [build 9424005](https://ci2.example/build/9424005) by itself. The"
+                + " checker ran the suite again on the same commits. This verdict comes from that re-run."
                 + "\n\n");
         verify(tc, times(2)).queuePinned(anyString(), any(), anyBoolean(), anyString());
     }

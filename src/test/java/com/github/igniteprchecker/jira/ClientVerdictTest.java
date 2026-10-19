@@ -163,14 +163,14 @@ class ClientVerdictTest {
             ClientVerdict.Rerun.standsIn(9424010L), ClientVisa.NONE))
             .startsWith("@Author the verdict of your `/run-all`: **Thin client: Python** [build 9424010]"
                 + "(https://ci2.example/build/9424010) ran this PR's head")
-            .contains("\n\n♻️ TeamCity cancelled the run, [build 9424005](https://ci2.example/build/9424005), by"
-                + " itself. The checker ran the suite again on the same commits, and this verdict is of that re-run."
+            .contains("\n\n♻️ TeamCity cancelled [build 9424005](https://ci2.example/build/9424005) by itself. The"
+                + " checker ran the suite again on the same commits. This verdict comes from that re-run."
                 + "\n\n<sub>");
         assertThat(ClientVerdict.wiki("https://ci2.example/", RUN, r, ClientVerdict.Rerun.standsIn(9424010L)))
             .contains("\n\n*Thin client: Python* [build 9424010|https://ci2.example/build/9424010] tested the PR's"
                 + " head")
-            .contains("\n\n♻️ TeamCity cancelled the run, [build 9424005|https://ci2.example/build/9424005], by"
-                + " itself. The checker ran the suite again on the same commits, and this verdict is of that re-run."
+            .contains("\n\n♻️ TeamCity cancelled [build 9424005|https://ci2.example/build/9424005] by itself. The"
+                + " checker ran the suite again on the same commits. This verdict comes from that re-run."
                 + "\n\n_This run");
     }
 
@@ -196,8 +196,8 @@ class ClientVerdictTest {
         assertThat(visaLine(new ClientVisa(ClientVisa.POSTED, "IGNITE-29117", "https://issues.example/c/1", null)))
             .isEqualTo("📝 The JIRA visa is in [IGNITE-29117](https://issues.example/c/1).");
         assertThat(visaLine(new ClientVisa(ClientVisa.SAME, "IGNITE-29117", "https://issues.example/c/1", null)))
-            .isEqualTo("📝 No new JIRA visa: your last one in [IGNITE-29117](https://issues.example/c/1) says the same"
-                + " of the same commits.");
+            .isEqualTo("📝 No new JIRA visa: your last one in [IGNITE-29117](https://issues.example/c/1) has the same"
+                + " verdict for the same commits.");
         assertThat(visaLine(new ClientVisa(ClientVisa.NO_TICKET, null, null, null)))
             .isEqualTo("📝 No JIRA visa: the PR title names no IGNITE ticket.");
         assertThat(visaLine(new ClientVisa(ClientVisa.CLOSED, null, null, "merged")))
