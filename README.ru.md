@@ -36,7 +36,9 @@ Ignite PR Checker отвечает контрибьютору [Apache Ignite](ht
 - **Команды в PR.** Когда включены **PR commands** и аккаунт GitHub один раз привязан кнопкой **Link GitHub**,
   комментарий `/run-all` в любом pull request ставит RunAll под твоим аккаунтом TeamCity. Отвечает аккаунт GitHub
   самого чекера: его комментарий рассказывает, как идёт прогон, а новый упоминает тебя, когда вердикт готов. См.
-  [Работа из PR](docs/features.ru.md#работа-из-pr-команды).
+  [Работа из PR](docs/features.ru.md#работа-из-pr-команды). В PR тонкого клиента Python `/run-all` запускает сьют
+  клиента против master Ignite. См.
+  [PR тонкого клиента Python](docs/features.ru.md#pr-тонкого-клиента-python).
 - **Доска флаки** на `/flaky.html`: тесты, которые падают на master, сначала флакующие, потом сломанные. См.
   [Доска флаки](docs/features.ru.md#доска-флаки-flakyhtml).
 - **Страница статуса**: здоровье, память, прогрев, вызовы TeamCity, GitHub и JIRA, действующие настройки. Живая:
@@ -207,6 +209,9 @@ GitHub для коммитов.
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | Какой TeamCity читать, со слешем в конце. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | Тип сборки цепочки RunAll. |
 | `GITHUB_REPO` | `apache/ignite` | Чьи PR показываются и проверяются. |
+| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | Репозиторий тонкого клиента Python: `/run-all` в его PR запускает сьют из строки ниже. |
+| `PYTHON_CLIENT_SUITE` | `IgniteTests24Java8_WiPThinClientPython` | Тип сборки сьюта, который проверяет клиент вместе с Ignite. |
+| `PYTHON_CLIENT_IGNITE_VCS_ROOT`, `PYTHON_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePythonThinClient` | Идентификаторы VCS-корней этого сьюта: Ignite и клиента. Прогон называет коммит каждого из них. |
 | `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Куда уходят визы и куда ведут ссылки на тикеты IGNITE. |
 | `MASTER_HISTORY_DEPTH` | `100` | Сколько прогонов теста на master смотреть, на сьюту. |
 | `BLOCKER_FAIL_STREAK` | `3` | Сколько упавших прогонов ветки подряд нужно для блокера. |

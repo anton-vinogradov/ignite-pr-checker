@@ -185,6 +185,13 @@ final class TestGroups {
             + (left.size() == 1 ? " class" : " classes");
     }
 
+    /** The test's own row in the Tests tab of the run it failed in, opened; null when the run is not known. */
+    static String rowUrl(String tcBase, TestVerdict t) {
+        String run = new Group(null, t.suite(), t.suiteBuildId(), null, List.of()).url(tcBase);
+
+        return run == null ? null : testUrl(run, t);
+    }
+
     /** The test's own row in the run's Tests tab, opened. */
     private static String testUrl(String runUrl, TestVerdict t) {
         return runUrl + (t.occurrenceId() == null ? "" : "&expandedTest=" + enc(t.occurrenceId()))
@@ -232,6 +239,11 @@ final class TestGroups {
         }
 
         return String.join("; ", parts);
+    }
+
+    /** The tags of what the test rests on short of proof, as the page shows them: "1 run; unverified"; "" for none. */
+    static String tags(TestVerdict t) {
+        return String.join("; ", Arrays.stream(Doubt.values()).filter(t.doubts()::contains).map(TAGS::get).toList());
     }
 
     /** How many of the tests rest on one failure. */

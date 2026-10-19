@@ -28,6 +28,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
@@ -83,6 +85,9 @@ public class BlockerAnalyzer {
 
     /** How many runs on other PRs' branches it takes to set master's failures aside. */
     private static final int MIN_OTHER_PR_RUNS = 10;
+
+    /** What joins the commits of several VCS roots into one revision of a run. */
+    private static final String REVISIONS_JOINED = "+";
 
     /** How often a viewed verdict may ask TeamCity whether its branch moved, at most. */
     private static final long LOOK_EVERY_MS = 120_000;
@@ -525,10 +530,12 @@ public class BlockerAnalyzer {
         progress.put(buildId, prog);
 
         FailedLookups failedLookups = new FailedLookups();
+        Subject subject = Subject.ofPr(prNumber, t -> branch.testRuns(t.testId(), t.suite(),
+            () -> tc.prBranchRuns(token, prNumber, t.testId(), t.suite())));
         List<Callable<Classified>> tasks = chain.failedTests().stream()
             .<Callable<Classified>>map(t -> () -> {
                 try {
-                    return classify(token, prNumber, t, branch, failedLookups);
+                    return classify(token, subject, t, failedLookups);
                 }
                 finally {
                     prog.done().incrementAndGet();
@@ -580,6 +587,51 @@ public class BlockerAnalyzer {
             deltas.onResult(prNumber, buildId, blockers, broken.size());
 
         return result;
+    }
+
+    /**
+     * The verdict of one suite run on its own branch, by the rules each suite of a RunAll is judged by. A PR of the
+     * Python thin client runs the client's suite on {@code branch}, such as {@code pull/69}, pinned to the PR's head
+     * and to Ignite's master. Its failed tests are judged against master's runs of the suite, other Ignite PRs' runs of
+     * it and its own runs on that branch. Two of those runs are the same code only when the commit of every VCS root
+     * matches. Nothing is cached: a finished run is judged once, when its PR is told the verdict. TeamCity errors that
+     * left tests unchecked set {@code incompleteSince}.
+     */
+    public AnalysisResult analyzeSuiteRun(String token, int prNumber, String branch, long buildId) {
+        TcModel.Build run = tc.suiteRun(token, buildId);
+        if (run == null)
+            throw new IllegalStateException("TeamCity sent no build " + buildId);
+
+        ChainCollector.SuiteRun suite = chains.collectForSuiteRun(token, run);
+        Subject subject = new Subject(0, t -> tc.branchRuns(token, branch, t.testId(), t.suite()), true);
+        FailedLookups failedLookups = new FailedLookups();
+        List<Classified> classified = Parallel.run(bgPool, suite.failedTests().stream()
+            .<Callable<Classified>>map(t -> () -> classify(token, subject, t, failedLookups)).toList());
+        List<TestVerdict> verdicts = classified.stream().filter(Classified::verified).map(Classified::verdict).toList();
+        List<TestVerdict> unverified = classified.stream().filter(c -> !c.verified()).map(Classified::verdict).toList();
+        List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
+        List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
+        List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
+
+        List<BrokenSuite> broken = new ArrayList<>();
+        List<BrokenSuite> unstable = new ArrayList<>();
+        if (suite.broken() != null)
+            broken.add(suite.broken());
+        if (suite.unstable() != null) {
+            boolean blamed = !blockers.isEmpty() || !watch.isEmpty() || !unverified.isEmpty();
+            (blamed ? broken : unstable).add(suite.unstable());
+        }
+
+        long now = System.currentTimeMillis();
+        if (failedLookups.count() > 0) {
+            log.warn("{} (build {}): {} TeamCity lookup(s) failed, {} failed test(s) left unchecked; first: {}", branch,
+                buildId, failedLookups.count(), unverified.size(), failedLookups.first());
+        }
+
+        return new AnalysisResult(prNumber, buildId, branch, now, blockers, watch, filtered, broken, suite.shrunk(),
+            1, 0, false, 0, false, 0, TcDates.epochSeconds(run.queuedDate()), TcDates.epochSeconds(run.startDate()),
+            TcDates.epochSeconds(run.finishDate()), 0, unstable, List.of(), unverified,
+            failedLookups.count() == 0 ? 0 : now, everyRevision(run.revisions()), 0);
     }
 
     /**
@@ -722,10 +774,9 @@ public class BlockerAnalyzer {
         return bySuite.values().stream().sorted(Comparator.comparingInt(ShrunkSuite::dropPct).reversed()).toList();
     }
 
-    private Classified classify(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
-        FailedLookups failedLookups) {
+    private Classified classify(String token, Subject subject, FailedTest t, FailedLookups failedLookups) {
         try {
-            return new Classified(classifyVerified(token, prNumber, t, branch, failedLookups), true);
+            return new Classified(classifyVerified(token, subject, t, failedLookups), true);
         }
         catch (RuntimeException e) {
             // A transient TeamCity error for one test must not fail the whole analysis (Parallel.run would
@@ -743,23 +794,21 @@ public class BlockerAnalyzer {
      * test on the branch, no master history to compare with, a check TeamCity errors kept from being made. On
      * PRs 13655, 13566 and others all 31 blockers rested on one run, and read like proven ones.
      */
-    private TestVerdict classifyVerified(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
-        FailedLookups failedLookups) {
+    private TestVerdict classifyVerified(String token, Subject subject, FailedTest t, FailedLookups failedLookups) {
         Footing footing = new Footing();
-        TestVerdict v = judge(token, prNumber, t, branch, failedLookups, footing);
+        TestVerdict v = judge(token, subject, t, failedLookups, footing);
 
         return v.blocker() || v.watch() ? withDoubts(v, footing.doubtsOf(v)) : v;
     }
 
-    private TestVerdict judge(String token, int prNumber, FailedTest t, BuildFacts.Branch branch,
-        FailedLookups failedLookups, Footing footing) {
+    private TestVerdict judge(String token, Subject subject, FailedTest t, FailedLookups failedLookups,
+        Footing footing) {
         RunHistory master = cache.history(t.testId(), t.suite(),
             () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
         // The finished runs of this test in its suite on the PR branch (one request, unless no run of the suite has
         // finished since the last compute fetched them; also drives the history strip).
-        List<TcModel.TestOccurrence> runs = withResult(branch.testRuns(t.testId(), t.suite(),
-            () -> tc.prBranchRuns(token, prNumber, t.testId(), t.suite())));
+        List<TcModel.TestOccurrence> runs = withResult(subject.runs().apply(t));
         String branchRuns = strip(runs);
         TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
 
@@ -795,8 +844,8 @@ public class BlockerAnalyzer {
         // a pass on the revision before the buggy commits proves nothing, and calling it "passed on
         // the same code" is how a red RunAll once got a green visa. So the window is the trailing runs
         // on the revision the latest run was made on; anything older is reported, never counted.
-        String head = revisionOf(token, lastRun);
-        String code = sameCodeStrip(token, runs, head);
+        String head = revisionOf(token, subject, lastRun);
+        String code = sameCodeStrip(token, subject, runs, head);
         int streak = trailingFailStreak(code);
 
         String reason;
@@ -811,7 +860,7 @@ public class BlockerAnalyzer {
             reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last "
                 + h.greenStreak();
         else {
-            scaleOnlyBar = scaleOnlyOnMaster(token, prNumber, t, master, env, h, failedLookups, footing);
+            scaleOnlyBar = scaleOnlyOnMaster(token, subject.pr(), t, master, env, h, failedLookups, footing);
             if (scaleOnlyBar == null)
                 return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
 
@@ -836,7 +885,7 @@ public class BlockerAnalyzer {
         // flaky under PR conditions, whatever master says. The nightly master RunAll runs at test scale
         // factor 1.0 and PR chains at 0.1, so a test green in all 101 master runs failed 14 of 131 runs
         // in 13 other PRs, and was a blocker in each.
-        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups, footing);
+        HistoryStats others = otherPrs(token, subject.pr(), t, env, failedLookups, footing);
         if (others == null || others.failingPrs() < FLAKY_IN_PRS)
             return v;
 
@@ -1008,7 +1057,7 @@ public class BlockerAnalyzer {
     private static String afterAPass(String head) {
         return head == null
             ? ", after a pass; TeamCity gave no commits to prove that was the same code"
-            : ", after a pass on the same commit";
+            : ", after a pass on the same commit" + (head.contains(REVISIONS_JOINED) ? "s" : "");
     }
 
     /**
@@ -1043,15 +1092,15 @@ public class BlockerAnalyzer {
      * (the old, revision-blind merge); when it gives some but not the latest one's, only the latest
      * run counts — an unplaceable run must never be read as "the same code".
      */
-    private String sameCodeStrip(String token, List<TcModel.TestOccurrence> runs, String head) {
+    private String sameCodeStrip(String token, Subject subject, List<TcModel.TestOccurrence> runs, String head) {
         if (runs.isEmpty())
             return "";
         if (head == null)
-            return runs.stream().anyMatch(r -> revisionOf(token, r) != null)
+            return runs.stream().anyMatch(r -> revisionOf(token, subject, r) != null)
                 ? strip(runs.subList(runs.size() - 1, runs.size())) : strip(runs);
 
         int i = runs.size();
-        while (i > 0 && head.equals(revisionOf(token, runs.get(i - 1))))
+        while (i > 0 && head.equals(revisionOf(token, subject, runs.get(i - 1))))
             i--;
 
         return strip(runs.subList(i, runs.size()));
@@ -1066,9 +1115,11 @@ public class BlockerAnalyzer {
      * {@link Caveats} and {@link #stillRetrying}). Swallowed here, the error would silently restore the
      * revision-blind window and the green visa this whole path exists to prevent.
      */
-    private String revisionOf(String token, TcModel.TestOccurrence run) {
+    private String revisionOf(String token, Subject subject, TcModel.TestOccurrence run) {
         if (run == null || run.build() == null)
             return null;
+        if (subject.everyRoot())
+            return everyRevision(run.build().revisions());
 
         String inline = firstRevision(run.build().revisions());
         if (inline != null)
@@ -1078,6 +1129,20 @@ public class BlockerAnalyzer {
         String fetched = cache.revision(buildId, () -> tc.buildRevision(token, buildId).orElse(""));
 
         return fetched.isEmpty() ? null : fetched; // "" is the cacheable "this build genuinely has none"
+    }
+
+    /**
+     * The commits of every VCS root of the run, joined by "+": a run of the Python thin client's suite takes Ignite and
+     * the client from two roots, and two runs are the same code only when both match. Null when TeamCity named none.
+     */
+    private static String everyRevision(TcModel.Revisions revs) {
+        if (revs == null || revs.revision() == null)
+            return null;
+
+        List<String> versions = revs.revision().stream().map(TcModel.Revision::version)
+            .filter(v -> v != null && !v.isBlank()).toList();
+
+        return versions.isEmpty() ? null : String.join(REVISIONS_JOINED, versions);
     }
 
     private static String firstRevision(TcModel.Revisions revs) {
@@ -1099,12 +1164,23 @@ public class BlockerAnalyzer {
         return "failed the last " + streak + " of " + len + " runs" + where;
     }
 
-    /** {@code " on commit 3fdf446"}, or "" when TeamCity gave us no revision to name. */
+    /**
+     * {@code " on commit 3fdf446"}, {@code " on commits 3fdf446 and 9c1e2a0"} for the commits of several VCS roots, or
+     * "" when TeamCity gave us no revision to name.
+     */
     private static String onCommit(String head) {
         if (head == null)
             return "";
 
-        return " on commit " + (head.length() > 7 ? head.substring(0, 7) : head);
+        List<String> shas = List.of(head.split(Pattern.quote(REVISIONS_JOINED)));
+        if (shas.size() > 1)
+            return " on commits " + String.join(" and ", shas.stream().map(BlockerAnalyzer::shortSha).toList());
+
+        return " on commit " + shortSha(head);
+    }
+
+    private static String shortSha(String sha) {
+        return sha.length() > 7 ? sha.substring(0, 7) : sha;
     }
 
     /** Short root-cause message of a failure, for the "could not verify" reason (bounded length). */
@@ -1126,6 +1202,17 @@ public class BlockerAnalyzer {
 
     /** A failed test's verdict, or, when TeamCity failed to answer for it, what is known: it failed. */
     private record Classified(TestVerdict verdict, boolean verified) {
+    }
+
+    /**
+     * What a failed test is judged against besides master: its runs on the branch under review, the Ignite PR whose
+     * runs are not "other PRs" (0: none), and whether a run's code is the commit of every VCS root or only the first.
+     */
+    private record Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot) {
+        /** An Ignite PR, whose RunAll takes the PR's code from one VCS root. */
+        static Subject ofPr(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs) {
+            return new Subject(pr, runs, false);
+        }
     }
 
     /** What a test's verdict leans on besides its runs on the branch, noted while the test is judged. */

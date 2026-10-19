@@ -20,6 +20,10 @@ public final class AppWriting {
         when(github.appEdit(anyInt(), any(), anyLong(), anyString())).thenReturn(true);
         when(github.appReact(anyInt(), any(), anyLong(), anyString())).thenReturn(true);
         when(github.appDelete(anyInt(), any(), anyLong())).thenReturn(true);
+        when(github.appEdit(anyString(), anyInt(), any(), anyLong(), anyString())).thenReturn(true);
+        when(github.appReact(anyString(), anyInt(), any(), anyLong(), anyString())).thenReturn(true);
+        when(github.appDelete(anyString(), anyInt(), any(), anyLong())).thenReturn(true);
+        when(github.repo()).thenReturn("apache/ignite");
 
         return github;
     }

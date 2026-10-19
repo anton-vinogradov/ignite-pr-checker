@@ -254,6 +254,18 @@ function suiteFixCard(f) {
             + 'is missing, or they switched the option on after the sweep.') : '');
 }
 
+// The repos whose PRs' comments are read for commands: Ignite's, and the Python thin client's, where /run-all runs the
+// client's one suite.
+function prCommandsCard(w) {
+    const repo = esc(w.prCommandsRepo || ''), client = esc(w.prCommandsClientRepo || '');
+    const where = repo && client ? T`in ${repo} and ${client}` : repo ? T`in ${repo}` : '';
+    return countedCard(T('PR commands'), T`${w.prCommands ?? 0} /run-all handled`,
+        ' · ' + passText(phrase('poll'), w.prCommandsLastPollAt, w.prCommandsFirstPollAt)
+            + (where ? ' · ' + where : ''),
+        '', client ? T('In {0}, /run-all runs the Python thin client suite instead of RunAll.', w.prCommandsClientRepo)
+            : '');
+}
+
 function lastCycleCard(a) {
     if (!a.lastWarmCycleAt) return card(T('Last cycle'), '—', T('none yet'));
     return card(T('Last cycle'), secs(a.lastCycleMs), T`${a.lastWarmed} recomputed · ${a.lastCached} cached`);
@@ -327,8 +339,7 @@ function render(d) {
             ' · ' + T`${w.standingPosted ?? 0} JIRA visa${w.standingPosted === 1 ? '' : 's'} posted`
             + ' · ' + passText(phrase('sweep'), w.standingLastSweepAt, w.standingFirstSweepAt)
             + (w.standingLastSweepMs ? ' (' + secs(w.standingLastSweepMs) + ')' : '')),
-        countedCard(T('PR commands'), T`${w.prCommands ?? 0} /run-all handled`,
-            ' · ' + passText(phrase('poll'), w.prCommandsLastPollAt, w.prCommandsFirstPollAt)),
+        prCommandsCard(w),
         suiteFixCard(w.suiteFix),
         keyChangeCard(w.waitingAfterKeyChange),
     ].join('');
