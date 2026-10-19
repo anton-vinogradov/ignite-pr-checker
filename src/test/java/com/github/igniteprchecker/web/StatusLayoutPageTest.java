@@ -88,6 +88,18 @@ class StatusLayoutPageTest {
             .contains("visibility: hidden", "animation: lang-wait 0s 2s forwards");
     }
 
+    /** A chart gave each name 120 px, so "/api/page-language" and "/api/token-expiry" broke over two lines. */
+    @Test
+    void aChartKeepsEachNameOnOneLineInOneColumn() throws Exception {
+        String css = Files.readString(PAGE, UTF_8);
+
+        assertThat(rule(css, ".chart")).contains("display: grid", "grid-template-columns: max-content 1fr auto");
+        assertThat(rule(css, ".chart .catrow")).contains("grid-template-columns: subgrid");
+        assertThat(rule(css, ".chart .catname")).contains("white-space: nowrap");
+        for (String chart : new String[] {"httpCats", "tcCats", "ghCatsApp", "ghCatsPat", "jiraCats"})
+            assertThat(css).contains("<div id=\"" + chart + "\" class=\"cats chart\">");
+    }
+
     /**
      * Endpoint and category names, setting keys and user names took the colour of links, though a click on them does
      * nothing: "alice" on the Users tab read as a link to her profile.
