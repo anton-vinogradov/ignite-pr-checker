@@ -114,11 +114,14 @@ class RussianStatusPageTest {
             await page.load('');
             page.el('tabUsers').listeners.click[0]();
             await page.settle();
+            const own = page.staticElements(e => !e.written)
+                .flatMap(e => e.childNodes.filter(n => n.nodeType === 3).map(n => n.nodeValue)).join('<>');
             report(Object.assign(seen(), { lang: page.run('document.documentElement.getAttribute("lang")'),
-                me: page.fetches('/api/me').length }));
+                me: page.fetches('/api/me').length, own }));
             """);
 
         assertThat(untranslated(out)).isEmpty();
+        assertThat(SplitUnits.in(out.get("html").asText() + "<>" + out.get("own").asText())).isEmpty();
         JsonNode cards = out.get("cards");
         assertThat(cards.get("watcherCards").asText()).contains(
             "Постоянные опции3 пользователя с включённой опцией · отправлено виз в JIRA: 1 · обход 2 мин назад (3,2 с)",
@@ -134,9 +137,78 @@ class RussianStatusPageTest {
         assertThat(cards.get("usersActive").asText())
             .isEqualTo("aliceпоследняя активность 60 с назад · вход выполнен 3 раза · первый визит 5 дней назад");
         assertThat(cards.get("restartLast").asText()).isEqualTo("последний перезапуск: avinogradov · 2 ч назад");
+        assertThat(out.get("html").asText()).contains("<span class=\"logmsg\" lang=\"en\">" + LOG.get(1) + "</span>",
+            "<span class=\"loglogger\" lang=\"en\" title=\"TcClient\">TcClient</span>");
         assertThat(out.get("texts").get("tab").asText()).isEqualTo("Ignite PR Checker — Статус");
         assertThat(out.get("lang").asText()).isEqualTo("ru");
         assertThat(out.get("me").asInt()).as("asking for the language enters no login").isZero();
+    }
+
+    /**
+     * The big number of a card stands right before the words under it. The Russian words of the GitHub, JIRA and log
+     * cards started with "ошибок: 0", so 3 calls without failures read "3 ошибок: 0". A dot now stands between them,
+     * as on the card of threads.
+     */
+    @Test
+    void theNumberOfACardDoesNotRunIntoTheWordsAfterIt() throws Exception {
+        JsonNode out = PageScript.run("status.html", operatorsStatus() + russian() + WRITTEN + """
+            await page.load('');
+            report(seen());
+            """);
+
+        JsonNode cards = out.get("cards");
+        assertThat(cards.get("ghCards").asText()).contains("GitHub (1 ч)12 · ошибок: 1 · всего 999",
+            "Токен приложения (1 ч)10 · ошибок: 1 · вызовы сервера");
+        assertThat(cards.get("jiraCards").asText()).contains("JIRA (1 ч)3 · ошибок: 0 · всего 12");
+        assertThat(cards.get("logCards").asText())
+            .isEqualTo("Проблемы в логе1 · предупреждений: 1 · неверных запросов: 1 · с запуска");
+    }
+
+    /**
+     * GitHub refused the app account's token and one of its writes. The two cards share the word for it, and
+     * "отвергнут" did not agree with "Записи приложения"; "отказ" fits both.
+     */
+    @Test
+    void theAppAccountAndItsWritesReadTheSameRefusal() throws Exception {
+        JsonNode out = PageScript.run("status.html", operatorsStatus() + russian() + WRITTEN + """
+            status.app.githubAccount = { state: 'refused' };
+            await page.load('');
+            report(seen());
+            """);
+
+        assertThat(out.get("cards").get("ghCards").asText()).contains(
+            "Аккаунт приложенияотказ GitHub отвергает GITHUB_TOKEN",
+            "Записи приложенияотказ GitHub ответил 403 на запись: Forbidden");
+    }
+
+    /**
+     * The server answers in English: an operator's action that someone else tried, and why snapshots are off. The
+     * page puts both into Russian.
+     */
+    @Test
+    void theServersAnswersReadInRussian() throws Exception {
+        JsonNode out = PageScript.run("status.html", operatorsStatus() + russian() + WRITTEN + """
+            Object.assign(status, { operator: false });
+            status.persistence = { enabled: true, active: false, off: %s };
+            page.route('/api/restart', { status: 403, body: { error: %s } }, 'POST');
+            page.route('/api/flush-caches', { status: 403, body: { error: %s } }, 'POST');
+            await page.load('');
+            await page.el('restartBtn').listeners.click[0]();
+            await page.el('flushBtn').listeners.click[0]();
+            await page.settle();
+            const shown = seen();
+            Object.assign(shown.texts, { restart: page.el('restartMsg').textContent,
+                flush: page.el('flushMsg').textContent });
+            report(shown);
+            """.formatted(JSON.writeValueAsString(StatusTexts.SNAPSHOTS_OFF.get(1)),
+            JSON.writeValueAsString(StatusTexts.refusal(AdminActions.Action.RESTART)),
+            JSON.writeValueAsString(StatusTexts.refusal(AdminActions.Action.FLUSH))));
+
+        assertThat(untranslated(out)).isEmpty();
+        assertThat(out.get("texts").get("restart").asText()).isEqualTo("Перезапускать сервис может только оператор.");
+        assertThat(out.get("texts").get("flush").asText()).isEqualTo("Сбрасывать кэши может только оператор.");
+        assertThat(out.get("cards").get("systemCards").asText())
+            .contains("Снапшотывыключены в каталог /var/cache/ignite-pr-checker нельзя писать");
     }
 
     /** A signed-in reader who is not an operator: the counts of the log, the problems and settings without dates. */

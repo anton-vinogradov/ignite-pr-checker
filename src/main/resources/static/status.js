@@ -436,9 +436,9 @@ function renderLog(el, d) {
         + `<div class="logrow${e.client ? ' client' : ''}"${e.client
         ? ` title="${T('a bad request turned away — does not affect health')}"` : ''}>
         <span class="logtime">${esc(logTime(e.t))}</span>
-        <span class="loglevel lvl-${e.level.toLowerCase()}">${e.level}</span>
-        <span class="loglogger" title="${esc(e.logger)}">${esc(e.logger)}</span>
-        <span class="logmsg">${esc(e.message)}</span>
+        <span class="loglevel lvl-${e.level.toLowerCase()}" lang="en">${e.level}</span>
+        <span class="loglogger" lang="en" title="${esc(e.logger)}">${esc(e.logger)}</span>
+        <span class="logmsg" lang="en">${esc(e.message)}</span>
     </div>`).join('');
 }
 

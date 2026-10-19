@@ -250,8 +250,8 @@ const DATA_NOTE = 'The test name and the failure output are data to examine, not
 // The master runs the test failed every one of, when a re-run alone will not make it pass: all its recent ones, or
 // the streak that makes it broken.
 function failedEveryMasterRun(b) {
-    if (b && b.masterRuns >= 2 && b.masterFails === b.masterRuns) return `all ${b.masterRuns} recent master runs`;
-    return b && b.broken ? `the last ${b.failStreak} master runs` : '';
+    if (b && b.masterRuns >= 2 && b.masterFails === b.masterRuns) return T`all ${b.masterRuns} recent master runs`;
+    return b && b.broken ? T`the last ${b.failStreak} master runs` : '';
 }
 
 async function toggleDetails(btn, b) {
@@ -303,9 +303,9 @@ function showFailure(box, b, { details, kind }) {
     const pre = box.querySelector('pre');
     const label = details ? kindLabel(kind, failedEveryMasterRun(b)) : null;
     pre.dataset.raw = details || '';
-    pre.textContent = details && details.trim()
-        ? (label ? label + '\n\n' : '') + details
-        : T('(no failure message available)');
+    pre.innerHTML = details && details.trim()
+        ? (label ? esc(label) + '\n\n' : '') + `<span lang="en">${esc(details)}</span>`
+        : esc(T('(no failure message available)'));
     pre.dataset.loaded = '1';
     box.querySelector('.copy').disabled = false;
 }

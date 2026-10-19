@@ -1,5 +1,7 @@
 package com.github.igniteprchecker.web;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
@@ -13,8 +15,9 @@ import java.util.Map;
 import org.springframework.http.HttpHeaders;
 
 /**
- * The texts the server writes for the status page, made by its own code: the problems of the service's health and what
- * the checks of GITHUB_TOKEN found. The code that makes them is package-private, so this reaches it by reflection.
+ * The texts the server writes for the status page, made by its own code: the problems of the service's health, what
+ * the checks of GITHUB_TOKEN found and why an operator's action was refused. The code that makes the first two is
+ * package-private, so this reaches it by reflection.
  * The settings in effect and their problems, which EffectiveConfig reads from the environment, are written out here as
  * it writes them.
  */
@@ -102,6 +105,12 @@ final class StatusTexts {
     /** The checks as a viewer who is not an operator reads them. */
     static List<GithubClient.AppAccount.Check> checksWithoutDates() throws Exception {
         return account(checks()).withoutDates().checks();
+    }
+
+    /** What the server answers a user who is not an operator and tries this action. */
+    static String refusal(AdminActions.Action action) {
+        return new AdminActions(new AdminProperties(null), new ObjectMapper()).claim("alice", action).orElseThrow()
+            .message();
     }
 
     private static GithubClient.AppAccount account(List<GithubClient.AppAccount.Check> checks) {

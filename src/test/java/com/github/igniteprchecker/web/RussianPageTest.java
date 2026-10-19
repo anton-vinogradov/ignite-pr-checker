@@ -98,7 +98,7 @@ class RussianPageTest {
         assertThat(texts.get("verdictLines").asText()).startsWith("Этот прогон покрывает PR не полностью: у 64 сьют нет "
             + "надёжного результата (60× сбой ci2: артефакты недоступны;");
         assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск №1 из 2 возможных: перезапускаю 3 "
-            + "сьюты (2 с блокерами, 1 битая), закончится через ~20 мин. Вердикт ниже может измениться, когда они "
+            + "сьюты (2 с блокерами, 1 битая), закончится через ~20\u00a0мин. Вердикт ниже может измениться, когда они "
             + "закончатся.");
         assertThat(texts.get("filtered").asText()).contains("было и раньше: падает 1/4 на master на JDK 17",
             "флаки на ветке: упал только в последнем из 2 прогонов на коммите 3fdf446 (более ранний прогон на том же "
@@ -445,9 +445,9 @@ class RussianPageTest {
             + "\"теста\",\"тестов\",\"тестов\",\"теста\"]");
         assertThat(out.get("day").asText()).isEqualTo("15 сентября в 21:05");
         assertThat(out.get("lastYear").asText()).isEqualTo("2 марта 2025 г. в 08:07");
-        assertThat(out.get("ago").asText()).isEqualTo("3 дня назад");
-        assertThat(out.get("spent").asText()).isEqualTo("1 ч 05 мин");
-        assertThat(out.get("left").asText()).isEqualTo("~2 мин");
+        assertThat(out.get("ago").asText()).isEqualTo("3\u00a0дня назад");
+        assertThat(out.get("spent").asText()).isEqualTo("1\u00a0ч 05\u00a0мин");
+        assertThat(out.get("left").asText()).isEqualTo("~2\u00a0мин");
         assertThat(out.get("test").asText()).isEqualTo("0,4 с");
         assertThat(out.get("browsers").asText()).isEqualTo("21 браузер");
     }

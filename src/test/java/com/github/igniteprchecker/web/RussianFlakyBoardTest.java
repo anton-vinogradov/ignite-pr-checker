@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,6 +19,9 @@ import org.junit.jupiter.api.Test;
 class RussianFlakyBoardTest {
     /** The name of the project, which the scenario's tooltips and prompt name. */
     private static final List<String> NAMES = List.of("Apache Ignite");
+
+    /** A failure message from TeamCity, which the panel shows as the test wrote it. */
+    private static final String TIMEOUT = "java.net.SocketTimeoutException: Read timed out";
 
     private static final String BOARD = """
         const copied = [];
@@ -79,22 +83,77 @@ class RussianFlakyBoardTest {
 
         assertThat(EnglishLeft.in(out.get("texts"), out.get("html").asText(), NAMES)).isEmpty();
         assertThat(out.get("board").asText()).containsSubsequence("Флаки на master (2 из 41)", "Падения на master",
-            "PR за 14 дней", "RebalanceTest.testRebalance", "3%3 из 100 прогонов", "1",
-            "BareTest.testIt", "100%21 из 21 прогона", "—нет PR за 14 дней",
+            "PR за 14\u00a0дней", "RebalanceTest.testRebalance", "3%3 из 100 прогонов", "1",
+            "BareTest.testIt", "100%21 из 21 прогона", "—нет PR за 14\u00a0дней",
             "Сломаны на master (1)", "CacheNearReaderUpdateTest.testUpdate", "100 подрядиз 100 прогонов", "3");
         assertThat(out.get("html").asText())
             .contains("title=\"Этот тест упал в 3 из 100 последних прогонов master.\"",
                 "title=\"За последние 14 дней этот тест падал в этих PR: #13583, #13655, #13660.\"",
                 "<p>Более ранние упавшие прогоны master: <a ")
-            .contains(">#13655 · идёт 45 мин · осталось ~18 мин</a>");
+            .contains(">#13655 · идёт 45\u00a0мин · осталось ~18\u00a0мин</a>");
         assertThat(out.get("intro").asText()).isEqualTo("На этой доске — тесты, которые падают на master, поэтому "
             + "падают и в PR, которые их не ломали. 2 теста, замьюченных в TeamCity, не показаны.");
         JsonNode texts = out.get("texts");
+        assertThat(SplitUnits.in(out.get("html").asText())).isEmpty();
         assertThat(texts.get("label").asText()).isEqualTo("падение ▾");
         assertThat(texts.get("message").asText()).startsWith("Войди на главной странице, чтобы увидеть сообщение");
         assertThat(texts.get("tab").asText()).isEqualTo("Ignite PR Checker — Флаки-тесты");
         assertThat(out.get("docs")).hasSize(1);
         assertThat(out.get("docs").get(0).asText()).endsWith("/docs/features.ru.md#доска-флаки-flakyhtml");
+    }
+
+    /**
+     * A test broken on master failed with a timeout. The panel said in Russian that a re-run may not help, but named
+     * the runs it failed in English: "упал all 100 recent master runs". It names them in Russian now, and the failure
+     * message, which stays as the test wrote it, is marked as English for a screen reader.
+     */
+    @Test
+    void anEnvironmentFailureNamesTheFailedRunsInRussian() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+            page.route('/api/test-details', { body: { details: '%s', kind: 'environment' } });
+            const streak = Object.assign({}, nearReader, { testId: '104', occurrenceId: 'occ-4', masterFails: 40,
+                failStreak: 12 });
+            async function panel(b, n) {
+                const btn = page.el('why' + n), row = page.el('row' + n), box = page.el('box' + n);
+                const pre = page.el('pre' + n), copy = page.el('copy' + n);
+                btn.closest = () => row;
+                row.querySelector = () => box;
+                box.classList.add('hidden');
+                box.querySelector = sel => sel === 'pre' ? pre : copy;
+                await page.run('toggleDetails')(btn, b);
+                return pre;
+            }
+            await page.load('');
+            const all = await panel(nearReader, 1), last = await panel(streak, 2);
+            report({ texts: { all: all.textContent, last: last.textContent }, html: all.innerHTML + last.innerHTML });
+            """.formatted(TIMEOUT));
+
+        assertThat(EnglishLeft.in(out.get("texts"), out.get("html").asText(), NAMES, Pattern.compile(TIMEOUT)))
+            .isEmpty();
+        assertThat(out.get("texts").get("all").asText()).isEqualTo("окружение/время — но тест упал во всех 100 "
+            + "последних прогонах master, так что один перезапуск вряд ли пройдёт\n\n" + TIMEOUT);
+        assertThat(out.get("texts").get("last").asText()).startsWith("окружение/время — но тест упал в 12 последних "
+            + "прогонах master, так что");
+        assertThat(out.get("html").asText()).contains("<span lang=\"en\">" + TIMEOUT + "</span>");
+    }
+
+    /** The list may come before the catalog: the board waits for the language, or its English would stay. */
+    @Test
+    void theBoardWaitsForTheLanguage() throws Exception {
+        JsonNode out = PageScript.run("flaky.html", russian() + BOARD + """
+            const ticks = async n => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+            page.route('/ru.json', async () => { await ticks(20); return { body: CATALOG }; });
+            const board = page.el('flaky'), drawn = [];
+            const write = Object.getOwnPropertyDescriptor(board, 'innerHTML');
+            Object.defineProperty(board, 'innerHTML', { get: write.get,
+                set(v) { drawn.push(String(v)); write.set.call(this, v); } });
+            await page.load('');
+            await page.tick(15000);
+            report({ drawn });
+            """);
+
+        assertThat(out.get("drawn")).isNotEmpty().allSatisfy(html -> assertThat(html.asText())
+            .contains("Флаки на master").doesNotContain("Flaky on master", "Broken on master"));
     }
 
     /** The prompt goes to a coding assistant in English; the button then reads its Russian name again. */
