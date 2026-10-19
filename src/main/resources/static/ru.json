@@ -724,6 +724,7 @@
     "The checker dropped your stored {0}: it could not read it. Your options wait until you store a new one.": "Чекер удалил твой сохранённый {0}: он не смог его прочитать. Твои опции ждут, пока ты сохранишь новый.",
     "The checker dropped your stored {0}: it could not read them. Your options wait until you store new ones.": "Чекер удалил сохранённые токены: {0}. Он не смог их прочитать. Твои опции ждут, пока ты сохранишь новые.",
     "Posted a visa to {0} for PR #{1}, RunAll {2}.": "Отправлена виза в {0} для PR #{1}, RunAll {2}.",
+    "Posted a visa to {0} for PR #{1} of {2}, build {3}.": "Отправлена виза в {0} для PR #{1} в {2}, сборка {3}.",
     "Edited the visa in {0} for PR #{1}, RunAll {2}.": "Исправлена виза в {0} для PR #{1}, RunAll {2}.",
     "Switched the language to Russian.": "Язык переключён на русский.",
     "Switched the language to English.": "Язык переключён на английский.",

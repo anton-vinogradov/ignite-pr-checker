@@ -435,9 +435,14 @@ public class GithubClient implements SnapshotCache {
 
     /** Whether a PR is still open, and its title; empty when GitHub has no such PR. */
     public java.util.Optional<PullState> pullState(int prNumber) {
+        return pullState(props.repo(), prNumber);
+    }
+
+    /** The same for a PR of {@code repo}, such as the Python thin client's. */
+    public java.util.Optional<PullState> pullState(String repo, int prNumber) {
         try {
             java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
-                props.apiUrl() + "/repos/" + props.repo() + "/pulls/" + prNumber).body(java.util.Map.class));
+                props.apiUrl() + "/repos/" + repo + "/pulls/" + prNumber).body(java.util.Map.class));
 
             return java.util.Optional.ofNullable(pr == null ? null : new PullState((String)pr.get("title"),
                 "open".equals(pr.get("state")), Boolean.TRUE.equals(pr.get("merged"))));

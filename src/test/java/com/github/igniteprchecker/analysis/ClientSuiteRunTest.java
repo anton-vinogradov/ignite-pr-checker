@@ -48,6 +48,11 @@ class ClientSuiteRunTest {
 
     private static final long SQL_TEST = 502L;
 
+    private static final long NEW_TEST = 503L;
+
+    /** The auto re-run of the build, on the same commits. */
+    private static final long RERUN = 9424010L;
+
     private final TcClient tc = mock(TcClient.class);
 
     private final SuiteBaseline baseline = mock(SuiteBaseline.class);
@@ -249,8 +254,94 @@ class ClientSuiteRunTest {
         assertThat(r.filtered()).isEmpty();
     }
 
+    /**
+     * The auto re-run of build 9424005 on the same commits passed the test the run failed: the failure is not blamed on
+     * the PR, and the verdict still lists it, as a RunAll's does after a re-run.
+     */
+    @Test
+    void aTestTheRerunPassedIsNotBlamed() {
+        rerun("FAILURE", 400, null, failed("r1", CONFIG_TEST, "test_cache_config.test_get"));
+        when(tc.branchRuns(TOK, "pull/69", SQL_TEST, SUITE)).thenReturn(List.of(branchRun(BUILD, CLIENT),
+            branchRun(RERUN, CLIENT, "SUCCESS")));
+
+        AnalysisResult r = analyzer.analyzeSuiteRun(TOK, 69, "pull/69", BUILD, RERUN);
+
+        assertThat(r.blockers()).isEmpty();
+        assertThat(r.filtered()).extracting(TestVerdict::name, TestVerdict::reason).contains(tuple(
+            "test_sql.test_sql_fields_query", "not failing in the last finished run (passed on re-run)"));
+        assertThat(r.buildId()).isEqualTo(BUILD);
+    }
+
+    /** The re-run failed the test again on the same two commits: two failures of this code make it a blocker. */
+    @Test
+    void aTestTheRerunFailedAgainIsABlocker() {
+        rerun("FAILURE", 400, null, failed("r2", SQL_TEST, "test_sql.test_sql_fields_query"));
+        when(tc.branchRuns(TOK, "pull/69", SQL_TEST, SUITE)).thenReturn(List.of(branchRun(BUILD, CLIENT),
+            branchRun(RERUN, CLIENT)));
+
+        AnalysisResult r = analyzer.analyzeSuiteRun(TOK, 69, "pull/69", BUILD, RERUN);
+
+        assertThat(r.blockers()).extracting(TestVerdict::name, TestVerdict::branchRuns)
+            .containsExactly(tuple("test_sql.test_sql_fields_query", "FF"));
+        assertThat(r.blockers().get(0).reason()).contains("failed all 2 runs");
+    }
+
+    /** A test passed the run and failed only the re-run: the verdict lists it, judged by both runs. */
+    @Test
+    void aTestOnlyTheRerunFailedIsJudgedToo() {
+        rerun("FAILURE", 400, null, failed("r3", NEW_TEST, "test_scan.test_scan_page"));
+        when(tc.getBaseBranchHistory(TOK, NEW_TEST, SUITE)).thenReturn(master(100));
+        when(tc.branchRuns(TOK, "pull/69", NEW_TEST, SUITE)).thenReturn(List.of(branchRun(BUILD, CLIENT, "SUCCESS"),
+            branchRun(RERUN, CLIENT)));
+
+        AnalysisResult r = analyzer.analyzeSuiteRun(TOK, 69, "pull/69", BUILD, RERUN);
+
+        assertThat(r.filtered()).extracting(TestVerdict::name, TestVerdict::suiteBuildId)
+            .contains(tuple("test_scan.test_scan_page", RERUN));
+    }
+
+    /**
+     * The run timed out after 120 of master's 400 tests, so the suite had no result. The re-run ran all of them and
+     * passed: the suite is not broken any more.
+     */
+    @Test
+    void aRerunThatRanTheTestsGivesTheSuiteAResult() {
+        when(tc.suiteRun(TOK, BUILD)).thenReturn(run(BUILD, "FAILURE", 120, "TC_EXECUTION_TIMEOUT"));
+        when(tc.getFailedTests(TOK, BUILD)).thenReturn(List.of());
+        rerun("SUCCESS", 400, null);
+
+        AnalysisResult first = analyzer.analyzeSuiteRun(TOK, 69, "pull/69", BUILD);
+        AnalysisResult both = analyzer.analyzeSuiteRun(TOK, 69, "pull/69", BUILD, RERUN);
+
+        assertThat(first.brokenSuites()).hasSize(1);
+        assertThat(both.brokenSuites()).isEmpty();
+        assertThat(both.shrunkSuites()).isEmpty();
+        assertThat(both.blockers()).isEmpty();
+    }
+
+    /** The re-run timed out too: the suite stays without a result, and the verdict names the re-run's break. */
+    @Test
+    void aRerunThatBrokeAgainLeavesTheSuiteBroken() {
+        rerun("FAILURE", 90, "TC_EXECUTION_TIMEOUT");
+
+        AnalysisResult r = analyzer.analyzeSuiteRun(TOK, 69, "pull/69", BUILD, RERUN);
+
+        assertThat(r.brokenSuites()).extracting(BrokenSuite::suiteBuildId).containsExactly(RERUN);
+    }
+
+    /** The re-run, finished on pull/69 with the PR's commits, and the tests it failed. */
+    private void rerun(String status, int tests, String problem, TcModel.TestOccurrence... failed) {
+        when(tc.suiteRun(TOK, RERUN)).thenReturn(run(RERUN, status, tests, problem));
+        when(tc.getFailedTests(TOK, RERUN)).thenReturn(List.of(failed));
+        checkouts.put(RERUN, CLIENT);
+    }
+
     private static TcModel.Build run(String status, int tests, String problem) {
-        return new TcModel.Build(BUILD, status, "finished", "pull/69", SUITE, null, "20261019T120000+0000",
+        return run(BUILD, status, tests, problem);
+    }
+
+    private static TcModel.Build run(long id, String status, int tests, String problem) {
+        return new TcModel.Build(id, status, "finished", "pull/69", SUITE, null, "20261019T120000+0000",
             "20261019T121000+0000", "20261019T124000+0000", null, null, new TcModel.BuildType(SUITE,
                 "Thin client: Python"), null, null, null, problem == null ? null
                 : new TcModel.ProblemOccurrences(List.of(new TcModel.ProblemOccurrence(problem, null))),

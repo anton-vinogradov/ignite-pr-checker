@@ -1687,6 +1687,99 @@ public class StandingVisas implements SnapshotCache {
         return options(username).autoRerun();
     }
 
+    /**
+     * Whether the user's auto re-run acts on their run that finished at {@code finishedMs}: it was on by then, and
+     * TeamCity has not refused the token it re-runs with.
+     */
+    public boolean rerunActsOn(String username, long finishedMs) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && !e.tc().rejected() && e.actingOn(finishedMs).autoRerun();
+    }
+
+    /**
+     * Posts the visa of a run of the Python thin client's suite, {@code buildId}, that {@code username} started with
+     * a {@code /run-all} in PR {@code pr} of {@code repo}: their "Visa my runs in JIRA" posts {@code body} to the
+     * IGNITE ticket the PR title names, as for a RunAll. The option acts on a run that finished after it went on
+     * ({@code finishedMs}). {@code pull} asks GitHub for the PR's title. A closed PR gets no visa, and none goes out
+     * that says what the user's last visa of the PR in that ticket said of the same commits. Each visa posted is in the
+     * user's journal with the repo. A refused JIRA token is dropped and switches the option off, as after any visa.
+     */
+    public ClientVisa clientVisa(String username, String repo, int pr, long buildId, long finishedMs,
+        AnalysisResult res, String body, Supplier<Optional<GithubClient.PullState>> pull) {
+        Enrollment e = enrolled.get(username);
+        if (e == null || e.tc().rejected() || !e.actingOn(finishedMs).autoVisa())
+            return ClientVisa.NONE;
+        if (e.jira().waits())
+            return ClientVisa.of(ClientVisa.WAITS, whyGone(e.jira()));
+
+        Optional<String> jiraToken = decrypt(e.jira());
+        if (jiraToken.isEmpty())
+            return ClientVisa.NONE;
+
+        Optional<GithubClient.PullState> state;
+        try {
+            state = pull.get();
+        }
+        catch (RuntimeException ex) {
+            log.warn("no visa for {}#{} (build {}, by {}) yet: GitHub did not give the PR's title: {}", repo, pr,
+                buildId, username, ex.toString());
+
+            return ClientVisa.of(ClientVisa.FAILED, "GitHub did not give the PR's title");
+        }
+        if (state.isEmpty() || !state.get().open())
+            return ClientVisa.of(ClientVisa.CLOSED, state.isPresent() && state.get().merged() ? "merged" : "closed");
+
+        Optional<String> issue = ticketIn(state.get().title());
+        String verdict = verdictKey(res);
+        if (issue.isEmpty()) {
+            keepRunVisa(buildId, new RunVisa(pr, username, null, null, repo, res.revision(), verdict));
+            log.info("no visa for {}#{} (build {}, by {}): its title names no IGNITE ticket", repo, pr, buildId,
+                username);
+
+            return ClientVisa.of(ClientVisa.NO_TICKET, null);
+        }
+
+        RunVisa last = lastClientVisa(username, repo, pr);
+        if (last != null && issue.get().equals(last.issue()) && res.revision() != null
+            && res.revision().equals(last.sha()) && verdict.equals(last.verdict())) {
+            keepRunVisa(buildId, last);
+            log.info("no new visa for {}#{} (build {}, by {}): the last one in {} says the same of commits {}", repo,
+                pr, buildId, username, issue.get(), res.revision());
+
+            return ClientVisa.same(issue.get(), jira.commentUrl(issue.get(), last.commentId()));
+        }
+
+        JiraClient.PostedComment posted;
+        try {
+            posted = jira.addCommentWithId(jiraToken.get(), issue.get(), body);
+        }
+        catch (RuntimeException ex) {
+            if (jiraRefused(username, jiraToken.get()))
+                return ClientVisa.of(ClientVisa.REFUSED, null);
+
+            log.warn("visa for {}#{} (build {}) failed: {}", repo, pr, buildId, ex.toString());
+
+            return ClientVisa.of(ClientVisa.FAILED, "JIRA did not take it" + (ex instanceof
+                org.springframework.web.client.RestClientResponseException rest ? " (HTTP "
+                + rest.getStatusCode().value() + ")" : ""));
+        }
+        String url = jira.commentUrl(issue.get(), posted.id());
+        keepRunVisa(buildId, new RunVisa(pr, username, issue.get(), posted.id(), repo, res.revision(), verdict));
+        journal.add(username, SettingsJournal.Entry.clientVisa(repo, pr, issue.get(), buildId, url));
+        postedTotal.incrementAndGet();
+        log.info("visa posted for {}#{} (build {}, by {}) -> {}", repo, pr, buildId, username, posted.url());
+
+        return ClientVisa.posted(issue.get(), url);
+    }
+
+    /** The newest visa the user posted for PR {@code pr} of {@code repo}; null when none is kept. */
+    private RunVisa lastClientVisa(String username, String repo, int pr) {
+        return runVisas.descendingMap().values().stream()
+            .filter(v -> repo.equals(v.repo()) && v.pr() == pr && username.equals(v.by()) && v.commentId() != null)
+            .findFirst().orElse(null);
+    }
+
     private Options options(String username) {
         Enrollment e = enrolled.get(username);
 
@@ -3274,9 +3367,16 @@ public class StandingVisas implements SnapshotCache {
      * What the settle of a run of PR {@code pr} did with its visa: posted it to {@code issue} as comment {@code
      * commentId} under the option of {@code by}, or posted none, as the PR title named no IGNITE ticket ({@code
      * commentId} null). Kept apart from the options, so the PR page still tells of a posted visa after {@code by}
-     * switched every option off. Visas of v1.20.11 and before do not name their {@code issue}.
+     * switched every option off. Visas of v1.20.11 and before do not name their {@code issue}. {@code repo}: the
+     * Python thin client's for a run of its suite, null for a RunAll; such a visa keeps the commits it is of, {@code
+     * sha}, and what its verdict says, {@code verdict} ({@link #verdictKey}), so the next one does not repeat it.
      */
-    private record RunVisa(int pr, String by, String issue, String commentId) {
+    private record RunVisa(int pr, String by, String issue, String commentId, String repo, String sha,
+        String verdict) {
+        /** The visa of a RunAll. */
+        RunVisa(int pr, String by, String issue, String commentId) {
+            this(pr, by, issue, commentId, null, null, null);
+        }
     }
 
     /**

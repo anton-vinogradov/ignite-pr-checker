@@ -463,8 +463,9 @@ journal.
 - What the checker changes itself is an entry by the checker: a token JIRA, GitHub or TeamCity refused, a token the
   checker could not read, your GitHub account that another ci2 user linked.
 - Each visa the checker posts or edits with your JIRA token is an entry: the PR, the ticket, the RunAll and when. The
-  ticket links to the comment in JIRA. A RunAll someone started in TeamCity with your ci2 token gets a visa from your
-  **Visa my runs in JIRA** too, and the journal shows it.
+  ticket links to the comment in JIRA. The entry of a visa in a PR of the Python thin client names the client's repo,
+  and the suite's build instead of the RunAll. A RunAll someone started in TeamCity with your ci2 token gets a visa from
+  your **Visa my runs in JIRA** too, and the journal shows it.
 - An entry names options, services and GitHub accounts, never a token or a part of one.
 
 ### Language
@@ -568,6 +569,20 @@ The commands also work in the pull requests of
 - As with a RunAll, a comment of the checker tells how the run goes. When the run finishes, a new comment mentions you
   and brings the verdict: the two commits, the blockers, the tests that started failing and the tests not blamed on
   the PR, each with its reason and a link to TeamCity. The checker's page has no PRs of the client.
+- **Re-run failed suites of my runs** works here too, once per run. When the verdict has a blocker, a test that started
+  failing or a broken suite, the checker queues the suite again at the top of the queue. The re-run tests the same two
+  commits with the same `OVERRIDDEN_BRANCH`, even after Ignite master or the PR moved on. The checker's comment on the
+  run also tells how the re-run goes, and the verdict comes after the re-run. The verdict judges the failed tests of
+  both runs, and a line of it says how the re-run went. A suite that failed to compile is not re-run, and neither is a
+  run that finished before you switched the option on.
+- **Visa my runs in JIRA** posts the verdict to the IGNITE ticket in the title of the client's PR, as for a RunAll,
+  after the re-run if there is one. The visa opens with `one suite only, not a RunAll`, so nobody takes it for the visa
+  of a RunAll. It names the suite, its build, the PR's commit and Ignite master's commit. Then it lists the failed
+  tests, up to 20 in each list, and links the rest in TeamCity. A closed PR or a title without a ticket gets no visa.
+  Nor does a run whose verdict repeats your last visa of this PR in that ticket for the same commits. When JIRA fails,
+  or GitHub does not give the PR's title, the checker tries again every minute for 10 minutes, and the verdict waits.
+  After that the verdict comes without the visa. The verdict comment says where the visa went, or why none did. The
+  journal in ⚙ lists the visa with the client's repo.
 - Not tested: a client change together with an Ignite change it needs, since the run always takes Ignite master. Run
   `/run-all` again once the Ignite change is in master.
 - A new `/run-all` cancels your run of the suite in this PR that is queued or running. When TeamCity has no such

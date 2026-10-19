@@ -43,7 +43,9 @@ class JournalInRussianTest {
                 SettingsJournal.Entry.DAMAGED),
             SettingsJournal.Entry.visa(false, 13575, "IGNITE-29049", 9001, "https://jira/c/1"),
             SettingsJournal.Entry.visa(true, 13575, "IGNITE-29049", 9001, "https://jira/c/1"),
-            SettingsJournal.Entry.language(LAPTOP, Lang.EN));
+            SettingsJournal.Entry.language(LAPTOP, Lang.EN),
+            SettingsJournal.Entry.clientVisa("apache/ignite-python-thin-client", 69, "IGNITE-29117", 9424005,
+                "https://jira/c/2"));
 
         List<String> left = new ArrayList<>();
         for (SettingsJournal.Entry e : entries) {
@@ -55,6 +57,8 @@ class JournalInRussianTest {
         assertThat(left).isEmpty();
         assertThat(SettingsJournal.text(entries.get(0), Lang.RU))
             .isEqualTo("Включено: «Ставить визу моим прогонам в JIRA». Сохранён новый токен JIRA.");
+        assertThat(SettingsJournal.text(entries.get(20), Lang.RU)).isEqualTo("Отправлена виза в IGNITE-29117 для PR"
+            + " #69 в apache/ignite-python-thin-client, сборка 9424005.");
         assertThat(SettingsJournal.text(entries.get(8), Lang.RU)).isEqualTo("Аккаунт GitHub @alice-gh отвязан. "
             + "Выключено: «Команды в PR», «Чинить checkstyle перед моими прогонами по команде» и «Добавлять в сьюты тесты "
             + "моего PR, которые не запускает ни одна сьюта». Чекер удалил и твой токен GitHub для коммитов.");

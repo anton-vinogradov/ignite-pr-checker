@@ -609,11 +609,22 @@ public class BlockerAnalyzer {
      * computes the verdict again; that try reuses the branch runs the last one read.
      */
     public AnalysisResult analyzeSuiteRun(String token, int prNumber, String branch, long buildId) {
-        TcModel.Build run = tc.suiteRun(token, buildId);
-        if (run == null)
-            throw new IllegalStateException("TeamCity sent no build " + buildId);
+        return analyzeSuiteRun(token, prNumber, branch, buildId, 0);
+    }
 
-        ChainCollector.SuiteRun suite = chains.collectForSuiteRun(token, run);
+    /**
+     * The same verdict of the run {@code buildId} once its re-run on the same commits, {@code rerunId}, has finished:
+     * the failed tests of both runs are judged, and the suite is broken or short as the re-run left it (see {@link
+     * ChainCollector#collectForSuiteRun(String, TcModel.Build, TcModel.Build)}). {@code rerunId} 0: the run alone.
+     */
+    public AnalysisResult analyzeSuiteRun(String token, int prNumber, String branch, long buildId, long rerunId) {
+        TcModel.Build run = tc.suiteRun(token, buildId);
+        TcModel.Build rerun = rerunId == 0 ? null : tc.suiteRun(token, rerunId);
+        if (run == null || rerunId != 0 && rerun == null)
+            throw new IllegalStateException("TeamCity sent no build " + (run == null ? buildId : rerunId));
+
+        ChainCollector.SuiteRun suite = rerun == null ? chains.collectForSuiteRun(token, run)
+            : chains.collectForSuiteRun(token, run, rerun);
         Subject subject = new Subject(0, suite.failedTests().isEmpty() ? t -> List.of()
             : clientRuns(token, branch, run), true);
         FailedLookups failedLookups = new FailedLookups();

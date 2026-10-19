@@ -247,6 +247,22 @@ public class ChainCollector {
             shrunkSuites(List.of(run), masterCounts, broken == null ? Set.of() : Set.of(run.id())));
     }
 
+    /**
+     * A suite run and its re-run on the same commits, read as one: the failed tests of both, each test once, and the
+     * state of the suite as the re-run left it. A re-run that broke breaks the suite again, and one that ran its tests
+     * gives the result the first run's break kept from it. Each test is then judged by its runs on the branch, both of
+     * these among them: a test that failed the first run and passed the re-run is not blamed.
+     */
+    public SuiteRun collectForSuiteRun(String token, TcModel.Build run, TcModel.Build rerun) {
+        SuiteRun first = collectForSuiteRun(token, run);
+        SuiteRun again = collectForSuiteRun(token, rerun);
+        Set<Candidate> seen = new HashSet<>();
+        List<FailedTest> failed = Stream.concat(first.failedTests().stream(), again.failedTests().stream())
+            .filter(t -> seen.add(new Candidate(t.testId(), t.suite()))).toList();
+
+        return new SuiteRun(failed, again.broken(), again.unstable(), again.shrunk());
+    }
+
     /** What one suite run says: see {@link #collectForSuiteRun}. {@code broken} and {@code unstable} may be null. */
     public record SuiteRun(List<FailedTest> failedTests, BrokenSuite broken, BrokenSuite unstable,
         List<ShrunkSuite> shrunk) {

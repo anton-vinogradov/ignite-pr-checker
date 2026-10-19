@@ -190,8 +190,10 @@ public class SettingsJournal implements SnapshotCache {
             case Entry.NO_TOKEN -> Texts.t(lang, "The checker had no {0}, so {1} went off.", tokens(e, lang),
                 options(e, lang));
             case Entry.UNREAD -> unread(e, lang);
-            case Entry.VISA -> Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}.", e.issue(), e.pr(),
-                e.build());
+            case Entry.VISA -> e.repo() != null
+                ? Texts.t(lang, "Posted a visa to {0} for PR #{1} of {2}, build {3}.", e.issue(), e.pr(), e.repo(),
+                    e.build())
+                : Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}.", e.issue(), e.pr(), e.build());
             case Entry.VISA_EDITED -> Texts.t(lang, "Edited the visa in {0} for PR #{1}, RunAll {2}.", e.issue(),
                 e.pr(), e.build());
             case Entry.LANGUAGE -> Lang.of(e.lang()) == Lang.RU ? Texts.t(lang, "Switched the language to Russian.")
@@ -349,12 +351,13 @@ public class SettingsJournal implements SnapshotCache {
      * {@code pr}, {@code issue}, {@code build} and the {@code url} of its comment are there for the kinds that name
      * them. {@code why}: why the checker could not read a token, {@link #KEY_CHANGED} or {@link #DAMAGED}; {@link
      * #ALL_OFF} for an account unlinked with the last option. {@code lang}: the code of the language the user chose
-     * for the pages.
+     * for the pages. {@code repo}: the repo of a visa's PR when it is not the one the checker lists, such as the Python
+     * thin client's, whose PR numbers are Ignite's too; its {@code build} is a run of one suite.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Entry(long at, String kind, String login, String browser, List<String> options, List<String> tokens,
-        String why, String account, Integer pr, String issue, Long build, String url, String lang) {
+        String why, String account, Integer pr, String issue, Long build, String url, String lang, String repo) {
         /** Options switched on, with the new token of the first one when it brought one. */
         static final String ON = "on";
 
@@ -448,19 +451,24 @@ public class SettingsJournal implements SnapshotCache {
 
         static Entry visa(boolean edited, int pr, String issue, long build, String url) {
             return new Entry(0, edited ? VISA_EDITED : VISA, null, null, null, null, null, null, pr, issue, build,
-                url, null);
+                url, null, null);
+        }
+
+        /** A visa posted for PR {@code pr} of {@code repo}, the Python thin client's, by its run {@code build}. */
+        static Entry clientVisa(String repo, int pr, String issue, long build, String url) {
+            return new Entry(0, VISA, null, null, null, null, null, null, pr, issue, build, url, null, repo);
         }
 
         /** The user chose the language of the pages in ⚙. */
         public static Entry language(By by, Lang lang) {
             return new Entry(0, LANGUAGE, by.login(), by.browser(), null, null, null, null, null, null, null, null,
-                lang.code());
+                lang.code(), null);
         }
 
         private Entry(long at, String kind, By by, List<String> options, List<String> tokens, String why,
             String account) {
             this(at, kind, by == null ? null : by.login(), by == null ? null : by.browser(), options, tokens, why,
-                account, null, null, null, null, null);
+                account, null, null, null, null, null, null);
         }
 
         private static List<String> orNull(List<String> list) {
@@ -469,7 +477,7 @@ public class SettingsJournal implements SnapshotCache {
 
         Entry madeAt(long time) {
             return new Entry(time, kind, login, browser, options, tokens, why, account, pr, issue, build, url,
-                lang);
+                lang, repo);
         }
     }
 }
