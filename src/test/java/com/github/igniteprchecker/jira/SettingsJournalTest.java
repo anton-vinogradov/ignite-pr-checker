@@ -220,6 +220,27 @@ class SettingsJournalTest {
             .extracting(SettingsJournal.Entry::kind).startsWith("off").endsWith("linked");
     }
 
+    /**
+     * A visa of a run of the Python thin client's suite names the client's repo: its PR #69 is not Ignite's #69. The
+     * file keeps the repo, and the entry reads with it after a restart; a visa of a RunAll reads as it did.
+     */
+    @Test
+    void aVisaOfTheClientsPrNamesItsRepo(@TempDir Path dir) throws Exception {
+        journal.add("alice", SettingsJournal.Entry.clientVisa("apache/ignite-python-thin-client", 69, "IGNITE-29117",
+            9424005L, "https://issues.example/c2"));
+        journal.add("alice", SettingsJournal.Entry.visa(false, 69, "IGNITE-28867", 9389046L,
+            "https://issues.example/c1"));
+        Path file = dir.resolve("journal.json");
+        journal.saveTo(file);
+        SettingsJournal restarted = new SettingsJournal(mapper, now::get);
+
+        restarted.loadFrom(file);
+
+        assertThat(restarted.of("alice")).extracting(SettingsJournal::text).containsExactly(
+            "Posted a visa to IGNITE-28867 for PR #69, RunAll 9389046.",
+            "Posted a visa to IGNITE-29117 for PR #69 of apache/ignite-python-thin-client, build 9424005.");
+    }
+
     /** The file of this release, as it reads back: a renamed field would leave the journal of every user empty. */
     @Test
     void theJournalFileReadsBack(@TempDir Path dir) throws Exception {

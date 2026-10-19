@@ -247,6 +247,32 @@ public class ChainCollector {
             shrunkSuites(List.of(run), masterCounts, broken == null ? Set.of() : Set.of(run.id())));
     }
 
+    /**
+     * A suite run and its re-run on the same commits, read as one: the failed tests of both, each test once, and the
+     * state of the suite as the re-run left it. A re-run that broke breaks the suite again, and one that ran its tests
+     * gives the result the first run's break kept from it. Each test is then judged by its runs on the branch, both of
+     * these among them: a test that failed the first run and passed the re-run is not blamed.
+     */
+    public SuiteRun collectForSuiteRun(String token, TcModel.Build run, TcModel.Build rerun) {
+        SuiteRun first = collectForSuiteRun(token, run);
+        SuiteRun again = collectForSuiteRun(token, rerun);
+        Set<Candidate> seen = new HashSet<>();
+        List<FailedTest> failed = Stream.concat(first.failedTests().stream(), again.failedTests().stream())
+            .filter(t -> seen.add(new Candidate(t.testId(), t.suite()))).toList();
+
+        return new SuiteRun(failed, again.broken(), again.unstable(), again.shrunk());
+    }
+
+    /**
+     * Whether TeamCity cancelled the suite run by itself, as {@link CancelledSuite#byTeamCity()} tells it, and not
+     * because a run it needed failed: a RunAll's wave re-runs such a suite, since a re-run is what gets it a result.
+     */
+    public static boolean cancelledByTeamCity(TcModel.Build run) {
+        TcModel.CanceledInfo info = run.canceledInfo();
+
+        return info != null && (info.user() == null || info.user().username() == null) && failedUpstream(run) == null;
+    }
+
     /** What one suite run says: see {@link #collectForSuiteRun}. {@code broken} and {@code unstable} may be null. */
     public record SuiteRun(List<FailedTest> failedTests, BrokenSuite broken, BrokenSuite unstable,
         List<ShrunkSuite> shrunk) {

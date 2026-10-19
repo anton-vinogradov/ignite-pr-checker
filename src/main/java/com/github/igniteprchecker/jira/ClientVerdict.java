@@ -10,16 +10,25 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * The verdict of a run of the Python thin client's suite for a PR of the client, in GitHub's markdown: the commits it
- * ran, then what failed, and why each failure is or is not blamed on the PR, by the rules of a suite of a RunAll. Its
- * links go to TeamCity and GitHub only: the checker's page has no PRs of the client.
+ * The verdict of a run of the Python thin client's suite for a PR of the client: in GitHub's markdown for the PR, and
+ * in JIRA's wiki markup for the visa. It names the commits the run tested, then what failed, and why each failure is
+ * or is not blamed on the PR, by the rules of a suite of a RunAll. The visa opens by saying it is of this one suite:
+ * read as the visa of a RunAll, it would vouch for suites that never ran. Its links go to TeamCity and GitHub only:
+ * the checker's page has no PRs of the client.
  */
 public final class ClientVerdict {
     /** Tests a list names; the rest are counted, with a link to the run's tests in TeamCity. */
     static final int LISTED = 20;
 
+    /** How long the checker tries again a visa JIRA or GitHub failed; the verdict waits for it meanwhile. */
+    public static final int VISA_TRIES_MINUTES = 10;
+
     /** The longest test name a line shows. */
     private static final int NAME_CHARS = 200;
+
+    private static final String FOOTER = "This run uses Ignite master at the commit above. If this PR needs an Ignite"
+        + " change that is not in that commit, the run tests this PR without that change. What each label means and"
+        + " what to do: ";
 
     private ClientVerdict() {
     }
@@ -33,84 +42,228 @@ public final class ClientVerdict {
     }
 
     /**
+     * The run's auto re-run on the same commits: its build, 0 when none was queued, whether the verdict counts its
+     * results ({@code counted}), and why it does not, in words that follow the build: it was cancelled, or TeamCity no
+     * longer has it. For a re-run never queued, {@code why} says what TeamCity answered. {@code standsIn}: TeamCity
+     * cancelled the run by itself, so the run has no result, and the re-run gives the verdict.
+     */
+    public record Rerun(long buildId, boolean counted, String why, boolean standsIn) {
+        /** A re-run that finished: the verdict counts the failed tests of both runs. */
+        public static Rerun counted(long buildId) {
+            return new Rerun(buildId, true, null, false);
+        }
+
+        /** A re-run that finished in place of a run TeamCity cancelled by itself: the verdict is the re-run's. */
+        public static Rerun standsIn(long buildId) {
+            return new Rerun(buildId, true, null, true);
+        }
+
+        public static Rerun cancelled(long buildId) {
+            return new Rerun(buildId, false, "was cancelled", false);
+        }
+
+        public static Rerun gone(long buildId) {
+            return new Rerun(buildId, false, "is gone from TeamCity", false);
+        }
+
+        public static Rerun notQueued(String why) {
+            return new Rerun(0, false, why, false);
+        }
+    }
+
+    /**
      * The verdict comment. {@code login} is the GitHub login of the commander, mentioned so GitHub tells them; null
      * when the checker does not know it. {@code tcBase} ends with a slash.
      */
     public static String markdown(String tcBase, String login, Run run, AnalysisResult r) {
-        StringBuilder b = new StringBuilder();
-        String build = "[build " + run.buildId() + "](" + tcBase + "build/" + run.buildId() + ")";
-        b.append(login == null || login.isBlank() ? "The verdict of a `/run-all`" : "@" + login
-            + " the verdict of your `/run-all`").append(": **").append(Markup.text(run.suiteName())).append("** ")
-            .append(build).append(" ran this PR's head ")
-            .append(commit("https://github.com/" + run.clientRepo() + "/pull/" + run.pr() + "/commits/",
-                run.clientSha()))
-            .append(" against Ignite master at ")
-            .append(commit("https://github.com/" + run.igniteRepo() + "/commit/", run.igniteSha())).append(".\n\n");
+        return markdown(tcBase, login, run, r, null, ClientVisa.NONE);
+    }
 
-        r.brokenSuites().forEach(s -> b.append("⚠️ **The suite has no reliable result:** ")
-            .append(Markup.text(problems(s))).append(".\n\n"));
-        r.unstableSuites().forEach(s -> b.append("ℹ️ **Crashed near the end of the run:** ")
-            .append(Markup.text(String.join(" · ", s.problems())))
+    /**
+     * The verdict comment, with what became of the run's auto re-run, null when none was due, and of its visa. A re-run
+     * that stands in for a run TeamCity cancelled is the build the verdict names as the one that ran.
+     */
+    public static String markdown(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
+        ClientVisa visa) {
+        Ink ink = Ink.MARKDOWN;
+        long ran = ran(run, rerun);
+        StringBuilder b = new StringBuilder();
+        b.append(login == null || login.isBlank() ? "The verdict of a `/run-all`" : "@" + login
+            + " the verdict of your `/run-all`").append(": ").append(ink.bold(ink.text(run.suiteName()))).append(' ')
+            .append(ink.link("build " + ran, tcBase + "build/" + ran))
+            .append(" ran this PR's head ").append(clientCommit(ink, run))
+            .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(".\n\n");
+        body(ink, tcBase, ran, r, b);
+        rerunLine(ink, tcBase, run, rerun, b);
+        visaLine(visa, b);
+
+        return b.append("<sub>").append(FOOTER).append(ink.link("verdict glossary", VisaService.GLOSSARY))
+            .append(".</sub>").toString();
+    }
+
+    /**
+     * The visa: the same verdict in JIRA's wiki markup, opened by what it is of: one suite, the PR's head against
+     * Ignite master at a commit, and no other suite. {@code rerun}: the run's auto re-run, null when none was due.
+     */
+    public static String wiki(String tcBase, Run run, AnalysisResult r, Rerun rerun) {
+        Ink ink = Ink.WIKI;
+        long ran = ran(run, rerun);
+        StringBuilder b = new StringBuilder();
+        b.append("Ignite PR Checker verdict for ")
+            .append(ink.link("PR " + run.pr() + " of " + run.clientRepo(), pullUrl(run)))
+            .append(" · ").append(ink.bold("one suite only, not a RunAll")).append("\n\n")
+            .append(ink.bold(ink.text(run.suiteName()))).append(' ')
+            .append(ink.link("build " + ran, tcBase + "build/" + ran))
+            .append(" tested the PR's head ").append(clientCommit(ink, run))
+            .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(". No other suite ran.\n\n");
+        body(ink, tcBase, ran, r, b);
+        rerunLine(ink, tcBase, run, rerun, b);
+
+        return b.append('_').append(FOOTER).append(ink.link("verdict glossary", VisaService.GLOSSARY)).append("._")
+            .toString();
+    }
+
+    /** The build the verdict names as the one that ran: the run's, or the re-run that stands in for it. */
+    private static long ran(Run run, Rerun rerun) {
+        return rerun != null && rerun.standsIn() ? rerun.buildId() : run.buildId();
+    }
+
+    /**
+     * What failed and why, the verdict's standing, the tests not blamed, and what the tags of the lists mean; past the
+     * tests a list shows, it links those of build {@code ran}.
+     */
+    private static void body(Ink ink, String tcBase, long ran, AnalysisResult r, StringBuilder b) {
+        r.brokenSuites().forEach(s -> b.append(ink.icon("⚠️", "(!)")).append(' ')
+            .append(ink.bold("The suite has no reliable result:")).append(' ').append(ink.text(problems(s)))
+            .append(".\n\n"));
+        r.unstableSuites().forEach(s -> b.append(ink.icon("ℹ️", "(i)")).append(' ')
+            .append(ink.bold("Crashed near the end of the run:")).append(' ')
+            .append(ink.text(String.join(" · ", s.problems())))
             .append(". It ran nearly all of master's tests, so its results are reliable.\n\n"));
-        r.shrunkSuites().forEach(s -> b.append("🔍 **The suite ran fewer tests than on master:** ").append(ranOf(s))
+        r.shrunkSuites().forEach(s -> b.append(ink.icon("🔍", "(?)")).append(' ')
+            .append(ink.bold("The suite ran fewer tests than on master:")).append(' ').append(ranOf(ink, s))
             .append(". Tests that never ran can't fail.\n\n"));
 
-        String tests = tcBase + "build/" + run.buildId() + "?buildTab=tests";
+        String tests = tcBase + "build/" + ran + "?buildTab=tests";
         if (!r.blockers().isEmpty()) {
-            b.append("❌ **").append(count(r.blockers().size(), "blocker")).append(":**\n")
-                .append(list(tcBase, r.blockers(), tests)).append('\n');
+            b.append(ink.icon("❌", "(x)")).append(' ').append(ink.bold(count(r.blockers().size(), "blocker") + ":"))
+                .append('\n').append(list(ink, tcBase, r.blockers(), tests)).append('\n');
         }
         if (!r.watch().isEmpty()) {
-            b.append("👀 **").append(count(r.watch().size(), "test")).append(" started failing on this code** — not"
-                + " proven blockers yet. There are too few runs of this code to tell a break from a flake. A new"
-                + " `/run-all` decides it while this PR's head and Ignite master stay at the commits above.\n")
-                .append(list(tcBase, r.watch(), tests)).append('\n');
+            b.append(ink.icon("👀", "(!)")).append(' ')
+                .append(ink.bold(count(r.watch().size(), "test") + " started failing on this code"))
+                .append(" — not proven blockers yet. There are too few runs of this code to tell a break from a flake."
+                    + " A new ").append(ink == Ink.MARKDOWN ? "`/run-all`" : "{{/run-all}}")
+                .append(" decides it while this PR's head and Ignite master stay at the commits above.\n")
+                .append(list(ink, tcBase, r.watch(), tests)).append('\n');
         }
         if (!r.unverified().isEmpty()) {
-            b.append("❔ **").append(count(r.unverified().size(), "failed test")).append(" could not be checked** —"
-                + " TeamCity errors kept them from being compared with master and the branch; not counted as"
-                + " blockers.\n").append(list(tcBase, r.unverified(), tests)).append('\n');
+            b.append(ink.icon("❔", "(?)")).append(' ')
+                .append(ink.bold(count(r.unverified().size(), "failed test") + " could not be checked"))
+                .append(" — TeamCity errors kept them from being compared with master and the branch; not counted as"
+                    + " blockers.\n").append(list(ink, tcBase, r.unverified(), tests)).append('\n');
         }
 
         Caveats.Standing standing = Caveats.standing(r, null);
-        if (standing == Caveats.Standing.CLEAN)
-            b.append(r.filtered().isEmpty() ? "✅ **No blockers** — no test failed.\n\n"
-                : "✅ **No blockers** — nothing in this run looks caused by this PR.\n\n");
-        else if (standing == Caveats.Standing.WATCH)
-            b.append("⚠️ **No proven blockers yet** — this does not mean the PR is clean: see the tests above.\n\n");
-        else if (standing != Caveats.Standing.BLOCKERS)
-            b.append("🔎 **No blockers found — but this run can't prove the PR is clean:** see above.\n\n");
+        if (standing == Caveats.Standing.CLEAN) {
+            b.append(ink.icon("✅", "(/)")).append(' ').append(ink.bold("No blockers"))
+                .append(r.filtered().isEmpty() ? " — no test failed.\n\n"
+                    : " — nothing in this run looks caused by this PR.\n\n");
+        }
+        else if (standing == Caveats.Standing.WATCH) {
+            b.append(ink.icon("⚠️", "(!)")).append(' ').append(ink.bold("No proven blockers yet"))
+                .append(" — this does not mean the PR is clean: see the tests above.\n\n");
+        }
+        else if (standing != Caveats.Standing.BLOCKERS) {
+            b.append(ink.icon("🔎", "(?)")).append(' ')
+                .append(ink.bold("No blockers found — but this run can't prove the PR is clean:"))
+                .append(" see above.\n\n");
+        }
 
         if (!r.filtered().isEmpty()) {
             int n = r.filtered().size();
-            b.append("**").append(count(n, "failing test")).append(n == 1 ? " is" : " are")
-                .append(" not blamed on this PR:**\n").append(list(tcBase, r.filtered(), tests)).append('\n');
+            b.append(ink.bold(count(n, "failing test") + (n == 1 ? " is" : " are") + " not blamed on this PR:"))
+                .append('\n').append(list(ink, tcBase, r.filtered(), tests)).append('\n');
         }
 
-        String legend = new TestGroups(tcBase, null).markdownLegend(Stream.concat(r.blockers().stream(),
-            r.watch().stream()).toList());
+        List<TestVerdict> tagged = Stream.concat(r.blockers().stream(), r.watch().stream()).toList();
+        TestGroups groups = new TestGroups(tcBase, null);
+        String legend = ink == Ink.MARKDOWN ? groups.markdownLegend(tagged) : groups.wikiLegend(tagged);
         if (!legend.isEmpty())
             b.append(legend).append("\n\n");
+    }
 
-        return b.append("<sub>This run uses Ignite master at the commit above. If this PR needs an Ignite change that"
-            + " is not in that commit, the run tests this PR without that change. What each label means and what to"
-            + " do: [verdict glossary](")
-            .append(VisaService.GLOSSARY).append(").</sub>").toString();
+    /** What became of the run's auto re-run, when one was due; nothing when none was. */
+    private static void rerunLine(Ink ink, String tcBase, Run run, Rerun rerun, StringBuilder b) {
+        if (rerun == null)
+            return;
+
+        String build = rerun.buildId() == 0 ? null
+            : ink.link("build " + rerun.buildId(), tcBase + "build/" + rerun.buildId());
+        b.append("♻️ ");
+        if (rerun.standsIn()) {
+            b.append("TeamCity cancelled ").append(ink.link("build " + run.buildId(), tcBase + "build/"
+                + run.buildId())).append(" by itself. The checker ran the suite again on the same commits. This"
+                + " verdict comes from that re-run.");
+        }
+        else if (rerun.counted())
+            b.append("Settled after one auto re-run: ").append(build)
+                .append(" ran the suite again on the same commits.");
+        else if (build != null)
+            b.append("The auto re-run ").append(build).append(' ').append(rerun.why())
+                .append(", so this verdict counts the first run only.");
+        else {
+            b.append("The checker could not queue the auto re-run: ").append(ink.text(rerun.why()))
+                .append(". This verdict counts the first run only.");
+        }
+        b.append("\n\n");
+    }
+
+    /** What became of the run's visa, for the commander; nothing when their option does not act on the run. */
+    private static void visaLine(ClientVisa visa, StringBuilder b) {
+        String line = switch (visa.state()) {
+            case ClientVisa.POSTED -> "The JIRA visa is in [" + visa.issue() + "](" + visa.url() + ").";
+            case ClientVisa.SAME -> "No new JIRA visa: your last one in [" + visa.issue() + "](" + visa.url()
+                + ") has the same verdict for the same commits.";
+            case ClientVisa.NO_TICKET -> "No JIRA visa: the PR title names no IGNITE ticket.";
+            case ClientVisa.CLOSED -> "No JIRA visa: the PR was " + visa.why() + " before the run's verdict.";
+            case ClientVisa.WAITS -> waits(visa.why());
+            case ClientVisa.REFUSED -> "No JIRA visa: JIRA refused your JIRA token, so the checker dropped it and"
+                + " switched off **Visa my runs in JIRA**. Save a new token in ⚙ to switch it on again.";
+            case ClientVisa.FAILED -> "No JIRA visa: " + Markup.text(visa.why()) + ". The checker tried for "
+                + VISA_TRIES_MINUTES + " minutes.";
+            default -> null;
+        };
+        if (line != null)
+            b.append("📝 ").append(line).append("\n\n");
+    }
+
+    /** Why the visa waits for a JIRA token the checker no longer has, and what gets the next run a visa. */
+    private static String waits(String why) {
+        if (StandingVisas.TOKEN_REMOVED.equals(why)) {
+            return "No JIRA visa: the checker's state was restored from a backup older than 2 days, which keeps no"
+                + " tokens. Save your JIRA token in ⚙ again, and the next `/run-all` gets a visa.";
+        }
+
+        return "No JIRA visa: " + (SettingsJournal.Entry.KEY_CHANGED.equals(why)
+            ? "the server key was changed, so the checker could no longer read your JIRA token."
+            : "the checker could not read your JIRA token.")
+            + " Save a new one in ⚙, and the next `/run-all` gets a visa.";
     }
 
     /** One line per test, with why it is listed and a link to it in TeamCity; past {@link #LISTED}, how many more. */
-    private static String list(String tcBase, List<TestVerdict> tests, String allTests) {
+    private static String list(Ink ink, String tcBase, List<TestVerdict> tests, String allTests) {
         StringBuilder b = new StringBuilder();
         tests.stream().limit(LISTED).forEach(t -> {
             String tags = TestGroups.tags(t);
             String url = TestGroups.rowUrl(tcBase, t);
-            b.append("- ").append(Markup.code(shown(t.name()))).append(" — ").append(Markup.text(t.reason()))
-                .append(tags.isEmpty() ? "" : " (" + tags + ")").append(url == null ? "" : " · [TC](" + url + ")")
+            b.append("- ").append(ink.code(shown(t.name()))).append(" — ").append(ink.text(t.reason()))
+                .append(tags.isEmpty() ? "" : " (" + tags + ")").append(url == null ? "" : " · " + ink.link("TC", url))
                 .append('\n');
         });
         if (tests.size() > LISTED)
-            b.append("- … and ").append(tests.size() - LISTED).append(" more in [TeamCity](").append(allTests)
-                .append(")\n");
+            b.append("- … and ").append(tests.size() - LISTED).append(" more in ")
+                .append(ink.link("TeamCity", allTests)).append('\n');
 
         return b.toString();
     }
@@ -131,16 +284,60 @@ public final class ClientVerdict {
     }
 
     /** "ran 467 of master's 861 tests (**−46%**)". */
-    private static String ranOf(ShrunkSuite s) {
-        return "ran " + s.tests() + " of master's " + s.baseline() + " tests (**−" + s.dropPct() + "%**)";
+    private static String ranOf(Ink ink, ShrunkSuite s) {
+        return "ran " + s.tests() + " of master's " + s.baseline() + " tests ("
+            + ink.bold(ink.icon("−", "-") + s.dropPct() + "%") + ")";
     }
 
-    private static String commit(String url, String sha) {
-        return sha == null ? "an unknown commit" : "[`" + sha.substring(0, Math.min(7, sha.length())) + "`](" + url
-            + sha + ")";
+    private static String clientCommit(Ink ink, Run run) {
+        return commit(ink, pullUrl(run) + "/commits/", run.clientSha());
+    }
+
+    private static String igniteCommit(Ink ink, Run run) {
+        return commit(ink, "https://github.com/" + run.igniteRepo() + "/commit/", run.igniteSha());
+    }
+
+    private static String pullUrl(Run run) {
+        return "https://github.com/" + run.clientRepo() + "/pull/" + run.pr();
+    }
+
+    private static String commit(Ink ink, String url, String sha) {
+        if (sha == null)
+            return "an unknown commit";
+
+        String shortSha = sha.substring(0, Math.min(7, sha.length()));
+
+        return ink.link(ink == Ink.MARKDOWN ? "`" + shortSha + "`" : shortSha, url + sha);
     }
 
     private static String count(int n, String noun) {
         return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
+    /** The markup a verdict is written in: GitHub's markdown for the PR comment, JIRA's wiki markup for the visa. */
+    private enum Ink {
+        MARKDOWN, WIKI;
+
+        String bold(String s) {
+            return this == MARKDOWN ? "**" + s + "**" : "*" + s + "*";
+        }
+
+        /** Text from TeamCity or GitHub, written so that it reads as written. */
+        String text(String s) {
+            return this == MARKDOWN ? Markup.text(s) : Markup.wikiText(s);
+        }
+
+        String code(String s) {
+            return this == MARKDOWN ? Markup.code(s) : "{{" + Markup.wikiText(s) + "}}";
+        }
+
+        String link(String text, String url) {
+            return this == MARKDOWN ? "[" + text + "](" + url + ")" : "[" + text + "|" + url + "]";
+        }
+
+        /** The mark a line opens with: an emoji in GitHub, one of JIRA's icons in a visa. */
+        String icon(String markdown, String wiki) {
+            return this == MARKDOWN ? markdown : wiki;
+        }
     }
 }

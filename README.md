@@ -38,7 +38,7 @@ each label means and what to do about it.
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
-  `/run-all` runs the client's suite against Ignite master. See
+  `/run-all` runs the client's suite against Ignite master, and the auto re-run and the JIRA visa work there too. See
   [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
