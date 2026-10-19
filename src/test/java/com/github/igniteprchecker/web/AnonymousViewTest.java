@@ -43,7 +43,10 @@ class AnonymousViewTest {
 
     private final Warmer warmer = mock(Warmer.class);
 
-    private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, new UserDirectory(mapper), mock(StandingVisas.class));
+    private final UserDirectory users = new UserDirectory(mapper);
+
+    private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, new Logins(mapper, users),
+        mock(StandingVisas.class));
 
     private final LogTracker logs = new LogTracker(mapper);
 

@@ -47,7 +47,8 @@ class GithubLoginTest {
         mock(Warmer.class), mock(PendingCommits.class));
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
-        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing));
+        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
+            new Logins(mapper, mock(UserDirectory.class)), standing));
 
     @BeforeEach
     void enrolled() {

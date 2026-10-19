@@ -71,12 +71,15 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   about an hour after their last request, the server also holds the token in memory. It uses the token only to read
   from TeamCity, to pre-analyse open PRs for everyone. Any standing option keeps the token there while the option is
   on, unless PR commands is the only option on. When the host moves the server's memory to swap, the token goes to the
-  disk with it, in plain text unless the swap is encrypted. A login lasts until the user logs out, which ends it in
-  every browser, or leaves it unused for 400 days. TeamCity may reject 3 tokens from one network address in 10 minutes.
-  For all users together, the checker checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from
-  the server's address, and if ci2 blocks that address, the checker stops for everyone. Past either limit, the login
-  form says how long to wait. Only a rejected token counts against its address: a login that works, or that the
-  shared limit stops, does not.
+  disk with it, in plain text unless the swap is encrypted. Each browser the user logs in from is a login of its own,
+  and the server keeps a list of them without tokens. **Log out** ends the login of the browser where the user clicks
+  it. ⚙ lists the user's logins and can end any of the others. A login left unused for 400 days ends too, and a
+  user's 51st login ends an older one. A copy of a browser's session cookie is the same login: it works until that
+  login ends. The options in ⚙ belong to the account: they are the same in every login, and no logout changes them.
+  TeamCity may reject 3 tokens from one network address in 10 minutes. For all users together, the checker checks the
+  tokens of at most 30 logins a minute with TeamCity. Each check is a call from the server's address, and if ci2
+  blocks that address, the checker stops for everyone. Past either limit, the login form says how long to wait. Only a
+  rejected token counts against its address: a login that works, or that the shared limit stops, does not.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Visas come only from **Visa my runs in JIRA**. The page sends
@@ -264,6 +267,13 @@ Use `install`, not `cp`: `cp` writes into the jar the running service still read
 its state as it stops. A jar installed before v1.35.0 is not in `installed-jars`, so after a rollback to it an update
 from the page fails. Install the next release with `update.sh` as shown above.
 
+A jar without **Your logins** in ⚙ keeps no list of logins. After a rollback to it, a login ended in ⚙ or with
+**Log out** works again where a copy of its cookie is left. Once such a copy is a day old, that jar issues it again
+without the login. That copy also works after the update back. **Log out** in that jar logs out every browser of its
+user, but after the update back the cookies this version issued before the rollback work again. In ⚙,
+**Log out everywhere else** ends both. After the update back, ask the users who ended a login before the rollback, or
+logged out during it, to press it.
+
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
 release wrote, stop the service, copy that file over the state file, and start the old jar. A copy older than 2 days
 holds no tokens. A jar of v1.37.0 or older started on such a copy switches off the visa and the options that commit, as
@@ -316,7 +326,8 @@ each boot, or the tokens can stay in the swap file.
 | `reruns.json` | Queued and running builds the page and the options follow. |
 | `admin-actions.json` | The last restart, update and flush: who and when. |
 | `problems.json` | Recent warnings and errors for the status page. |
-| `users.json` | Who used the service and when, and when each last logged out: the session cookies they had before stay refused. Names only, no tokens. |
+| `users.json` | Who used the service and when, and when each user last ended all their other logins. The server refuses session cookies that an earlier version of the checker issued before that moment. Names only, no tokens. |
+| `logins.json` | Each user's logins: the browser and its system, when it logged in and when it was last seen. No tokens and no IP addresses. If the file loses a browser's login, that browser goes to the login form. |
 | `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
 | `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |

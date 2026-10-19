@@ -56,6 +56,8 @@ final class PageScript {
         page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2 } });
         page.route('/api/version', { body: { updateAvailable: false } });
         page.route('/api/logout', { status: 204, body: {} });
+        page.route('/api/logins', { body: { logins: [{ id: 'here', browser: 'Firefox on Linux',
+            createdAt: page.now() - 86400000, earlier: false, lastSeen: page.now(), current: true }], ended: 0 } });
         page.route('/api/test-details', { body: { details: 'java.lang.AssertionError: expected:<1> but was:<2>' } });
         """;
 

@@ -76,7 +76,8 @@ class LoginCardPageTest {
                 + "server stores the token encrypted, until you turn them all off. Copies stay in server backups for 2 "
                 + "days. With any option other than PR commands on, the server also keeps using "
                 + "the token to read from TeamCity, to check open PRs for everyone.")
-            .contains("Your login ends when you log out (in every browser at once) or after 400 days without use.");
+            .contains("Log out ends your login in this browser. ⚙ lists your logins in other browsers and can end them. "
+                + "A login left unused for 400 days ends too.");
     }
 
     @Test

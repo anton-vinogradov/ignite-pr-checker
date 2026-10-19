@@ -29,6 +29,9 @@
         .settings-group .settings-row + .settings-row { margin-top: 0.4rem; }
         .settings-foot { margin: 0.8rem 0 0; }
         #settingsMsg:not(:empty) { margin-top: 0.5rem; }
+        .settings-logins { border-top: 1px solid var(--line); margin-top: 0.8rem; padding-top: 0.7rem; }
+        .logins-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
+        .logins-list li + li { margin-top: 0.3rem; }
 
         .content { flex: 1; min-height: 0; }
 
@@ -308,7 +311,7 @@
             </select>
             <span id="session" class="session muted hidden"><span id="username"></span>
                 <span id="operatorMark" class="tag hidden" title="You are an operator: PRC_ADMINS on the server names you. You can restart and update the service and flush its caches. The status page shows you the service's log messages and users.">operator</span> ·
-                <button id="logout" class="linklike" type="button" title="Logs you out here and in every other browser.">Log out</button></span>
+                <button id="logout" class="linklike" type="button" title="Logs you out of this browser only. Your logins in other browsers and your options in ⚙ stay.">Log out</button></span>
             <button id="settingsBtn" class="settings-btn hidden" type="button" title="Settings" aria-label="Settings">⚙</button>
         </div>
     </header>
@@ -404,6 +407,19 @@
         <p class="muted settings-foot">The server stores these tokens encrypted, and only while an option that needs
             them is on. <a href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#standing-options" target="_self" rel="noopener">How these work</a></p>
         <div id="settingsMsg" class="muted"></div>
+        <section id="groupLogins" class="settings-logins">
+            <p class="settings-access"><b>Your logins</b>: <span id="loginsState"></span></p>
+            <p class="muted">Your options above are the same in every browser you log in from. Logging out does not
+                change them.</p>
+            <ul id="loginsList" class="logins-list"></ul>
+            <span class="row">
+                <button id="loginsEnd" class="act" type="button" disabled
+                    title="Logs out the browsers you ticked. Each goes to the login form at its next request.">Log out selected</button>
+                <button id="loginsEndOthers" class="act" type="button"
+                    title="Logs out every other browser: each goes to the login form at its next request. A copy of this browser's cookie stays logged in until you press Log out in this browser.">Log out everywhere else</button>
+                <span id="loginsMsg" class="muted"></span>
+            </span>
+        </section>
     </div>
 
     <div id="cmdHint" class="card settings-panel hidden">
@@ -441,7 +457,8 @@
                         server stores the token encrypted, until you turn them all off. Copies stay in server backups
                         for 2 days. With any option other than PR commands on, the server also
                         keeps using the token to read from TeamCity, to check open PRs for everyone.</li>
-                    <li>Your login ends when you log out (in every browser at once) or after 400 days without use.</li>
+                    <li>Log out ends your login in this browser. ⚙ lists your logins in other browsers and can end them.
+                        A login left unused for 400 days ends too.</li>
                 </ul>
             </details>
             <details class="login-help">

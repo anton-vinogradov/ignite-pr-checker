@@ -18,9 +18,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Who has been using the tool: usernames seen on authenticated requests, with first/last activity
- * and login counts, when each last logged out, and when a cookie of theirs last carried a JIRA token the checker does
- * not use. Persisted within a second, so the answer to "who logged in?" and a logout survive restarts: the session
- * cookies a user had before a logout stay refused. No tokens here — names only.
+ * and login counts, when each last ended all their other logins, and when a cookie of theirs last carried a JIRA token
+ * the checker does not use. Persisted within a second, so the answer to "who logged in?" and an end of the logins
+ * survive restarts: the cookies of earlier versions, which name no login, issued before it stay refused. No tokens
+ * here — names only. The logins themselves are {@link Logins}.
  */
 @Component
 public class UserDirectory implements SnapshotCache {
@@ -73,7 +74,10 @@ public class UserDirectory implements SnapshotCache {
             i.jiraInCookieAt = 0;
     }
 
-    /** A logout: every session of the user issued until now ends, in any browser, copies of its cookie included. */
+    /**
+     * Every cookie of the user's issued until now that names no login ends: Log out everywhere else, or Log out of an
+     * earlier version, which ended the user's sessions in every browser.
+     */
     public void endSessions(String username) {
         Info i = info(username);
         synchronized (i) {
@@ -82,8 +86,9 @@ public class UserDirectory implements SnapshotCache {
     }
 
     /**
-     * Whether the session was issued before its user last logged out. A logout this check does not see takes its time
-     * after the check, so a cookie issued from the session with a time taken before the check is ended by it.
+     * Whether the session was issued before its user last ended their sessions; {@link Logins} asks it for a cookie
+     * that names no login. An end this check does not see takes its time after the check, so a cookie issued from the
+     * session with a time taken before the check is ended by it.
      */
     public boolean ended(SessionCodec.Session session) {
         Info i = users.get(session.username());
@@ -153,8 +158,8 @@ public class UserDirectory implements SnapshotCache {
     }
 
     /**
-     * One user of the tool: identity and activity summary (no secrets), when they last logged out, and when a cookie
-     * of theirs last carried a JIRA token (0: never; both absent from the files of earlier versions).
+     * One user of the tool: identity and activity summary (no secrets), when they last ended their sessions, and when
+     * a cookie of theirs last carried a JIRA token (0: never; both absent from the files of earlier versions).
      */
     public record UserView(String name, long firstSeen, long lastSeen, long logins, long sessionsEndedAt,
         long jiraInCookieAt) {

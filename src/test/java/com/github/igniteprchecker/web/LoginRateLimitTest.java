@@ -15,7 +15,9 @@ import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import com.sun.net.httpserver.HttpServer;
+import jakarta.servlet.http.Cookie;
 import java.io.IOException;
+import java.net.HttpCookie;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.time.Duration;
@@ -25,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -36,6 +39,8 @@ class LoginRateLimitTest {
     /** The token TeamCity accepts whatever {@link #answer} says. */
     private static final String USER_TOKEN = "user-token";
 
+    private static final String FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0";
+
     private final AtomicInteger whoami = new AtomicInteger();
 
     private final AtomicLong now = new AtomicLong(1_000_000);
@@ -43,6 +48,10 @@ class LoginRateLimitTest {
     private volatile int answer = 401;
 
     private HttpServer teamcity;
+
+    private SessionCodec codec;
+
+    private Logins logins;
 
     private LoginController login;
 
@@ -65,10 +74,12 @@ class LoginRateLimitTest {
         TcClient tc = new TcClient(new TeamcityProperties("http://127.0.0.1:" + teamcity.getAddress().getPort() + "/"),
             new AnalysisProperties(null, null, null, null, null, null, null), new Metrics(mapper));
         SessionProperties session = new SessionProperties(true, "test-secret");
+        UserDirectory users = new UserDirectory(mapper);
+        codec = new SessionCodec(session, mapper);
+        logins = new Logins(mapper, users, now::get);
 
-        login = new LoginController(tc, new SessionCodec(session, mapper), session, mock(Warmer.class),
-            new UserDirectory(mapper), new LoginThrottle(now::get), new AdminActions(new AdminProperties(null), mapper),
-            mock(StandingVisas.class));
+        login = new LoginController(tc, codec, session, mock(Warmer.class), users, logins, new LoginThrottle(now::get),
+            new AdminActions(new AdminProperties(null), mapper), mock(StandingVisas.class));
     }
 
     @AfterEach
@@ -90,6 +101,24 @@ class LoginRateLimitTest {
 
     private static String error(ResponseEntity<?> res) {
         return String.valueOf(((Map<?, ?>)res.getBody()).get("error"));
+    }
+
+    /** A login at the form of a browser with this User-Agent, which sends {@code cookie} unless it is null. */
+    private ResponseEntity<?> login(String token, String client, String userAgent, String cookie) {
+        MockHttpServletRequest req = from(client);
+        req.addHeader(HttpHeaders.USER_AGENT, userAgent);
+        if (cookie != null)
+            req.setCookies(new Cookie(SessionCookies.HOST_COOKIE, cookie));
+
+        return login.login(new LoginController.LoginRequest(token), req);
+    }
+
+    private static String cookieOf(ResponseEntity<?> res) {
+        return HttpCookie.parse(res.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getValue();
+    }
+
+    private String loginOf(ResponseEntity<?> res) {
+        return codec.decode(cookieOf(res)).orElseThrow().login();
     }
 
     @Test
@@ -197,5 +226,50 @@ class LoginRateLimitTest {
 
         assertThat(post("good-token", "203.0.113.7")).isEqualTo(200);
         assertThat(whoami).hasValue(2);
+    }
+
+    /**
+     * A login that works costs its address nothing, so the address does not bound the logins of a script that logs in
+     * with curl on every run. The user's logins do: the script's 51st login ends its own first one, and the laptop's
+     * login stays.
+     */
+    @Test
+    void theLoginsThatWorkAreBoundedByTheUserNotByTheAddress() {
+        String laptop = loginOf(login(USER_TOKEN, "192.0.2.50", FIREFOX, null));
+        String firstRun = null;
+        for (int run = 0; run < Logins.KEPT_PER_USER; run++) {
+            now.addAndGet(Duration.ofSeconds(3).toMillis());
+            ResponseEntity<?> res = login(USER_TOKEN, "203.0.113.7", "curl/8.4.0", null);
+            assertThat(res.getStatusCode().value()).as("run " + run).isEqualTo(200);
+            if (firstRun == null)
+                firstRun = loginOf(res);
+        }
+
+        assertThat(logins.of("avinogradov")).hasSize(Logins.KEPT_PER_USER).extracting(Logins.Login::id)
+            .contains(laptop).doesNotContain(firstRun);
+    }
+
+    /**
+     * Tokens TeamCity rejects at the form of a logged-in browser, and the attempts past the address's limit, leave the
+     * browser's login as it was. Only a token TeamCity accepts starts a new login, which ends the one it replaces.
+     */
+    @Test
+    void aLoginThatFailsLeavesTheBrowsersLoginAsItWas() {
+        ResponseEntity<?> first = login(USER_TOKEN, "203.0.113.7", FIREFOX, null);
+        String cookie = cookieOf(first);
+        String laptop = loginOf(first);
+
+        for (int i = 0; i < 3; i++)
+            assertThat(login("guess-" + i, "203.0.113.7", FIREFOX, cookie).getStatusCode().value()).as("guess " + i)
+                .isEqualTo(401);
+        assertThat(login(USER_TOKEN, "203.0.113.7", FIREFOX, cookie).getStatusCode().value()).isEqualTo(429);
+
+        assertThat(logins.of("avinogradov")).extracting(Logins.Login::id).containsExactly(laptop);
+
+        now.addAndGet(LoginThrottle.CLIENT_WINDOW.toMillis());
+        ResponseEntity<?> again = login(USER_TOKEN, "203.0.113.7", FIREFOX, cookie);
+
+        assertThat(again.getStatusCode().value()).isEqualTo(200);
+        assertThat(logins.of("avinogradov")).extracting(Logins.Login::id).containsExactly(loginOf(again));
     }
 }

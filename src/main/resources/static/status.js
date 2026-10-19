@@ -548,9 +548,12 @@ function agoMs(ms) {
     return s < 90 ? Math.round(s) + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago'
         : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago';
 }
+// `logins` counts the logins at the form since the user first came, not the browsers logged in now: only the user sees
+// those, in ⚙.
 async function loadUsers() {
+    const times = n => n === 1 ? 'once' : n + ' times';
     const row = (u, verb) => `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
-        + `<span class="catval">${verb} ${agoMs(u.lastSeen)} · ${u.logins} login${u.logins === 1 ? '' : 's'} · first seen ${agoMs(u.firstSeen)}</span></div>`;
+        + `<span class="catval">${verb} ${agoMs(u.lastSeen)} · logged in ${times(u.logins)} · first seen ${agoMs(u.firstSeen)}</span></div>`;
     try {
         const r = await fetch('/api/users', { cache: 'no-store' });
         if (r.status === 401 || r.status === 403) {

@@ -42,9 +42,11 @@ class HostCookieTest {
 
     private final UserDirectory users = new UserDirectory(mapper);
 
+    private final Logins logins = new Logins(mapper, users);
+
     private final TcClient tc = mock(TcClient.class);
 
-    private final AuthInterceptor auth = new AuthInterceptor(codec, mock(Warmer.class), users,
+    private final AuthInterceptor auth = new AuthInterceptor(codec, mock(Warmer.class), users, logins,
         mock(StandingVisas.class), true);
 
     private final LoginController login = login(https);
@@ -164,7 +166,7 @@ class HostCookieTest {
         both.setCookies(new Cookie(SessionCookies.HOST_COOKIE, codec.encode(new SessionCodec.Session(USER, TOKEN))),
             new Cookie(AuthInterceptor.COOKIE, earlierCookie()));
 
-        List<String> set = login.logout(true, both).getHeaders().get(HttpHeaders.SET_COOKIE);
+        List<String> set = login.logout(both).getHeaders().get(HttpHeaders.SET_COOKIE);
 
         assertThat(set).hasSize(2);
         assertThat(set.get(0)).startsWith("__Host-IPRC_SESSION=;").contains("Max-Age=0");
@@ -182,7 +184,7 @@ class HostCookieTest {
     }
 
     private LoginController login(SessionProperties props) {
-        return new LoginController(tc, codec, props, mock(Warmer.class), users, new LoginThrottle(),
+        return new LoginController(tc, codec, props, mock(Warmer.class), users, logins, new LoginThrottle(),
             new AdminActions(new AdminProperties(null), mapper), mock(StandingVisas.class));
     }
 

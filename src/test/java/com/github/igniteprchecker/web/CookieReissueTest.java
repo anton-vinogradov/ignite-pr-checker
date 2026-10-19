@@ -45,6 +45,10 @@ class CookieReissueTest {
 
     private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
 
+    private final UserDirectory users = new UserDirectory(mapper);
+
+    private final Logins logins = new Logins(mapper, users);
+
     private final GithubClient github = mock(GithubClient.class);
 
     private final JiraClient jira = mock(JiraClient.class);
@@ -105,7 +109,7 @@ class CookieReissueTest {
     void aLoginKeepsTheSessionOfTheSameUsersCookieOnlyAndNoJiraToken() throws Exception {
         when(tc.currentUsername("fresh-tc")).thenReturn(Optional.of(USER));
         LoginController login = new LoginController(tc, codec, new SessionProperties(false, "test-secret"),
-            mock(Warmer.class), new UserDirectory(mapper), new LoginThrottle(),
+            mock(Warmer.class), users, logins, new LoginThrottle(),
             new AdminActions(new AdminProperties(null), mapper), standing);
 
         ResponseEntity<?> same = login.login(new LoginController.LoginRequest("fresh-tc"),
@@ -122,13 +126,12 @@ class CookieReissueTest {
     @Test
     void aLoginAfterALogoutTakesNothingOfTheEndedCookie() {
         when(tc.currentUsername("fresh-tc")).thenReturn(Optional.of(USER));
-        UserDirectory users = new UserDirectory(mapper);
         LoginController login = new LoginController(tc, codec, new SessionProperties(false, "test-secret"),
-            mock(Warmer.class), users, new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper),
+            mock(Warmer.class), users, logins, new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper),
             standing);
         MockHttpServletRequest other = carrying(new SessionCodec.Session(USER, "old-tc"));
 
-        login.logout(true, carrying(new SessionCodec.Session(USER, "old-tc")));
+        login.logout(carrying(new SessionCodec.Session(USER, "old-tc")));
         SessionCodec.Session after = session(login.login(new LoginController.LoginRequest("fresh-tc"), other));
 
         assertThat(after).isEqualTo(new SessionCodec.Session(USER, "fresh-tc"));
@@ -145,7 +148,7 @@ class CookieReissueTest {
     }
 
     private AuthInterceptor guard() {
-        return new AuthInterceptor(codec, mock(Warmer.class), new UserDirectory(mapper), standing);
+        return new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing);
     }
 
     /** A cookie of the current format, issued now, with {@code more} fields in it. */

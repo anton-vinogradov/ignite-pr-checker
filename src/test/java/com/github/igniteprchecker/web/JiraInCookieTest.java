@@ -56,7 +56,9 @@ class JiraInCookieTest {
 
     private final UserDirectory users = new UserDirectory(mapper);
 
-    private final LoginController login = new LoginController(tc, codec, props, mock(Warmer.class), users,
+    private final Logins logins = new Logins(mapper, users);
+
+    private final LoginController login = new LoginController(tc, codec, props, mock(Warmer.class), users, logins,
         new LoginThrottle(), new AdminActions(new AdminProperties(List.of()), mapper), standing);
 
     private final JiraController options = new JiraController(jira, tc, standing, mock(MergedVerdicts.class), users);
@@ -110,7 +112,7 @@ class JiraInCookieTest {
         assertThat(me(login.me(request(cookie(false)))).jiraInCookie()).isFalse();
 
         MockHttpServletRequest req = request(cookie(false));
-        new AuthInterceptor(codec, mock(Warmer.class), users, standing).preHandle(req, new MockHttpServletResponse(),
+        new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing).preHandle(req, new MockHttpServletResponse(),
             new Object());
         assertThat(users.jiraInCookie(USER)).isFalse();
     }
@@ -118,7 +120,7 @@ class JiraInCookieTest {
     /** The login guard marks her too, whichever request her browser sends first. */
     @Test
     void theGuardMarksTheUser() throws Exception {
-        new AuthInterceptor(codec, mock(Warmer.class), users, standing).preHandle(request(cookie(true)),
+        new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing).preHandle(request(cookie(true)),
             new MockHttpServletResponse(), new Object());
 
         assertThat(users.jiraInCookie(USER)).isTrue();
@@ -145,7 +147,7 @@ class JiraInCookieTest {
     /** The guard marked her, and the service restarted before her next visit to ⚙. */
     @Test
     void theMarkIsSavedWithTheUsers(@TempDir Path dir) throws Exception {
-        new AuthInterceptor(codec, mock(Warmer.class), users, standing).preHandle(request(cookie(true)),
+        new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing).preHandle(request(cookie(true)),
             new MockHttpServletResponse(), new Object());
         Path file = dir.resolve(users.fileName());
         users.saveTo(file);

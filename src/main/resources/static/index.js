@@ -68,13 +68,13 @@ function paintLoginPr() {
         + `<a href="${esc(prUrl(pr))}" target="_self" rel="noopener">open #${esc(pr)} on GitHub</a>.`;
 }
 
-// A 401 is the guard: no session, TeamCity refusing the saved token, or a logout that ended this session. The last
-// two must say why the user is suddenly at the login form. A refused token also ends the session that still carries
-// it, in this browser only: the user's other sessions may run on other tokens.
+// A 401 is the guard: no session, TeamCity refusing the saved token, or this browser's login ended. The last two must
+// say why the user is suddenly at the login form. A refused token also ends this browser's login: the user's logins in
+// other browsers may run on other tokens.
 async function loggedOut(r) {
     const body = r ? await r.json().catch(() => ({})) : {};
     if (body.tokenRejected)
-        await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
+        await api('/api/logout', { method: 'POST' }).catch(() => {});
     if (body.tokenRejected || body.sessionEnded)
         loginMsg(body.error, body.tokenRejected);
     signedOut();
@@ -854,8 +854,8 @@ async function login() {
     }
 }
 
-// Options keep working after a logout; the server says so when the user has some, or the logout would look like it
-// stopped them. A token TeamCity refuses ends no other session, and the user is told why.
+// Log out ends this browser's login only. The server says what goes on: the logins in other browsers, and the options,
+// or the logout would look like it stopped them.
 async function logout() {
     stopRunsPoll();
     const r = await api('/api/logout', { method: 'POST' });
@@ -2952,7 +2952,9 @@ let pendingOption = null; // the switch that asked for a token; switched on once
 $('settingsBtn').onclick = () => {
     const p = $('settingsPanel');
     p.classList.toggle('hidden');
-    if (!p.classList.contains('hidden')) loadSettings();
+    if (p.classList.contains('hidden')) return;
+    loadSettings();
+    loadLogins();
 };
 
 function lockSettings(message) {
@@ -3119,7 +3121,7 @@ $('ghTokenBtn').onclick = () => {
 
 // Log in again ends this browser's session only: the login form takes the fresh token, and the options resume on it.
 $('tcRelogin').onclick = async () => {
-    await api('/api/logout?everywhere=false', { method: 'POST' }).catch(() => {});
+    await api('/api/logout', { method: 'POST' }).catch(() => {});
     signedOut();
     loginMsg('Log in with a fresh TeamCity token: your options resume with it.', false);
 };
@@ -3288,6 +3290,7 @@ async function showLinkOutcome() {
     const pr = prFromUrl();
     history.replaceState(pr ? { pr } : {}, '', pr ? '?pr=' + pr : location.pathname);
     $('settingsPanel').classList.remove('hidden');
+    loadLogins();
     await loadSettings();
     $('settingsMsg').textContent = LINK_OUTCOMES[outcome](standingSettings || {});
 }
@@ -3304,6 +3307,75 @@ $('cmdHintOpen').onclick = () => {
     if ($('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
 };
 $('cmdHintClose').onclick = () => $('cmdHint').classList.add('hidden');
+
+// ⚙ lists the browsers the user is logged in from, this one first. Ending a login logs that browser out at its next
+// request. The options are the account's, so no login ending changes them.
+const loginsPicked = new Set(); // the ids of the logins ticked for Log out selected
+
+async function loadLogins() {
+    $('loginsMsg').textContent = '';
+    try {
+        const r = await api('/api/logins');
+        if (r.status === 401) return loggedOut(r);
+        if (!r.ok) { $('loginsMsg').textContent = 'Could not load your logins — close ⚙ and open it again.'; return; }
+        renderLogins(await r.json());
+    } catch (e) {
+        $('loginsMsg').textContent = 'Could not reach the service — close ⚙ and open it again.';
+    }
+}
+
+function renderLogins(list) {
+    const logins = list.logins || [];
+    loginsPicked.clear();
+    $('loginsState').textContent = countOf(logins.length, 'browser');
+    $('loginsList').innerHTML = logins.map(loginRow).join('');
+    $('loginsEnd').disabled = true;
+}
+
+// A login of an earlier version does not say when it began.
+function loginRow(l) {
+    const since = l.earlier ? 'logged in with an earlier version of the checker' : 'logged in ' + fmtDay(l.createdAt);
+    if (l.current) return `<li><b>${esc(l.browser)}</b> — this browser, ${since}</li>`;
+    return `<li><label class="settings-row"><input type="checkbox" data-login="${esc(l.id)}">`
+        + `<span><b>${esc(l.browser)}</b> — ${since}, last seen ${ago(l.lastSeen)}</span></label></li>`;
+}
+
+$('loginsList').addEventListener('change', e => {
+    const id = e.target && e.target.dataset && e.target.dataset.login;
+    if (!id) return;
+    if (e.target.checked) loginsPicked.add(id);
+    else loginsPicked.delete(id);
+    $('loginsEnd').disabled = loginsPicked.size === 0;
+});
+
+// `none` is what the answer says when nothing was left to log out; `more` follows the answer, when the server took
+// the request. The answer is read out, as the answers to the buttons on the PR page are.
+async function endLogins(path, body, none, more = '') {
+    const msg = $('loginsMsg');
+    const answer = text => { msg.textContent = text; sayAloud(text); };
+    msg.textContent = 'Logging out…';
+    try {
+        const r = await api(path, { method: 'POST', body: body && JSON.stringify(body) });
+        if (r.status === 401) return loggedOut(r);
+        if (!r.ok) {
+            const { error } = await r.json().catch(() => ({}));
+            answer(genericError(error)
+                ? 'Nothing was logged out. The service may be restarting. Try again in a moment.' : error);
+            return;
+        }
+        const list = await r.json();
+        renderLogins(list);
+        answer([list.ended ? `Logged out ${countOf(list.ended, 'browser')}.` : none, more].filter(Boolean).join(' '));
+    } catch (e) {
+        answer('Could not reach the service — nothing was logged out.');
+    }
+}
+
+$('loginsEnd').onclick = () => endLogins('/api/logins/end', { ids: [...loginsPicked] },
+    'Those browsers were already logged out.');
+// A copy of this browser's cookie is this browser's login, so it stays: someone who fears a copy must hear that.
+$('loginsEndOthers').onclick = () => endLogins('/api/logins/end-others', null, 'No other browser is logged in now.',
+    "Anyone with a copy of this browser's cookie stays logged in until you press Log out in this browser.");
 
 // The token goes to the server with the switch that asked for it, and stays in no cookie and no field.
 $('settingsGhSave').onclick = async () => {

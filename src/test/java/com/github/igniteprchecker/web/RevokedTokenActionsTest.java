@@ -45,7 +45,7 @@ import org.springframework.web.servlet.handler.MappedInterceptor;
 
 /**
  * A copy of alice's cookie, or her own session right after she revoked its token in ci2, could link a GitHub account,
- * switch her options, leave a JIRA token on the server with the visa option, log her out everywhere, restart, update
+ * switch her options, leave a JIRA token on the server with the visa option, end her other logins, restart, update
  * and flush the service: the login guard knew of a revoked token only once a call under it failed, and only the warmer
  * recorded such a failure. A GitHub account linked that way stayed linked after her logout and ran /run-all under her
  * TeamCity account.
@@ -73,28 +73,32 @@ class RevokedTokenActionsTest {
 
     private final UserDirectory users = new UserDirectory(mapper);
 
+    private final Logins logins = new Logins(mapper, users);
+
     private final Warmer warmer = new Warmer(mock(BlockerAnalyzer.class), github,
         new WarmProperties(false, null, null, null), mock(ExecutorService.class));
 
     private final AdminActions admin = new AdminActions(new AdminProperties(List.of(USER)), mapper);
 
-    private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, standing);
+    private final AuthInterceptor auth = new AuthInterceptor(codec, warmer, users, logins, standing);
 
-    private final LoginController login = new LoginController(tc, codec, props, warmer, users, new LoginThrottle(),
+    private final LoginController login = new LoginController(tc, codec, props, warmer, users, logins, new LoginThrottle(),
         admin, standing);
 
     private final MockMvc mvc = guardedAsTheServiceGuards(MockMvcBuilders.standaloneSetup(
             new GithubLinkController(github, standing, auth),
             new JiraController(jira, tc, standing, mock(MergedVerdicts.class), users),
             new CacheController(cache, warmer, admin),
-            new UpdateController(update, admin)))
+            new UpdateController(update, admin),
+            login))
         .build();
 
     @Test
     void anActionOnATokenTeamCityRefusesIsRefused() throws Exception {
         when(tc.tokenRejected(anyString())).thenReturn(true);
+        String laptop = loggedIn("new-tc");
         List<String> actions = List.of("/api/github/link", "/api/github/unlink", "/api/auto-visa-all?visa=true",
-            "/api/restart", "/api/update", "/api/flush-caches");
+            "/api/logins/end-others", "/api/restart", "/api/update", "/api/flush-caches");
 
         for (int i = 0; i < actions.size(); i++) {
             String token = "revoked-tc-" + i;
@@ -114,6 +118,7 @@ class RevokedTokenActionsTest {
         verifyNoInteractions(jira);
         verifyNoInteractions(cache);
         assertThat(admin.lastUses()).isEmpty();
+        assertThat(logins.live(codec.decode(laptop).orElseThrow())).as("no login ended").isTrue();
     }
 
     /** Post now, Auto visa and the JIRA token in the cookie have no endpoint left, and no check names them. */
@@ -141,22 +146,20 @@ class RevokedTokenActionsTest {
         verify(cache).clear();
     }
 
-    /** A copy of the cookie whose token alice revoked could log her out of the sessions on her new token. */
+    /** A copy of the cookie whose token alice revoked could log her out of the logins on her new token. */
     @Test
-    void aLogoutEverywhereOnARefusedTokenEndsNoOtherSession() throws Exception {
+    void endingALoginOnARefusedTokenEndsNone() throws Exception {
         when(tc.tokenRejected("revoked-tc")).thenReturn(true);
-        String other = codec.encode(new SessionCodec.Session(USER, "new-tc"), System.currentTimeMillis() - 1000);
+        String laptop = loggedIn("new-tc");
+        String laptopId = codec.decode(laptop).orElseThrow().login();
 
-        MockHttpServletRequest browser = new MockHttpServletRequest();
-        browser.setCookies(new Cookie(AuthInterceptor.COOKIE,
-            codec.encode(new SessionCodec.Session(USER, "revoked-tc"))));
+        MockHttpServletResponse res = mvc.perform(post("/api/logins/end").contentType("application/json")
+            .content("{\"ids\":[\"" + laptopId + "\"]}")
+            .cookie(new Cookie(AuthInterceptor.COOKIE, loggedIn("revoked-tc")))).andReturn().getResponse();
 
-        var out = login.logout(true, browser);
-
-        assertThat(out.getStatusCode().value()).isEqualTo(401);
-        assertThat(out.getBody()).containsEntry("tokenRejected", true)
-            .containsEntry("error", LoginController.OTHERS_STAY_IN);
-        assertThat(users.ended(codec.decode(other).orElseThrow())).isFalse();
+        assertThat(res.getStatus()).isEqualTo(401);
+        assertThat(res.getContentAsString()).contains("\"tokenRejected\":true");
+        assertThat(logins.live(codec.decode(laptop).orElseThrow())).isTrue();
         assertThat(warmer.tokenRevoked("revoked-tc")).isTrue();
     }
 
@@ -185,6 +188,11 @@ class RevokedTokenActionsTest {
         }
 
         return mvc;
+    }
+
+    /** The cookie of a new login of alice's on the token. */
+    private String loggedIn(String token) {
+        return codec.encode(new SessionCodec.Session(USER, token).withLogin(logins.start(USER, "Safari").id()));
     }
 
     private MockHttpServletResponse send(MockHttpServletRequestBuilder req, String token) throws Exception {

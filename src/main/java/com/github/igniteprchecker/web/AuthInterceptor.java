@@ -14,14 +14,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
- * Guards protected endpoints: resolves the session cookie and exposes the user's token as a request attribute.
- * A session whose TeamCity token TeamCity has since rejected (401) is refused: the session does not time out, so
- * otherwise a revoked token would keep working here for good. The refusal carries {@code tokenRejected}, as
+ * Guards protected endpoints: resolves the session cookie and exposes the user's token and login as request
+ * attributes. A session whose TeamCity token TeamCity has since rejected (401) is refused: the session does not time
+ * out, so otherwise a revoked token would keep working here for good. The refusal carries {@code tokenRejected}, as
  * {@link ApiExceptionHandler}'s does, so the page can tell it from a missing session and say why it logs out. A
- * session issued before its user logged out is refused with {@code sessionEnded}. A cookie older than
- * {@link SessionCookies#RENEW_AFTER} is issued again with the answer, so the browser keeps a login in use, and so is
- * one under the name earlier versions gave it over HTTPS, under the new name, and one with a JIRA token, without it:
- * the checker does not use that token.
+ * session whose login has ended is refused with {@code sessionEnded}; a cookie of an earlier version gets its login
+ * here, see {@link Logins}. A cookie older than {@link SessionCookies#RENEW_AFTER} is issued again with the answer, so
+ * the browser keeps a login in use, and so is one under the name earlier versions gave it over HTTPS, under the new
+ * name, one with a JIRA token, without it, as the checker does not use that token, and one that names no login, with
+ * its login.
  */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
@@ -31,29 +32,37 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String COOKIE = "IPRC_SESSION";
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
+    /** The id of the request's login, see {@link Logins}. */
+    public static final String LOGIN_ATTR = "tcLogin";
 
     static final String REVOKED = "TeamCity rejected your token — log in again";
 
-    static final String ENDED = "You logged out of the checker, here or in another browser — log in again";
+    /**
+     * Why the browser is at the login form when its login has ended. It names no cause: the user may have ended it from
+     * another browser, a login past {@link Logins#KEPT_PER_USER} may have ended it, or the server may have lost it.
+     */
+    static final String ENDED = "Your login in this browser has ended. Please log in again.";
 
     private final SessionCodec codec;
     private final Warmer warmer;
+    private final Logins logins;
     private final StandingVisas standing;
     private final boolean cookieSecure;
 
     @Autowired
-    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing,
-        @Value("${session.cookie-secure:false}") boolean cookieSecure) {
+    public AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, Logins logins,
+        StandingVisas standing, @Value("${session.cookie-secure:false}") boolean cookieSecure) {
         this.users = users;
         this.codec = codec;
         this.warmer = warmer;
+        this.logins = logins;
         this.standing = standing;
         this.cookieSecure = cookieSecure;
     }
 
     /** The guard of a local run, whose cookie goes over plain HTTP. */
-    AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, StandingVisas standing) {
-        this(codec, warmer, users, standing, false);
+    AuthInterceptor(SessionCodec codec, Warmer warmer, UserDirectory users, Logins logins, StandingVisas standing) {
+        this(codec, warmer, users, logins, standing, false);
     }
 
     @Override
@@ -72,20 +81,24 @@ public class AuthInterceptor implements HandlerInterceptor {
             return false;
         }
         long checkedAt = System.currentTimeMillis();
-        if (users.ended(session.get())) {
+        Optional<Logins.Login> login = logins.enter(session.get(), browser(req));
+        if (login.isEmpty()) {
             refuse(resp, "{\"error\":\"" + ENDED + "\",\"sessionEnded\":true}");
 
             return false;
         }
 
-        reissue(carried.get(), checkedAt, req, resp);
-        req.setAttribute(TOKEN_ATTR, session.get().token());
-        req.setAttribute(USER_ATTR, session.get().username());
-        users.touch(session.get().username());
-        if (session.get().carriesJira() && !standing.visaOn(session.get().username()))
-            users.sawJiraInCookie(session.get().username());
-        warmer.offerToken(session.get().username(), session.get().token());
-        standing.tcTokenOffered(session.get().username(), session.get().token());
+        String user = session.get().username();
+        String token = session.get().token();
+        reissue(carried.get(), session.get().withLogin(login.get().id()), checkedAt, req, resp);
+        req.setAttribute(TOKEN_ATTR, token);
+        req.setAttribute(USER_ATTR, user);
+        req.setAttribute(LOGIN_ATTR, login.get().id());
+        users.touch(user);
+        if (session.get().carriesJira() && !standing.visaOn(user))
+            users.sawJiraInCookie(user);
+        warmer.offerToken(user, token, login.get().id());
+        standing.tcTokenOffered(user, token);
 
         return true;
     }
@@ -93,21 +106,26 @@ public class AuthInterceptor implements HandlerInterceptor {
     /** The session of a request to a public endpoint, if it carries one that would pass this guard. */
     public Optional<SessionCodec.Session> signedIn(HttpServletRequest req) {
         return SessionCookies.carried(req, codec, cookieSecure).map(SessionCookies.Carried::session)
-            .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
+            .filter(s -> !warmer.tokenRevoked(s.token()) && logins.live(s));
     }
 
     /**
-     * Issues the session's cookie again when it is old enough or came under the name earlier versions gave it, and
-     * removes a cookie under that name; see {@link SessionCookies}.
+     * Issues the session's cookie again, in its {@code login}, when it is old enough, names no login or came under the
+     * name earlier versions gave it, and removes a cookie under that name; see {@link SessionCookies}.
      */
-    private void reissue(SessionCookies.Carried carried, long checkedAt, HttpServletRequest req,
-        HttpServletResponse resp) {
+    private void reissue(SessionCookies.Carried carried, SessionCodec.Session login, long checkedAt,
+        HttpServletRequest req, HttpServletResponse resp) {
         if (carried.earlier() || SessionCookies.due(carried.session(), checkedAt)) {
             resp.addHeader(HttpHeaders.SET_COOKIE,
-                SessionCookies.issued(codec.encode(carried.session(), checkedAt), cookieSecure).toString());
+                SessionCookies.issued(codec.encode(login, checkedAt), cookieSecure).toString());
         }
         if (SessionCookies.earlierLeft(req, cookieSecure))
             resp.addHeader(HttpHeaders.SET_COOKIE, SessionCookies.clearedEarlier().toString());
+    }
+
+    /** The label of the request's browser, for a login made for it; see {@link BrowserLabel}. */
+    static String browser(HttpServletRequest req) {
+        return BrowserLabel.of(req.getHeader(HttpHeaders.USER_AGENT));
     }
 
     static void refuse(HttpServletResponse resp, String json) throws IOException {

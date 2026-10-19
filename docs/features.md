@@ -390,6 +390,31 @@ comment GitHub did not take from the checker's account goes at the next sweeps; 
 touches your token. A new token that GitHub refuses or cannot check replaces nothing: ⚙ says so at the form, and the
 saved token stays in use.
 
+### Your logins
+
+⚙ ends with **Your logins**: each browser you are logged in from, this browser first. Each line names the browser
+and its system, as the browser's User-Agent names them. It also says when the browser logged in. The line of another
+browser adds when the checker last saw it. That time can be up to 5 minutes old. A login that began before the
+checker kept this list says so instead of a date. The server keeps the list without tokens and without IP addresses.
+
+- **Log out** in the top bar ends the login of this browser only. Your logins in other browsers stay, and the line
+  under the login form says how many there are.
+- **Log out selected** ends the logins you ticked. **Log out everywhere else** ends every login except this
+  browser's. It also ends a login that began before the checker kept this list and is not in the list yet. A browser
+  whose login ended goes to the login form at its next request, and the form says that its login has ended.
+- Before either button ends a login, the checker asks TeamCity whether this browser's token still works. With a
+  revoked token, nothing ends, and this browser goes to the login form.
+- A copy of a browser's session cookie is the same login: the list does not show it as a separate line, and it works
+  until that login ends. **Log out everywhere else** keeps a copy of this browser's cookie logged in. To end it, use
+  **Log out** in this browser, then log in again.
+- A login also ends after 400 days without use: the browser then drops its cookie.
+- You have at most 50 logins. A new login past that ends the one with the same browser and system that was seen
+  longest ago. So a script that logs in with curl on every run ends its own earlier login, not a browser's. When no
+  other login has the same browser and system, the new login ends the one seen longest ago.
+
+Your options belong to your account: ⚙ shows the same options in every login, and no logout changes them. When a
+login ends, background warming stops using its TeamCity token, unless a standing option keeps that token in use.
+
 ## Visas and PR comments
 
 - **The visa** of a run comes only from **Visa my runs in JIRA** of whoever started it. A line under the verdict
@@ -513,14 +538,14 @@ from its own GitHub account, the app account.
   **operator** next to it.
 - **Update**: when a newer release is out, operators see **Update to vX.Y.Z** in the top bar, and a **what's new** link
   to its notes. After a deploy, open tabs show **UI updated — reload**.
-- **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
-  no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
-  login form. The checker asks TeamCity whether your token still works before these actions: **Link GitHub**,
-  **Unlink**, a switch in ⚙, and the operator's buttons. With a revoked token, the action does not happen. **Log out** ends your login in every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
-  logins, except one that a standing option keeps in use. Log out asks TeamCity first too: with a revoked token, only
-  this browser is logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
-  TeamCity may reject 3 tokens from one network address in 10 minutes; past that, the login form says how long to
-  wait. A login that works does not count.
+- **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. The
+  server keeps a list of your logins without tokens, and there is no shared TeamCity account. A token TeamCity has
+  revoked sends you back to the login form. The checker asks TeamCity whether your token still works before these
+  actions: **Link GitHub**, **Unlink**, a switch in ⚙, ending your other logins, and the operator's buttons. With a
+  revoked token, the action does not happen. **Log out** ends your login in this browser, copies of its cookie
+  included. [Your logins](#your-logins) in ⚙ lists the others, and you can end them there. A login left unused for
+  400 days ends too, and your 51st login ends an older one. TeamCity may reject 3 tokens from one network address in
+  10 minutes; past that, the login form says how long to wait. A login that works does not count.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

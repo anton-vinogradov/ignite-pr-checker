@@ -424,7 +424,7 @@ class MissingAccessPageTest {
             """);
 
         assertThat(out.get("offered").asBoolean()).isTrue();
-        assertThat(out.get("logouts").toString()).isEqualTo("[\"/api/logout?everywhere=false\"]");
+        assertThat(out.get("logouts").toString()).isEqualTo("[\"/api/logout\"]");
         assertThat(out.get("login").asBoolean()).isTrue();
         assertThat(out.get("why").asText())
             .isEqualTo("Log in with a fresh TeamCity token: your options resume with it.");
