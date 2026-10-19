@@ -4,13 +4,16 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Where a Russian page may break a line between a number and its unit: "89 / с назад", "(1 / ч)". English writes
- * "89s ago" and "(1h)" in one word; Russian needs a no-break space there to keep the two on one line.
+ * Where a Russian page may break a line between a number and its unit: "89 / с назад", "(1 / ч)", "ошибок: / 3".
+ * English writes "89s ago", "(1h)" and "3 failed"; Russian needs a no-break space there to keep the two on one line.
  */
 final class SplitUnits {
-    /** A digit, a plain space and a unit of time or size, or the word that counts how many times. */
+    /**
+     * A digit, a plain space and a unit of time or size, or the word that counts how many times; or the word that
+     * names what a number counts, Russian or a name such as JIRA, a colon and a plain space before the number.
+     */
     private static final Pattern SPLIT =
-        Pattern.compile("\\d (?:мс|с|мин|минут|секунд|ч|д|день|дня|дней|МБ|раз|раза)(?![а-яё])");
+        Pattern.compile("\\d (?:мс|с|мин|минут|секунд|ч|д|день|дня|дней|МБ|раз|раза)(?![а-яё])|[A-Za-zА-Яа-яЁё]: \\d");
 
     private SplitUnits() {
     }

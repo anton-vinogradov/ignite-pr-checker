@@ -130,18 +130,21 @@ class PrTestsListPageTest {
         assertThat(card).contains(" in <a href=\"https://ci2.example/buildConfiguration/"
             + "IgniteTests24Java8_ControlUtility/9002\" target=\"_self\" rel=\"noopener\" "
             + "title=\"Opens this suite's run in TeamCity.\">Control &lt;Utility&gt; &quot;1&quot;</a>"
-            + " · slowest test 2 m 5 s");
+            + " · slowest test <span class=\"time-of\">2 m 5 s</span>");
         assertThat(card).doesNotContain("<Utility>");
     }
 
-    /** On a phone the rows wrap like the other cards' rows, and long names break instead of pushing the page wider. */
+    /**
+     * On a phone the rows wrap like the other cards' rows, and long names break instead of pushing the page wider: a
+     * test's name anywhere, a class's or a suite's name between words where it can.
+     */
     @Test
     void narrowScreensWrapTheRows() throws Exception {
         String css = Files.readString(Path.of("src/main/resources/static/index.html"));
         String narrow = css.substring(css.indexOf("@media (max-width: 768px)"));
 
         assertThat(rule(css, ".tname")).contains("word-break: break-all", "flex-wrap: wrap");
-        assertThat(rule(css, ".suite-name")).contains("min-width: 0", "word-break: break-all");
+        assertThat(rule(css, ".suite-name")).contains("min-width: 0", "overflow-wrap: anywhere");
         assertThat(rule(narrow, "ul.suite-tests > li.test-row")).contains("flex-wrap: wrap");
         assertThat(rule(css, ".test-time")).doesNotContain("width");
     }
