@@ -180,7 +180,7 @@ class MergedVerdictsTest {
         assertThat(merged.verdict(PR).orElseThrow().mergedAt()).isEqualTo(MERGED_AT);
     }
 
-    /** A verdict the disk could not take stays in memory, and the page is served it till a restart. */
+    /** A verdict the disk could not take stays in memory: the page shows it until a restart. */
     @Test
     void aVerdictThatCannotBeWrittenIsKeptInMemory(@TempDir Path dir) throws Exception {
         cache.putResult(9391879L, verdict(9391879L, 1_000));

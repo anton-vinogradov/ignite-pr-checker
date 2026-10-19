@@ -11,9 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Jackson 3 throws its errors unchecked, where those of Jackson 2 were IOExceptions. On an IOException the callers keep
- * the state they could not write: a merged PR's verdict stays in memory, and the status page names the file whose save
- * failed. An unchecked error went past them, and took the sweep of merged PRs down with it.
+ * Jackson 3 throws its errors unchecked, where those of Jackson 2 were IOExceptions. On an IOException a merged PR's
+ * verdict that the disk refuses stays in memory. An unchecked error passes that catch and ends the sweep of merged PRs.
  */
 class SnapshotsTest {
     /** A record whose JSON cannot be made: a property of it fails. */

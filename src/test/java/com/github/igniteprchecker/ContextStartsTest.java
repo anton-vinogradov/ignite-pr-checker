@@ -117,8 +117,8 @@ class ContextStartsTest {
 
     /**
      * A browser lets a page of another site send a JSON request, or read an answer, only when the answer names that
-     * site in Access-Control-Allow-Origin. Spring 7 answers the preflight of such a page with 200, not 403: the page is
-     * still stopped there only while no answer of the service names a site.
+     * site in Access-Control-Allow-Origin. Spring 7 answers the preflight of such a page with 200, not 403, so only the
+     * missing header stops the page.
      */
     @Test
     void aPageOfAnotherSiteIsAllowedNothing() throws Exception {

@@ -21,12 +21,12 @@ import org.springframework.http.converter.HttpMessageConverters;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Spring Boot 4 brings Jackson 3, whose own defaults differ from those of Jackson 2, which read and wrote the state
- * files, the session cookie and the API up to v1.41.0. Releases add fields to the records of the state files. Under
- * Jackson 3's defaults, a file written before a number field was added fails to load, and the service sets it aside
- * with everyone's options in it; so does a null where a record has a number. An enum goes out by its toString, which an
- * older build cannot read back after a rollback, and text after the JSON fails a file Jackson 2 read. The service's
- * mapper and the clients of TeamCity, JIRA and GitHub keep Jackson 2's rules.
+ * Spring Boot 4 brings Jackson 3. Up to v1.41.0 Jackson 2 read and wrote the state files, the session cookie and the
+ * API, and Jackson 3's own defaults differ from its. Releases add fields to the records of the state files. Under
+ * Jackson 3's defaults, a file written before a number field was added fails to load, and so does a null for a number.
+ * The service then sets the file aside with everyone's options in it. An enum goes out by its toString, which an older
+ * build cannot read after a rollback, and text after the JSON fails a file Jackson 2 read. The service's mapper and the
+ * clients of TeamCity, JIRA and GitHub keep Jackson 2's rules.
  */
 class JacksonRulesTest {
     private static final ObjectMapper MAPPER = ServiceMapper.get();

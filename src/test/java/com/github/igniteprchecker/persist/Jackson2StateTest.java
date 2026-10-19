@@ -19,11 +19,11 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Up to v1.41.0 Jackson 2 wrote the state files and the session cookie, and a rollback runs v1.41.0 on the files a
- * later version wrote. The samples were written by v1.41.0 with the service's own mapper: each state file with every
- * field set, and each record those files and the cookie hold once with empty collections and strings and once with
- * nulls. Each sample must read without loss and be written back in the same form: the same fields in the same order,
- * with the same values. A field a later version adds may show up in what is written while it holds a default value,
- * as it does when read from a file without it.
+ * later version wrote. v1.41.0 wrote the samples with the service's own mapper: each state file with every field set,
+ * and each record of those files and of the cookie twice, with empty collections and strings and with nulls. Each
+ * sample must read without loss and be written back in the same form: the same fields in the same order, with the same
+ * values. A field a later version adds may show up in what is written while it holds a default value, as it does when
+ * read from a file without it.
  */
 class Jackson2StateTest {
     private static final String SAMPLES = "/snapshots/jackson2/";
