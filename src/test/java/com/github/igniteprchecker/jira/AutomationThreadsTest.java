@@ -29,9 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /**
- * The early re-runs, the settles a finished chain or re-run asks for, and the one-shot auto visas each ran on a
- * thread their class made for itself: nothing stopped them with the application, and AnalysisConfig, which tells
- * where each kind of work runs, could not name them. They are beans of AnalysisConfig now, stopped with it.
+ * The early re-runs and the settles a finished chain or re-run asks for each ran on a thread their class made for
+ * itself: nothing stopped them with the application, and AnalysisConfig, which tells where each kind of work runs,
+ * could not name them. They are beans of AnalysisConfig now, stopped with it.
  */
 class AutomationThreadsTest {
     private static final int PR = 13335;
@@ -68,13 +68,12 @@ class AutomationThreadsTest {
             context.registerBean(JiraClient.class, () -> mock(JiraClient.class));
             context.registerBean(VisaService.class, () -> mock(VisaService.class));
             context.registerBean(PendingCommits.class, () -> mock(PendingCommits.class));
-            context.register(AnalysisConfig.class, StandingVisas.class, VisaSubscriptions.class);
+            context.register(AnalysisConfig.class, StandingVisas.class);
             context.refresh();
 
             Map<String, ExecutorService> beans = context.getBeansOfType(ExecutorService.class);
-            assertThat(beans).containsKeys("earlyRerunExecutor", "settleExecutor", "visaPosterExecutor");
-            pools = List.of(beans.get("earlyRerunExecutor"), beans.get("settleExecutor"),
-                beans.get("visaPosterExecutor"));
+            assertThat(beans).containsKeys("earlyRerunExecutor", "settleExecutor");
+            pools = List.of(beans.get("earlyRerunExecutor"), beans.get("settleExecutor"));
 
             StandingVisas standing = context.getBean(StandingVisas.class);
             when(github.ghIdentity("gh-pat")).thenReturn(Optional.of(GhUsers.of("alice-gh")));
@@ -82,19 +81,15 @@ class AutomationThreadsTest {
             when(tc.buildTriggeredBy(anyString(), anyLong())).thenAnswer(inv -> ran("early re-run", Optional.empty()));
             when(github.openPrs()).thenReturn(List.of());
             when(github.pullState(PR)).thenAnswer(inv -> ran("settle", Optional.empty()));
-            when(warmer.borrowToken()).thenAnswer(inv -> ran("auto visa", null));
 
             context.publishEvent(new RerunTracker.SuiteFailedMidRun(PR, CHAIN, "Cache1", 9389100L, "Cache 1"));
             standing.settleSoon(PR);
-            context.getBean(VisaSubscriptions.class).arm(PR, "IGNITE-28867", "jira-pat", "reviewer");
-            context.publishEvent(new RerunTracker.ChainFinished(PR, CHAIN, false));
 
             for (ExecutorService pool : pools)
                 pool.submit(() -> { }).get(5, TimeUnit.SECONDS);
         }
 
-        assertThat(ranOn).containsEntry("early re-run", "early-rerun-1").containsEntry("settle", "settle-1")
-            .containsEntry("auto visa", "auto-visa-1");
+        assertThat(ranOn).containsEntry("early re-run", "early-rerun-1").containsEntry("settle", "settle-1");
         assertThat(pools).allMatch(ExecutorService::isShutdown);
     }
 

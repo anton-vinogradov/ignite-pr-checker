@@ -152,7 +152,8 @@ class OneVerdictPerRunTest {
         standing.sweep();
 
         verify(jira, times(1)).addCommentWithId(anyString(), anyString(), anyString());
-        assertThat(standing.visaCover(USER, PR, again, ISSUE)).isEqualTo(StandingVisas.VisaCover.POSTED);
+        assertThat(standing.visaLine(USER, PR, again, () -> new StandingVisas.Run(USER, false, 0), false).state())
+            .isEqualTo(StandingVisas.VisaLine.POSTED);
 
         long fixed = RUN_ALL + 1800;
         finished(fixed);

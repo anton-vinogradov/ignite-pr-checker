@@ -10,8 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import ch.qos.logback.classic.Level;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.LogCapture;
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
-import com.github.igniteprchecker.analysis.PendingCommits;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.GithubProperties;
@@ -19,8 +18,6 @@ import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import java.util.Map;
@@ -67,8 +64,7 @@ class TokensOutOfLogsTest {
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
             new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper), new LoginThrottle(),
                 new AdminActions(new AdminProperties(null), mapper), standing),
-            new JiraController(jira, tc, mock(BlockerAnalyzer.class), codec, mock(VisaService.class),
-                mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false))
+            new JiraController(jira, tc, standing, mock(MergedVerdicts.class), new UserDirectory(mapper)))
         .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)), new TokenFormat())
         .build();
 
@@ -76,7 +72,8 @@ class TokensOutOfLogsTest {
     void aTokenTypedWithoutQuotesStaysOutOfTheLog() throws Exception {
         try (LogCapture log = new LogCapture(Map.of("org.springframework", Level.DEBUG))) {
             MockHttpServletResponse login = send(post("/api/login"), "{\"token\": " + TC + "}");
-            MockHttpServletResponse jiraToken = send(signedIn(post("/api/jira-token")), "{\"token\": " + JIRA + "}");
+            MockHttpServletResponse jiraToken = send(signedIn(post("/api/auto-visa-all").param("visa", "true")),
+                "{\"jiraToken\": " + JIRA + "}");
             MockHttpServletResponse classic = send(signedIn(post("/api/auto-visa-all").param("style", "true")),
                 "{\"githubToken\": " + GH + "}");
             MockHttpServletResponse fineGrained = send(signedIn(post("/api/auto-visa-all").param("style", "true")),
@@ -99,12 +96,14 @@ class TokensOutOfLogsTest {
 
         try (LogCapture log = new LogCapture(Map.of("org.springframework", Level.DEBUG))) {
             MockHttpServletResponse login = send(post("/api/login"), "{\"token\":\"" + broken + "\"}");
-            MockHttpServletResponse jiraToken = send(signedIn(post("/api/jira-token")),
-                "{\"token\":\"" + JIRA + "\\r\\nX-Other: 1\"}");
+            MockHttpServletResponse jiraToken = send(signedIn(post("/api/auto-visa-all").param("visa", "true")),
+                "{\"jiraToken\":\"" + JIRA + "\\r\\nX-Other: 1\"}");
             MockHttpServletResponse option = send(signedIn(post("/api/auto-visa-all").param("style", "true")),
                 "{\"githubToken\":\"" + GH + " " + GH + "\"}");
+            MockHttpServletResponse both = send(signedIn(post("/api/auto-visa-all").param("visa", "true")),
+                "{\"githubToken\":\"" + GH + "\",\"jiraToken\":\"" + JIRA + "\\nX-Other: 1\"}");
 
-            for (MockHttpServletResponse res : new MockHttpServletResponse[] {login, jiraToken, option}) {
+            for (MockHttpServletResponse res : new MockHttpServletResponse[] {login, jiraToken, option, both}) {
                 assertThat(res.getStatus()).isEqualTo(400);
                 assertThat(res.getContentAsString()).contains("This is not a token");
                 assertNoToken(res.getContentAsString());
@@ -118,12 +117,11 @@ class TokensOutOfLogsTest {
     @Test
     void aNullBodyIsAnsweredAsAnEmptyOne() throws Exception {
         MockHttpServletResponse login = send(post("/api/login"), "null");
-        MockHttpServletResponse jiraToken = send(signedIn(post("/api/jira-token")), "null");
+        MockHttpServletResponse option = send(signedIn(post("/api/auto-visa-all").param("visa", "false")), "null");
 
         assertThat(login.getStatus()).isEqualTo(400);
         assertThat(login.getContentAsString()).contains("token required");
-        assertThat(jiraToken.getStatus()).isEqualTo(400);
-        assertThat(jiraToken.getContentAsString()).contains(ApiExceptionHandler.BAD_JSON);
+        assertThat(option.getStatus()).isEqualTo(200);
         verifyNoInteractions(tc, jira);
     }
 
@@ -144,8 +142,8 @@ class TokensOutOfLogsTest {
 
         try (LogCapture log = new LogCapture(Map.of("org.springframework", Level.TRACE, "org.apache.hc", Level.TRACE))) {
             assertThat(send(post("/api/login"), "{\"token\":\"" + TC + "\"}").getStatus()).isEqualTo(200);
-            assertThat(send(signedIn(post("/api/jira-token")), "{\"token\":\"" + JIRA + "\"}").getStatus())
-                .isEqualTo(200);
+            assertThat(send(signedIn(post("/api/auto-visa-all").param("visa", "true")),
+                "{\"jiraToken\":\"" + JIRA + "\"}").getStatus()).isEqualTo(200);
             assertThat(send(signedIn(post("/api/auto-visa-all").param("style", "true")),
                 "{\"githubToken\":\"" + GH + "\"}").getStatus()).isEqualTo(200);
 
@@ -157,14 +155,12 @@ class TokensOutOfLogsTest {
     @Test
     void recordsWithSecretsPrintNone() {
         assertNoToken(new LoginController.LoginRequest(TC).toString());
-        assertNoToken(new JiraController.TokenRequest(JIRA).toString());
-        assertNoToken(new JiraController.OptionTokens(GH).toString());
-        assertNoToken(new SessionCodec.Session(USER, TC, JIRA, 1).toString());
+        assertNoToken(new JiraController.OptionTokens(GH, JIRA).toString());
+        assertNoToken(new SessionCodec.Session(USER, TC, 1, true).toString());
         assertNoToken(new StandingVisas.GhActor(USER, TC, GH, "UTC").toString());
         assertThat(new SessionProperties(true, JIRA).toString()).doesNotContain(JIRA);
         assertThat(new GithubProperties("apache/ignite", GH, 300, null, null, null, "Iv1.client", JIRA).toString())
             .doesNotContain(GH).doesNotContain(JIRA).contains("Iv1.client");
-        assertThat(new SessionCodec.Session(USER, TC, null, 1).toString()).contains("jiraToken=null");
     }
 
     private MockHttpServletResponse send(MockHttpServletRequestBuilder req, String body) throws Exception {
@@ -173,13 +169,8 @@ class TokensOutOfLogsTest {
 
     /** The request as the login guard lets it through. */
     private MockHttpServletRequestBuilder signedIn(MockHttpServletRequestBuilder req) {
-        SessionCodec.Session session = new SessionCodec.Session(USER, TC, JIRA, System.currentTimeMillis());
-
-        return req.requestAttr(AuthInterceptor.SESSION_ATTR, session)
-            .requestAttr(AuthInterceptor.CHECKED_AT_ATTR, System.currentTimeMillis())
-            .requestAttr(AuthInterceptor.TOKEN_ATTR, TC)
-            .requestAttr(AuthInterceptor.USER_ATTR, USER)
-            .requestAttr(AuthInterceptor.JIRA_ATTR, JIRA);
+        return req.requestAttr(AuthInterceptor.TOKEN_ATTR, TC)
+            .requestAttr(AuthInterceptor.USER_ATTR, USER);
     }
 
     private static void assertNoToken(String text) {

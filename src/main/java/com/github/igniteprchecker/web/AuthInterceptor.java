@@ -20,7 +20,8 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * {@link ApiExceptionHandler}'s does, so the page can tell it from a missing session and say why it logs out. A
  * session issued before its user logged out is refused with {@code sessionEnded}. A cookie older than
  * {@link SessionCookies#RENEW_AFTER} is issued again with the answer, so the browser keeps a login in use, and so is
- * one under the name earlier versions gave it over HTTPS, under the new name.
+ * one under the name earlier versions gave it over HTTPS, under the new name, and one with a JIRA token, without it:
+ * the checker does not use that token.
  */
 @Component
 public class AuthInterceptor implements HandlerInterceptor {
@@ -30,16 +31,6 @@ public class AuthInterceptor implements HandlerInterceptor {
     public static final String COOKIE = "IPRC_SESSION";
     public static final String TOKEN_ATTR = "tcToken";
     public static final String USER_ATTR = "tcUser";
-    public static final String JIRA_ATTR = "jiraToken";
-
-    /** The whole session: what a re-issued cookie starts from, so the fields it does not change stay. */
-    public static final String SESSION_ATTR = "session";
-
-    /**
-     * When the guard found the session live (epoch ms): a cookie re-issued from it says it was issued then, so a logout
-     * while the request waits on JIRA or GitHub ends that cookie too.
-     */
-    public static final String CHECKED_AT_ATTR = "sessionCheckedAt";
 
     static final String REVOKED = "TeamCity rejected your token — log in again";
 
@@ -88,13 +79,11 @@ public class AuthInterceptor implements HandlerInterceptor {
         }
 
         reissue(carried.get(), checkedAt, req, resp);
-        req.setAttribute(SESSION_ATTR, session.get());
-        req.setAttribute(CHECKED_AT_ATTR, checkedAt);
         req.setAttribute(TOKEN_ATTR, session.get().token());
         req.setAttribute(USER_ATTR, session.get().username());
-        if (session.get().jiraToken() != null)
-            req.setAttribute(JIRA_ATTR, session.get().jiraToken());
         users.touch(session.get().username());
+        if (session.get().carriesJira() && !standing.visaOn(session.get().username()))
+            users.sawJiraInCookie(session.get().username());
         warmer.offerToken(session.get().username(), session.get().token());
         standing.tcTokenOffered(session.get().username(), session.get().token());
 

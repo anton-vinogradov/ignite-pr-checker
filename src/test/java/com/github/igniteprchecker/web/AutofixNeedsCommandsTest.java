@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
@@ -20,7 +21,6 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
@@ -48,8 +48,7 @@ class AutofixNeedsCommandsTest {
     private final StandingVisas standing = standing();
 
     private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
-        mock(BlockerAnalyzer.class), codec, mock(VisaService.class), mock(VisaSubscriptions.class), standing,
-        mock(PendingCommits.class), false);
+        standing, mock(MergedVerdicts.class), mock(UserDirectory.class));
 
     @BeforeEach
     void setUp() {

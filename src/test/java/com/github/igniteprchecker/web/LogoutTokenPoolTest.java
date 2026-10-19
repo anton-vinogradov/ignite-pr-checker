@@ -120,7 +120,7 @@ class LogoutTokenPoolTest {
 
     private MockHttpServletRequest browser(String user, String token) {
         MockHttpServletRequest req = new MockHttpServletRequest();
-        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(user, token, null))));
+        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(user, token))));
 
         return req;
     }

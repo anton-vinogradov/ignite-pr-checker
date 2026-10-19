@@ -291,8 +291,6 @@ function render(d) {
             (w.tracked ?? 0) > 0 ? 'ok' : ''),
         lastRefreshCard(w),
         card('RunAlls finished', w.chainFinishes ?? 0, 'since start'),
-        card('Auto visas armed', w.autoVisaArmed ?? 0,
-            `${w.autoVisaPosted ?? 0} posted${w.autoVisaLastPostedAt ? ' · last ' + agoW(w.autoVisaLastPostedAt) : ''}`),
         card('Standing options', w.standingEnrolled ?? 0,
             `users with an option on · ${w.standingPosted ?? 0} JIRA visa${w.standingPosted === 1 ? '' : 's'} posted`
             + ` · ${passText('sweep', w.standingLastSweepAt, w.standingFirstSweepAt)}`

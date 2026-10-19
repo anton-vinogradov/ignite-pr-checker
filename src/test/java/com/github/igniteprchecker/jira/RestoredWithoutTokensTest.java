@@ -161,6 +161,28 @@ class RestoredWithoutTokensTest {
         assertThat(restored.settings(AUTHOR).tokensRemoved()).isEmpty();
     }
 
+    /**
+     * The line under the verdict said "Visa my runs in JIRA is off in ⚙" of a visa that waits for the JIRA token, and
+     * "JIRA did not take it" once the run settled. The author is told to save the token; another viewer, only that the
+     * author's option is on.
+     */
+    @Test
+    void theVisaLineSaysTheVisaWaitsForTheJiraToken() {
+        StandingVisas.Run going = new StandingVisas.Run(AUTHOR, false, 0);
+        restored.tcTokenOffered(AUTHOR, "author-tc");
+
+        StandingVisas.VisaLine before = restored.visaLine(AUTHOR, PR, RUN_ALL, () -> going, false);
+        finishedRunOf(AUTHOR);
+        restored.sweep();
+        StandingVisas.VisaLine settled = restored.visaLine(AUTHOR, PR, RUN_ALL,
+            () -> new StandingVisas.Run(AUTHOR, false, System.currentTimeMillis()), false);
+
+        assertThat(before.state()).isEqualTo(StandingVisas.VisaLine.JIRA_TOKEN_REMOVED);
+        assertThat(settled.state()).as("the visa stays owed").isEqualTo(StandingVisas.VisaLine.JIRA_TOKEN_REMOVED);
+        assertThat(restored.visaLine(FIXER, PR, RUN_ALL, () -> going, false))
+            .isEqualTo(new StandingVisas.VisaLine(StandingVisas.VisaLine.ON, AUTHOR, false, null, null, false));
+    }
+
     @Test
     void theMarksOutliveARestart(@TempDir Path dir) throws IOException {
         Path again = dir.resolve("standing-visas.json");

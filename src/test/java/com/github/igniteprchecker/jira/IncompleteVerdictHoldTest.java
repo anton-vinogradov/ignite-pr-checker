@@ -3,14 +3,11 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,9 +36,8 @@ import org.mockito.ArgumentCaptor;
 
 /**
  * One 502 from ci2 used to make a failed test a blocker that the sweep posted in the visa and re-ran a
- * suite for at once. A verdict TeamCity errors left incomplete waits while it is retried: two sweep
- * passes, or a later try of the one-shot visa. Past that it goes out as it is, its unchecked tests
- * listed apart and not counted as blockers.
+ * suite for at once. A verdict TeamCity errors left incomplete waits while it is retried, for two sweep
+ * passes. Past that it goes out as it is, its unchecked tests listed apart and not counted as blockers.
  */
 class IncompleteVerdictHoldTest {
     private static final String USER = "avinogradov";
@@ -97,30 +93,6 @@ class IncompleteVerdictHoldTest {
         verify(tc).triggerBuildReplacingQueued(eq(TOK), suites.capture(), eq(PR), anyBoolean(), anyString());
         assertThat(suites.getAllValues()).as("only the blocker's suite; the unchecked test's is not re-run for it")
             .containsExactly(CACHE1);
-    }
-
-    @Test
-    void theOneShotVisaWaitsAndTriesAgain() {
-        JiraClient jira = mock(JiraClient.class);
-        Warmer warmer = mock(Warmer.class);
-        when(warmer.borrowToken()).thenReturn(TOK);
-        when(analyzer.forceRefresh(TOK, PR)).thenReturn(Optional.of(incomplete(now - 60_000)));
-        when(analyzer.analyzeForAction(TOK, PR)).thenReturn(Optional.of(complete()));
-        VisaService visas = new VisaService(new TeamcityProperties("https://ci2/"), "https://checker");
-        StandingVisas standing = mock(StandingVisas.class);
-        when(standing.visaCover(any(), anyInt(), anyLong(), any())).thenReturn(StandingVisas.VisaCover.NONE);
-        VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, jira, visas, analyzer, warmer,
-            mock(PendingCommits.class), tc, standing);
-        subs.retryDelayMs = 200;
-        subs.arm(PR, "IGNITE-28890", "jira-pat", USER);
-
-        subs.onChainFinished(new RerunTracker.ChainFinished(PR, RUN_ALL, false));
-
-        verify(jira, after(100).never()).addComment(anyString(), anyString(), anyString());
-        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-        verify(jira, timeout(5_000)).addComment(eq("jira-pat"), eq("IGNITE-28890"), body.capture());
-        assertThat(body.getValue()).doesNotContain("could not be checked");
-        assertThat(subs.armedCount()).isZero();
     }
 
     @Test

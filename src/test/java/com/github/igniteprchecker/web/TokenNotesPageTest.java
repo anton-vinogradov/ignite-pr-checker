@@ -3,7 +3,6 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.github.igniteprchecker.config.WarmProperties;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,8 +12,8 @@ import org.junit.jupiter.api.Test;
 /**
  * The login card said the TeamCity token is "kept encrypted in your session cookie, never on the server", and the
  * visa's JIRA panel said "never stored server-side". The server holds every visitor's TeamCity token in memory for an
- * hour to warm open PRs for everyone, keeps it encrypted while an option is on, and keeps the JIRA PAT of an Auto visa
- * until the visa is posted. Each note now says where the token goes at the moment it is pasted.
+ * hour to warm open PRs for everyone, and keeps it and the JIRA token encrypted while an option is on. Each note now
+ * says where the token goes at the moment it is pasted.
  */
 class TokenNotesPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
@@ -51,39 +50,21 @@ class TokenNotesPageTest {
     }
 
     /**
-     * The PATs pasted in ⚙ are for the options, which store them; the GitHub one rides in no cookie. ⚙ says the first
-     * in one line, and the tour says where each token goes.
+     * The PATs pasted in ⚙ are for the options, which store them; neither rides in a cookie. ⚙ says the first in one
+     * line, and the tour says where each token goes.
      */
     @Test
     void theSettingsPanelsSayTheOptionsStoreTheirTokens() throws IOException {
         assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " ")).contains("The server stores these tokens "
             + "encrypted, and only while an option that needs them is on.").doesNotContain("never stored server-side");
-        assertThat(collapsed("docs/features.md")).contains("It goes into your session cookie, encrypted, and the "
-            + "server stores it encrypted while the option below is on.")
-            .contains("The page sends the token with the switch, and no cookie keeps it.");
-        assertThat(collapsed("docs/features.ru.md")).contains("Он ложится в cookie твоей сессии, зашифрованным, а "
-            + "сервер хранит его зашифрованным, пока включена опция ниже.")
-            .contains("Страница отправляет токен вместе с переключателем, и ни одна cookie его не хранит.");
-    }
-
-    @Test
-    void theJiraPanelSaysWhereThePatGoesForEachVisa() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('?pr=13575');
-            page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
-            await page.el('visaBtn').onclick();
-            const visa = page.el('jiraKept').textContent;
-            await page.el('jiraCancel').onclick();
-            await page.el('autoVisaBtn').onclick();
-            report({ visa, auto: page.el('jiraKept').textContent,
-                shown: !page.el('jiraPanel').classList.contains('hidden') });
-            """);
-
-        assertThat(out.get("visa").asText()).isEqualTo("It goes into your session cookie, encrypted. While Visa my "
-            + "runs in JIRA is on in ⚙, your next change there also stores it on the server.");
-        assertThat(out.get("auto").asText()).isEqualTo("It goes into your session cookie, encrypted, and the server "
-            + "stores it encrypted until this visa is posted.");
-        assertThat(out.get("shown").asBoolean()).isTrue();
+        assertThat(collapsed("docs/features.md")).contains("Save switches on **Visa my runs in JIRA** below with the "
+            + "token. The server stores the token encrypted while the option is on. No cookie keeps it.")
+            .contains("The page sends the token with the switch, and no cookie keeps it.")
+            .doesNotContain("It goes into your session cookie");
+        assertThat(collapsed("docs/features.ru.md")).contains("Save включает опцию **Visa my runs in JIRA** ниже с "
+            + "этим токеном, а сервер хранит токен зашифрованным, пока опция включена. Ни одна cookie его не хранит.")
+            .contains("Страница отправляет токен вместе с переключателем, и ни одна cookie его не хранит.")
+            .doesNotContain("Он ложится в cookie твоей сессии");
     }
 
     private static String collapsed(String file) throws IOException {

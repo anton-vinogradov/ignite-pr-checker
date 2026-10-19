@@ -24,15 +24,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   It fans out on {@code recomputeFanOutExecutor}.</li>
  *   <li>{@code warmerThread} runs the warm cycles, one after another; {@code warmExecutor} warms the PRs of a
  *   cycle two at a time, fanning out on {@code backgroundExecutor}. A PR is skipped while a user waits.</li>
- *   <li>{@code backgroundExecutor} also fans out the computes the standing sweep, early re-runs and the auto
- *   visa act on; the auto visa's first try after a chain finished recomputes as ↻ does.</li>
+ *   <li>{@code backgroundExecutor} also fans out the computes the standing sweep and early re-runs act on.</li>
  *   <li>{@code causesExecutor} clusters the "Top causes".</li>
  *   <li>{@code prTestsExecutor} asks GitHub for the PR's head and Ignite's check of it while TeamCity says how the
  *   PR's test classes ran, and looks up the master histories of their failed tests side by side.</li>
  *   <li>{@code earlyRerunExecutor}, one thread, re-runs a suite that failed while its chain still runs, and
  *   {@code settleExecutor}, one thread, settles a PR whose chain or re-run just finished: both off the rerun
- *   tracker's timer, which announces them. {@code visaPosterExecutor}, one thread, posts the one-shot auto
- *   visas.</li>
+ *   tracker's timer, which announces them.</li>
  *   <li>Spring's scheduler (three threads, {@code spring.task.scheduling.pool.size}) runs the timers, and some
  *   of them call TeamCity, GitHub and JIRA on it: the rerun tracker, the standing sweep, the PR command poll
  *   and the narration of accepted commands, the flaky-test harvest (up to 10 TeamCity calls a cycle). The
@@ -108,12 +106,6 @@ public class AnalysisConfig {
     @Bean(destroyMethod = "shutdown")
     ExecutorService settleExecutor() {
         return Executors.newSingleThreadExecutor(named("settle-"));
-    }
-
-    /** Posts the one-shot auto visas, which wait for the analysis of a finished chain; one thread. */
-    @Bean(destroyMethod = "shutdown")
-    ExecutorService visaPosterExecutor() {
-        return Executors.newSingleThreadExecutor(named("auto-visa-"));
     }
 
     /** Small pool for the on-demand cause clustering, so a click on "Top causes" isn't queued behind

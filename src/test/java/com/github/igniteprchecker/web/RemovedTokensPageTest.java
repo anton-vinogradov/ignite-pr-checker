@@ -44,15 +44,14 @@ class RemovedTokensPageTest {
     }
 
     /**
-     * Her session still carried a JIRA token she had pasted before, so ⚙ said "JIRA token: saved" with Replace under
-     * the note that the visa waits for her JIRA token. The server keeps no JIRA token of hers: ⚙ says so, and the
-     * token she saves goes to the server with the visa.
+     * Her cookie still carried a JIRA token an earlier version had kept there, and ⚙ said "JIRA token: saved" with
+     * Replace under the note that the visa waits for her JIRA token. The server keeps no JIRA token of hers: ⚙ says so,
+     * and the token she saves goes to the server with the visa.
      */
     @Test
-    void aJiraTokenInTheSessionIsNotTheOneTheVisaWaitsFor() throws Exception {
+    void aJiraTokenInTheCookieIsNotTheOneTheVisaWaitsFor() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/me', { body: { username: 'alice', jira: true, github: false } });
-            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false } });
             page.route('/api/auto-visa-all', { body: { visa: true, commands: true, login: 'avinogradov-gh',
                 jiraStored: true, githubAvailable: true, tokensRemoved: [] } }, 'POST');
             """ + SETTINGS.formatted("['jira']") + """

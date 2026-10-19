@@ -47,9 +47,12 @@ final class SessionCookies {
         return base(AuthInterceptor.COOKIE, "", true).maxAge(0).build();
     }
 
-    /** Whether the session's cookie is old enough to be issued again. */
+    /**
+     * Whether the session's cookie is to be issued again: it is old enough, or it carries a JIRA token, which the
+     * checker does not use and the cookie issued again goes without.
+     */
     static boolean due(SessionCodec.Session session, long nowMs) {
-        return nowMs - session.issuedAt() > RENEW_AFTER.toMillis();
+        return session.carriesJira() || nowMs - session.issuedAt() > RENEW_AFTER.toMillis();
     }
 
     /**

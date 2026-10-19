@@ -96,7 +96,6 @@
         .act-sep { margin-left: 0.7rem; }
         .sect-act { display: inline-flex; align-items: center; gap: 0.3rem; }
         .sect-act.hidden { display: none; }
-        .jira-panel { margin: 0.5rem 0; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: var(--radius); font-size: 0.82rem; }
         .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
         /* Title + action buttons share a row; the buttons wrap to the next line only when the
            title is too long for them to fit beside it. */
@@ -130,10 +129,10 @@
         .card.verdict.clean > h2 { color: var(--ok); }
         .card.verdict.watch, .card.verdict.unproven { border-left-color: var(--warn); }
         .card.verdict.watch > h2, .card.verdict.unproven > h2 { color: var(--warn); }
-        .visa-group { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
+        .visa-group { flex-basis: 100%; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
         .visa-group.muted { color: var(--muted); }
-        #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
-        #autoVisaBtn[aria-pressed="true"]:focus-visible, #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
+        #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
+        #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
         .verdict-lines { font-size: 0.86rem; color: var(--warn); }
         .verdict-lines p { margin: 0 0 0.3rem; }
         .card.verdict.clean .verdict-lines, .card.verdict.checking .verdict-lines { color: var(--muted); }
@@ -145,8 +144,6 @@
         .trend a.clean { background-image: linear-gradient(to top, var(--ok) var(--h, 4px), transparent var(--h, 4px)); }
         .delta-new { color: var(--bad); font-weight: 600; }
         .delta-fixed { color: var(--ok); }
-        .visa-note { margin: 0.4rem 0 0; font-size: 0.85rem; }
-        .visa-note.err { color: var(--bad); }
         .group-by { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 400; }
         .group-by .tabs { margin-left: 0; }
         /* The answer to a Rerun stands under its buttons, until the next click there or until another PR opens. */
@@ -252,9 +249,9 @@
         html[data-theme="terminal"] {
             .live { padding: 0 0.15rem; }
             #blockersHead, #verdictText { text-transform: uppercase; letter-spacing: 0.04em; }
-            .act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed="true"], #autoVisaBtn[aria-pressed="true"]:disabled, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); text-decoration: none; }
-            .act.primary::before, .act.primary::after, #autoVisaBtn[aria-pressed="true"]::before, #autoVisaBtn[aria-pressed="true"]::after, #notifyBtn[aria-pressed="true"]::before, #notifyBtn[aria-pressed="true"]::after { color: var(--on-accent); }
-            #autoVisaBtn[aria-pressed="true"]:focus-visible, #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--fg); outline-offset: 1px; }
+            .act.primary, .act.primary:not(:disabled):hover, #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); text-decoration: none; }
+            .act.primary::before, .act.primary::after, #notifyBtn[aria-pressed="true"]::before, #notifyBtn[aria-pressed="true"]::after { color: var(--on-accent); }
+            #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--fg); outline-offset: 1px; }
             .pr-badge.bad { background: transparent; color: var(--bad); padding: 0 0.15rem; }
             .my-tag { padding: 0 0.15rem; }
             .pr-list li.sel .pr-num::before { content: "> "; color: var(--ok); }
@@ -340,12 +337,14 @@
                 off: save a new token and switch it on again.</p>
             <p id="jiraTokenRemoved" class="caveat hidden">⚠ The checker's state was restored from a backup older than
                 2 days, which keeps no tokens. Visa my runs in JIRA is paused until you save your JIRA token again.</p>
+            <p id="jiraInCookie" class="caveat hidden">⚠ The checker does not use the JIRA token your browser kept.
+                Visas go to JIRA only while Visa my runs in JIRA is on: switch it on and paste the token.</p>
             <div id="settingsJira" class="settings-form hidden">
                 <a id="settingsPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">Create a token in your ASF JIRA profile</a>
                 that expires in 90 days: it has all the rights of your JIRA account.
                 <span class="row">
                     <input id="settingsJiraToken" type="password" placeholder="JIRA token" style="flex: 1 1 auto; min-width: 0; max-width: 420px" />
-                    <button id="settingsJiraSave" class="act" type="button">Save</button>
+                    <button id="settingsJiraSave" class="act" type="button" title="Switches on Visa my runs in JIRA with this token. The server keeps the token, encrypted, while the option is on.">Save</button>
                     <span id="settingsJiraMsg" class="muted"></span>
                 </span>
             </div>
@@ -526,28 +525,10 @@
                         <p id="mergedNote" class="merged-note hidden"></p>
                         <h2 id="verdictHead"><span id="verdictText"></span>
                             <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="What each verdict means and what to do next" aria-label="What this means">?</a>
-                            <span id="visaGroup" class="visa-group"><span class="muted">JIRA visa:</span>
-                                <button id="visaBtn" class="act" type="button" title="Post the verdict as a comment to the JIRA ticket now">Post now</button>
-                                <button id="autoVisaBtn" class="act" type="button" aria-pressed="false">Auto visa</button>
-                                <span id="autoVisaState" class="muted"></span></span>
-                            <span id="noTicket" class="visa-group muted hidden">JIRA visa: the PR title names no IGNITE ticket.</span>
+                            <span id="visaLine" class="visa-group muted hidden"></span>
                         </h2>
-                        <div id="jiraPanel" class="jira-panel hidden">
-                            Posting a visa needs your JIRA Personal Access Token —
-                            <a id="jiraPatLink" href="https://issues.apache.org/jira/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens" target="_self" rel="noopener">create one in your ASF JIRA profile</a>,
-                            then paste it here. <span id="jiraKept">It goes into your session cookie, encrypted.
-                            While Visa my runs in JIRA is on in ⚙, your next change there also stores it on the
-                            server.</span>
-                            <span class="row" style="margin-top: 0.4rem">
-                                <input id="jiraTokenInput" type="password" placeholder="JIRA Personal Access Token" style="flex: 1 1 auto; min-width: 0" />
-                                <button id="jiraSave" class="act" type="button">Save</button>
-                                <button id="jiraCancel" class="act" type="button">Cancel</button>
-                                <span id="jiraMsg" class="muted"></span>
-                            </span>
-                        </div>
                         <div id="verdictLines" class="verdict-lines"></div>
                         <div id="deltaRow" class="delta hidden"><span id="delta"></span><span id="trend" class="trend"></span></div>
-                        <p id="visaNote" class="visa-note hidden"></p>
                     </div>
                     <div id="interruptedBanner" class="card interrupted hidden">
                         <h2>⚠ Suites that never ran <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="These suites of this RunAll were cancelled before they ran. The verdict says nothing about them." aria-label="What this means">?</a> <span class="sect-act hidden" id="cancelledActs"><button class="act" type="button" data-top="false">Rerun</button><button class="act" type="button" data-top="true">Rerun at top</button></span><span id="cancelledActsNote" class="act-note hidden"></span></h2>

@@ -12,7 +12,6 @@ import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -33,7 +32,7 @@ class StatusMemoryTest {
         StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class), warmer,
             mock(GithubClient.class), new LogTracker(new ObjectMapper()),
             new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)),
-            mock(RerunTracker.class), mock(VisaSubscriptions.class), standing, commands, mock(AuthInterceptor.class),
+            mock(RerunTracker.class), standing, commands, mock(AuthInterceptor.class),
             mock(AdminActions.class), store, mock(EffectiveConfig.class), mock(ObjectProvider.class));
 
         Map<String, Object> jvm = (Map<String, Object>) status.status(new MockHttpServletRequest()).get("jvm");

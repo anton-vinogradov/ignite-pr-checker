@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
@@ -19,7 +20,6 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
@@ -49,9 +49,8 @@ class StandingSettingsTest {
         mock(BlockerAnalyzer.class), jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
         mock(PendingCommits.class));
 
-    private final JiraController controller = new JiraController(jira, mock(TcClient.class), mock(BlockerAnalyzer.class),
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), mock(VisaService.class),
-        mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false);
+    private final JiraController controller = new JiraController(jira, mock(TcClient.class), standing,
+        mock(MergedVerdicts.class), mock(UserDirectory.class));
 
     @BeforeEach
     void enrolledEarlierWithEverything() {

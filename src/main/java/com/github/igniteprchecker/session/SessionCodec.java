@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.session;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.config.SessionProperties;
@@ -48,7 +49,7 @@ public class SessionCodec {
 
     /** @return the cookie value carrying a new session: the TeamCity token alone. */
     public String encode(String username, String token) {
-        return encode(new Session(username, token, null));
+        return encode(new Session(username, token));
     }
 
     /**
@@ -66,8 +67,8 @@ public class SessionCodec {
      */
     public String encode(Session session, long issuedAt) {
         try {
-            byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(),
-                session.jiraToken(), issuedAt, Payload.NAMED_BY_CONNECTION));
+            byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(), null, issuedAt,
+                Payload.NAMED_BY_CONNECTION));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -189,44 +190,48 @@ public class SessionCodec {
 
     /**
      * A user's session. {@code issuedAt} is when its cookie was issued (epoch ms); 0 for a cookie issued before
-     * cookies said so, and for a session not issued yet.
+     * cookies said so, and for a session not issued yet. {@code carriesJira}: the cookie carries a JIRA token an
+     * earlier version put there. The checker uses none: the visa option takes the token with its switch and keeps it
+     * on the server.
      */
-    public record Session(String username, String token, String jiraToken, long issuedAt) {
+    public record Session(String username, String token, long issuedAt, boolean carriesJira) {
         /** A session not issued yet. */
-        public Session(String username, String token, String jiraToken) {
-            this(username, token, jiraToken, 0);
+        public Session(String username, String token) {
+            this(username, token, 0);
+        }
+
+        /** A session whose cookie carries no JIRA token. */
+        public Session(String username, String token, long issuedAt) {
+            this(username, token, issuedAt, false);
         }
 
         /** The same session under another TeamCity token. */
         public Session withToken(String tc) {
-            return new Session(username, tc, jiraToken, issuedAt);
-        }
-
-        /** The same session with another JIRA PAT. */
-        public Session withJiraToken(String jira) {
-            return new Session(username, token, jira, issuedAt);
+            return new Session(username, tc, issuedAt, carriesJira);
         }
 
         @Override
         public String toString() {
-            return "Session[username=" + username + ", token=" + Secrets.masked(token) + ", jiraToken="
-                + Secrets.masked(jiraToken) + ", issuedAt=" + issuedAt + "]";
+            return "Session[username=" + username + ", token=" + Secrets.masked(token) + ", issuedAt=" + issuedAt
+                + ", carriesJira=" + carriesJira + "]";
         }
     }
 
     /**
-     * Old cookies also carried an {@code exp}, ignored now that sessions don't time out, and a {@code ghToken}, which
-     * the checker no longer takes from a cookie: it goes at the cookie's next issue. {@code iat}, when the cookie was
-     * issued, is absent from the cookies of earlier versions. {@code v} is the cookie's format, absent from the cookies
-     * issued before cookies over HTTPS were named {@code __Host-}.
+     * Old cookies also carried an {@code exp}, ignored now that sessions don't time out, and a {@code ghToken} or a
+     * {@code jiraToken}, which the checker no longer takes from a cookie: they go at the cookie's next issue, and no
+     * cookie it issues has them. {@code iat}, when the cookie was issued, is absent from the cookies of earlier
+     * versions. {@code v} is the cookie's format, absent from the cookies issued before cookies over HTTPS were named
+     * {@code __Host-}.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Payload(String username, String token, String jiraToken, Long iat, Integer v) {
+    private record Payload(String username, String token, @JsonInclude(JsonInclude.Include.NON_NULL) String jiraToken,
+        Long iat, Integer v) {
         /** The format of a cookie whose name says how it was sent: {@code __Host-} over HTTPS. */
         static final int NAMED_BY_CONNECTION = 2;
 
         Session session() {
-            return new Session(username, token, jiraToken, iat == null ? 0 : iat);
+            return new Session(username, token, iat == null ? 0 : iat, jiraToken != null && !jiraToken.isBlank());
         }
 
         @Override

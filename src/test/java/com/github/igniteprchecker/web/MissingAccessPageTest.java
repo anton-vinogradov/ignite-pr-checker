@@ -67,28 +67,29 @@ class MissingAccessPageTest {
         assertThat(out.get("focused").asText()).isEqualTo("settingsGhToken");
     }
 
-    /** JIRA refused the token the session carried: the server's reason stands at the form. */
+    /** JIRA refused the token she pasted: the server's reason stands at the form, and the visa stays off. */
     @Test
     void aJiraTokenTheServerRefusesIsSaidAtTheForm() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
-            page.route('/api/me', { body: { username: 'alice', jira: true, github: false } });
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { status: 412, body: { need: 'jira',
                 error: 'JIRA rejected the token — paste a new one' } }, 'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
-            page.el('standingVisaToggle').checked = true;
-            await page.el('standingVisaToggle').onchange();
+            await page.el('jiraTokenBtn').onclick();
+            page.el('settingsJiraToken').value = 'jira-pat-dead';
+            await page.el('settingsJiraSave').onclick();
             await page.settle();
             report({ form: !page.el('settingsJira').classList.contains('hidden'),
                 msg: page.el('settingsJiraMsg').textContent, bottom: page.el('settingsMsg').textContent,
-                state: page.el('jiraState').textContent });
+                state: page.el('jiraState').textContent, on: page.el('standingVisaToggle').checked });
             """);
 
         assertThat(out.get("form").asBoolean()).isTrue();
         assertThat(out.get("msg").asText()).isEqualTo("JIRA rejected the token — paste a new one");
         assertThat(out.get("bottom").asText()).isEmpty();
-        assertThat(out.get("state").asText()).as("the session's token is no good").isEqualTo("not saved");
+        assertThat(out.get("state").asText()).isEqualTo("not saved");
+        assertThat(out.get("on").asBoolean()).isFalse();
     }
 
     /** She pasted the token first and switched the option on after: the token goes with the switch. */
@@ -191,51 +192,89 @@ class MissingAccessPageTest {
         assertThat(out.get("form").asBoolean()).isFalse();
     }
 
-    /** The visa ran on the stored JIRA token; a new one pasted went into the cookie and nowhere else. */
+    /**
+     * The visa ran on the stored JIRA token; a new one pasted went into the cookie and nowhere else. It goes to the
+     * server with the visa's switch.
+     */
     @Test
     void aReplacedJiraTokenGoesToTheServerWhileTheVisaRuns() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { body: ON }, 'POST');
-            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
             await page.el('jiraTokenBtn').onclick();
             page.el('settingsJiraToken').value = 'jira-pat-new';
             await page.el('settingsJiraSave').onclick();
             await page.settle();
-            report({ saved: page.fetches('/api/jira-token').length, posts: posts().map(p => p.url) });
+            report({ cookie: page.fetches('/api/jira-token').length, posts: posts(),
+                form: !page.el('settingsJira').classList.contains('hidden'), field: page.el('settingsJiraToken').value });
             """);
 
-        assertThat(out.get("saved").asInt()).isEqualTo(1);
-        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?visa=true&tz=UTC\"]");
+        assertThat(out.get("cookie").asInt()).isZero();
+        assertThat(out.get("posts").toString()).isEqualTo("[{\"url\":\"/api/auto-visa-all?visa=true&tz=UTC\","
+            + "\"body\":\"{\\\"jiraToken\\\":\\\"jira-pat-new\\\"}\"}]");
+        assertThat(out.get("form").asBoolean()).isFalse();
+        assertThat(out.get("field").asText()).isEmpty();
     }
 
-    /** She pressed Replace, then switched the visa off: the token she saves after that does not switch it back on. */
+    /** Visas come from the option alone: Save in the JIRA group switches it on with the token. */
     @Test
-    void aVisaSwitchedOffDuringReplaceStaysOff() throws Exception {
+    void aSavedJiraTokenSwitchesTheVisaOnWithIt() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { visa: true, jiraStored: true }) },
-                'GET');
-            page.route('/api/auto-visa-all', { body: SETTINGS }, 'POST');
-            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
+                'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
             await page.el('jiraTokenBtn').onclick();
-            page.el('standingVisaToggle').checked = false;
-            await page.el('standingVisaToggle').onchange();
-            await page.settle();
-            page.el('settingsJiraToken').value = 'jira-pat-new';
+            page.el('settingsJiraToken').value = 'jira-pat';
             await page.el('settingsJiraSave').onclick();
             await page.settle();
-            report({ posts: posts().map(p => p.url), visa: page.el('standingVisaToggle').checked,
-                msg: page.el('settingsMsg').textContent });
+            report({ posts: posts(), visa: page.el('standingVisaToggle').checked,
+                state: page.el('jiraState').textContent, msg: page.el('settingsMsg').textContent });
             """);
 
-        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/auto-visa-all?visa=false&tz=UTC\"]");
-        assertThat(out.get("visa").asBoolean()).isFalse();
-        assertThat(out.get("msg").asText()).isEqualTo("JIRA token saved: switch on Visa my runs in JIRA to use it.");
+        assertThat(out.get("posts").toString()).isEqualTo("[{\"url\":\"/api/auto-visa-all?visa=true&tz=UTC\","
+            + "\"body\":\"{\\\"jiraToken\\\":\\\"jira-pat\\\"}\"}]");
+        assertThat(out.get("visa").asBoolean()).isTrue();
+        assertThat(out.get("state").asText()).isEqualTo("saved");
+        assertThat(out.get("msg").asText()).isEqualTo("On: JIRA visa.");
+    }
+
+    /**
+     * GitHub refused alice's stored token, so its form stood open. She switched the visa on, which asked for her JIRA
+     * token, and saved it. The GitHub token she pasted next went with the visa's switch, which has no use for it: the
+     * form closed, the field emptied, and no option kept the token.
+     */
+    @Test
+    void aGithubTokenAfterTheJiraTokenWaitsForTheOptionThatUsesIt() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            const REFUSED = Object.assign({}, SETTINGS, { ghTokenRejected: true });
+            page.route('/api/auto-visa-all', { body: REFUSED }, 'GET');
+            page.route('/api/auto-visa-all', { body: Object.assign({}, REFUSED, { visa: true, jiraStored: true }) },
+                'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            page.el('standingVisaToggle').checked = true;
+            await page.el('standingVisaToggle').onchange();
+            await page.settle();
+            page.el('settingsJiraToken').value = 'jira-pat';
+            await page.el('settingsJiraSave').onclick();
+            await page.settle();
+            page.el('settingsGhToken').value = 'github_pat_fork';
+            await page.el('settingsGhSave').onclick();
+            await page.settle();
+            report({ posts: posts().length, form: !page.el('settingsGh').classList.contains('hidden'),
+                field: page.el('settingsGhToken').value, msg: page.el('settingsGhMsg').textContent });
+            """);
+
+        assertThat(out.get("posts").asInt()).as("the visa's switch alone").isEqualTo(1);
+        assertThat(out.get("form").asBoolean()).isTrue();
+        assertThat(out.get("field").asText()).isEqualTo("github_pat_fork");
+        assertThat(out.get("msg").asText())
+            .isEqualTo("switch on the option below that should use it: the token goes with that switch");
     }
 
     /** The same for a GitHub token: Replace, then the option that ran on it off, then Save. */
@@ -271,7 +310,6 @@ class MissingAccessPageTest {
             const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { body: ON }, 'POST');
-            page.route('/api/jira-token', { body: { jiraUser: 'alice' } }, 'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
             await page.el('jiraTokenBtn').onclick();

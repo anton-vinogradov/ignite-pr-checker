@@ -15,7 +15,6 @@ import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -53,7 +52,7 @@ class StatusHealthTest {
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         warmer, mock(GithubClient.class), logs,
         new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)), mock(RerunTracker.class),
-        mock(VisaSubscriptions.class), standing, commands, auth, mock(AdminActions.class), store,
+        standing, commands, auth, mock(AdminActions.class), store,
         mock(EffectiveConfig.class), mock(ObjectProvider.class));
 
     @BeforeEach
@@ -117,7 +116,7 @@ class StatusHealthTest {
         when(standing.lastSweepAt()).thenReturn(System.currentTimeMillis() - Duration.ofMinutes(40).toMillis());
         when(commands.lastPollAt()).thenReturn(System.currentTimeMillis());
         MockHttpServletRequest signedIn = new MockHttpServletRequest();
-        when(auth.signedIn(signedIn)).thenReturn(Optional.of(new SessionCodec.Session("alice", "tok", null)));
+        when(auth.signedIn(signedIn)).thenReturn(Optional.of(new SessionCodec.Session("alice", "tok")));
 
         Map<String, Object> out = status.status(signedIn);
 

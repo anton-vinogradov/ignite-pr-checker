@@ -287,10 +287,8 @@ function openPr(number, push) {
     if (!li) loadPrTitle(number);
     $('actions').classList.remove('hidden');
     sayStatus('');
-    $('visaNote').classList.add('hidden');
     hideRerunAnswers();
     lastRuns = [];
-    autoVisa = noAutoVisa();
     clearFreshness();
     $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
     runsWere = 0;
@@ -309,7 +307,7 @@ function openPr(number, push) {
 }
 
 // A PR off the open list (merged, closed, or past the 50 the list holds) gets its title from the server: the head names
-// its ticket, and the visa group knows where to post. An answer for a PR no longer open on the page is dropped.
+// its ticket, and the visa line can say where the visa goes. An answer for a PR no longer open on the page is dropped.
 async function loadPrTitle(number) {
     try {
         const r = await api('/api/pr-title?pr=' + number);
@@ -317,8 +315,8 @@ async function loadPrTitle(number) {
         const { title } = await r.json();
         if (number !== selectedPr || typeof title !== 'string') return;
         setPrTitle(number, title, null);
-        paintVisaGroup();
-    } catch (e) { /* the head keeps the number alone, and the visa group stays hidden */ }
+        loadVisaLine(number);
+    } catch (e) { /* the head keeps the number alone, and the visa line stays hidden */ }
 }
 
 // The answers to Rerun under the buttons belong to the PR they were given on.
@@ -578,7 +576,6 @@ async function loadRuns(number) {
     $('cancelMine').classList.toggle('hidden', !runs.some(b => b.mine));
     if (!$('pendingRow').classList.contains('hidden')) paintPending();
     paintPrimary();
-    paintAutoVisa();
     if (noRunNote && $('status').textContent === noRunNote) showNoRun();
 
     // When the runs we were watching have all finished, refresh the analysis to pick up their results.
@@ -600,6 +597,7 @@ async function loadRuns(number) {
     }
     paintTab();
     loadSettling(number);
+    loadVisaLine(number);
     schedulePoll();
     return true;
 }
@@ -822,8 +820,8 @@ function goHome(push) {
 async function loadMe() {
     const r = await api('/api/me');
     if (r.ok) {
-        const { username, jira, admin } = await r.json();
-        hasJira = !!jira;
+        const { username, admin, jiraInCookie } = await r.json();
+        jiraInCookieUnused = !!jiraInCookie;
         canAdmin = !!admin;
         checkUpdate();
         await enterApp(username);
@@ -840,9 +838,10 @@ async function login() {
     try {
         const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
         if (r.ok) {
-            const { username, admin } = await r.json();
+            const { username, admin, jiraInCookie } = await r.json();
             $('token').value = '';
             canAdmin = !!admin;
+            jiraInCookieUnused = !!jiraInCookie;
             checkUpdate();
             await enterApp(username);
             offerCommands();
@@ -1575,8 +1574,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     wireSectActs('shrunkActs', suitesOfBroken(shrunk));
     wireSectActs('watchActs', suitesOfTests(watch));
     wireSectActs('filteredActs', suitesOfTests(res.filtered));
-    paintVisaGroup();
-    loadAutoVisa(selectedPr);
+    loadVisaLine(selectedPr);
     const tabsOn = res.blockers.length >= 2;
     $('blockerTabs').classList.toggle('hidden', !tabsOn);
     if (causesCache.key !== causesKey(res)) {
@@ -2841,193 +2839,93 @@ $('statusRetry').onclick = () => {
     analyze(selectedPr);
 };
 
-// JIRA visa: post the verdict as a comment to the PR's IGNITE ticket. Without a PAT in the
-// session, the button opens a hint with a deep link to the JIRA profile page to create one.
-let hasJira = false;
+// The visa of a run comes only from Visa my runs in JIRA of whoever started it. The line in the verdict's heading says
+// where it stands, from /api/visa; a PR title with no IGNITE ticket gets no visa, which the title alone tells.
 let lastIssueKey = null; // the open PR's ticket; '' when its title names none, null while the title is not known
+// /api/visa's last answer for each run, by "pr:build": null while the first answer is not in, false when it failed.
+const visaLines = new Map();
+const VISA_LINES_KEPT = 50;
+let visaLinePainted = null; // what the line shows, so a poll with the same answer leaves the line and its link alone
+let jiraInCookieUnused = false; // a JIRA token sat in the user's cookie, unused, and their visa option is off
 
-let pendingJiraAction = null; // 'visa' | 'auto' — what to continue with after the PAT is saved
-
-// Where the JIRA PAT ends up depends on what it is pasted for: a visa posted now needs the session alone, yet a change
-// in ⚙ stores the session's PAT for the standing auto-visa. The settings panel, where it is pasted for that, says its own.
-const JIRA_KEPT_FOR_VISA = 'It goes into your session cookie, encrypted. While Visa my runs in JIRA is on in ⚙, '
-    + 'your next change there also stores it on the server.';
-
-function jiraKeptNote(action) {
-    return action === 'auto'
-        ? 'It goes into your session cookie, encrypted, and the server stores it encrypted until this visa is posted.'
-        : JIRA_KEPT_FOR_VISA;
-}
-
-async function postVisa() {
-    if (!selectedPr || !lastIssueKey) return;
-    if (!hasJira) { pendingJiraAction = 'visa'; await toggleJiraPanel(true); return; }
-    const pr = selectedPr, key = lastIssueKey;
-    if (!confirm(`Post the verdict as a comment to ${key} in ASF JIRA?`)) return;
-    const btn = $('visaBtn');
-    const refocus = keepFocus(btn);
-    btn.disabled = true;
-    sayStatus('Posting the visa…', { busy: true });
-    try {
-        const r = await api(`/api/jira-visa?pr=${pr}&issue=${encodeURIComponent(key)}`, { method: 'POST' });
-        if (r.status === 401) return loggedOut(r);
-        if (pr !== selectedPr) return;
-        const res = await r.json().catch(() => ({}));
-        if (r.status === 412) { sayStatus(''); return askJiraTokenAgain('visa', res.error); }
-        if (!r.ok) { visaNote(notDone('Visa not posted', res.error), { err: true }); return; }
-        visaNote(`Visa posted to <a href="${esc(res.url)}" target="_self" rel="noopener" title="Open the comment in JIRA">${esc(key)}</a>`,
-            { html: true });
-    } finally {
-        btn.disabled = false;
-        refocus();
-    }
-}
-
-// The answer to a visa button, under the verdict's lines, with a copy in the status line.
-function visaNote(text, { html = false, err = false } = {}) {
-    const n = $('visaNote');
-    if (html) n.innerHTML = text;
-    else n.textContent = text;
-    n.classList.toggle('err', err);
-    n.classList.remove('hidden');
-    sayStatus(text, { html, err, aloud: true });
-}
-
-// The group at the right of the verdict heading: "JIRA visa: Post now · Auto visa", or one line when the PR title
-// names no ticket to post to. Neither while the title is not known: the page cannot tell which it is.
-function paintVisaGroup() {
-    $('visaGroup').classList.toggle('hidden', !lastIssueKey);
-    $('noTicket').classList.toggle('hidden', lastIssueKey !== '');
-    $('visaBtn').disabled = !lastIssueKey;
-    $('visaBtn').title = `Post the verdict as a comment to ${lastIssueKey || 'the JIRA ticket'} now`;
-    paintAutoVisa();
-}
-
-// A 412: the session has no JIRA token, or JIRA rejected it. The panel asks for one and says which.
-async function askJiraTokenAgain(action, why) {
-    hasJira = false;
-    pendingJiraAction = action;
-    await toggleJiraPanel(true);
-    $('jiraMsg').textContent = why || '';
-}
-
-async function toggleJiraPanel(showIt) {
-    const p = $('jiraPanel');
-    if (!showIt) { p.classList.add('hidden'); return; }
-    const cfg = await api('/api/jira-config').then(x => x.ok ? x.json() : {}).catch(() => ({}));
-    if (cfg.patUrl) $('jiraPatLink').href = cfg.patUrl;
-    $('jiraKept').textContent = jiraKeptNote(pendingJiraAction);
-    p.classList.remove('hidden');
-    $('jiraTokenInput').focus();
-}
-
-async function saveJiraToken() {
-    const input = $('jiraTokenInput'), msg = $('jiraMsg');
-    const token = input.value.trim();
-    if (!token) { msg.textContent = 'paste the token first'; return; }
-    msg.textContent = 'checking…';
-    try {
-        const r = await api('/api/jira-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
-        });
-        const res = await r.json().catch(() => ({}));
-        if (!r.ok) { msg.textContent = res.error || 'JIRA rejected the token'; return; }
-        hasJira = true;
-        input.value = '';
-        msg.textContent = '';
-        toggleJiraPanel(false);
-        if (pendingJiraAction === 'auto') armAutoVisa();
-        else postVisa();
-        pendingJiraAction = null;
-    } catch (e) {
-        msg.textContent = 'could not reach the service — try again';
-    }
-}
-// One-shot auto visa: post the verdict to the ticket when this PR's run finishes — no babysitting.
-// Each user arms and cancels their own; a standing auto-visa that posts this run's verdict makes it moot.
-let autoVisa = noAutoVisa();
-
-function noAutoVisa() {
-    return { armed: false, others: [], standingBy: null, refusedFor: null };
-}
-
-// Auto visa is a switch: filled while armed by you, with the others' state as a label beside it.
-function paintAutoVisa() {
-    const b = $('autoVisaBtn'), state = $('autoVisaState');
-    const owner = autoVisa.standingBy;
-    if (owner && !autoVisa.armed) {
-        const mine = owner.toLowerCase() === (myUsername || '').trim().toLowerCase();
-        b.disabled = true;
-        b.textContent = 'Auto visa';
-        b.setAttribute('aria-pressed', 'true');
-        state.textContent = mine ? 'on in your ⚙' : `on in ${owner}'s ⚙`;
-        b.title = mine
-            ? 'Your standing auto-visa (⚙) posts the verdict of this run — nothing to arm here.'
-            : `The standing auto-visa of ${owner}, who started this run, posts its verdict — nothing to arm here.`;
+async function loadVisaLine(number) {
+    const res = lastResult;
+    if (!res || res.prNumber !== number || !lastIssueKey) {
+        paintVisaLine();
         return;
     }
-    const others = autoVisa.others.join(', ');
-    const refused = !autoVisa.armed && autoVisa.refusedFor;
-    const chain = runsNow.find(r => r.runAll);
-    const when = chain && chain.state === 'running' ? 'when the RunAll that is running now finishes'
-        : 'when the next RunAll of this PR finishes';
-    b.disabled = !lastIssueKey;
-    b.setAttribute('aria-pressed', String(autoVisa.armed));
-    b.textContent = autoVisa.armed ? 'Auto visa ✓' : refused ? 'Auto visa ⚠' : 'Auto visa';
-    state.textContent = refused ? 'JIRA refused your token. Click Auto visa to arm it again.'
-        : others ? (autoVisa.armed ? 'also armed by ' : 'armed by ') + others : '';
-    b.title = autoVisa.armed ? 'Armed by you. Click to cancel it; this also removes your stored token.'
-        : refused ? `JIRA refused your token, so your auto visa for ${refused} was dropped with it. Click to arm it again; `
-            + 'a new token is asked for if needed.'
-        : `Post the verdict to ${lastIssueKey} once, ${when}. Your JIRA token is kept encrypted until then.`;
+    const key = number + ':' + res.buildId;
+    if (!visaLines.has(key)) visaLines.set(key, null);
+    while (visaLines.size > VISA_LINES_KEPT) visaLines.delete(visaLines.keys().next().value);
+    paintVisaLine();
+    let line;
+    try {
+        const r = await api(`/api/visa?pr=${number}&build=${res.buildId}`);
+        line = r.ok ? await r.json() : undefined;
+    } catch (e) {
+        line = undefined;
+    }
+    // A failed answer leaves the line as it was for this run, or takes "Visa: …" away; the next poll asks again.
+    if (line !== undefined) visaLines.set(key, line);
+    else if (visaLines.get(key) === null) visaLines.set(key, false);
+    if (number !== selectedPr || lastResult !== res) return;
+    paintVisaLine();
 }
 
-async function loadAutoVisa(pr) {
-    try {
-        const r = await api('/api/auto-visa?pr=' + pr);
-        if (!r.ok) return;
-        const d = await r.json();
-        if (pr !== selectedPr) return;
-        autoVisa = { armed: !!d.armed, others: d.others || [], standingBy: d.standingBy || null,
-            refusedFor: d.tokenRejectedFor || null };
-        paintAutoVisa();
-    } catch (e) { /* status is a bonus */ }
+// The line keeps its place from the verdict's first paint, with "Visa: …" until the server answers, so the cards
+// below do not move when the answer comes.
+function paintVisaLine() {
+    const res = lastResult, el = $('visaLine');
+    const v = res ? visaLines.get(res.prNumber + ':' + res.buildId) : undefined;
+    const html = lastIssueKey === '' ? 'Visa: the PR title names no IGNITE ticket'
+        : !lastIssueKey || v === undefined || v === false ? null
+        : v === null ? 'Visa: …' : visaLineText(v, lastIssueKey);
+    if (html === visaLinePainted) return;
+    visaLinePainted = html;
+    el.innerHTML = html || '';
+    el.classList.toggle('hidden', !html);
 }
 
-async function armAutoVisa() {
-    if (!selectedPr || !lastIssueKey) return;
-    if (!hasJira) { pendingJiraAction = 'auto'; await toggleJiraPanel(true); return; }
-    const pr = selectedPr, key = lastIssueKey;
-    const btn = $('autoVisaBtn');
-    const refocus = keepFocus(btn);
-    btn.disabled = true;
-    try {
-        const path = autoVisa.armed ? '/api/auto-visa-cancel?pr=' + pr
-            : `/api/auto-visa?pr=${pr}&issue=${encodeURIComponent(key)}`;
-        const r = await api(path, { method: 'POST' });
-        if (r.status === 401) return loggedOut(r);
-        if (pr !== selectedPr) return;
-        const res = await r.json().catch(() => ({}));
-        if (r.status === 412) return askJiraTokenAgain('auto', res.error);
-        if (!r.ok) {
-            visaNote(notDone(autoVisa.armed ? 'Auto visa not cancelled' : 'Auto visa not armed', res.error), { err: true });
-            return;
-        }
-        autoVisa.armed = !!res.armed;
-        autoVisa.refusedFor = null;
-        visaNote(autoVisa.armed
-            ? `Auto visa armed: the verdict goes to ${key} the next time a RunAll of this PR finishes.`
-            : 'Your auto visa is cancelled.');
-    } finally {
-        paintAutoVisa();
-        refocus();
+// What the line says in each state the server names. Of someone else's run the server tells only what became of the
+// run and its visa, whose option it is and whether it is on. The PR title names the ticket of a visa still to come; a
+// posted one, the ticket it went to.
+function visaLineText(v, key) {
+    const who = esc(v.starter || '');
+    const option = 'Visa my runs in JIRA';
+    switch (v.state) {
+        case 'posted':
+            return v.url ? `Visa: posted to <a href="${esc(v.url)}" target="_self" rel="noopener" `
+                + `title="Opens the visa in JIRA.">${esc(v.issue)}</a>` : `Visa: posted to ${esc(v.issue || key)}`;
+        case 'due':
+            return `Visa: will be posted to ${esc(key)} when the run settles`;
+        case 'retrying':
+            return 'Visa: JIRA did not take it, the checker tries again every 10 minutes';
+        case 'on':
+            return `Visa: ${who}, who started this run, has ${option} on`;
+        case 'off':
+            return v.mine
+                ? `Visa: ${option} is off in ⚙` + (v.jiraRefused ? ', because JIRA rejected your token' : '')
+                : `Visa: none, ${who} started this run and has ${option} off`;
+        case 'paused':
+            return 'Visa: waits until you log in again, because TeamCity refused the token your options use';
+        case 'jira-token-removed':
+            return 'Visa: waits until you save your JIRA token in ⚙ again';
+        case 'late':
+            return `Visa: none, this run finished before you switched on ${option}`;
+        case 'no-ticket':
+            return 'Visa: none, the PR title named no IGNITE ticket when the run settled';
+        case 'cancelled':
+            return 'Visa: none, this run was cancelled';
+        case 'replaced':
+            return 'Visa: none for this run, a newer RunAll replaces it';
+        case 'closed':
+            return 'Visa: none, the PR is closed';
+        case 'unknown':
+            return 'Visa: unknown, TeamCity does not say who started this run';
+        default:
+            return null;
     }
 }
-
-$('visaBtn').onclick = postVisa;
-$('autoVisaBtn').onclick = armAutoVisa;
 
 // The browser's time zone goes with every change in ⚙: the run's story in the PR gives its times in it.
 function zoneParam(sep) {
@@ -3050,7 +2948,6 @@ const GITHUB_OPTIONS = ['gh', 'style', 'commands', 'suites'];
 const COMMIT_OPTIONS = ['style', 'suites'];
 let standingSettings = null; // the server's last answer
 let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
-let jiraPasted = false; // a JIRA token was saved on this page, and the server has neither refused nor taken it since
 
 $('settingsBtn').onclick = () => {
     const p = $('settingsPanel');
@@ -3078,7 +2975,7 @@ async function loadSettings() {
 
 function renderSettings(st) {
     standingSettings = st;
-    if (st.jiraStored) jiraPasted = false;
+    if (st.visa) jiraInCookieUnused = false;
     for (const [name, id] of Object.entries(OPTION_TOGGLES)) {
         $(id).checked = !!st[name];
         $(id).disabled = false;
@@ -3090,13 +2987,10 @@ function renderSettings(st) {
     renderGithubAccount(st);
 }
 
-// Each group opens with the state of what its options need. The options run on the tokens the server holds; this
-// browser's session may carry a JIRA token too, but a visa paused for a removed token waits for one the server keeps.
+// Each group opens with the state of what its options need: the tokens the server holds for them.
 function renderAccess(st) {
     $('tcState').textContent = myUsername || 'logged in';
-    const removed = (st.tokensRemoved || []).includes('jira') && !jiraPasted;
-    const jira = st.jiraStored ? 'saved' : st.jiraTokenRejected && !jiraPasted ? 'rejected'
-        : hasJira && !removed ? 'saved' : 'not saved';
+    const jira = st.jiraStored ? 'saved' : st.jiraTokenRejected ? 'rejected' : 'not saved';
     $('jiraState').textContent = jira;
     $('jiraTokenBtn').textContent = jira === 'saved' ? 'Replace' : 'Save';
     $('ghTokenState').textContent = st.ghStored ? 'saved' + (st.ghTokenKind ? ', ' + st.ghTokenKind : '')
@@ -3147,9 +3041,10 @@ function renderLogin(st) {
 function showTokenNotes(st) {
     $('ghTokenGone').classList.toggle('hidden', !st.ghTokenRejected || !!st.ghStored);
     if (st.ghTokenRejected && !st.ghStored) $('settingsGh').classList.remove('hidden');
-    const jiraGone = st.jiraTokenRejected && !st.jiraStored && !jiraPasted;
+    const jiraGone = st.jiraTokenRejected && !st.jiraStored;
     $('jiraTokenGone').classList.toggle('hidden', !jiraGone);
     if (jiraGone) $('settingsJira').classList.remove('hidden');
+    $('jiraInCookie').classList.toggle('hidden', !jiraInCookieUnused || !!st.visa || jiraGone);
     $('tcTokenGone').classList.toggle('hidden', !st.tcTokenRejected);
 }
 
@@ -3163,7 +3058,7 @@ function showRemovedTokens(st) {
 function tokenAvailable(need) {
     const st = standingSettings || {};
     if (need === 'login') return !!st.login && !st.loginUnproven;
-    return need === 'jira' ? hasJira || !!st.jiraStored : need === 'github' ? !!st.ghStored : true;
+    return need === 'jira' ? !!st.jiraStored : need === 'github' ? !!st.ghStored : true;
 }
 
 // A switch that lacks what it needs says so in one sentence where that is given: the token's form, opened, or Link
@@ -3211,7 +3106,6 @@ function openGhForm() {
 // Save or Replace in a group's head opens the token's form. A replaced token goes to the server with the option that
 // already runs on it: the server keeps only the token a switch brought.
 $('jiraTokenBtn').onclick = async () => {
-    if ((standingSettings || {}).visa) pendingOption = 'visa';
     $('settingsJiraMsg').textContent = '';
     await openJiraForm();
 };
@@ -3230,18 +3124,18 @@ $('tcRelogin').onclick = async () => {
     loginMsg('Log in with a fresh TeamCity token: your options resume with it.', false);
 };
 
-// What the server drops when every option goes off, and what still holds the tokens: an Auto visa armed on a PR,
-// the server's backups and this browser's cookie.
-const ALL_OFF = 'All off — the server no longer keeps tokens for your options; an Auto visa you armed keeps your JIRA '
-    + 'token until the visa is posted or you cancel it. Copies of the tokens stay in the server\'s backups for 2 days, '
-    + 'and your session cookie keeps the TeamCity and JIRA tokens you pasted until you log out.';
+// What the server drops when every option goes off, and what still holds a token: the server's backups and this
+// browser's cookie.
+const ALL_OFF = 'All off — the server no longer keeps tokens for your options. Copies of the tokens stay in the '
+    + 'server\'s backups for 2 days. Your session cookie keeps your TeamCity token until you log out.';
 
 // The checkstyle fix runs only from a PR command, so it goes on only with PR commands and off with them.
 const AUTOFIX_NEEDS_COMMANDS = 'Fix checkstyle before my commanded runs needs PR commands: switch them on first.';
 
-// A GitHub token goes with the switch it is pasted for, in the request's body: no cookie carries it. It leaves the
-// form's field only when the switch goes to the server, so a switch refused here keeps it there.
-async function setOption(name, on, githubToken) {
+// A JIRA or GitHub token goes with the switch it is pasted for, in the request's body: no cookie carries it. It leaves
+// the form's field only when the switch goes to the server, so a switch refused here keeps it there. True when the
+// server took the change.
+async function setOption(name, on, githubToken, jiraToken) {
     const toggle = $(OPTION_TOGGLES[name]), msg = $('settingsMsg');
     msg.textContent = '';
     if (!on && pendingOption === name) pendingOption = null;
@@ -3253,15 +3147,24 @@ async function setOption(name, on, githubToken) {
     }
     const before = standingSettings || {};
     const need = OPTION_NEEDS[name];
-    if (on && need && !(need === 'github' && githubToken) && !tokenAvailable(need)) {
+    const pasted = need === 'github' ? githubToken : need === 'jira' ? jiraToken : undefined;
+    if (on && need && !pasted && !tokenAvailable(need)) {
         toggle.checked = false;
         return askForToken(need, name);
     }
     toggle.disabled = true;
-    if (githubToken) $('settingsGhToken').value = '';
+    const tokens = {};
+    if (githubToken) {
+        tokens.githubToken = githubToken;
+        $('settingsGhToken').value = '';
+    }
+    if (jiraToken) {
+        tokens.jiraToken = jiraToken;
+        $('settingsJiraToken').value = '';
+    }
     try {
-        const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), githubToken
-            ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ githubToken }) }
+        const r = await api('/api/auto-visa-all?' + name + '=' + on + zoneParam('&'), Object.keys(tokens).length
+            ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tokens) }
             : { method: 'POST' });
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
@@ -3272,11 +3175,6 @@ async function setOption(name, on, githubToken) {
         }
         if (r.status === 412) {
             toggle.checked = !on;
-            if (res.need === 'jira') {
-                hasJira = false;
-                jiraPasted = false;
-                renderAccess(before);
-            }
             return askForToken(res.need, name, res.error);
         }
         if (!r.ok) {
@@ -3291,6 +3189,9 @@ async function setOption(name, on, githubToken) {
         msg.textContent = (active.length ? 'On: ' + active.join(' · ') + '.' : ALL_OFF)
             + (before.style && !res.style && name === 'commands'
                 ? ' Fix checkstyle before my commanded runs went off with PR commands.' : '');
+        if (name === 'visa' && selectedPr) loadVisaLine(selectedPr);
+        if (pendingOption === name) pendingOption = null;
+        return true;
     } catch (e) {
         toggle.checked = !on;
         msg.textContent = 'could not reach the service — try again';
@@ -3299,48 +3200,29 @@ async function setOption(name, on, githubToken) {
     }
 }
 
-// A token already pasted into the GitHub form goes with the switch of an option that commits.
+// A token already pasted into a form goes with the switch of the option that uses it: the JIRA token with the visa,
+// the GitHub token with an option that commits.
 for (const [name, id] of Object.entries(OPTION_TOGGLES)) {
     $(id).onchange = () => {
-        const pasted = $(id).checked && COMMIT_OPTIONS.includes(name) ? $('settingsGhToken').value.trim() : '';
-        setOption(name, $(id).checked, pasted || undefined);
+        const on = $(id).checked;
+        const github = on && COMMIT_OPTIONS.includes(name) ? $('settingsGhToken').value.trim() : '';
+        const jira = on && name === 'visa' ? $('settingsJiraToken').value.trim() : '';
+        setOption(name, on, github || undefined, jira || undefined);
     };
 }
 
-// Once the JIRA token the visa asked for is saved, the visa goes on — and nothing else: a switch waiting for a GitHub
-// token goes on with that token.
-function continuePendingVisa(savedNote) {
-    if (pendingOption !== 'visa') {
-        $('settingsMsg').textContent = savedNote;
-        return;
-    }
-    pendingOption = null;
-    $(OPTION_TOGGLES.visa).checked = true;
-    setOption('visa', true);
-}
-
+// The JIRA token serves the visa alone: Save switches Visa my runs in JIRA on with it, and the server keeps it.
 $('settingsJiraSave').onclick = async () => {
     const input = $('settingsJiraToken'), m = $('settingsJiraMsg');
     const token = input.value.trim();
     if (!token) { m.textContent = 'paste the token first'; return; }
-    m.textContent = 'checking…';
-    try {
-        const r = await api('/api/jira-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token })
-        });
-        const res = await r.json().catch(() => ({}));
-        if (!r.ok) { m.textContent = res.error || 'JIRA rejected the token'; return; }
-        hasJira = true;
-        jiraPasted = true;
-        input.value = '';
+    m.textContent = 'asking JIRA about the token…';
+    $(OPTION_TOGGLES.visa).checked = true;
+    if (await setOption('visa', true, undefined, token)) {
         m.textContent = '';
         $('settingsJira').classList.add('hidden');
-        if (standingSettings) { renderAccess(standingSettings); showTokenNotes(standingSettings); }
-        continuePendingVisa('JIRA token saved: switch on Visa my runs in JIRA to use it.');
-    } catch (e) {
-        m.textContent = 'could not reach the service — try again';
+    } else if (m.textContent === 'asking JIRA about the token…') {
+        m.textContent = $('settingsMsg').textContent;
     }
 };
 
@@ -3442,8 +3324,6 @@ $('settingsGhSave').onclick = async () => {
         if (m.textContent === 'asking GitHub about the token…') m.textContent = $('settingsMsg').textContent;
     }
 };
-$('jiraSave').onclick = saveJiraToken;
-$('jiraCancel').onclick = () => toggleJiraPanel(false);
 
 
 $('cancelMine').onclick = cancelMine;

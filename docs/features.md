@@ -136,9 +136,21 @@ and the visa.
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
 | **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
-| **Post now** (JIRA visa) | Posts the verdict to the IGNITE ticket the PR title names, now. The key may be in any case. With no ticket in the title, the group is one line saying so. For a PR that is not in the left pane, the group or the line appears once the page gets the PR's title. | — |
-| **Auto visa** | Posts the verdict to the ticket once, the next time a RunAll of the PR finishes. Filled while armed by you (`Auto visa ✓`); `armed by bob` beside it: armed by others, who get one visa between them. | — |
-| `on in your ⚙`, `on in bob's ⚙` | Beside **Auto visa**, shown as on: the standing auto-visa of whoever started the run will post it, so there is nothing to arm. | — |
+| `Visa: posted to IGNITE-12345` | The visa of this run is in the ticket. The key links to the comment. | — |
+| `Visa: will be posted to IGNITE-12345 when the run settles` | You started the run, and your **Visa my runs in JIRA** is on. The visa goes out once the run and its auto re-runs settle. | Wait. |
+| `Visa: JIRA did not take it, the checker tries again every 10 minutes` | You started the run. It settled, but JIRA did not take the visa. The checker keeps trying while Visa my runs in JIRA stays on and no newer RunAll replaces the run. | Wait. |
+| `Visa: bob, who started this run, has Visa my runs in JIRA on` | Only the option of whoever started a run posts its visa, and bob's is on. The line says nothing more about another person's option. | — |
+| `Visa: Visa my runs in JIRA is off in ⚙` | You started this run, and your option is off. When the line ends with `because JIRA rejected your token`, JIRA refused your stored token, and that switched the option off. | Switch it on in ⚙ with your JIRA token. |
+| `Visa: none, bob started this run and has Visa my runs in JIRA off` | Only the option of whoever started a run posts its visa, and bob's is off. | Start a RunAll yourself with the option on. |
+| `Visa: waits until you log in again` | You started the run, and TeamCity refused the token your options use, so they pause. The visa goes out after a login with a fresh token, unless a newer RunAll replaced the run. | Log in again. |
+| `Visa: waits until you save your JIRA token in ⚙ again` | You started the run, and the checker's state was restored from a backup older than 2 days, which keeps no tokens. Your option stays on and waits for your JIRA token. The visa goes out once you save it, unless a newer RunAll replaced the run. | Save your JIRA token in ⚙. |
+| `Visa: none, this run finished before you switched on Visa my runs in JIRA` | The option acts only on runs that finish after it goes on. | Run RunAll again. |
+| `Visa: none, the PR title named no IGNITE ticket when the run settled` | Adding the key to the title after the run settled does not post this run's visa. | Run RunAll again. |
+| `Visa: none, this run was cancelled` | A cancelled run gets no visa. The page shows a cancelled run only when every finished run of the PR was cancelled. | Run RunAll again. |
+| `Visa: none for this run, a newer RunAll replaces it` | The newer RunAll of the PR gets the visa instead. | — |
+| `Visa: none, the PR is closed` | The PR was closed or merged before the visa of this run went out. | — |
+| `Visa: unknown, TeamCity does not say who started this run` | Only the starter's option posts a visa, and TeamCity named no starter. | — |
+| `Visa: the PR title names no IGNITE ticket` | A visa goes to the IGNITE ticket the PR title names. The key may be in any case. For a PR that is not in the left pane, the line appears once the page gets the PR's title. | Put the key in the PR title. |
 | **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same commit. | — |
 
 ### Thresholds
@@ -310,8 +322,9 @@ token: the options resume on it. Nobody else's options stop.
 ### JIRA token
 
 The state reads not saved, saved or rejected. Create the token in your ASF JIRA profile. It acts with all the rights
-of your JIRA account (ASF JIRA has no token scopes), so give it an expiry, say 90 days. It goes into your session
-cookie, encrypted, and the server stores it encrypted while the option below is on.
+of your JIRA account (ASF JIRA has no token scopes), so give it an expiry, say 90 days. Save switches on **Visa my
+runs in JIRA** below with the token. The server stores the token encrypted while the option is on. No cookie keeps it.
+A visa comes only from this option.
 
 - **Visa my runs in JIRA** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
@@ -321,6 +334,9 @@ When JIRA refuses the stored token itself, the checker drops it and switches the
 an outage or a ticket you may not comment on keeps the token, and the visa is tried again at the next sweeps. A visa a
 refused token held back goes out once you save a fresh token and switch the option back on, unless a newer RunAll
 replaced the run.
+
+The checker does not use a JIRA token from your login cookie. If one was there and your option is off, ⚙ says so for
+30 days and asks you to switch the option on with the token.
 
 ### GitHub account
 
@@ -374,13 +390,10 @@ touches your token.
 
 ## Visas and PR comments
 
-- **JIRA visa**, at the right of the verdict heading: **Post now** posts the verdict to the IGNITE ticket now, and
-  **Auto visa** posts the verdict to the ticket once, the next time a RunAll of the PR finishes. Each user arms their
-  own, and several users armed on one ticket get one visa between them. When the run's starter has
-  **Visa my runs in JIRA** on, the switch shows as on with `on in your ⚙` or `on in bob's ⚙` beside it.
-- The JIRA token for these buttons rides in your session cookie; Auto visa also has the server store it, encrypted,
-  until the visa is posted. If JIRA refuses the token, your Auto visa is dropped with it, and the button reads
-  **Auto visa ⚠** until you arm it again.
+- **The visa** of a run comes only from **Visa my runs in JIRA** of whoever started it. A line under the verdict
+  says where it stands: posted, with a link to the comment; still to come once the run settles; or
+  why none comes. For someone else's run it names whose option it is and whether it is on, and nothing more about
+  their options. The [glossary](#runs-buttons-and-visas) lists every state.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
 - The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the
@@ -501,8 +514,7 @@ from its own GitHub account, the app account.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
   login form. The checker asks TeamCity whether your token still works before these actions: **Link GitHub**,
-  **Unlink**, a switch in ⚙, the operator's buttons, the visa button **Post now**, and arming **Auto visa**. With a
-  revoked token, the action does not happen. **Log out** ends your login in every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
+  **Unlink**, a switch in ⚙, and the operator's buttons. With a revoked token, the action does not happen. **Log out** ends your login in every browser, copies of its cookie included. Background warming then stops using the TeamCity tokens of those
   logins, except one that a standing option keeps in use. Log out asks TeamCity first too: with a revoked token, only
   this browser is logged out, and your logins in other browsers go on. A login left unused for 400 days ends too.
   TeamCity may reject 3 tokens from one network address in 10 minutes; past that, the login form says how long to

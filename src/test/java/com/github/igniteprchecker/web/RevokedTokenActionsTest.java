@@ -2,7 +2,6 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,7 +15,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
-import com.github.igniteprchecker.analysis.PendingCommits;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
@@ -24,8 +23,6 @@ import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
@@ -48,10 +45,10 @@ import org.springframework.web.servlet.handler.MappedInterceptor;
 
 /**
  * A copy of alice's cookie, or her own session right after she revoked its token in ci2, could link a GitHub account,
- * switch her options, post a JIRA visa under her PAT or leave the PAT on the server with an Auto visa, log her out
- * everywhere, restart, update and flush the service: the login guard knew of a revoked token only once a call under it
- * failed, and only the warmer recorded such a failure. A GitHub account linked that way stayed linked after her logout
- * and ran /run-all under her TeamCity account.
+ * switch her options, leave a JIRA token on the server with the visa option, log her out everywhere, restart, update
+ * and flush the service: the login guard knew of a revoked token only once a call under it failed, and only the warmer
+ * recorded such a failure. A GitHub account linked that way stayed linked after her logout and ran /run-all under her
+ * TeamCity account.
  */
 class RevokedTokenActionsTest {
     private static final String USER = "alice";
@@ -74,8 +71,6 @@ class RevokedTokenActionsTest {
 
     private final JiraClient jira = mock(JiraClient.class);
 
-    private final VisaSubscriptions visaSubs = mock(VisaSubscriptions.class);
-
     private final UserDirectory users = new UserDirectory(mapper);
 
     private final Warmer warmer = new Warmer(mock(BlockerAnalyzer.class), github,
@@ -90,8 +85,7 @@ class RevokedTokenActionsTest {
 
     private final MockMvc mvc = guardedAsTheServiceGuards(MockMvcBuilders.standaloneSetup(
             new GithubLinkController(github, standing, auth),
-            new JiraController(jira, tc, mock(BlockerAnalyzer.class), codec, mock(VisaService.class), visaSubs,
-                standing, mock(PendingCommits.class), false),
+            new JiraController(jira, tc, standing, mock(MergedVerdicts.class), users),
             new CacheController(cache, warmer, admin),
             new UpdateController(update, admin)))
         .build();
@@ -100,12 +94,11 @@ class RevokedTokenActionsTest {
     void anActionOnATokenTeamCityRefusesIsRefused() throws Exception {
         when(tc.tokenRejected(anyString())).thenReturn(true);
         List<String> actions = List.of("/api/github/link", "/api/github/unlink", "/api/auto-visa-all?visa=true",
-            "/api/jira-visa?pr=13461&issue=IGNITE-28972", "/api/auto-visa?pr=13461&issue=IGNITE-28972",
             "/api/restart", "/api/update", "/api/flush-caches");
 
         for (int i = 0; i < actions.size(); i++) {
             String token = "revoked-tc-" + i;
-            MockHttpServletResponse res = send(post(actions.get(i)), token, "alice-jira-pat");
+            MockHttpServletResponse res = send(post(actions.get(i)), token);
 
             assertThat(res.getStatus()).as(actions.get(i)).isEqualTo(401);
             assertThat(res.getContentAsString()).as(actions.get(i)).contains(ApiExceptionHandler.TOKEN_REJECTED)
@@ -118,10 +111,20 @@ class RevokedTokenActionsTest {
         verify(standing, never()).change(anyString(), anyString(), any(), any(), any(), any());
         verify(update, never()).restart();
         verify(update, never()).performUpdate();
-        verify(jira, never()).addComment(anyString(), anyString(), anyString());
-        verify(visaSubs, never()).arm(anyInt(), anyString(), anyString(), anyString());
+        verifyNoInteractions(jira);
         verifyNoInteractions(cache);
         assertThat(admin.lastUses()).isEmpty();
+    }
+
+    /** Post now, Auto visa and the JIRA token in the cookie have no endpoint left, and no check names them. */
+    @Test
+    void theManualVisaHasNoEndpointLeft() throws Exception {
+        for (MockHttpServletRequestBuilder req : List.of(post("/api/jira-visa?pr=13461&issue=IGNITE-28972"),
+            post("/api/auto-visa?pr=13461&issue=IGNITE-28972"), get("/api/auto-visa?pr=13461"),
+            post("/api/auto-visa-cancel?pr=13461"), post("/api/jira-token")))
+            assertThat(send(req, "live-tc").getStatus()).isEqualTo(404);
+        assertThat(WebConfig.LIVE_TOKEN_ACTIONS).doesNotContain("/api/jira-visa", "/api/auto-visa");
+        verifyNoInteractions(jira);
     }
 
     /** One call to TeamCity per action; a token it accepts goes through, and reading the settings asks nothing. */
@@ -142,11 +145,11 @@ class RevokedTokenActionsTest {
     @Test
     void aLogoutEverywhereOnARefusedTokenEndsNoOtherSession() throws Exception {
         when(tc.tokenRejected("revoked-tc")).thenReturn(true);
-        String other = codec.encode(new SessionCodec.Session(USER, "new-tc", null), System.currentTimeMillis() - 1000);
+        String other = codec.encode(new SessionCodec.Session(USER, "new-tc"), System.currentTimeMillis() - 1000);
 
         MockHttpServletRequest browser = new MockHttpServletRequest();
         browser.setCookies(new Cookie(AuthInterceptor.COOKIE,
-            codec.encode(new SessionCodec.Session(USER, "revoked-tc", null))));
+            codec.encode(new SessionCodec.Session(USER, "revoked-tc"))));
 
         var out = login.logout(true, browser);
 
@@ -185,13 +188,7 @@ class RevokedTokenActionsTest {
     }
 
     private MockHttpServletResponse send(MockHttpServletRequestBuilder req, String token) throws Exception {
-        return send(req, token, null);
-    }
-
-    private MockHttpServletResponse send(MockHttpServletRequestBuilder req, String token, String jiraToken)
-        throws Exception {
-        Cookie cookie = new Cookie(AuthInterceptor.COOKIE,
-            codec.encode(new SessionCodec.Session(USER, token, jiraToken)));
+        Cookie cookie = new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(USER, token)));
 
         return mvc.perform(req.cookie(cookie)).andReturn().getResponse();
     }

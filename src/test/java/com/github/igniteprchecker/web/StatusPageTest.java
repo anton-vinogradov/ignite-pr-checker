@@ -318,7 +318,7 @@ class StatusPageTest {
         JsonNode out = PageScript.run("status.html", STATUS + """
             const now = page.now();
             status.watcher = { tracked: 2, chains: 1, suites: 1, lastRefreshAt: now - 1000, lastRefreshMs: 300,
-                chainFinishes: 4, autoVisaArmed: 1, autoVisaPosted: 2, autoVisaLastPostedAt: now - 180000,
+                chainFinishes: 4,
                 standingEnrolled: 7, standingPosted: 5, standingLastSweepAt: now - 120000, standingLastSweepMs: 9200,
                 prCommands: 3, prCommandsLastPollAt: now - 30000,
                 suiteFix: { users: 1, pushed: 2, lastSweepAt: now - 120000 } };
@@ -330,10 +330,9 @@ class StatusPageTest {
             .contains("Tracked builds2 1 RunAll · 1 suite")
             .contains("RunAlls finished4 since start")
             .doesNotContain("chain", "Chain")
-            .contains("Auto visas armed1 2 posted · last 3m ago")
             .contains("Standing options7 users with an option on · 5 JIRA visas posted · sweep 2m ago (9.2s)")
             .contains("Tests added to suites2 commits · 1 user with the option on · sweep 2m ago")
-            .doesNotContain("Standing visas", "Auto-visa armed", "Suite fixes");
+            .doesNotContain("Standing visas", "Auto visa", "Auto-visa armed", "Suite fixes");
         assertThat(out.get("system").asText()).contains("<div class=\"card\" title=\"The first number is the whole "
             + "heap in use now. Old-gen peak is the most the old generation has held since the server started. Set "
             + "-Xmx large enough to hold this peak.\"><div class=\"k\">Heap</div>"

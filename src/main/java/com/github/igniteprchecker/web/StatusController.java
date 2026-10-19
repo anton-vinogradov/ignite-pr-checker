@@ -45,7 +45,6 @@ public class StatusController {
     private final LogTracker logs;
     private final ServiceHealth health;
     private final com.github.igniteprchecker.tc.RerunTracker tracker;
-    private final com.github.igniteprchecker.jira.VisaSubscriptions visaSubs;
     private final com.github.igniteprchecker.jira.StandingVisas standing;
     private final com.github.igniteprchecker.github.PrCommands commands;
     private final AuthInterceptor auth;
@@ -70,19 +69,17 @@ public class StatusController {
     /** A status page without adding PRs' tests to suites. */
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
         LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
-        com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
         AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
         ObjectProvider<BuildProperties> buildProps) {
-        this(metrics, cache, warmer, github, logs, health, tracker, visaSubs, standing, commands, auth, admin, store,
-            config, buildProps, null);
+        this(metrics, cache, warmer, github, logs, health, tracker, standing, commands, auth, admin, store, config,
+            buildProps, null);
     }
 
     @Autowired
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
         LogTracker logs, ServiceHealth health, com.github.igniteprchecker.tc.RerunTracker tracker,
-        com.github.igniteprchecker.jira.VisaSubscriptions visaSubs,
         com.github.igniteprchecker.jira.StandingVisas standing,
         com.github.igniteprchecker.github.PrCommands commands,
         AuthInterceptor auth, AdminActions admin, CacheStore store, EffectiveConfig config,
@@ -94,7 +91,6 @@ public class StatusController {
         this.logs = logs;
         this.health = health;
         this.tracker = tracker;
-        this.visaSubs = visaSubs;
         this.standing = standing;
         this.commands = commands;
         this.auth = auth;
@@ -179,9 +175,6 @@ public class StatusController {
         out.put("http", metrics.http());
         Map<String, Object> watcher = new LinkedHashMap<>(tracker.stats());
         watcher.put("firstRefreshAt", firstPassAt(com.github.igniteprchecker.tc.RerunTracker.FIRST_REFRESH_MS));
-        watcher.put("autoVisaArmed", visaSubs.armedCount());
-        watcher.put("autoVisaPosted", visaSubs.postedCount());
-        watcher.put("autoVisaLastPostedAt", visaSubs.lastPostedAt());
         watcher.put("standingEnrolled", standing.enrolledCount());
         watcher.put("standingPosted", standing.postedCount());
         watcher.put("standingLastSweepAt", standing.lastSweepAt());

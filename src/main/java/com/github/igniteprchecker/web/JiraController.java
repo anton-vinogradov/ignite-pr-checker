@@ -1,22 +1,20 @@
 package com.github.igniteprchecker.web;
 
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
-import com.github.igniteprchecker.analysis.PendingCommits;
-import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
-import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
+import com.github.igniteprchecker.tc.dto.TcModel;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
+import java.util.function.LongSupplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,39 +26,49 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * The JIRA "visa": posts the analysis verdict as a comment to the PR's IGNITE ticket, using the
- * user's own JIRA Personal Access Token. The PAT travels in the same encrypted session cookie as
- * the TeamCity token; an Auto visa also has the server store it, encrypted, until that visa is posted
- * ({@link VisaSubscriptions}).
+ * The standing options in ⚙, and the JIRA "visa" among them: the verdict of each RunAll a user starts goes to the PR's
+ * IGNITE ticket under their own JIRA Personal Access Token while their Visa my runs in JIRA is on. The token comes with
+ * the switch of that option and stays on the server, encrypted, while the option is on ({@link StandingVisas}). The PR
+ * page shows where the visa of the PR's run stands.
  */
 @RestController
 @RequestMapping("/api")
 public class JiraController {
-    private static final Logger log = LoggerFactory.getLogger(JiraController.class);
+    /** How many runs TeamCity's answers are kept for: each is one TeamCity call, and a finished run never changes. */
+    private static final int RUNS_KEPT = 1000;
+
+    /** How often TeamCity is asked again about a run still going, at most: it may finish or be cancelled. */
+    static final long RUN_GOING_ASKED_EVERY_MS = 60_000;
 
     private final JiraClient jira;
     private final TcClient tc;
-    private final BlockerAnalyzer analyzer;
-    private final SessionCodec codec;
-    private final VisaService visas;
-    private final VisaSubscriptions visaSubs;
     private final StandingVisas standing;
-    private final PendingCommits pending;
-    private final boolean cookieSecure;
+    private final MergedVerdicts merged;
+    private final UserDirectory users;
+    private final LongSupplier clock;
 
-    public JiraController(JiraClient jira, TcClient tc,
-        BlockerAnalyzer analyzer, SessionCodec codec, VisaService visas,
-        VisaSubscriptions visaSubs, StandingVisas standing, PendingCommits pending,
-        @Value("${session.cookie-secure}") boolean cookieSecure) {
+    /** What TeamCity said of each run asked about, and when. */
+    private final Map<Long, AskedRun> runs = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Long, AskedRun> eldest) {
+            return size() > RUNS_KEPT;
+        }
+    });
+
+    @Autowired
+    public JiraController(JiraClient jira, TcClient tc, StandingVisas standing, MergedVerdicts merged,
+        UserDirectory users) {
+        this(jira, tc, standing, merged, users, System::currentTimeMillis);
+    }
+
+    JiraController(JiraClient jira, TcClient tc, StandingVisas standing, MergedVerdicts merged, UserDirectory users,
+        LongSupplier clock) {
         this.jira = jira;
         this.tc = tc;
-        this.analyzer = analyzer;
-        this.codec = codec;
-        this.visas = visas;
-        this.visaSubs = visaSubs;
         this.standing = standing;
-        this.pending = pending;
-        this.cookieSecure = cookieSecure;
+        this.merged = merged;
+        this.users = users;
+        this.clock = clock;
     }
 
     /** Where to create a Personal Access Token in ASF JIRA (profile deep link for the UI hint). */
@@ -70,44 +78,20 @@ public class JiraController {
             + "/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens");
     }
 
-    /** Validates the PAT against JIRA and re-issues the session cookie with it on board. */
-    @PostMapping("/jira-token")
-    public ResponseEntity<?> saveToken(@RequestBody TokenRequest req,
-        @RequestAttribute(AuthInterceptor.SESSION_ATTR) SessionCodec.Session session,
-        @RequestAttribute(AuthInterceptor.CHECKED_AT_ATTR) long checkedAt) {
-        if (req.token() == null || req.token().isBlank())
-            return ResponseEntity.badRequest().body(Map.of("error", "empty token"));
-
-        Optional<String> who;
-        try {
-            who = jira.myself(req.token().trim());
-        }
-        catch (RuntimeException e) {
-            return uncheckedToken("JIRA", e);
-        }
-        if (who.isEmpty())
-            return ResponseEntity.status(401).body(Map.of("error", "JIRA rejected the token"));
-
-        String cookie = codec.encode(session.withJiraToken(req.token().trim()), checkedAt);
-
-        return ResponseEntity.ok()
-            .header(HttpHeaders.SET_COOKIE, SessionCookies.issued(cookie, cookieSecure).toString())
-            .body(Map.of("jiraUser", who.get()));
-    }
-
     /** Changes the standing options with no time zone from the browser. */
     public ResponseEntity<?> standingVisa(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands,
         Boolean suites, String tcToken, String username, String jiraToken, String ghToken) {
-        return standingVisa(visa, rerun, gh, style, commands, suites, null, new OptionTokens(ghToken), tcToken,
-            username, jiraToken);
+        return standingVisa(visa, rerun, gh, style, commands, suites, null, new OptionTokens(ghToken, jiraToken),
+            tcToken, username);
     }
 
     /**
      * Changes the standing options named in the request and nothing else; a 412 names what the change
      * needs ({@code need}: jira, github or login), a 409 says the checker has no GitHub account for an option that
-     * writes to GitHub, a 502 that the service could not check the token. The GitHub token an option that commits
-     * needs comes in the body, {@code githubToken}, and goes into no cookie: the server keeps it while such an option
-     * is on. {@code tz} is the browser's time zone. Answers with the whole state, like the GET.
+     * writes to GitHub, a 502 that the service could not check the token. The token an option needs comes in the body,
+     * {@code jiraToken} with the visa's switch and {@code githubToken} with that of an option that commits, and goes
+     * into no cookie: the server keeps it while such an option is on. {@code tz} is the browser's time zone. Answers
+     * with the whole state, like the GET.
      */
     @PostMapping("/auto-visa-all")
     public ResponseEntity<?> standingVisa(@RequestParam(required = false) Boolean visa,
@@ -119,11 +103,9 @@ public class JiraController {
         @RequestParam(required = false) String tz,
         @RequestBody(required = false) OptionTokens tokens,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
-        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
-        String ghToken = tokens == null || tokens.githubToken() == null || tokens.githubToken().isBlank() ? null
-            : tokens.githubToken().strip();
-        Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken, jiraToken, ghToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        Optional<StandingVisas.Refusal> refused = standing.change(username, tcToken,
+            tokens == null ? null : pasted(tokens.jiraToken()), tokens == null ? null : pasted(tokens.githubToken()),
             new StandingVisas.OptionChange(visa, rerun, gh, style, commands, suites), tz);
         if (refused.isPresent() && refused.get().need() == null)
             return ResponseEntity.status(502).body(Map.of("error", refused.get().error()));
@@ -133,19 +115,37 @@ public class JiraController {
             return ResponseEntity.status(412)
                 .body(Map.of("error", refused.get().error(), "need", refused.get().need()));
 
+        if (standing.visaOn(username))
+            users.forgetJiraInCookie(username);
+
         return ResponseEntity.ok(standing.settings(username));
     }
 
-    /** What a change of the standing options may bring along: the GitHub token of an option that commits. */
-    public record OptionTokens(String githubToken) implements CarriesToken {
+    private static String pasted(String token) {
+        return token == null || token.isBlank() ? null : token.strip();
+    }
+
+    /** What a change of the standing options may bring along: the token of the option it switches on. */
+    public record OptionTokens(String githubToken, String jiraToken) implements CarriesToken {
+        /** The GitHub token of an option that commits. */
+        public OptionTokens(String githubToken) {
+            this(githubToken, null);
+        }
+
         @Override
         public String token() {
-            return githubToken;
+            return githubToken != null ? githubToken : jiraToken;
+        }
+
+        @Override
+        public List<String> tokens() {
+            return Arrays.asList(githubToken, jiraToken);
         }
 
         @Override
         public String toString() {
-            return "OptionTokens[githubToken=" + Secrets.masked(githubToken) + "]";
+            return "OptionTokens[githubToken=" + Secrets.masked(githubToken) + ", jiraToken="
+                + Secrets.masked(jiraToken) + "]";
         }
     }
 
@@ -153,60 +153,6 @@ public class JiraController {
     @GetMapping("/auto-visa-all")
     public StandingVisas.Settings standingVisaStatus(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         return standing.settings(username);
-    }
-
-    /** Arms the one-shot auto-visa: posts to the ticket when this PR's next RunAll finishes. */
-    @PostMapping("/auto-visa")
-    public ResponseEntity<?> armAutoVisa(@RequestParam int pr, @RequestParam String issue,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username,
-        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
-        if (jiraToken == null)
-            return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
-        if (!issue.matches("IGNITE-\\d+"))
-            return ResponseEntity.badRequest().body(Map.of("error", "bad issue key"));
-        try {
-            if (jira.myself(jiraToken).isEmpty())
-                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected the stored token — re-enter it"));
-        }
-        catch (RuntimeException e) {
-            return uncheckedToken("JIRA", e);
-        }
-
-        visaSubs.arm(pr, issue, jiraToken, username);
-
-        return ResponseEntity.ok(Map.of("armed", true, "issue", issue));
-    }
-
-    /** Cancels the user's own pending auto-visa (removes their stored token with it); others' stay. */
-    @PostMapping("/auto-visa-cancel")
-    public ResponseEntity<?> cancelAutoVisa(@RequestParam int pr,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        visaSubs.cancel(pr, username);
-
-        return ResponseEntity.ok(Map.of("armed", false));
-    }
-
-    /**
-     * The PR's auto-visa as the user sees it: {@code armed}/{@code issue} for their own subscription,
-     * {@code others} who armed one too, and {@code standingBy}, the user whose standing auto-visa posts
-     * the verdict of the PR's run under way (then a one-shot one adds nothing).
-     */
-    @GetMapping("/auto-visa")
-    public Map<String, Object> autoVisaStatus(@RequestParam int pr,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        VisaSubscriptions.Armed armed = visaSubs.armed(pr, username);
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("armed", armed.issue() != null);
-        if (armed.issue() != null)
-            out.put("issue", armed.issue());
-        if (armed.refusedFor() != null)
-            out.put("tokenRejectedFor", armed.refusedFor());
-        out.put("others", armed.others());
-        String owner = standing.visaOwnerOfRunUnderWay(pr);
-        if (owner != null)
-            out.put("standingBy", owner);
-
-        return out;
     }
 
     /**
@@ -218,59 +164,50 @@ public class JiraController {
         return standing.phase(pr, build);
     }
 
-    /** Posts the verdict as a comment ("visa") to the ticket. 412 when the session has no JIRA token. */
-    @PostMapping("/jira-visa")
-    public ResponseEntity<?> visa(@RequestParam int pr, @RequestParam String issue,
+    /**
+     * Where the visa of the PR's run {@code build} stands, for the line in the verdict's heading; see
+     * {@link StandingVisas#visaLine}. TeamCity is asked about the run only when the checker's own records do not
+     * tell.
+     */
+    @GetMapping("/visa")
+    public StandingVisas.VisaLine visaLine(@RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
-        @RequestAttribute(value = AuthInterceptor.JIRA_ATTR, required = false) String jiraToken) {
-        if (jiraToken == null)
-            return ResponseEntity.status(412).body(Map.of("error", "no JIRA token in the session"));
-        if (!issue.matches("IGNITE-\\d+"))
-            return ResponseEntity.badRequest().body(Map.of("error", "bad issue key"));
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        return standing.visaLine(username, pr, build, () -> run(tcToken, build), merged.verdict(pr).isPresent());
+    }
 
-        Optional<AnalysisResult> res = analyzer.analyze(tcToken, pr);
-        if (res.isEmpty())
-            return ResponseEntity.status(404).body(Map.of("error", "no finished RunAll build for PR " + pr));
+    /**
+     * What TeamCity says of the run. A finished run, and one TeamCity no longer has, are asked about once; a run still
+     * going at most every {@link #RUN_GOING_ASKED_EVERY_MS}.
+     */
+    private StandingVisas.Run run(String tcToken, long build) {
+        long now = clock.getAsLong();
+        AskedRun known = runs.get(build);
+        if (known != null && (known.done() || now - known.at() < RUN_GOING_ASKED_EVERY_MS))
+            return known.run();
 
-        long buildId = res.get().buildId();
+        AskedRun asked;
         try {
-            String url = jira.addComment(jiraToken, issue, visas.compose(pr, res.get(),
-                pending.countSince(tcToken, pr, buildId), revision(tcToken, buildId)));
-
-            return ResponseEntity.ok(Map.of("url", url));
+            asked = tc.buildEnd(tcToken, build).map(b -> new AskedRun(runOf(b), "finished".equalsIgnoreCase(b.state()),
+                now)).orElse(new AskedRun(StandingVisas.Run.UNKNOWN, false, now));
         }
         catch (RestClientResponseException e) {
-            if (jira.tokenRejected(jiraToken))
-                return ResponseEntity.status(412).body(Map.of("error", "JIRA rejected your token — paste a new one"));
+            if (e.getStatusCode().value() != 404)
+                throw e;
 
-            return ResponseEntity.status(502)
-                .body(Map.of("error", "JIRA rejected the comment (" + e.getStatusCode() + ")"));
+            asked = new AskedRun(StandingVisas.Run.UNKNOWN, true, now);
         }
+        runs.put(build, asked);
+
+        return asked.run();
     }
 
-    /** The service could not check a token: it may well be good, so the user is asked to try again, not for another. */
-    private static ResponseEntity<?> uncheckedToken(String service, RuntimeException e) {
-        log.warn("{} could not check a token: {}", service, e.toString());
-
-        return ResponseEntity.status(502)
-            .body(Map.of("error", service + " could not check the token right now — try again in a minute"));
+    private static StandingVisas.Run runOf(TcModel.Build b) {
+        return new StandingVisas.Run(TcClient.starter(b), b.canceledInfo() != null,
+            TcDates.epochSeconds(b.finishDate()) * 1000);
     }
 
-    /** The commit the build tested, for the visa to name; null when TeamCity does not say. */
-    private String revision(String tcToken, long buildId) {
-        try {
-            return tc.buildRevision(tcToken, buildId).orElse(null);
-        }
-        catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    /** The PAT as pasted by the user. */
-    public record TokenRequest(String token) implements CarriesToken {
-        @Override
-        public String toString() {
-            return "TokenRequest[token=" + Secrets.masked(token) + "]";
-        }
+    /** TeamCity's answer about a run, asked {@code at}; {@code done}: it no longer changes. */
+    private record AskedRun(StandingVisas.Run run, boolean done, long at) {
     }
 }

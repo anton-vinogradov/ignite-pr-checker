@@ -50,7 +50,9 @@ final class PageScript {
         page.route('/api/reruns', { body: [] });
         page.route('/api/delta', { body: { delta: null, history: [] } });
         page.route('/api/pending', { body: { pending: false } });
-        page.route('/api/auto-visa', { body: { armed: false } });
+        // The options in ⚙, under a prefix shorter than their path: a scenario's own route of the path wins.
+        page.route('/api/auto-visa-', { body: {} });
+        page.route('/api/visa', { body: { state: 'due', starter: 'alice', mine: true } });
         page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2 } });
         page.route('/api/version', { body: { updateAvailable: false } });
         page.route('/api/logout', { status: 204, body: {} });

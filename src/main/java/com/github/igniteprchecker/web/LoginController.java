@@ -81,8 +81,12 @@ public class LoginController {
         return ResponseEntity.ok(users.list());
     }
 
-    /** {@code admin}: whether this user is an operator; the page shows the operator mark and Update only then. */
-    public record UserResponse(String username, boolean jira, boolean admin) {
+    /**
+     * {@code admin}: whether this user is an operator; the page shows the operator mark and Update only then.
+     * {@code jiraInCookie}: a cookie of theirs carried a JIRA token lately, and Visa my runs in JIRA is off, so ⚙ tells
+     * them how to get visas; see {@link UserDirectory#jiraInCookie}.
+     */
+    public record UserResponse(String username, boolean admin, boolean jiraInCookie) {
     }
 
     @PostMapping("/login")
@@ -128,17 +132,30 @@ public class LoginController {
 
         return ResponseEntity.ok()
             .header(HttpHeaders.SET_COOKIE, cookies(http, sessionCookie(codec.encode(session, issuedAt))))
-            .body(new UserResponse(username.get(), session.jiraToken() != null, admin.mayAdminister(username.get())));
+            .body(userResponse(session));
     }
 
     /**
      * The session a login starts: a new TeamCity token replaces the one the browser's cookie carries for the same
-     * user, and the JIRA token in it stays. Another user's cookie, or one a logout ended, gives nothing. The
-     * new cookie says it was issued before this check, so a logout the check misses ends it too.
+     * user. Another user's cookie, or one a logout ended, gives nothing. The new cookie says it was issued before this
+     * check, so a logout the check misses ends it too.
      */
     private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
         return carried(http).filter(s -> username.equals(s.username()) && !users.ended(s))
-            .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token, null));
+            .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token));
+    }
+
+    /**
+     * Who the session is, for the page. A cookie with a JIRA token loses it when it is issued again, so the user is
+     * marked here first: ⚙ goes on telling them that visas need Visa my runs in JIRA.
+     */
+    private UserResponse userResponse(SessionCodec.Session s) {
+        boolean visaOn = standing.visaOn(s.username());
+        if (s.carriesJira() && !visaOn)
+            users.sawJiraInCookie(s.username());
+
+        return new UserResponse(s.username(), admin.mayAdminister(s.username()),
+            !visaOn && users.jiraInCookie(s.username()));
     }
 
     private static ResponseEntity<?> rejected() {
@@ -238,7 +255,7 @@ public class LoginController {
         else if (SessionCookies.earlierLeft(http, props.cookieSecure()))
             ok.header(HttpHeaders.SET_COOKIE, SessionCookies.clearedEarlier().toString());
 
-        return ok.body(new UserResponse(s.username(), s.jiraToken() != null, admin.mayAdminister(s.username())));
+        return ok.body(userResponse(s));
     }
 
     private Optional<SessionCodec.Session> carried(HttpServletRequest http) {

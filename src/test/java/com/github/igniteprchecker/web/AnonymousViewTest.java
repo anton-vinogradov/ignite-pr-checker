@@ -19,7 +19,6 @@ import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -62,7 +61,7 @@ class AnonymousViewTest {
     private StatusController statusFor(AdminActions admin) {
         return new StatusController(mock(Metrics.class), mock(AnalysisCache.class), warmer, github, logs,
             new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store, config),
-            mock(RerunTracker.class), mock(VisaSubscriptions.class), mock(StandingVisas.class), mock(PrCommands.class),
+            mock(RerunTracker.class), mock(StandingVisas.class), mock(PrCommands.class),
             auth, admin, store, config, mock(ObjectProvider.class));
     }
 
@@ -109,6 +108,20 @@ class AnonymousViewTest {
         assertThat(mapper.writeValueAsString(res)).contains("nsamelchev");
         assertThat(res).containsEntry("operator", true).containsEntry("operatorsNamed", true);
         assertThat(res.get("admin")).asString().contains("flush=Use[by=avinogradov");
+    }
+
+    /**
+     * The operator's status page counted the one-shot Auto visas armed and posted. Visas come only from the standing
+     * option now: the operator's view keeps the messages and who acted, and counts the standing options alone.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void statusCountsNoOneShotAutoVisasForTheOperator() {
+        Map<String, Object> res = status.status(signedIn());
+
+        assertThat(res).containsEntry("operator", true).containsKey("admin");
+        assertThat((Map<String, Object>) res.get("watcher")).containsKeys("standingEnrolled", "standingPosted")
+            .allSatisfy((key, value) -> assertThat(key).doesNotStartWith("autoVisa"));
     }
 
     /** Anyone may register on ci2 and log in; the warning names nsamelchev, and the flush its operator. */

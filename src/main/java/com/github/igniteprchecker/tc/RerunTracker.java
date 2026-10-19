@@ -79,22 +79,6 @@ public class RerunTracker implements SnapshotCache {
         Tracked t = tracked.computeIfAbsent(b.id(),
             id -> new Tracked(pr, b.buildTypeId(), suiteName, b.id(), b.webUrl() == null ? "" : b.webUrl()));
         t.state = b.state() == null ? "queued" : b.state();
-        if (b.triggered() != null && b.triggered().user() != null && b.triggered().user().username() != null)
-            t.starter = b.triggered().user().username();
-    }
-
-    /**
-     * Who started the PR's RunAll chains still queued or running, when they all have one known starter;
-     * null when none is under way or it is not known whose. TeamCity's answer to a trigger names no
-     * starter; the next listing of the PR's runs, or of all running chains, does.
-     */
-    public String chainStarter(int pr) {
-        long now = System.currentTimeMillis();
-        List<String> starters = tracked.values().stream()
-            .filter(t -> t.pr == pr && runAllBuildType.equals(t.buildTypeId) && now - t.lastVerified <= STALE_MS)
-            .map(t -> t.starter).distinct().toList();
-
-        return starters.size() == 1 ? starters.get(0) : null;
     }
 
     /**
@@ -341,8 +325,6 @@ public class RerunTracker implements SnapshotCache {
         volatile Long waitedSec;
         volatile Long elapsedSec;
         volatile long lastVerified = System.currentTimeMillis();
-        /** The TeamCity user who started the build, once a listing has named them. */
-        volatile String starter;
         volatile List<ActiveRerun> children = List.of();
         /** Suite builds already announced as failed, so each is acted on once. */
         final java.util.Set<Long> failedDeps = java.util.concurrent.ConcurrentHashMap.newKeySet();

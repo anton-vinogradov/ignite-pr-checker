@@ -106,7 +106,7 @@ class TokensOutOfTraceLogTest {
     /** The session cookie lets anyone who has it act as its user, like the token inside it. */
     @Test
     void aSignedInRequestLeavesNoCookieInTheLog(CapturedOutput output) throws Exception {
-        String cookie = codec.encode(new SessionCodec.Session("alice", TOKEN, null));
+        String cookie = codec.encode(new SessionCodec.Session("alice", TOKEN));
         HttpRequest me = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/me"))
             .header("Cookie", "IPRC_SESSION=" + cookie).GET().build();
 

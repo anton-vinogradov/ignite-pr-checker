@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
  * On PR 13692 the answer to "what did this PR break" stood after Suites that never ran, Broken suites, Fewer tests
  * and Crashed near the end, the blocker count was repeated in three headings, the JIRA visa buttons hung over the
  * blocker list beside the view tabs, and "vs previous run: no new · none fixed · 0 persisting" said nothing. The
- * verdict card now comes first, with the one heading that carries the count, the visa group at its right, the
+ * verdict card now comes first, with the one heading that carries the count, the visa line at its right, the
  * caveats under it and the comparison with the previous RunAll; the Blockers card keeps only the lists.
  */
 class VerdictCardPageTest {
@@ -23,7 +23,7 @@ class VerdictCardPageTest {
     /** Sets the PR title, which names the ticket, as the list would; the harness keeps no list items. */
     private static final String TICKET = """
         page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
-        page.run('paintVisaGroup')();
+        await page.run('loadVisaLine')(13575);
         """;
 
     @Test
@@ -118,94 +118,48 @@ class VerdictCardPageTest {
         assertThat(out.get("acts").asBoolean()).isTrue();
     }
 
+    /** The visa line stands in the verdict's heading instead of the visa buttons; with no ticket it says so. */
     @Test
-    void theVisaGroupSitsInTheVerdictCardAndSaysWhenItWillPost() throws Exception {
+    void theVisaLineSitsInTheVerdictHeading() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
             page.run('setPrTitle')(13575, 'Move MDC to JUnit', null);
-            page.run('paintVisaGroup')();
-            const noTicket = { group: page.el('visaGroup').classList.contains('hidden'),
-                line: page.el('noTicket').classList.contains('hidden') };
+            await page.run('loadVisaLine')(13575);
+            const noTicket = { hidden: page.el('visaLine').classList.contains('hidden'),
+                text: page.el('visaLine').textContent, asked: page.fetches('/api/visa').length };
             """ + TICKET + """
-            const idle = { group: page.el('visaGroup').classList.contains('hidden'),
-                postTitle: page.el('visaBtn').title, auto: page.el('autoVisaBtn').textContent,
-                pressed: page.el('autoVisaBtn').getAttribute('aria-pressed'), title: page.el('autoVisaBtn').title,
-                state: page.el('autoVisaState').textContent };
-            page.route('/api/auto-visa', { body: { armed: true, others: ['bob'] } });
-            await page.run('loadAutoVisa')(13575);
-            const armed = { auto: page.el('autoVisaBtn').textContent, pressed: page.el('autoVisaBtn').getAttribute('aria-pressed'),
-                title: page.el('autoVisaBtn').title, state: page.el('autoVisaState').textContent };
-            page.route('/api/auto-visa', { body: { armed: false, others: [], standingBy: 'alice' } });
-            await page.run('loadAutoVisa')(13575);
-            const standing = { auto: page.el('autoVisaBtn').textContent, pressed: page.el('autoVisaBtn').getAttribute('aria-pressed'),
-                disabled: page.el('autoVisaBtn').disabled, state: page.el('autoVisaState').textContent };
-            report({ noTicket, idle, armed, standing });
+            report({ noTicket, due: page.el('visaLine').textContent });
             """);
 
-        assertThat(out.get("noTicket").get("group").asBoolean()).isTrue();
-        assertThat(out.get("noTicket").get("line").asBoolean()).as("the one line instead of two dead buttons").isFalse();
-        assertThat(Files.readString(PAGE, UTF_8)).contains("<span id=\"noTicket\" class=\"visa-group muted hidden\">JIRA "
-            + "visa: the PR title names no IGNITE ticket.</span>");
-
-        JsonNode idle = out.get("idle");
-        assertThat(idle.get("group").asBoolean()).isFalse();
-        assertThat(Files.readString(PAGE, UTF_8)).contains("<span class=\"muted\">JIRA visa:</span>")
-            .contains("<button id=\"visaBtn\" class=\"act\" type=\"button\" title=\"Post the verdict as a comment to the JIRA "
-                + "ticket now\">Post now</button>");
-        assertThat(idle.get("postTitle").asText()).isEqualTo("Post the verdict as a comment to IGNITE-29049 now");
-        assertThat(idle.get("auto").asText()).isEqualTo("Auto visa");
-        assertThat(idle.get("pressed").asText()).isEqualTo("false");
-        assertThat(idle.get("title").asText()).isEqualTo("Post the verdict to IGNITE-29049 once, when the next RunAll of "
-            + "this PR finishes. Your JIRA token is kept encrypted until then.");
-        assertThat(idle.get("state").asText()).isEmpty();
-
-        JsonNode armed = out.get("armed");
-        assertThat(armed.get("auto").asText()).isEqualTo("Auto visa ✓");
-        assertThat(armed.get("pressed").asText()).isEqualTo("true");
-        assertThat(armed.get("title").asText()).isEqualTo("Armed by you. Click to cancel it; this also removes your stored token.");
-        assertThat(armed.get("state").asText()).isEqualTo("also armed by bob");
-
-        JsonNode standing = out.get("standing");
-        assertThat(standing.get("auto").asText()).isEqualTo("Auto visa");
-        assertThat(standing.get("pressed").asText()).isEqualTo("true");
-        assertThat(standing.get("disabled").asBoolean()).isTrue();
-        assertThat(standing.get("state").asText()).isEqualTo("on in your ⚙");
+        String page = Files.readString(PAGE, UTF_8);
+        int head = page.indexOf("<h2 id=\"verdictHead\">");
+        assertThat(page.substring(head, page.indexOf("</h2>", head)))
+            .contains("<span id=\"visaLine\" class=\"visa-group muted hidden\">");
+        assertThat(page).doesNotContain("id=\"visaBtn\"", "id=\"autoVisaBtn\"", "Post now", "JIRA visa:");
+        assertThat(out.get("noTicket").get("hidden").asBoolean()).isFalse();
+        assertThat(out.get("noTicket").get("text").asText()).isEqualTo("Visa: the PR title names no IGNITE ticket");
+        assertThat(out.get("noTicket").get("asked").asInt()).as("the title alone tells it").isZero();
+        assertThat(out.get("due").asText()).isEqualTo("Visa: will be posted to IGNITE-29049 when the run settles");
     }
 
-    /** While the PR's RunAll runs, the switch names that run, not "the next". */
+    /** The run settled while the page was open: the next poll of the runs repaints the line. */
     @Test
-    void theAutoVisaNamesTheRunAllThatRunsNow() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/runs', { body: [{ buildId: 9100, runAll: true, state: 'running', name: 'RunAll', mine: true,
-                webUrl: 'https://ci2.example/build/9100', leftSec: 3900, pct: 40 }] });
-            await page.load('?pr=13575');
-            """ + TICKET + """
-            report({ title: page.el('autoVisaBtn').title });
-            """);
-
-        assertThat(out.get("title").asText()).startsWith("Post the verdict to IGNITE-29049 once, when the RunAll that is "
-            + "running now finishes.");
-    }
-
-    /** A RunAll that starts while the page is open: the next poll of the runs repaints the switch's "when". */
-    @Test
-    void theAutoVisaFollowsTheRunsAsTheyArePolled() throws Exception {
+    void theVisaLineFollowsTheRunsAsTheyArePolled() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
             """ + TICKET + """
-            const idle = page.el('autoVisaBtn').title;
-            page.route('/api/runs', { body: [{ buildId: 9100, runAll: true, state: 'running', name: 'RunAll', mine: true,
-                webUrl: 'https://ci2.example/build/9100', leftSec: 600, pct: 80 }] });
+            const due = page.el('visaLine').textContent;
+            page.route('/api/visa', { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29049',
+                url: 'https://issues.apache.org/jira/browse/IGNITE-29049?focusedCommentId=1#comment-1' } });
             await page.run('loadRuns')(13575);
-            const running = page.el('autoVisaBtn').title;
-            page.route('/api/runs', { body: [] });
-            await page.run('loadRuns')(13575);
-            report({ idle, running, finished: page.el('autoVisaBtn').title });
+            await page.settle();
+            report({ due, posted: page.el('visaLine').innerHTML });
             """);
 
-        assertThat(out.get("idle").asText()).contains("when the next RunAll of this PR finishes");
-        assertThat(out.get("running").asText()).contains("when the RunAll that is running now finishes");
-        assertThat(out.get("finished").asText()).contains("when the next RunAll of this PR finishes");
+        assertThat(out.get("due").asText()).isEqualTo("Visa: will be posted to IGNITE-29049 when the run settles");
+        assertThat(out.get("posted").asText()).isEqualTo("Visa: posted to <a href=\"https://issues.apache.org/jira/"
+            + "browse/IGNITE-29049?focusedCommentId=1#comment-1\" target=\"_self\" rel=\"noopener\" title=\"Opens the "
+            + "visa in JIRA.\">IGNITE-29049</a>");
     }
 
     /** The view switch says which view is on to a screen reader too, not only by its fill. */
@@ -231,45 +185,6 @@ class VerdictCardPageTest {
         assertThat(out.get("suites").toString()).isEqualTo("[\"true\",\"false\"]");
         assertThat(out.get("causes").toString()).isEqualTo("[\"false\",\"true\"]");
         assertThat(out.get("back").toString()).isEqualTo("[\"true\",\"false\"]");
-    }
-
-    @Test
-    void aVisaAnswersUnderTheHeadingWithACopyInTheStatusLine() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/me', { body: { username: 'alice', jira: true, github: false } });
-            page.route('/api/jira-visa', { body: { url: 'https://issues.apache.org/jira/browse/IGNITE-29049?focusedCommentId=1' } }, 'POST');
-            page.route('/api/auto-visa?pr=13575&issue', { body: { armed: true } }, 'POST');
-            await page.load('?pr=13575');
-            """ + TICKET + """
-            await page.run('postVisa')();
-            const posted = { note: page.el('visaNote').textContent, html: page.el('visaNote').innerHTML,
-                hidden: page.el('visaNote').classList.contains('hidden'), status: page.el('status').textContent };
-            await page.run('armAutoVisa')();
-            const armed = { note: page.el('visaNote').textContent, pressed: page.el('autoVisaBtn').getAttribute('aria-pressed') };
-            page.route('/api/jira-visa', { status: 502, body: { error: 'JIRA answered 502' } }, 'POST');
-            await page.run('postVisa')();
-            report({ posted, armed, failed: { note: page.el('visaNote').textContent,
-                err: page.el('visaNote').classList.contains('err'), status: page.el('status').textContent,
-                statusErr: page.el('status').classList.contains('err') } });
-            """);
-
-        JsonNode posted = out.get("posted");
-        assertThat(posted.get("note").asText()).isEqualTo("Visa posted to IGNITE-29049");
-        assertThat(posted.get("html").asText())
-            .contains("href=\"https://issues.apache.org/jira/browse/IGNITE-29049?focusedCommentId=1\"",
-                "title=\"Open the comment in JIRA\"");
-        assertThat(posted.get("hidden").asBoolean()).isFalse();
-        assertThat(posted.get("status").asText()).isEqualTo("Visa posted to IGNITE-29049");
-
-        assertThat(out.get("armed").get("note").asText()).isEqualTo("Auto visa armed: the verdict goes to IGNITE-29049 "
-            + "the next time a RunAll of this PR finishes.");
-        assertThat(out.get("armed").get("pressed").asText()).isEqualTo("true");
-
-        JsonNode failed = out.get("failed");
-        assertThat(failed.get("note").asText()).isEqualTo("⚠ Visa not posted: JIRA answered 502");
-        assertThat(failed.get("err").asBoolean()).isTrue();
-        assertThat(failed.get("status").asText()).isEqualTo("⚠ Visa not posted: JIRA answered 502");
-        assertThat(failed.get("statusErr").asBoolean()).isTrue();
     }
 
     @Test
