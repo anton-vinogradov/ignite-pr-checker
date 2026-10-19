@@ -25,8 +25,8 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -96,7 +96,7 @@ class VisaJournalTest {
     /** The next sweeps find the run handled and post nothing: the journal gets nothing either. */
     @Test
     void aSweepThatPostsNothingAddsNothing() {
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
         standing.sweep();
 
         standing.sweep();

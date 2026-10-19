@@ -28,6 +28,7 @@ import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,8 +83,8 @@ class SweepAsksWhatFinishedTest {
 
     @Test
     void onlyThePrsWhoseRunAllFinishedAreLookedUpAgain() {
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of()),
-            Optional.of(Set.of(OTHERS)));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()),
+            Optional.of(Map.of(OTHERS, Set.of("someone"))));
 
         long first = System.currentTimeMillis();
         standing.sweep();
@@ -114,21 +115,22 @@ class SweepAsksWhatFinishedTest {
         verify(tc, times(3)).findRunAllBuildForPr("tc", NO_RUN);
     }
 
+    /** It asks TeamCity what finished all the same: that answer is how a PR out of the list learns of its run. */
     @Test
     void everySixthSweepLooksEveryPrUp() {
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()));
 
         for (int i = 0; i < 7; i++)
             standing.sweep();
 
         verify(tc, times(2)).findRunAllBuildForPr("tc", OWN);
-        verify(tc, times(5)).prsWithChainsFinishedAfter(eq("tc"), anyLong());
+        verify(tc, times(6)).prsWithChainsFinishedAfter(eq("tc"), anyLong());
     }
 
     /** Its re-runs settle the run: nothing finished as a RunAll, yet the sweep has to go on looking at the PR. */
     @Test
     void aPrWithAWaveGoingIsLookedUpEverySweep() {
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL, blocker())));
         when(tc.triggerBuildReplacingQueued(eq("tc"), anyString(), eq(OWN), anyBoolean(), anyString()))
@@ -151,8 +153,8 @@ class SweepAsksWhatFinishedTest {
      */
     @Test
     void aCommentStillToBeMarkedKeepsItsPrLookedUp() {
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of(OWN)),
-            Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of(OWN, Set.of(USER))),
+            Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
         when(github.appComment(eq(OWN), anyString(), anyString()))
@@ -177,7 +179,7 @@ class SweepAsksWhatFinishedTest {
     @Test
     void aVerdictLeftUncheckedKeepsItsPrLookedUp() {
         commentsOnly();
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
         when(analyzer.stillRetrying(any())).thenReturn(true, false);
@@ -194,7 +196,7 @@ class SweepAsksWhatFinishedTest {
     @Test
     void aVerdictOfTheRunBeforeKeepsItsPrLookedUp() {
         commentsOnly();
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL - 900)),
             Optional.of(verdict(RUN_ALL)));
@@ -212,7 +214,7 @@ class SweepAsksWhatFinishedTest {
     @Test
     void aFailedSettleKeepsItsPrLookedUp() {
         commentsOnly();
-        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(eq("tc"), anyLong())).thenReturn(Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr("tc", OWN)).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenThrow(new IllegalStateException("TeamCity answered 502"))
             .thenReturn(Optional.of(verdict(RUN_ALL)));
@@ -233,7 +235,7 @@ class SweepAsksWhatFinishedTest {
     void aPausedTokenKeepsItsPrLookedUp() {
         standing.change("zstan", "tc-zstan", null, null, new StandingVisas.OptionChange(null, true, null, null, null));
         standing.markTcRejected(USER);
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
         when(tc.findRunAllBuildForPr(anyString(), eq(OWN))).thenReturn(Optional.of(chain(RUN_ALL, USER, null)));
         when(analyzer.analyzeForAction("tc", OWN)).thenReturn(Optional.of(verdict(RUN_ALL)));
         when(github.appComment(eq(OWN), anyString(), anyString())).thenReturn(comment());

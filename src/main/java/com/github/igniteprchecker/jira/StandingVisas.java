@@ -42,6 +42,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -159,6 +160,12 @@ public class StandingVisas implements SnapshotCache {
      * none: the sweep skips them while no chain of theirs finished since.
      */
     private final ConcurrentMap<Integer, Long> resting = new ConcurrentHashMap<>();
+
+    /**
+     * The PRs out of the sweep's list whose RunAll, started by a user whose visa or verdict comment it owes, finished
+     * and is not settled yet: the sweep settles them until they rest or close.
+     */
+    private final Set<Integer> finishedUnlisted = ConcurrentHashMap.newKeySet();
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
@@ -1809,9 +1816,10 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Sweep: settles each open PR the list holds (see {@link #settle}), then the PRs out of the list that
-     * still have a living comment or a wave open. Events settle a run as soon as its chain or a re-run
-     * finishes; the sweep keeps the ones that wait going and catches what an event missed. A PR at rest is
-     * not looked up again while TeamCity says no RunAll of it finished since the last sweep.
+     * still have a living comment or a wave open, or a finished RunAll whose visa or verdict comment is owed. Events
+     * settle a run as soon as its chain or a re-run finishes; the sweep keeps the ones that wait going and catches
+     * what an event missed. A PR at rest is not looked up again while TeamCity says no RunAll of it finished since the
+     * last sweep.
      */
     @Scheduled(fixedDelay = SWEEP_MS, initialDelay = FIRST_SWEEP_MS)
     void sweep() {
@@ -1833,13 +1841,13 @@ public class StandingVisas implements SnapshotCache {
 
         List<PrSummary> listed = github.openPrs();
         resting.keySet().retainAll(listed.stream().map(PrSummary::number).toList());
-        Set<Integer> finished = chainsFinishedSinceLastSweep(t0);
+        Finished finished = chainsFinishedSinceLastSweep(t0);
         int posted = 0;
         for (PrSummary pr : listed) {
-            if (finished == null || finished.contains(pr.number()) || !resting(pr.number()))
+            if (finished.everyPr() || finished.prs().containsKey(pr.number()) || !resting(pr.number()))
                 posted += settle(pr);
         }
-        settleUnlisted(listed);
+        settleUnlisted(listed, finished.prs());
 
         lastSweepMs = System.currentTimeMillis() - t0;
         if (posted > 0)
@@ -1847,28 +1855,37 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The PRs with a RunAll chain finished since the last sweep, by one TeamCity call across all branches; null when
-     * every listed PR is to be looked up: on the first sweep, on every {@link #FULL_SWEEP_EVERY}th one, and whenever
-     * TeamCity cannot say. Looking each PR up cost 50 calls a sweep, nearly all of them to learn that nothing changed.
+     * The PRs with a RunAll chain finished since the last sweep, with who started the chains, by one TeamCity call
+     * across all branches. Looking each PR up cost 50 calls a sweep, nearly all of them to learn that nothing changed.
+     * The sweep that looks every PR up asks too: a PR out of its list has no other way to tell a finished run.
      */
-    private Set<Integer> chainsFinishedSinceLastSweep(long now) {
+    private Finished chainsFinishedSinceLastSweep(long now) {
         long since = sweptUpTo;
         sweptUpTo = now;
-        if (since == 0 || ++sweepsSinceFull >= FULL_SWEEP_EVERY) {
+        if (since == 0)
+            return Finished.UNKNOWN;
+
+        boolean everyPr = ++sweepsSinceFull >= FULL_SWEEP_EVERY;
+        if (everyPr)
             sweepsSinceFull = 0;
-
-            return null;
-        }
-
         try {
             return lookup(token -> tc.prsWithChainsFinishedAfter(token, (since - SWEEP_OVERLAP_MS) / 1000))
-                .orElse(null);
+                .map(prs -> new Finished(everyPr, prs)).orElse(Finished.UNKNOWN);
         }
         catch (RuntimeException e) {
             log.warn("RunAll chains finished since the last sweep not listed, every PR is looked up: {}", e.toString());
 
-            return null;
+            return Finished.UNKNOWN;
         }
+    }
+
+    /**
+     * What a sweep knows of the RunAll chains finished since the last one: the PRs, each with the users who started
+     * those chains. {@code everyPr}: every listed PR is looked up anyway: on the first sweep, on every {@link
+     * #FULL_SWEEP_EVERY}th one, and whenever TeamCity cannot say, which also leaves {@code prs} empty.
+     */
+    private record Finished(boolean everyPr, Map<Integer, Set<String>> prs) {
+        static final Finished UNKNOWN = new Finished(true, Map.of());
     }
 
     /**
@@ -1976,10 +1993,18 @@ public class StandingVisas implements SnapshotCache {
     /**
      * The PRs out of the sweep's list that still have a living comment, a wave open or a finished run to decide on.
      * The list holds the 50 most recently updated open PRs only, and a run whose PR dropped out of it stayed "in
-     * progress" for good.
+     * progress" for good. So did the visa of a RunAll that finished on such a PR while nobody watched it: of the PRs
+     * in {@code finished}, those whose run owes a visa or a verdict comment are settled until they rest.
      */
-    private void settleUnlisted(List<PrSummary> listed) {
-        Set<Integer> prs = new java.util.TreeSet<>();
+    private void settleUnlisted(List<PrSummary> listed, Map<Integer, Set<String>> finished) {
+        Set<Integer> numbers = listed.stream().map(PrSummary::number).collect(Collectors.toSet());
+        finished.forEach((pr, starters) -> {
+            if (starters.stream().anyMatch(this::postsVerdicts))
+                finishedUnlisted.add(pr);
+        });
+        finishedUnlisted.removeAll(numbers);
+
+        Set<Integer> prs = new java.util.TreeSet<>(finishedUnlisted);
         enrolled.values().forEach(e -> {
             e.handled().ghThreads().forEach((pr, t) -> {
                 if (open(e, pr, t.buildId(), t.done()))
@@ -1996,7 +2021,7 @@ public class StandingVisas implements SnapshotCache {
         });
         waves.values().forEach(r -> prs.add(r.pr()));
         prs.addAll(deciding.keySet());
-        listed.forEach(p -> prs.remove(p.number()));
+        prs.removeAll(numbers);
 
         for (int pr : prs) {
             try {
@@ -2006,6 +2031,14 @@ public class StandingVisas implements SnapshotCache {
                 log.warn("PR {} out of the sweep's list not settled this time: {}", pr, e.toString());
             }
         }
+        finishedUnlisted.removeIf(pr -> resting.containsKey(pr) || closedPrs.containsKey(pr));
+    }
+
+    /** Whether the user's finished runs get a visa or a verdict comment, the ones a PR page says are coming. */
+    private boolean postsVerdicts(String user) {
+        Enrollment e = enrolled.get(user);
+
+        return e != null && (e.options().autoVisa() || e.options().ghComment());
     }
 
     /**

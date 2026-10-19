@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -374,11 +375,12 @@ public class TcClient {
 
     /**
      * The PRs with a RunAll chain that finished after {@code epochSec}, cancelled and failed-to-start ones included, in
-     * one call across all branches: the PRs whose latest finished chain may have changed since. Empty when TeamCity
-     * can't say for sure: it listed as many chains as it was asked for, or it rejected the query, which is then not
-     * asked again. Bounded by start date as {@link #branchFinishedAfter} is.
+     * one call across all branches: the PRs whose latest finished chain may have changed since, each with the users who
+     * started those chains (none for a chain TeamCity queued by itself). Empty when TeamCity can't say for sure: it
+     * listed as many chains as it was asked for, or it rejected the query, which is then not asked again. Bounded by
+     * start date as {@link #branchFinishedAfter} is.
      */
-    public Optional<Set<Integer>> prsWithChainsFinishedAfter(String token, long epochSec) {
+    public Optional<Map<Integer, Set<String>>> prsWithChainsFinishedAfter(String token, long epochSec) {
         if (!finishedChainsLookup)
             return Optional.empty();
 
@@ -389,7 +391,8 @@ public class TcClient {
         TcModel.BuildList list;
         try {
             list = get("finishedChains", token, url("app/rest/builds", query(
-                "locator", locator, "fields", "build(id,branchName)")), TcModel.BuildList.class);
+                "locator", locator, "fields", "build(id,branchName,triggered(type,user(username)))")),
+                TcModel.BuildList.class);
         }
         catch (RestClientResponseException e) {
             if (e.getStatusCode().value() != 400)
@@ -406,11 +409,16 @@ public class TcClient {
         if (builds.size() >= FINISHED_CHAINS_MAX)
             return Optional.empty();
 
-        Set<Integer> prs = new HashSet<>();
+        Map<Integer, Set<String>> prs = new HashMap<>();
         for (TcModel.Build b : builds) {
             Matcher pr = b.branchName() == null ? null : PR_BRANCH.matcher(b.branchName());
-            if (pr != null && pr.matches())
-                prs.add(Integer.parseInt(pr.group(1)));
+            if (pr == null || !pr.matches())
+                continue;
+
+            Set<String> starters = prs.computeIfAbsent(Integer.parseInt(pr.group(1)), n -> new HashSet<>());
+            String starter = starter(b);
+            if (starter != null)
+                starters.add(starter);
         }
 
         return Optional.of(prs);
