@@ -268,7 +268,7 @@ class AnonymousViewTest {
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13655, "IGNITE-1 x", "u", null, null, null)));
         BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
         when(analyzer.triggeredBy(13655)).thenReturn("nsamelchev");
-        PrsController prs = new PrsController(github, analyzer, auth);
+        PrsController prs = new PrsController(github, analyzer, auth, mock(YourPrs.class));
 
         assertThat(prs.prs(new MockHttpServletRequest())).singleElement()
             .extracting(PrSummary::triggeredBy).isNull();

@@ -93,9 +93,10 @@ public class LoginController {
      * {@code admin}: whether this user is an operator; the page shows the operator mark and Update only then.
      * {@code jiraInCookie}: a cookie of theirs carried a JIRA token lately, and Visa my runs in JIRA is off, so ⚙ tells
      * them how to get visas; see {@link UserDirectory#jiraInCookie}. {@code lang}: the code of the language they read
-     * the pages in.
+     * the pages in. {@code githubLinked}: they linked a GitHub account, so the PR list opens on their own PRs.
      */
-    public record UserResponse(String username, boolean admin, boolean jiraInCookie, Lang lang) {
+    public record UserResponse(String username, boolean admin, boolean jiraInCookie, Lang lang,
+        boolean githubLinked) {
     }
 
     @PostMapping("/login")
@@ -174,7 +175,8 @@ public class LoginController {
             users.sawJiraInCookie(s.username());
 
         return new UserResponse(s.username(), admin.mayAdminister(s.username()),
-            !visaOn && users.jiraInCookie(s.username()), users.language(s.username()));
+            !visaOn && users.jiraInCookie(s.username()), users.language(s.username()),
+            standing.ghLoginOf(s.username()) != null);
     }
 
     private static ResponseEntity<?> rejected() {

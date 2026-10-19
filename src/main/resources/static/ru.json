@@ -107,7 +107,21 @@
     "clean": "чисто",
     "{0} blocker{1}": "{0} {0|блокер|блокера|блокеров}",
     "Open PR #{0} →": "Открыть PR #{0} →",
-    "Drag to resize · double-click to reset": "Потяни, чтобы изменить ширину · двойной щелчок сбрасывает"
+    "Drag to resize · double-click to reset": "Потяни, чтобы изменить ширину · двойной щелчок сбрасывает",
+    "Which open PRs to list": "Какие открытые PR показывать",
+    "All": "Все",
+    "Mine": "Мои",
+    "Involved": "Участвую",
+    "Lists the 50 most recently updated open PRs.": "Показывает 50 открытых PR, которые обновлялись последними.",
+    "Lists the open PRs your linked GitHub account created.": "Показывает открытые PR, которые создал твой привязанный аккаунт GitHub.",
+    "Lists other people's open PRs where you were asked to review, reviewed or commented.": "Показывает чужие открытые PR, где тебя позвали на ревью, ты ревьюил или комментировал.",
+    "Link your GitHub account in ⚙ to use this tab. A click opens ⚙.": "Чтобы пользоваться этой вкладкой, привяжи аккаунт GitHub в ⚙. Щелчок открывает ⚙.",
+    "You have no open PRs.": "У тебя нет открытых PR.",
+    "No open PRs of others where you were asked to review, reviewed or commented.": "Нет чужих открытых PR, где тебя позвали на ревью, ты ревьюил или комментировал.",
+    "This checker has no GitHub account, so it cannot search GitHub for your PRs.": "У этого чекера нет аккаунта GitHub, поэтому он не может искать твои PR на GitHub.",
+    "GitHub did not answer the search for your PRs. Click the tab again in a minute.": "GitHub не ответил на поиск твоих PR. Нажми на вкладку снова через минуту.",
+    "Could not reach the service. Click the tab again in a moment.": "Не удалось связаться с сервисом. Нажми на вкладку снова чуть позже.",
+    "Loading your PRs…": "Загружаю твои PR…"
   },
   "pr head": {
     "Pick a PR on the left, or type its number in the filter.": "Выбери PR слева или введи его номер в фильтре.",

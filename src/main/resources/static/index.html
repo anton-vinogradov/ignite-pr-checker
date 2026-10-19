@@ -63,6 +63,11 @@
         .resizer:hover::before, .resizer.dragging::before { left: 2px; width: 3px; background: var(--accent); }
         .pane-head { padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; z-index: 1; background: var(--pane-bg); display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
         #prFilter { flex: 1 0 100%; min-width: 0; font-size: 0.85rem; text-transform: none; letter-spacing: normal; padding: 0.3rem 0.5rem; }
+        .pr-tabs { flex: 1 0 100%; display: flex; margin-left: 0; text-transform: none; letter-spacing: normal; }
+        .pr-tabs .act { flex: 1; font-size: 0.8rem; padding: 0.2rem 0.4rem; }
+        /* A tab that needs a linked GitHub account looks off, yet takes a click: it opens ⚙. It keeps the colours of a
+           tab, as a faded one would fall under 4.5:1. */
+        .pr-tabs .act[aria-disabled="true"] { font-style: italic; text-decoration: underline dotted; cursor: help; }
         .pane-toggle { margin-left: auto; flex: none; border: 1px solid var(--line); background: var(--btn-bg); color: var(--muted); border-radius: var(--radius-small); cursor: pointer; font-size: 0.9rem; line-height: 1; padding: 0.05rem 0.4rem; }
         .pane-toggle:hover { border-color: var(--line-strong); color: var(--fg); }
         .pane-expand { display: none; flex: none; width: 22px; border: none; border-right: 1px solid var(--line); border-radius: 0; background: var(--btn-bg); color: var(--muted); cursor: pointer; font-size: 1.1rem; align-items: center; justify-content: center; }
@@ -531,6 +536,11 @@
                 <div class="pane-head">Open PRs <span id="prCount"></span>
                     <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#badges-in-the-pr-list" target="_self" rel="noopener" title="Opens the verdict glossary on GitHub. It says what each badge means." aria-label="What the badges mean">?</a>
                     <button id="paneCollapse" class="pane-toggle" type="button" title="Collapse panel" aria-label="Collapse panel">‹</button>
+                    <span id="prTabs" class="tabs pr-tabs" role="group" aria-label="Which open PRs to list">
+                        <button id="prTabAll" class="act on" type="button" aria-pressed="true">All</button>
+                        <button id="prTabMine" class="act" type="button" aria-pressed="false">Mine</button>
+                        <button id="prTabInvolved" class="act" type="button" aria-pressed="false">Involved</button>
+                    </span>
                     <input id="prFilter" type="search" placeholder="Filter, or a PR number" autocomplete="off" spellcheck="false"
                         aria-label="Filter the open PRs, or open any PR by number" title="Filter by number or title; Enter opens the first match (press / to jump here)">
                     <details id="prLegend" class="pr-legend" open>
@@ -549,6 +559,7 @@
                 <a id="prOpenAny" class="pr-link pr-open-any hidden" href="/"></a>
                 <ul id="prList" class="pr-list"></ul>
                 <p id="prNone" class="pr-none muted hidden">No open PR matches.</p>
+                <p id="prTabNote" class="pr-none muted hidden"></p>
             </aside>
 
             <div class="resizer" id="paneResizer" title="Drag to resize · double-click to reset"></div>

@@ -32,7 +32,7 @@ class PrListBadgeTest {
 
     private final AuthInterceptor auth = mock(AuthInterceptor.class);
 
-    private final PrsController prs = new PrsController(github, analyzer, auth);
+    private final PrsController prs = new PrsController(github, analyzer, auth, mock(YourPrs.class));
 
     @Test
     void onlyACleanVerdictOfTheHeadIsTicked() {

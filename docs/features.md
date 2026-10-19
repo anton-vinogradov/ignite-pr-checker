@@ -173,11 +173,18 @@ and the visa.
 
 ## Finding your PR
 
-- The left pane lists the 50 most recently updated open PRs of the repo, the latest first. A row has the PR's number,
-  its ticket key and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges
-  mean** under the filter explains the badges. It stays open until you pick a PR. **my run** marks the PRs whose latest
-  RunAll you started.
-- The filter (**Filter, or a PR number**) narrows the list by number or title. A number that is not in the list is
+- The left pane lists open PRs of the repo, the most recently updated first. A row has the PR's number, its ticket key
+  and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges mean** under
+  the filter explains the badges. It stays open until you pick a PR. **my run** marks the PRs whose latest RunAll you
+  started.
+- Three tabs over the list choose which PRs it shows. **All** shows the 50 most recently updated open PRs. **Mine**
+  shows your open PRs, also the ones that are not among those 50. **Involved** shows other people's open PRs where
+  someone asked you to review, you reviewed or you commented. The checker finds Mine and Involved with GitHub's search,
+  at most once a minute for each user. A PR that is not among the 50 gets its badge once someone opens it here.
+- **Mine** and **Involved** need your GitHub account linked in ⚙ ([GitHub account](#github-account)). Without the link
+  they look off, and a click on one opens ⚙. The list opens on the tab you last chose in this browser. Until you
+  choose one, it opens on **Mine** if your GitHub account is linked, else on **All**.
+- The filter (**Filter, or a PR number**) narrows the chosen tab by number or title. A number that is not in the list is
   offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/` jumps to it
   from anywhere on the page.
 - Each PR in the list is a link (`?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
