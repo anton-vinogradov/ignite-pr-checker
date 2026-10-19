@@ -53,6 +53,11 @@ final class AppWrites {
 
     /** Throws {@link GithubClient.WriteDeferred} when a write to the PR for the user is not to be made now. */
     synchronized void admit(int pr, String user, long now) {
+        admit(String.valueOf(pr), user, now);
+    }
+
+    /** The same for a PR named as {@link GithubClient} counts it: its number, or "repo#number" in another repo. */
+    synchronized void admit(String pr, String user, long now) {
         if (now < pausedUntil)
             throw new GithubClient.WriteDeferred("GitHub asked the app account to wait until " + pausedUntil);
         if (recent.size() > KEYS_KEPT)
@@ -73,6 +78,11 @@ final class AppWrites {
 
     /** A write to the PR for the user reached GitHub. */
     synchronized void sent(int pr, String user, long now) {
+        sent(String.valueOf(pr), user, now);
+    }
+
+    /** The same for a PR named as {@link #admit(String, String, long)} names it. */
+    synchronized void sent(String pr, String user, long now) {
         for (String key : keys(pr, user))
             recent.computeIfAbsent(key, k -> new ArrayDeque<>()).addLast(now);
     }
@@ -161,7 +171,7 @@ final class AppWrites {
         return body.isBlank() ? e.getStatusText() : body.length() > 200 ? body.substring(0, 200) : body;
     }
 
-    private static List<String> keys(int pr, String user) {
+    private static List<String> keys(String pr, String user) {
         return user == null ? List.of("PR:" + pr) : List.of("PR:" + pr, "user:" + user);
     }
 

@@ -239,8 +239,13 @@ public class GithubClient implements SnapshotCache {
      * {@link WriteDeferred} when the write is to wait, else GitHub's own refusal.
      */
     public PostedComment appComment(int pr, String user, String body) {
-        java.util.Map<?, ?> c = appWrite("prComment", pr, user, () -> http.post()
-            .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/" + pr + "/comments"))
+        return appComment(props.repo(), pr, user, body);
+    }
+
+    /** The same in a PR of {@code repo}, such as the Python thin client's. */
+    public PostedComment appComment(String repo, int pr, String user, String body) {
+        java.util.Map<?, ?> c = appWrite("prComment", writeKey(repo, pr), user, () -> http.post()
+            .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/issues/" + pr + "/comments"))
             .header("Authorization", "Bearer " + props.token())
             .header("Accept", "application/vnd.github+json")
             .body(java.util.Map.of("body", body))
@@ -252,9 +257,14 @@ public class GithubClient implements SnapshotCache {
 
     /** Edits a comment of the app account in the PR, as {@link #appComment} posts one. False without the token. */
     public boolean appEdit(int pr, String user, long commentId, String body) {
-        return appWrite("prCommentEdit", pr, user, () -> {
+        return appEdit(props.repo(), pr, user, commentId, body);
+    }
+
+    /** The same in a PR of {@code repo}. */
+    public boolean appEdit(String repo, int pr, String user, long commentId, String body) {
+        return appWrite("prCommentEdit", writeKey(repo, pr), user, () -> {
             http.patch()
-                .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
+                .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/issues/comments/" + commentId))
                 .header("Authorization", "Bearer " + props.token())
                 .header("Accept", "application/vnd.github+json")
                 .body(java.util.Map.of("body", body))
@@ -266,9 +276,14 @@ public class GithubClient implements SnapshotCache {
 
     /** Reacts to a comment of the PR from the app account (content: rocket, confused, ...). False without the token. */
     public boolean appReact(int pr, String user, long commentId, String content) {
-        return appWrite("react", pr, user, () -> {
+        return appReact(props.repo(), pr, user, commentId, content);
+    }
+
+    /** The same in a PR of {@code repo}. */
+    public boolean appReact(String repo, int pr, String user, long commentId, String content) {
+        return appWrite("react", writeKey(repo, pr), user, () -> {
             http.post()
-                .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId
+                .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/issues/comments/" + commentId
                     + "/reactions"))
                 .header("Authorization", "Bearer " + props.token())
                 .header("Accept", "application/vnd.github+json")
@@ -284,10 +299,15 @@ public class GithubClient implements SnapshotCache {
      * without the token.
      */
     public boolean appDelete(int pr, String user, long commentId) {
+        return appDelete(props.repo(), pr, user, commentId);
+    }
+
+    /** The same in a PR of {@code repo}. */
+    public boolean appDelete(String repo, int pr, String user, long commentId) {
         try {
-            return appWrite("prCommentDelete", pr, user, () -> {
+            return appWrite("prCommentDelete", writeKey(repo, pr), user, () -> {
                 http.delete()
-                    .uri(URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments/" + commentId))
+                    .uri(URI.create(props.apiUrl() + "/repos/" + repo + "/issues/comments/" + commentId))
                     .header("Authorization", "Bearer " + props.token())
                     .header("Accept", "application/vnd.github+json")
                     .retrieve().toBodilessEntity();
@@ -322,7 +342,7 @@ public class GithubClient implements SnapshotCache {
      * A write of the app account, admitted by {@link AppWrites} and recorded like any app call. Null without the
      * token. A refusal that asks to wait pauses the writes and comes back as {@link WriteDeferred}.
      */
-    private <T> T appWrite(String category, int pr, String user, Supplier<T> call) {
+    private <T> T appWrite(String category, String pr, String user, Supplier<T> call) {
         if (!writes())
             return null;
 
@@ -371,6 +391,14 @@ public class GithubClient implements SnapshotCache {
 
     private final AppWrites appWrites = new AppWrites();
 
+    /**
+     * What the writes to a PR are counted by: its number in the repo the checker lists, as before other repos came,
+     * and "repo#number" in another, whose PR numbers overlap.
+     */
+    private String writeKey(String repo, int pr) {
+        return repo.equals(props.repo()) ? String.valueOf(pr) : repo + "#" + pr;
+    }
+
     /** The text of a comment of the repo; empty when GitHub has no such comment. */
     public java.util.Optional<String> commentBody(long commentId) {
         try {
@@ -382,6 +410,27 @@ public class GithubClient implements SnapshotCache {
         catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
             return java.util.Optional.empty();
         }
+    }
+
+    /**
+     * The sha of the head commit of a PR of {@code repo}; null when GitHub names none. Holds for a PR whose fork was
+     * deleted, as {@link #prHeadSha(int)} does.
+     */
+    public String prHeadSha(String repo, int prNumber) {
+        java.util.Map<?, ?> pr = recorded("prHead", () -> appGet(
+            props.apiUrl() + "/repos/" + repo + "/pulls/" + prNumber).body(java.util.Map.class));
+        Object head = pr == null ? null : pr.get("head");
+
+        return head instanceof java.util.Map<?, ?> h ? (String)h.get("sha") : null;
+    }
+
+    /** The sha of the newest commit of a branch of {@code repo}, such as master; null when GitHub names none. */
+    public String branchHeadSha(String repo, String branch) {
+        java.util.Map<?, ?> ref = recorded("branchHead", () -> appGet(props.apiUrl() + "/repos/" + repo
+            + "/git/ref/heads/" + UriUtils.encodePath(branch, StandardCharsets.UTF_8)).body(java.util.Map.class));
+        Object commit = ref == null ? null : ref.get("object");
+
+        return commit instanceof java.util.Map<?, ?> c ? (String)c.get("sha") : null;
     }
 
     /** Whether a PR is still open, and its title; empty when GitHub has no such PR. */
@@ -865,15 +914,25 @@ public class GithubClient implements SnapshotCache {
         return "https://github.com/" + props.repo() + "/pull/" + prNumber + "#issuecomment-" + commentId;
     }
 
+    /** The repo whose open PRs the checker lists and checks: {@code GITHUB_REPO}. */
+    public String repo() {
+        return props.repo();
+    }
+
     /**
      * Issue/PR comments of the whole repo updated since the given instant (ISO-8601), oldest first —
      * ONE call covers every open PR, which is what makes a minute-level command poll affordable. A
      * full page means there is more: the next pages are read too, up to {@link #COMMENT_PAGES}.
      */
     public java.util.List<IssueComment> recentIssueComments(String sinceIso) {
+        return recentIssueComments(props.repo(), sinceIso);
+    }
+
+    /** The same in {@code repo}, such as the Python thin client's. */
+    public java.util.List<IssueComment> recentIssueComments(String repo, String sinceIso) {
         java.util.List<IssueComment> out = new java.util.ArrayList<>();
         for (int page = 1; page <= COMMENT_PAGES; page++) {
-            URI uri = URI.create(props.apiUrl() + "/repos/" + props.repo() + "/issues/comments?since="
+            URI uri = URI.create(props.apiUrl() + "/repos/" + repo + "/issues/comments?since="
                 + sinceIso + "&sort=updated&direction=asc&per_page=" + COMMENT_PAGE_SIZE + "&page=" + page);
 
             RestClient.RequestHeadersSpec<?> req = http.get()

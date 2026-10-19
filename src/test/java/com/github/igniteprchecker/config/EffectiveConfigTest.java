@@ -83,6 +83,33 @@ class EffectiveConfigTest {
             .isEqualTo(new GithubProperties(null, "", null));
     }
 
+    /**
+     * A /run-all in a PR of the Python thin client runs one suite, which takes Ignite and the client from two VCS
+     * roots. The repo, the suite and the roots are settings with defaults, listed with the rest.
+     */
+    @Test
+    void thePythonClientsSettingsAreListedWithTheirDefaults() throws IOException {
+        ConfigurableEnvironment env = env(Map.of("SERVER_ADDRESS", "127.0.0.1", "PYTHON_CLIENT_SUITE", "Py_Suite"));
+        Binder binder = Binder.get(env);
+
+        EffectiveConfig config = new EffectiveConfig(env, binder.bindOrCreate("teamcity", TeamcityProperties.class),
+            binder.bindOrCreate("github", GithubProperties.class),
+            binder.bindOrCreate("analysis", AnalysisProperties.class),
+            binder.bindOrCreate("persist", PersistProperties.class),
+            binder.bindOrCreate("warm", WarmProperties.class),
+            binder.bindOrCreate("update", UpdateProperties.class),
+            binder.bindOrCreate("admin", AdminProperties.class),
+            binder.bindOrCreate("session", SessionProperties.class),
+            binder.bindOrCreate("python-client", PythonClientProperties.class));
+
+        assertThat(config.settings()).containsEntry("PYTHON_CLIENT_REPO", "apache/ignite-python-thin-client")
+            .containsEntry("PYTHON_CLIENT_SUITE", "Py_Suite")
+            .containsEntry("PYTHON_CLIENT_IGNITE_VCS_ROOT", "GitHubApacheIgnite")
+            .containsEntry("PYTHON_CLIENT_VCS_ROOT", "GitHubApacheIgnitePythonThinClient");
+        assertThat(Binder.get(env(Map.of())).bindOrCreate("python-client", PythonClientProperties.class))
+            .isEqualTo(new PythonClientProperties(null, null, null, null));
+    }
+
     @Test
     void aFreshInstallIsToldWhatItLeftOpen() throws IOException {
         EffectiveConfig config = config(Map.of("APP_PUBLIC_URL", ""));

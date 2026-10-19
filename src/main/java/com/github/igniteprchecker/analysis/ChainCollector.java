@@ -232,6 +232,26 @@ public class ChainCollector {
             TcDates.epochSeconds(build.finishDate()), unstable, cancelled, revisionOf(build));
     }
 
+    /**
+     * One suite run on its own, read as a chain's suite is: its failed tests, or why it broke, and whether it ran far
+     * fewer tests than master. A run that crashed after nearly all its tests is {@code unstable}: its failures stand,
+     * and the analysis decides whether it counts as broken.
+     */
+    public SuiteRun collectForSuiteRun(String token, TcModel.Build run) {
+        Map<String, Integer> masterCounts = baseline.counts(token);
+        SuiteResult r = "FAILURE".equals(run.status()) ? suiteResultOf(token, run, masterCounts) : null;
+        BrokenSuite broken = r == null ? null : r.broken();
+
+        return new SuiteRun(r == null ? List.of() : r.tests(), broken,
+            r == null ? null : r.unstable(),
+            shrunkSuites(List.of(run), masterCounts, broken == null ? Set.of() : Set.of(run.id())));
+    }
+
+    /** What one suite run says: see {@link #collectForSuiteRun}. {@code broken} and {@code unstable} may be null. */
+    public record SuiteRun(List<FailedTest> failedTests, BrokenSuite broken, BrokenSuite unstable,
+        List<ShrunkSuite> shrunk) {
+    }
+
     /** The VCS revision a build ran on, or null when TeamCity gave none. */
     private static String revisionOf(TcModel.Build build) {
         TcModel.Revisions revs = build.revisions();

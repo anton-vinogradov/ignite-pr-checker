@@ -37,7 +37,9 @@ each label means and what to do about it.
 - **PR commands.** With **PR commands** on and your GitHub account linked once with **Link GitHub**, a `/run-all`
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. See
-  [Working from the PR](docs/features.md#working-from-the-pr-commands).
+  [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
+  `/run-all` runs the client's suite against Ignite master. See
+  [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
@@ -207,6 +209,9 @@ settings by hand.
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
 | `GITHUB_REPO` | `apache/ignite` | Whose PRs are listed and checked. |
+| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | The Python thin client's repo: a `/run-all` in its PRs runs the suite that `PYTHON_CLIENT_SUITE` names. |
+| `PYTHON_CLIENT_SUITE` | `IgniteTests24Java8_WiPThinClientPython` | The build type of the suite that tests the client against Ignite. |
+| `PYTHON_CLIENT_IGNITE_VCS_ROOT`, `PYTHON_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePythonThinClient` | The VCS root ids of the `PYTHON_CLIENT_SUITE` suite: Ignite's and the client's. When the checker queues a `/run-all` run, it names a commit for each of them. |
 | `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Where visas go and IGNITE ticket links point. |
 | `MASTER_HISTORY_DEPTH` | `100` | Master runs of a test looked at, per suite. |
 | `BLOCKER_FAIL_STREAK` | `3` | Failed branch runs in a row for a blocker. |

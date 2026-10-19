@@ -83,7 +83,8 @@ class RussianStatusPageTest {
                 watcher: { tracked: 3, chains: 1, suites: 2, lastRefreshAt: page.now() - 30000, lastRefreshMs: 850,
                     chainFinishes: 4, standingEnrolled: 3, standingPosted: 1, standingLastSweepAt: page.now() - 2 * MIN,
                     standingLastSweepMs: 3200, prCommands: 2, prCommandsLastPollAt: 0,
-                    prCommandsFirstPollAt: page.now() - 5 * MIN,
+                    prCommandsFirstPollAt: page.now() - 5 * MIN, prCommandsRepo: 'apache/ignite',
+                    prCommandsClientRepo: 'apache/ignite-python-thin-client',
                     suiteFix: { users: 3, acting: 1, pushed: 1, lastSweepAt: page.now() - 2 * MIN },
                     waitingAfterKeyChange: 2 },
                 log: { errors: 1, warnings: 1, clientMistakes: 1, lastErrorAt: page.now() - 10 * MIN,
@@ -126,7 +127,8 @@ class RussianStatusPageTest {
         JsonNode cards = out.get("cards");
         assertThat(cards.get("watcherCards").asText()).contains(
             "Постоянные опции3 пользователя с включённой опцией · отправлено виз в JIRA: 1 · обход 2 мин назад (3,2 с)",
-            "Команды в PR2 команды /run-all обработаны · опрос — ни разу",
+            "Команды в PR2 команды /run-all обработаны · опрос — ни разу · в apache/ignite и"
+                + " apache/ignite-python-thin-client",
             "Тесты, добавленные в сьюты1 коммит · 3 пользователя с включённой опцией · 2 на паузе · обход 2 мин назад",
             "Нужны новые токены2 пользователя, чьи опции ждут");
         assertThat(cards.get("systemCards").asText()).contains("Аптайм2 д 7 ч 33 мин", "Средняя нагрузка1,25 на 2 CPU",

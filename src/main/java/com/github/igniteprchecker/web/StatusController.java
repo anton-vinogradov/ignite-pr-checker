@@ -185,6 +185,8 @@ public class StatusController {
         watcher.put("prCommands", commands.handledCount());
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         watcher.put("prCommandsFirstPollAt", firstPassAt(com.github.igniteprchecker.github.PrCommands.FIRST_POLL_MS));
+        watcher.put("prCommandsRepo", github.repo());
+        watcher.put("prCommandsClientRepo", commands.clientRepo());
         if (suiteFix != null)
             watcher.put("suiteFix", suiteFixStats());
         if (operator)

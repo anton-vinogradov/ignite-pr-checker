@@ -433,6 +433,16 @@ public class TcClient {
         + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details)),canceledInfo(text,user(username)),"
         + "snapshot-dependencies(build(id,buildTypeId,status,buildType(name)))";
 
+    /**
+     * One suite run on its own, with what a chain's suite is judged by, and its branch, dates and commits: the run of
+     * the Python thin client's suite that a PR of the client asked for.
+     */
+    public TcModel.Build suiteRun(String token, long buildId) {
+        return get("suiteRun", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", SUITE_FIELDS + ",branchName,webUrl,startDate,finishDate,revisions(revision(version))")),
+            TcModel.Build.class);
+    }
+
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
@@ -546,8 +556,16 @@ public class TcClient {
      * passes stay in: TeamCity records them as not muted even while the test is muted.
      */
     public List<TcModel.TestOccurrence> prBranchRuns(String token, int prNumber, long testId, String buildTypeId) {
+        return branchRuns(token, prBranch(prNumber), testId, buildTypeId);
+    }
+
+    /**
+     * The same on any branch, by the name TeamCity gives it: a PR of the Python thin client runs its suite on
+     * {@code pull/69}, a PR of Ignite on {@code pull/69/head}.
+     */
+    public List<TcModel.TestOccurrence> branchRuns(String token, String branch, long testId, String buildTypeId) {
         TcModel.TestOccurrences occ = occurrencesWithConditions("prRuns", token,
-            "test:(id:" + testId + "),branch:(name:pull/" + prNumber + "/head),buildType:(id:"
+            "test:(id:" + testId + "),branch:(name:" + branch + "),buildType:(id:"
                 + buildTypeId + "),muted:false,count:100",
             "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
                 + "revisions(revision(version))," + CONDITIONS_SLOT + "))");
@@ -561,6 +579,30 @@ public class TcClient {
                 && !"UNKNOWN".equals(o.build().status()))
             .sorted(Comparator.comparingLong(o -> o.build().id())) // oldest → newest
             .toList();
+    }
+
+    /**
+     * The suite's finished, not cancelled builds on a branch, newest first (up to 100), each with the value it ran with
+     * of build parameter {@code name}: null when TeamCity named none. The Python thin client's suite takes the client's
+     * code from {@link TcModel#OVERRIDDEN_BRANCH}, not from the commit of its VCS root. One request.
+     */
+    public Map<Long, String> finishedRunsParameter(String token, String buildTypeId, String branch, String name) {
+        TcModel.BuildRefs list = get("branchRuns", token, url("app/rest/builds", query(
+            "locator", "buildType:(id:" + buildTypeId + "),branch:(name:" + branch + "),state:finished,count:100",
+            "fields", "build(id,resultingProperties($locator(name:" + name + "),property(name,value)))")),
+            TcModel.BuildRefs.class);
+
+        Map<Long, String> values = new LinkedHashMap<>();
+        if (list == null || list.build() == null)
+            return values;
+
+        for (TcModel.BuildRef b : list.build()) {
+            List<TcModel.Property> props = b.resultingProperties() == null ? null : b.resultingProperties().property();
+            values.put(b.id(), props == null ? null : props.stream().filter(p -> name.equals(p.name()))
+                .map(TcModel.Property::value).findFirst().orElse(null));
+        }
+
+        return values;
     }
 
     /**
@@ -736,11 +778,40 @@ public class TcClient {
     private TcModel.Build queue(String token, String buildTypeId, int prNumber, boolean top, String comment,
         Set<Long> waiting) {
         Map<String, Object> payload = Map.of(
-            "branchName", "pull/" + prNumber + "/head",
+            "branchName", prBranch(prNumber),
             "buildType", Map.of("id", buildTypeId),
             "triggeringOptions", Map.of("queueAtTop", top),
             "comment", Map.of("text", comment));
 
+        return queue(token, payload, buildTypeId, prBranch(prNumber), "PR " + prNumber, top, waiting);
+    }
+
+    /**
+     * Queues the run on its branch, with the commit of each VCS root and the build parameters it is pinned to.
+     * {@code top} puts it at the head of the queue; a build TeamCity queued but did not move there comes in a
+     * {@link QueuedBelowTopException}. {@code comment} tells on TeamCity who queued it and why.
+     */
+    public TcModel.Build queuePinned(String token, PinnedRun run, boolean top, String comment) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("buildType", Map.of("id", run.suite()));
+        payload.put("branchName", run.branch());
+        payload.put("revisions", Map.of("revision", run.revisions().stream()
+            .map(pin -> Map.of("version", pin.version(), "vcsBranchName", pin.vcsBranch(),
+                "vcs-root-instance", Map.of("id", pin.vcsRootInstance())))
+            .toList()));
+        payload.put("properties", Map.of("property", run.properties().entrySet().stream()
+            .map(p -> Map.of("name", p.getKey(), "value", p.getValue()))
+            .toList()));
+        payload.put("triggeringOptions", Map.of("queueAtTop", top));
+        payload.put("comment", Map.of("text", comment));
+
+        return queue(token, payload, run.suite(), run.branch(), run.branch(), top,
+            top ? waitingIds(token, run.suite(), run.branch()) : null);
+    }
+
+    /** Queues the build of {@code payload}; {@code of} names its PR in the log. See the method above. */
+    private TcModel.Build queue(String token, Map<String, Object> payload, String buildTypeId, String branch,
+        String of, boolean top, Set<Long> waiting) {
         try {
             return recorded("trigger", () -> http.post()
                 .uri(url("app/rest/buildQueue",
@@ -755,9 +826,9 @@ public class TcClient {
             if (!top || waiting == null || e.getStatusCode().value() == 401)
                 throw e;
 
-            TcModel.Build queued = queuedSince(token, buildTypeId, prNumber, waiting).orElseThrow(() -> e);
-            log.info("TeamCity queued build {} of {} for PR {}, but answered {} to putting it at the top: it waits at "
-                + "the end of the queue", queued.id(), buildTypeId, prNumber, e.getStatusCode().value());
+            TcModel.Build queued = queuedSince(token, buildTypeId, branch, waiting).orElseThrow(() -> e);
+            log.info("TeamCity queued build {} of {} for {}, but answered {} to putting it at the top: it waits at "
+                + "the end of the queue", queued.id(), buildTypeId, of, e.getStatusCode().value());
 
             throw new QueuedBelowTopException(queued, e);
         }
@@ -768,8 +839,12 @@ public class TcClient {
      * TeamCity does not say.
      */
     private Set<Long> waitingIds(String token, String buildTypeId, int prNumber) {
+        return waitingIds(token, buildTypeId, prBranch(prNumber));
+    }
+
+    private Set<Long> waitingIds(String token, String buildTypeId, String branch) {
         try {
-            return idsOf(userBuildsInState(token, prNumber, "queued"), buildTypeId);
+            return idsOf(userBuildsInState(token, branch, "queued"), buildTypeId);
         }
         catch (RuntimeException e) {
             return null;
@@ -780,9 +855,9 @@ public class TcClient {
      * The newest build of the suite that the token's user has waiting in the queue for the PR branch and that is not
      * one of {@code waiting}.
      */
-    private Optional<TcModel.Build> queuedSince(String token, String buildTypeId, int prNumber, Set<Long> waiting) {
+    private Optional<TcModel.Build> queuedSince(String token, String buildTypeId, String branch, Set<Long> waiting) {
         try {
-            List<TcModel.Build> fresh = userBuildsInState(token, prNumber, "queued").stream()
+            List<TcModel.Build> fresh = userBuildsInState(token, branch, "queued").stream()
                 .filter(b -> buildTypeId.equals(b.buildTypeId()) && !waiting.contains(b.id()))
                 .toList();
             String username = fresh.isEmpty() ? null : tokenOwner(token);
@@ -813,9 +888,13 @@ public class TcClient {
      * triggered builds are user-triggered; chain dependencies are triggered by the dependency.
      */
     public List<TcModel.Build> currentUserBuilds(String token, int prNumber) {
+        return currentUserBuilds(token, prBranch(prNumber));
+    }
+
+    private List<TcModel.Build> currentUserBuilds(String token, String branch) {
         List<TcModel.Build> builds = new ArrayList<>();
-        builds.addAll(userBuildsInState(token, prNumber, "running"));
-        builds.addAll(userBuildsInState(token, prNumber, "queued"));
+        builds.addAll(userBuildsInState(token, branch, "running"));
+        builds.addAll(userBuildsInState(token, branch, "queued"));
 
         return builds;
     }
@@ -850,10 +929,15 @@ public class TcClient {
      * build, would otherwise read as "cancelled 0 runs".
      */
     public int cancelOwnBuilds(String token, int prNumber, String username, Predicate<TcModel.Build> chosen) {
+        return cancelOwnBuilds(token, prBranch(prNumber), username, chosen);
+    }
+
+    /** The same on any branch, by the name TeamCity gives it, such as {@code pull/69} of a Python thin client PR. */
+    public int cancelOwnBuilds(String token, String branch, String username, Predicate<TcModel.Build> chosen) {
         int cancelled = 0;
         RestClientResponseException refused = null;
 
-        for (TcModel.Build b : currentUserBuilds(token, prNumber)) {
+        for (TcModel.Build b : currentUserBuilds(token, branch)) {
             if (!username.equals(starter(b)) || !chosen.test(b))
                 continue;
 
@@ -936,6 +1020,47 @@ public class TcClient {
         }
     }
 
+    /**
+     * The VCS root instances a suite takes its code from, by VCS root id: those its newest build ran with, else those
+     * TeamCity lists for the suite. A run pinned to commits names each root by its instance, and the instance ids
+     * differ between TeamCity servers. Empty when TeamCity has no such suite.
+     */
+    public Optional<Map<String, String>> vcsRootInstances(String token, String suite) {
+        Map<String, String> roots = new HashMap<>();
+        try {
+            TcModel.RootedBuilds newest = get("findBuild", token, url("app/rest/builds", query(
+                "locator", "buildType:(id:" + suite + "),branch:(default:any),count:1",
+                "fields", "build(revisions(revision(vcs-root-instance(id,vcs-root-id))))")),
+                TcModel.RootedBuilds.class);
+            if (newest != null && newest.build() != null) {
+                newest.build().stream().filter(b -> b.revisions() != null && b.revisions().revision() != null)
+                    .flatMap(b -> b.revisions().revision().stream())
+                    .forEach(r -> addRoot(roots, r.vcsRootInstance()));
+            }
+            if (!roots.isEmpty())
+                return Optional.of(roots);
+
+            TcModel.RootInstances listed = get("findBuild", token, url("app/rest/vcs-root-instances", query(
+                "locator", "buildType:(id:" + suite + ")",
+                "fields", "vcs-root-instance(id,vcs-root-id)")), TcModel.RootInstances.class);
+            if (listed != null && listed.vcsRootInstance() != null)
+                listed.vcsRootInstance().forEach(i -> addRoot(roots, i));
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404)
+                return Optional.empty();
+
+            throw e;
+        }
+
+        return Optional.of(roots);
+    }
+
+    private static void addRoot(Map<String, String> roots, TcModel.RootInstance instance) {
+        if (instance != null && instance.id() != null && instance.vcsRootId() != null)
+            roots.putIfAbsent(instance.vcsRootId(), instance.id());
+    }
+
     /** The newest finished run of one suite on the PR branch — standalone re-runs included. */
     public Optional<TcModel.Build> latestSuiteRun(String token, int prNumber, String buildTypeId) {
         String locator = "buildType:(id:" + buildTypeId + "),branch:(name:pull/" + prNumber + "/head)"
@@ -1016,6 +1141,11 @@ public class TcClient {
             "locator", locator, "fields", "build(id,buildTypeId)")), TcModel.BuildList.class);
     }
 
+    /** A PR's branch as TeamCity names it in the RunAll chain of Ignite. */
+    private static String prBranch(int prNumber) {
+        return "pull/" + prNumber + "/head";
+    }
+
     /** The user who queued a build, or null for one TeamCity queued by itself (a dependency, a VCS trigger). */
     public static String starter(TcModel.Build b) {
         return b.triggered() == null || b.triggered().user() == null ? null : b.triggered().user().username();
@@ -1062,8 +1192,8 @@ public class TcClient {
             .toBodilessEntity());
     }
 
-    private List<TcModel.Build> userBuildsInState(String token, int prNumber, String state) {
-        String locator = "branch:(name:pull/" + prNumber + "/head)"
+    private List<TcModel.Build> userBuildsInState(String token, String branch, String state) {
+        String locator = "branch:(name:" + branch + ")"
             + ",triggered:(type:user),state:" + state + ",count:50";
 
         TcModel.BuildList list = get("userBuilds", token, url("app/rest/builds", query(

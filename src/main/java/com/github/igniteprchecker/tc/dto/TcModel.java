@@ -16,11 +16,22 @@ public final class TcModel {
     /** The build parameter Ignite tests scale their workloads by. */
     public static final String TEST_SCALE_FACTOR = "TEST_SCALE_FACTOR";
 
+    /**
+     * The build parameter that the first step of the Python thin client's suite checks the client out at, over the
+     * commit TeamCity picked: without it the suite tests the client's master.
+     */
+    public static final String OVERRIDDEN_BRANCH = "OVERRIDDEN_BRANCH";
+
     private TcModel() {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildList(List<Build> build) {
+    }
+
+    /** Builds with the few parameters asked for by name. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BuildRefs(List<BuildRef> build) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -71,6 +82,34 @@ public final class TcModel {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Revision(String version) {
+    }
+
+    /** Builds with the VCS root instance of each of their commits. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RootedBuilds(List<RootedBuild> build) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RootedBuild(RootedRevisions revisions) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RootedRevisions(List<RootedRevision> revision) {
+    }
+
+    /** A commit of a build, by the VCS root instance it came from. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RootedRevision(@JsonProperty("vcs-root-instance") RootInstance vcsRootInstance) {
+    }
+
+    /** VCS root instances, as TeamCity lists them. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RootInstances(@JsonProperty("vcs-root-instance") List<RootInstance> vcsRootInstance) {
+    }
+
+    /** A VCS root of a build type, with the build type's parameters resolved: its own id, and its VCS root's id. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RootInstance(String id, @JsonProperty("vcs-root-id") String vcsRootId) {
     }
 
     /** Live progress of a running build, as TeamCity estimates it. */

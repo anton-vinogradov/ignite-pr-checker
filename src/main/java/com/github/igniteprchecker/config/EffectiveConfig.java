@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.env.Environment;
@@ -34,9 +35,18 @@ public class EffectiveConfig {
     /** How many TeamCity users {@code PRC_ADMINS} names. */
     private final int operators;
 
+    /** The settings of an instance whose Python thin client settings are the defaults. */
     public EffectiveConfig(Environment env, TeamcityProperties teamcity, GithubProperties github,
         AnalysisProperties analysis, PersistProperties persist, WarmProperties warm, UpdateProperties update,
         AdminProperties admin, SessionProperties session) {
+        this(env, teamcity, github, analysis, persist, warm, update, admin, session,
+            new PythonClientProperties(null, null, null, null));
+    }
+
+    @Autowired
+    public EffectiveConfig(Environment env, TeamcityProperties teamcity, GithubProperties github,
+        AnalysisProperties analysis, PersistProperties persist, WarmProperties warm, UpdateProperties update,
+        AdminProperties admin, SessionProperties session, PythonClientProperties python) {
         this.env = env;
         this.operators = admin.logins().size();
 
@@ -68,6 +78,11 @@ public class EffectiveConfig {
         number("github.cache-seconds", "GITHUB_CACHE_SECONDS", github.cacheSeconds());
         show("GITHUB_READ_TIMEOUT", duration(github.readTimeout()));
         text("github.api-url", "GITHUB_API_URL", github.apiUrl());
+
+        text("python-client.repo", "PYTHON_CLIENT_REPO", python.repo());
+        text("python-client.suite", "PYTHON_CLIENT_SUITE", python.suite());
+        text("python-client.ignite-vcs-root", "PYTHON_CLIENT_IGNITE_VCS_ROOT", python.igniteVcsRoot());
+        text("python-client.client-vcs-root", "PYTHON_CLIENT_VCS_ROOT", python.clientVcsRoot());
 
         show("JIRA_BASE_URL", env.getProperty("jira.base-url", ""));
         show("JIRA_READ_TIMEOUT", env.getProperty("jira.read-timeout", ""));

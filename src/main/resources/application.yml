@@ -102,6 +102,17 @@ github:
   # Give up on a GitHub call that sends nothing for this long.
   read-timeout: 60s
 
+python-client:
+  # PRs of the Python thin client: a /run-all in a PR of this repo runs the suite below, with the PR's head of the client
+  # and Ignite's master. Override with PYTHON_CLIENT_REPO.
+  repo: ${PYTHON_CLIENT_REPO:apache/ignite-python-thin-client}
+  # buildType id of the suite that tests the client against Ignite. Override with PYTHON_CLIENT_SUITE.
+  suite: ${PYTHON_CLIENT_SUITE:IgniteTests24Java8_WiPThinClientPython}
+  # VCS root ids of the suite's two roots: Ignite's and the client's. The run names the commit of each.
+  # Override with PYTHON_CLIENT_IGNITE_VCS_ROOT and PYTHON_CLIENT_VCS_ROOT.
+  ignite-vcs-root: ${PYTHON_CLIENT_IGNITE_VCS_ROOT:GitHubApacheIgnite}
+  client-vcs-root: ${PYTHON_CLIENT_VCS_ROOT:GitHubApacheIgnitePythonThinClient}
+
 jira:
   # The JIRA that visas go to. Override with JIRA_BASE_URL.
   base-url: ${JIRA_BASE_URL:https://issues.apache.org/jira}
