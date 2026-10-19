@@ -45,8 +45,9 @@ repositories {
     mavenCentral()
 }
 
-// Patch releases newer than Boot 4.1.1 manages: Jackson 3.1.5 has CVE-2026-89407 and CVE-2026-89425, Tomcat 11.0.24
-// has CVE-2026-65182, -65905 and -68525. Drop a pin once Boot manages that version or newer.
+// Patch releases newer than Boot 4.1.1 manages: Jackson 3.1.5 has CVEs in jackson-core and jackson-databind (OSV lists
+// seven, CVE-2026-89407 among them), Tomcat 11.0.24 has CVE-2026-65182, -65905 and -68525. Drop a pin once Boot
+// manages that version or newer.
 ext['jackson-bom.version'] = '3.1.8'
 ext['tomcat.version'] = '11.0.25'
 
@@ -60,6 +61,10 @@ dependencies {
     implementation('com.puppycrawl.tools:checkstyle:12.3.1') {
         // A second SLF4J backend next to Logback.
         exclude group: 'org.slf4j', module: 'slf4j-simple'
+    }
+    constraints {
+        // Checkstyle brings plexus-utils 3.3.0 in through doxia; it has CVE-2025-67030, fixed in 3.6.1.
+        implementation 'org.codehaus.plexus:plexus-utils:3.6.1'
     }
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     // TestRestTemplate, which ContextStartsTest calls the started service with, and the RestTemplateBuilder it needs.
