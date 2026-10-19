@@ -57,6 +57,13 @@ public class LogTracker extends AppenderBase<ILoggingEvent> implements SnapshotC
 
     private static final String RESOLVED = "Resolved [";
 
+    /** Spring logs each request for a static file by a path that could reach out of its folder under this name. */
+    private static final String RESOURCES = "org.springframework.web.servlet.resource.ResourceHandlerUtils";
+
+    /** How Spring starts the warning of such a request, which it then refuses: what a scanner's probe gets. */
+    private static final List<String> BAD_PATHS = List.of("\"Path contains \"../\"", "\"Path with \"WEB-INF\"",
+        "\"Path represents URL", "\"Resolved resource path contains encoded");
+
     /**
      * What Spring answers with a 4xx when a caller gets this app's endpoints wrong: the wrong method (what
      * scanners mostly do), a missing or malformed parameter, an unreadable body, a content type the endpoint
@@ -169,8 +176,13 @@ public class LogTracker extends AppenderBase<ILoggingEvent> implements SnapshotC
         trim();
     }
 
-    /** Whether Spring turned the request away as the caller's mistake: "Resolved [exception class: message]". */
+    /**
+     * Whether Spring turned the request away as the caller's mistake: "Resolved [exception class: message]", or a path
+     * that reaches out of the folder of the static files.
+     */
     private static boolean clientMistake(String logger, String message) {
+        if (RESOURCES.equals(logger))
+            return BAD_PATHS.stream().anyMatch(message::startsWith);
         if (!RESOLVER.equals(logger) || !message.startsWith(RESOLVED))
             return false;
 

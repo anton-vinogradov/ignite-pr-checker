@@ -103,6 +103,22 @@ class TokensOutOfTraceLogTest {
         assertThat(output.getAll()).contains(" TRACE ").doesNotContain("FAKEtcBODY", "FAKEtcSIGN");
     }
 
+    /**
+     * curl -d sends a form type unless told otherwise. Tomcat parsed such a body as a form and logged it whole, token
+     * included, as a parameter not followed by "=".
+     */
+    @Test
+    void aLoginSentAsAFormLeavesNoTokenInTheLog(CapturedOutput output) throws Exception {
+        HttpRequest login = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/login"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"" + TOKEN + "\"}")).build();
+
+        HttpResponse<String> res = HttpClient.newHttpClient().send(login, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(res.statusCode()).isEqualTo(415);
+        assertThat(output.getAll()).contains(" TRACE ").doesNotContain("FAKEtcBODY", "FAKEtcSIGN");
+    }
+
     /** The session cookie lets anyone who has it act as its user, like the token inside it. */
     @Test
     void aSignedInRequestLeavesNoCookieInTheLog(CapturedOutput output) throws Exception {

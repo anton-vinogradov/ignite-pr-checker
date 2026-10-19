@@ -1090,6 +1090,7 @@
     "A service this page needs": "Сервис, нужный этой странице,",
     "TeamCity answered {0:n} — try again in a moment": "TeamCity ответил {0} — попробуй чуть позже",
     "bad JSON": "неверный JSON",
+    "bad parameters": "неверные параметры",
     "no RunAll build found for PR {0:n}": "у PR {0} не найдено сборки RunAll",
     "no blocker suites to re-run": "нет сьют с блокерами для перезапуска",
     "no suites to re-run": "нет сьют для перезапуска",
