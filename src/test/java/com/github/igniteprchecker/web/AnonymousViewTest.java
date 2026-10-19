@@ -241,11 +241,16 @@ class AnonymousViewTest {
             mock(RerunTracker.class), mock(StandingVisas.class), mock(PrCommands.class), auth, admin, store, config,
             mock(ObjectProvider.class));
 
-        String operator = mapper.writeValueAsString(checked.status(signedIn()));
+        Map<String, Object> operator = checked.status(signedIn());
+        GithubClient.AppAccount card = (GithubClient.AppAccount)((Map<String, Object>)operator.get("app"))
+            .get("githubAccount");
         String stranger = mapper.writeValueAsString(checked.status(signedInAs("stranger")));
 
-        assertThat(operator).contains("\"text\":\"GITHUB_TOKEN expires on 2026-10-28, in 9 days: make a new one\"")
-            .doesNotContain("dateless");
+        assertThat(card.checks()).extracting(GithubClient.AppAccount.Check::text)
+            .containsExactly("GITHUB_TOKEN expires on 2026-10-28, in 9 days: make a new one");
+        assertThat((List<ServiceHealth.Problem>)operator.get("healthProblems")).extracting(ServiceHealth.Problem::text)
+            .containsExactly("GITHUB_TOKEN expires on 2026-10-28, in 9 days: make a new one");
+        assertThat(mapper.writeValueAsString(operator)).doesNotContain("dateless");
         assertThat(stranger).doesNotContain("2026-10-28", "9 days", "dateless")
             .contains("\"checks\":[{\"level\":\"warn\",\"text\":\"GITHUB_TOKEN expires in 14 days or less: an"
                 + " operator has to replace it\"}]");
