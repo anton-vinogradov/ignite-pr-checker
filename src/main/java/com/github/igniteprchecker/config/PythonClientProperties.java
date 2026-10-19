@@ -10,9 +10,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties(prefix = "python-client")
 public record PythonClientProperties(String repo, String suite, String igniteVcsRoot, String clientVcsRoot) {
+    /** The id of the suite on ci2 that runs the client's tests. */
+    public static final String DEFAULT_SUITE = "IgniteTests24Java8_WiPThinClientPython";
+
     public PythonClientProperties {
         repo = orElse(repo, "apache/ignite-python-thin-client");
-        suite = orElse(suite, "IgniteTests24Java8_WiPThinClientPython");
+        suite = orElse(suite, DEFAULT_SUITE);
         igniteVcsRoot = orElse(igniteVcsRoot, "GitHubApacheIgnite");
         clientVcsRoot = orElse(clientVcsRoot, "GitHubApacheIgnitePythonThinClient");
     }

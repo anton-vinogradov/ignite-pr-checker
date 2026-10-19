@@ -580,7 +580,8 @@
                     <div id="freshness" class="muted"><span id="freshText"></span><button id="refreshBtn" class="refresh hidden" type="button"
                         title="Compute the verdict again now" aria-label="Compute the verdict again now">↻</button><span id="freshMore"></span></div>
                     <div class="status-row"><span id="status" class="muted"></span><button id="statusRetry" class="act hidden" type="button"
-                        title="Ask the checker for the verdict again">Retry</button></div>
+                        title="Ask the checker for the verdict again">Retry</button><button id="statusForce" class="act hidden" type="button"
+                        title="Queues RunAll although GitHub reports merge conflicts in this PR. Asks first.">Run anyway</button></div>
                     <div id="pendingRow" class="head-row pending-row hidden">
                         <span id="pending" class="pending-note"></span>
                         <button id="pendingRerun" class="act" type="button">Run RunAll</button>

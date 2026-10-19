@@ -168,6 +168,24 @@ class ClientRerunTest {
         verify(tc, times(2)).queuePinned(anyString(), any(), anyBoolean(), anyString());
     }
 
+    /**
+     * GitHub reports merge conflicts in the PR, and the author forced the run. The auto re-run is part of that run,
+     * not a new one: the conflicts do not hold it back, and GitHub is not asked about them again.
+     */
+    @Test
+    void mergeConflictsDoNotHoldBackTheAutoReRun() {
+        when(github.reportsConflicts(CLIENT_REPO, PR)).thenReturn(true);
+        clientComment(1L, "/run-all force");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));
+
+        commands.updateEtas();
+
+        verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
+        verify(github, never()).reportsConflicts(anyString(), anyInt());
+        verify(github, never()).appReact(CLIENT_REPO, PR, "author", 1L, "confused");
+    }
+
     /** Nothing in the run is blamed on the PR: there is nothing for a re-run to settle, and the verdict comes at once. */
     @Test
     void aRunWithNothingBlamedIsNotRunAgain() {

@@ -8,12 +8,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * The head commit of a PR as the page asks for it: whether a running build tests it (/api/runs), and whether the PR
- * moved past a run (/api/pending). Any signed-in user can ask about any PR number, and every answer GitHub gives costs
- * a call of the checker's own token, which PR commands, comments and visas need too. When those calls run out for over
- * an hour, the PR commands posted meanwhile are skipped, and a visa goes out without saying that commits were pushed
- * since. So the head comes from the open-PR list while that is fresh, a head GitHub named is kept a while, and the
- * page does not ask GitHub at all while few of the token's hourly calls are left.
+ * The head commit of a PR as the page asks for it: whether a running build tests it (/api/runs), whether the PR
+ * moved past a run (/api/pending), and whether it has merge conflicts with its base branch (/api/trigger). Any
+ * signed-in user can ask about any PR number, and every answer GitHub gives costs a call of the checker's own token,
+ * which PR commands, comments and visas need too. When those calls run out for over an hour, the PR commands posted
+ * meanwhile are skipped, and a visa goes out without saying that commits were pushed since. So the head comes from the
+ * open-PR list while that is fresh, a head GitHub named is kept a while, and the page does not ask GitHub at all while
+ * few of the token's hourly calls are left.
  */
 @Component
 public class PrHeads {
@@ -76,6 +77,14 @@ public class PrHeads {
         }
 
         return sha;
+    }
+
+    /**
+     * Whether GitHub reports merge conflicts between the PR and its base branch. Asked anew each time, as a push to
+     * either side changes it; while the token has no calls to spare, GitHub is not asked and the answer is no.
+     */
+    public boolean conflicts(int pr) {
+        return spare() && github.reportsConflicts(pr);
     }
 
     /** Whether the token has calls to spare for the page: GitHub said nothing else since its hour began. */
