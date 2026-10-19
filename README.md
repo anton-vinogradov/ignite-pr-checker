@@ -104,7 +104,11 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
 - **Expiry.** The JIRA token acts with all the rights of the user's JIRA account (ASF JIRA has no token scopes). Give it
   and the GitHub token an expiry, say 90 days. When one expires, the options that use it switch off with a note in ⚙;
   once the user pastes a new one and switches them back on, the visas held back meanwhile go out, for runs no newer
-  RunAll replaced.
+  RunAll replaced. ⚙ shows how long each token has left, including the TeamCity token the user logged in with. A
+  token's line turns amber from `expires in 14 days` on. TeamCity and JIRA list a user's tokens without their values.
+  So ⚙ names an expiry only when all the user's working tokens expire at the same time. Otherwise it says the expiry
+  is unknown. GitHub names the expiry of the token itself. The checker accepts a token without an expiry too. The
+  checker asks each service about a token at most once an hour, when the user opens ⚙ or saves a token.
 - **The app account** is the GitHub account of `GITHUB_TOKEN`. The checker reads GitHub under it, and everything it
   writes in a PR comes from it, for every user alike: verdict comments, which mention the run's starter, the stories of
   `/run-all`, reactions, replies and the reports of tests added to suites. It edits and deletes only its own comments.
@@ -117,9 +121,9 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   calls are left, these checks do not ask GitHub. The checker's own work, such as PR commands, comments and visas,
   needs the rest. Without the token the options that write to GitHub are off. The checker checks the token at the start and every 6 hours, and the status page shows signed-in viewers
   what it found: whose token it is, whether it can write to the repo (a fine-grained token cannot, nor a classic one
-  without `public_repo`), when it expires (a warning 14 days ahead, and one for a token that never expires), and
-  whether the account can push to the repo or to the checker's own, where its releases come from. What GitHub does not
-  say shows as unknown.
+  without `public_repo`), whether it expires within 14 days or never expires (a warning for each), and whether the
+  account can push to the repo or to the checker's own, where its releases come from. What GitHub does not say shows
+  as unknown. Only operators see the day the token expires and how many days it has left.
 
 There is no shared JIRA account: visas go out under the JIRA token of the user they are for.
 
@@ -383,11 +387,11 @@ can make a session cookie for any user.
 ### Operators
 
 Operators are the TeamCity users that `PRC_ADMINS` names, comma-separated. Only they see the log messages on the
-status page, who restarted and who flushed last, the operators' names in the settings, and the list on the **Users**
-tab. Only they can press **Restart service**, **Update** and **Flush caches**. The server checks this itself: it sends
-these to nobody else and refuses anyone else's press. The PR page shows **operator** next to an operator's name. Other
-logged-in users see how many warnings and errors were logged, but not the messages. They also see how many operators
-there are, but not who. Every press is logged with the operator's name.
+status page, who restarted and who flushed last, the operators' names in the settings, the day `GITHUB_TOKEN` expires,
+and the list on the **Users** tab. Only they can press **Restart service**, **Update** and **Flush caches**. The
+server checks this itself: it sends these to nobody else and refuses anyone else's press. The PR page shows
+**operator** next to an operator's name. Other logged-in users see how many warnings and errors were logged, but not
+the messages. They also see how many operators there are, but not who. Every press is logged with the operator's name.
 
 Without `PRC_ADMINS`, nobody is an operator. Nobody can restart the service, update it or flush its caches from the
 pages. Nobody sees the log messages on the status page either: read them on the server with

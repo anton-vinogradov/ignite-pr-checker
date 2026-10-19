@@ -4,8 +4,16 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -18,6 +26,16 @@ import org.springframework.web.client.RestClientResponseException;
  */
 @Component
 public class JiraClient {
+    /** How JIRA writes a moment: an ISO date and time with an offset, the offset with or without a colon. */
+    private static final DateTimeFormatter JIRA_DATE = new DateTimeFormatterBuilder()
+        .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        .optionalStart().appendOffset("+HH:MM", "Z").optionalEnd()
+        .optionalStart().appendOffset("+HHMM", "Z").optionalEnd()
+        .toFormatter();
+
+    /** Answers with which JIRA declines to list a user's tokens, rather than fails. */
+    private static final Set<Integer> DECLINED = Set.of(401, 403, 404);
+
     private final RestClient http;
 
     private final String baseUrl;
@@ -72,6 +90,34 @@ public class JiraClient {
         }
     }
 
+    /**
+     * The Personal Access Tokens of the user {@code token} belongs to, as JIRA lists them: without their values, so the
+     * list does not say which of them {@code token} is. Throws when JIRA does not list them. JIRA may decline with a
+     * 401, 403 or 404, and the status page does not count that as a failed call.
+     */
+    public List<Pat> tokens(String token) {
+        Pat[] pats = recorded("tokens", () -> http.get().uri(baseUrl + "/rest/pat/latest/tokens")
+            .header("Authorization", "Bearer " + token)
+            .retrieve()
+            .body(Pat[].class), JiraClient::declined);
+
+        return pats == null ? List.of() : List.of(pats);
+    }
+
+    /** A Personal Access Token as JIRA lists it. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Pat(String name, String expiringAt) {
+        /** When the token expires; null for one that never does, which ASF JIRA lists as expiring in the year 9999. */
+        public String expiry() {
+            return expiringAt == null || expiringAt.startsWith("9999-") ? null : expiringAt;
+        }
+    }
+
+    /** A JIRA timestamp, such as {@code 2026-12-01T10:00:00.000+0000}; throws {@link DateTimeParseException} if not. */
+    public static Instant instant(String jiraDate) {
+        return OffsetDateTime.parse(jiraDate, JIRA_DATE).toInstant();
+    }
+
     /** Posts a comment to the issue; its id (for later in-place edits) and browse URL. */
     public PostedComment addCommentWithId(String token, String issueKey, String body) {
         Comment c = recorded("visa", () -> http.post().uri(baseUrl + "/rest/api/2/issue/" + issueKey + "/comment")
@@ -123,6 +169,14 @@ public class JiraClient {
     }
 
     private <T> T recorded(String category, Supplier<T> call) {
+        return recorded(category, call, e -> false);
+    }
+
+    /**
+     * Runs a JIRA call, recording its category, outcome and latency for the status page. {@code answered}: a failure
+     * that is JIRA's answer, which the JIRA card must not show as trouble with JIRA.
+     */
+    private <T> T recorded(String category, Supplier<T> call, Predicate<RuntimeException> answered) {
         long t0 = System.nanoTime();
         try {
             T v = call.get();
@@ -131,10 +185,14 @@ public class JiraClient {
             return v;
         }
         catch (RuntimeException e) {
-            metrics.recordJira(category, false, (System.nanoTime() - t0) / 1_000_000L);
+            metrics.recordJira(category, answered.test(e), (System.nanoTime() - t0) / 1_000_000L);
 
             throw OutboundHttp.naming("JIRA", e);
         }
+    }
+
+    private static boolean declined(RuntimeException e) {
+        return e instanceof RestClientResponseException r && DECLINED.contains(r.getStatusCode().value());
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

@@ -32,8 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
  * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
  * read the counters, the health and the levels of its problems; the problems' texts and the settings name files and
  * errors on the server, so only signed-in viewers get those. Only the operators get the log messages, who restarted
- * or flushed last, and the operators' names in the settings. The messages tell whose tokens TeamCity or GitHub
- * refused, and an operator's login is what opens Restart, Update and the messages.
+ * or flushed last, the operators' names in the settings, and the day GITHUB_TOKEN expires. The messages tell whose
+ * tokens TeamCity or GitHub refused, an operator's login is what opens Restart, Update and the messages, and the
+ * operators are the ones who replace the token.
  */
 @RestController
 @RequestMapping("/api")
@@ -139,7 +140,7 @@ public class StatusController {
         app.put("stars", github.starCount());
         app.put("githubRate", github.rateLimit());
         app.put("githubAccount", Optional.ofNullable(github.appAccount())
-            .map(a -> viewer.isPresent() ? a : a.anonymous()).orElse(null));
+            .map(a -> operator ? a : viewer.isPresent() ? a.withoutDates() : a.anonymous()).orElse(null));
         app.put("githubWrites", Optional.ofNullable(github.writeState())
             .map(w -> viewer.isPresent() ? w : w.anonymous()).orElse(null));
         app.put("pooledTokens", warmer.pooledTokens());
@@ -167,7 +168,8 @@ public class StatusController {
         out.put("startedAt", ManagementFactory.getRuntimeMXBean().getStartTime());
         out.put("health", report.health());
         out.put("logHealth", report.logHealth());
-        out.put("healthProblems", viewer.isPresent() ? report.problems() : report.levelsOnly());
+        out.put("healthProblems", operator ? report.problems()
+            : viewer.isPresent() ? report.withoutDates() : report.levelsOnly());
         out.put("jvm", jvm);
         out.put("teamcity", metrics.teamcity());
         out.put("github", metrics.github());

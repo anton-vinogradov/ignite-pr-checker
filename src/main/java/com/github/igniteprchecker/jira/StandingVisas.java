@@ -574,6 +574,22 @@ public class StandingVisas implements SnapshotCache {
         return c.removed() ? TOKEN_REMOVED : c.unread();
     }
 
+    /** The JIRA and the GitHub token the server stores for the user's options, decrypted; null where none is kept. */
+    public StoredTokens storedTokens(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e == null ? new StoredTokens(null, null)
+            : new StoredTokens(decrypt(e.jira()).orElse(null), decrypt(e.gh()).orElse(null));
+    }
+
+    /** See {@link #storedTokens}. */
+    public record StoredTokens(String jira, String github) {
+        @Override
+        public String toString() {
+            return "StoredTokens[jira=" + Secrets.masked(jira) + ", github=" + Secrets.masked(github) + "]";
+        }
+    }
+
     /** A settings change: each option is switched on, off, or left as it is (null). */
     public record OptionChange(Boolean visa, Boolean rerun, Boolean gh, Boolean style, Boolean commands,
         Boolean suites) {

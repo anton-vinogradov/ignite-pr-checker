@@ -26,6 +26,7 @@
         .settings-row input { margin: 0.2rem 0 0 0; width: 16px; height: 16px; flex: none; }
         .settings-group + .settings-group { border-top: 1px solid var(--line); margin-top: 0.7rem; padding-top: 0.7rem; }
         .settings-access { margin: 0 0 0.4rem; }
+        .expiry-soon { color: var(--warn); }
         .settings-group .caveat, .settings-group > .muted, .settings-form { margin: 0 0 0.4rem; }
         .settings-form .row { margin-top: 0.3rem; }
         .settings-group .settings-row + .settings-row { margin-top: 0.4rem; }
@@ -321,7 +322,8 @@
     <div id="settingsPanel" class="card settings-panel hidden">
         <p id="tokensUnread" class="caveat hidden"></p>
         <section id="groupTc" class="settings-group">
-            <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span></p>
+            <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span><span id="tcExpiry"
+                class="hidden"></span></p>
             <p id="tcTokenGone" class="caveat hidden">⚠ TeamCity no longer accepts the token your options use, so they
                 are paused: log in again with a fresh token.
                 <button id="tcRelogin" class="act" type="button">Log in again</button></p>
@@ -337,7 +339,8 @@
             </label>
         </section>
         <section id="groupJira" class="settings-group">
-            <p class="settings-access"><b>JIRA token</b>: <span id="jiraState">not saved</span>
+            <p class="settings-access"><b>JIRA token</b>: <span id="jiraState">not saved</span><span id="jiraExpiry"
+                class="hidden"></span>
                 <button id="jiraTokenBtn" class="act" type="button">Save</button></p>
             <p id="jiraTokenGone" class="caveat hidden">⚠ JIRA rejected your saved token, so Visa my runs in JIRA went
                 off: save a new token and switch it on again.</p>
@@ -375,7 +378,8 @@
             </label>
         </section>
         <section id="groupGhToken" class="settings-group">
-            <p class="settings-access"><b>GitHub token for commits</b>: <span id="ghTokenState">not saved</span>
+            <p class="settings-access"><b>GitHub token for commits</b>: <span id="ghTokenState">not saved</span><span
+                id="ghTokenExpiry" class="hidden"></span>
                 <button id="ghTokenBtn" class="act" type="button">Save</button></p>
             <p id="ghTokenGone" class="caveat hidden">⚠ GitHub rejected your saved token, so the options that commit
                 with it went off: save a new token and switch them on again.</p>

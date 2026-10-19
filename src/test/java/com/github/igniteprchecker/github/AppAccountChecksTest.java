@@ -28,10 +28,20 @@ class AppAccountChecksTest {
 
     private static final Check NO_PUSH_SELF = new Check("ok", "cannot push to anton-vinogradov/ignite-pr-checker");
 
+    /** What the viewers who are not operators read of an expiry more than two weeks ahead. */
+    private static final String FINE = "expires in more than 14 days";
+
+    /** What they read of an expiry two weeks ahead or sooner. */
+    private static final String SOON = "GITHUB_TOKEN expires in 14 days or less: an operator has to replace it, or the"
+        + " app account stops replying";
+
+    private static final String UNREADABLE = "GitHub named an expiry of GITHUB_TOKEN the checker cannot read";
+
     @Test
     void aClassicPublicRepoTokenOfAnAccountWithoutPushIsFine() {
         assertThat(checks(CLASSIC, headers("public_repo", "2027-01-12 00:00:00 UTC"), false, false))
-            .containsExactly(CLASSIC_OK, new Check("ok", "expires on 2027-01-12"), NO_PUSH, NO_PUSH_SELF);
+            .containsExactly(CLASSIC_OK, new Check("ok", "expires on 2027-01-12, in 89 days", FINE), NO_PUSH,
+                NO_PUSH_SELF);
     }
 
     /**
@@ -70,17 +80,51 @@ class AppAccountChecksTest {
     void anExpiryTwoWeeksAheadIsWarnedOf() {
         assertThat(checks(CLASSIC, headers("public_repo", "2026-10-20 09:30:00 UTC"), false, false).get(1))
             .isEqualTo(new Check("warn", "GITHUB_TOKEN expires on 2026-10-20, in 5 days: make a new one and replace"
-                + " it in the service's environment, or the app account stops replying"));
+                + " it in the service's environment, or the app account stops replying", SOON));
         assertThat(checks(CLASSIC, headers("public_repo", "2026-10-14 20:00:00 -0800"), false, false).get(1).text())
             .startsWith("GITHUB_TOKEN expires on 2026-10-15, in less than a day:");
         assertThat(checks(CLASSIC, headers("public_repo", "2027-01-12 00:00:00 UTC"), false, false).get(1))
-            .isEqualTo(new Check("ok", "expires on 2027-01-12"));
+            .isEqualTo(new Check("ok", "expires on 2027-01-12, in 89 days", FINE));
+    }
+
+    /** 14 days and an hour ahead the check said "in 14 days" and called it fine. */
+    @Test
+    void aCheckThatSaysFourteenDaysWarns() {
+        assertThat(checks(CLASSIC, headers("public_repo", "2026-10-28 13:00:00 UTC"), false, false).get(1))
+            .isEqualTo(new Check("warn", "GITHUB_TOKEN expires on 2026-10-28, in 14 days: make a new one and replace"
+                + " it in the service's environment, or the app account stops replying", SOON));
+        assertThat(checks(CLASSIC, headers("public_repo", "2026-10-29 13:00:00 UTC"), false, false).get(1))
+            .isEqualTo(new Check("ok", "expires on 2026-10-29, in 15 days", FINE));
     }
 
     @Test
     void anExpiryTheCheckerCannotReadIsUnknown() {
         assertThat(checks(CLASSIC, headers("public_repo", "soon"), false, false).get(1))
-            .isEqualTo(new Check("unknown", "GitHub named an expiry of GITHUB_TOKEN the checker cannot read: soon"));
+            .isEqualTo(new Check("unknown", UNREADABLE + ": soon", UNREADABLE));
+        assertThat(checks(CLASSIC, headers("public_repo", "2026-02-30 12:00:00 UTC"), false, false).get(1))
+            .as("a day that does not exist").isEqualTo(new Check("unknown", UNREADABLE + ": 2026-02-30 12:00:00 UTC",
+                UNREADABLE));
+    }
+
+    /**
+     * The status page showed every signed-in viewer the day GITHUB_TOKEN expires and the days it had left, and anyone
+     * may register on ci2. That day is for the operators, who replace the token: the others read only whether it is
+     * two weeks away or less, and the rest of the check as it is.
+     */
+    @Test
+    void onlyTheOperatorsReadTheDayTheTokenExpires() {
+        List<Check> soon = checks(CLASSIC, headers("public_repo", "2026-10-20 09:30:00 UTC"), false, false);
+        List<Check> fine = checks(CLASSIC, headers("public_repo", "2027-01-12 00:00:00 UTC"), false, false);
+
+        assertThat(account(soon).withoutDates().checks())
+            .containsExactly(CLASSIC_OK, new Check("warn", SOON), NO_PUSH, NO_PUSH_SELF);
+        assertThat(account(fine).withoutDates().checks()).extracting(Check::text)
+            .containsExactly(CLASSIC_OK.text(), FINE, NO_PUSH.text(), NO_PUSH_SELF.text());
+        assertThat(account(checks(CLASSIC, headers("public_repo", null), false, false)).withoutDates().checks().get(1))
+            .as("names no day").isEqualTo(NEVER_EXPIRES);
+        assertThat(account(soon).withoutDates())
+            .extracting(GithubClient.AppAccount::login, GithubClient.AppAccount::canPush)
+            .containsExactly("ignite-pr-checker", false);
     }
 
     @Test
@@ -100,6 +144,10 @@ class AppAccountChecksTest {
             new Check("unknown", "GitHub did not say whether the app account can push to apache/ignite"),
             new Check("unknown", "GitHub did not say whether the app account can push to "
                 + "anton-vinogradov/ignite-pr-checker"));
+    }
+
+    private static GithubClient.AppAccount account(List<Check> checks) {
+        return new GithubClient.AppAccount("ok", "ignite-pr-checker", false, 234567L, checks);
     }
 
     private static List<Check> checks(String token, HttpHeaders user, Boolean canPush, Boolean canPushSelf) {

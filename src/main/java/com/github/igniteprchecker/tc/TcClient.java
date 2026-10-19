@@ -148,6 +148,17 @@ public class TcClient {
     }
 
     /**
+     * The access tokens of the user {@code token} belongs to, as TeamCity lists them: without their values, so the list
+     * does not say which of them {@code token} is. Throws when TeamCity does not list them.
+     */
+    public List<TcModel.Token> ownTokens(String token) {
+        TcModel.Tokens tokens = get("whoami", token, url("app/rest/users/current/tokens",
+            query("fields", "token(name,expirationTime)")), TcModel.Tokens.class);
+
+        return tokens == null || tokens.token() == null ? List.of() : tokens.token();
+    }
+
+    /**
      * Whether TeamCity itself refuses this token (401). A firewall 403 or an outage says nothing about
      * the token, so neither counts.
      */
