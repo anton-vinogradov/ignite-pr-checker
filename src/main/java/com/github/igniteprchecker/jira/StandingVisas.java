@@ -796,7 +796,8 @@ public class StandingVisas implements SnapshotCache {
 
             was[0] = e.options();
 
-            return e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh());
+            return e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh())
+                .withTcOnlyWhileOn();
         });
         if (dropped) {
             journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.GITHUB,
@@ -821,7 +822,8 @@ public class StandingVisas implements SnapshotCache {
 
             was[0] = e.options();
 
-            return e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa());
+            return e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa())
+                .withTcOnlyWhileOn();
         });
         if (dropped) {
             journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.JIRA, offWith(was[0],
@@ -873,7 +875,8 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * A token TeamCity has just accepted at login becomes the stored one: logging in again is how a
-     * user replaces an expired token, and it used to leave the dead one in charge of their options.
+     * user replaces an expired token, and it used to leave the dead one in charge of their options. A user with no
+     * option on gets none stored.
      */
     public void tcTokenAccepted(String username, String token) {
         tcTokenAccepted(username, token, SettingsJournal.By.of(null, null));
@@ -883,7 +886,7 @@ public class StandingVisas implements SnapshotCache {
     public void tcTokenAccepted(String username, String token, SettingsJournal.By by) {
         boolean wasRejected = tcTokenRejected(username);
         Credential accepted = new Credential(codec.encryptString(token), 0);
-        boolean replaced = changed(username, e -> !e.tc().rejected()
+        boolean replaced = changed(username, e -> !e.options().any() || !e.tc().rejected()
             && decrypt(e.tc()).filter(token::equals).isPresent() ? e : e.withTc(accepted));
         if (replaced)
             journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.TEAMCITY));
@@ -899,13 +902,13 @@ public class StandingVisas implements SnapshotCache {
     /** See {@link #tcTokenOffered(String, String)}: a request of the login {@code by}, which the journal names. */
     public void tcTokenOffered(String username, String token, SettingsJournal.By by) {
         Enrollment e = enrolled.get(username);
-        if (e == null || tcKept(e.tc(), token) == e.tc())
+        if (e == null || !e.options().any() || tcKept(e.tc(), token) == e.tc())
             return;
 
         boolean replaced = changed(username, cur -> {
             Credential kept = tcKept(cur.tc(), token);
 
-            return kept == cur.tc() ? cur : cur.withTc(kept);
+            return kept == cur.tc() || !cur.options().any() ? cur : cur.withTc(kept);
         });
         if (replaced) {
             journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.TEAMCITY));
@@ -1509,7 +1512,7 @@ public class StandingVisas implements SnapshotCache {
                 next = next.withJira(next.jira().rejected() ? next.jira() : Credential.refusedAt(now))
                     .withOptions(next.options().withoutVisa());
 
-            return next;
+            return next.withTcOnlyWhileOn();
         });
     }
 
@@ -2777,7 +2780,7 @@ public class StandingVisas implements SnapshotCache {
 
         boolean keyChanged = keyCheck != null && !keyCheck.equals(codec.keyCheck());
         for (Persisted p : enrollments) {
-            Enrollment e = p.enrollment();
+            Enrollment e = p.enrollment().withTcOnlyWhileOn();
             boolean refusedKept = e.tc().rejected() && e.tc().token() != null;
             Enrollment loaded = withUnreadDropped(p.username(),
                 refusedKept ? e.withTc(refused(e.tc(), e.tc().rejectedAt())) : e, keyChanged);
@@ -2880,6 +2883,14 @@ public class StandingVisas implements SnapshotCache {
 
         Enrollment withTc(Credential c) {
             return new Enrollment(c, jira, gh, ghAccount, tz, enabledAt, options, handled, onSince);
+        }
+
+        /**
+         * The same without the TeamCity token once no option is on. Such an enrollment stays only for what ⚙ says of a
+         * refused token, and the TeamCity token would lie on disk and in the backups for nothing.
+         */
+        Enrollment withTcOnlyWhileOn() {
+            return options.any() ? this : withTc(Credential.NONE);
         }
 
         Enrollment withJira(Credential c) {
