@@ -21,12 +21,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Encodes a session into an encrypted, self-contained cookie value (AES-GCM), so there is no
- * server-side session store and logins survive restarts. Each value carries when it was issued: a logout
- * ends every session of its user issued until then, and the guard renews an old cookie before the
- * browser drops it. The session does not time out on the server; it ends at a logout, when TeamCity
- * refuses the token, or when {@code session.secret} is rotated. The token is confidential inside the
- * cookie; tampering fails the GCM auth tag.
+ * Encodes a session into an encrypted cookie value (AES-GCM). The cookie carries the TeamCity token and names its
+ * login, one of the server's records of who logged in from which browser, which hold no token. Each value carries when
+ * it was issued, so the guard renews an old cookie before the browser drops it. The session does not time out on the
+ * server; it ends when its login is ended, when TeamCity refuses the token, or when {@code session.secret} is rotated.
+ * The token is confidential inside the cookie; tampering fails the GCM auth tag.
  */
 @Component
 public class SessionCodec {
@@ -62,13 +61,12 @@ public class SessionCodec {
 
     /**
      * @return the cookie value carrying the encrypted session, issued at {@code issuedAt}. A cookie re-issued from a
-     * session the guard let through says it was issued when the guard checked it: a logout after that check ends the
-     * new cookie too, however long the answer took.
+     * session the guard let through says it was issued when the guard checked it.
      */
     public String encode(Session session, long issuedAt) {
         try {
             byte[] plain = mapper.writeValueAsBytes(new Payload(session.username(), session.token(), null, issuedAt,
-                Payload.NAMED_BY_CONNECTION));
+                Payload.NAMED_BY_CONNECTION, session.login()));
 
             byte[] iv = new byte[IV_LEN];
             random.nextBytes(iv);
@@ -192,9 +190,10 @@ public class SessionCodec {
      * A user's session. {@code issuedAt} is when its cookie was issued (epoch ms); 0 for a cookie issued before
      * cookies said so, and for a session not issued yet. {@code carriesJira}: the cookie carries a JIRA token an
      * earlier version put there. The checker uses none: the visa option takes the token with its switch and keeps it
-     * on the server.
+     * on the server. {@code login}: the id of the login the cookie belongs to; null in a cookie of an earlier version,
+     * which gets one at its first request.
      */
-    public record Session(String username, String token, long issuedAt, boolean carriesJira) {
+    public record Session(String username, String token, long issuedAt, boolean carriesJira, String login) {
         /** A session not issued yet. */
         public Session(String username, String token) {
             this(username, token, 0);
@@ -205,15 +204,20 @@ public class SessionCodec {
             this(username, token, issuedAt, false);
         }
 
-        /** The same session under another TeamCity token. */
-        public Session withToken(String tc) {
-            return new Session(username, tc, issuedAt, carriesJira);
+        /** A session whose cookie names no login. */
+        public Session(String username, String token, long issuedAt, boolean carriesJira) {
+            this(username, token, issuedAt, carriesJira, null);
+        }
+
+        /** The same session in the login {@code id}. */
+        public Session withLogin(String id) {
+            return new Session(username, token, issuedAt, carriesJira, id);
         }
 
         @Override
         public String toString() {
             return "Session[username=" + username + ", token=" + Secrets.masked(token) + ", issuedAt=" + issuedAt
-                + ", carriesJira=" + carriesJira + "]";
+                + ", carriesJira=" + carriesJira + ", login=" + login + "]";
         }
     }
 
@@ -222,22 +226,22 @@ public class SessionCodec {
      * {@code jiraToken}, which the checker no longer takes from a cookie: they go at the cookie's next issue, and no
      * cookie it issues has them. {@code iat}, when the cookie was issued, is absent from the cookies of earlier
      * versions. {@code v} is the cookie's format, absent from the cookies issued before cookies over HTTPS were named
-     * {@code __Host-}.
+     * {@code __Host-}. {@code lid}, the login's id, is absent from the cookies issued before the server kept logins.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Payload(String username, String token, @JsonInclude(JsonInclude.Include.NON_NULL) String jiraToken,
-        Long iat, Integer v) {
+        Long iat, Integer v, @JsonInclude(JsonInclude.Include.NON_NULL) String lid) {
         /** The format of a cookie whose name says how it was sent: {@code __Host-} over HTTPS. */
         static final int NAMED_BY_CONNECTION = 2;
 
         Session session() {
-            return new Session(username, token, iat == null ? 0 : iat, jiraToken != null && !jiraToken.isBlank());
+            return new Session(username, token, iat == null ? 0 : iat, jiraToken != null && !jiraToken.isBlank(), lid);
         }
 
         @Override
         public String toString() {
             return "Payload[username=" + username + ", token=" + Secrets.masked(token) + ", jiraToken="
-                + Secrets.masked(jiraToken) + ", iat=" + iat + ", v=" + v + "]";
+                + Secrets.masked(jiraToken) + ", iat=" + iat + ", v=" + v + ", lid=" + lid + "]";
         }
     }
 }

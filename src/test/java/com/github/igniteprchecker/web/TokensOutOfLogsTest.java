@@ -62,7 +62,8 @@ class TokensOutOfLogsTest {
     private final StandingVisas standing = mock(StandingVisas.class);
 
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
-            new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper), new LoginThrottle(),
+            new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper),
+                new Logins(mapper, new UserDirectory(mapper)), new LoginThrottle(),
                 new AdminActions(new AdminProperties(null), mapper), standing),
             new JiraController(jira, tc, standing, mock(MergedVerdicts.class), new UserDirectory(mapper)))
         .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)), new TokenFormat())

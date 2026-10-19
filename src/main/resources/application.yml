@@ -159,8 +159,8 @@ admin:
   logins: ${PRC_ADMINS:}
 
 session:
-  # A login lasts until logout, which ends it in every browser, or until it goes unused for 400 days: there is no
-  # session timeout on the server.
+  # A login lasts until it is ended (Log out ends this browser's, ⚙ ends the others), until it goes unused for 400
+  # days, or until a 51st login of the same user ends it: there is no session timeout on the server.
   # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.
   cookie-secure: ${SESSION_COOKIE_SECURE:false}
   # Stable secret that encrypts the session cookies and every token the service stores (standing options, Auto

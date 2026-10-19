@@ -76,11 +76,37 @@ class AdminActionsTest {
 
     @Test
     void namedOperatorsAloneSeeTheUsers() {
-        LoginController login = new LoginController(null, null, null, null, new UserDirectory(mapper), null,
+        LoginController login = new LoginController(null, null, null, null, new UserDirectory(mapper), logins(), null,
             admin("avinogradov"), mock(StandingVisas.class));
 
         assertThat(status(login.users("stranger"))).isEqualTo(403);
         assertThat(status(login.users("avinogradov"))).isEqualTo(200);
+    }
+
+    /**
+     * The Users tab is the operators': who uses the service, and when. The logins in ⚙ are each user's own, an
+     * operator's too: the user list names no browser, and nobody lists or ends another user's logins.
+     */
+    @Test
+    void theUsersAreTheOperatorsAndTheLoginsEachUsersOwn() throws Exception {
+        UserDirectory users = new UserDirectory(mapper);
+        Logins logins = new Logins(mapper, users);
+        LoginController login = new LoginController(null, null, null, mock(Warmer.class), users, logins, null,
+            admin("avinogradov"), mock(StandingVisas.class));
+        users.touchLogin("alice");
+        String alices = logins.start("alice", "Chrome on macOS").id();
+        String operators = logins.start("avinogradov", "Firefox on Linux").id();
+
+        assertThat(status(login.users("alice"))).isEqualTo(403);
+        assertThat(mapper.writeValueAsString(login.users("avinogradov").getBody())).contains("\"alice\"")
+            .doesNotContain("Chrome on macOS", alices);
+        assertThat(login.logins("alice", alices).logins()).extracting(LoginController.LoginView::id)
+            .containsExactly(alices);
+        assertThat(login.logins("avinogradov", operators).logins()).extracting(LoginController.LoginView::id)
+            .containsExactly(operators);
+        assertThat(login.endLogins(new LoginController.EndRequest(List.of(alices)), "avinogradov", operators).ended())
+            .isZero();
+        assertThat(logins.of("alice")).extracting(Logins.Login::id).containsExactly(alices);
     }
 
     /** The page shows Restart, Update and Flush only to whom /api/me or the login answer calls an admin. */
@@ -92,7 +118,7 @@ class AdminActionsTest {
         when(tc.currentUsername("stranger-token")).thenReturn(Optional.of("stranger"));
         when(tc.currentUsername("operator-token")).thenReturn(Optional.of("AVinogradov"));
         LoginController login = new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper),
-            new LoginThrottle(), admin("avinogradov"), mock(StandingVisas.class));
+            logins(), new LoginThrottle(), admin("avinogradov"), mock(StandingVisas.class));
 
         assertThat(toldAdmin(login.login(token("stranger-token"), new MockHttpServletRequest()))).isFalse();
         assertThat(toldAdmin(login.login(token("operator-token"), new MockHttpServletRequest()))).isTrue();
@@ -105,8 +131,8 @@ class AdminActionsTest {
         AdminActions admin = admin();
         UpdateController ctl = new UpdateController(update, admin);
         CacheController flush = new CacheController(cache, mock(Warmer.class), admin);
-        LoginController users = new LoginController(null, null, null, null, new UserDirectory(mapper), null, admin,
-            mock(StandingVisas.class));
+        LoginController users = new LoginController(null, null, null, null, new UserDirectory(mapper), logins(), null,
+            admin, mock(StandingVisas.class));
 
         assertThat(status(ctl.restart("alice"))).isEqualTo(403);
         assertThat(status(ctl.update("alice"))).isEqualTo(403);
@@ -125,10 +151,14 @@ class AdminActionsTest {
         TcClient tc = mock(TcClient.class);
         when(tc.currentUsername("alice-token")).thenReturn(Optional.of("alice"));
         LoginController login = new LoginController(tc, codec, props, mock(Warmer.class), new UserDirectory(mapper),
-            new LoginThrottle(), admin(), mock(StandingVisas.class));
+            logins(), new LoginThrottle(), admin(), mock(StandingVisas.class));
 
         assertThat(toldAdmin(login.login(token("alice-token"), new MockHttpServletRequest()))).isFalse();
         assertThat(toldAdmin(login.me(overHttps(codec.encode("alice", "alice-token"))))).isFalse();
+    }
+
+    private Logins logins() {
+        return new Logins(mapper, new UserDirectory(mapper));
     }
 
     /** A request from a browser that keeps the session cookie a checker behind HTTPS sets. */

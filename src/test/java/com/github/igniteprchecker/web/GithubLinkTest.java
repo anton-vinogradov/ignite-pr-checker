@@ -84,7 +84,8 @@ class GithubLinkTest {
     private final AtomicLong now = new AtomicLong(1_760_000_000_000L);
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
-        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing), now::get);
+        new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
+            new Logins(mapper, mock(UserDirectory.class)), standing), now::get);
 
     @Test
     void theAccountGitHubNamesIsLinkedAndItsTokenRevoked(@TempDir Path dir, CapturedOutput output) throws Exception {
@@ -313,7 +314,8 @@ class GithubLinkTest {
         GithubClient plain = StubbedGithub.over(new GithubProperties("apache/ignite", "app-token", 300),
             "https://prc.example.org", http.build());
         GithubLinkController off = new GithubLinkController(plain, standing,
-            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing), now::get);
+            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
+            new Logins(mapper, mock(UserDirectory.class)), standing), now::get);
 
         ResponseEntity<?> res = off.link(null, null, "tc-alice", "alice");
 
@@ -335,7 +337,8 @@ class GithubLinkTest {
             mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
             mock(Warmer.class), mock(PendingCommits.class));
         GithubLinkController off = new GithubLinkController(nowhere, standingThere,
-            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standingThere), now::get);
+            new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
+            new Logins(mapper, mock(UserDirectory.class)), standingThere), now::get);
 
         ResponseEntity<?> res = off.link(null, null, "tc-alice", "alice");
 

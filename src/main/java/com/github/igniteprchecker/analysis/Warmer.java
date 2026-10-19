@@ -6,6 +6,7 @@ import com.github.igniteprchecker.github.PrSummary;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -79,21 +80,26 @@ public class Warmer {
         }));
     }
 
-    /** An authenticated request offers its user's token; the first token into an empty pool kicks off warming. */
+    /** The standing options offer their user's token; the first token into an empty pool kicks off warming. */
     public void offerToken(String user, String token) {
-        donate(user, token, false);
+        donate(user, token, false, null);
+    }
+
+    /** A request of the {@code login} offers its user's token; see {@link #offerToken(String, String)}. */
+    public void offerToken(String user, String token, String login) {
+        donate(user, token, false, login);
     }
 
     /**
      * Offers a token TeamCity has just accepted (a fresh login), so an earlier rejection of the same
      * string — a revoked token since re-issued, or one dropped during a TeamCity hiccup — is forgiven.
      */
-    public void offerVerifiedToken(String user, String token) {
-        donate(user, token, true);
+    public void offerVerifiedToken(String user, String token, String login) {
+        donate(user, token, true, login);
     }
 
-    private void donate(String user, String token, boolean verified) {
-        boolean wasEmpty = tokens.offer(user, token, verified);
+    private void donate(String user, String token, boolean verified, String login) {
+        boolean wasEmpty = tokens.offer(user, token, verified, login);
 
         if (wasEmpty && props.enabled())
             worker.execute(this::warmCycle);
@@ -318,19 +324,11 @@ public class Warmer {
     }
 
     /**
-     * Drops the token of a user who logged out from the pool at once, rather than an hour after their last request.
-     * It is not marked refused: the standing options may lend the same token again.
+     * Drops the tokens of the logins that ended from the pool at once, rather than an hour after their last request,
+     * but those {@code kept} names. No token is marked refused: the standing options may lend the same token again.
      */
-    public void forget(String token) {
-        tokens.forget(token);
-    }
-
-    /**
-     * Drops every token the user offered, but those {@code kept} names, from the pool at once: a logout ended all their
-     * sessions. Like {@link #forget}, it marks no token refused.
-     */
-    public void forgetAllOf(String user, Predicate<String> kept) {
-        tokens.forgetAllOf(user, kept);
+    public void forgetLogins(Set<String> ended, Predicate<String> kept) {
+        tokens.forgetLogins(ended, kept);
     }
 
     /**

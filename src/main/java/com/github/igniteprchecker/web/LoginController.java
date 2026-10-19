@@ -8,9 +8,12 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
+import java.util.Set;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -19,30 +22,31 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * Per-user login: the user supplies their own TeamCity token, which is validated against TeamCity and
- * then carried, encrypted, inside a stateless HttpOnly session cookie (no server-side session store). A
- * logout ends the user's sessions in every browser; see {@link UserDirectory#endSessions}.
+ * Per-user login: the user supplies their own TeamCity token, which is validated against TeamCity and then carried,
+ * encrypted, inside an HttpOnly session cookie. The cookie names its login, a record of {@link Logins} without the
+ * token. Log out ends this browser's login; ⚙ lists the user's logins and can end any of the others. The options in
+ * ⚙ are the account's: they are the same in every login, and no logout changes them.
  */
 @RestController
 @RequestMapping("/api")
 public class LoginController {
-    /** What a logout tells a user whose options go on without them. */
-    static final String OPTIONS_GO_ON = "You are logged out. Your options in ⚙ stay on and keep using your TeamCity "
-        + "token, which the server stores for them. To stop that, log in and switch them off.";
+    /** How a logout's note starts: the other logins go on. */
+    static final String LOGGED_OUT_HERE = "You are logged out of this browser.";
 
-    /** What a logout everywhere tells a user whose session's token TeamCity refused. */
-    static final String OTHERS_STAY_IN = "TeamCity refused this browser's token, so only this browser is logged out: "
-        + "your logins in other browsers go on. To end them, log in again and press Log out.";
+    /** What a logout tells a user whose options go on without them. */
+    static final String OPTIONS_GO_ON = "Your options in ⚙ stay on and keep using your TeamCity token, which the "
+        + "server stores for them. To stop that, log in and switch them off.";
 
     /** What the page opening on a cookie of an earlier version that is no longer taken tells its owner. */
     static final String EARLIER_LOGIN = "Your login is from an earlier version of the checker. Please log in again.";
 
     private final UserDirectory users;
+
+    private final Logins logins;
 
     private final TcClient tc;
     private final SessionCodec codec;
@@ -53,8 +57,9 @@ public class LoginController {
     private final StandingVisas standing;
 
     public LoginController(TcClient tc, SessionCodec codec, SessionProperties props, Warmer warmer, UserDirectory users,
-        LoginThrottle throttle, AdminActions admin, StandingVisas standing) {
+        Logins logins, LoginThrottle throttle, AdminActions admin, StandingVisas standing) {
         this.users = users;
+        this.logins = logins;
         this.tc = tc;
         this.codec = codec;
         this.props = props;
@@ -62,6 +67,7 @@ public class LoginController {
         this.throttle = throttle;
         this.admin = admin;
         this.standing = standing;
+        logins.whenEnded(this::outOfPool);
     }
 
     /** The TeamCity token the user pasted into the login form. */
@@ -127,7 +133,7 @@ public class LoginController {
         users.touchLogin(username.get());
         long issuedAt = System.currentTimeMillis();
         SessionCodec.Session session = sessionOf(username.get(), token, http);
-        warmer.offerVerifiedToken(username.get(), token); // TeamCity just accepted it
+        warmer.offerVerifiedToken(username.get(), token, session.login()); // TeamCity just accepted it
         standing.tcTokenAccepted(username.get(), token);
 
         return ResponseEntity.ok()
@@ -136,13 +142,16 @@ public class LoginController {
     }
 
     /**
-     * The session a login starts: a new TeamCity token replaces the one the browser's cookie carries for the same
-     * user. Another user's cookie, or one a logout ended, gives nothing. The new cookie says it was issued before this
-     * check, so a logout the check misses ends it too.
+     * The session a login starts, in a new login. The login the browser's cookie had for the same user ends: its
+     * cookie is replaced, and a copy of it must not go on. Another user's login in this browser stays in their ⚙.
      */
     private SessionCodec.Session sessionOf(String username, String token, HttpServletRequest http) {
-        return carried(http).filter(s -> username.equals(s.username()) && !users.ended(s))
-            .map(s -> s.withToken(token)).orElseGet(() -> new SessionCodec.Session(username, token));
+        Optional<SessionCodec.Session> before = carried(http).filter(s -> username.equals(s.username()));
+        boolean carriesJira = before.filter(SessionCodec.Session::carriesJira).isPresent();
+        before.flatMap(s -> loginOf(s, http)).ifPresent(l -> logins.end(username, Set.of(l.id())));
+        Logins.Login started = logins.start(username, AuthInterceptor.browser(http));
+
+        return new SessionCodec.Session(username, token, 0, carriesJira, started.id());
     }
 
     /**
@@ -188,45 +197,117 @@ public class LoginController {
     }
 
     /**
-     * Logs out: this browser's cookie goes, and with {@code everywhere}, as the Log out button asks, every session of
-     * the user issued until now ends, copies of this cookie included. The page asks for this browser only when
-     * TeamCity has refused the session's token: that ends no other session, which may run on another token. A cookie
-     * the guard would refuse ends nothing, or a copy a logout already ended could end each later login of its user.
-     * Before ending every session, TeamCity is asked whether this session's token still works: a session on a token
-     * TeamCity refuses ends no other, and the answer says so. The tokens of the sessions that end leave the warming
-     * pool at once, unless the user's standing options lend them there; when options of theirs work on a stored token,
-     * {@code note} says so.
+     * Logs out of this browser: its cookie goes, and its login ends, copies of the cookie included, whatever TeamCity
+     * says of the token. The user's other logins go on. The token leaves the warming pool at once, unless the user's
+     * standing options lend it there. {@code note} says what goes on: the other logins, and the options that work on a
+     * stored token.
      */
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, Object>> logout(@RequestParam(defaultValue = "true") boolean everywhere,
-        HttpServletRequest http) {
+    public ResponseEntity<Map<String, Object>> logout(HttpServletRequest http) {
         String[] cleared = cookies(http, SessionCookies.cleared(props.cookieSecure()));
-        Optional<SessionCodec.Session> live = carried(http)
-            .filter(s -> !warmer.tokenRevoked(s.token()) && !users.ended(s));
-        if (everywhere && live.filter(s -> LiveTokenGuard.refusedNow(tc, warmer, s.token())).isPresent()) {
-            return ResponseEntity.status(401).header(HttpHeaders.SET_COOKIE, cleared)
-                .body(Map.of("error", OTHERS_STAY_IN, "tokenRejected", true));
-        }
-
-        live.ifPresent(s -> {
-            Predicate<String> lent = t -> standing.lendsTcToken(s.username(), t);
-            if (everywhere) {
-                users.endSessions(s.username());
-                warmer.forgetAllOf(s.username(), lent);
-            }
-            else if (!lent.test(s.token()))
-                warmer.forget(s.token());
-        });
-        boolean optionsGoOn = live.filter(s -> standing.keepsTcToken(s.username())).isPresent();
+        Optional<Logins.Login> ended = carried(http).flatMap(s -> loginOf(s, http));
+        ended.ifPresent(l -> logins.end(l.user(), Set.of(l.id())));
+        String note = ended.map(l -> logoutNote(l.user())).orElse("");
 
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cleared)
-            .body(optionsGoOn ? Map.of("note", OPTIONS_GO_ON) : Map.of());
+            .body(note.isEmpty() ? Map.of() : Map.of("note", note));
     }
 
     /**
-     * Who the session is, for the page as it opens. A cookie old enough, or under the name earlier versions gave it, is
-     * issued again, as the login guard does. A cookie under that name that is no longer taken is removed, and when an
-     * earlier version issued it, the answer says why its owner is at the login form.
+     * The login of a cookie that is about to go. A cookie of an earlier version gets its login first, unless it is no
+     * longer taken: that login's end then reaches every copy of the cookie.
+     */
+    private Optional<Logins.Login> loginOf(SessionCodec.Session session, HttpServletRequest http) {
+        return logins.enter(session, AuthInterceptor.browser(http));
+    }
+
+    /** What goes on after a logout of this browser; nothing to say when nothing does. */
+    private String logoutNote(String user) {
+        int others = logins.of(user).size();
+        boolean optionsGoOn = standing.keepsTcToken(user);
+        if (others == 0 && !optionsGoOn)
+            return "";
+
+        String note = LOGGED_OUT_HERE;
+        if (others > 0)
+            note += " " + othersGoOn(others);
+
+        return optionsGoOn ? note + " " + OPTIONS_GO_ON : note;
+    }
+
+    /** The logout note's word on the user's logins in other browsers. */
+    static String othersGoOn(int others) {
+        return others == 1 ? "You are still logged in on 1 other browser." : "You are still logged in on " + others
+            + " other browsers.";
+    }
+
+    /**
+     * The user's logins, this browser's first, then the one seen last. {@code ended} counts the logins the request
+     * ended.
+     */
+    public record LoginList(List<LoginView> logins, int ended) {
+    }
+
+    /**
+     * A login as ⚙ lists it: the label of its browser and system, when it logged in, when it was last seen, and
+     * whether it is this browser's. {@code earlier}: it began in an earlier version, which did not say when; then
+     * {@code createdAt} is when this version first saw it.
+     */
+    public record LoginView(String id, String browser, long createdAt, boolean earlier, long lastSeen,
+        boolean current) {
+    }
+
+    /** The ids of the logins to end. */
+    public record EndRequest(List<String> ids) {
+    }
+
+    @GetMapping("/logins")
+    public LoginList logins(@RequestAttribute(AuthInterceptor.USER_ATTR) String user,
+        @RequestAttribute(AuthInterceptor.LOGIN_ATTR) String login) {
+        return loginList(user, login, 0);
+    }
+
+    /** Ends the user's logins the request names; this browser's ends only with Log out. */
+    @PostMapping("/logins/end")
+    public LoginList endLogins(@RequestBody(required = false) EndRequest req,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String user,
+        @RequestAttribute(AuthInterceptor.LOGIN_ATTR) String login) {
+        Set<String> ids = new HashSet<>(req == null || req.ids() == null ? List.of() : req.ids());
+        ids.remove(login);
+        ids.remove(null);
+
+        return loginList(user, login, logins.end(user, ids).size());
+    }
+
+    /**
+     * Ends every login of the user but this browser's, the cookies of earlier versions that this version has not seen
+     * yet included.
+     */
+    @PostMapping("/logins/end-others")
+    public LoginList endOtherLogins(@RequestAttribute(AuthInterceptor.USER_ATTR) String user,
+        @RequestAttribute(AuthInterceptor.LOGIN_ATTR) String login) {
+        return loginList(user, login, logins.endAllBut(user, login).size());
+    }
+
+    /** The tokens of the logins that ended leave the warming pool, but those the user's options lend. */
+    private void outOfPool(String user, Set<String> ended) {
+        warmer.forgetLogins(ended, t -> standing.lendsTcToken(user, t));
+    }
+
+    private LoginList loginList(String user, String current, int ended) {
+        List<LoginView> list = logins.of(user).stream()
+            .map(l -> new LoginView(l.id(), l.browser(), l.createdAt(), l.earlierIssuedAt() != null, l.lastSeen(),
+                l.id().equals(current)))
+            .sorted(Comparator.comparing(LoginView::current).reversed())
+            .toList();
+
+        return new LoginList(list, ended);
+    }
+
+    /**
+     * Who the session is, for the page as it opens. A cookie old enough, under the name earlier versions gave it, or
+     * naming no login, is issued again, as the login guard does. A cookie under that name that is no longer taken is
+     * removed, and when an earlier version issued it, the answer says why its owner is at the login form.
      */
     @GetMapping("/me")
     public ResponseEntity<?> me(HttpServletRequest http) {
@@ -245,13 +326,16 @@ public class LoginController {
         if (warmer.tokenRevoked(s.token()))
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.REVOKED, "tokenRejected", true));
         long checkedAt = System.currentTimeMillis();
-        if (users.ended(s))
+        Optional<Logins.Login> login = logins.enter(s, AuthInterceptor.browser(http));
+        if (login.isEmpty())
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.ENDED, "sessionEnded", true));
 
-        warmer.offerToken(s.username(), s.token());
+        warmer.offerToken(s.username(), s.token(), login.get().id());
         ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
-        if (carried.get().earlier() || SessionCookies.due(s, checkedAt))
-            ok.header(HttpHeaders.SET_COOKIE, cookies(http, sessionCookie(codec.encode(s, checkedAt))));
+        if (carried.get().earlier() || SessionCookies.due(s, checkedAt)) {
+            ok.header(HttpHeaders.SET_COOKIE,
+                cookies(http, sessionCookie(codec.encode(s.withLogin(login.get().id()), checkedAt))));
+        }
         else if (SessionCookies.earlierLeft(http, props.cookieSecure()))
             ok.header(HttpHeaders.SET_COOKIE, SessionCookies.clearedEarlier().toString());
 

@@ -54,7 +54,7 @@ class TcTokenRenewalTest {
     void aLoginWithAFreshTokenResumesTheOptions() {
         when(tc.currentUsername("fresh-tc")).thenReturn(Optional.of(USER));
         LoginController login = new LoginController(tc, codec, session, mock(Warmer.class), mock(UserDirectory.class),
-            new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper), standing);
+            new Logins(mapper, mock(UserDirectory.class)), new LoginThrottle(), new AdminActions(new AdminProperties(null), mapper), standing);
 
         assertThat(login.login(new LoginController.LoginRequest("fresh-tc"), new MockHttpServletRequest()).getStatusCode().value()).isEqualTo(200);
 
@@ -67,7 +67,8 @@ class TcTokenRenewalTest {
     void aRequestOfASessionWithAnotherTokenResumesThem() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/me");
         req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(USER, "fresh-tc")));
-        AuthInterceptor auth = new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class), standing);
+        AuthInterceptor auth = new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
+            new Logins(mapper, mock(UserDirectory.class)), standing);
 
         assertThat(auth.preHandle(req, new MockHttpServletResponse(), new Object())).isTrue();
 

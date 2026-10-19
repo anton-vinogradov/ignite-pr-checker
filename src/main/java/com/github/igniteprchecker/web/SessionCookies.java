@@ -48,11 +48,11 @@ final class SessionCookies {
     }
 
     /**
-     * Whether the session's cookie is to be issued again: it is old enough, or it carries a JIRA token, which the
-     * checker does not use and the cookie issued again goes without.
+     * Whether the session's cookie is to be issued again: it is old enough, it carries a JIRA token, which the checker
+     * does not use and the cookie issued again goes without, or it names no login, which the cookie issued again does.
      */
     static boolean due(SessionCodec.Session session, long nowMs) {
-        return session.carriesJira() || nowMs - session.issuedAt() > RENEW_AFTER.toMillis();
+        return session.login() == null || session.carriesJira() || nowMs - session.issuedAt() > RENEW_AFTER.toMillis();
     }
 
     /**

@@ -4,10 +4,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
@@ -18,7 +20,8 @@ import java.util.function.Predicate;
  * across all of them (round-robin) rather than hammering ci2 under a single user's token. Two
  * sources: every authenticated request donates its token (evicted once not re-offered within the
  * TTL — that user has gone), and users with standing options on re-donate theirs on every sweep, so
- * background work keeps running while nobody is browsing. In-memory only — tokens are secrets and
+ * background work keeps running while nobody is browsing. A token a request donates is known by the logins that
+ * donated it: a login that ends takes its token out. In-memory only — tokens are secrets and
  * are never persisted here. The tokens TeamCity refused are kept by their SHA-256 only: a heap dump
  * must not hand out the revoked tokens of the past along with the live ones.
  */
@@ -29,7 +32,7 @@ final class TokenPool {
     /** Bounds the memory of revoked tokens; past it the oldest is forgotten first. */
     static final int REVOKED_MAX = 10_000;
 
-    /** The pooled tokens: who offered each and when last. */
+    /** The pooled tokens: who offered each, when last, and from which logins. */
     private final Map<String, Offer> offers = new ConcurrentHashMap<>();
     /** Hashes of tokens TeamCity rejected, with when — re-donating one before its cooldown ends is pointless. */
     private final Map<String, Long> rejected = new ConcurrentHashMap<>();
@@ -62,6 +65,11 @@ final class TokenPool {
      * ends, so an expired token can't make every cycle hammer ci2 with 401s.
      */
     boolean offer(String user, String token, boolean verified) {
+        return offer(user, token, verified, null);
+    }
+
+    /** The same, from the {@code login} of a request; null when the standing options offer it. */
+    boolean offer(String user, String token, boolean verified, String login) {
         if (token == null || token.isBlank())
             return false;
 
@@ -76,23 +84,28 @@ final class TokenPool {
             return false;
 
         boolean wasEmpty = tokens().isEmpty();
-        offers.put(token, new Offer(user, nowMs.getAsLong()));
+        long now = nowMs.getAsLong();
+        Set<String> from = login == null ? Set.of() : Set.of(login);
+        offers.merge(token, new Offer(user, now, from), (was, offered) -> new Offer(user, now, was.with(login)));
 
         return wasEmpty;
     }
 
     /**
-     * Drops a token its user took back by logging out. Not a refusal: the next offer of the same token, from the
-     * standing options or a later login, counts at once.
+     * Drops the tokens only the {@code ended} logins offered, but those {@code kept} names: their users logged out.
+     * Not a refusal: the next offer of the same token, from the standing options or a later login, counts at once. A
+     * token another login offered too stays for that login.
      */
-    void forget(String token) {
-        if (token != null)
-            offers.remove(token);
-    }
+    void forgetLogins(Set<String> ended, Predicate<String> kept) {
+        for (String token : List.copyOf(offers.keySet())) {
+            offers.computeIfPresent(token, (t, o) -> {
+                Set<String> left = o.without(ended);
+                if (left.size() == o.logins().size())
+                    return o;
 
-    /** Drops every token {@code user} offered, but those {@code kept} names; see {@link #forget}. */
-    void forgetAllOf(String user, Predicate<String> kept) {
-        offers.entrySet().removeIf(e -> user.equals(e.getValue().user()) && !kept.test(e.getKey()));
+                return left.isEmpty() && !kept.test(t) ? null : new Offer(o.user(), o.at(), left);
+            });
+        }
     }
 
     /** Drop a token TeamCity rejected (revoked/expired) so it isn't tried again while it cools down. */
@@ -181,7 +194,23 @@ final class TokenPool {
         }
     }
 
-    /** Who offered a token, and when last. */
-    private record Offer(String user, long at) {
+    /** Who offered a token, when last, and the logins whose requests offered it. */
+    private record Offer(String user, long at, Set<String> logins) {
+        Set<String> with(String login) {
+            if (login == null || logins.contains(login))
+                return logins;
+
+            Set<String> more = new HashSet<>(logins);
+            more.add(login);
+
+            return Set.copyOf(more);
+        }
+
+        Set<String> without(Set<String> ended) {
+            Set<String> left = new HashSet<>(logins);
+            left.removeAll(ended);
+
+            return Set.copyOf(left);
+        }
     }
 }

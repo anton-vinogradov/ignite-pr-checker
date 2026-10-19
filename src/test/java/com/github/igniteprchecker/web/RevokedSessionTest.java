@@ -48,6 +48,10 @@ class RevokedSessionTest {
 
     private final ExecutorService pool = Executors.newFixedThreadPool(2);
 
+    private final UserDirectory users = new UserDirectory(mapper);
+
+    private final Logins logins = new Logins(mapper, users);
+
     private final Warmer warmer;
 
     private final AuthInterceptor auth;
@@ -56,7 +60,7 @@ class RevokedSessionTest {
         GithubClient github = mock(GithubClient.class);
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13655, "IGNITE-1 x", "u", null, null, null)));
         warmer = new Warmer(analyzer, github, new WarmProperties(true, 50, 10, 60), pool);
-        auth = new AuthInterceptor(codec, warmer, new UserDirectory(mapper), mock(StandingVisas.class));
+        auth = new AuthInterceptor(codec, warmer, users, logins, mock(StandingVisas.class));
     }
 
     @AfterEach
@@ -79,7 +83,7 @@ class RevokedSessionTest {
     /** The login that ends the refusal starts another warm cycle, which must not meet the old 401 again. */
     private void loginWithTheTokenReissued() {
         doReturn(false).when(analyzer).warm(anyString(), anyInt());
-        warmer.offerVerifiedToken("alice", "tok");
+        warmer.offerVerifiedToken("alice", "tok", null);
     }
 
     private void warmCycleRuns() throws Exception {
@@ -109,7 +113,7 @@ class RevokedSessionTest {
     @Test
     void theRevokedSessionIsToldWhyOnItsFirstCall() throws Exception {
         LoginController login = new LoginController(null, codec, new SessionProperties(false, "test-secret"), warmer,
-            new UserDirectory(mapper), null,
+            users, logins, null,
             new AdminActions(new AdminProperties(null), mapper), mock(StandingVisas.class));
         teamCityAnswers(HttpStatus.UNAUTHORIZED);
         warmCycleRuns();

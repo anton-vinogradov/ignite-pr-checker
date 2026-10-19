@@ -3,27 +3,26 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 /**
- * A logout now ends the user's sessions in every browser. Another browser then met the login form without a word of
- * why, and the logout the page makes after TeamCity refused this session's token would have ended the user's other
- * sessions too, which may run on other tokens.
+ * A login ended from another browser sent this one to the login form without a word of why. The logout the page
+ * makes after TeamCity refused this browser's token must end this browser's login only: the user's other logins may
+ * run on other tokens.
  */
 class SessionEndPageTest {
     @Test
     void aSessionALogoutEndedSaysWhy() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/me', { status: 401, body: { sessionEnded: true,
-                error: 'You logged out of the checker, here or in another browser — log in again' } });
+            page.route('/api/me', { status: 401, body: { sessionEnded: true, error: ENDED } });
             await page.load('?pr=13575');
             report({ loginShown: !page.el('loginView').classList.contains('hidden'),
                 message: page.el('loginErr').textContent, logouts: page.fetches('/api/logout').length });
-            """);
+            """.replace("ENDED", new ObjectMapper().writeValueAsString(AuthInterceptor.ENDED)));
 
         assertThat(out.get("loginShown").asBoolean()).isTrue();
-        assertThat(out.get("message").asText())
-            .isEqualTo("You logged out of the checker, here or in another browser — log in again");
+        assertThat(out.get("message").asText()).isEqualTo(AuthInterceptor.ENDED);
         assertThat(out.get("logouts").asInt()).isZero();
     }
 
@@ -36,11 +35,11 @@ class SessionEndPageTest {
             report({ logouts: page.fetches('/api/logout').map(f => f.url) });
             """);
 
-        assertThat(out.get("logouts").toString()).isEqualTo("[\"/api/logout?everywhere=false\"]");
+        assertThat(out.get("logouts").toString()).isEqualTo("[\"/api/logout\"]");
     }
 
     @Test
-    void logOutEndsTheLoginEverywhere() throws Exception {
+    void logOutEndsThisBrowsersLogin() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
             await page.el('logout').onclick();

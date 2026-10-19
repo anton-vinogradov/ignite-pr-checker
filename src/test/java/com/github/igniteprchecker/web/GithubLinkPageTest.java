@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -158,17 +159,16 @@ class GithubLinkPageTest {
     }
 
     /**
-     * The user logged out of the checker in another browser, then pressed Link GitHub here: the 401 is the checker's
-     * own, so the page goes to the login form and says why, as every other request does.
+     * The user ended this browser's login from another browser, then pressed Link GitHub here: the 401 is the
+     * checker's own, so the page goes to the login form and says why, as every other request does.
      */
     @Test
     void anEndedSessionGoesToTheLoginForm() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: TYPED }, 'GET');
-            page.route('/api/github/link', { status: 401, body: { sessionEnded: true,
-                error: 'You logged out of the checker, here or in another browser — log in again' } }, 'POST');
+            page.route('/api/github/link', { status: 401, body: { sessionEnded: true, error: ENDED } }, 'POST');
             await page.load('?pr=13575');
-            """ + OPEN_SETTINGS + """
+            """.replace("ENDED", new ObjectMapper().writeValueAsString(AuthInterceptor.ENDED)) + OPEN_SETTINGS + """
             await page.el('ghLink').onclick();
             await page.settle();
             report({ loginShown: !page.el('loginView').classList.contains('hidden'),
@@ -176,9 +176,8 @@ class GithubLinkPageTest {
             """);
 
         assertThat(out.get("loginShown").asBoolean()).isTrue();
-        assertThat(out.get("message").asText())
-            .isEqualTo("You logged out of the checker, here or in another browser — log in again");
-        assertThat(out.get("msg").asText()).doesNotContain("logged out");
+        assertThat(out.get("message").asText()).isEqualTo(AuthInterceptor.ENDED);
+        assertThat(out.get("msg").asText()).doesNotContain("ended");
     }
 
     /** Back from GitHub, ⚙ opens on its own and says how the link went. */

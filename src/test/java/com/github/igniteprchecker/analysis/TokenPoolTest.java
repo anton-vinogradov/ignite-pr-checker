@@ -28,14 +28,44 @@ class TokenPoolTest {
     @Test
     void aForgottenTokenComesBackWithItsNextOffer() {
         TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
-        pool.offer("alice", "a", false);
+        pool.offer("alice", "a", false, "laptop");
 
-        pool.forget("a");
+        pool.forgetLogins(Set.of("laptop"), t -> false);
 
         assertThat(pool.size()).isZero();
         assertThat(pool.revoked("a")).isFalse();
         assertThat(pool.offer("alice", "a", false)).isTrue();
         assertThat(pool.size()).isEqualTo(1);
+    }
+
+    /**
+     * alice pasted one token in her laptop and her desktop, and ended the laptop's login from the desktop. The server
+     * knows no token of a login, only the logins whose requests offered each token: the desktop's goes on.
+     */
+    @Test
+    void aTokenStaysWhileALoginThatOfferedItGoesOn() {
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
+        pool.offer("alice", "shared", false, "laptop");
+        pool.offer("alice", "shared", false, "desktop");
+        pool.offer("alice", "laptop-only", false, "laptop");
+        pool.offer("bob", "bobs", false, "bobs-laptop");
+
+        pool.forgetLogins(Set.of("laptop"), t -> false);
+
+        assertThat(pool.size()).isEqualTo(2);
+        assertThat(Set.of(pool.next(), pool.next())).containsExactlyInAnyOrder("shared", "bobs");
+    }
+
+    /** The standing options lend the token the ended login offered: it stays, and so does one only they offered. */
+    @Test
+    void aTokenTheOptionsKeepStaysWhenItsLoginEnds() {
+        TokenPool pool = new TokenPool(TimeUnit.MINUTES.toMillis(60));
+        pool.offer("alice", "kept", false, "laptop");
+        pool.offer("bob", "options-only", false);
+
+        pool.forgetLogins(Set.of("laptop"), "kept"::equals);
+
+        assertThat(pool.size()).isEqualTo(2);
     }
 
     @Test

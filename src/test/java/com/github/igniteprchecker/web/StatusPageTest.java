@@ -184,6 +184,28 @@ class StatusPageTest {
     }
 
     /**
+     * An operator's Users tab said "3 logins" for the logins at the form since the user first came. In ⚙ a login is a
+     * browser logged in now, and only its user sees those.
+     */
+    @Test
+    void theUsersTabCountsTheTimesAUserLoggedIn() throws Exception {
+        JsonNode out = PageScript.run("status.html", STATUS + """
+            status.operator = true;
+            status.operatorsNamed = true;
+            page.route('/api/users', { body: [
+                { name: 'alice', firstSeen: page.now() - 2 * 86400e3, lastSeen: page.now() - 60e3, logins: 3 },
+                { name: 'bob', firstSeen: page.now() - 3 * 86400e3, lastSeen: page.now() - 86400e3, logins: 1 }] });
+            await page.load('');
+            page.el('tabUsers').listeners.click[0]();
+            await page.settle();
+            report({ active: page.el('usersActive').textContent, seen: page.el('usersSeen').textContent });
+            """);
+
+        assertThat(out.get("active").asText()).contains("alice", "logged in 3 times").doesNotContain("logins");
+        assertThat(out.get("seen").asText()).contains("bob", "logged in once");
+    }
+
+    /**
      * A category's colour follows its name: the same whatever else is on the chart, none shared among the categories
      * TcClient records, and the list of those is TcClient's own.
      */
