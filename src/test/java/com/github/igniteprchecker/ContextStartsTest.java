@@ -197,6 +197,16 @@ class ContextStartsTest {
             .isEqualTo(401);
     }
 
+    /** The language is the account's: without a login, choosing one is a 401, not an error of a missing user. */
+    @Test
+    void choosingALanguageNeedsALogin() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        assertThat(http.postForEntity("/api/language", new HttpEntity<>("{\"lang\":\"ru\"}", headers), String.class)
+            .getStatusCode().value()).isEqualTo(401);
+    }
+
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */
     @Test
     void automationOffReachesTheJobs() {

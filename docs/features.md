@@ -461,6 +461,20 @@ journal.
   **Visa my runs in JIRA** too, and the journal shows it.
 - An entry names options, services and GitHub accounts, never a token or a part of one.
 
+### Language
+
+⚙ starts with **Language**: pick English or Русский and press **Save**. The page then opens again in that language.
+The server keeps the choice for your account: the PR page and ⚙ show in that language in every browser you log in
+from. The journal lists each change. A page that opens without a login is in English.
+
+- On the Russian page, the cards, buttons, reasons and server answers are in Russian. They use the same words as the
+  [Russian tour](features.ru.md). The **?** links lead to the Russian tour.
+- PR comments, visas in JIRA, the copied AI prompts, the logs and the API stay in English: the Ignite community and
+  scripts read them.
+- The status page and the flaky board are in English.
+- A page that last opened in Russian waits up to 2 s, until it knows the language, so it does not show English first.
+- If you log in on a page in another language, the page opens again in your account's language.
+
 ## Visas and PR comments
 
 - **The visa** of a run comes only from **Visa my runs in JIRA** of whoever started it. A line under the verdict

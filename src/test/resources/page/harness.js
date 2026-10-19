@@ -33,17 +33,18 @@ function fakeDataset() {
     return new Proxy({}, { set(target, key, value) { target[key] = String(value); return true; } });
 }
 
-function fakeElement(id) {
-    const classes = new Set(initialClasses.get(id) || []);
+function fakeElement(id, startClasses) {
+    const classes = new Set(startClasses || initialClasses.get(id) || []);
     const el = {
         id, dataset: fakeDataset(), style: {}, attributes: {}, listeners: {}, children: [],
+        nodeType: 1, tagName: '', childNodes: [], written: false,
         value: '', disabled: false, checked: false, title: '', href: '', open: false, scrollTop: 0,
         hidden: initialHidden.has(id),
         htmlWrites: 0, classLog: [], _html: '', _text: '',
         get innerHTML() { return this._html; },
-        set innerHTML(v) { this._html = String(v); this._text = stripTags(v); this.htmlWrites++; },
+        set innerHTML(v) { this._html = String(v); this._text = stripTags(v); this.htmlWrites++; this.written = true; },
         get textContent() { return this._text; },
-        set textContent(v) { this._text = String(v ?? ''); this._html = this._text; },
+        set textContent(v) { this._text = String(v ?? ''); this._html = this._text; this.written = true; },
         classList: {
             add(...cs) { for (const c of cs) { classes.add(c); el.classLog.push('+' + c); } },
             remove(...cs) { for (const c of cs) { classes.delete(c); el.classLog.push('-' + c); } },
@@ -63,6 +64,7 @@ function fakeElement(id) {
         focus() { doc.activeElement = el; },
         blur() {}, select() {}, remove() {}, appendChild() {},
         setAttribute(k, v) { this.attributes[k] = String(v); },
+        removeAttribute(k) { delete this.attributes[k]; },
         getAttribute(k) { return k in this.attributes ? this.attributes[k] : null; },
         getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
     };
@@ -74,6 +76,68 @@ const byId = id => {
     if (!els.has(id)) els.set(id, fakeElement(id));
     return els.get(id);
 };
+
+function decode(s) {
+    return s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|nbsp);/gi, (whole, name) => name[0] === '#'
+        ? String.fromCodePoint(name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : +name.slice(1))
+        : { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: '\u00a0' }[name.toLowerCase()]);
+}
+
+const VOID_TAGS = /^(area|br|col|embed|hr|img|input|link|meta|source|wbr)$/i;
+
+// The page's <body> as a browser holds it: elements with their attributes and children, and text, so the page's
+// script walks its own HTML as it would in a browser. An element with an id is the one page.el(id) gives.
+function bodyOf(source) {
+    const open = /<body\b([^>]*)>/i.exec(source);
+    const body = fakeElement('body', (/\bclass="([^"]*)"/.exec(open ? open[1] : '') || ['', ''])[1].split(/\s+/)
+        .filter(Boolean));
+    body.tagName = 'BODY';
+    if (!open) return body;
+    const stack = [body];
+    const tags = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>|([^<]+)/g;
+    tags.lastIndex = open.index + open[0].length;
+    for (let m; (m = tags.exec(source)) && stack.length; ) {
+        const [, closing, tag, rest, text] = m;
+        const parent = stack[stack.length - 1];
+        if (text !== undefined) {
+            parent.childNodes.push({ nodeType: 3, nodeValue: decode(text) });
+        } else if (closing) {
+            const at = stack.map(e => e.tagName).lastIndexOf(tag.toUpperCase());
+            if (at > 0) stack.length = at;
+            else if (tag.toLowerCase() === 'body') break;
+        } else if (tag) {
+            const attrs = {};
+            for (const a of rest.matchAll(/([^\s=\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g))
+                attrs[a[1]] = decode(a[2] ?? a[3] ?? a[4] ?? '');
+            const el = attrs.id ? byId(attrs.id) : fakeElement('', (attrs.class || '').split(/\s+/).filter(Boolean));
+            el.tagName = tag.toUpperCase();
+            Object.assign(el.attributes, attrs);
+            parent.childNodes.push(el);
+            if (!VOID_TAGS.test(tag) && !/\/\s*$/.test(rest)) stack.push(el);
+        }
+    }
+    return body;
+}
+
+// What a reader sees of a node: the page's own text, and what the script wrote in place of it. Hidden parts count.
+function shownText(node) {
+    if (node.nodeType === 3) return node.nodeValue;
+    if (node.written) return node._text;
+    return node.childNodes.map(shownText).join('');
+}
+
+// The elements of the page's own HTML that pass the test, in page order.
+function staticElements(test) {
+    const out = [];
+    (function walk(node) {
+        for (const child of node.childNodes) {
+            if (child.nodeType !== 1) continue;
+            if (test(child)) out.push(child);
+            walk(child);
+        }
+    })(doc.body);
+    return out;
+}
 const docListeners = {};
 const winListeners = {};
 const doc = {
@@ -85,8 +149,8 @@ const doc = {
     addEventListener(type, fn) { (docListeners[type] ||= []).push(fn); },
     createElement: () => fakeElement(''),
     documentElement: fakeElement('html'),
-    body: fakeElement('body'),
 };
+doc.body = bodyOf(html);
 
 let clock = Date.parse('2026-10-07T12:00:00Z');
 let nextTimer = 1;
@@ -116,6 +180,7 @@ async function fakeFetch(url, opts = {}) {
 }
 
 const storage = new Map();
+const sessionStore = new Map();
 const location = { search: '', pathname: '/', reload() {} };
 const pushed = [];
 const ctx = {
@@ -134,6 +199,11 @@ const ctx = {
         getItem: k => (storage.has(k) ? storage.get(k) : null),
         setItem: (k, v) => storage.set(k, String(v)),
         removeItem: k => storage.delete(k),
+    },
+    sessionStorage: {
+        getItem: k => (sessionStore.has(k) ? sessionStore.get(k) : null),
+        setItem: (k, v) => sessionStore.set(k, String(v)),
+        removeItem: k => sessionStore.delete(k),
     },
     navigator: { clipboard: { writeText: async () => {} } },
     matchMedia: q => ({ matches: page.narrow && /max-width/.test(q), addEventListener() {}, addListener() {} }),
@@ -163,6 +233,8 @@ async function settle() {
 const page = {
     narrow: false,
     el: byId,
+    text: el => shownText(typeof el === 'string' ? byId(el) : el),
+    staticElements,
     run: code => vm.runInContext(code, ctx),
     route(prefix, answer, method) {
         const i = routes.findIndex(r => r.prefix === prefix && r.method === method);

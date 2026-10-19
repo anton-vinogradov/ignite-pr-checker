@@ -168,7 +168,7 @@ class GlossaryTest {
     /** A cause's button on the Root causes tab reads "copy AI prompt"; the tours name it so, apart from the rows' "ai". */
     @Test
     void theToursNameTheCausesButtonAsThePageWritesIt() throws IOException {
-        assertThat(read(PAGE_SCRIPT)).contains(">copy AI prompt</button>");
+        assertThat(PageEnglish.of(read(PAGE_SCRIPT))).contains(">copy AI prompt</button>");
         for (Path tour : List.of(TOUR, TOUR_RU))
             assertThat(read(tour)).as(tour.getFileName().toString()).contains("**copy AI prompt**");
     }

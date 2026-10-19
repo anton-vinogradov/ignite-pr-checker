@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.github.igniteprchecker.PageEnglish;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,7 +27,7 @@ class ButtonNamesTest {
     @Test
     void everyQueueButtonIsRunOrRerunAndItsTwinSaysAtTop() throws IOException {
         for (String file : List.of("index.html", "index.js")) {
-            Matcher b = QUEUE_BUTTON.matcher(Files.readString(STATIC.resolve(file), UTF_8));
+            Matcher b = QUEUE_BUTTON.matcher(PageEnglish.of(Files.readString(STATIC.resolve(file), UTF_8)));
             int buttons = 0;
             while (b.find()) {
                 buttons++;

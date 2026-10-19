@@ -16,6 +16,9 @@
     <style>
         html, body { height: 100%; margin: 0; }
         body { display: flex; flex-direction: column; }
+        /* A reader who chose Russian sees the page once it is in Russian (theme.js, common.js); 2 s at most. */
+        html[data-lang-hint="ru"] body { visibility: hidden; animation: lang-wait 0s 2s forwards; }
+        @keyframes lang-wait { to { visibility: visible; } }
         .muted { font-size: 0.85rem; }
         .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
@@ -281,6 +284,12 @@
             ul.suite-tests { display: block; }
             ul.suite-tests > li.test-row { display: flex; flex-wrap: wrap; column-gap: 0.35rem; }
             ul.suite-tests > li.test-row > .reason, ul.suite-tests > li.test-row > .details { flex: 1 1 100%; }
+            /* The Russian Rerun pair is nearly three times as wide as the English one, and the Russian notes on runs
+               are longer: here the pair wraps under the suite's name, and the runs take the whole row. */
+            html[lang="ru"] .suite-head, html[lang="ru"] .suite-runs, html[lang="ru"] .sect-act { flex-wrap: wrap; }
+            html[lang="ru"] .suite-runs { flex-shrink: 1; }
+            html[lang="ru"] #freshness .hint { white-space: normal; }
+            html[lang="ru"] #runsRow .runs { flex-basis: 100%; }
         }
     </style>
 </head>
@@ -321,6 +330,18 @@
 
     <div id="settingsPanel" class="card settings-panel hidden">
         <p id="tokensUnread" class="caveat hidden"></p>
+        <section id="groupLanguage" class="settings-group">
+            <p class="settings-access"><label for="langSelect"><b>Language</b></label>:
+                <select id="langSelect" class="theme-sel">
+                    <option value="en">English</option>
+                    <option value="ru" lang="ru">Русский</option>
+                </select>
+                <button id="langSave" class="act" type="button" disabled
+                    title="Saves the language for your account. The page then opens again in it.">Save</button>
+                <span id="langMsg" class="muted"></span></p>
+            <p class="muted">The PR page and ⚙ use it in every browser you log in from. The status page, the flaky
+                board, PR comments and visas stay in English.</p>
+        </section>
         <section id="groupTc" class="settings-group">
             <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span><span id="tcExpiry"
                 class="hidden"></span></p>

@@ -74,6 +74,23 @@ class NarrowScreenTest {
         assertThat(rule(css, ".runs .run-item")).doesNotContain("nowrap").contains("flex-wrap: wrap");
     }
 
+    /**
+     * The Russian Rerun pair is nearly three times as wide as the English one. On a 360 px phone it pushed the cards
+     * sideways and squeezed each suite's name into a column of letters, and Cancel my runs covered a run's tag. On a
+     * narrow Russian page the pair wraps under the suite's name, and the runs take the whole row.
+     */
+    @Test
+    void aRussianPageWrapsItsLongerWordsOnAPhone() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/index.html"));
+        String narrow = css.substring(css.indexOf("@media (max-width: 768px)"));
+
+        assertThat(rule(narrow, "html[lang=\"ru\"] .suite-head, html[lang=\"ru\"] .suite-runs, html[lang=\"ru\"] "
+            + ".sect-act")).contains("flex-wrap: wrap");
+        assertThat(rule(narrow, "html[lang=\"ru\"] .suite-runs")).contains("flex-shrink: 1");
+        assertThat(rule(narrow, "html[lang=\"ru\"] #freshness .hint")).contains("white-space: normal");
+        assertThat(rule(narrow, "html[lang=\"ru\"] #runsRow .runs")).contains("flex-basis: 100%");
+    }
+
     /** One top bar for the three pages, in the stylesheet they share. */
     @Test
     void topBarWraps() throws Exception {

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.i18n.Lang;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -61,6 +62,21 @@ class SettingsJournalTest {
 
         assertThat(journal.of("alice")).hasSize(SettingsJournal.KEPT_PER_SORT + 3)
             .extracting(SettingsJournal.Entry::kind).endsWith("linked", "token", "visa");
+        assertThat(journal.full("alice")).isTrue();
+    }
+
+    /** A language switch is a switch too: 150 of them push out only older switches, not the link or the visa. */
+    @Test
+    void aRunOfLanguageSwitchesPushesNoLinkOut() {
+        journal.add("alice", SettingsJournal.Entry.visa(false, 13335, "IGNITE-28867", 9389046L, null));
+        journal.add("alice", SettingsJournal.Entry.linked(DESK, "mallory-gh", List.of("commands"), false));
+        for (int i = 0; i < 150; i++) {
+            now.incrementAndGet();
+            journal.add("alice", SettingsJournal.Entry.language(DESK, i % 2 == 0 ? Lang.RU : Lang.EN));
+        }
+
+        assertThat(journal.of("alice")).hasSize(SettingsJournal.KEPT_PER_SORT + 2)
+            .extracting(SettingsJournal.Entry::kind).endsWith("linked", "visa");
         assertThat(journal.full("alice")).isTrue();
     }
 
