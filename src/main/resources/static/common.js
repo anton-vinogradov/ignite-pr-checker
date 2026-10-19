@@ -36,15 +36,13 @@ function phrase(english) {
     return english;
 }
 
-// A catalog string with its values put in: {0} as it is, {0:tr} in the page's language, {0:each} as a list whose
-// items, split at ", ", each go into the page's language, and {0|тест|теста|тестов} as the form of the word that goes
-// with the number.
+// A catalog string with its values put in: {0} as it is, {0:tr} in the page's language, and {0|тест|теста|тестов} as
+// the form of the word that goes with the number.
 function fillIn(text, values) {
-    return text.replace(/\{(\w+)(?::(tr|each)|\|([^{}]*))?\}/g, (whole, id, how, forms) => {
+    return text.replace(/\{(\w+)(:tr|\|([^{}]*))?\}/g, (whole, id, how, forms) => {
         if (!(id in values)) return whole;
         if (forms !== undefined) return ruForm(Number(values[id]), ...forms.split('|'));
-        if (how === 'tr') return tr(values[id]);
-        return how === 'each' ? String(values[id]).split(', ').map(tr).join(', ') : String(values[id]);
+        return how === ':tr' ? tr(values[id]) : String(values[id]);
     });
 }
 
@@ -82,8 +80,7 @@ function trWhole(s) {
         if (!m) continue;
         const values = {};
         p.ids.forEach((id, i) => { if (!(id in values)) values[id] = m[i + 1]; });
-        if (p.asIs.some(id => PART_SEPARATORS.slice(1, 3).some(sepAt => splitOutside(values[id], sepAt).length > 1)))
-            continue;
+        if (p.asIs.some(id => REASON_JOINS.some(sepAt => splitOutside(values[id], sepAt).length > 1))) continue;
         return fillIn(p.ru, values);
     }
     return null;
@@ -99,11 +96,11 @@ function trParts(s) {
 }
 
 // Where a text's parts meet, by how long the separator at i is: the space after a sentence's end, then the signs the
-// server joins parts with.
-const PART_SEPARATORS = [
-    (s, i) => s[i] === ' ' && /[.!?]/.test(s[i - 1] || '') && /[A-Z⚠]/.test(s[i + 1] || '') ? 1 : 0,
-    ...[' · ', '; ', ', '].map(sep => (s, i) => s.startsWith(sep, i) ? sep.length : 0),
-];
+// server joins the parts of a reason and the items of a list with.
+const sentenceEnd = (s, i) => s[i] === ' ' && /[.!?]/.test(s[i - 1] || '') && /[A-Z⚠]/.test(s[i + 1] || '') ? 1 : 0;
+const sign = text => (s, i) => s.startsWith(text, i) ? text.length : 0;
+const REASON_JOINS = [sign(' · '), sign('; ')];
+const PART_SEPARATORS = [sentenceEnd, ...REASON_JOINS, sign(', ')];
 
 // The text's parts, {text}, and the separators between them, {sep}; a separator inside brackets does not split.
 function splitOutside(s, sepAt) {
@@ -128,8 +125,8 @@ function ruPatterns() {
     ruPatternList = [];
     for (const [key, ru] of RU_SERVER) {
         const parts = key.split(/\{(\w+(?::n)?)\}/);
-        const fixed = parts.filter((_, i) => i % 2 === 0).join('');
         if (parts.length < 3) continue;
+        const fixed = parts.filter((_, i) => i % 2 === 0).join('');
         const source = parts.map((p, i) => i % 2 === 0 ? p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
             : p.endsWith(':n') ? '(\\d+)' : '([\\s\\S]*?)').join('');
         const ids = parts.filter((_, i) => i % 2).map(p => p.replace(/:n$/, ''));
@@ -162,16 +159,15 @@ function translateDom(node) {
     }
 }
 
-// The catalog's sections, one map: a string has one Russian wherever it is shown. The sections of the server's texts
-// ("server: …") also give tr its templates.
+// The catalog's sections as one map, a string with one Russian wherever it is shown, and the entries of the sections
+// of the server's texts ("server: …"), which give tr its templates.
 async function fetchCatalog() {
     try {
         const r = await fetch('/ru.json');
         if (!r.ok) return null;
         const sections = Object.entries(await r.json());
-        const all = new Map(sections.flatMap(([, entries]) => Object.entries(entries)));
-        all.server = sections.filter(([name]) => name.startsWith('server')).flatMap(([, entries]) => Object.entries(entries));
-        return all;
+        return { all: new Map(sections.flatMap(([, entries]) => Object.entries(entries))),
+            server: sections.filter(([name]) => name.startsWith('server')).flatMap(([, entries]) => Object.entries(entries)) };
     } catch (e) {
         return null;
     }
@@ -187,9 +183,9 @@ function prefetchLanguage() {
 // the rest in it. The choice is kept for the next opening, which stays hidden until it knows its language.
 async function useLanguage(lang) {
     if (lang === 'ru' && !RU) {
-        RU = await (ruCatalog || (ruCatalog = fetchCatalog()));
-        if (RU) {
-            RU_SERVER = RU.server;
+        const catalog = await (ruCatalog || (ruCatalog = fetchCatalog()));
+        if (catalog) {
+            [RU, RU_SERVER] = [catalog.all, catalog.server];
             LANG = 'ru';
             document.documentElement.setAttribute('lang', 'ru');
             translateDom(document.body);
