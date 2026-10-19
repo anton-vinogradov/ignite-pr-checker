@@ -11,11 +11,7 @@ import com.github.igniteprchecker.jira.SettingsJournal;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
@@ -28,20 +24,18 @@ import org.junit.jupiter.api.Test;
 class RussianPageTest {
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** Two or more English words in a row: a phrase the catalog missed. A name joined by "-" or "/" is one word. */
-    private static final Pattern ENGLISH_PHRASE =
-        Pattern.compile("(?<![\\w/.-])[A-Za-z][a-z'./-]*[a-z](?:,?\\s+[A-Za-z][a-z'./-]*[a-z])+(?![\\w/-])");
-
     /** TeamCity's own messages about the broken suites of the scenario: TeamCity's words, not the checker's. */
     private static final Pattern TEAMCITY_TEXT = Pattern.compile("Failed to resolve artifacts from <.*?[\\d\\]]>"
         + "|Failed to create temporary custom script file .*? No space left on device");
 
-    /** The names and texts no catalog translates: services, terms the docs keep, suites and tests of the scenarios. */
+    /**
+     * The names no catalog translates: of the project, of suites, PRs and browsers of the scenarios, and the words of
+     * TeamCity and GitHub the page quotes.
+     */
     private static final List<String> NAMES = List.of("Apache Ignite", "Open Census",
         "Machine Learning", "Thin client: Node.js", "Thin client: PHP", "Thin client: Python", "Platform .NET",
-        "Platform C++", "Firefox on Linux", "Chrome on Windows", "Move MDC to JUnit", "Check marshalled kind",
-        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Ignite PR Checker",
-        "Access Tokens");
+        "Platform C++", "Chrome on Windows", "Move MDC to JUnit", "Check marshalled kind",
+        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Access Tokens");
 
     private static String russian() throws IOException {
         return PageScript.SIGNED_IN + "const CATALOG = " + Files.readString(Path.of("src/main/resources/static/ru.json"),
@@ -460,26 +454,6 @@ class RussianPageTest {
 
     /** The English phrases left in the texts, the names of the scenarios aside. */
     private static List<String> untranslated(JsonNode texts, String html) {
-        List<String> all = new ArrayList<>();
-        for (Iterator<Map.Entry<String, JsonNode>> it = texts.fields(); it.hasNext(); ) {
-            Map.Entry<String, JsonNode> e = it.next();
-            all.add(e.getKey() + ": " + e.getValue().asText());
-        }
-        Matcher title = Pattern.compile("title=\"([^\"]*)\"").matcher(html);
-        while (title.find())
-            all.add("title: " + title.group(1));
-
-        List<String> left = new ArrayList<>();
-        for (String line : all) {
-            String text = TEAMCITY_TEXT.matcher(line.substring(line.indexOf(": ") + 2)).replaceAll("")
-                .replaceAll("https?://\\S+", "");
-            for (String name : NAMES)
-                text = text.replace(name, "");
-            Matcher phrase = ENGLISH_PHRASE.matcher(text);
-            while (phrase.find())
-                left.add(line.substring(0, line.indexOf(':')) + ": «" + phrase.group() + "» in " + line);
-        }
-
-        return left;
+        return EnglishLeft.in(texts, html, NAMES, TEAMCITY_TEXT);
     }
 }

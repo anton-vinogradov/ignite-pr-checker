@@ -552,13 +552,6 @@ function annotateSuiteChips() {
     }
 }
 
-// The states of a run TeamCity names, as the chips show them.
-const RUN_STATES = { queued: phrase('queued'), running: phrase('running') };
-
-function runState(state) {
-    return RUN_STATES[state] ? T(RUN_STATES[state]) : state;
-}
-
 // A chip's title: what it opens, how far the run got, and how long it waited before it started.
 function runTitle(what, run) {
     return what + (run.pct >= 0 ? T` · ${run.pct}% complete` : '')
@@ -2231,11 +2224,6 @@ function fmtTestTime(ms) {
     if (ms < 10000) return T`${fraction(Math.round(ms / 100) / 10)} s`;
     const sec = Math.round(ms / 1000);
     return sec < 60 ? T`${sec} s` : T`${Math.floor(sec / 60)} m ${sec % 60} s`;
-}
-
-// "0.4", in Russian "0,4".
-function fraction(n) {
-    return LANG === 'ru' ? String(n).replace('.', ',') : String(n);
 }
 
 // Has the PR head moved since the analysed run? Then the verdict is for older code — say so

@@ -5,6 +5,7 @@ import com.github.igniteprchecker.jira.SettingsJournal;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,9 +23,12 @@ public class LanguageController {
 
     private final SettingsJournal journal;
 
-    public LanguageController(UserDirectory users, SettingsJournal journal) {
+    private final AuthInterceptor auth;
+
+    public LanguageController(UserDirectory users, SettingsJournal journal, AuthInterceptor auth) {
         this.users = users;
         this.journal = journal;
+        this.auth = auth;
     }
 
     /** The language chosen: "en" or "ru". */
@@ -44,5 +48,15 @@ public class LanguageController {
         }
 
         return ResponseEntity.ok(Map.of("lang", lang.code()));
+    }
+
+    /**
+     * The language of a page that does not log in itself, the status page or the flaky board: the one the signed-in
+     * reader chose, else English. Asking changes nothing on the server: unlike /api/me, it enters no login and offers
+     * no token to the pool.
+     */
+    @GetMapping("/page-language")
+    public Map<String, String> pageLanguage(HttpServletRequest req) {
+        return Map.of("lang", auth.signedIn(req).map(s -> users.language(s.username())).orElse(Lang.EN).code());
     }
 }

@@ -16,9 +16,6 @@
     <style>
         html, body { height: 100%; margin: 0; }
         body { display: flex; flex-direction: column; }
-        /* A reader who chose Russian sees the page once it is in Russian (theme.js, common.js); 2 s at most. */
-        html[data-lang-hint="ru"] body { visibility: hidden; animation: lang-wait 0s 2s forwards; }
-        @keyframes lang-wait { to { visibility: visible; } }
         .muted { font-size: 0.85rem; }
         .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
@@ -339,8 +336,8 @@
                 <button id="langSave" class="act" type="button" disabled
                     title="Saves the language for your account. The page then opens again in it.">Save</button>
                 <span id="langMsg" class="muted"></span></p>
-            <p class="muted">The PR page and ⚙ use it in every browser you log in from. The status page, the flaky
-                board, PR comments and visas stay in English.</p>
+            <p class="muted">All pages of the checker use it in every browser you log in from. PR comments and visas
+                stay in English.</p>
         </section>
         <section id="groupTc" class="settings-group">
             <p class="settings-access"><b>TeamCity login</b>: <span id="tcState"></span><span id="tcExpiry"

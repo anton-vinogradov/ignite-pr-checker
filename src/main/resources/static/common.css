@@ -38,6 +38,9 @@ html[data-theme="terminal"] {
 * { box-sizing: border-box; }
 body { font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); }
 html[data-theme="terminal"] body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* A reader who chose Russian sees the page once it is in Russian (theme.js, common.js); 2 s at most. */
+html[data-lang-hint="ru"] body { visibility: hidden; animation: lang-wait 0s 2s forwards; }
+@keyframes lang-wait { to { visibility: visible; } }
 .hidden { display: none !important; }
 /* Read out by screen readers, not shown. */
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

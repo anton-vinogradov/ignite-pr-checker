@@ -11,7 +11,10 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
+import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.github.CommitTokens;
+import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -31,8 +34,9 @@ import org.springframework.web.client.ResourceAccessException;
 
 /**
  * The server writes its texts in English: the reasons and caveats of a verdict, kept in the analysis cache and quoted
- * by PR comments and visas, and the answers of the endpoints the PR page, the login form and ⚙ use. The Russian page
- * puts each into Russian with the catalog's templates of the server's texts. Each text here comes from the server's own
+ * by PR comments and visas, the answers of the endpoints the PR page, the login form and ⚙ use, and what the status
+ * page shows of the service's health, of GITHUB_TOKEN, of the snapshots and of the settings. The Russian page puts
+ * each into Russian with the catalog's templates of the server's texts. Each text here comes from the server's own
  * code: called where it can be, read from the source where it is made of literals, and written out with its values
  * where it has some, in a sample that must still carry each fixed part of the source. A reason, which only an analysis
  * makes, is written as BlockerAnalyzer puts it together. A broken suite's problem in TeamCity's own words stays as
@@ -45,9 +49,9 @@ class ServerTextsInRussianTest {
     private static final Pattern ENGLISH_PHRASE =
         Pattern.compile("(?<![\\w/.-])[A-Za-z][a-z'./-]*[a-z](?:,?\\s+[A-Za-z][a-z'./-]*[a-z])+(?![\\w/-])");
 
-    /** The names the Russian keeps: of services, a job and a step on GitHub, and an option of TeamCity. */
+    /** The names the Russian keeps: of services, a job and a step on GitHub, an option of TeamCity, GitHub scopes. */
     private static final List<String> NAMES = List.of("Check java code", "Run abandoned tests checks", "Bad Gateway",
-        "Licenses Headers");
+        "Licenses Headers", "repo, workflow");
 
     /** The server's code that answers the PR page, the login form and ⚙. */
     private static final List<Path> SERVER_CODE = List.of(Path.of("src/main/java/com/github/igniteprchecker/web"),
@@ -57,13 +61,26 @@ class ServerTextsInRussianTest {
     private static final Pattern TEXT_STARTS =
         Pattern.compile("Map\\.of\\(\"error\",|new Refusal\\((?:\"\\w+\"|null|\\d+),");
 
+    /** The server's code that writes the texts of the status page. */
+    private static final List<Path> STATUS_CODE = Stream.of("health/ServiceHealth.java",
+        "github/AppAccountChecks.java", "github/AppWrites.java", "config/EffectiveConfig.java",
+        "persist/CacheStore.java").map(f -> Path.of("src/main/java/com/github/igniteprchecker", f)).toList();
+
+    /**
+     * Where a text of the status page starts: a problem of the service's health, what a check of GITHUB_TOKEN found
+     * (with its text for viewers who are not operators after it), a problem or a value of a setting, why snapshots are
+     * off, and what GitHub answered a refused write.
+     */
+    private static final Pattern STATUS_TEXT_STARTS = Pattern.compile("Problem\\.(?:warn|error)\\("
+        + "|Check\\.(?:ok|unknown|warn|error)\\(|(new Check\\()(?:Check\\.\\w+|\"\\w+\"),"
+        + "|\\bproblem\\((?!String)|\\bshow\\(\"\\w+\",|\\boff = |\\brefused = ");
+
     /** One Java string literal and nothing else. */
     private static final Pattern LITERAL = Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"");
 
     /** The texts in the server's code that none of these pages shows, and why. */
     private static final Map<String, String> NOT_SHOWN = Map.of(
-        "Only the operator can see who uses the service.", "the status page's",
-        "Only the operator can ", "the status page's; Update shows to an operator only",
+        "Only the operator can see who uses the service.", "the Users tab answers a refusal in its own words",
         "no such language: use en or ru", "⚙ sends en or ru only",
         "no such service: ", "⚙ asks about TeamCity, JIRA and GitHub only",
         "no title known for PR ", "the PR page shows no failed title");
@@ -119,7 +136,11 @@ class ServerTextsInRussianTest {
 
         assertThat(lost).isEmpty();
         assertThat(inCode).extracting(CodeText::whole).as("the texts read from the code")
-            .contains("no suites to re-run", "token required", "GitHub rejected the token — paste a new one");
+            .contains("no suites to re-run", "token required", "GitHub rejected the token — paste a new one",
+                "GitHub did not name the scopes of GITHUB_TOKEN", "disabled (persist.enabled=false)",
+                "not set (all interfaces)");
+        assertThat(inCode).flatExtracting(CodeText::parts).as("the fixed parts of the status page's texts")
+            .contains("GitHub answered 403 to a write: ", "expires in more than ", "warm cycle running for ");
         assertThat(inCode).filteredOn(t -> !t.parts().isEmpty()).as("the texts with values").hasSizeGreaterThan(5);
     }
 
@@ -173,6 +194,23 @@ class ServerTextsInRussianTest {
         for (int[] counts : new int[][] {{2, 0, 1, 0}, {0, 1, 0, 0}, {0, 0, 3, 0}, {0, 0, 0, 1}, {1, 1, 1, 1}, {3, 0, 0, 0}})
             out.add(privateText(StandingVisas.class, "suitesLabel", counts[0], counts[1], counts[2], counts[3]));
 
+        for (ServiceHealth.Problem p : StatusTexts.problems())
+            out.add(p.text());
+        for (ServiceHealth.Problem p : StatusTexts.problemsWithoutDates())
+            out.add(p.text());
+        for (GithubClient.AppAccount.Check c : StatusTexts.checks()) {
+            out.add(c.text());
+            if (c.dateless() != null)
+                out.add(c.dateless());
+        }
+        out.addAll(StatusTexts.SETTING_WORDS);
+        out.addAll(StatusTexts.OPERATORS_UNNAMED);
+        out.addAll(StatusTexts.SNAPSHOTS_OFF);
+        out.addAll(List.of(StatusTexts.WRITE_REFUSED, "user alice", "a user"));
+        AdminActions admin = new AdminActions(new AdminProperties(null), JSON);
+        for (AdminActions.Action action : AdminActions.Action.values())
+            out.add(admin.claim("bob", action).orElseThrow().message());
+
         out.addAll(List.of("GitHub could not list the PR's files", "TeamCity could not be asked how they ran",
             "the RunAll is still going; only the first 1000 runs were read",
             "the checker looked up master history for only 20 of 31 failed tests of changed classes",
@@ -220,15 +258,26 @@ class ServerTextsInRussianTest {
             try (Stream<Path> walk = Files.walk(dir)) {
                 files = walk.filter(f -> f.toString().endsWith(".java")).sorted().toList();
             }
-            for (Path f : files) {
-                String code = Files.readString(f, UTF_8);
-                Matcher m = TEXT_STARTS.matcher(code);
-                while (m.find())
-                    collect(f.getFileName().toString(), argument(code, m.end()), out);
-            }
+            for (Path f : files)
+                collectAll(f, TEXT_STARTS, out);
         }
+        for (Path f : STATUS_CODE)
+            collectAll(f, STATUS_TEXT_STARTS, out);
 
         return out;
+    }
+
+    /** The texts in a file that start where {@code starts} finds; a check's text for others follows its own text. */
+    private static void collectAll(Path file, Pattern starts, List<CodeText> out) throws IOException {
+        String code = Files.readString(file, UTF_8);
+        Matcher m = starts.matcher(code);
+        while (m.find()) {
+            String text = argument(code, m.end());
+            collect(file.getFileName().toString(), text, out);
+            int after = m.end() + text.length();
+            if (m.groupCount() > 0 && m.group(1) != null && code.charAt(after) == ',')
+                collect(file.getFileName().toString(), argument(code, after + 1), out);
+        }
     }
 
     private static void collect(String where, String expr, List<CodeText> out) {
@@ -256,7 +305,10 @@ class ServerTextsInRussianTest {
             : new CodeText(where, null, literals));
     }
 
-    /** The source of the argument that starts at {@code from}: up to the comma or the bracket that ends it. */
+    /**
+     * The source of the argument that starts at {@code from}: up to the comma or the bracket that ends it, or the end
+     * of the statement for the value of an assignment.
+     */
     private static String argument(String code, int from) {
         int depth = 0;
         for (int i = from; i < code.length(); i++) {
@@ -265,7 +317,7 @@ class ServerTextsInRussianTest {
                 i = endOfLiteral(code, i);
             else if ("([{".indexOf(c) >= 0)
                 depth++;
-            else if (")]}".indexOf(c) >= 0 && depth-- == 0 || c == ',' && depth == 0)
+            else if (")]}".indexOf(c) >= 0 && depth-- == 0 || (c == ',' || c == ';') && depth == 0)
                 return code.substring(from, i);
         }
 
