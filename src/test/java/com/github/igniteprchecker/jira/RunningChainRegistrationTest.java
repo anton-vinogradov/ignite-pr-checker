@@ -127,10 +127,10 @@ class RunningChainRegistrationTest {
 
         standing.sweep();
 
-        assertThat(locators).hasSize(1);
-        assertThat(locators.get(0))
+        List<String> running = locators.stream().filter(l -> l.contains("state:running")).toList();
+        assertThat(running).hasSize(1);
+        assertThat(running.get(0))
             .contains("buildType:(id:" + RUN_ALL + ")")
-            .contains("state:running")
             .contains("branch:(default:any)");
     }
 
@@ -141,7 +141,7 @@ class RunningChainRegistrationTest {
 
         standing.sweep();
 
-        assertThat(locators).isEmpty();
+        assertThat(locators).noneMatch(l -> l.contains("state:running"));
         verify(tracker, never()).record(anyInt(), any());
     }
 

@@ -125,6 +125,11 @@ public class LoginController {
             return ResponseEntity.status(502).body(Map.of("error",
                 "TeamCity could not check the token (HTTP " + e.getStatusCode().value() + ") — try again in a moment"));
         }
+        catch (RuntimeException e) {
+            throttle.refund(client);
+
+            throw e;
+        }
 
         if (username.isEmpty()) {
             throttle.rejected(token);
@@ -137,6 +142,7 @@ public class LoginController {
         long issuedAt = System.currentTimeMillis();
         SessionCodec.Session session = sessionOf(username.get(), token, http);
         warmer.offerVerifiedToken(username.get(), token, session.login()); // TeamCity just accepted it
+        outOfPoolIfEnded(username.get(), session.login());
         standing.tcTokenAccepted(username.get(), token,
             SettingsJournal.By.of(session.login(), AuthInterceptor.browser(http)));
 
@@ -181,10 +187,13 @@ public class LoginController {
             .body(Map.of("error", message));
     }
 
-    /** The answer to a login from an address whose tokens TeamCity rejected too often: the limit and the wait. */
+    /**
+     * The answer to a login from an address whose attempts TeamCity rejected too often: the limit and the wait. A
+     * token TeamCity rejected a moment ago is not asked again, yet its attempt counts, so the text counts attempts.
+     */
     private static String addressUsedUp(Duration wait) {
-        return "TeamCity rejected " + LoginThrottle.ATTEMPTS_PER_CLIENT + " tokens from your network address in the"
-            + " last " + LoginThrottle.CLIENT_WINDOW.toMinutes() + " minutes. Try again in " + minutes(wait) + ".";
+        return "TeamCity rejected " + LoginThrottle.ATTEMPTS_PER_CLIENT + " login attempts from your network address in"
+            + " the last " + LoginThrottle.CLIENT_WINDOW.toMinutes() + " minutes. Try again in " + minutes(wait) + ".";
     }
 
     /** The answer to a login when all logins together have used the TeamCity checks of the last minute. */
@@ -298,6 +307,15 @@ public class LoginController {
         warmer.forgetLogins(ended, t -> standing.lendsTcToken(user, t));
     }
 
+    /**
+     * Takes the token a request of the {@code login} has just offered out of the pool again if the login ended
+     * meanwhile: that end took the login's tokens out before the offer.
+     */
+    private void outOfPoolIfEnded(String user, String login) {
+        if (!logins.goesOn(login))
+            outOfPool(user, Set.of(login));
+    }
+
     private LoginList loginList(String user, String current, int ended) {
         List<LoginView> list = logins.of(user).stream()
             .map(l -> new LoginView(l.id(), l.browser(), l.createdAt(), l.earlierIssuedAt() != null, l.lastSeen(),
@@ -311,7 +329,9 @@ public class LoginController {
     /**
      * Who the session is, for the page as it opens. A cookie old enough, under the name earlier versions gave it, or
      * naming no login, is issued again, as the login guard does. A cookie under that name that is no longer taken is
-     * removed, and when an earlier version issued it, the answer says why its owner is at the login form.
+     * removed, and when an earlier version issued it, the answer says why its owner is at the login form. As at the
+     * guard, the session's token goes to the options whose stored TeamCity token is gone: the bot's reply to a
+     * /run-all of such a user says that opening the checker brings their commands back.
      */
     @GetMapping("/me")
     public ResponseEntity<?> me(HttpServletRequest http) {
@@ -335,6 +355,9 @@ public class LoginController {
             return ResponseEntity.status(401).body(Map.of("error", AuthInterceptor.ENDED, "sessionEnded", true));
 
         warmer.offerToken(s.username(), s.token(), login.get().id());
+        outOfPoolIfEnded(s.username(), login.get().id());
+        standing.tcTokenOffered(s.username(), s.token(),
+            SettingsJournal.By.of(login.get().id(), AuthInterceptor.browser(http)));
         ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
         if (carried.get().earlier() || SessionCookies.due(s, checkedAt)) {
             ok.header(HttpHeaders.SET_COOKIE,

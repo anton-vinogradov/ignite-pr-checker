@@ -31,6 +31,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -112,7 +113,7 @@ class CheckersVerdictCommentTest {
         when(github.appComment(eq(PR), anyString(), anyString()))
             .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
 
         standing.sweep();
 
@@ -137,7 +138,7 @@ class CheckersVerdictCommentTest {
         when(github.canWrite()).thenReturn(false);
         when(github.appComment(eq(PR), anyString(), anyString())).thenThrow(new GithubClient.WriteDeferred("wait"))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
         standing.sweep();
 
         standing.sweep();
@@ -162,14 +163,14 @@ class CheckersVerdictCommentTest {
         when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(verdict(RUN - 1)));
         when(github.appComment(eq(PR), anyString(), anyString()))
             .thenReturn(new GithubClient.PostedComment(444L, "https://github.com/apache/ignite/pull/13335#c444"));
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of(PR)));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of(PR, Set.of())));
         standing.sweep();
         when(tc.findRunAllBuildForPr(anyString(), eq(PR))).thenReturn(Optional.of(build(RUN)));
         when(analyzer.analyzeForAction(anyString(), eq(PR))).thenReturn(Optional.of(verdict(RUN)));
         when(github.canWrite()).thenReturn(false);
         when(github.appComment(eq(PR), anyString(), anyString())).thenThrow(new GithubClient.WriteDeferred("wait"));
         standing.sweep();
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
 
         standing.sweep();
 

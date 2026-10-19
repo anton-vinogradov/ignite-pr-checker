@@ -20,6 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -35,10 +37,15 @@ import tools.jackson.databind.ObjectMapper;
  * cookie cannot be around any more, so that a copy cannot make it anew. Past that, a browser has dropped the cookie, so
  * only a copy can bring it, and it gets no login.
  *
+ * <p>Each login names the key of the cookies it was made under. A cookie made under another {@code session.secret}
+ * cannot be read, so the logins made under it are not loaded.
+ *
  * <p>Saved within a second ({@code logins.json}): a login the file lost would log its browser out.
  */
 @Component
 public class Logins implements SnapshotCache {
+    private static final Logger log = LoggerFactory.getLogger(Logins.class);
+
     /** How stale a login's last-seen time gets before a request moves it: the file is not written on every request. */
     static final Duration SEEN_EVERY = Duration.ofMinutes(5);
 
@@ -51,6 +58,9 @@ public class Logins implements SnapshotCache {
     private final ObjectMapper mapper;
 
     private final UserDirectory users;
+
+    /** The fingerprint of the cookies' key, see {@link SessionCodec#keyCheck}; null when the logins name no key. */
+    private final String keyCheck;
 
     private final LongSupplier clock;
 
@@ -67,13 +77,23 @@ public class Logins implements SnapshotCache {
     };
 
     @Autowired
+    public Logins(ObjectMapper mapper, UserDirectory users, SessionCodec codec) {
+        this(mapper, users, codec.keyCheck(), System::currentTimeMillis);
+    }
+
+    /** Logins that name no key: each one in the file counts as made under the key of the cookies. */
     public Logins(ObjectMapper mapper, UserDirectory users) {
-        this(mapper, users, System::currentTimeMillis);
+        this(mapper, users, null, System::currentTimeMillis);
     }
 
     Logins(ObjectMapper mapper, UserDirectory users, LongSupplier clock) {
+        this(mapper, users, null, clock);
+    }
+
+    Logins(ObjectMapper mapper, UserDirectory users, String keyCheck, LongSupplier clock) {
         this.mapper = mapper;
         this.users = users;
+        this.keyCheck = keyCheck;
         this.clock = clock;
     }
 
@@ -86,7 +106,7 @@ public class Logins implements SnapshotCache {
     public synchronized Login start(String user, String browser) {
         long now = clock.getAsLong();
         prune(now);
-        Login login = new Login(newId(), user, browser, now, now, null, null);
+        Login login = new Login(newId(), user, browser, now, now, null, null, keyCheck);
         byId.put(login.id(), login);
         endBeyondKept(login, now);
 
@@ -120,6 +140,13 @@ public class Logins implements SnapshotCache {
             return of(session).isPresent();
 
         return !users.ended(session);
+    }
+
+    /** Whether the login {@code id} goes on. */
+    public boolean goesOn(String id) {
+        Login login = byId.get(id);
+
+        return login != null && login.on();
     }
 
     /** The user's logins that go on, the one seen last first. */
@@ -167,7 +194,7 @@ public class Logins implements SnapshotCache {
             return Optional.empty();
 
         prune(now);
-        Login login = new Login(newId(), session.username(), browser, now, now, session.issuedAt(), null);
+        Login login = new Login(newId(), session.username(), browser, now, now, session.issuedAt(), null, keyCheck);
         byId.put(login.id(), login);
         byEarlierCookie.put(earlierKey(session.username(), session.issuedAt()), login.id());
         endBeyondKept(login, now);
@@ -281,16 +308,29 @@ public class Logins implements SnapshotCache {
         Snapshots.writeAtomic(mapper, file, all);
     }
 
+    /**
+     * Loads the logins made under the key of the cookies. A login of an earlier version names no key: it was made under
+     * this key, as a change of the key logs everyone out, and is marked so.
+     */
     @Override
     public synchronized void loadFrom(Path file) throws IOException {
         if (!Files.exists(file))
             return;
 
-        for (Login login : mapper.readValue(file.toFile(), Login[].class)) {
+        int otherKey = 0;
+        for (Login read : mapper.readValue(file.toFile(), Login[].class)) {
+            if (keyCheck != null && read.keyCheck() != null && !keyCheck.equals(read.keyCheck())) {
+                otherKey++;
+                continue;
+            }
+
+            Login login = read.keyCheck() == null ? read.under(keyCheck) : read;
             byId.put(login.id(), login);
             if (login.earlierIssuedAt() != null)
                 byEarlierCookie.put(earlierKey(login.user(), login.earlierIssuedAt()), login.id());
         }
+        if (otherKey > 0)
+            log.info("{} logins made under another session.secret dropped: no cookie of theirs can be read", otherKey);
         prune(clock.getAsLong());
     }
 
@@ -298,11 +338,12 @@ public class Logins implements SnapshotCache {
      * A login: its id, which the cookie carries; whose it is; the label of its browser and system; when it logged in
      * and when it was last seen, within {@link #SEEN_EVERY}. {@code earlierIssuedAt}: when the cookie of an earlier
      * version this login was made for was issued, null for a login made at the login form. {@code endedAt}: when the
-     * login made for such a cookie ended; null while it goes on.
+     * login made for such a cookie ended; null while it goes on. {@code keyCheck}: the fingerprint of the key its
+     * cookie was made under; null in a file of an earlier version.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Login(String id, String user, String browser, long createdAt, long lastSeen, Long earlierIssuedAt,
-        Long endedAt) {
+        Long endedAt, String keyCheck) {
         boolean on() {
             return endedAt == null;
         }
@@ -313,11 +354,15 @@ public class Logins implements SnapshotCache {
         }
 
         Login seenAt(long at) {
-            return new Login(id, user, browser, createdAt, at, earlierIssuedAt, endedAt);
+            return new Login(id, user, browser, createdAt, at, earlierIssuedAt, endedAt, keyCheck);
         }
 
         Login endedAt(long at) {
-            return new Login(id, user, browser, createdAt, lastSeen, earlierIssuedAt, at);
+            return new Login(id, user, browser, createdAt, lastSeen, earlierIssuedAt, at, keyCheck);
+        }
+
+        Login under(String key) {
+            return new Login(id, user, browser, createdAt, lastSeen, earlierIssuedAt, endedAt, key);
         }
     }
 }

@@ -178,6 +178,7 @@ class ServerTextsInRussianTest {
         out.add(ApiExceptionHandler.PREVIOUS_RUNALL_CANCELLED + " — try RunAll again");
         out.add(ApiExceptionHandler.PREVIOUS_RUNALL_CANCELLED + ": " + ApiExceptionHandler.FORBIDDEN);
         out.add(ApiExceptionHandler.BAD_JSON);
+        out.add(ApiExceptionHandler.BAD_PARAMETERS);
         out.add(String.valueOf(new ApiExceptionHandler(null, null)
             .noAnswer(new ResourceAccessException("reset")).getBody().get("error")));
         out.add(StandingVisas.Refusal.UNAVAILABLE.error());

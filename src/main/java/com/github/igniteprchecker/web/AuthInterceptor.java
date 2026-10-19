@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -98,10 +99,20 @@ public class AuthInterceptor implements HandlerInterceptor {
         users.touch(user);
         if (session.get().carriesJira() && !standing.visaOn(user))
             users.sawJiraInCookie(user);
-        warmer.offerToken(user, token, login.get().id());
+        offer(user, token, login.get().id());
         standing.tcTokenOffered(user, token, by(req));
 
         return true;
+    }
+
+    /**
+     * Offers the token of a request of the {@code login} to the warming pool. A login that ended after this request
+     * passed the check had its tokens taken out of the pool before this offer, so the token goes out again.
+     */
+    private void offer(String user, String token, String login) {
+        warmer.offerToken(user, token, login);
+        if (!logins.goesOn(login))
+            warmer.forgetLogins(Set.of(login), t -> standing.lendsTcToken(user, t));
     }
 
     /** The session of a request to a public endpoint, if it carries one that would pass this guard. */

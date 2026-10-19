@@ -32,8 +32,8 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -152,7 +152,7 @@ class HeldVerdictTest {
                 HttpStatusCode.valueOf(403), "You have exceeded a secondary rate limit", HttpHeaders.EMPTY, new byte[0],
                 StandardCharsets.UTF_8))
             .thenReturn(new GithubClient.PostedComment(555L, "https://github.com/apache/ignite/pull/13335#c555"));
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
 
         standing.sweep();
 
@@ -172,7 +172,7 @@ class HeldVerdictTest {
         visaOn();
         when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString())).thenThrow(status(403))
             .thenReturn(new JiraClient.PostedComment("18000002", "https://issues.example/browse/" + ISSUE));
-        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Set.of()));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
 
         standing.sweep();
 

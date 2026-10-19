@@ -42,6 +42,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -145,6 +146,12 @@ public class StandingVisas implements SnapshotCache {
      */
     private static final long SWEEP_OVERLAP_MS = 300_000;
 
+    /**
+     * How far back the first sweep after a start asks for the RunAll chains that finished. The service may have been
+     * stopped for hours, and nothing else tells it of a chain that finished meanwhile on a PR out of the list.
+     */
+    private static final long FIRST_SWEEP_LOOKBACK_MS = 86_400_000;
+
     /** Every this many sweeps (once an hour) every listed PR is looked up, whatever TeamCity says finished. */
     private static final int FULL_SWEEP_EVERY = 6;
 
@@ -159,6 +166,12 @@ public class StandingVisas implements SnapshotCache {
      * none: the sweep skips them while no chain of theirs finished since.
      */
     private final ConcurrentMap<Integer, Long> resting = new ConcurrentHashMap<>();
+
+    /**
+     * The PRs out of the sweep's list whose RunAll, started by a user whose visa or verdict comment it owes, finished
+     * and is not settled yet: the sweep settles them until they rest or close.
+     */
+    private final Set<Integer> finishedUnlisted = ConcurrentHashMap.newKeySet();
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
@@ -790,15 +803,18 @@ public class StandingVisas implements SnapshotCache {
      */
     private void dropGhTokenIf(String username, java.util.function.Predicate<Enrollment> refused) {
         Options[] was = {null};
+        String lent = lentTcToken(username);
         boolean dropped = changed(username, e -> {
             if (!refused.test(e))
                 return e;
 
             was[0] = e.options();
 
-            return e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh());
+            return e.withGh(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutGh())
+                .withTcOnlyWhileOn();
         });
         if (dropped) {
+            lentNoMore(username, lent);
             journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.GITHUB,
                 offWith(was[0], Option.STYLE_FIX, Option.SUITE_FIX)));
             log.warn("GitHub token of {} was rejected by GitHub: dropped, the checkstyle autofix and tests to suites "
@@ -815,15 +831,18 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         Options[] was = {null};
+        String lent = lentTcToken(username);
         boolean dropped = changed(username, e -> {
             if (e.jira().token() == null)
                 return e;
 
             was[0] = e.options();
 
-            return e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa());
+            return e.withJira(Credential.refusedAt(System.currentTimeMillis())).withOptions(e.options().withoutVisa())
+                .withTcOnlyWhileOn();
         });
         if (dropped) {
+            lentNoMore(username, lent);
             journal.add(username, SettingsJournal.Entry.refused(SettingsJournal.Entry.JIRA, offWith(was[0],
                 Option.VISA)));
             log.warn("JIRA token of {} was rejected: dropped and auto-visa switched off until a fresh PAT is saved",
@@ -844,6 +863,22 @@ public class StandingVisas implements SnapshotCache {
             log.warn("TeamCity rejected the stored token of {}: their options pause until a working token comes",
                 username);
         }
+    }
+
+    /** The TeamCity token the user's options lend to the background reads; null when they lend none. */
+    private String lentTcToken(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e == null ? null : backgroundToken(e).orElse(null);
+    }
+
+    /**
+     * Takes the token the user's options {@code lent} out of the pool of the background reads when they lend it no
+     * more: a refused or missing JIRA or GitHub token turned off the options that lent it.
+     */
+    private void lentNoMore(String username, String lent) {
+        if (lent != null && !lendsTcToken(username, lent))
+            warmer.forgetLent(lent);
     }
 
     /** Whether the user's options lend this TeamCity token to the background reads; see {@link #backgroundToken}. */
@@ -873,7 +908,8 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * A token TeamCity has just accepted at login becomes the stored one: logging in again is how a
-     * user replaces an expired token, and it used to leave the dead one in charge of their options.
+     * user replaces an expired token, and it used to leave the dead one in charge of their options. A user with no
+     * option on gets none stored.
      */
     public void tcTokenAccepted(String username, String token) {
         tcTokenAccepted(username, token, SettingsJournal.By.of(null, null));
@@ -883,7 +919,7 @@ public class StandingVisas implements SnapshotCache {
     public void tcTokenAccepted(String username, String token, SettingsJournal.By by) {
         boolean wasRejected = tcTokenRejected(username);
         Credential accepted = new Credential(codec.encryptString(token), 0);
-        boolean replaced = changed(username, e -> !e.tc().rejected()
+        boolean replaced = changed(username, e -> !e.options().any() || !e.tc().rejected()
             && decrypt(e.tc()).filter(token::equals).isPresent() ? e : e.withTc(accepted));
         if (replaced)
             journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.TEAMCITY));
@@ -899,13 +935,13 @@ public class StandingVisas implements SnapshotCache {
     /** See {@link #tcTokenOffered(String, String)}: a request of the login {@code by}, which the journal names. */
     public void tcTokenOffered(String username, String token, SettingsJournal.By by) {
         Enrollment e = enrolled.get(username);
-        if (e == null || tcKept(e.tc(), token) == e.tc())
+        if (e == null || !e.options().any() || tcKept(e.tc(), token) == e.tc())
             return;
 
         boolean replaced = changed(username, cur -> {
             Credential kept = tcKept(cur.tc(), token);
 
-            return kept == cur.tc() ? cur : cur.withTc(kept);
+            return kept == cur.tc() || !cur.options().any() ? cur : cur.withTc(kept);
         });
         if (replaced) {
             journal.add(username, SettingsJournal.Entry.token(by, SettingsJournal.Entry.TEAMCITY));
@@ -1484,11 +1520,14 @@ public class StandingVisas implements SnapshotCache {
      * its options: ⚙ asks the user for a new one.
      */
     private void switchOffOptionsWithoutTokens() {
+        Map<String, String> lent = new ConcurrentHashMap<>();
         enrolled.replaceAll((u, e) -> {
             boolean ghGone = e.options().needsGh() && e.gh().token() == null && !e.gh().waits();
             boolean jiraGone = e.options().autoVisa() && e.jira().token() == null && !e.jira().waits();
             if (!ghGone && !jiraGone)
                 return e;
+
+            backgroundToken(e).ifPresent(t -> lent.put(u, t));
 
             if (ghGone) {
                 journal.add(u, SettingsJournal.Entry.noToken(SettingsJournal.Entry.GITHUB,
@@ -1509,8 +1548,9 @@ public class StandingVisas implements SnapshotCache {
                 next = next.withJira(next.jira().rejected() ? next.jira() : Credential.refusedAt(now))
                     .withOptions(next.options().withoutVisa());
 
-            return next;
+            return next.withTcOnlyWhileOn();
         });
+        lent.forEach(this::lentNoMore);
     }
 
     /**
@@ -1806,9 +1846,10 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Sweep: settles each open PR the list holds (see {@link #settle}), then the PRs out of the list that
-     * still have a living comment or a wave open. Events settle a run as soon as its chain or a re-run
-     * finishes; the sweep keeps the ones that wait going and catches what an event missed. A PR at rest is
-     * not looked up again while TeamCity says no RunAll of it finished since the last sweep.
+     * still have a living comment or a wave open, or a finished RunAll whose visa or verdict comment is owed. Events
+     * settle a run as soon as its chain or a re-run finishes; the sweep keeps the ones that wait going and catches
+     * what an event missed. A PR at rest is not looked up again while TeamCity says no RunAll of it finished since the
+     * last sweep.
      */
     @Scheduled(fixedDelay = SWEEP_MS, initialDelay = FIRST_SWEEP_MS)
     void sweep() {
@@ -1830,13 +1871,13 @@ public class StandingVisas implements SnapshotCache {
 
         List<PrSummary> listed = github.openPrs();
         resting.keySet().retainAll(listed.stream().map(PrSummary::number).toList());
-        Set<Integer> finished = chainsFinishedSinceLastSweep(t0);
+        Finished finished = chainsFinishedSinceLastSweep(t0);
         int posted = 0;
         for (PrSummary pr : listed) {
-            if (finished == null || finished.contains(pr.number()) || !resting(pr.number()))
+            if (finished.everyPr() || finished.prs().containsKey(pr.number()) || !resting(pr.number()))
                 posted += settle(pr);
         }
-        settleUnlisted(listed);
+        settleUnlisted(listed, finished.prs());
 
         lastSweepMs = System.currentTimeMillis() - t0;
         if (posted > 0)
@@ -1844,28 +1885,36 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The PRs with a RunAll chain finished since the last sweep, by one TeamCity call across all branches; null when
-     * every listed PR is to be looked up: on the first sweep, on every {@link #FULL_SWEEP_EVERY}th one, and whenever
-     * TeamCity cannot say. Looking each PR up cost 50 calls a sweep, nearly all of them to learn that nothing changed.
+     * The PRs with a RunAll chain finished since the last sweep, with who started the chains, by one TeamCity call
+     * across all branches. Looking each PR up cost 50 calls a sweep, nearly all of them to learn that nothing changed.
+     * The sweeps that look every PR up ask too: a PR out of the list has no other way to tell a finished run. The first
+     * sweep after a start asks for {@link #FIRST_SWEEP_LOOKBACK_MS} back, over the stop and the last sweep before it.
      */
-    private Set<Integer> chainsFinishedSinceLastSweep(long now) {
+    private Finished chainsFinishedSinceLastSweep(long now) {
         long since = sweptUpTo;
         sweptUpTo = now;
-        if (since == 0 || ++sweepsSinceFull >= FULL_SWEEP_EVERY) {
+        boolean everyPr = since == 0 || ++sweepsSinceFull >= FULL_SWEEP_EVERY;
+        if (everyPr)
             sweepsSinceFull = 0;
-
-            return null;
-        }
-
+        long after = since == 0 ? now - FIRST_SWEEP_LOOKBACK_MS : since - SWEEP_OVERLAP_MS;
         try {
-            return lookup(token -> tc.prsWithChainsFinishedAfter(token, (since - SWEEP_OVERLAP_MS) / 1000))
-                .orElse(null);
+            return lookup(token -> tc.prsWithChainsFinishedAfter(token, after / 1000))
+                .map(prs -> new Finished(everyPr, prs)).orElse(Finished.UNKNOWN);
         }
         catch (RuntimeException e) {
             log.warn("RunAll chains finished since the last sweep not listed, every PR is looked up: {}", e.toString());
 
-            return null;
+            return Finished.UNKNOWN;
         }
+    }
+
+    /**
+     * What a sweep knows of the RunAll chains finished since the last one: the PRs, each with the users who started
+     * those chains. {@code everyPr}: every listed PR is looked up anyway: on the first sweep, on every {@link
+     * #FULL_SWEEP_EVERY}th one, and whenever TeamCity cannot say, which also leaves {@code prs} empty.
+     */
+    private record Finished(boolean everyPr, Map<Integer, Set<String>> prs) {
+        static final Finished UNKNOWN = new Finished(true, Map.of());
     }
 
     /**
@@ -1973,10 +2022,18 @@ public class StandingVisas implements SnapshotCache {
     /**
      * The PRs out of the sweep's list that still have a living comment, a wave open or a finished run to decide on.
      * The list holds the 50 most recently updated open PRs only, and a run whose PR dropped out of it stayed "in
-     * progress" for good.
+     * progress" for good. So did the visa of a RunAll that finished on such a PR while nobody watched it: of the PRs
+     * in {@code finished}, those whose run owes a visa or a verdict comment are settled until they rest.
      */
-    private void settleUnlisted(List<PrSummary> listed) {
-        Set<Integer> prs = new java.util.TreeSet<>();
+    private void settleUnlisted(List<PrSummary> listed, Map<Integer, Set<String>> finished) {
+        Set<Integer> numbers = listed.stream().map(PrSummary::number).collect(Collectors.toSet());
+        finished.forEach((pr, starters) -> {
+            if (starters.stream().anyMatch(this::postsVerdicts))
+                finishedUnlisted.add(pr);
+        });
+        finishedUnlisted.removeAll(numbers);
+
+        Set<Integer> prs = new java.util.TreeSet<>(finishedUnlisted);
         enrolled.values().forEach(e -> {
             e.handled().ghThreads().forEach((pr, t) -> {
                 if (open(e, pr, t.buildId(), t.done()))
@@ -1993,7 +2050,7 @@ public class StandingVisas implements SnapshotCache {
         });
         waves.values().forEach(r -> prs.add(r.pr()));
         prs.addAll(deciding.keySet());
-        listed.forEach(p -> prs.remove(p.number()));
+        prs.removeAll(numbers);
 
         for (int pr : prs) {
             try {
@@ -2003,6 +2060,14 @@ public class StandingVisas implements SnapshotCache {
                 log.warn("PR {} out of the sweep's list not settled this time: {}", pr, e.toString());
             }
         }
+        finishedUnlisted.removeIf(pr -> resting.containsKey(pr) || closedPrs.containsKey(pr));
+    }
+
+    /** Whether the user's finished runs get a visa or a verdict comment, the ones a PR page says are coming. */
+    private boolean postsVerdicts(String user) {
+        Enrollment e = enrolled.get(user);
+
+        return e != null && (e.options().autoVisa() || e.options().ghComment());
     }
 
     /**
@@ -2777,7 +2842,7 @@ public class StandingVisas implements SnapshotCache {
 
         boolean keyChanged = keyCheck != null && !keyCheck.equals(codec.keyCheck());
         for (Persisted p : enrollments) {
-            Enrollment e = p.enrollment();
+            Enrollment e = p.enrollment().withTcOnlyWhileOn();
             boolean refusedKept = e.tc().rejected() && e.tc().token() != null;
             Enrollment loaded = withUnreadDropped(p.username(),
                 refusedKept ? e.withTc(refused(e.tc(), e.tc().rejectedAt())) : e, keyChanged);
@@ -2880,6 +2945,14 @@ public class StandingVisas implements SnapshotCache {
 
         Enrollment withTc(Credential c) {
             return new Enrollment(c, jira, gh, ghAccount, tz, enabledAt, options, handled, onSince);
+        }
+
+        /**
+         * The same without the TeamCity token once no option is on. Such an enrollment stays only for what ⚙ says of a
+         * refused token, and the TeamCity token would lie on disk and in the backups for nothing.
+         */
+        Enrollment withTcOnlyWhileOn() {
+            return options.any() ? this : withTc(Credential.NONE);
         }
 
         Enrollment withJira(Credential c) {

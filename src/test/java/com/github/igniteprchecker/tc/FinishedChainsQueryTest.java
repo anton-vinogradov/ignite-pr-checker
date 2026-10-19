@@ -13,6 +13,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
@@ -34,9 +35,12 @@ class FinishedChainsQueryTest {
 
     private final List<String> fields = new CopyOnWriteArrayList<>();
 
-    private volatile String answer = "{\"build\":[{\"id\":9390500,\"branchName\":\"pull/13583/head\"},"
-        + "{\"id\":9390499,\"branchName\":\"pull/13654/head\"},{\"id\":9390480,\"branchName\":\"master\"},"
-        + "{\"id\":9390470,\"branchName\":\"pull/13583/head\"},{\"id\":9390460}]}";
+    private volatile String answer = "{\"build\":[{\"id\":9390500,\"branchName\":\"pull/13583/head\","
+        + "\"triggered\":{\"type\":\"user\",\"user\":{\"username\":\"avinogradov\"}}},"
+        + "{\"id\":9390499,\"branchName\":\"pull/13654/head\",\"triggered\":{\"type\":\"vcs\"}},"
+        + "{\"id\":9390480,\"branchName\":\"master\"},"
+        + "{\"id\":9390470,\"branchName\":\"pull/13583/head\","
+        + "\"triggered\":{\"type\":\"user\",\"user\":{\"username\":\"zstan\"}}},{\"id\":9390460}]}";
 
     private volatile int status = 200;
 
@@ -64,14 +68,19 @@ class FinishedChainsQueryTest {
         server.stop(0);
     }
 
+    /**
+     * A RunAll that finished on a PR out of the sweep's list was never settled, so its visa never came. The answer names
+     * who started each chain, so the sweep settles only the PRs whose runs owe a visa or a verdict comment.
+     */
     @Test
-    void namesThePrsWhoseChainsFinishedSince() {
-        assertThat(client().prsWithChainsFinishedAfter("t", SINCE)).contains(Set.of(13583, 13654));
+    void namesThePrsWhoseChainsFinishedSinceAndWhoStartedThem() {
+        assertThat(client().prsWithChainsFinishedAfter("t", SINCE)).contains(Map.of(13583, Set.of("avinogradov",
+            "zstan"), 13654, Set.of()));
         assertThat(locators).singleElement().asString().contains("buildType:(id:RunAll)", "branch:(default:any)",
             "state:finished", "canceled:any", "failedToStart:any",
             "startDate:(date:20261006T120000+0000,condition:after)",
             "finishDate:(date:20261007T120000+0000,condition:after)", "count:200");
-        assertThat(fields).containsExactly("build(id,branchName)");
+        assertThat(fields).containsExactly("build(id,branchName,triggered(type,user(username)))");
     }
 
     /** As many chains as asked for may not be all of them: then the sweep looks every PR up. */

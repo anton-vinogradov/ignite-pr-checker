@@ -332,6 +332,14 @@ public class Warmer {
     }
 
     /**
+     * Drops a token the standing options lent from the pool at once, rather than an hour after they last lent it, once
+     * they lend it no more. A token a login's request offered too stays for that login.
+     */
+    public void forgetLent(String token) {
+        tokens.forgetLent(token);
+    }
+
+    /**
      * Records that TeamCity refused this token itself (401) when a user's request or action used it: it leaves the pool,
      * and its sessions are refused until a login proves it valid again.
      */

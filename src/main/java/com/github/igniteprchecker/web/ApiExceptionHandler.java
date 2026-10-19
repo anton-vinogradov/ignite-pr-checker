@@ -7,6 +7,7 @@ import com.github.igniteprchecker.tc.TcResponseException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -37,6 +38,8 @@ public class ApiExceptionHandler {
         "Your previous RunAll was cancelled, but queuing the new one failed";
 
     static final String BAD_JSON = "bad JSON";
+
+    static final String BAD_PARAMETERS = "bad parameters";
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
@@ -89,6 +92,19 @@ public class ApiExceptionHandler {
         log.info("Unreadable body of {} {}{}", req.getMethod(), req.getRequestURI(), whereBroken(e));
 
         return ResponseEntity.badRequest().body(Map.of("error", BAD_JSON));
+    }
+
+    /**
+     * A query or a form body that Tomcat cannot read: a broken %-escape, or bytes that are not UTF-8. Tomcat's message
+     * quotes the parameter, a token in a form body included, so the log gets the request and nothing of it. At INFO:
+     * anyone can send such a request, and it must not count as an error of the service.
+     */
+    @ExceptionHandler(InvalidParameterException.class)
+    public ResponseEntity<Map<String, Object>> unreadableParameters(InvalidParameterException e,
+        HttpServletRequest req) {
+        log.info("Unreadable parameters of {} {}", req.getMethod(), req.getRequestURI());
+
+        return ResponseEntity.badRequest().body(Map.of("error", BAD_PARAMETERS));
     }
 
     private static String whereBroken(HttpMessageNotReadableException e) {

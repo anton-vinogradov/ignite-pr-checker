@@ -5,6 +5,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -44,8 +45,9 @@ import org.springframework.stereotype.Component;
  * {@code <file>.bad-<time>} and reported, never deleted; the first start of each build copies every durable file it
  * read to {@code <file>.before-<build>}, the state as it was before that build ran. Once a day the snapshot files are
  * zipped into {@code backups/}, the last seven kept. A copy keeps its tokens {@link #TOKENS_KEPT}, then {@link
- * TokenScrub} takes them out and leaves the rest. If the configured directory isn't writable (e.g. a local run
- * without the server layout), persistence disables itself and the app runs in-memory only — never fatal.
+ * TokenScrub} takes them out and leaves the rest. The start deletes the temp files a stop left. If the configured
+ * directory isn't writable (e.g. a local run without the server layout), persistence disables itself and the app runs
+ * in-memory only — never fatal.
  */
 @Component
 public class CacheStore {
@@ -130,6 +132,7 @@ public class CacheStore {
         }
 
         active = true;
+        removeLeftTemps();
         loadAll();
         lastBackup = newestBackup();
         startFlusher();
@@ -214,6 +217,30 @@ public class CacheStore {
         copies.addAll(backupsNewestFirst(dir.resolve(BACKUPS)));
 
         return copies;
+    }
+
+    /**
+     * Deletes the temp files a stop cut short: a save, a daily backup or a scrub of tokens stopped before its rename
+     * leaves one. The temp file of a backup holds the tokens of the state, and neither the scrub nor the prune of the
+     * backups looks at it. A file written since the JVM started is no such file.
+     */
+    private void removeLeftTemps() {
+        long started = ManagementFactory.getRuntimeMXBean().getStartTime();
+        for (Path folder : List.of(dir, dir.resolve(BACKUPS))) {
+            if (!Files.isDirectory(folder))
+                continue;
+
+            try (Stream<Path> files = Files.list(folder)) {
+                for (Path tmp : files.filter(p -> p.getFileName().toString().endsWith(".tmp") && Files.isRegularFile(p)
+                    && modified(p).toMillis() < started).toList()) {
+                    Files.deleteIfExists(tmp);
+                    log.info("deleted {}: a stop cut its write short", tmp);
+                }
+            }
+            catch (IOException e) {
+                log.warn("could not delete the temp files a stop left in {}: {}", folder, e.toString());
+            }
+        }
     }
 
     /** Durable state is saved by the flusher alone while it runs, so two writers never share a temp file. */
@@ -385,6 +412,10 @@ public class CacheStore {
         }
     }
 
+    /**
+     * Zips the snapshot files into today's backup, once a day. A backup that fails deletes what it wrote: its temp file
+     * holds the tokens of the state, and neither the scrub nor the prune of the backups looks at it.
+     */
     private synchronized void backUpOncePerDay() {
         String name = "cache-" + LocalDate.now(ZoneOffset.UTC) + ".zip";
         Path backups = dir.resolve(BACKUPS);
@@ -392,9 +423,9 @@ public class CacheStore {
         if (Files.exists(zip))
             return;
 
+        Path tmp = backups.resolve(name + ".tmp");
         try {
             Files.createDirectories(backups);
-            Path tmp = backups.resolve(name + ".tmp");
             try (OutputStream out = Files.newOutputStream(tmp); ZipOutputStream entries = new ZipOutputStream(out)) {
                 for (SnapshotCache c : caches) {
                     Path f = dir.resolve(c.fileName());
@@ -415,6 +446,12 @@ public class CacheStore {
         catch (IOException e) {
             if (failing.put(BACKUPS, e.toString()) == null)
                 log.warn("could not back up the snapshots to {}: {}", zip, e.toString());
+            try {
+                Files.deleteIfExists(tmp);
+            }
+            catch (IOException left) {
+                log.warn("could not delete {}, which holds the stored tokens: {}", tmp, left.toString());
+            }
         }
     }
 

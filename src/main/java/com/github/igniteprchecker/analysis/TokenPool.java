@@ -108,6 +108,14 @@ final class TokenPool {
         }
     }
 
+    /**
+     * Drops the token if no login offered it: only the standing options did, and they lend it no more. Not a refusal,
+     * as with {@link #forgetLogins}. A token a login offered too stays for that login.
+     */
+    void forgetLent(String token) {
+        offers.computeIfPresent(token, (t, o) -> o.logins().isEmpty() ? null : o);
+    }
+
     /** Drop a token TeamCity rejected (revoked/expired) so it isn't tried again while it cools down. */
     void remove(String token) {
         remove(token, false);
