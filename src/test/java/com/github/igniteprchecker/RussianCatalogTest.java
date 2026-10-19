@@ -22,10 +22,11 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * The pages spoke English only. A user who chooses Russian in ⚙ reads the PR page, the login form and ⚙ in Russian,
- * from one catalog, {@code static/ru.json}, that the page and the server share. These checks keep it whole: each string
- * the PR page shows has its Russian, the catalog keeps no string that nothing shows, a Russian string puts in only
- * what its English holds, and each link into the docs leads to a heading of the docs in its language.
+ * The pages spoke English only. A user who chooses Russian in ⚙ reads every page in Russian, the PR page, the login
+ * form, ⚙, the status page and the flaky board, from one catalog, {@code static/ru.json}, that the pages and the server
+ * share. These checks keep it whole: each string a page shows has its Russian, the catalog keeps no string that nothing
+ * shows, a Russian string puts in only what its English holds, and each link into the docs leads to a heading of the
+ * docs in its language.
  */
 class RussianCatalogTest {
     private static final Path STATIC = Path.of("src/main/resources/static");
@@ -42,7 +43,8 @@ class RussianCatalogTest {
     private static final Pattern TAG = Pattern.compile("\\bT`((?:[^`\\\\$]|\\\\.|\\$(?!\\{)|\\$\\{[^`]*?})*)`");
 
     /** {@code countOf(n, 'browser')}: "{0} browser{1}". */
-    private static final Pattern COUNT = Pattern.compile("\\bcountOf\\([^,()]*(?:\\([^()]*\\))?[^,()]*,\\s*'([a-z]+)'\\)");
+    private static final Pattern COUNT =
+        Pattern.compile("\\bcountOf\\([^,()]*(?:\\([^()]*\\))?[^,()]*,\\s*'([A-Za-z]+)'\\)");
 
     /** {@code Texts.t(lang, "…" + "…", …)} in the server's code. */
     private static final Pattern SERVER_CALL = Pattern.compile("Texts\\.t\\(\\s*lang\\s*,\\s*(\"(?:[^\"\\\\\\n]|\\\\.)*\""
@@ -65,7 +67,7 @@ class RussianCatalogTest {
     private static final Pattern ENGLISH_WORD = Pattern.compile("(?<![A-Za-z])[a-z]{3,}");
 
     @Test
-    void everyStringOfThePrPageHasItsRussian() throws IOException {
+    void everyStringOfThePagesHasItsRussian() throws IOException {
         Map<String, String> ru = catalog();
 
         assertThat(pageKeys().stream().filter(k -> !ru.containsKey(k)).toList()).isEmpty();
@@ -146,7 +148,7 @@ class RussianCatalogTest {
         Map<String, String> ru = catalog();
         List<String> links = pageKeys().stream().filter(k -> DOCS_LINK.matcher(k).matches()).toList();
 
-        assertThat(links).as("the help links of the PR page").hasSizeGreaterThanOrEqualTo(4);
+        assertThat(links).as("the help links of the pages").hasSizeGreaterThanOrEqualTo(5);
         for (String link : links) {
             assertThat(ru).as(link).containsKey(link);
             for (String target : List.of(link, ru.get(link))) {
@@ -175,10 +177,12 @@ class RussianCatalogTest {
         return all;
     }
 
-    /** The strings the PR page writes: those of its HTML, and those its scripts put into the page's language. */
+    /** The strings the pages write: those of their HTML, and those their scripts put into the page's language. */
     static Set<String> pageKeys() throws IOException {
-        Set<String> keys = new LinkedHashSet<>(htmlKeys(Files.readString(STATIC.resolve("index.html"), UTF_8)));
-        for (String script : List.of("common.js", "index.js"))
+        Set<String> keys = new LinkedHashSet<>();
+        for (String page : List.of("index.html", "status.html", "flaky.html"))
+            keys.addAll(htmlKeys(Files.readString(STATIC.resolve(page), UTF_8)));
+        for (String script : List.of("common.js", "index.js", "status.js", "flaky.js"))
             keys.addAll(scriptKeys(Files.readString(STATIC.resolve(script), UTF_8)));
 
         return keys;

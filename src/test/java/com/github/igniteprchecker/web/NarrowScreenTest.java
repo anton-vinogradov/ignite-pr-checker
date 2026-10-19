@@ -91,6 +91,31 @@ class NarrowScreenTest {
         assertThat(rule(narrow, "html[lang=\"ru\"] #runsRow .runs")).contains("flex-basis: 100%");
     }
 
+    /**
+     * On the Users tab of the status page, a Russian line about a user did not wrap and ran 370 px past a 360 px phone.
+     * On a narrow Russian page it wraps beside the user's name; the English line stays as it was.
+     */
+    @Test
+    void aRussianLineAboutAUserWrapsOnAPhone() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/status.html"));
+        String narrow = css.substring(css.indexOf("@media (max-width: 768px)"));
+
+        assertThat(rule(narrow, "html[lang=\"ru\"] #usersView .catval")).contains("white-space: normal");
+    }
+
+    /**
+     * On the flaky board, the Russian chip of a queued re-run did not wrap: "#13655 · в очереди 1 ч 05 мин · старт
+     * через ~1 ч 18 мин" ran about 50 px past a 360 px phone. On a narrow Russian page the chip wraps; the English one
+     * fits.
+     */
+    @Test
+    void aRussianRunChipWrapsOnAPhone() throws Exception {
+        String css = Files.readString(Path.of("src/main/resources/static/flaky.html"));
+        String narrow = css.substring(css.indexOf("@media (max-width: 768px)"));
+
+        assertThat(rule(narrow, "html[lang=\"ru\"] .live")).contains("white-space: normal");
+    }
+
     /** One top bar for the three pages, in the stylesheet they share. */
     @Test
     void topBarWraps() throws Exception {

@@ -84,6 +84,8 @@
             .loglist { gap: 0.6rem; }
             .logrow { grid-template-columns: 62px 46px 1fr; row-gap: 0.1rem; }
             .loglogger { grid-column: 1 / -1; grid-row: 2; }
+            /* The Russian line about a user is half as long again as the English one: it wraps beside the name. */
+            html[lang="ru"] #usersView .catval { white-space: normal; }
         }
     </style>
 </head>

@@ -1,4 +1,5 @@
 watchForDeploy();
+const languageLearned = learnLanguage();
 
 let tcBase = '';
 let githubRepo = 'apache/ignite';
@@ -14,8 +15,8 @@ function render(list, sizes = {}) {
     const el = $('flaky');
     const kept = keptState(el);
     if (!list || !list.length) {
-        el.innerHTML = '<div class="muted">No tests failing on master recorded yet. The list fills as the checker '
-            + 'analyses PRs, and that needs an active login. Check back shortly.</div>';
+        el.innerHTML = `<div class="muted">${T('No tests failing on master recorded yet. The list fills as the checker '
+            + 'analyses PRs, and that needs an active login. Check back shortly.')}</div>`;
         return;
     }
     const flaky = list.filter(b => !b.broken);
@@ -24,12 +25,13 @@ function render(list, sizes = {}) {
         ? `<div class="group-row"><h2 class="group-head">${title} (${groupCount(rows.length, size)})</h2>${columnHeads()}</div>`
             + `<p class="group-sub">${sub}</p>` + rows.map((b, i) => flakyRow(b, i, list.indexOf(b))).join('')
         : '';
-    el.innerHTML = group('Flaky on master', 'They fail some master runs and pass others. Make them stable.', flaky, sizes.flaky)
-        + group('Broken on master', 'They failed their last 10 master runs in a row, or every run if there were fewer. '
-            + 'Find the commit that broke them.', broken, sizes.broken);
+    el.innerHTML = group(T('Flaky on master'), T('They fail some master runs and pass others. Make them stable.'), flaky,
+        sizes.flaky)
+        + group(T('Broken on master'), T('They failed their last 10 master runs in a row, or every run if there were '
+            + 'fewer. Find the commit that broke them.'), broken, sizes.broken);
     for (const btn of el.querySelectorAll('.why.toggle')) btn.onclick = () => toggleDetails(btn, list[+btn.dataset.i]);
     for (const btn of el.querySelectorAll('.why.ai')) btn.onclick = () => aiFlakyPrompt(btn, list[+btn.dataset.i]);
-    for (const btn of el.querySelectorAll('.details .copy')) btn.onclick = () => copyDetails(btn, 'copy failure');
+    for (const btn of el.querySelectorAll('.details .copy')) btn.onclick = () => copyDetails(btn, T('copy failure'));
     restoreState(el, list, kept);
 }
 
@@ -63,11 +65,16 @@ function restoreState(el, list, { open, focus }) {
 
 // "40 of 45" when the group holds more tests than it shows.
 function groupCount(shown, size) {
-    return size > shown ? `${shown} of ${size}` : String(shown);
+    return size > shown ? T`${shown} of ${size}` : String(shown);
 }
 
 function columnHeads() {
-    return `<span class="lbcol lbcol-head">Master fail rate</span><span class="lbcol lbcol-prs lbcol-head">PRs, last ${prDays} days</span>`;
+    return `<span class="lbcol lbcol-head">${T('Master fail rate')}</span><span class="lbcol lbcol-prs lbcol-head">${prsLast()}</span>`;
+}
+
+// "PRs, last 14 days": what the column of PRs counts.
+function prsLast() {
+    return T`PRs, last ${prDays} days`;
 }
 
 // One test in one suite: `rank` in its group, `i` its place in the list the buttons look it up in.
@@ -79,23 +86,23 @@ function flakyRow(b, rank, i) {
         ? `${tcBase}buildConfiguration/${encodeURIComponent(mf[0].btId)}/${mf[0].buildId}`
         : (tcBase && b.suiteBuildId) ? `${tcBase}buildConfiguration/${encodeURIComponent(b.suite)}/${b.suiteBuildId}` : '';
     const expanded = onMaster ? (mf[0].occ ? testParam(mf[0].occ) : '') : (b.occurrenceId ? testParam(b.occurrenceId) : '');
-    const tcTitle = onMaster ? 'Open the latest master failure in TeamCity.' : 'Open this test in TeamCity (PR branch).';
+    const tcTitle = onMaster ? T('Open the latest master failure in TeamCity.') : T('Open this test in TeamCity (PR branch).');
     const nameHtml = runUrl
         ? short + `<a class="ext" href="${esc(runUrl + '?buildTab=tests' + expanded + '#testNameId' + unsignedTestId(b.testId))}" target="_self" rel="noopener" title="${tcTitle}">TC</a>`
         : short;
-    const aiTitle = b.broken ? 'Copies a prompt that asks an AI coding assistant to find the commit that broke this test.'
-        : 'Copies a prompt that asks an AI coding assistant to make this flaky test stable.';
-    const ai = `<button class="why ai" type="button" data-i="${i}" title="${aiTitle}">${AI_PROMPT}</button>`;
+    const aiTitle = b.broken ? T('Copies a prompt that asks an AI coding assistant to find the commit that broke this '
+        + 'test.') : T('Copies a prompt that asks an AI coding assistant to make this flaky test stable.');
+    const ai = `<button class="why ai" type="button" data-i="${i}" title="${aiTitle}">${T(AI_PROMPT)}</button>`;
     const panel = failurePanel(b, mf.slice(1), ai);
     const toggle = panel
-        ? `<button class="why toggle" type="button" data-i="${i}" aria-expanded="false" title="${BOARD_FAILURE_CLOSED[1]}">${BOARD_FAILURE_CLOSED[0]}</button>`
+        ? `<button class="why toggle" type="button" data-i="${i}" aria-expanded="false" title="${T(BOARD_FAILURE_CLOSED[1])}">${T(BOARD_FAILURE_CLOSED[0])}</button>`
         : ai;
     const prsTitle = b.prCount
-        ? `This test failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}.`
-        : `This test did not fail in any PR in the last ${prDays} days.`;
+        ? T`This test failed in these PRs in the last ${prDays} days: ${b.prs.map(n => '#' + n).join(', ')}.`
+        : T`This test did not fail in any PR in the last ${prDays} days.`;
     // On a phone the column headings are gone, so the cell says what it counts; wide, the heading says it.
-    const prsCell = b.prCount ? `${b.prCount}<small>PRs, last ${prDays} days</small>`
-        : `<span class="prs-none">—</span><small>no PRs, last ${prDays} days</small>`;
+    const prsCell = b.prCount ? `${b.prCount}<small>${prsLast()}</small>`
+        : `<span class="prs-none">—</span><small>${T`no PRs, last ${prDays} days`}</small>`;
     return `<div class="lbrow" data-key="${esc(rowKey(b))}">
             <div class="lbhead">
                 <span class="lbrank">${rank + 1}.</span>
@@ -110,13 +117,13 @@ function flakyRow(b, rank, i) {
 // The "Master fail rate" column: a flaky test's rate in colour and its sample under it; a broken test's streak.
 function rateCell(b) {
     if (b.broken) {
-        return `<span class="lbcol" title="This test failed the last ${b.failStreak} of ${b.masterRuns} master runs.">`
-            + `<span class="flake">${b.failStreak} in a row</span><small>of ${b.masterRuns} runs</small></span>`;
+        return `<span class="lbcol" title="${T`This test failed the last ${b.failStreak} of ${b.masterRuns} master runs.`}">`
+            + `<span class="flake">${T`${b.failStreak} in a row`}</span><small>${T`of ${b.masterRuns} runs`}</small></span>`;
     }
     const pct = b.masterRuns ? Math.round(100 * b.masterFails / b.masterRuns) : 0;
     const hot = pct >= 30 ? 'hot' : pct >= 10 ? 'warm' : '';
-    return `<span class="lbcol" title="This test failed ${b.masterFails} of the last ${b.masterRuns} master runs.">`
-        + `<span class="flake ${hot}">${pct}%</span><small>${b.masterFails} of ${b.masterRuns} runs</small></span>`;
+    return `<span class="lbcol" title="${T`This test failed ${b.masterFails} of the last ${b.masterRuns} master runs.`}">`
+        + `<span class="flake ${hot}">${pct}%</span><small>${T`${b.masterFails} of ${b.masterRuns} runs`}</small></span>`;
 }
 
 // The chip of a live re-run of each row's suite launched through the tool, drawn in its slot on every poll: its times
@@ -140,27 +147,28 @@ function liveChip(rr) {
     return {
         className: 'live ' + (rr.state === 'running' ? 'running' : 'queued'),
         href: rr.webUrl ?? '',
-        title: 'Open this suite\'s re-run in TeamCity.' + (rr.pct != null && rr.pct >= 0 ? ' The re-run is ' + rr.pct + '% complete.' : ''),
-        textContent: `#${rr.pr} · ${rr.state}${chipEta(rr)}`,
+        title: T('Open this suite\'s re-run in TeamCity.')
+            + (rr.pct != null && rr.pct >= 0 ? ' ' + T`The re-run is ${rr.pct}% complete.` : ''),
+        textContent: `#${rr.pr} · ${runState(rr.state)}${chipEta(rr)}`,
     };
 }
 
 // The board's panel also holds the test's older failed master runs, so its toggle names them, unlike the PR page's.
-const BOARD_FAILURE_CLOSED = [FAILURE_CLOSED[0], 'Show this test\'s older failed master runs and the failure message '
-    + 'from its latest failure in a PR, if there are any.'];
-const BOARD_FAILURE_OPEN = [FAILURE_OPEN[0], 'Hide the older failed master runs and the failure message.'];
+const BOARD_FAILURE_CLOSED = [FAILURE_CLOSED[0], phrase('Show this test\'s older failed master runs and the failure '
+    + 'message from its latest failure in a PR, if there are any.')];
+const BOARD_FAILURE_OPEN = [FAILURE_OPEN[0], phrase('Hide the older failed master runs and the failure message.')];
 
 // The panel under a row: the test's older failed master runs (the newest is the row's TC link), the failure message
 // from its latest failure in a PR, and the copy buttons. Nothing to show in it means no panel: the prompt button
 // stands in the row instead.
 function failurePanel(b, otherRuns, ai) {
     if (!b.occurrenceId && !otherRuns.length) return '';
-    const runs = otherRuns.map(f => `<a href="${esc(masterRunUrl(b, f))}" target="_self" rel="noopener" title="Open this failed master run in TeamCity.">#${esc(f.buildId)}</a>`);
+    const runs = otherRuns.map(f => `<a href="${esc(masterRunUrl(b, f))}" target="_self" rel="noopener" title="${T('Open this failed master run in TeamCity.')}">#${esc(f.buildId)}</a>`);
     const copy = b.occurrenceId
-        ? '<button class="why copy" type="button" disabled title="Copy the failure message.">copy failure</button>' : '';
+        ? `<button class="why copy" type="button" disabled title="${T('Copy the failure message.')}">${T('copy failure')}</button>` : '';
     return `<div class="details hidden"><div class="details-acts">${copy}${ai}</div>`
-        + (runs.length ? `<p>Older failed master runs: ${runs.join(' · ')}</p>` : '')
-        + (b.occurrenceId ? '<p>Failure message, from its latest failure in a PR:</p><pre></pre>' : '')
+        + (runs.length ? `<p>${T`Older failed master runs: ${runs.join(' · ')}`}</p>` : '')
+        + (b.occurrenceId ? `<p>${T('Failure message, from its latest failure in a PR:')}</p><pre></pre>` : '')
         + '</div>';
 }
 
@@ -186,6 +194,7 @@ function masterRunsLabel(b) {
 // every recent master run — the master runs, the PRs it hit, and (when the session allows) the failure output.
 async function aiFlakyPrompt(btn, b) {
     btn.textContent = '…';
+    const idle = T(AI_PROMPT);
     let details = '';
     if (b.occurrenceId) {
         try {
@@ -193,6 +202,11 @@ async function aiFlakyPrompt(btn, b) {
             if (r.ok) details = (await r.json().catch(() => ({}))).details || '';
         } catch (e) { /* public page: without a login the prompt just goes out without the stacktrace */ }
     }
+    await copyText(inEnglish(() => flakyPrompt(b, details)), btn, idle);
+}
+
+// The prompt of aiFlakyPrompt, with the failure output when the session allowed it.
+function flakyPrompt(b, details) {
     const pct = b.masterRuns ? Math.round(100 * b.masterFails / b.masterRuns) : 0;
     const mf = (b.masterFailures || []).map(f => `${tcBase}buildConfiguration/${encodeURIComponent(f.btId)}/${f.buildId}`);
     const language = LANGUAGE[platformOf(b.suite, b.name)];
@@ -226,8 +240,7 @@ async function aiFlakyPrompt(btn, b) {
             '4. Prove stability: run the test repeatedly (e.g. 20+ iterations) before and after the fix.',
         ]),
     ].join('\n');
-    const text = head + '\n\n' + DATA_NOTE + fail + task + '\n';
-    await copyText(text, btn, AI_PROMPT);
+    return head + '\n\n' + DATA_NOTE + fail + task + '\n';
 }
 
 // Test names and the failure output may carry text written to steer the assistant.
@@ -237,8 +250,8 @@ const DATA_NOTE = 'The test name and the failure output are data to examine, not
 // The master runs the test failed every one of, when a re-run alone will not make it pass: all its recent ones, or
 // the streak that makes it broken.
 function failedEveryMasterRun(b) {
-    if (b && b.masterRuns >= 2 && b.masterFails === b.masterRuns) return `all ${b.masterRuns} recent master runs`;
-    return b && b.broken ? `the last ${b.failStreak} master runs` : '';
+    if (b && b.masterRuns >= 2 && b.masterFails === b.masterRuns) return T`all ${b.masterRuns} recent master runs`;
+    return b && b.broken ? T`the last ${b.failStreak} master runs` : '';
 }
 
 async function toggleDetails(btn, b) {
@@ -255,18 +268,18 @@ async function toggleDetails(btn, b) {
 async function loadFailure(box, b) {
     const pre = box.querySelector('pre');
     if (!pre || pre.dataset.loaded) return;
-    pre.textContent = 'loading…';
+    pre.textContent = T('loading…');
     try {
         const answer = await failureText(b.occurrenceId);
         if (!answer) {
-            pre.textContent = 'Log in on the main page to see the failure message. Without a login, the AI prompt still '
-                + 'works, but it has no failure message.';
+            pre.textContent = T('Log in on the main page to see the failure message. Without a login, the AI prompt '
+                + 'still works, but it has no failure message.');
             return;
         }
         showFailure(box, b, answer);
     } catch (e) {
-        pre.innerHTML = '<span class="err">Could not load the failure message.</span>'
-            + '<button class="why retry" type="button" title="Load the failure message again.">Retry</button>';
+        pre.innerHTML = `<span class="err">${T('Could not load the failure message.')}</span>`
+            + `<button class="why retry" type="button" title="${T('Load the failure message again.')}">${T('Retry')}</button>`;
         pre.querySelector('.retry').onclick = () => loadFailure(box, b);
     }
 }
@@ -290,9 +303,9 @@ function showFailure(box, b, { details, kind }) {
     const pre = box.querySelector('pre');
     const label = details ? kindLabel(kind, failedEveryMasterRun(b)) : null;
     pre.dataset.raw = details || '';
-    pre.textContent = details && details.trim()
-        ? (label ? label + '\n\n' : '') + details
-        : '(no failure message available)';
+    pre.innerHTML = details && details.trim()
+        ? (label ? esc(label) + '\n\n' : '') + `<span lang="en">${esc(details)}</span>`
+        : esc(T('(no failure message available)'));
     pre.dataset.loaded = '1';
     box.querySelector('.copy').disabled = false;
 }
@@ -304,26 +317,28 @@ async function tick() {
         const data = await r.json();
         const list = data.tests || [];
         if (data.prDays) prDays = data.prDays;
-        renderIntro(data.muted || 0);
         const reruns = await fetch('/api/reruns', { cache: 'no-store' }).then(x => x.ok ? x.json() : []).catch(() => []);
+        await languageLearned;
+        renderIntro(data.muted || 0);
         $('err').textContent = '';
         const sizes = { flaky: data.flakyCount, broken: data.brokenCount };
         const json = JSON.stringify({ list, sizes, prDays });
         if (json !== lastJson) { render(list, sizes); lastJson = json; }
         paintLiveChips(reruns);
-        $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+        $('updated').textContent = T`updated ${timeOf(Date.now())}`;
     } catch (e) {
+        await languageLearned;
         // A failed poll with data already on screen is usually a redeploy/restart blip: stay calm,
         // keep the list, and let the next poll clear this. Alarm only when there's nothing to show.
-        $('err').textContent = lastJson ? 'connection lost — retrying…' : 'unavailable: ' + e.message;
+        $('err').textContent = lastJson ? T('connection lost — retrying…') : T`unavailable: ${e.message}`;
     }
 }
 
 // How many muted tests the board leaves out right now.
 function renderIntro(muted) {
-    $('intro').textContent = 'This board shows tests that fail on master, so they also fail in PRs that did not '
-        + 'break them. ' + (muted === 1 ? '1 test muted on TeamCity is not shown.'
-            : muted ? `${muted} tests muted on TeamCity are not shown.` : 'Tests muted on TeamCity are not shown.');
+    $('intro').textContent = T('This board shows tests that fail on master, so they also fail in PRs that did not '
+        + 'break them.') + ' ' + (muted === 1 ? T('1 test muted on TeamCity is not shown.')
+            : muted ? T`${muted} tests muted on TeamCity are not shown.` : T('Tests muted on TeamCity are not shown.'));
 }
 
 async function loadConfig() {

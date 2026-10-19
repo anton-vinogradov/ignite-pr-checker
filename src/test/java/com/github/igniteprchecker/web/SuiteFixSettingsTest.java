@@ -46,8 +46,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
  */
 class SuiteFixSettingsTest {
     /** The card and what it needs to say when the sweep ran. */
-    private static final String[] CARD_FUNCTIONS = {"card", "spanShort", "firstPassState", "lateTitle", "passText",
-        "suiteFixCard"};
+    private static final String[] CARD_FUNCTIONS = {"card", "countedCard", "spanShort", "firstPassState", "lateTitle",
+        "passText", "suiteFixCard"};
 
     private final ObjectMapper mapper = new ObjectMapper();
 

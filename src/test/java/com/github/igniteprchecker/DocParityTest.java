@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,9 @@ import org.junit.jupiter.api.Test;
  * paragraphs, list items, table rows, code blocks and pictures, the same quoted code and the same numbers; a bold name
  * the Russian keeps in English, a button or a card, is in the English section too. A difference fails here, naming
  * the section. What the sentences say is not compared: a fact written in one language only is caught when it brings
- * a paragraph, an item, a number, a quote or such a name.
+ * a paragraph, an item, a number, a quote or such a name. The Russian tour gives a page's Russian name in «» right
+ * before the bold English name: «PR за 14 дней» (**PRs, last 14 days**). The numbers of such a Russian name are
+ * counted only when they differ from the bold name's.
  */
 class DocParityTest {
     private static final Path README = Path.of("README.md");
@@ -46,6 +49,8 @@ class DocParityTest {
     private static final Pattern BOLD = Pattern.compile("\\*\\*([^*]+)\\*\\*");
 
     private static final Pattern CYRILLIC = Pattern.compile("\\p{IsCyrillic}");
+
+    private static final Pattern NAME_OF_BOLD = Pattern.compile("«([^»]*)»( \\(\\*\\*([^*]+)\\*\\*\\))");
 
     @Test
     void theReadmesSayTheSame() throws IOException {
@@ -118,6 +123,17 @@ class DocParityTest {
         assertThat(differences(Path.of("en.md"), en, Path.of("ru.md"), ru)).isEmpty();
         assertThat(differences(Path.of("en.md"), en, Path.of("ru.md"), ru.replace("PR commands", "PR command")))
             .singleElement().asString().contains("bold names only in Russian [PR command]");
+    }
+
+    /** The Russian tour gives the flaky board's column as «PR за 14 дней» (**PRs, last 14 days**). */
+    @Test
+    void aRussianNameRepeatingTheNumbersOfItsBoldNameIsNotCountedTwice() {
+        String en = "# T\n\nThe **PRs, last 14 days** column.\n";
+        String ru = "# Т\n\nКолонка «PR за 14 дней» (**PRs, last 14 days**).\n";
+
+        assertThat(differences(Path.of("en.md"), en, Path.of("ru.md"), ru)).isEmpty();
+        assertThat(differences(Path.of("en.md"), en, Path.of("ru.md"), ru.replace("PR за 14", "PR за 15")))
+            .singleElement().asString().contains("numbers: only in Russian [15], only in English []");
     }
 
     @Test
@@ -295,8 +311,18 @@ class DocParityTest {
         void facts(String line) {
             IMAGE.matcher(line).results().forEach(m -> images.add(m.group(1)));
             CODE.matcher(line).results().forEach(m -> quotes.add(m.group(1)));
-            numbers(line);
+            numbers(withoutNamesRepeatingNumbers(line));
             text.append(line).append('\n');
+        }
+
+        /** The line without the Russian names in «» that only repeat the numbers of the bold name after them. */
+        private static String withoutNamesRepeatingNumbers(String line) {
+            return NAME_OF_BOLD.matcher(line).replaceAll(m -> Matcher.quoteReplacement(
+                digits(m.group(1)).equals(digits(m.group(3))) ? m.group(2) : m.group()));
+        }
+
+        private static List<String> digits(String s) {
+            return NUMBER.matcher(s).results().map(MatchResult::group).toList();
         }
 
         void numbers(String line) {

@@ -1,14 +1,15 @@
 watchForDeploy();
+const languageLearned = learnLanguage();
 
 function fmtDur(s) {
     s = Math.floor(s);
     const d = Math.floor(s / 86400); s %= 86400;
     const h = Math.floor(s / 3600); s %= 3600;
     const m = Math.floor(s / 60); s %= 60;
-    if (d) return `${d}d ${h}h ${m}m`;
-    if (h) return `${h}h ${m}m`;
-    if (m) return `${m}m ${s}s`;
-    return `${s}s`;
+    if (d) return T`${d}d ${h}h ${m}m`;
+    if (h) return T`${h}h ${m}m`;
+    if (m) return T`${m}m ${s}s`;
+    return T`${s}s`;
 }
 
 // `sub` breaks only between its " · " chunks, and each dot ends the chunk before it: next to an inline-block the
@@ -25,51 +26,63 @@ function sev(value, warnAt, badAt) {
     return value < warnAt ? 'ok' : value < badAt ? 'warn' : 'bad';
 }
 
+// A card whose number agrees with the words after it: `counted` is "3 users with an option on", in the page's
+// language. The number is the card's value, and its words start the line under it.
+function countedCard(k, counted, rest, cls, title) {
+    const [, n, words] = /^([^ ]+) ([\s\S]*)$/.exec(counted);
+    return card(k, n, words + (rest || ''), cls, title);
+}
+
 function agoShort(ms) {
     if (!ms) return '—';
     const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-    if (s < 60) return s + 's ago';
+    if (s < 60) return T`${s}s ago`;
     const m = Math.round(s / 60);
-    return m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago';
+    return m < 60 ? T`${m}m ago` : T`${Math.round(m / 60)}h ago`;
 }
 
 function secs(ms) {
-    if (!ms || ms < 0) return '0s';
+    if (!ms || ms < 0) return T`${0}s`;
     const s = ms / 1000;
-    return (s < 10 ? s.toFixed(1) : Math.round(s)) + 's';
+    return T`${fraction(s < 10 ? s.toFixed(1) : Math.round(s))}s`;
 }
 
 // Warmer's current state, traffic-lit: warming = amber, failures in the last cycle = red,
 // a clean completed cycle = green, nothing to judge yet = neutral.
 function warmerCard(a) {
     if (a.warmerRunning) {
-        const prog = a.cycleTotal ? `${a.cycleDone}/${a.cycleTotal} PRs` : '';
-        const el = a.cycleStartedAt ? secs(Date.now() - a.cycleStartedAt) + ' elapsed' : '';
-        return card('Warmer', 'warming…', [prog, el].filter(Boolean).join(' · '), 'warn');
+        const prog = a.cycleTotal ? T`${a.cycleDone}/${a.cycleTotal} PRs` : '';
+        const el = a.cycleStartedAt ? T`${secs(Date.now() - a.cycleStartedAt)} elapsed` : '';
+        return card(T('Warmer'), T('warming…'), [prog, el].filter(Boolean).join(' · '), 'warn');
     }
-    if (a.lastFailed > 0)
-        return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.lastFailed} warm${a.lastFailed === 1 ? '' : 's'} failed last cycle`, 'bad');
+    if (a.lastFailed > 0) {
+        return card(T('Warmer'), agoShort(a.lastWarmCycleAt),
+            T`${a.lastFailed} warm${a.lastFailed === 1 ? '' : 's'} failed last cycle`, 'bad');
+    }
     // Cycles keep ticking with an empty pool but visit nothing — "N cycles run" would read green
     // while everything is actually cold.
     if (!a.pooledTokens)
-        return card('Warmer', 'paused', 'no pooled tokens — nothing to warm with', 'warn');
-    if (a.lastWarmCycleAt)
-        return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run`, 'ok');
+        return card(T('Warmer'), T('paused'), T('no pooled tokens — nothing to warm with'), 'warn');
+    if (a.lastWarmCycleAt) {
+        return card(T('Warmer'), agoShort(a.lastWarmCycleAt),
+            T`${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run`, 'ok');
+    }
     return idleWarmerCard(a.firstCycleAt);
 }
 
 // A first cycle that never starts logs nothing, so the card turns amber a minute after the cycle was due.
 function idleWarmerCard(firstAt) {
     const state = firstPassState(firstAt);
-    if (state === 'late') return card('Warmer', 'never', '', 'warn', lateTitle('cycle', firstAt));
-    return card('Warmer', 'idle', state === 'off' ? 'no cycle yet' : passText('cycle', 0, firstAt));
+    if (state === 'late') return card(T('Warmer'), T('never'), '', 'warn', lateTitle(phrase('cycle'), firstAt));
+    return card(T('Warmer'), T('idle'), state === 'off' ? T('no cycle yet') : passText(phrase('cycle'), 0, firstAt));
 }
 
 // The initial post-restart warm-up: amber while it's still going, green once done.
 function startupCard(a) {
-    if (a.firstCycleMs > 0) return card('Startup warm-up', secs(a.firstCycleMs), 'completed', 'ok');
-    if (a.warmerRunning && a.cycleStartedAt) return card('Startup warm-up', secs(Date.now() - a.cycleStartedAt) + '…', 'in progress', 'warn');
-    return card('Startup warm-up', '—', 'pending');
+    if (a.firstCycleMs > 0) return card(T('Startup warm-up'), secs(a.firstCycleMs), T('completed'), 'ok');
+    if (a.warmerRunning && a.cycleStartedAt)
+        return card(T('Startup warm-up'), secs(Date.now() - a.cycleStartedAt) + '…', T('in progress'), 'warn');
+    return card(T('Startup warm-up'), '—', T('pending'));
 }
 
 // GitHub calls by token: the server names those under users' own PATs "pat:<category>"; the rest run under the
@@ -90,13 +103,14 @@ function githubCalls(byCategory) {
 // checker's own, and what GitHub did not say is unknown, not fine.
 function appAccountCard(a) {
     if (!a || a.state === 'unknown')
-        return card('App account', '—', 'GitHub has not said whose GITHUB_TOKEN this is yet');
-    if (a.state === 'none')
-        return card('App account', 'none', 'no GITHUB_TOKEN: the PR comment, PR commands, the checkstyle autofix and'
-            + ' tests to suites are off', 'warn');
+        return card(T('App account'), '—', T('GitHub has not said whose GITHUB_TOKEN this is yet'));
+    if (a.state === 'none') {
+        return card(T('App account'), T('none'), T('no GITHUB_TOKEN: the PR comment, PR commands, the checkstyle '
+            + 'autofix and tests to suites are off'), 'warn');
+    }
     if (a.state === 'refused')
-        return card('App account', 'refused', 'GitHub refuses GITHUB_TOKEN', 'bad');
-    return card('App account', '@' + esc(a.login), appAccountFound(a.checks || []), appAccountLevel(a.checks || []));
+        return card(T('App account'), T('refused'), T('GitHub refuses GITHUB_TOKEN'), 'bad');
+    return card(T('App account'), '@' + esc(a.login), appAccountFound(a.checks || []), appAccountLevel(a.checks || []));
 }
 
 // Whether the app account's writes go: GitHub may refuse one (a block, a locked PR) or make them wait, and the writes
@@ -104,19 +118,19 @@ function appAccountCard(a) {
 function appWritesCard(w) {
     if (!w) return '';
     const said = [];
-    if (w.refusedAt) said.push(w.refused ? esc(w.refused) : 'GitHub refused a write: log in to see what it said');
-    if (w.pausedUntil) said.push('GitHub rate-limits them until ' + new Date(w.pausedUntil).toLocaleTimeString()
-        + ': they go out then');
-    if ((w.capped || []).length) said.push('hourly cap reached for ' + w.capped.map(esc).join(', ')
-        + ': the rest wait');
-    if (!said.length) return card('App writes', 'ok', 'none refused or waiting', 'ok');
-    return card('App writes', w.refusedAt ? 'refused' : 'waiting', said.join(' · '), w.refusedAt ? 'bad' : 'warn');
+    if (w.refusedAt) said.push(w.refused ? esc(tr(w.refused)) : T('GitHub refused a write: log in to see what it said'));
+    if (w.pausedUntil) said.push(T`GitHub rate-limits them until ${timeOf(w.pausedUntil)}: they go out then`);
+    if ((w.capped || []).length)
+        said.push(T`hourly cap reached for ${w.capped.map(c => esc(tr(c))).join(', ')}: the rest wait`);
+    if (!said.length) return card(T('App writes'), T('ok'), T('none refused or waiting'), 'ok');
+    return card(T('App writes'), w.refusedAt ? T('refused') : T('waiting'), said.join(' · '),
+        w.refusedAt ? 'bad' : 'warn');
 }
 
 function appAccountFound(checks) {
-    if (!checks.length) return 'nothing is known of its token yet';
-    const said = checks.filter(c => c.text).map(c => esc(c.text));
-    return said.length ? said.join(' · ') : 'log in on the main page to see what its check found';
+    if (!checks.length) return T('nothing is known of its token yet');
+    const said = checks.filter(c => c.text).map(c => esc(tr(c.text)));
+    return said.length ? said.join(' · ') : T('log in on the main page to see what its check found');
 }
 
 // The card's colour: the worst check; an unknown one leaves it grey, as nothing says it is fine.
@@ -131,44 +145,48 @@ function appAccountLevel(checks) {
 // that could not be read at startup, or a save that keeps failing, is red until dealt with.
 function persistenceCard(p) {
     if (!p) return '';
-    if (!p.active) return card('Snapshots', 'off', esc(p.off), p.enabled ? 'warn' : '');
-    const bad = (p.unreadable || []).map(u => `${esc(u.file)} unreadable, kept as ${esc(u.keptAs)}`)
-        .concat(Object.entries(p.failingSaves || {}).map(([f, why]) => `saving ${esc(f)} fails: ${esc(why)}`));
+    if (!p.active) return card(T('Snapshots'), T('off'), esc(tr(p.off)), p.enabled ? 'warn' : '');
+    const bad = (p.unreadable || []).map(u => T`${esc(u.file)} unreadable, kept as ${esc(u.keptAs)}`)
+        .concat(Object.entries(p.failingSaves || {}).map(([f, why]) => T`saving ${esc(f)} fails: ${esc(why)}`));
     const count = bad.length || p.problems || 0;
-    if (count) return card('Snapshots', count + (count === 1 ? ' problem' : ' problems'),
-        bad.length ? bad.join(' · ') : `log in on the main page to see ${count === 1 ? 'it' : 'them'}`, 'bad');
+    if (count) {
+        return card(T('Snapshots'), countOf(count, 'problem'), bad.length
+            ? bad.join(' · ') : count === 1 ? T('log in on the main page to see it')
+                : T('log in on the main page to see them'), 'bad');
+    }
     const day = p.lastBackup && p.lastBackup.replace(/^cache-|\.zip$/g, '');
-    return card('Snapshots', 'active', day ? 'last backup ' + esc(day) : 'no backup yet', 'ok');
+    return card(T('Snapshots'), T('active'), day ? T`last backup ${esc(day)}` : T('no backup yet'), 'ok');
 }
 
 // The page learns of an out-of-memory error from the dump alone: the JVM exits without a word in the service's log.
 function heapDumpCard(dump) {
     if (!dump) return '';
     const left = Math.max(0, Math.round((dump.deletedAt - Date.now()) / 1000));
-    return card('Out of memory', agoShort(dump.writtenAt),
-        left >= 60 ? 'heap dump deleted in ' + fmtDur(left) : 'heap dump deleted within 10 min', 'warn',
-        'The JVM ran out of memory and restarted. Its heap dump holds decrypted tokens, so the server deletes it two'
-        + ' days after the JVM wrote it.');
+    return card(T('Out of memory'), agoShort(dump.writtenAt),
+        left >= 60 ? T`heap dump deleted in ${fmtDur(left)}` : T('heap dump deleted within 10 min'), 'warn',
+        T('The JVM ran out of memory and restarted. Its heap dump holds decrypted tokens, so the server deletes it two'
+        + ' days after the JVM wrote it.'));
 }
 
 // The version alone does not tell a local build's code: the commit does, unless the tree had changes.
 function versionCard(d) {
-    if (!d.commit) return card('Version', esc(d.version));
-    return card('Version', esc(d.version), 'commit ' + esc(d.commit.slice(0, 7))
-        + (d.dirty ? ' + uncommitted changes' : ''), d.dirty ? 'warn' : '');
+    if (!d.commit) return card(T('Version'), esc(d.version));
+    const commit = esc(d.commit.slice(0, 7));
+    return card(T('Version'), esc(d.version), d.dirty ? T`commit ${commit} + uncommitted changes` : T`commit ${commit}`,
+        d.dirty ? 'warn' : '');
 }
 
 // The settings name paths on the server, so only signed-in viewers get them.
 function configRows(d) {
-    if (!d.config) return '<div class="muted">log in on the main page to see the settings</div>';
+    if (!d.config) return `<div class="muted">${T('log in on the main page to see the settings')}</div>`;
     return Object.entries(d.config).map(([k, v]) =>
-        `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(v)}</span></div>`).join('');
+        `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(tr(v))}</span></div>`).join('');
 }
 
 // "45s", "3m": how long ago a pass started, or how long until the first one is due.
 function spanShort(ms) {
     const s = Math.max(0, Math.round(ms / 1000));
-    return s < 90 ? s + 's' : Math.round(s / 60) + 'm';
+    return s < 90 ? T`${s}s` : T`${Math.round(s / 60)}m`;
 }
 
 // A minute after the first pass of a job was due, its "never" turns amber: a job that hangs or stopped logs nothing.
@@ -183,80 +201,85 @@ function firstPassState(firstAt) {
 }
 
 function lateTitle(noun, firstAt) {
-    return `The first ${noun} was due at ${new Date(firstAt).toLocaleTimeString()} and has not started: the job may`
-        + ' be stuck.';
+    return T('The first {0} was due at {1} and has not started: the job may be stuck.', T(noun), timeOf(firstAt));
 }
 
 // "sweep 2m ago", "first sweep in 1m", "first sweep due now", or "sweep never", amber once the first is late.
 function passText(noun, lastAt, firstAt) {
-    if (lastAt) return `${noun} ${spanShort(Date.now() - lastAt)} ago`;
+    const pass = T(noun);
+    if (lastAt) return T`${pass} ${spanShort(Date.now() - lastAt)} ago`;
     const state = firstPassState(firstAt);
-    if (state === 'soon') return `first ${noun} in ${spanShort(firstAt - Date.now())}`;
-    if (state === 'due') return `first ${noun} due now`;
-    if (state === 'late') return `${noun} <span class="late" title="${esc(lateTitle(noun, firstAt))}">never</span>`;
-    return `${noun} never`;
+    if (state === 'soon') return T`first ${pass} in ${spanShort(firstAt - Date.now())}`;
+    if (state === 'due') return T`first ${pass} due now`;
+    if (state === 'late') return T`${pass} <span class="late" title="${esc(lateTitle(noun, firstAt))}">never</span>`;
+    return T`${pass} never`;
 }
 
 // The watcher refreshes every 20 s, and its card says when it last did; a minute old is amber.
 function lastRefreshCard(w) {
     if (w.lastRefreshAt) {
-        return card('Last refresh', spanShort(Date.now() - w.lastRefreshAt) + ' ago',
-            w.lastRefreshMs ? w.lastRefreshMs + 'ms' : '', Date.now() - w.lastRefreshAt < 60000 ? 'ok' : 'warn');
+        return card(T('Last refresh'), T`${spanShort(Date.now() - w.lastRefreshAt)} ago`,
+            w.lastRefreshMs ? T`${w.lastRefreshMs}ms` : '', Date.now() - w.lastRefreshAt < 60000 ? 'ok' : 'warn');
     }
     const state = firstPassState(w.firstRefreshAt);
-    if (state === 'late') return card('Last refresh', 'never', '', 'warn', lateTitle('refresh', w.firstRefreshAt));
-    if (state === 'off') return card('Last refresh', 'never');
-    return card('Last refresh', '—', passText('refresh', 0, w.firstRefreshAt));
+    if (state === 'late')
+        return card(T('Last refresh'), T('never'), '', 'warn', lateTitle(phrase('refresh'), w.firstRefreshAt));
+    if (state === 'off') return card(T('Last refresh'), T('never'));
+    return card(T('Last refresh'), '—', passText(phrase('refresh'), 0, w.firstRefreshAt));
 }
 
 // For the operator only: the users whose options wait for new tokens since the server key was changed. No card while
 // nobody waits.
 function keyChangeCard(n) {
     if (!n) return '';
-    return card('New tokens wanted', n, `user${n === 1 ? ' whose options wait' : 's whose options wait'}`, 'warn',
-        'The server key was changed, so the checker could no longer read the tokens it stored. The options of '
-        + (n === 1 ? 'this user wait' : 'these users wait') + ' until they log in again and save the tokens ⚙ asks'
-        + ' them for.');
+    return countedCard(T('New tokens wanted'), T`${n} user${n === 1 ? '' : 's'} whose options wait`, '', 'warn', n === 1
+        ? T('The server key was changed, so the checker could no longer read the tokens it stored. The options of '
+            + 'this user wait until they log in again and save the tokens ⚙ asks them for.')
+        : T('The server key was changed, so the checker could no longer read the tokens it stored. The options of '
+            + 'these users wait until they log in again and save the tokens ⚙ asks them for.'));
 }
 
 // Paused: users with the option on whom the last sweep did not act for. Before the first sweep nobody counts as paused.
 function suiteFixCard(f) {
     if (!f) return '';
     const paused = f.lastSweepAt && f.acting != null ? Math.max(0, (f.users ?? 0) - f.acting) : 0;
-    return card('Tests added to suites', f.pushed ?? 0,
-        `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with the option on`
-        + (paused ? ` · ${paused} paused` : '') + ` · ${passText('sweep', f.lastSweepAt, f.firstSweepAt)}`,
+    const users = f.users ?? 0;
+    return countedCard(T('Tests added to suites'), countOf(f.pushed ?? 0, 'commit'),
+        ' · ' + T`${users} user${users === 1 ? '' : 's'} with the option on`
+        + (paused ? ' · ' + T`${paused} paused` : '') + ' · ' + passText(phrase('sweep'), f.lastSweepAt, f.firstSweepAt),
         paused ? 'warn' : '',
-        paused ? `The last sweep did not act for ${paused === 1 ? 'one user' : paused + ' users'} with the option on.`
-            + ' The reason is one of these: TeamCity or GitHub refuses their token, a GitHub account or token is'
-            + ' missing, or they switched the option on after the sweep.' : '');
+        paused ? (paused === 1 ? T('The last sweep did not act for one user with the option on.')
+            : T`The last sweep did not act for ${paused} users with the option on.`)
+            + ' ' + T('The reason is one of these: TeamCity or GitHub refuses their token, a GitHub account or token '
+            + 'is missing, or they switched the option on after the sweep.') : '');
 }
 
 function lastCycleCard(a) {
-    if (!a.lastWarmCycleAt) return card('Last cycle', '—', 'none yet');
-    return card('Last cycle', secs(a.lastCycleMs), `${a.lastWarmed} recomputed · ${a.lastCached} cached`);
+    if (!a.lastWarmCycleAt) return card(T('Last cycle'), '—', T('none yet'));
+    return card(T('Last cycle'), secs(a.lastCycleMs), T`${a.lastWarmed} recomputed · ${a.lastCached} cached`);
 }
 
 // Anonymous viewers get the problems' levels only: the texts name files and errors on the server.
 function healthProblems(d) {
     const problems = d.healthProblems || [];
-    if (problems.every(p => p.text)) return problems;
+    if (problems.every(p => p.text)) return problems.map(p => ({ level: p.level, text: tr(p.text) }));
     const n = problems.length;
     return [{ level: problems.some(p => p.level === 'error') ? 'error' : 'warn',
-        text: `${n} problem${n === 1 ? '' : 's'} — log in on the main page to see ${n === 1 ? 'it' : 'them'}` }];
+        text: n === 1 ? T`${n} problem — log in on the main page to see it`
+            : T`${n} problems — log in on the main page to see them` }];
 }
 
 // The dot shows the worst of the problems and the log, so the tooltip names both.
 function healthTitle(d, problems) {
     const reasons = problems.map(p => p.text);
-    if (d.logHealth === 'error') reasons.push('error logged ' + agoShort(d.log.lastErrorAt));
-    else if (d.logHealth === 'warn') reasons.push('warning logged ' + agoShort(d.log.lastWarningAt));
-    return reasons.length ? reasons.join('; ') : 'healthy';
+    if (d.logHealth === 'error') reasons.push(T`error logged ${agoShort(d.log.lastErrorAt)}`);
+    else if (d.logHealth === 'warn') reasons.push(T`warning logged ${agoShort(d.log.lastWarningAt)}`);
+    return reasons.length ? reasons.join('; ') : T('healthy');
 }
 
 // The whole heap now; the old generation's peak since the start is what -Xmx has to hold.
-const HEAP_TITLE = 'The first number is the whole heap in use now. Old-gen peak is the most the old generation has held '
-    + 'since the server started. Set -Xmx large enough to hold this peak.';
+const HEAP_TITLE = phrase('The first number is the whole heap in use now. Old-gen peak is the most the old generation '
+    + 'has held since the server started. Set -Xmx large enough to hold this peak.');
 
 function render(d) {
     const tc = d.teamcity, gh = d.github, j = d.jvm;
@@ -269,44 +292,43 @@ function render(d) {
     $('problems').innerHTML = problems.map(p => `<div class="problem ${esc(p.level)}">${esc(p.text)}</div>`).join('');
     $('systemCards').innerHTML = [
         versionCard(d),
-        card('Uptime', fmtDur(d.uptimeSeconds)),
+        card(T('Uptime'), fmtDur(d.uptimeSeconds)),
         card('CPU', j.systemCpuPct == null || j.systemCpuPct < 0 ? '—' : j.systemCpuPct + '%',
-            j.processCpuPct >= 0 ? `${j.processCpuPct}% this app` : 'host',
+            j.processCpuPct >= 0 ? T`${j.processCpuPct}% this app` : T('host'),
             j.systemCpuPct >= 0 ? sev(j.systemCpuPct, 50, 80) : ''),
-        card('Load avg', j.loadAverage == null || j.loadAverage < 0 ? '—' : j.loadAverage,
-            `on ${j.cpus} cpu`,
+        card(T('Load avg'), j.loadAverage == null || j.loadAverage < 0 ? '—' : fraction(j.loadAverage),
+            T`on ${j.cpus} cpu`,
             j.loadAverage >= 0 ? sev(j.loadAverage / j.cpus, 0.7, 1.001) : ''),
-        card('Heap', j.heapUsedMb, `/ ${j.heapMaxMb} MB` + (j.heapPeakMb > 0 ? ` · old-gen peak ${j.heapPeakMb} MB` : ''),
-            j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : '', HEAP_TITLE),
-        card('Process memory', j.rssMb >= 0 ? j.rssMb : '—', j.rssMb >= 0
-            ? `MB resident · peak ${j.rssPeakMb}` + (j.hostMemMb > 0 ? ` · host ${j.hostMemMb} MB` : '') : 'not measured here'),
-        card('Threads', j.threads, `· ${j.cpus} cpu`),
+        card(T('Heap'), j.heapUsedMb, T`/ ${j.heapMaxMb} MB` + (j.heapPeakMb > 0 ? T` · old-gen peak ${j.heapPeakMb} MB` : ''),
+            j.heapMaxMb ? sev(100 * j.heapUsedMb / j.heapMaxMb, 60, 85) : '', T(HEAP_TITLE)),
+        card(T('Process memory'), j.rssMb >= 0 ? j.rssMb : '—', j.rssMb >= 0
+            ? T`MB resident · peak ${j.rssPeakMb}` + (j.hostMemMb > 0 ? T` · host ${j.hostMemMb} MB` : '')
+            : T('not measured here')),
+        card(T('Threads'), j.threads, T`· ${j.cpus} cpu`),
         heapDumpCard(j.heapDump),
         persistenceCard(d.persistence),
     ].join('');
 
     $('appCards').innerHTML = [
-        card('Analyze (1h)', az ? `${az.avgLatencyMs}` : '—',
-            az ? `ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : 'no requests',
+        card(T('Analyze (1h)'), az ? `${az.avgLatencyMs}` : '—',
+            az ? T`ms avg · ${az.maxLatencyMs} max · ${az.total} calls` : T('no requests'),
             az ? sev(az.avgLatencyMs, 500, 2000) : ''),
-        card('Open PRs', d.app.openPrs),
+        card(T('Open PRs'), d.app.openPrs),
     ].join('');
 
     const w = d.watcher || {};
-    const agoW = ms => !ms ? 'never' : Math.round((Date.now() - ms) / 1000) < 90
-        ? Math.round((Date.now() - ms) / 1000) + 's ago' : Math.round((Date.now() - ms) / 60000) + 'm ago';
     $('watcherCards').innerHTML = [
-        card('Tracked builds', w.tracked ?? 0,
+        card(T('Tracked builds'), w.tracked ?? 0,
             `${countOf(w.chains ?? 0, 'RunAll')} · ${countOf(w.suites ?? 0, 'suite')}`,
             (w.tracked ?? 0) > 0 ? 'ok' : ''),
         lastRefreshCard(w),
-        card('RunAlls finished', w.chainFinishes ?? 0, 'since start'),
-        card('Standing options', w.standingEnrolled ?? 0,
-            `users with an option on · ${w.standingPosted ?? 0} JIRA visa${w.standingPosted === 1 ? '' : 's'} posted`
-            + ` · ${passText('sweep', w.standingLastSweepAt, w.standingFirstSweepAt)}`
+        card(T('RunAlls finished'), w.chainFinishes ?? 0, T('since start')),
+        countedCard(T('Standing options'), T`${w.standingEnrolled ?? 0} users with an option on`,
+            ' · ' + T`${w.standingPosted ?? 0} JIRA visa${w.standingPosted === 1 ? '' : 's'} posted`
+            + ' · ' + passText(phrase('sweep'), w.standingLastSweepAt, w.standingFirstSweepAt)
             + (w.standingLastSweepMs ? ' (' + secs(w.standingLastSweepMs) + ')' : '')),
-        card('PR commands', w.prCommands ?? 0,
-            `/run-all handled · ${passText('poll', w.prCommandsLastPollAt, w.prCommandsFirstPollAt)}`),
+        countedCard(T('PR commands'), T`${w.prCommands ?? 0} /run-all handled`,
+            ' · ' + passText(phrase('poll'), w.prCommandsLastPollAt, w.prCommandsFirstPollAt)),
         suiteFixCard(w.suiteFix),
         keyChangeCard(w.waitingAfterKeyChange),
     ].join('');
@@ -315,31 +337,31 @@ function render(d) {
         warmerCard(d.app),
         startupCard(d.app),
         lastCycleCard(d.app),
-        card('Pooled tokens', d.app.pooledTokens, d.app.pooledTokens ? '' : 'warmer paused — log in',
+        card(T('Pooled tokens'), d.app.pooledTokens, d.app.pooledTokens ? '' : T('warmer paused — log in'),
             d.app.pooledTokens ? 'ok' : 'warn'),
-        card('Results cached', d.app.resultsCached),
-        card('History cached', d.app.historyCached, 'tests'),
+        card(T('Results cached'), d.app.resultsCached),
+        countedCard(T('History cached'), T`${d.app.historyCached} tests`),
     ].join('');
 
     $('tcCards').innerHTML = [
-        card('TeamCity (1h)', t.total.toLocaleString(),
-            `${tcRate.toFixed(1)}% ok · ${tc.sinceStart.toLocaleString()} total`,
+        card(T('TeamCity (1h)'), num(t.total),
+            T`${fraction(tcRate.toFixed(1))}% ok · ${num(tc.sinceStart)} total`,
             t.total ? (tcRate >= 99 ? 'ok' : tcRate >= 95 ? 'warn' : 'bad') : ''),
-        card('TC latency (1h)', `${t.avgLatencyMs}`, `ms avg · ${t.maxLatencyMs} max`,
+        card(T('TC latency (1h)'), `${t.avgLatencyMs}`, T`ms avg · ${t.maxLatencyMs} max`,
             t.total ? sev(t.avgLatencyMs, 500, 2000) : ''),
     ].join('');
 
     const { app: ghApp, pat: ghPat, appCalls, appFails } = githubCalls(gh.byCategory);
     $('ghCards').innerHTML = [
-        card('GitHub (1h)', g.total.toLocaleString(), `${g.fail} failed · ${gh.sinceStart.toLocaleString()} total`,
+        card(T('GitHub (1h)'), num(g.total), T`${g.fail} failed · ${num(gh.sinceStart)} total`,
             g.total ? (g.fail === 0 ? 'ok' : g.fail <= 5 ? 'warn' : 'bad') : ''),
-        card('App token (1h)', appCalls.toLocaleString(), `${appFails} failed · server-side calls`,
+        card(T('App token (1h)'), num(appCalls), T`${appFails} failed · server-side calls`,
             appCalls ? (appFails === 0 ? 'ok' : 'warn') : ''),
         appAccountCard(d.app.githubAccount),
         appWritesCard(d.app.githubWrites),
-        card('Stars', d.app.stars < 0 ? '—' : d.app.stars),
+        card(T('Stars'), d.app.stars < 0 ? '—' : d.app.stars),
         card('GitHub API', d.app.githubRate && d.app.githubRate.limit ? d.app.githubRate.remaining : '—',
-            d.app.githubRate && d.app.githubRate.limit ? `/ ${d.app.githubRate.limit} left` : '',
+            d.app.githubRate && d.app.githubRate.limit ? T`/ ${d.app.githubRate.limit} left` : '',
             d.app.githubRate && d.app.githubRate.limit
                 ? (100 * d.app.githubRate.remaining / d.app.githubRate.limit > 50 ? 'ok'
                     : 100 * d.app.githubRate.remaining / d.app.githubRate.limit > 10 ? 'warn' : 'bad') : ''),
@@ -348,24 +370,25 @@ function render(d) {
     const ji = d.jira || { lastHour: { total: 0, fail: 0, avgLatencyMs: 0, maxLatencyMs: 0 }, sinceStart: 0 };
     const jh = ji.lastHour;
     $('jiraCards').innerHTML = [
-        card('JIRA (1h)', jh.total.toLocaleString(), `${jh.fail} failed · ${ji.sinceStart.toLocaleString()} total`,
+        card(T('JIRA (1h)'), num(jh.total), T`${jh.fail} failed · ${num(ji.sinceStart)} total`,
             jh.total ? (jh.fail === 0 ? 'ok' : 'warn') : ''),
-        card('JIRA latency (1h)', jh.total ? `${jh.avgLatencyMs}` : '—',
-            jh.total ? `ms avg · ${jh.maxLatencyMs} max` : 'no calls',
+        card(T('JIRA latency (1h)'), jh.total ? `${jh.avgLatencyMs}` : '—',
+            jh.total ? T`ms avg · ${jh.maxLatencyMs} max` : T('no calls'),
             jh.total ? sev(jh.avgLatencyMs, 1000, 3000) : ''),
     ].join('');
 
     $('logCards').innerHTML = [
-        card('Log issues', d.log.errors,
-            `${d.log.warnings} warn · ${d.log.clientMistakes} bad requests · since start`,
+        card(T('Log issues'), d.log.errors,
+            T`${d.log.warnings} warn · ${d.log.clientMistakes} bad requests · since start`,
             d.health === 'error' ? 'bad' : d.health === 'warn' ? 'warn' : 'ok'),
     ].join('');
 
-    const codes = m => Object.entries(m || {}).map(([s, n]) => `<code>${s === '0' ? 'network' : s}</code>×${n}`).join(', ');
+    const codes = m => Object.entries(m || {}).map(([s, n]) => `<code>${s === '0' ? T('network') : s}</code>×${n}`)
+        .join(', ');
     const hour = codes(tc.byStatusHour), total = codes(tc.byStatus);
     $('tcByStatus').innerHTML =
-        'Failures by status <span class="muted">· HTTP code × times · last hour</span>: ' + (hour || 'none')
-        + (total ? ` <span class="muted">· since app start: ${total}</span>` : '');
+        T`Failures by status <span class="muted">· HTTP code × times · last hour</span>: ${hour || T('none')}`
+        + (total ? T` <span class="muted">· since app start: ${total}</span>` : '');
 
     renderCats($('tcCats'), tc.byCategory || {});
     renderCats($('ghCatsApp'), ghApp);
@@ -377,44 +400,45 @@ function render(d) {
     renderAdmin(d);
 
     drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
-    $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+    $('updated').textContent = T`updated ${timeOf(Date.now())}`;
 }
 
 // Problems outlive restarts, so older ones carry their day.
 function logTime(t) {
     const d = new Date(t);
-    if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString();
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' '
-        + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const locale = LANG === 'ru' ? 'ru-RU' : [];
+    if (d.toDateString() === new Date().toDateString()) return timeOf(t);
+    return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) + ' '
+        + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
 }
 
 // Without PRC_ADMINS nobody gets the messages, so the page says how to name an operator.
-const NO_OPERATOR = 'The server setting <code>PRC_ADMINS</code> names no operators, so nobody sees the log messages'
-    + ' here. To name operators, set <code>PRC_ADMINS</code> in <code>/etc/ignite-pr-checker/env</code> to their'
-    + ' TeamCity usernames, comma-separated, and restart the service. Until then, read the messages on the server with'
-    + ' <code>journalctl -u ignite-pr-checker</code>.';
+const NO_OPERATOR = phrase('The server setting <code>PRC_ADMINS</code> names no operators, so nobody sees the log '
+    + 'messages here. To name operators, set <code>PRC_ADMINS</code> in <code>/etc/ignite-pr-checker/env</code> to '
+    + 'their TeamCity usernames, comma-separated, and restart the service. Until then, read the messages on the server '
+    + 'with <code>journalctl -u ignite-pr-checker</code>.');
 
 // Only the operators get the messages; the others see how many there are on the card above. The server's start time,
 // not the browser's clock, sets this run's problems apart from earlier ones.
 function renderLog(el, d) {
     const log = d.log || { recent: [] }, startedAt = d.startedAt;
     const recent = log.recent || [];
-    if (d.operatorsNamed === false) { el.innerHTML = `<div class="muted">${NO_OPERATOR}</div>`; return; }
+    if (d.operatorsNamed === false) { el.innerHTML = `<div class="muted">${T(NO_OPERATOR)}</div>`; return; }
     if (!d.operator && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
-        el.innerHTML = d.signedIn ? '<div class="muted">Only operators see the messages.</div>'
-            : '<div class="muted">Only operators see the messages. Log in on the main page if you are one.</div>';
+        el.innerHTML = `<div class="muted">${d.signedIn ? T('Only operators see the messages.')
+            : T('Only operators see the messages. Log in on the main page if you are one.')}</div>`;
         return;
     }
-    if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }
+    if (!recent.length) { el.innerHTML = `<div class="muted">${T('no warnings or errors logged')}</div>`; return; }
     const restart = recent.findIndex(e => e.t < startedAt);
     el.innerHTML = recent.map((e, i) => (i === restart
-        ? `<div class="logsep">— service started ${esc(logTime(startedAt))} —</div>` : '')
+        ? `<div class="logsep">${T`— service started ${esc(logTime(startedAt))} —`}</div>` : '')
         + `<div class="logrow${e.client ? ' client' : ''}"${e.client
-        ? ' title="a bad request turned away — does not affect health"' : ''}>
+        ? ` title="${T('a bad request turned away — does not affect health')}"` : ''}>
         <span class="logtime">${esc(logTime(e.t))}</span>
-        <span class="loglevel lvl-${e.level.toLowerCase()}">${e.level}</span>
-        <span class="loglogger" title="${esc(e.logger)}">${esc(e.logger)}</span>
-        <span class="logmsg">${esc(e.message)}</span>
+        <span class="loglevel lvl-${e.level.toLowerCase()}" lang="en">${e.level}</span>
+        <span class="loglogger" lang="en" title="${esc(e.logger)}">${esc(e.logger)}</span>
+        <span class="logmsg" lang="en">${esc(e.message)}</span>
     </div>`).join('');
 }
 
@@ -425,26 +449,28 @@ function renderAdmin(d) {
     const last = (d.admin && d.admin.last) || {};
     const restart = [last.restart && ['restart', last.restart], last.update && ['update', last.update]]
         .filter(Boolean).sort((x, y) => y[1].at - x[1].at)[0];
-    $('restartLast').textContent = restart ? `last ${restart[0]}: ${restart[1].by} · ${agoShort(restart[1].at)}` : '';
-    $('flushLast').textContent = last.flush ? `last flush: ${last.flush.by} · ${agoShort(last.flush.at)}` : '';
+    $('restartLast').textContent = !restart ? '' : restart[0] === 'update'
+        ? T`last update: ${restart[1].by} · ${agoShort(restart[1].at)}`
+        : T`last restart: ${restart[1].by} · ${agoShort(restart[1].at)}`;
+    $('flushLast').textContent = last.flush ? T`last flush: ${last.flush.by} · ${agoShort(last.flush.at)}` : '';
 }
 
 async function errorText(r) {
     const body = await r.json().catch(() => null);
-    return (body && body.error) || 'HTTP ' + r.status;
+    return (body && tr(body.error)) || 'HTTP ' + r.status;
 }
 
 function renderCats(el, byCategory) {
     const entries = Object.entries(byCategory);
-    if (!entries.length) { el.innerHTML = '<div class="muted">no calls yet</div>'; return; }
+    if (!entries.length) { el.innerHTML = `<div class="muted">${T('no calls yet')}</div>`; return; }
     const max = Math.max(1, ...entries.map(([, s]) => s.total));
     el.innerHTML = entries.map(([name, s]) => {
         const pct = 100 * s.total / max;
-        const fail = s.fail ? ` · <span class="rate-bad">${s.fail} failed</span>` : '';
+        const fail = s.fail ? T` · <span class="rate-bad">${s.fail} failed</span>` : '';
         return `<div class="catrow">
             <div class="catname">${name}</div>
             <div class="catbar"><div class="catfill" style="width:${pct.toFixed(1)}%"></div></div>
-            <div class="catval">${s.total.toLocaleString()} <small>${s.avgLatencyMs}ms${fail}</small></div>
+            <div class="catval">${num(s.total)} <small>${T`${s.avgLatencyMs}ms`}${fail}</small></div>
         </div>`;
     }).join('');
 }
@@ -527,7 +553,9 @@ function drawStacked(canvas, legendEl, byCat) {
             yTop -= h;
         });
     }
-    ctx.fillStyle = muted; ctx.fillText('-60m', pad.l, cssH - 4); ctx.fillText('now', cssW - pad.r - 18, cssH - 4);
+    const now = T('now');
+    ctx.fillStyle = muted; ctx.fillText(T('-60m'), pad.l, cssH - 4);
+    ctx.fillText(now, cssW - pad.r - (LANG === 'ru' ? ctx.measureText(now).width : 18), cssH - 4);
     legendEl.innerHTML = cats.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('');
 }
 
@@ -536,13 +564,16 @@ async function tick() {
     try {
         const r = await fetch('/api/status', { cache: 'no-store' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        last = await r.json();
+        const status = await r.json();
+        await languageLearned;
+        last = status;
         $('err').textContent = '';
         render(last);
     } catch (e) {
+        await languageLearned;
         // A failed poll with data already on screen is usually a redeploy/restart blip: stay calm,
         // keep the cards, and let the next poll clear this. Alarm only when there's nothing to show.
-        $('err').textContent = last ? 'connection lost — retrying…' : 'status unavailable: ' + e.message;
+        $('err').textContent = last ? T('connection lost — retrying…') : T`status unavailable: ${e.message}`;
     }
 }
 
@@ -556,31 +587,35 @@ window.addEventListener('resize', redrawChart);
 const ACTIVE_MS = 15 * 60 * 1000;
 function agoMs(ms) {
     const s = (Date.now() - ms) / 1000;
-    return s < 90 ? Math.round(s) + 's ago' : s < 5400 ? Math.round(s / 60) + 'm ago'
-        : s < 129600 ? Math.round(s / 3600) + 'h ago' : Math.round(s / 86400) + 'd ago';
+    return s < 90 ? T`${Math.round(s)}s ago` : s < 5400 ? T`${Math.round(s / 60)}m ago`
+        : s < 129600 ? T`${Math.round(s / 3600)}h ago` : T`${Math.round(s / 86400)}d ago`;
 }
 // `logins` counts the logins at the form since the user first came, not the browsers logged in now: only the user sees
 // those, in ⚙.
 async function loadUsers() {
-    const times = n => n === 1 ? 'once' : n + ' times';
-    const row = (u, verb) => `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
-        + `<span class="catval">${verb} ${agoMs(u.lastSeen)} · logged in ${times(u.logins)} · first seen ${agoMs(u.firstSeen)}</span></div>`;
+    const times = n => n === 1 ? T('once') : T`${n} times`;
+    const said = (u, active) => active
+        ? T`last active ${agoMs(u.lastSeen)} · logged in ${times(u.logins)} · first seen ${agoMs(u.firstSeen)}`
+        : T`last seen ${agoMs(u.lastSeen)} · logged in ${times(u.logins)} · first seen ${agoMs(u.firstSeen)}`;
+    const row = (u, active) => `<div class="catrow"><span class="catname">${u.name.replace(/[&<>"]/g, '')}</span>`
+        + `<span class="catval">${said(u, active)}</span></div>`;
+    const muted = text => `<div class="muted">${text}</div>`;
     try {
         const r = await fetch('/api/users', { cache: 'no-store' });
         if (r.status === 401 || r.status === 403) {
             $('usersActive').innerHTML = $('usersSeen').innerHTML = r.status === 401
-                ? '<div class="muted">log in on the main page to see who is here</div>'
-                : '<div class="muted">only the operator can see who uses the service</div>';
+                ? muted(T('log in on the main page to see who is here'))
+                : muted(T('only the operator can see who uses the service'));
             return;
         }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const list = await r.json();
         const active = list.filter(u => Date.now() - u.lastSeen <= ACTIVE_MS);
         const seen = list.filter(u => Date.now() - u.lastSeen > ACTIVE_MS);
-        $('usersActive').innerHTML = active.map(u => row(u, 'last active')).join('') || '<div class="muted">nobody right now</div>';
-        $('usersSeen').innerHTML = seen.map(u => row(u, 'last seen')).join('') || '<div class="muted">nobody else yet</div>';
+        $('usersActive').innerHTML = active.map(u => row(u, true)).join('') || muted(T('nobody right now'));
+        $('usersSeen').innerHTML = seen.map(u => row(u, false)).join('') || muted(T('nobody else yet'));
     } catch (e) {
-        $('usersActive').innerHTML = '<div class="muted">could not load users — try again in a moment</div>';
+        $('usersActive').innerHTML = muted(T('could not load users — try again in a moment'));
         $('usersSeen').innerHTML = '';
     }
 }
@@ -598,46 +633,50 @@ $('tabStatus').addEventListener('click', () => setStatusTab(false));
 $('tabUsers').addEventListener('click', () => setStatusTab(true));
 
 $('restartBtn').addEventListener('click', async () => {
-    if (!confirm('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped (caches are saved).')) return;
+    if (!confirm(T('Restart the service?\n\nIt will be unavailable for ~10 seconds; in-flight analyses are dropped '
+        + '(caches are saved).'))) return;
     const btn = $('restartBtn'), msg = $('restartMsg');
     const refocus = keepFocus(btn);
     btn.disabled = true;
-    msg.textContent = 'restarting…';
+    msg.textContent = T('restarting…');
     let accepted = false;
     try {
         const r = await fetch('/api/restart', { method: 'POST' });
-        if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; refocus(); return; }
+        if (r.status === 401) { msg.textContent = T('log in on the main page first'); btn.disabled = false; refocus(); return; }
         if (r.status === 403) { msg.textContent = await errorText(r); btn.disabled = false; refocus(); return; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         accepted = true;
-    } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; refocus(); }
+    } catch (e) { msg.textContent = T('restart request failed'); btn.disabled = false; refocus(); }
     if (!accepted) return;
     const t0 = Date.now();
     const timer = setInterval(async () => {
         try {
             const v = await fetch('/api/version', { cache: 'no-store' });
-            if (v.ok) { clearInterval(timer); msg.textContent = 'back up'; setTimeout(() => location.reload(), 800); return; }
+            if (v.ok) { clearInterval(timer); msg.textContent = T('back up'); setTimeout(() => location.reload(), 800); return; }
         } catch (e) { /* still down */ }
-        if (Date.now() - t0 > 120000) { clearInterval(timer); msg.textContent = 'still down after 2 minutes — check the server'; }
+        if (Date.now() - t0 > 120000) {
+            clearInterval(timer);
+            msg.textContent = T('still down after 2 minutes — check the server');
+        }
     }, 2000);
 });
 
 $('flushBtn').addEventListener('click', async () => {
-    if (!confirm('Clear cached analysis results and per-test history?\nThe next analysis will recompute from scratch (extra TeamCity load).')) return;
+    if (!confirm(T('Clear cached analysis results and per-test history?\nThe next analysis will recompute from scratch '
+        + '(extra TeamCity load).'))) return;
     const btn = $('flushBtn'), msg = $('flushMsg');
     const refocus = keepFocus(btn);
-    btn.disabled = true; msg.textContent = 'flushing…';
+    btn.disabled = true; msg.textContent = T('flushing…');
     try {
         const r = await fetch('/api/flush-caches', { method: 'POST', cache: 'no-store' });
-        if (r.status === 401) { msg.textContent = 'log in on the main page to flush'; return; }
+        if (r.status === 401) { msg.textContent = T('log in on the main page to flush'); return; }
         if (r.status === 403) { msg.textContent = await errorText(r); return; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const c = await r.json();
-        msg.textContent = `cleared ${countOf(c.results, 'result')}, `
-            + `${c.history} history entr${c.history === 1 ? 'y' : 'ies'}`;
+        msg.textContent = T`cleared ${countOf(c.results, 'result')}, ${c.history} history entr${c.history === 1 ? 'y' : 'ies'}`;
         tick();
     } catch (e) {
-        msg.textContent = 'flush failed: ' + e.message;
+        msg.textContent = T`flush failed: ${e.message}`;
     } finally {
         btn.disabled = false;
         refocus();

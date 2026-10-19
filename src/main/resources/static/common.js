@@ -219,6 +219,19 @@ function reopenIn(lang) {
     location.reload();
 }
 
+// The language of a page without a login form, the status page or the flaky board: the one its signed-in reader chose,
+// else English. Such a page draws what it fetched once this settles, or it would draw English on a Russian page.
+async function learnLanguage() {
+    prefetchLanguage();
+    let lang = null;
+    try {
+        const r = await fetch('/api/page-language', { cache: 'no-store' });
+        if (r.ok) lang = (await r.json()).lang;
+    } catch (e) { /* the page stays English */ }
+    await useLanguage(lang);
+    document.title = T(document.title);
+}
+
 // A name that opens a group of ⚙, such as "Токен JIRA", as a sentence says it: "токен JIRA".
 function inSentence(name) {
     return LANG === 'ru' ? name.charAt(0).toLowerCase() + name.slice(1) : name;
@@ -238,6 +251,28 @@ function inEnglish(make) {
 // "1 result", "3 results".
 function countOf(n, noun) {
     return T(['', ' ' + noun, ''], n, n === 1 ? '' : 's');
+}
+
+// "0.4", in Russian "0,4".
+function fraction(n) {
+    return LANG === 'ru' ? String(n).replace('.', ',') : String(n);
+}
+
+// "1,234", as the page's language writes numbers.
+function num(n) {
+    return n.toLocaleString(LANG === 'ru' ? 'ru-RU' : undefined);
+}
+
+// "12:05:30", as the page's language writes a time.
+function timeOf(ms) {
+    return new Date(ms).toLocaleTimeString(LANG === 'ru' ? 'ru-RU' : undefined);
+}
+
+// The states of a run TeamCity names, as the chips show them.
+const RUN_STATES = { queued: phrase('queued'), running: phrase('running') };
+
+function runState(state) {
+    return RUN_STATES[state] ? T(RUN_STATES[state]) : state;
 }
 
 // A button disabled while its request runs drops the keyboard focus to the page. The returned function gives the focus

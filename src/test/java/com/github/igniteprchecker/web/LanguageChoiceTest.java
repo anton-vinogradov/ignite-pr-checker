@@ -41,7 +41,7 @@ class LanguageChoiceTest {
 
     private final SettingsJournal journal = new SettingsJournal(mapper);
 
-    private final LanguageController language = new LanguageController(users, journal);
+    private final LanguageController language = new LanguageController(users, journal, mock(AuthInterceptor.class));
 
     @Test
     void russianIsTheAccountsAndGoesIntoTheJournal() throws Exception {

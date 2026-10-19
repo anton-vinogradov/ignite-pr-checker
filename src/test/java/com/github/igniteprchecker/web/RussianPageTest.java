@@ -11,11 +11,7 @@ import com.github.igniteprchecker.jira.SettingsJournal;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
@@ -28,20 +24,18 @@ import org.junit.jupiter.api.Test;
 class RussianPageTest {
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** Two or more English words in a row: a phrase the catalog missed. A name joined by "-" or "/" is one word. */
-    private static final Pattern ENGLISH_PHRASE =
-        Pattern.compile("(?<![\\w/.-])[A-Za-z][a-z'./-]*[a-z](?:,?\\s+[A-Za-z][a-z'./-]*[a-z])+(?![\\w/-])");
-
     /** TeamCity's own messages about the broken suites of the scenario: TeamCity's words, not the checker's. */
     private static final Pattern TEAMCITY_TEXT = Pattern.compile("Failed to resolve artifacts from <.*?[\\d\\]]>"
         + "|Failed to create temporary custom script file .*? No space left on device");
 
-    /** The names and texts no catalog translates: services, terms the docs keep, suites and tests of the scenarios. */
+    /**
+     * The names no catalog translates: of the project, of suites, PRs and browsers of the scenarios, and the words of
+     * TeamCity and GitHub the page quotes.
+     */
     private static final List<String> NAMES = List.of("Apache Ignite", "Open Census",
         "Machine Learning", "Thin client: Node.js", "Thin client: PHP", "Thin client: Python", "Platform .NET",
-        "Platform C++", "Firefox on Linux", "Chrome on Windows", "Move MDC to JUnit", "Check marshalled kind",
-        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Ignite PR Checker",
-        "Access Tokens");
+        "Platform C++", "Chrome on Windows", "Move MDC to JUnit", "Check marshalled kind",
+        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Access Tokens");
 
     private static String russian() throws IOException {
         return PageScript.SIGNED_IN + "const CATALOG = " + Files.readString(Path.of("src/main/resources/static/ru.json"),
@@ -104,7 +98,7 @@ class RussianPageTest {
         assertThat(texts.get("verdictLines").asText()).startsWith("Этот прогон покрывает PR не полностью: у 64 сьют нет "
             + "надёжного результата (60× сбой ci2: артефакты недоступны;");
         assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск №1 из 2 возможных: перезапускаю 3 "
-            + "сьюты (2 с блокерами, 1 битая), закончится через ~20 мин. Вердикт ниже может измениться, когда они "
+            + "сьюты (2 с блокерами, 1 битая), закончится через ~20\u00a0мин. Вердикт ниже может измениться, когда они "
             + "закончатся.");
         assertThat(texts.get("filtered").asText()).contains("было и раньше: падает 1/4 на master на JDK 17",
             "флаки на ветке: упал только в последнем из 2 прогонов на коммите 3fdf446 (более ранний прогон на том же "
@@ -451,35 +445,15 @@ class RussianPageTest {
             + "\"теста\",\"тестов\",\"тестов\",\"теста\"]");
         assertThat(out.get("day").asText()).isEqualTo("15 сентября в 21:05");
         assertThat(out.get("lastYear").asText()).isEqualTo("2 марта 2025 г. в 08:07");
-        assertThat(out.get("ago").asText()).isEqualTo("3 дня назад");
-        assertThat(out.get("spent").asText()).isEqualTo("1 ч 05 мин");
-        assertThat(out.get("left").asText()).isEqualTo("~2 мин");
+        assertThat(out.get("ago").asText()).isEqualTo("3\u00a0дня назад");
+        assertThat(out.get("spent").asText()).isEqualTo("1\u00a0ч 05\u00a0мин");
+        assertThat(out.get("left").asText()).isEqualTo("~2\u00a0мин");
         assertThat(out.get("test").asText()).isEqualTo("0,4 с");
         assertThat(out.get("browsers").asText()).isEqualTo("21 браузер");
     }
 
     /** The English phrases left in the texts, the names of the scenarios aside. */
     private static List<String> untranslated(JsonNode texts, String html) {
-        List<String> all = new ArrayList<>();
-        for (Iterator<Map.Entry<String, JsonNode>> it = texts.fields(); it.hasNext(); ) {
-            Map.Entry<String, JsonNode> e = it.next();
-            all.add(e.getKey() + ": " + e.getValue().asText());
-        }
-        Matcher title = Pattern.compile("title=\"([^\"]*)\"").matcher(html);
-        while (title.find())
-            all.add("title: " + title.group(1));
-
-        List<String> left = new ArrayList<>();
-        for (String line : all) {
-            String text = TEAMCITY_TEXT.matcher(line.substring(line.indexOf(": ") + 2)).replaceAll("")
-                .replaceAll("https?://\\S+", "");
-            for (String name : NAMES)
-                text = text.replace(name, "");
-            Matcher phrase = ENGLISH_PHRASE.matcher(text);
-            while (phrase.find())
-                left.add(line.substring(0, line.indexOf(':')) + ": «" + phrase.group() + "» in " + line);
-        }
-
-        return left;
+        return EnglishLeft.in(texts, html, NAMES, TEAMCITY_TEXT);
     }
 }
