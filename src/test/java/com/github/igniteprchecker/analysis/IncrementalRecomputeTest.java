@@ -14,9 +14,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
+import com.github.igniteprchecker.ServiceMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
@@ -35,7 +34,9 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * PR 13583 kept 489 tests on watch, and every recompute asked ci2 for the branch runs of each of them and
@@ -72,7 +73,7 @@ class IncrementalRecomputeTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final AnalysisCache cache = new AnalysisCache(cfg, mapper);
 
@@ -279,7 +280,7 @@ class IncrementalRecomputeTest {
     /** The application's own mapper, with the modules Spring adds, reads back what it wrote. */
     @Test
     void theApplicationsMapperReadsTheFactsBack(@TempDir Path dir) throws Exception {
-        ObjectMapper app = Jackson2ObjectMapperBuilder.json().build();
+        ObjectMapper app = ServiceMapper.get();
         AnalysisCache before = new AnalysisCache(cfg, app);
         analyzer(before).forceRefresh(TOK, PR);
         Path file = dir.resolve("analysis.json");
@@ -389,7 +390,7 @@ class IncrementalRecomputeTest {
                 ((ObjectNode)e).put("expiresAt", e.get("expiresAt").asLong() - ms);
         }
         ObjectNode checked = (ObjectNode)facts.get("checkedAt");
-        checked.fieldNames().forEachRemaining(pr -> checked.put(pr, checked.get(pr).asLong() - ms / 1000));
+        checked.propertyNames().forEach(pr -> checked.put(pr, checked.get(pr).asLong() - ms / 1000));
         mapper.writeValue(file.toFile(), root);
     }
 

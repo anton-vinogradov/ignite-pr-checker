@@ -3,7 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
@@ -30,7 +30,7 @@ class StatusMemoryTest {
         PrCommands commands = mock(PrCommands.class);
         CacheStore store = mock(CacheStore.class);
         StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class), warmer,
-            mock(GithubClient.class), new LogTracker(new ObjectMapper()),
+            mock(GithubClient.class), new LogTracker(Jackson2Defaults.mapper()),
             new ServiceHealth(warmer, standing, commands, store, mock(EffectiveConfig.class)),
             mock(RerunTracker.class), standing, commands, mock(AuthInterceptor.class),
             mock(AdminActions.class), store, mock(EffectiveConfig.class), mock(ObjectProvider.class));

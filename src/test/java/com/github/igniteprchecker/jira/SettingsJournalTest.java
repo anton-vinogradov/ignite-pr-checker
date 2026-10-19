@@ -3,7 +3,7 @@ package com.github.igniteprchecker.jira;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.i18n.Lang;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Someone with a copy of alice's cookie could switch her options and link their own GitHub account, and nothing in ⚙
@@ -23,7 +24,7 @@ class SettingsJournalTest {
 
     private static final SettingsJournal.By DESK = SettingsJournal.By.of("desk", "Chrome on Windows");
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final AtomicLong now = new AtomicLong(1_760_800_000_000L);
 

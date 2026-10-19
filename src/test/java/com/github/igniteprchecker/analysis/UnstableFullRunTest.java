@@ -8,7 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * PR 13644, Snapshots 6: the suite ran all 233 of master's tests, failed one and then hit a JVM crash.
@@ -192,7 +193,7 @@ class UnstableFullRunTest {
 
     private AnalysisResult analyze() {
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, collector, cfg, Executors.newFixedThreadPool(2),
             Executors.newSingleThreadExecutor(), Executors.newSingleThreadExecutor(), new AnalysisCache(cfg, mapper),
             new RunDeltaStore(mapper));

@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -30,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Muted test occurrences follow one rule in every suite: they are skipped. Replays ci2 chain 9389046
@@ -55,7 +56,7 @@ class MutedOccurrencesTest {
     private final FakeTeamCity ci2 = new FakeTeamCity();
 
     private final TcClient tc = new TcClient(new TeamcityProperties(ci2.baseUrl()),
-        new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+        new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(Jackson2Defaults.mapper()));
 
     @AfterEach
     void stopTeamCity() {
@@ -138,7 +139,7 @@ class MutedOccurrencesTest {
 
     /** Just enough of ci2's REST API for the chain walk and the branch history of a test. */
     private static final class FakeTeamCity implements AutoCloseable {
-        private static final ObjectMapper JSON = new ObjectMapper();
+        private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
         private static final Pattern BUILD = Pattern.compile("(?:^|,)build:\\(id:(-?\\d+)\\)");
 

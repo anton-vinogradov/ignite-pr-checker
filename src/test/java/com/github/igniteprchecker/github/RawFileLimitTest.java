@@ -6,8 +6,9 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.io.InputStream;
 import java.util.Arrays;
@@ -18,6 +19,7 @@ import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The checkstyle autofix read up to 50 files of a PR whole into memory and only then looked at their size, in a
@@ -27,11 +29,11 @@ import org.springframework.web.client.RestClientResponseException;
 class RawFileLimitTest {
     private static final String FILE = "https://api.github.com/repos/author/ignite/contents/modules/core/A.java?ref=f195e0c";
 
-    private final RestClient.Builder http = RestClient.builder();
+    private final RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper,
         new Metrics(mapper), http.build());

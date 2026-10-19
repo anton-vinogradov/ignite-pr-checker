@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -40,7 +40,7 @@ class OutboundTimeoutsTest {
 
     private final List<Socket> held = new CopyOnWriteArrayList<>();
 
-    private final Metrics metrics = new Metrics(new ObjectMapper());
+    private final Metrics metrics = new Metrics(Jackson2Defaults.mapper());
 
     private ServerSocket silent;
 
@@ -97,7 +97,7 @@ class OutboundTimeoutsTest {
 
     private GithubClient github(String apiUrl) {
         return new GithubClient(new GithubProperties("apache/ignite", "app-token", 300, SHORT, apiUrl),
-            new ObjectMapper(), metrics);
+            Jackson2Defaults.mapper(), metrics);
     }
 
     @Test

@@ -1,7 +1,6 @@
 package com.github.igniteprchecker.web;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -23,6 +22,7 @@ import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The logins of each user: one per browser that logged in, with a label of the browser and its system, when it logged

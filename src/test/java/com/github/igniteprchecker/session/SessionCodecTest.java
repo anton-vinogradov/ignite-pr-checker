@@ -2,16 +2,17 @@ package com.github.igniteprchecker.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.SessionProperties;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The session cookie survives a restart under the same secret and nothing else. v1.36.0 and earlier put the user's
  * JIRA token into it for the visa buttons: such a cookie still logs in, and no cookie issued since carries one.
  */
 class SessionCodecTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private SessionCodec codec(String secret) {
         return new SessionCodec(new SessionProperties(false, secret), mapper);

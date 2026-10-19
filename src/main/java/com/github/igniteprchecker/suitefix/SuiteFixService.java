@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.suitefix;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.AbandonedTestsCheck;
 import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.model.PrTests.SuiteCheck.State;
@@ -37,6 +36,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Adds the test classes of an author's own PR that no test suite runs to suites, for the authors who switched "Add

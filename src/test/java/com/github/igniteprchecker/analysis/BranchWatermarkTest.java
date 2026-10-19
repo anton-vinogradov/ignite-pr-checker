@@ -6,8 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -40,6 +39,8 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The branch watermark against a TeamCity that answers like ci2: builds come newest-START first, and
@@ -59,12 +60,12 @@ class BranchWatermarkTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
-    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+    private final AnalysisCache cache = new AnalysisCache(cfg, Jackson2Defaults.mapper());
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(
-        new TcClient(new TeamcityProperties(teamcity.url()), cfg, new Metrics(new ObjectMapper())), chains, cfg,
+        new TcClient(new TeamcityProperties(teamcity.url()), cfg, new Metrics(Jackson2Defaults.mapper())), chains, cfg,
         Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        cache, new RunDeltaStore(new ObjectMapper()));
+        cache, new RunDeltaStore(Jackson2Defaults.mapper()));
 
     /** Epoch seconds of the test's start, which stands for {@link #wallClock} on the issue's timeline. */
     private final long t0 = nowSec();
@@ -153,7 +154,7 @@ class BranchWatermarkTest {
         teamcity.build(RUN_ALL, at("19:00:00"), at("23:00:32"));
         teamcity.build(9389215L, at("23:21:09"), at("23:26:41"));
 
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         ObjectNode result = mapper.valueToTree(new AnalysisResult(PR, RUN_ALL, "pull/13335/head",
             System.currentTimeMillis(), List.of(), List.of(), List.of(), List.of(), List.of(), 140, 12, false, 0,
             false, 0, at("18:55:00"), at("19:00:00"), at("23:00:32"), 0));

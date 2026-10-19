@@ -3,7 +3,7 @@ package com.github.igniteprchecker.analysis;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -22,6 +22,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The page's "RunAll (~N suites)" took the size of the master suite baseline, which keeps the last known
@@ -32,7 +33,7 @@ import org.junit.jupiter.api.io.TempDir;
 class SuiteBaselineTest {
     private static final String TOKEN = "tok";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     /** How many times TeamCity was asked for the suites of master's latest chain. */
     private final AtomicInteger chainLooks = new AtomicInteger();

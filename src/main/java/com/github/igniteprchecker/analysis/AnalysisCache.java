@@ -1,7 +1,6 @@
 package com.github.igniteprchecker.analysis;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -16,6 +15,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Caches the expensive parts of an analysis, shared across users and PRs (the data is not

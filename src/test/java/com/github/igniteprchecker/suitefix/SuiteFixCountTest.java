@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
@@ -24,6 +24,7 @@ import com.github.igniteprchecker.web.JiraController;
 import com.github.igniteprchecker.web.UserDirectory;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The status page said "0 users with the option on" next to "3 users with an option on", while avinogradov had tests
@@ -31,7 +32,7 @@ import org.junit.jupiter.api.Test;
  * minutes after a start, and never a user whose token TeamCity refused.
  */
 class SuiteFixCountTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = AppWriting.github();
 

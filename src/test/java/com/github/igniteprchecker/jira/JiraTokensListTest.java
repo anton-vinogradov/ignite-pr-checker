@@ -4,7 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -51,7 +51,7 @@ class JiraTokensListTest {
         });
         server.start();
         JiraClient jira = new JiraClient("http://" + server.getAddress().getHostString() + ":"
-            + server.getAddress().getPort() + "/jira", Duration.ofSeconds(5), new Metrics(new ObjectMapper()));
+            + server.getAddress().getPort() + "/jira", Duration.ofSeconds(5), new Metrics(Jackson2Defaults.mapper()));
 
         List<JiraClient.Pat> tokens = jira.tokens("jira-pat");
 
@@ -73,7 +73,7 @@ class JiraTokensListTest {
             ex.close();
         });
         server.start();
-        Metrics metrics = new Metrics(new ObjectMapper());
+        Metrics metrics = new Metrics(Jackson2Defaults.mapper());
         JiraClient jira = new JiraClient("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/jira", Duration.ofSeconds(5), metrics);
 

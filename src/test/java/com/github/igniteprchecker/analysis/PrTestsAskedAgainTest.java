@@ -8,7 +8,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.PrTests.AtRun;
 import com.github.igniteprchecker.analysis.model.PrTests.SuiteCheck.State;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -49,7 +49,8 @@ class PrTestsAskedAgainTest {
     private final AtomicLong now = new AtomicLong(1_000_000L);
 
     private final PrTestRuns prTests = new PrTestRuns(github, tc,
-        new AnalysisCache(new AnalysisProperties(null, "RunAll", null, null, null, null, null), new ObjectMapper()),
+        new AnalysisCache(new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            Jackson2Defaults.mapper()),
         now::get);
 
     @Test

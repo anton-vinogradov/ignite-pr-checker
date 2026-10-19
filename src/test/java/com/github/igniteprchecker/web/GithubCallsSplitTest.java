@@ -2,8 +2,8 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The status page counted a call by its name alone: a PR comment of the app account went under users' own tokens,
@@ -18,8 +18,8 @@ class GithubCallsSplitTest {
                 'pat:commit': call(4, 2) }));
             """, "githubCalls");
 
-        assertThat(split.get("app").fieldNames()).toIterable().containsExactlyInAnyOrder("prComment", "react");
-        assertThat(split.get("pat").fieldNames()).toIterable().containsExactlyInAnyOrder("prComment", "commit");
+        assertThat(split.get("app").propertyNames()).containsExactlyInAnyOrder("prComment", "react");
+        assertThat(split.get("pat").propertyNames()).containsExactlyInAnyOrder("prComment", "commit");
         assertThat(split.get("appCalls").asInt()).isEqualTo(5);
         assertThat(split.get("appFails").asInt()).isEqualTo(1);
     }

@@ -3,8 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -12,6 +11,7 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Runs page functions in plain node, with no DOM and no page around them: the whole of {@code static/common.js},
@@ -46,6 +46,6 @@ final class PageFunctions {
         assertThat(node.waitFor(30, TimeUnit.SECONDS)).isTrue();
         assertThat(node.exitValue()).as(out).isZero();
 
-        return new ObjectMapper().readTree(out);
+        return Jackson2Defaults.mapper().readTree(out);
     }
 }

@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.jira;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.PendingCommits;
@@ -52,6 +51,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Standing auto-visa: an opted-in user gets the verdict posted to the ticket for EVERY finished
@@ -2770,7 +2770,7 @@ public class StandingVisas implements SnapshotCache {
                 s.earlyReruns().forEach((build, suites) -> earlyReruns
                     .computeIfAbsent(build, id -> ConcurrentHashMap.newKeySet()).addAll(suites));
         }
-        catch (com.fasterxml.jackson.databind.exc.MismatchedInputException e) {
+        catch (tools.jackson.databind.exc.MismatchedInputException e) {
             // The pre-retries snapshot was a bare enrollment array — read it once, save in the new shape.
             enrollments = mapper.readValue(file.toFile(), Persisted[].class);
         }

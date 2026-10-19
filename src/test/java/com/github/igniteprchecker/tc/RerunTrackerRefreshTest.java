@@ -6,7 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -44,7 +44,7 @@ class RerunTrackerRefreshTest {
     private final List<Object> events = new ArrayList<>();
 
     private final RerunTracker tracker = new RerunTracker(tc, warmer,
-        new AnalysisProperties(null, RUN_ALL, null, null, null, null, null), new ObjectMapper(), events::add);
+        new AnalysisProperties(null, RUN_ALL, null, null, null, null, null), Jackson2Defaults.mapper(), events::add);
 
     @BeforeEach
     void setUp() {

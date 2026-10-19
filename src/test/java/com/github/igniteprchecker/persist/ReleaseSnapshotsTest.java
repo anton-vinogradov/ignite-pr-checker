@@ -5,10 +5,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.core.JsonPointer;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
@@ -39,7 +35,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import tools.jackson.core.JsonPointer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The state files on prod were written by v1.20.11, and no test read one: a renamed record field would have loaded
@@ -59,7 +59,7 @@ class ReleaseSnapshotsTest {
         "standing-visas.json", List.of("/enrollments/0/ghThreads"),
         "pr-commands.json", List.of("/watching/13702", "/onboarded"));
 
-    private static final ObjectMapper MAPPER = Jackson2ObjectMapperBuilder.json().failOnUnknownProperties(true).build();
+    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
 
     static Stream<SnapshotCache> stateOfTheRelease() {
         SessionCodec codec = mock(SessionCodec.class);

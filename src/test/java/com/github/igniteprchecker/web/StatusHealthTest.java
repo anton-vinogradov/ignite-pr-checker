@@ -6,7 +6,7 @@ import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.LoggingEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
@@ -36,7 +36,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 class StatusHealthTest {
     private static final String TC = "com.github.igniteprchecker.tc.TcClient";
 
-    private final LogTracker logs = new LogTracker(new ObjectMapper());
+    private final LogTracker logs = new LogTracker(Jackson2Defaults.mapper());
 
     private final Warmer warmer = mock(Warmer.class);
 

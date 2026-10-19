@@ -10,9 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -28,6 +26,9 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * pr-commands.json remembers handled comments, the narrated runs and whom the checker told what they lack for a
@@ -37,7 +38,7 @@ import org.junit.jupiter.api.io.TempDir;
  * only the replies whose PR it names count, read from the file v1.28.0 wrote.
  */
 class PrCommandsSnapshotTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = AppWriting.github();
 
@@ -99,7 +100,7 @@ class PrCommandsSnapshotTest {
 
     private static void assertKeeps(JsonNode old, JsonNode now, String path) {
         if (old.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> it = old.fields();
+            Iterator<Map.Entry<String, JsonNode>> it = old.properties().iterator();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> f = it.next();
                 assertThat(now.has(f.getKey())).as(path + "." + f.getKey()).isTrue();

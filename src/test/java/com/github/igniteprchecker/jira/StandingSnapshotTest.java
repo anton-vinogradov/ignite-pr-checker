@@ -6,9 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -31,6 +29,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * standing-visas.json holds everyone's encrypted tokens, options and the ids of the living comments.
@@ -42,7 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
 class StandingSnapshotTest {
     private static final String FIXTURE = "/snapshots/standing-visas-v1.20.11.json";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final TcClient tc = mock(TcClient.class);
 
@@ -221,7 +222,7 @@ class StandingSnapshotTest {
         Path saved = dir.resolve("saved.json");
         standing.saveTo(saved);
         List<String> chains = new ArrayList<>();
-        mapper.readTree(saved.toFile()).get("earlyReruns").fieldNames().forEachRemaining(chains::add);
+        chains.addAll(mapper.readTree(saved.toFile()).get("earlyReruns").propertyNames());
 
         return chains;
     }
@@ -229,7 +230,7 @@ class StandingSnapshotTest {
     /** Every value the old file had is in the new one; fields the new release adds are not compared. */
     private static void assertKeeps(JsonNode old, JsonNode now, String path) {
         if (old.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> it = old.fields();
+            Iterator<Map.Entry<String, JsonNode>> it = old.properties().iterator();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> f = it.next();
                 assertThat(now.has(f.getKey())).as(path + "." + f.getKey()).isTrue();

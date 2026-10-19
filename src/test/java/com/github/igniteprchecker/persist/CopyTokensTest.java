@@ -2,12 +2,13 @@ package com.github.igniteprchecker.persist;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.LogCapture;
 import com.github.igniteprchecker.config.PersistProperties;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +22,8 @@ import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The daily backups and the copies kept from before each build held every stored token for a week, or for five
@@ -37,7 +40,7 @@ class CopyTokensTest {
     private static final String SUBS = "[{\"pr\":13335,\"issue\":\"IGNITE-28867\",\"token\":\"sub-cipher\","
         + "\"username\":\"avinogradov\",\"armedAt\":1}]";
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
     private static Path copy(Path dir, String name, String content, Duration age) throws IOException {
         Path f = Files.writeString(dir.resolve(name), content);
@@ -188,6 +191,25 @@ class CopyTokensTest {
         assertThat(log.split("could not take the tokens out of")).hasSize(2);
         assertThat(log).contains("standing-visas.json.bad-20261012-080000: it is not JSON (Unexpected end-of-input",
             "Delete it once you no longer need it");
+    }
+
+    /**
+     * Jackson 3 reports a failed read as its own unchecked error. Taken for a copy that is not JSON, a copy the disk
+     * failed to read would keep its tokens for good; as an IOException it is tried again in 10 minutes.
+     */
+    @Test
+    void aCopyTheDiskFailedToReadIsTriedAgain() {
+        InputStream failing = new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw new IOException("disk failed");
+            }
+        };
+
+        assertThatThrownBy(() -> TokenScrub.holdsTokens(failing)).isExactlyInstanceOf(IOException.class)
+            .hasMessage("disk failed");
+        assertThatThrownBy(() -> TokenScrub.withoutTokens(failing, NOW)).isExactlyInstanceOf(IOException.class)
+            .hasMessage("disk failed");
     }
 
     private static Path zip(Path zip, Map<String, String> entries, Duration age) throws IOException {

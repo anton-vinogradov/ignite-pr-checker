@@ -12,7 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.PrTests;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -61,7 +61,7 @@ class PrTestsCallsTest {
     private final TcClient tc = mock(TcClient.class);
 
     private final AnalysisCache cache = new AnalysisCache(
-        new AnalysisProperties(null, "RunAll", null, null, null, null, null), new ObjectMapper());
+        new AnalysisProperties(null, "RunAll", null, null, null, null, null), Jackson2Defaults.mapper());
 
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
 

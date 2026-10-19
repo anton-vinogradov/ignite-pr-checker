@@ -4,7 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.sun.net.httpserver.HttpServer;
@@ -27,7 +27,7 @@ import org.junit.jupiter.api.Test;
 class OwnRepoStatsTest {
     private static GithubClient github(String apiUrl) {
         return new GithubClient(new GithubProperties("apache/ignite", null, 300, Duration.ofMillis(300), apiUrl),
-            new ObjectMapper(), new Metrics(new ObjectMapper()));
+            Jackson2Defaults.mapper(), new Metrics(Jackson2Defaults.mapper()));
     }
 
     private static void await(BooleanSupplier condition) throws InterruptedException {

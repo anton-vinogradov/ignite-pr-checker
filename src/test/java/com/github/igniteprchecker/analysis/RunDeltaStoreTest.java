@@ -2,13 +2,14 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The blockers of two runs are compared per test and suite: one test id runs in several suites of a chain
@@ -26,7 +27,7 @@ class RunDeltaStoreTest {
 
     private static final String CLANG = "IgniteTests24Java8_PlatformCPPCMakeLinuxClang";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     @Test
     void aTestFixedInOneSuiteIsFixedThereWhileItPersistsInTheOther() {

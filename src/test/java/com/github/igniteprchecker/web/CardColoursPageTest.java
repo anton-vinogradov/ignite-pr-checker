@@ -3,8 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -13,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Suites that never ran stood red, the colour of what the author has to fix, though a cancelled suite only needs a
@@ -66,7 +66,7 @@ class CardColoursPageTest {
         assertThat(node.exitValue()).as(out).isZero();
 
         Map<String, Map<String, String>> colours = new HashMap<>();
-        for (JsonNode pair : new ObjectMapper().readTree(out).get("failures"))
+        for (JsonNode pair : Jackson2Defaults.mapper().readTree(out).get("failures"))
             colours.computeIfAbsent(pair.get("theme").asText(), t -> new HashMap<>())
                 .put(pair.get("element").asText(), pair.get("color").asText());
 

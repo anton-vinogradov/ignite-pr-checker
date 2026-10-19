@@ -20,10 +20,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
@@ -54,6 +55,7 @@ import org.springframework.test.util.ReflectionTestUtils;
     "github.api-url=http://127.0.0.1:9",
     "jira.base-url=http://127.0.0.1:9",
 })
+@AutoConfigureTestRestTemplate
 @DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
 class ContextStartsTest {
@@ -110,6 +112,29 @@ class ContextStartsTest {
                 assertThat(js.getStatusCode().is2xxSuccessful()).as(script).isTrue();
                 assertThat(js.getHeaders().getContentType()).as(script).hasToString("text/javascript");
             }
+        }
+    }
+
+    /**
+     * A browser lets a page of another site send a JSON request, or read an answer, only when the answer names that
+     * site in Access-Control-Allow-Origin. Spring 7 answers the preflight of such a page with 200, not 403: the page is
+     * still stopped there only while no answer of the service names a site.
+     */
+    @Test
+    void aPageOfAnotherSiteIsAllowedNothing() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest preflight = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/login"))
+            .header("Origin", "https://another.example").header("Access-Control-Request-Method", "POST")
+            .header("Access-Control-Request-Headers", "content-type")
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build();
+        HttpRequest read = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/status"))
+            .header("Origin", "https://another.example").GET().build();
+
+        for (HttpRequest req : List.of(preflight, read)) {
+            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+
+            assertThat(res.headers().map().keySet()).as(req.method())
+                .noneMatch(h -> h.toLowerCase().startsWith("access-control-allow"));
         }
     }
 

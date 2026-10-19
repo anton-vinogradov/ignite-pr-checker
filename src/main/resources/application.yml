@@ -43,6 +43,10 @@ spring:
         # on it, which would delay the other timers (cache snapshots, warm cycles, flaky harvest).
         size: 3
   jackson:
+    # Jackson 2's defaults, which the state files, the session cookie and the API were written with up to v1.41.0.
+    # Jackson 3's own fail a file that lacks a number field its record has, as each file written before the field was
+    # added does, and write an enum by its toString, which a rolled-back build cannot read.
+    use-jackson2-defaults: true
     deserialization:
       # TeamCity REST responses carry many fields we don't map; ignore the rest.
       fail-on-unknown-properties: false

@@ -12,7 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.PrTests;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -52,7 +52,7 @@ class PrTestRunsTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
-    private final PrTestRuns prTests = new PrTestRuns(github, tc, new AnalysisCache(cfg, new ObjectMapper()));
+    private final PrTestRuns prTests = new PrTestRuns(github, tc, new AnalysisCache(cfg, Jackson2Defaults.mapper()));
 
     @Test
     void eachNewOrChangedTestClassShowsHowItsTestsRan() {

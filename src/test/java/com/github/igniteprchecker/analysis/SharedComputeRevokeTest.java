@@ -8,7 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
@@ -41,7 +41,7 @@ class SharedComputeRevokeTest {
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(mock(TcClient.class), chains, cfg,
         Executors.newFixedThreadPool(4), Executors.newFixedThreadPool(2), refresh,
-        new AnalysisCache(cfg, new ObjectMapper()), new RunDeltaStore(new ObjectMapper()));
+        new AnalysisCache(cfg, Jackson2Defaults.mapper()), new RunDeltaStore(Jackson2Defaults.mapper()));
 
     @AfterEach
     void stop() {

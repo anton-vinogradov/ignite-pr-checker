@@ -2,29 +2,20 @@ package com.github.igniteprchecker.persist;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.ServiceMapper;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.springframework.boot.Banner;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
-import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
-import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.annotation.Configuration;
+import tools.jackson.databind.JavaType;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Up to v1.41.0 Jackson 2 wrote the state files and the session cookie, and a rollback runs v1.41.0 on the files a
@@ -61,22 +52,8 @@ class Jackson2StateTest {
         FILES.put("session-cookie.json", "com.github.igniteprchecker.session.SessionCodec$Payload");
     }
 
-    private static ConfigurableApplicationContext context;
-
-    private static ObjectMapper mapper;
-
-    /** The mapper as the service configures it: Spring Boot's, with the settings of application.yml. */
-    @BeforeAll
-    static void startTheMapper() {
-        context = new SpringApplicationBuilder(JsonOnly.class).web(WebApplicationType.NONE)
-            .bannerMode(Banner.Mode.OFF).logStartupInfo(false).run();
-        mapper = context.getBean(ObjectMapper.class);
-    }
-
-    @AfterAll
-    static void stopTheMapper() {
-        context.close();
-    }
+    /** The service's own mapper, as it reads and writes the state. */
+    private static final ObjectMapper MAPPER = ServiceMapper.get();
 
     static Stream<Arguments> stateFiles() {
         return FILES.entrySet().stream().map(e -> Arguments.of(e.getKey(), e.getValue()));
@@ -96,15 +73,12 @@ class Jackson2StateTest {
     static Stream<Arguments> records() throws IOException {
         JsonNode all;
         try (InputStream in = Jackson2StateTest.class.getResourceAsStream(SAMPLES + "records.json")) {
-            all = new ObjectMapper().readTree(in);
+            all = MAPPER.readTree(in);
         }
         List<Arguments> out = new ArrayList<>();
-        for (Iterator<Map.Entry<String, JsonNode>> it = all.fields(); it.hasNext(); ) {
-            Map.Entry<String, JsonNode> type = it.next();
-            for (Iterator<Map.Entry<String, JsonNode>> v = type.getValue().fields(); v.hasNext(); ) {
-                Map.Entry<String, JsonNode> variant = v.next();
+        for (Map.Entry<String, JsonNode> type : all.properties()) {
+            for (Map.Entry<String, JsonNode> variant : type.getValue().properties())
                 out.add(Arguments.of(type.getKey(), variant.getKey(), variant.getValue()));
-            }
         }
 
         return out.stream();
@@ -113,17 +87,17 @@ class Jackson2StateTest {
     @ParameterizedTest(name = "{0} {1}")
     @MethodSource("records")
     void aRecordReadsAndIsWrittenAsBefore(String type, String variant, JsonNode sample) throws IOException {
-        assertWrittenAsBefore(mapper.writeValueAsBytes(sample), type, type + " " + variant);
+        assertWrittenAsBefore(MAPPER.writeValueAsBytes(sample), type, type + " " + variant);
     }
 
     private static void assertWrittenAsBefore(byte[] sample, String type, String what) throws IOException {
-        JavaType javaType = mapper.getTypeFactory().constructFromCanonical(type);
+        JavaType javaType = MAPPER.getTypeFactory().constructFromCanonical(type);
 
-        Object read = mapper.readValue(sample, javaType);
-        JsonNode written = mapper.readTree(mapper.writeValueAsBytes(read));
+        Object read = MAPPER.readValue(sample, javaType);
+        JsonNode written = MAPPER.readTree(MAPPER.writeValueAsBytes(read));
 
         List<String> diffs = new ArrayList<>();
-        compare(mapper.readTree(sample), written, "", diffs);
+        compare(MAPPER.readTree(sample), written, "", diffs);
         assertThat(diffs).as(what).isEmpty();
     }
 
@@ -131,15 +105,13 @@ class Jackson2StateTest {
     private static void compare(JsonNode sample, JsonNode written, String path, List<String> diffs) {
         if (sample.isObject() && written.isObject()) {
             List<String> order = new ArrayList<>();
-            for (Iterator<String> it = written.fieldNames(); it.hasNext(); ) {
-                String name = it.next();
+            for (String name : written.propertyNames()) {
                 if (sample.has(name))
                     order.add(name);
                 else if (!isDefault(written.get(name)))
                     diffs.add(path + "/" + name + ": not in the sample, written as " + written.get(name));
             }
-            List<String> sampleOrder = new ArrayList<>();
-            sample.fieldNames().forEachRemaining(sampleOrder::add);
+            List<String> sampleOrder = new ArrayList<>(sample.propertyNames());
             for (String name : sampleOrder) {
                 if (written.has(name))
                     compare(sample.get(name), written.get(name), path + "/" + name, diffs);
@@ -160,11 +132,6 @@ class Jackson2StateTest {
     /** What a field missing from a file reads as. */
     private static boolean isDefault(JsonNode value) {
         return value.isNull() || value.isBoolean() && !value.booleanValue()
-            || value.isNumber() && value.doubleValue() == 0 || value.isContainerNode() && value.isEmpty();
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @ImportAutoConfiguration(JacksonAutoConfiguration.class)
-    static class JsonOnly {
+            || value.isNumber() && value.doubleValue() == 0 || value.isContainer() && value.isEmpty();
     }
 }

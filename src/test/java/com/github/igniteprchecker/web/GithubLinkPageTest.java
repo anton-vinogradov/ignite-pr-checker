@@ -2,9 +2,9 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * ⚙ asked for a GitHub token with no scopes to prove the login for PR commands, a token nobody knew why to create. It
@@ -168,7 +168,8 @@ class GithubLinkPageTest {
             page.route('/api/auto-visa-all', { body: TYPED }, 'GET');
             page.route('/api/github/link', { status: 401, body: { sessionEnded: true, error: ENDED } }, 'POST');
             await page.load('?pr=13575');
-            """.replace("ENDED", new ObjectMapper().writeValueAsString(AuthInterceptor.ENDED)) + OPEN_SETTINGS + """
+            """.replace("ENDED", Jackson2Defaults.mapper().writeValueAsString(AuthInterceptor.ENDED))
+            + OPEN_SETTINGS + """
             await page.el('ghLink').onclick();
             await page.settle();
             report({ loginShown: !page.el('loginView').classList.contains('hidden'),

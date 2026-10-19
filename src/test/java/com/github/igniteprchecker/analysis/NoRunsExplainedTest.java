@@ -11,7 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.PrTests;
 import com.github.igniteprchecker.analysis.model.PrTests.AtRun;
 import com.github.igniteprchecker.analysis.model.PrTests.SuiteCheck.State;
@@ -64,7 +64,8 @@ class NoRunsExplainedTest {
     private final TcClient tc = mock(TcClient.class);
 
     private final PrTestRuns prTests = new PrTestRuns(github, tc,
-        new AnalysisCache(new AnalysisProperties(null, "RunAll", null, null, null, null, null), new ObjectMapper()));
+        new AnalysisCache(new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            Jackson2Defaults.mapper()));
 
     /** Commits 03b235d and 1f93640 renamed SslContextReloadNodeTest and moved SslRenewalTest after the run. */
     @Test

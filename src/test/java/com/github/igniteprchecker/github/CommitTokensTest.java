@@ -5,14 +5,16 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The checker kept any GitHub token GitHub put a name to, for the PR comment as well: a committer's classic token with
@@ -60,9 +62,9 @@ class CommitTokensTest {
     /** GitHub names a classic token's scopes in a header of its answer, and a fine-grained token's in none. */
     @Test
     void theScopesAreReadOffGithubsAnswer() {
-        RestClient.Builder http = RestClient.builder();
+        RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
         MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         GithubClient github = new GithubClient(new GithubProperties("apache/ignite", "app-token", 300), mapper,
             new Metrics(mapper), http.build());
         server.expect(requestTo("https://api.github.com/user")).andExpect(header("Authorization", "Bearer ghp_x"))

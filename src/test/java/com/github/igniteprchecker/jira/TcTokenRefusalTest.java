@@ -13,8 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -39,6 +38,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The sweep, the early re-runs and the watch of running chains all borrowed the TeamCity token of
@@ -62,8 +62,8 @@ class TcTokenRefusalTest {
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
-    private final StandingVisas standing = new StandingVisas(new ObjectMapper(),
-        new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper()), tc, github, analyzer,
+    private final StandingVisas standing = new StandingVisas(Jackson2Defaults.mapper(),
+        new SessionCodec(new SessionProperties(false, "test-secret"), Jackson2Defaults.mapper()), tc, github, analyzer,
         mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
         mock(PendingCommits.class));
 
@@ -179,9 +179,9 @@ class TcTokenRefusalTest {
         standing.markTcRejected(DEAD);
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
-        StandingVisas restarted = new StandingVisas(new ObjectMapper(),
-            new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper()), tc, github, analyzer,
-            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+        StandingVisas restarted = new StandingVisas(Jackson2Defaults.mapper(),
+            new SessionCodec(new SessionProperties(false, "test-secret"), Jackson2Defaults.mapper()), tc, github,
+            analyzer, mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
             mock(PendingCommits.class));
 
         restarted.loadFrom(file);
@@ -200,7 +200,7 @@ class TcTokenRefusalTest {
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
 
-        JsonNode dead = enrollmentOf(new ObjectMapper().readTree(file.toFile()), DEAD);
+        JsonNode dead = enrollmentOf(Jackson2Defaults.mapper().readTree(file.toFile()), DEAD);
         assertThat(dead.get("tcToken").isNull()).isTrue();
         assertThat(dead.get("tcRefusedHash").asText()).isEqualTo(Secrets.sha256("dead-tc"));
         assertThat(dead.get("tcRejectedAt").asLong()).isPositive();
@@ -234,7 +234,7 @@ class TcTokenRefusalTest {
     /** The ciphertext of a refused token an earlier version kept goes at the first load; its hash stays. */
     @Test
     void aRefusedTokenAnEarlierVersionKeptIsHashedAtLoad(@TempDir Path dir) throws Exception {
-        SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper());
+        SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), Jackson2Defaults.mapper());
         Path file = dir.resolve("standing-visas.json");
         Files.writeString(file, "{\"enrollments\":[{\"username\":\"nsamelchev\",\"tcToken\":\""
             + codec.encryptString("dead-tc") + "\",\"tz\":\"Europe/Moscow\",\"enabledAt\":1760000000000,"
@@ -244,7 +244,7 @@ class TcTokenRefusalTest {
         Path saved = dir.resolve("saved.json");
         loaded.saveTo(saved);
 
-        JsonNode dead = enrollmentOf(new ObjectMapper().readTree(saved.toFile()), DEAD);
+        JsonNode dead = enrollmentOf(Jackson2Defaults.mapper().readTree(saved.toFile()), DEAD);
         assertThat(dead.get("tcToken").isNull()).isTrue();
         assertThat(dead.get("tcRefusedHash").asText()).isEqualTo(Secrets.sha256("dead-tc"));
         assertThat(dead.get("tcRejectedAt").asLong()).isEqualTo(1760400000000L);
@@ -267,9 +267,9 @@ class TcTokenRefusalTest {
     }
 
     private StandingVisas restarted(Path file) throws Exception {
-        StandingVisas restarted = new StandingVisas(new ObjectMapper(),
-            new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper()), tc, github, analyzer,
-            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+        StandingVisas restarted = new StandingVisas(Jackson2Defaults.mapper(),
+            new SessionCodec(new SessionProperties(false, "test-secret"), Jackson2Defaults.mapper()), tc, github,
+            analyzer, mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
             mock(PendingCommits.class));
         restarted.loadFrom(file);
 

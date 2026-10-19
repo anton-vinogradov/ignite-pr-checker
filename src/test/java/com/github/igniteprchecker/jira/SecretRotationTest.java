@@ -12,7 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -172,9 +172,9 @@ class SecretRotationTest {
     }
 
     private StandingVisas standing(String secret) {
-        return new StandingVisas(new ObjectMapper(),
-            new SessionCodec(new SessionProperties(false, secret), new ObjectMapper()), tc, github, analyzer, jira,
-            mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
+        return new StandingVisas(Jackson2Defaults.mapper(),
+            new SessionCodec(new SessionProperties(false, secret), Jackson2Defaults.mapper()), tc, github, analyzer,
+            jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
     }
 
     private void finishedRunOf(String user) {

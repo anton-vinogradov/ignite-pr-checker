@@ -3,8 +3,7 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BrokenRuns;
 import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
@@ -31,6 +30,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.ResourceAccessException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The server writes its texts in English: the reasons and caveats of a verdict, kept in the analysis cache and quoted
@@ -43,7 +44,7 @@ import org.springframework.web.client.ResourceAccessException;
  * TeamCity wrote it.
  */
 class ServerTextsInRussianTest {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
     /** Two or more English words in a row, a name joined by "-" or "/" one word. */
     private static final Pattern ENGLISH_PHRASE =

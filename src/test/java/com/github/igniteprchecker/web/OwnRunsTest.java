@@ -8,7 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -64,7 +64,7 @@ class OwnRunsTest {
 
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
         TcClient tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
-            + server.getAddress().getPort() + "/"), cfg, new Metrics(new ObjectMapper()));
+            + server.getAddress().getPort() + "/"), cfg, new Metrics(Jackson2Defaults.mapper()));
 
         mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, mock(BlockerAnalyzer.class),
                 mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg))

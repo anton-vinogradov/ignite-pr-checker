@@ -8,7 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Cache (Failover) 5 on PR 13434 timed out after 33 of master's 67 tests (build 9253651). What closes
@@ -160,7 +161,7 @@ class BrokenSuiteRerunTest {
         when(chains.findBuildId(TOK, PR)).thenReturn(Optional.of(CHAIN));
         when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(chain);
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
 
         return new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(2), Executors.newSingleThreadExecutor(),
             Executors.newSingleThreadExecutor(), new AnalysisCache(cfg, mapper), new RunDeltaStore(mapper))

@@ -2,9 +2,9 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * A user with standing options logged out and met the login form with nothing saying the options go on. Once the
@@ -26,7 +26,7 @@ class LogoutNotePageTest {
             await page.load('?pr=13575');
             await page.el('logout').onclick();
             report(Object.assign(LINE, { loginShown: !page.el('loginView').classList.contains('hidden') }));
-            """.replace("NOTE", new ObjectMapper().writeValueAsString(NOTE)).replace("LINE", LINE));
+            """.replace("NOTE", Jackson2Defaults.mapper().writeValueAsString(NOTE)).replace("LINE", LINE));
 
         assertThat(out.get("loginShown").asBoolean()).isTrue();
         assertThat(out.get("message").asText()).isEqualTo(NOTE);
@@ -44,7 +44,7 @@ class LogoutNotePageTest {
             page.route('/api/me', { status: 401, body: { sessionEnded: true, error: ENDED } });
             await page.load('?pr=13575');
             report(LINE);
-            """.replace("ENDED", new ObjectMapper().writeValueAsString(AuthInterceptor.ENDED))
+            """.replace("ENDED", Jackson2Defaults.mapper().writeValueAsString(AuthInterceptor.ENDED))
             .replace("LINE", LINE));
 
         assertThat(out.get("message").asText()).isEqualTo(AuthInterceptor.ENDED);
@@ -59,7 +59,7 @@ class LogoutNotePageTest {
             page.route('/api/analyze', { status: 401, body: { tokenRejected: true, error: REJECTED } });
             await page.load('?pr=13575');
             report(LINE);
-            """.replace("REJECTED", new ObjectMapper().writeValueAsString(ApiExceptionHandler.TOKEN_REJECTED))
+            """.replace("REJECTED", Jackson2Defaults.mapper().writeValueAsString(ApiExceptionHandler.TOKEN_REJECTED))
             .replace("LINE", LINE));
 
         assertThat(out.get("message").asText()).isEqualTo(ApiExceptionHandler.TOKEN_REJECTED);

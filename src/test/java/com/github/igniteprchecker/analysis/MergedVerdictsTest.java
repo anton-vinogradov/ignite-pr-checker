@@ -9,8 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -24,6 +23,8 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * ci2 keeps about 15 days of builds, PR comments and visas name only how many tests were filtered, and a merged
@@ -37,7 +38,7 @@ class MergedVerdictsTest {
     /** 2026-10-05 14:02:00 UTC. */
     private static final long MERGED_AT = 1_791_208_920L;
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
@@ -177,6 +178,33 @@ class MergedVerdictsTest {
         merged.sweep();
 
         assertThat(merged.verdict(PR).orElseThrow().mergedAt()).isEqualTo(MERGED_AT);
+    }
+
+    /** A verdict the disk could not take stays in memory, and the page is served it till a restart. */
+    @Test
+    void aVerdictThatCannotBeWrittenIsKeptInMemory(@TempDir Path dir) throws Exception {
+        cache.putResult(9391879L, verdict(9391879L, 1_000));
+        openAre(13600);
+        when(github.prOutcome(PR)).thenReturn(merged());
+        Files.createDirectory(dir.resolve(PR + ".json.tmp"));
+        MergedVerdicts merged = merged(dir);
+
+        merged.sweep();
+
+        assertThat(merged.verdict(PR).orElseThrow().mergedAt()).isEqualTo(MERGED_AT);
+    }
+
+    /** A kept verdict cut short on disk reads as none, and the page computes the verdict as for any PR. */
+    @Test
+    void aKeptVerdictThatCannotBeReadIsNone(@TempDir Path dir) throws Exception {
+        cache.putResult(9391879L, verdict(9391879L, 1_000));
+        openAre(13600);
+        when(github.prOutcome(PR)).thenReturn(merged());
+        merged(dir).sweep();
+        Path kept = dir.resolve(PR + ".json");
+        Files.writeString(kept, Files.readString(kept).substring(0, 40));
+
+        assertThat(merged(dir).verdict(PR)).isEmpty();
     }
 
     /**

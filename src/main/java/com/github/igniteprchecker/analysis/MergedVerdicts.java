@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.analysis;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.PersistProperties;
@@ -27,6 +26,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The verdicts of merged PRs, each kept as it stood when the PR was merged, one file per PR in {@code merged/} of
@@ -138,7 +139,7 @@ public class MergedVerdicts {
         try {
             return Optional.of(mapper.readValue(d.resolve(pr + ".json").toFile(), Merged.class));
         }
-        catch (IOException e) {
+        catch (JacksonException e) {
             log.warn("could not read the verdict kept for merged PR {}: {}", pr, e.toString());
 
             return Optional.empty();

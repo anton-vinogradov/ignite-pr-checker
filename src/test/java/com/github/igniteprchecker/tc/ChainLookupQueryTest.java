@@ -3,7 +3,7 @@ package com.github.igniteprchecker.tc;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -139,7 +139,8 @@ class ChainLookupQueryTest {
 
     private TcClient client() {
         return new TcClient(new TeamcityProperties("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
-            new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+            new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            new Metrics(Jackson2Defaults.mapper()));
     }
 
     /**

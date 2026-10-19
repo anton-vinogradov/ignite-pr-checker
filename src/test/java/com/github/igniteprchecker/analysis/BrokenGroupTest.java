@@ -3,8 +3,7 @@ package com.github.igniteprchecker.analysis;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
@@ -13,6 +12,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Broken suites listed one by one hid what broke them. PR 13655 showed 62 rows, 60 of them one ci2 glitch: the
@@ -228,7 +229,7 @@ class BrokenGroupTest {
     /** The page reads the groups from the verdict; a verdict written to disk reads back without them. */
     @Test
     void theGroupsGoToThePageAndAreNotReadBack() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         String json = mapper.writeValueAsString(BrokenRuns.buildFailed(false));
 
         JsonNode groups = mapper.readTree(json).get("brokenGroups");
@@ -246,7 +247,7 @@ class BrokenGroupTest {
      */
     @Test
     void thePageLearnsWhichSuiteFailedToCompile() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         String json = mapper.writeValueAsString(BrokenRuns.buildFailed(true));
 
         JsonNode served = mapper.readTree(json);
@@ -260,9 +261,9 @@ class BrokenGroupTest {
     /** A broken suite as v1.22.1 wrote it to disk, without problem types or the run it needed. */
     @Test
     void aBrokenSuiteOfTheOlderReleaseReadsBack() throws Exception {
-        BrokenSuite old = new ObjectMapper().readValue("{\"suite\":\"IgniteTests24Java8_Cache5\",\"suiteBuildId\":7,"
-            + "\"suiteName\":\"Cache 5\",\"problems\":[\"execution timeout\"],\"tests\":3,\"baseline\":40}",
-            BrokenSuite.class);
+        BrokenSuite old = Jackson2Defaults.mapper().readValue("{\"suite\":\"IgniteTests24Java8_Cache5\","
+            + "\"suiteBuildId\":7,\"suiteName\":\"Cache 5\",\"problems\":[\"execution timeout\"],\"tests\":3,"
+            + "\"baseline\":40}", BrokenSuite.class);
 
         assertThat(old.problemTypes()).isEmpty();
         assertThat(old.failedUpstream()).isNull();
