@@ -30,10 +30,10 @@ class UpdateAudienceTest {
 
     @Test
     void theToursSayWhoSeesUpdate() throws Exception {
-        assertThat(collapsed("docs/features.md")).contains("when a newer release is out, those who may operate the "
-            + "service see **Update to vX.Y.Z** in the top bar, and a **what's new** link to its notes.");
-        assertThat(collapsed("docs/features.ru.md")).contains("когда выходит новый релиз, те, кому можно управлять "
-            + "сервисом, видят в шапке **Update to vX.Y.Z** и ссылку **what's new** на его заметки.");
+        assertThat(collapsed("docs/features.md")).contains("when a newer release is out, operators see "
+            + "**Update to vX.Y.Z** in the top bar, and a **what's new** link to its notes.");
+        assertThat(collapsed("docs/features.ru.md")).contains("когда выходит новый релиз, операторы видят в шапке "
+            + "**Update to vX.Y.Z** и ссылку **what's new** на его заметки.");
     }
 
     private static String collapsed(String file) throws Exception {

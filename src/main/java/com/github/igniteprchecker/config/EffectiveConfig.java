@@ -31,10 +31,14 @@ public class EffectiveConfig {
 
     private final List<String> problems = new ArrayList<>();
 
+    /** How many TeamCity users {@code PRC_ADMINS} names. */
+    private final int operators;
+
     public EffectiveConfig(Environment env, TeamcityProperties teamcity, GithubProperties github,
         AnalysisProperties analysis, PersistProperties persist, WarmProperties warm, UpdateProperties update,
         AdminProperties admin, SessionProperties session) {
         this.env = env;
+        this.operators = admin.logins().size();
 
         String address = env.getProperty("server.address");
         show("SERVER_ADDRESS", address == null ? "not set (all interfaces)" : address);
@@ -101,6 +105,18 @@ public class EffectiveConfig {
     /** Variable name -> the value in effect; secrets read "set" or "not set". */
     public Map<String, String> settings() {
         return settings;
+    }
+
+    /**
+     * The settings for a viewer who is not an operator: {@code PRC_ADMINS} says how many operators there are, not
+     * who. Their logins are what opens Restart, Update and the log messages, so only operators see them.
+     */
+    public Map<String, String> settingsWithoutOperatorNames() {
+        Map<String, String> out = new LinkedHashMap<>(settings);
+        if (operators > 0)
+            out.put("PRC_ADMINS", operators + (operators == 1 ? " name" : " names") + ", shown to operators only");
+
+        return out;
     }
 
     /** What is set but not as meant, for the operator to fix. */

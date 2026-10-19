@@ -480,17 +480,24 @@ from its own GitHub account, the app account.
   classic one without `public_repo`) turns the dot red; one that expires within 14 days or never expires, scopes
   beyond `public_repo`, and an account that can push to the repo or to the checker's own, where its releases come from,
   turn it amber. What GitHub does not say is shown as unknown, not as fine.
-- Signed-in viewers also see what the check found, the log messages, the settings in effect, and who restarted or
-  flushed last. Those who may operate the service (`PRC_ADMINS`, or anyone logged in when it is not set) also get
-  **Restart service**, **Flush caches** and the list on the **Users** tab.
+- The **Standing options**, **PR commands** and **Tests added to suites** cards say when their job last started a
+  pass. **Last refresh** says the same for the build watcher. Before the first pass after the service starts, a card
+  says when that pass is due, for example "first sweep in 3m". The **Warmer** card says when the first warm cycle is
+  due. If the pass has not started a minute after that, the card says "never" in amber: the job may be stuck.
+- Signed-in viewers also see what the check found and the settings in effect.
+- Operators are the users `PRC_ADMINS` names. They also see the log messages, who restarted or flushed last, the
+  operators' names in the settings, **Restart service**, **Flush caches** and the **Users** tab. Other viewers see
+  only how many warnings and errors were logged. Signed-in viewers among them also see how many operators there are.
+  Without `PRC_ADMINS` nobody is an operator. The status page then says how to name operators.
 
 ## Everything else
 
 - **The top bar**: every page has the same menu with **PRs**, **Flaky tests** and **Status**. The page you are on is
   underlined. The theme selector is on every page too. Once you are logged in, the bar on the PR page also shows your
-  name with **Log out** beside it, and ⚙ in the corner. ⚙ opens the **Standing options** panel.
-- **Update**: when a newer release is out, those who may operate the service see **Update to vX.Y.Z** in the top bar,
-  and a **what's new** link to its notes. After a deploy, open tabs show **UI updated — reload**.
+  name with **Log out** beside it, and ⚙ in the corner. ⚙ opens the **Standing options** panel. An operator's name has
+  **operator** next to it.
+- **Update**: when a newer release is out, operators see **Update to vX.Y.Z** in the top bar, and a **what's new** link
+  to its notes. After a deploy, open tabs show **UI updated — reload**.
 - **Your own login**: everyone logs in with their own TeamCity token, kept encrypted in an HttpOnly cookie. There is
   no server-side session store and no shared TeamCity account. A token TeamCity has revoked sends you back to the
   login form. The checker asks TeamCity whether your token still works before these actions: **Link GitHub**,

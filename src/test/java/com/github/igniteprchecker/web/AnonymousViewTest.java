@@ -34,7 +34,8 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
  * The public /api/status listed the log's warnings word for word, TeamCity logins included, and the public
- * /api/prs said who triggered each PR's run. Anonymous viewers now get counters only.
+ * /api/prs said who triggered each PR's run. Anonymous viewers now get counters only. Signed in, anyone read the
+ * warnings and who restarted or flushed last, and anyone may register on ci2: only the operators get those now.
  */
 class AnonymousViewTest {
     private final ObjectMapper mapper = new ObjectMapper();
@@ -55,12 +56,15 @@ class AnonymousViewTest {
 
     private final GithubClient github = mock(GithubClient.class);
 
+    private final StatusController status = statusFor(admin);
+
     @SuppressWarnings("unchecked")
-    private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
-        warmer, github, logs,
-        new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store, config),
-        mock(RerunTracker.class), mock(VisaSubscriptions.class), mock(StandingVisas.class), mock(PrCommands.class),
-        auth, admin, store, config, mock(ObjectProvider.class));
+    private StatusController statusFor(AdminActions admin) {
+        return new StatusController(mock(Metrics.class), mock(AnalysisCache.class), warmer, github, logs,
+            new ServiceHealth(warmer, mock(StandingVisas.class), mock(PrCommands.class), store, config),
+            mock(RerunTracker.class), mock(VisaSubscriptions.class), mock(StandingVisas.class), mock(PrCommands.class),
+            auth, admin, store, config, mock(ObjectProvider.class));
+    }
 
     @BeforeEach
     void start() {
@@ -76,26 +80,57 @@ class AnonymousViewTest {
         admin.claim("avinogradov", AdminActions.Action.FLUSH);
     }
 
+    /** The operator's request. */
     private MockHttpServletRequest signedIn() {
+        return signedInAs("avinogradov");
+    }
+
+    private MockHttpServletRequest signedInAs(String user) {
         MockHttpServletRequest req = new MockHttpServletRequest();
-        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode("avinogradov", "tok")));
+        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(user, "tok-" + user)));
 
         return req;
     }
 
     @Test
     void statusShowsAnonymousViewersCountersOnly() throws Exception {
-        String json = mapper.writeValueAsString(status.status(new MockHttpServletRequest()));
+        Map<String, Object> res = status.status(new MockHttpServletRequest());
 
-        assertThat(json).doesNotContain("nsamelchev", "avinogradov").contains("\"warnings\":1");
+        assertThat(mapper.writeValueAsString(res)).doesNotContain("nsamelchev", "avinogradov")
+            .contains("\"warnings\":1");
+        assertThat(res).containsEntry("operator", false).containsEntry("operatorsNamed", true)
+            .doesNotContainKey("admin");
     }
 
     @Test
-    void statusShowsSignedInViewersTheMessagesAndWhoActed() throws Exception {
+    void statusShowsTheOperatorTheMessagesAndWhoActed() throws Exception {
         Map<String, Object> res = status.status(signedIn());
 
         assertThat(mapper.writeValueAsString(res)).contains("nsamelchev");
-        assertThat(res.get("admin")).asString().contains("canAdminister=true", "flush=Use[by=avinogradov");
+        assertThat(res).containsEntry("operator", true).containsEntry("operatorsNamed", true);
+        assertThat(res.get("admin")).asString().contains("flush=Use[by=avinogradov");
+    }
+
+    /** Anyone may register on ci2 and log in; the warning names nsamelchev, and the flush its operator. */
+    @Test
+    void statusShowsOtherSignedInViewersTheCountsOnly() throws Exception {
+        Map<String, Object> res = status.status(signedInAs("stranger"));
+
+        assertThat(mapper.writeValueAsString(res)).doesNotContain("nsamelchev", "avinogradov")
+            .contains("\"warnings\":1");
+        assertThat(res).containsEntry("signedIn", true).containsEntry("operator", false)
+            .containsEntry("operatorsNamed", true).doesNotContainKey("admin");
+    }
+
+    /** Without PRC_ADMINS nobody is an operator, and the page is told so, to say how to name one. */
+    @Test
+    void withoutOperatorsNobodyGetsTheMessages() throws Exception {
+        Map<String, Object> res = statusFor(new AdminActions(new AdminProperties(List.of()), mapper))
+            .status(signedIn());
+
+        assertThat(mapper.writeValueAsString(res)).doesNotContain("nsamelchev").contains("\"warnings\":1");
+        assertThat(res).containsEntry("operator", false).containsEntry("operatorsNamed", false)
+            .doesNotContainKey("admin");
     }
 
     /** A full disk: the save's error names the path on the server. */
@@ -117,7 +152,7 @@ class AnonymousViewTest {
         assertThat(mapper.writeValueAsString(status.status(signedIn()))).contains(why);
     }
 
-    /** The settings name the operators and paths on the server. */
+    /** The settings name paths on the server, and to the operator, the operators. */
     @Test
     void statusShowsTheSettingsToSignedInViewersOnly() throws Exception {
         when(config.settings()).thenReturn(Map.of("PRC_CACHE_DIR", "/opt/ignite-pr-checker/cache",
@@ -126,6 +161,18 @@ class AnonymousViewTest {
         assertThat(status.status(new MockHttpServletRequest())).doesNotContainKey("config");
         assertThat(status.status(signedIn())).containsEntry("config", Map.of("PRC_CACHE_DIR",
             "/opt/ignite-pr-checker/cache", "PRC_ADMINS", "avinogradov"));
+    }
+
+    /** Anyone may register on ci2: the operators' names would tell a stranger whose login opens Restart and Update. */
+    @Test
+    void statusCountsTheOperatorsToOtherSignedInViewers() throws Exception {
+        when(config.settings()).thenReturn(Map.of("PRC_ADMINS", "avinogradov"));
+        when(config.settingsWithoutOperatorNames()).thenReturn(Map.of("PRC_ADMINS", "1 name, shown to operators only"));
+
+        Map<String, Object> res = status.status(signedInAs("stranger"));
+
+        assertThat(mapper.writeValueAsString(res)).doesNotContain("avinogradov");
+        assertThat(res).containsEntry("config", Map.of("PRC_ADMINS", "1 name, shown to operators only"));
     }
 
     /** Whether the server's GitHub token can push to apache/ignite says how much it is worth to whoever reads it. */

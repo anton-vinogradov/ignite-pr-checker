@@ -54,6 +54,9 @@ public class SuiteFixService implements SnapshotCache {
 
     private static final long SWEEP_MS = 5 * 60_000L;
 
+    /** How long after the start the first sweep is due. */
+    public static final long FIRST_SWEEP_MS = 3 * 60_000L;
+
     /** Ignite's core module has some 130 files named as suites. */
     static final int MAX_SUITE_FILES = 400;
 
@@ -165,8 +168,13 @@ public class SuiteFixService implements SnapshotCache {
         return out;
     }
 
+    /** Whether the sweep runs at all: it is off while automation is off. */
+    public boolean sweeps() {
+        return automation;
+    }
+
     /** The sweep, on a thread of its own: it waits for GitHub, and the scheduler has three threads. */
-    @Scheduled(fixedDelay = SWEEP_MS, initialDelay = 3 * 60_000L)
+    @Scheduled(fixedDelay = SWEEP_MS, initialDelay = FIRST_SWEEP_MS)
     void sweepSoon() {
         if (!automation || !sweeping.compareAndSet(false, true))
             return;
@@ -185,6 +193,7 @@ public class SuiteFixService implements SnapshotCache {
         long started = clock.getAsLong();
         Map<String, StandingVisas.GhActor> fixers = standing.suiteFixers();
         acting = fixers.size();
+        lastSweepAt = started;
         postUnposted();
         fixers.forEach((login, actor) -> {
             List<Integer> prs;
@@ -207,7 +216,6 @@ public class SuiteFixService implements SnapshotCache {
         });
         followUp();
         forgetPast(started);
-        lastSweepAt = started;
     }
 
     /**

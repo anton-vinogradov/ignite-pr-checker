@@ -140,6 +140,22 @@ class EffectiveConfigTest {
             .doesNotContain("ghp_n0tReallyAToken").doesNotContain("kq3v1n8Zp0");
     }
 
+    /** The status page shows the settings to anyone signed in, and anyone may register on ci2. */
+    @Test
+    void aViewerWhoIsNotAnOperatorSeesHowManyOperatorsNotWho() throws IOException {
+        Map<String, Object> vars = new HashMap<>(INSTALLED);
+        vars.put("PRC_ADMINS", "avinogradov, NSamelchev");
+
+        EffectiveConfig named = config(vars);
+
+        assertThat(named.settings()).containsEntry("PRC_ADMINS", "avinogradov,nsamelchev");
+        assertThat(named.settingsWithoutOperatorNames()).containsEntry("PRC_ADMINS", "2 names, shown to operators only")
+            .containsEntry("APP_PUBLIC_URL", "https://prc.example.org").hasSameSizeAs(named.settings());
+        assertThat(config(Map.of("PRC_ADMINS", "avinogradov")).settingsWithoutOperatorNames())
+            .containsEntry("PRC_ADMINS", "1 name, shown to operators only");
+        assertThat(config(INSTALLED).settingsWithoutOperatorNames()).containsEntry("PRC_ADMINS", "none");
+    }
+
     @Test
     void anEmptyRepoIsReportedWithWhatIsUsedInstead(CapturedOutput output) throws IOException {
         EffectiveConfig config = config(Map.of("SERVER_ADDRESS", "127.0.0.1", "GITHUB_REPO", " "));

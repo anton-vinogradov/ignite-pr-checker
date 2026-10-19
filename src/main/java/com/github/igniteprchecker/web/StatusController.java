@@ -18,18 +18,22 @@ import java.lang.management.MemoryUsage;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Service-status snapshot (TeamCity/GitHub call metrics + JVM + cache internals) for the status page. Anyone may
- * read the counters, the health and the levels of its problems; the log messages and who restarted or flushed last
- * name people, and the problems' texts and the settings name files and errors on the server, so only signed-in
- * viewers get those.
+ * read the counters, the health and the levels of its problems; the problems' texts and the settings name files and
+ * errors on the server, so only signed-in viewers get those. Only the operators get the log messages, who restarted
+ * or flushed last, and the operators' names in the settings. The messages tell whose tokens TeamCity or GitHub
+ * refused, and an operator's login is what opens Restart, Update and the messages.
  */
 @RestController
 @RequestMapping("/api")
@@ -59,6 +63,9 @@ public class StatusController {
 
     /** Built from a tree with uncommitted changes: the commit alone does not tell the code. */
     private final boolean dirty;
+
+    /** When Spring scheduled the background jobs: each job's first pass is due its initial delay later. */
+    private volatile long jobsScheduledAt;
 
     /** A status page without adding PRs' tests to suites. */
     public StatusController(Metrics metrics, AnalysisCache cache, Warmer warmer, GithubClient github,
@@ -104,6 +111,7 @@ public class StatusController {
     @GetMapping("/status")
     public Map<String, Object> status(HttpServletRequest req) {
         Optional<SessionCodec.Session> viewer = auth.signedIn(req);
+        boolean operator = viewer.filter(v -> admin.mayAdminister(v.username())).isPresent();
 
         MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         long heapMax = heap.getMax() > 0 ? heap.getMax() : heap.getCommitted();
@@ -150,6 +158,7 @@ public class StatusController {
         app.put("cycleStartedAt", warmer.cycleStartedAt());
         app.put("cycleTotal", warmer.cycleTotal());
         app.put("cycleDone", warmer.cycleDone());
+        app.put("firstCycleAt", firstCycleAt());
 
         LogTracker.Snapshot logSnap = logs.snapshot();
         ServiceHealth.Report report = health.report(logSnap, System.currentTimeMillis());
@@ -169,6 +178,7 @@ public class StatusController {
         out.put("jira", metrics.jira());
         out.put("http", metrics.http());
         Map<String, Object> watcher = new LinkedHashMap<>(tracker.stats());
+        watcher.put("firstRefreshAt", firstPassAt(com.github.igniteprchecker.tc.RerunTracker.FIRST_REFRESH_MS));
         watcher.put("autoVisaArmed", visaSubs.armedCount());
         watcher.put("autoVisaPosted", visaSubs.postedCount());
         watcher.put("autoVisaLastPostedAt", visaSubs.lastPostedAt());
@@ -176,31 +186,49 @@ public class StatusController {
         watcher.put("standingPosted", standing.postedCount());
         watcher.put("standingLastSweepAt", standing.lastSweepAt());
         watcher.put("standingLastSweepMs", standing.lastSweepMs());
+        watcher.put("standingFirstSweepAt", firstPassAt(com.github.igniteprchecker.jira.StandingVisas.FIRST_SWEEP_MS));
         watcher.put("prCommands", commands.handledCount());
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
+        watcher.put("prCommandsFirstPollAt", firstPassAt(com.github.igniteprchecker.github.PrCommands.FIRST_POLL_MS));
         if (suiteFix != null)
-            watcher.put("suiteFix", suiteFix.stats());
+            watcher.put("suiteFix", suiteFixStats());
         out.put("watcher", watcher);
         out.put("app", app);
         out.put("persistence", viewer.isPresent() ? store.status() : store.summary());
         out.put("signedIn", viewer.isPresent());
-        out.put("log", viewer.isPresent() ? logSnap : logSnap.countsOnly());
-        viewer.ifPresent(v -> out.put("admin", adminView(v.username())));
-        viewer.ifPresent(v -> out.put("config", config.settings()));
+        out.put("operator", operator);
+        out.put("log", operator ? logSnap : logSnap.countsOnly());
+        out.put("operatorsNamed", admin.operatorsNamed());
+        if (operator)
+            out.put("admin", Map.of("last", admin.lastUses()));
+        viewer.ifPresent(v -> out.put("config", operator ? config.settings() : config.settingsWithoutOperatorNames()));
 
         return out;
     }
 
-    /** What this viewer may do with restart/update/flush, and who used them last. */
-    private Map<String, Object> adminView(String user) {
-        Map<String, Object> view = new LinkedHashMap<>();
-        view.put("canAdminister", admin.mayAdminister(user));
-        view.put("operatorsNamed", admin.operatorsNamed());
-        view.put("restartAllowedAt", admin.allowedAt(AdminActions.Action.RESTART));
-        view.put("flushAllowedAt", admin.allowedAt(AdminActions.Action.FLUSH));
-        view.put("last", admin.lastUses());
+    /** Spring schedules the jobs once the context is refreshed, after the snapshots are loaded. */
+    @EventListener(ContextRefreshedEvent.class)
+    void jobsScheduled(ContextRefreshedEvent e) {
+        if (jobsScheduledAt == 0)
+            jobsScheduledAt = e.getTimestamp();
+    }
 
-        return view;
+    /** When a job's first pass is due, or 0 while the jobs are not scheduled yet. */
+    private long firstPassAt(long initialDelayMs) {
+        return jobsScheduledAt == 0 ? 0 : jobsScheduledAt + initialDelayMs;
+    }
+
+    /** When the warmer's first scheduled cycle is due: never with warming off. */
+    private long firstCycleAt() {
+        return warmer.warms() ? firstPassAt(TimeUnit.MINUTES.toMillis(Warmer.FIRST_CYCLE_MINUTES)) : 0;
+    }
+
+    /** The suite-fix sweep's figures, and when its first pass is due: never with automation off. */
+    private Map<String, Object> suiteFixStats() {
+        Map<String, Object> stats = new LinkedHashMap<>(suiteFix.stats());
+        stats.put("firstSweepAt", suiteFix.sweeps() ? firstPassAt(SuiteFixService.FIRST_SWEEP_MS) : 0L);
+
+        return stats;
     }
 
     /** A CPU-load fraction (0..1) as a whole-number percent, or -1 when the JVM can't measure it yet. */

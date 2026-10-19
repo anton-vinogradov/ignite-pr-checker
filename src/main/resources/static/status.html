@@ -34,6 +34,8 @@
         .card .v.ok { color: var(--ok); }
         .card .v.warn { color: var(--warn); }
         .card .v.bad { color: var(--bad); }
+        .card .v small .late { color: var(--warn); }
+        .card .v small .late[title] { cursor: help; }
 
         h2 { font-size: 1.05rem; margin: 1.8rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
         h2:first-of-type { margin-top: 0.6rem; }
@@ -113,7 +115,7 @@
     </header>
 
     <div class="wrap">
-        <div class="tabs-row"><span class="tabs">
+        <div id="viewTabs" class="tabs-row" hidden><span class="tabs">
             <button id="tabStatus" class="act on" type="button" aria-pressed="true" title="Shows the service: system, caches, watchers, calls, logs and settings.">Status</button>
             <button id="tabUsers" class="act" type="button" aria-pressed="false" title="Shows who uses the service and when they were last here.">Users</button>
         </span></div>

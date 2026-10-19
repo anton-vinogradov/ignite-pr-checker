@@ -55,7 +55,14 @@ function warmerCard(a) {
         return card('Warmer', 'paused', 'no pooled tokens — nothing to warm with', 'warn');
     if (a.lastWarmCycleAt)
         return card('Warmer', agoShort(a.lastWarmCycleAt), `${a.cyclesCompleted} cycle${a.cyclesCompleted === 1 ? '' : 's'} run`, 'ok');
-    return card('Warmer', 'idle', 'no cycle yet');
+    return idleWarmerCard(a.firstCycleAt);
+}
+
+// A first cycle that never starts logs nothing, so the card turns amber a minute after the cycle was due.
+function idleWarmerCard(firstAt) {
+    const state = firstPassState(firstAt);
+    if (state === 'late') return card('Warmer', 'never', '', 'warn', lateTitle('cycle', firstAt));
+    return card('Warmer', 'idle', state === 'off' ? 'no cycle yet' : passText('cycle', 0, firstAt));
 }
 
 // The initial post-restart warm-up: amber while it's still going, green once done.
@@ -151,20 +158,64 @@ function versionCard(d) {
         + (d.dirty ? ' + uncommitted changes' : ''), d.dirty ? 'warn' : '');
 }
 
-// The settings name paths on the server and the operators, so only signed-in viewers get them.
+// The settings name paths on the server, so only signed-in viewers get them.
 function configRows(d) {
     if (!d.config) return '<div class="muted">log in on the main page to see the settings</div>';
     return Object.entries(d.config).map(([k, v]) =>
         `<div class="catrow"><span class="catname">${esc(k)}</span><span class="catval">${esc(v)}</span></div>`).join('');
 }
 
+// "45s", "3m": how long ago a pass started, or how long until the first one is due.
+function spanShort(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    return s < 90 ? s + 's' : Math.round(s / 60) + 'm';
+}
+
+// A minute after the first pass of a job was due, its "never" turns amber: a job that hangs or stopped logs nothing.
+const FIRST_PASS_GRACE_MS = 60000;
+
+// Where a job stands before its first pass since the start: 'soon' until the pass is due, 'due' for a minute after
+// that, 'late' from then on, and 'off' when the job does not run on this server (no time from the server).
+function firstPassState(firstAt) {
+    if (!firstAt) return 'off';
+    const now = Date.now();
+    return firstAt > now ? 'soon' : now - firstAt < FIRST_PASS_GRACE_MS ? 'due' : 'late';
+}
+
+function lateTitle(noun, firstAt) {
+    return `The first ${noun} was due at ${new Date(firstAt).toLocaleTimeString()} and has not started: the job may`
+        + ' be stuck.';
+}
+
+// "sweep 2m ago", "first sweep in 1m", "first sweep due now", or "sweep never", amber once the first is late.
+function passText(noun, lastAt, firstAt) {
+    if (lastAt) return `${noun} ${spanShort(Date.now() - lastAt)} ago`;
+    const state = firstPassState(firstAt);
+    if (state === 'soon') return `first ${noun} in ${spanShort(firstAt - Date.now())}`;
+    if (state === 'due') return `first ${noun} due now`;
+    if (state === 'late') return `${noun} <span class="late" title="${esc(lateTitle(noun, firstAt))}">never</span>`;
+    return `${noun} never`;
+}
+
+// The watcher refreshes every 20 s, and its card says when it last did; a minute old is amber.
+function lastRefreshCard(w) {
+    if (w.lastRefreshAt) {
+        return card('Last refresh', spanShort(Date.now() - w.lastRefreshAt) + ' ago',
+            w.lastRefreshMs ? w.lastRefreshMs + 'ms' : '', Date.now() - w.lastRefreshAt < 60000 ? 'ok' : 'warn');
+    }
+    const state = firstPassState(w.firstRefreshAt);
+    if (state === 'late') return card('Last refresh', 'never', '', 'warn', lateTitle('refresh', w.firstRefreshAt));
+    if (state === 'off') return card('Last refresh', 'never');
+    return card('Last refresh', '—', passText('refresh', 0, w.firstRefreshAt));
+}
+
 // Paused: users with the option on whom the last sweep did not act for. Before the first sweep nobody counts as paused.
-function suiteFixCard(f, ago) {
+function suiteFixCard(f) {
     if (!f) return '';
     const paused = f.lastSweepAt && f.acting != null ? Math.max(0, (f.users ?? 0) - f.acting) : 0;
     return card('Tests added to suites', f.pushed ?? 0,
         `commit${f.pushed === 1 ? '' : 's'} · ${f.users ?? 0} user${f.users === 1 ? '' : 's'} with the option on`
-        + (paused ? ` · ${paused} paused` : '') + ` · sweep ${ago(f.lastSweepAt)}`,
+        + (paused ? ` · ${paused} paused` : '') + ` · ${passText('sweep', f.lastSweepAt, f.firstSweepAt)}`,
         paused ? 'warn' : '',
         paused ? `The last sweep did not act for ${paused === 1 ? 'one user' : paused + ' users'} with the option on.`
             + ' The reason is one of these: TeamCity or GitHub refuses their token, a GitHub account or token is'
@@ -238,17 +289,17 @@ function render(d) {
         card('Tracked builds', w.tracked ?? 0,
             `${countOf(w.chains ?? 0, 'RunAll')} · ${countOf(w.suites ?? 0, 'suite')}`,
             (w.tracked ?? 0) > 0 ? 'ok' : ''),
-        card('Last refresh', agoW(w.lastRefreshAt), w.lastRefreshMs ? w.lastRefreshMs + 'ms' : '',
-            w.lastRefreshAt && Date.now() - w.lastRefreshAt < 60000 ? 'ok' : w.lastRefreshAt ? 'warn' : ''),
+        lastRefreshCard(w),
         card('RunAlls finished', w.chainFinishes ?? 0, 'since start'),
         card('Auto visas armed', w.autoVisaArmed ?? 0,
             `${w.autoVisaPosted ?? 0} posted${w.autoVisaLastPostedAt ? ' · last ' + agoW(w.autoVisaLastPostedAt) : ''}`),
         card('Standing options', w.standingEnrolled ?? 0,
             `users with an option on · ${w.standingPosted ?? 0} JIRA visa${w.standingPosted === 1 ? '' : 's'} posted`
-            + ` · sweep ${agoW(w.standingLastSweepAt)}${w.standingLastSweepMs ? ' (' + secs(w.standingLastSweepMs) + ')' : ''}`),
+            + ` · ${passText('sweep', w.standingLastSweepAt, w.standingFirstSweepAt)}`
+            + (w.standingLastSweepMs ? ' (' + secs(w.standingLastSweepMs) + ')' : '')),
         card('PR commands', w.prCommands ?? 0,
-            `/run-all handled · poll ${agoW(w.prCommandsLastPollAt)}`),
-        suiteFixCard(w.suiteFix, agoW),
+            `/run-all handled · ${passText('poll', w.prCommandsLastPollAt, w.prCommandsFirstPollAt)}`),
+        suiteFixCard(w.suiteFix),
     ].join('');
 
     $('warmerCards').innerHTML = [
@@ -314,7 +365,7 @@ function render(d) {
     renderCats($('httpCats'), (d.http && d.http.byCategory) || {});
     renderLog($('logList'), d);
     $('configList').innerHTML = configRows(d);
-    renderAdmin(d.admin);
+    renderAdmin(d);
 
     drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
     $('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
@@ -328,12 +379,21 @@ function logTime(t) {
         + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// The server's start time, not the browser's clock, sets this run's problems apart from earlier ones.
+// Without PRC_ADMINS nobody gets the messages, so the page says how to name an operator.
+const NO_OPERATOR = 'The server setting <code>PRC_ADMINS</code> names no operators, so nobody sees the log messages'
+    + ' here. To name operators, set <code>PRC_ADMINS</code> in <code>/etc/ignite-pr-checker/env</code> to their'
+    + ' TeamCity usernames, comma-separated, and restart the service. Until then, the messages are in the service\'s'
+    + ' journal: <code>journalctl -u ignite-pr-checker</code>.';
+
+// Only the operators get the messages; the others see how many there are on the card above. The server's start time,
+// not the browser's clock, sets this run's problems apart from earlier ones.
 function renderLog(el, d) {
     const log = d.log || { recent: [] }, startedAt = d.startedAt;
     const recent = log.recent || [];
-    if (!d.signedIn && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
-        el.innerHTML = '<div class="muted">log in on the main page to see the messages</div>';
+    if (d.operatorsNamed === false) { el.innerHTML = `<div class="muted">${NO_OPERATOR}</div>`; return; }
+    if (!d.operator && (log.errors || log.warnings || log.clientMistakes || log.lastErrorAt || log.lastWarningAt)) {
+        el.innerHTML = d.signedIn ? '<div class="muted">Only operators see the messages.</div>'
+            : '<div class="muted">Only operators see the messages. Log in on the main page if you are one.</div>';
         return;
     }
     if (!recent.length) { el.innerHTML = '<div class="muted">no warnings or errors logged</div>'; return; }
@@ -349,9 +409,11 @@ function renderLog(el, d) {
     </div>`).join('');
 }
 
-function renderAdmin(a) {
-    $('restartBtn').hidden = $('flushBtn').hidden = !(a && a.canAdminister);
-    const last = (a && a.last) || {};
+// Restart, Flush, who used them last and the Users tab are for the operators, and the server tells only them who.
+function renderAdmin(d) {
+    $('restartBtn').hidden = $('flushBtn').hidden = $('viewTabs').hidden = !d.operator;
+    if (!d.operator && document.body.classList.contains('users-mode')) setStatusTab(false);
+    const last = (d.admin && d.admin.last) || {};
     const restart = [last.restart && ['restart', last.restart], last.update && ['update', last.update]]
         .filter(Boolean).sort((x, y) => y[1].at - x[1].at)[0];
     $('restartLast').textContent = restart ? `last ${restart[0]}: ${restart[1].by} · ${agoShort(restart[1].at)}` : '';
@@ -533,9 +595,7 @@ $('restartBtn').addEventListener('click', async () => {
     try {
         const r = await fetch('/api/restart', { method: 'POST' });
         if (r.status === 401) { msg.textContent = 'log in on the main page first'; btn.disabled = false; refocus(); return; }
-        if (r.status === 403 || r.status === 429) {
-            msg.textContent = await errorText(r); btn.disabled = false; refocus(); return;
-        }
+        if (r.status === 403) { msg.textContent = await errorText(r); btn.disabled = false; refocus(); return; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         accepted = true;
     } catch (e) { msg.textContent = 'restart request failed'; btn.disabled = false; refocus(); }
@@ -558,7 +618,7 @@ $('flushBtn').addEventListener('click', async () => {
     try {
         const r = await fetch('/api/flush-caches', { method: 'POST', cache: 'no-store' });
         if (r.status === 401) { msg.textContent = 'log in on the main page to flush'; return; }
-        if (r.status === 403 || r.status === 429) { msg.textContent = await errorText(r); return; }
+        if (r.status === 403) { msg.textContent = await errorText(r); return; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const c = await r.json();
         msg.textContent = `cleared ${countOf(c.results, 'result')}, `

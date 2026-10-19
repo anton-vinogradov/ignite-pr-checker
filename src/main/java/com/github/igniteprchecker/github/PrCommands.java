@@ -96,6 +96,9 @@ public class PrCommands implements SnapshotCache {
     /** How long a reaction or reply that GitHub did not take is tried again: a day later it would only confuse. */
     private static final long OUTBOX_MS = 24 * 3600_000L;
 
+    /** How long after the start the first poll is due. */
+    public static final long FIRST_POLL_MS = 30_000;
+
     private final ObjectMapper mapper;
     private final GithubClient github;
     private final StandingVisas standing;
@@ -154,7 +157,7 @@ public class PrCommands implements SnapshotCache {
      * answer from there are no PR commands. The logins earlier versions kept are proven first, also for users with
      * no PR commands: the verdict comment mentions only a proven login.
      */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
+    @Scheduled(fixedDelay = 60_000, initialDelay = FIRST_POLL_MS)
     void poll() {
         long now = System.currentTimeMillis();
         lastPollAt = now;

@@ -45,6 +45,10 @@ import org.springframework.mock.web.MockHttpServletRequest;
  * counts what the option did.
  */
 class SuiteFixSettingsTest {
+    /** The card and what it needs to say when the sweep ran. */
+    private static final String[] CARD_FUNCTIONS = {"card", "spanShort", "firstPassState", "lateTitle", "passText",
+        "suiteFixCard"};
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private final GithubClient github = AppWriting.github();
@@ -90,17 +94,17 @@ class SuiteFixSettingsTest {
 
         Map<String, Object> watcher = (Map<String, Object>)status.status(new MockHttpServletRequest()).get("watcher");
 
-        assertThat(watcher.get("suiteFix")).isEqualTo(suiteFix.stats());
+        assertThat((Map<String, Object>)watcher.get("suiteFix")).containsAllEntriesOf(suiteFix.stats())
+            .containsEntry("firstSweepAt", 0L);
     }
 
     @Test
     void theStatusCardCountsWhatTheOptionDid() throws Exception {
         JsonNode cards = PageFunctions.run("status.js", """
-            const ago = ms => ms ? '2m ago' : 'never';
-            out({ idle: suiteFixCard({ users: 0, attempts: 0, pushed: 0, lastSweepAt: 0 }, ago),
-                busy: suiteFixCard({ users: 2, attempts: 4, pushed: 3, lastSweepAt: 1 }, ago),
-                old: suiteFixCard(undefined, ago) });
-            """, "card", "suiteFixCard");
+            out({ idle: suiteFixCard({ users: 0, attempts: 0, pushed: 0, lastSweepAt: 0 }),
+                busy: suiteFixCard({ users: 2, attempts: 4, pushed: 3, lastSweepAt: Date.now() - 120000 }),
+                old: suiteFixCard(undefined) });
+            """, CARD_FUNCTIONS);
 
         assertThat(cards.get("idle").asText()).contains("Tests added to suites");
         assertThat(cards.get("idle").asText().replaceAll("<[^>]+>", "").replace('\u00a0', ' '))
@@ -114,11 +118,11 @@ class SuiteFixSettingsTest {
     @Test
     void theStatusCardSaysHowManyArePaused() throws Exception {
         JsonNode cards = PageFunctions.run("status.js", """
-            const ago = ms => ms ? '2m ago' : 'never';
-            out({ paused: suiteFixCard({ users: 3, acting: 2, pushed: 1, lastSweepAt: 1 }, ago),
-                acting: suiteFixCard({ users: 2, acting: 2, pushed: 1, lastSweepAt: 1 }, ago),
-                starting: suiteFixCard({ users: 1, acting: 0, pushed: 0, lastSweepAt: 0 }, ago) });
-            """, "card", "suiteFixCard");
+            const swept = Date.now() - 120000;
+            out({ paused: suiteFixCard({ users: 3, acting: 2, pushed: 1, lastSweepAt: swept }),
+                acting: suiteFixCard({ users: 2, acting: 2, pushed: 1, lastSweepAt: swept }),
+                starting: suiteFixCard({ users: 1, acting: 0, pushed: 0, lastSweepAt: 0 }) });
+            """, CARD_FUNCTIONS);
 
         assertThat(cards.get("paused").asText()).contains("class=\"v warn\"",
             "title=\"The last sweep did not act for one user with the option on. The reason is one of these:"

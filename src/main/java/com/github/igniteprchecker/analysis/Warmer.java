@@ -31,6 +31,9 @@ import org.springframework.web.client.RestClientResponseException;
 public class Warmer {
     private static final Logger log = LoggerFactory.getLogger(Warmer.class);
 
+    /** How long after the start the first scheduled cycle is due. */
+    public static final long FIRST_CYCLE_MINUTES = 1;
+
     private final BlockerAnalyzer analyzer;
     private final GithubClient github;
     private final WarmProperties props;
@@ -153,7 +156,8 @@ public class Warmer {
             worker.execute(this::warmCycle);
     }
 
-    @Scheduled(fixedDelayString = "${warm.interval-minutes:10}", initialDelay = 1, timeUnit = TimeUnit.MINUTES)
+    @Scheduled(fixedDelayString = "${warm.interval-minutes:10}", initialDelay = FIRST_CYCLE_MINUTES,
+        timeUnit = TimeUnit.MINUTES)
     void scheduled() {
         if (props.enabled())
             worker.execute(this::warmCycle);
@@ -261,6 +265,11 @@ public class Warmer {
     /** Number of PRs whose warm failed in the last cycle (a healthy cycle has 0). */
     public int lastFailed() {
         return lastFailed;
+    }
+
+    /** Whether the warm cycles run at all: they are off with {@code WARM_ENABLED=false}. */
+    public boolean warms() {
+        return props.enabled();
     }
 
     /** Whether a warm cycle is running right now. */

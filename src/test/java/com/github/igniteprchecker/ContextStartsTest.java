@@ -1,6 +1,7 @@
 package com.github.igniteprchecker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -159,6 +160,34 @@ class ContextStartsTest {
 
         assertThat(every).containsEntry(HeapDumpExpiry.class.getName() + ".deleteExpired", Duration.ofMinutes(10))
             .containsEntry(CacheStore.class.getName() + ".removeOldTokens", Duration.ofMinutes(10));
+    }
+
+    /**
+     * The status page counts down to the first standing sweep from the time /api/status gives, and says "never" in
+     * amber a minute after it: a time off from the scheduler's would call a sweep late that is not.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theFirstSweepIsDueWhenTheSchedulerRunsIt() {
+        Map<String, Object> watcher = (Map<String, Object>)http.exchange("/api/status", HttpMethod.GET, null,
+            new ParameterizedTypeReference<Map<String, Object>>() { }).getBody().get("watcher");
+        ScheduledTask sweep = scheduled.getScheduledTasks().stream()
+            .filter(t -> t.getTask().toString().equals(StandingVisas.class.getName() + ".sweep")).findFirst()
+            .orElseThrow();
+
+        assertThat(((Number)watcher.get("standingFirstSweepAt")).longValue())
+            .isCloseTo(sweep.nextExecution().toEpochMilli(), within(1000L));
+        assertThat((Map<String, Object>)watcher.get("suiteFix")).containsEntry("firstSweepAt", 0);
+    }
+
+    /** Warming is off here: a first cycle due would turn the warmer card amber for a cycle that never runs. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void noWarmCycleIsDueWithWarmingOff() {
+        Map<String, Object> app = (Map<String, Object>)http.exchange("/api/status", HttpMethod.GET, null,
+            new ParameterizedTypeReference<Map<String, Object>>() { }).getBody().get("app");
+
+        assertThat(app).containsEntry("firstCycleAt", 0);
     }
 
     /** Misspelt where a job reads it, automation.enabled would leave a local run sweeping and polling prod's PRs. */

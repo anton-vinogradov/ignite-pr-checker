@@ -121,6 +121,9 @@ public class StandingVisas implements SnapshotCache {
     /** How often the sweep goes through the open PRs. */
     private static final long SWEEP_MS = 600_000;
 
+    /** How long after the start the first sweep is due. */
+    public static final long FIRST_SWEEP_MS = 180_000;
+
     /**
      * How long before the last sweep a chain that finished may still be news to it: the clocks of TeamCity and the
      * checker differ, and a chain may show as finished a little after its finish date.
@@ -1458,7 +1461,7 @@ public class StandingVisas implements SnapshotCache {
      * finishes; the sweep keeps the ones that wait going and catches what an event missed. A PR at rest is
      * not looked up again while TeamCity says no RunAll of it finished since the last sweep.
      */
-    @Scheduled(fixedDelay = SWEEP_MS, initialDelay = 180_000)
+    @Scheduled(fixedDelay = SWEEP_MS, initialDelay = FIRST_SWEEP_MS)
     void sweep() {
         long t0 = System.currentTimeMillis();
         lastSweepAt = t0;

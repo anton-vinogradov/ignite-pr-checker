@@ -223,6 +223,27 @@ class SuiteFixServiceTest {
         assertThat(service.stats()).containsEntry("attempts", 0);
     }
 
+    /**
+     * The status page waits a minute past the time the first sweep is due before it calls the sweep late. A first
+     * sweep through the PRs of several authors can take longer, and it counted only once it ended.
+     */
+    @Test
+    void aSweepCountsFromItsStart() {
+        long started = now.get();
+        List<Object> seen = new ArrayList<>();
+        when(github.openPrsBy("Alice")).thenAnswer(inv -> {
+            seen.add(service.stats().get("lastSweepAt"));
+            now.addAndGet(5 * MINUTE);
+
+            return List.of();
+        });
+
+        service.sweep();
+
+        assertThat(seen).containsExactly(started);
+        assertThat(service.stats()).containsEntry("lastSweepAt", started);
+    }
+
     @Test
     void aTryIsForgottenAMonthOnOnceItsPrIsClosed() {
         service.sweep();
