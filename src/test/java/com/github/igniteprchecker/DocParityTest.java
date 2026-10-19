@@ -42,6 +42,9 @@ class DocParityTest {
 
     private static final Pattern IMAGE = Pattern.compile("!\\[[^]]*]\\(([^)\\s]+)");
 
+    /** What marks the Russian shot of a page next to the English one: pr-page.ru.jpg next to pr-page.jpg. */
+    private static final String RUSSIAN_PICTURE = ".ru.";
+
     private static final Pattern CODE = Pattern.compile("`([^`]+)`");
 
     private static final Pattern NUMBER = Pattern.compile("\\d+");
@@ -55,6 +58,19 @@ class DocParityTest {
     @Test
     void theReadmesSayTheSame() throws IOException {
         assertThat(differences(README, read(README), README_RU, read(README_RU))).isEmpty();
+    }
+
+    /** The Russian docs show the Russian shots, and each picture a doc names is there. */
+    @Test
+    void eachDocShowsPicturesInItsLanguage() throws IOException {
+        for (Path doc : List.of(README, TOUR, README_RU, TOUR_RU)) {
+            boolean russian = doc.toString().endsWith(".ru.md");
+            for (MatchResult m : IMAGE.matcher(read(doc)).results().toList()) {
+                String picture = m.group(1);
+                assertThat(picture.contains(RUSSIAN_PICTURE)).as(doc + ": " + picture).isEqualTo(russian);
+                assertThat(doc.resolveSibling(picture)).as(doc + ": " + picture).exists();
+            }
+        }
     }
 
     @Test
@@ -309,7 +325,7 @@ class DocParityTest {
         }
 
         void facts(String line) {
-            IMAGE.matcher(line).results().forEach(m -> images.add(m.group(1)));
+            IMAGE.matcher(line).results().forEach(m -> images.add(m.group(1).replace(RUSSIAN_PICTURE, ".")));
             CODE.matcher(line).results().forEach(m -> quotes.add(m.group(1)));
             numbers(withoutNamesRepeatingNumbers(line));
             text.append(line).append('\n');
