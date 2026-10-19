@@ -185,7 +185,7 @@ session:
   # days, or until a 51st login of the same user ends it: there is no session timeout on the server.
   # Must be true in production (behind HTTPS/Caddy) so the session cookie is TLS-only. Override with SESSION_COOKIE_SECURE.
   cookie-secure: ${SESSION_COOKIE_SECURE:false}
-  # Stable secret that encrypts the session cookies and every token the service stores (standing options, Auto
-  # visas). Must be set (and constant) in production, or logins and stored tokens won't survive a restart;
-  # install.sh generates one. If empty, a random key is used per run.
+  # Stable secret that encrypts the session cookies and the tokens the standing options store. Must be set (and
+  # constant) in production, or logins and stored tokens won't survive a restart; install.sh generates one. If
+  # empty, a random key is used per run.
   secret: ${SESSION_SECRET:}

@@ -135,6 +135,16 @@ class DocFactsTest {
             .contains("except a rare and old one and one at another test scale factor");
     }
 
+    /**
+     * v1.39.0 is the first release that reads a copy of the state without tokens and pauses the options. The README
+     * said a jar of v1.37.0 or older switches them off, and an operator who rolled back to v1.38.0 took it as safe.
+     */
+    @Test
+    void theRollbackNamesTheLastReleaseThatSwitchesTheOptionsOff() throws IOException {
+        assertThat(collapsed(README)).contains("A jar of v1.38.0 or older started on such a copy switches off the visa");
+        assertThat(collapsed(Path.of("README.ru.md"))).contains("Jar версии v1.38.0 или более ранней");
+    }
+
     /** The login limits LoginThrottle keeps; DocParityTest holds the Russian numbers to the English ones. */
     @Test
     void theDocsStateTheLoginLimits() throws IOException {

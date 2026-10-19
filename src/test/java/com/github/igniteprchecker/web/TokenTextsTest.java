@@ -110,10 +110,12 @@ class TokenTextsTest {
                 + "tokens");
     }
 
+    /** The one-shot Auto visas, which application.yml named next to the standing options, are gone with their file. */
     @Test
     void theSessionSecretIsSaidToEncryptTheStoredTokens() throws IOException {
         assertThat(collapsed(Path.of("src/main/resources/application.yml")))
-            .contains("encrypts the session cookies and every token the service stores");
+            .contains("encrypts the session cookies and the tokens the standing options store")
+            .doesNotContain("Auto visas");
         assertThat(collapsed(Path.of("install.sh"))).doesNotContain("the session-cookie secret")
             .contains("SESSION_SECRET, which encrypts the session cookies and every token the service stores");
     }

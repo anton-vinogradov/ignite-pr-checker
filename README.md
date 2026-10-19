@@ -286,7 +286,7 @@ logged out during it, to press it.
 
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
 release wrote, stop the service, copy that file over the state file, and start the old jar. A copy older than 2 days
-holds no tokens. A jar of v1.37.0 or older started on such a copy switches off the visa and the options that commit, as
+holds no tokens. A jar of v1.38.0 or older started on such a copy switches off the visa and the options that commit, as
 if JIRA or GitHub had rejected the token. Each user switches them on again with their token.
 
 ### Service and logs
