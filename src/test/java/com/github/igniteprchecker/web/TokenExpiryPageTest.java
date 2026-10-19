@@ -199,6 +199,26 @@ class TokenExpiryPageTest {
         assertThat(out.get("github").asText()).isEqualTo(", срок неизвестен: GitHub не ответил");
     }
 
+    /**
+     * JIRA did not answer when alice saved her token, and the Russian ⚙ said "JIRA не ответил — попробуй чуть позже"
+     * beside "JIRA отвергла токен". TeamCity and GitHub keep the masculine.
+     */
+    @Test
+    void aJiraThatDoesNotAnswerIsFeminine() throws Exception {
+        String catalog = Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8);
+        JsonNode out = PageFunctions.run("common.js", "const CATALOG = " + catalog + ";\n" + """
+            const sections = Object.entries(CATALOG);
+            RU = new Map(sections.flatMap(([, entries]) => Object.entries(entries)));
+            RU_SERVER = sections.filter(([name]) => name.startsWith('server')).flatMap(([, e]) => Object.entries(e));
+            LANG = 'ru';
+            out(['JIRA', 'TeamCity', 'GitHub'].map(s => tr(s + ' did not answer — try again in a moment')));
+            """);
+
+        assertThat(out.get(0).asText()).isEqualTo("JIRA не ответила — попробуй чуть позже");
+        assertThat(out.get(1).asText()).isEqualTo("TeamCity не ответил — попробуй чуть позже");
+        assertThat(out.get(2).asText()).isEqualTo("GitHub не ответил — попробуй чуть позже");
+    }
+
     /** An answer kept for an hour can be about a token that has expired since. */
     @Test
     void anExpiredTokenSaysSo() throws Exception {
