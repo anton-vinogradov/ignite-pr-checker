@@ -44,7 +44,8 @@ each label means and what to do about it.
   conflicts, `/run-all` queues RunAll only with `force`, as in `/run-all force`. See
   [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
   `/run-all` runs the client's suite against Ignite master. There, too, `/run-all` on a PR with merge conflicts
-  needs `force`. The auto re-run and the JIRA visa work there as well. See
+  needs `force`. The auto re-run and the JIRA visa work there as well. The client's open PRs have a group of their own
+  in the PR list, and each has a page with its verdict, `?repo=python&pr=69`. See
   [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
@@ -216,7 +217,7 @@ settings by hand.
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
 | `GITHUB_REPO` | `apache/ignite` | Whose PRs are listed and checked. |
-| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | The Python thin client's repo: a `/run-all` in its PRs runs the suite that `PYTHON_CLIENT_SUITE` names. |
+| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | The Python thin client's repo: a `/run-all` in its PRs runs the suite that `PYTHON_CLIENT_SUITE` names. Its open PRs are the group **Python client** of the PR list. |
 | `PYTHON_CLIENT_SUITE` | `IgniteTests24Java8_WiPThinClientPython` | The build type of the suite that tests the client against Ignite. |
 | `PYTHON_CLIENT_IGNITE_VCS_ROOT`, `PYTHON_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePythonThinClient` | The VCS root ids of the `PYTHON_CLIENT_SUITE` suite: Ignite's and the client's. When the checker queues a `/run-all` run, it names a commit for each of them. |
 | `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Where visas go and IGNITE ticket links point. |

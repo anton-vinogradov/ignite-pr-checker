@@ -231,7 +231,7 @@ public class TriggerController {
         return b;
     }
 
-    private static Map<String, Object> brief(TcModel.Build b) {
+    static Map<String, Object> brief(TcModel.Build b) {
         String name = b.buildType() != null && b.buildType().name() != null ? b.buildType().name() : "";
         TcModel.RunningInfo ri = b.runningInfo();
         long now = System.currentTimeMillis() / 1000;

@@ -97,9 +97,23 @@ public final class TcModel {
     public record RootedRevisions(List<RootedRevision> revision) {
     }
 
-    /** A commit of a build, by the VCS root instance it came from. */
+    /** A commit of a build, by the VCS root instance it came from; {@code version} is null when not asked for. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record RootedRevision(@JsonProperty("vcs-root-instance") RootInstance vcsRootInstance) {
+    public record RootedRevision(String version, @JsonProperty("vcs-root-instance") RootInstance vcsRootInstance) {
+    }
+
+    /** Finished runs of a suite on a branch. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BranchRuns(List<BranchRun> build) {
+    }
+
+    /**
+     * A finished run of a suite on a branch: the suite's name, who started it, the commit of each of its VCS roots,
+     * and the build parameters asked for by name.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record BranchRun(long id, BuildType buildType, Triggered triggered, RootedRevisions revisions,
+        Properties resultingProperties) {
     }
 
     /** VCS root instances, as TeamCity lists them. */

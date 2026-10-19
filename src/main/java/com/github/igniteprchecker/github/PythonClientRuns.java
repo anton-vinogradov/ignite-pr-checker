@@ -25,7 +25,7 @@ import org.springframework.stereotype.Component;
  * with the client at the PR's head and Ignite at the head of master as of the command. Both commits are named in the
  * request, so the run tests exactly them however long it waits in the queue, and an auto re-run of it tests them
  * again. Its verdict is judged by the rules of a suite of a RunAll, and told in the PR and in the visa. The checker's
- * page has no PRs of the client.
+ * page of such a PR has an address of its own, {@link #pageUrl}: the PR numbers of the client overlap Ignite's.
  */
 @Component
 public class PythonClientRuns {
@@ -70,17 +70,35 @@ public class PythonClientRuns {
         return props.repo();
     }
 
+    /** The id of the client's suite in TeamCity. */
+    public String suite() {
+        return props.suite();
+    }
+
     /**
      * The suite's name for a reply that comes before TeamCity is asked: the name ci2 gives the default suite, or the
      * id of another suite set up in its place.
      */
     public String suiteLabel() {
+        return suiteLabel(props);
+    }
+
+    /** See {@link #suiteLabel()}: of the suite {@code props} set up. */
+    public static String suiteLabel(PythonClientProperties props) {
         return props.suite().equals(PythonClientProperties.DEFAULT_SUITE) ? "Thin client: Python" : props.suite();
     }
 
+    /** What the address of the checker's page names the client's repo with: {@code ?repo=python&pr=69}. */
+    public static final String PAGE_REPO = "python";
+
     /** The branch TeamCity files the runs of a PR of the client under: the client's VCS root names it so. */
-    static String branch(int pr) {
+    public static String branch(int pr) {
         return "pull/" + pr;
+    }
+
+    /** The checker's page of PR {@code pr} of the client, on the checker at {@code publicUrl}. */
+    public static String pageUrl(String publicUrl, int pr) {
+        return publicUrl + "/?repo=" + PAGE_REPO + "&pr=" + pr;
     }
 
     /**
@@ -202,17 +220,17 @@ public class PythonClientRuns {
     /**
      * The verdict comment of the run {@code buildId} of the suite {@code suiteName}, which mentions {@code login} when
      * known. {@code pinned}: what the run was queued with. It says what became of the run's auto {@code rerun}, null
-     * when none was due, and of its {@code visa}.
+     * when none was due, and of its {@code visa}, and links the checker's {@code page} of the PR.
      */
     public String verdictComment(String login, int pr, long buildId, String suiteName, PinnedRun pinned,
-        AnalysisResult r, ClientVerdict.Rerun rerun, ClientVisa visa) {
-        return ClientVerdict.markdown(tcBase, login, run(pr, buildId, suiteName, pinned), r, rerun, visa);
+        AnalysisResult r, ClientVerdict.Rerun rerun, ClientVisa visa, String page) {
+        return ClientVerdict.markdown(tcBase, login, run(pr, buildId, suiteName, pinned, page), r, rerun, visa);
     }
 
     /** The visa of the run: its verdict in JIRA's wiki markup, which says that it is of one suite. */
     public String visaBody(int pr, long buildId, String suiteName, PinnedRun pinned, AnalysisResult r,
         ClientVerdict.Rerun rerun) {
-        return ClientVerdict.wiki(tcBase, run(pr, buildId, suiteName, pinned), r, rerun);
+        return ClientVerdict.wiki(tcBase, run(pr, buildId, suiteName, pinned, null), r, rerun);
     }
 
     /** The suite's name as TeamCity gives it with the build; its id when it gives none. */
@@ -221,12 +239,12 @@ public class PythonClientRuns {
             : pinned.suite();
     }
 
-    private ClientVerdict.Run run(int pr, long buildId, String suiteName, PinnedRun pinned) {
+    private ClientVerdict.Run run(int pr, long buildId, String suiteName, PinnedRun pinned, String page) {
         String clientSha = pinned.properties().get(TcModel.OVERRIDDEN_BRANCH);
         String igniteSha = pinned.revisions().stream().map(PinnedRun.Pin::version)
             .filter(v -> !v.equals(clientSha)).findFirst().orElse(null);
 
-        return new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha, props.repo(), pr, clientSha);
+        return new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha, props.repo(), pr, clientSha, page);
     }
 
     /**

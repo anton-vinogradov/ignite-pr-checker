@@ -117,7 +117,7 @@ and the visa.
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
-| **my run** | You started its latest RunAll. The PR may be someone else's. | — |
+| **my run** | You started its latest RunAll, or for a Python client PR, its latest run of the suite. The PR may be someone else's. | — |
 
 ### Runs, buttons and visas
 
@@ -190,6 +190,10 @@ and the visa.
   jumps to it from anywhere on the page.
 - Each PR in the list is a link (`?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
   address, also one that is not in the list.
+- The open PRs of the Python thin client stand in their own group, **Python client**, under Ignite's PRs, with the same
+  badges and tabs. Their PR numbers overlap Ignite's, so the address of such a PR names the repo:
+  `?repo=python&pr=69`. The filter takes `python#69` for the client's PR #69, and a number alone for an Ignite PR. See
+  [PRs of the Python thin client](#prs-of-the-python-thin-client).
 - Drag the divider to resize the pane, double-click it to reset, and fold the pane with `‹` / `›`. On a screen
   narrower than 768 px the list folds away when a PR opens.
 
@@ -590,7 +594,16 @@ The commands also work in the pull requests of
   run someone started in this PR from TeamCity without it.
 - As with a RunAll, a comment of the checker tells how the run goes. When the run finishes, a new comment mentions you
   and brings the verdict: the two commits, the blockers, the tests that started failing and the tests not blamed on
-  the PR, each with its reason and a link to TeamCity. The checker's page has no PRs of the client.
+  the PR, each with its reason and a link to TeamCity. Both comments link the PR's page on the checker.
+- The checker's page of such a PR is `?repo=python&pr=69`. It shows the verdict of the newest of the PR's runs that
+  tested the PR's own commit. When the run before the newest one tested the same two commits, the verdict counts the
+  failed tests of both runs. For example, an auto re-run tests the same two commits as the run it re-runs. The page
+  names the suite's build and both commits above the verdict. It has the verdict's cards, but not **This PR's tests**:
+  the client's tests are not Java classes. The cards have no **Rerun** buttons and no AI prompts. **Run** and
+  **Run at top** queue the suite as `/run-all` and `/run-all top` do. On a PR with merge conflicts they queue nothing
+  and offer **Run anyway**. A run you start there gets no comment in the PR, no visa and no auto re-run: these come with
+  `/run-all`. The checker computes the verdicts of the client's open PRs in advance, in the background, as it does for
+  Ignite's PRs.
 - **Re-run failed suites of my runs** works here too, once per run. When the verdict has a blocker, a test that started
   failing or a broken suite, the checker queues the suite again at the top of the queue. The re-run tests the same two
   commits with the same `OVERRIDDEN_BRANCH`, even after Ignite master or the PR moved on. The checker's comment on the

@@ -11,8 +11,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The verdict of Thin client: Python for PR #69 of apache/ignite-python-thin-client, build 9424005: it names the two
- * commits the run tested, every failure with its reason, and links only TeamCity and GitHub. A client change that
- * broke the whole suite fails a hundred tests: the comment lists 20 and links the rest in TeamCity.
+ * commits the run tested, every failure with its reason, and links TeamCity, GitHub and, in the PR's comment, the
+ * checker's page of the PR. A client change that broke the whole suite fails a hundred tests: the comment lists 20 and
+ * links the rest in TeamCity.
  */
 class ClientVerdictTest {
     private static final String SUITE = "IgniteTests24Java8_WiPThinClientPython";
@@ -33,6 +34,31 @@ class ClientVerdictTest {
             + "<sub>This run uses Ignite master at the commit above. If this PR needs an Ignite change that is not in"
             + " that commit, the run tests this PR without that change. What each label means and what to do: [verdict"
             + " glossary](" + VisaService.GLOSSARY + ").</sub>");
+    }
+
+    /**
+     * The comment of a run the checker posts says where its page is: apache/ignite has a PR #69 too, so the address
+     * names the client's repo. The visa does not link the page.
+     */
+    @Test
+    void theCommentLinksThePrsPageOnTheChecker() {
+        ClientVerdict.Run run = new ClientVerdict.Run(9424005L, "Thin client: Python", "apache/ignite", "1f2e3d4c5b6a",
+            "apache/ignite-python-thin-client", 69, "a1b2c3d4e5f6", "https://checker.example/?repo=python&pr=69");
+        TestVerdict shared = new TestVerdict(501L, "test_cache_config.test_get", SUITE, 9424005L, "Thin client: Python",
+            "o1", false, false, "pre-existing: fails 3/100 on master", "F", 0);
+
+        String clean = ClientVerdict.markdown("https://ci2.example/", "Author", run, result(List.of(), List.of(),
+            List.of()), null, ClientVisa.NONE);
+        String failed = ClientVerdict.markdown("https://ci2.example/", "Author", run, result(List.of(),
+            List.of(shared), List.of()), null, ClientVisa.NONE);
+
+        assertThat(clean).contains("against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite/commit/"
+            + "1f2e3d4c5b6a). The checker's page shows this verdict and the PR's runs: [Ignite PR Checker]"
+            + "(https://checker.example/?repo=python&pr=69).\n\n✅ **No blockers**");
+        assertThat(failed).contains(". The checker's page shows each failed test with its failure message: [Ignite PR"
+            + " Checker](https://checker.example/?repo=python&pr=69).\n\n");
+        assertThat(ClientVerdict.wiki("https://ci2.example/", run, result(List.of(), List.of(shared), List.of()), null))
+            .doesNotContain("checker.example");
     }
 
     /**

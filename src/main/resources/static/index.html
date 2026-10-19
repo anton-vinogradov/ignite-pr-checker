@@ -164,6 +164,15 @@
         .act-note.err { color: var(--bad); }
         /* No run changes a merged PR's verdict, so its cards do not say that a re-run would change it. */
         #results.merged .rerun-advice { display: none; }
+        /* A PR of the Python thin client runs one suite, which Run queues again: the cards have no Rerun of their own,
+           and the AI prompts, written for Ignite's Java code, are left out. */
+        #results.client .rerun-advice, #results.client .sect-act, #results.client .suite-runs,
+        #results.client .group-rerun, #results.client .why.ai, #results.client .ai-suite, #results.client .ai-cause { display: none; }
+        .client-group { border-top: 1px solid var(--line); }
+        #freshText .nowrap { white-space: nowrap; }
+        .client-group > summary { padding: 0.5rem 0.9rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        /* The head spans the PR pane, which scrolls and so cuts off a ring drawn outside it. */
+        .client-group > summary:focus-visible { outline-offset: -2px; }
         .filtered-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
         .filtered-line .sect-act { margin-left: 0.3rem; }
         /* Run RunAll follows the text of the older-code line, not the far edge of the row. */
@@ -296,6 +305,7 @@
             ul.suite-tests > li.test-row { display: flex; flex-wrap: wrap; column-gap: 0.35rem; }
             ul.suite-tests > li.test-row > .reason, ul.suite-tests > li.test-row > .details { flex: 1 1 100%; }
             #freshness .hint { white-space: normal; }
+            #freshText .nowrap { white-space: normal; }
             .group-by { flex-wrap: wrap; }
             /* The Russian section pair and the Russian notes on runs are longer than the English ones: here the section
                pair wraps, and the runs take the whole row. */
@@ -553,7 +563,7 @@
                             <li><span class="pr-badge unproven" title="No blockers found, but the PR is not proven clean. The run can't prove it, commits were pushed after the run, or it is not known whether the run tested the PR's latest commit.">?</span><span>not proven clean — no blockers found, but the run can't prove the PR clean</span></li>
                             <li id="legendChecking" class="hidden"><span class="pr-badge checking" title="No blockers found. The page is checking that this run tested the PR's latest commit.">…</span><span>checking — only for the PR open on the page: checking that the run tested its latest commit</span></li>
                             <li><span class="pr-badge bad" title="2 blockers">2</span><span>blockers — tests the PR most likely broke</span></li>
-                            <li><span class="my-tag" title="You started its latest RunAll. The PR may be someone else's.">my run</span><span>my run — you started its latest RunAll</span></li>
+                            <li><span class="my-tag" title="You started its latest RunAll. The PR may be someone else's.">my run</span><span>my run — you started its latest RunAll, or for a Python client PR, its latest run of the suite</span></li>
                             <li><span></span><span>no badge — no verdict yet</span></li>
                         </ul>
                     </details>
@@ -562,6 +572,10 @@
                 <ul id="prList" class="pr-list"></ul>
                 <p id="prNone" class="pr-none muted hidden">No open PR matches.</p>
                 <p id="prTabNote" class="pr-none muted hidden"></p>
+                <details id="clientGroup" class="client-group hidden" open>
+                    <summary title="The open PRs of the Python thin client. For such a PR, the Run button queues the client's suite with the PR's head and Ignite master.">Python client <span id="clientCount"></span></summary>
+                    <ul id="clientList" class="pr-list"></ul>
+                </details>
             </aside>
 
             <div class="resizer" id="paneResizer" title="Drag to resize · double-click to reset"></div>

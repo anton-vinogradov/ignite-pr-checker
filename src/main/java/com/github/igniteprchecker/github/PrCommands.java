@@ -413,7 +413,8 @@ public class PrCommands implements SnapshotCache {
             String ack = "🚀 **" + Markup.text(suite) + " queued"
                 + (belowTop ? ", but not at the top" : cmd.top() ? " at the top of the queue" : "") + "** — " + link
                 + ": this PR's head `" + shortSha(clientSha(queued.pinned())) + "` against Ignite master at `"
-                + shortSha(igniteSha(queued.pinned())) + "`."
+                + shortSha(igniteSha(queued.pinned())) + "`. The checker's page shows the run's live progress and its"
+                + " verdict: [Ignite PR Checker](" + PythonClientRuns.pageUrl(publicUrl, pr.number()) + ")."
                 + (belowTop ? " " + notMovedUp("it", queued.belowTop()) + "." : "")
                 + (cancelled == 0 ? ""
                     : cancelled == 1 ? " The checker cancelled your previous run. This run replaces it."
@@ -1349,7 +1350,7 @@ public class PrCommands implements SnapshotCache {
                 heldVerdicts.remove(now.commentId());
 
                 body = python.verdictComment(standing.ghLoginOf(now.username()), now.pr(), now.buildId(), suiteName,
-                    now.pinned(), verdict, done, visa.get());
+                    now.pinned(), verdict, done, visa.get(), PythonClientRuns.pageUrl(publicUrl, now.pr()));
                 if (readsAsCommand(body))
                     throw new IllegalStateException("the checker must never post a comment that reads as a command");
 
@@ -1726,6 +1727,25 @@ public class PrCommands implements SnapshotCache {
     /** The Python thin client's repo, whose PRs' commands run its suite; null when the client's PRs are not served. */
     public String clientRepo() {
         return python == null ? null : python.repo();
+    }
+
+    /**
+     * Whether the verdict of the run {@code buildId} of PR {@code pr} of the Python thin client is final, for the
+     * checker's page. The story of a {@code /run-all} settles it after the run finishes: it decides on the one auto
+     * re-run, waits for it, and posts the verdict. Until the story judged the run the verdict on the page may change;
+     * a verdict held while its visa is tried again stands, and so does a posted one, or one of an ended story, whose
+     * comment the story has yet to delete or end.
+     */
+    public StandingVisas.Phase clientPhase(int pr, long buildId) {
+        CommandRun run = python == null ? null : watching.values().stream()
+            .filter(r -> python.repo().equals(r.repo()) && r.pr() == pr
+                && (r.buildId() == buildId || r.rerunId() == buildId))
+            .findFirst().orElse(null);
+        if (run == null || run.readyId() != 0 || run.ending() != null || heldVerdicts.containsKey(run.commentId()))
+            return new StandingVisas.Phase(StandingVisas.Phase.FINAL, 0, 1, null, null);
+
+        return run.rerunId() == 0 ? new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 0, 1, null, null)
+            : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, python.suiteLabel(), null);
     }
 
     public int handledCount() {

@@ -169,6 +169,55 @@ class ClientRerunTest {
     }
 
     /**
+     * The checker's page of the PR tells while the story of the {@code /run-all} still settles its verdict: it decides
+     * on the re-run, waits for it, and only its verdict comment ends that. A run no story follows is final.
+     */
+    @Test
+    void thePageReadsTheVerdictFinalOnlyOnceTheStoryPostedIt() {
+        clientComment(1L, "/run-all");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));
+
+        StandingVisas.Phase deciding = commands.clientPhase(PR, RUN);
+        commands.updateEtas();
+        StandingVisas.Phase rerunning = commands.clientPhase(PR, RUN);
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(false));
+        commands.updateEtas();
+        commands.updateEtas();
+
+        assertThat(deciding.phase()).isEqualTo("settling");
+        assertThat(deciding.wave()).isZero();
+        assertThat(rerunning.phase()).isEqualTo("settling");
+        assertThat(rerunning.wave()).isEqualTo(1);
+        assertThat(rerunning.what()).isEqualTo("Thin client: Python");
+        assertThat(commands.clientPhase(PR, RERUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(OTHER_PR, OTHER_RUN).phase()).isEqualTo("final");
+    }
+
+    /**
+     * The verdict comment went in, but GitHub put off the deletion of the story's comment. The story waits to delete
+     * it at a later look, and the page said an auto re-run might still change the posted verdict.
+     */
+    @Test
+    void aPostedVerdictIsFinalWhileItsStoryWaitsToBeDeleted() {
+        when(github.appDelete(CLIENT_REPO, PR, "author", 88L)).thenThrow(new GithubClient.WriteDeferred("app busy"));
+        clientComment(1L, "/run-all");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));
+        commands.updateEtas();
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(false));
+        commands.updateEtas();
+        commands.updateEtas();
+
+        verify(github, times(2)).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString());
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PR, RERUN).phase()).isEqualTo("final");
+    }
+
+    /**
      * GitHub reports merge conflicts in the PR, and the author forced the run. The auto re-run is part of that run,
      * not a new one: the conflicts do not hold it back, and GitHub is not asked about them again.
      */
@@ -514,6 +563,22 @@ class ClientRerunTest {
                 + " checker ran the suite again on the same commits. This verdict comes from that re-run."
                 + "\n\n");
         verify(tc, times(2)).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    /**
+     * The author cancelled the run, and GitHub put off the edit that ends its story. Nothing follows the run, and the
+     * page said the checker was still deciding whether to run the suite again.
+     */
+    @Test
+    void anEndedStoryWaitingForItsLastLineSettlesNothing() {
+        clientComment(1L, "/run-all");
+        cancelled(new TcModel.CanceledInfo("Not needed", new TcModel.User("author")), null);
+        when(github.appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith("\n🛑 _Run cancelled._")))
+            .thenThrow(new GithubClient.WriteDeferred("app busy"));
+
+        commands.updateEtas();
+
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
     }
 
     /** A person cancelled the run: they meant it not to run, so it is not run again, as for a RunAll. */

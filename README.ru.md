@@ -43,7 +43,8 @@ Ignite PR Checker отвечает контрибьютору [Apache Ignite](ht
   конфликтами слияния `/run-all` ставит RunAll только с `force`, например `/run-all force`. См.
   [Работа из PR](docs/features.ru.md#работа-из-pr-команды). В PR тонкого клиента Python `/run-all` запускает сьют
   клиента вместе с master Ignite. Там тоже `/run-all` в PR с конфликтами слияния требует `force`. Автоперезапуск
-  и виза в JIRA там тоже работают. См.
+  и виза в JIRA там тоже работают. У открытых PR клиента своя группа в списке PR, а у каждого — страница с его
+  вердиктом, `?repo=python&pr=69`. См.
   [PR тонкого клиента Python](docs/features.ru.md#pr-тонкого-клиента-python).
 - **Доска флаки** на `/flaky.html`: тесты, которые падают на master, сначала флакующие, потом сломанные. См.
   [Доска флаки](docs/features.ru.md#доска-флаки-flakyhtml).
@@ -216,7 +217,7 @@ GitHub для коммитов.
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | Какой TeamCity читать, со слешем в конце. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | Тип сборки цепочки RunAll. |
 | `GITHUB_REPO` | `apache/ignite` | Чьи PR показываются и проверяются. |
-| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | Репозиторий тонкого клиента Python: `/run-all` в его PR запускает сьют, который задаёт `PYTHON_CLIENT_SUITE`. |
+| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | Репозиторий тонкого клиента Python: `/run-all` в его PR запускает сьют, который задаёт `PYTHON_CLIENT_SUITE`. Его открытые PR — группа «Клиент Python» (**Python client**) в списке PR. |
 | `PYTHON_CLIENT_SUITE` | `IgniteTests24Java8_WiPThinClientPython` | Тип сборки сьюта, который проверяет клиент вместе с Ignite. |
 | `PYTHON_CLIENT_IGNITE_VCS_ROOT`, `PYTHON_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePythonThinClient` | Идентификаторы VCS-корней Ignite и клиента в сьюте `PYTHON_CLIENT_SUITE`. По ним `/run-all` задаёт прогону коммит Ignite и коммит клиента. |
 | `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Куда уходят визы и куда ведут ссылки на тикеты IGNITE. |

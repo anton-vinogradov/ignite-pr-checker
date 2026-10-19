@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
  * The PRs of the tabs Mine and Involved of the PR list: what GitHub's search finds for the GitHub account the user
  * linked, asked under the checker's own token, never the user's. Each opening of the page and each click on a tab
  * asks for them, so an account's answer is kept a minute, and so is a failed search: meanwhile the last answer GitHub
- * gave stands.
+ * gave stands. The PRs of the Python thin client are searched apart, and kept apart.
  */
 @Component
 public class YourPrs {
@@ -55,23 +55,29 @@ public class YourPrs {
 
     /** The user's PRs for the tabs; empty lists when the user linked no GitHub account. */
     public Lists of(String username) {
+        return of(username, null);
+    }
+
+    /** The same in {@code repo}, such as the Python thin client's; null for the repo the checker lists. */
+    public Lists of(String username, String repo) {
         String login = standing.ghLoginOf(username);
         if (login == null)
             return new Lists(null, List.of(), List.of(), null);
         if (!github.writes())
             return new Lists(login, null, null, Problem.NO_ACCOUNT);
 
-        GithubClient.PrsOf found = search(login);
+        GithubClient.PrsOf found = search(login, repo);
 
         return found == null ? new Lists(login, null, null, Problem.NO_ANSWER)
             : new Lists(login, found.mine(), found.involved(), null);
     }
 
     /** GitHub's last answer for the account; null when it has given none. One search at a time per account. */
-    private GithubClient.PrsOf search(String login) {
+    private GithubClient.PrsOf search(String login, String repo) {
+        String key = (repo == null ? "" : repo + " ") + login.toLowerCase(Locale.ROOT);
         Search search;
         synchronized (searches) {
-            search = searches.computeIfAbsent(login.toLowerCase(Locale.ROOT), k -> new Search());
+            search = searches.computeIfAbsent(key, k -> new Search());
         }
         synchronized (search) {
             long now = nowMs.getAsLong();
@@ -81,10 +87,11 @@ public class YourPrs {
             search.asked = true;
             search.askedAt = now;
             try {
-                search.found = github.prsOf(login);
+                search.found = repo == null ? github.prsOf(login) : github.prsOf(repo, login);
             }
             catch (RuntimeException e) {
-                log.warn("GitHub did not find the PRs of @{}, asked again in a minute: {}", login, e.toString());
+                log.warn("GitHub did not find the PRs of @{}{}, asked again in a minute: {}", login,
+                    repo == null ? "" : " in " + repo, e.toString());
             }
 
             return search.found;

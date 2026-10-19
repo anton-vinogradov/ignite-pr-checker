@@ -126,12 +126,13 @@ public class ApiExceptionHandler {
         else {
             log.warn("RunAll not queued after cancelling the previous one", e.getCause());
 
-            return ResponseEntity.status(502).body(Map.of("error", PREVIOUS_RUNALL_CANCELLED + " — try RunAll again",
+            return ResponseEntity.status(502).body(Map.of("error", e.cancelled() == null
+                ? PREVIOUS_RUNALL_CANCELLED + " — try RunAll again" : e.cancelled() + " — press Run again",
                 "replaced", e.replaced()));
         }
 
         Map<String, Object> body = new HashMap<>(alone.getBody());
-        body.put("error", PREVIOUS_RUNALL_CANCELLED + ": " + body.get("error"));
+        body.put("error", (e.cancelled() == null ? PREVIOUS_RUNALL_CANCELLED : e.cancelled()) + ": " + body.get("error"));
         body.put("replaced", e.replaced());
 
         return ResponseEntity.status(alone.getStatusCode()).body(body);

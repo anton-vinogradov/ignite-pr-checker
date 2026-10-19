@@ -26,7 +26,8 @@ import org.springframework.web.client.RestClientResponseException;
  * the warmer runs on users' own: logged-in requests donate their token, and users with standing
  * options on re-donate theirs on every sweep — that durable half is what keeps warming (and every
  * other background job borrowing from this pool) alive while nobody is browsing. Each cycle spreads
- * its PRs round-robin across all pooled tokens, so no single user's token bears the whole load.
+ * its PRs round-robin across all pooled tokens, so no single user's token bears the whole load. The open PRs of the
+ * Python thin client are warmed in the same cycle, after Ignite's, under the same limits (see {@link ClientVerdicts}).
  */
 @Component
 public class Warmer {
@@ -45,6 +46,9 @@ public class Warmer {
     /** Runs the warm cycles; one thread, so cycles never overlap. */
     private final ExecutorService worker;
 
+    /** The verdicts of the Python thin client's PRs; null when the cycle warms Ignite's PRs only. */
+    private final ClientVerdicts clients;
+
     private volatile int lastWarmed;
     private volatile int lastCached;
     private volatile int lastFailed;
@@ -61,14 +65,21 @@ public class Warmer {
     public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props,
         @Qualifier("warmExecutor") ExecutorService warmPool,
         @Qualifier("recomputeExecutor") ExecutorService recompute,
-        @Qualifier("warmerThread") ExecutorService worker) {
+        @Qualifier("warmerThread") ExecutorService worker, ClientVerdicts clients) {
         this.analyzer = analyzer;
         this.github = github;
         this.props = props;
         this.warmPool = warmPool;
         this.recompute = recompute;
         this.worker = worker;
+        this.clients = clients;
         this.tokens = new TokenPool(Duration.ofMinutes(props.tokenTtlMinutes()).toMillis());
+    }
+
+    /** A warmer of Ignite's PRs only. */
+    public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props, ExecutorService warmPool,
+        ExecutorService recompute, ExecutorService worker) {
+        this(analyzer, github, props, warmPool, recompute, worker, null);
     }
 
     /** A warmer that recomputes on {@code warmPool} too, and runs its cycles on a daemon thread of its own. */
@@ -190,7 +201,9 @@ public class Warmer {
     private void runCycle() {
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
-        cycleTotal = count;
+        List<PrSummary> clientPrs = clients == null ? List.of() : clients.openPrs();
+        int clientCount = Math.min(clientPrs.size(), props.count());
+        cycleTotal = count + clientCount;
 
         AtomicInteger recomputed = new AtomicInteger();
         AtomicInteger cached = new AtomicInteger();
@@ -201,13 +214,14 @@ public class Warmer {
         // The per-PR warms fan out on the warm pool (cold recomputes dominate a cycle, and serially
         // they made the startup warm-up minutes long); each warm's own per-test fan-out stays on the
         // background pool, so the two levels can't deadlock each other.
-        List<Callable<Void>> tasks = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
-            int pr = prs.get(i).number();
+        List<Callable<Void>> tasks = new ArrayList<>(count + clientCount);
+        for (int i = 0; i < count + clientCount; i++) {
+            boolean client = i >= count;
+            int pr = client ? clientPrs.get(i - count).number() : prs.get(i).number();
             tasks.add(() -> {
                 // A user blocked on a cold analysis gets the whole TeamCity/CPU budget: skip this PR
                 // for now (the next cycle, or the user's own compute, will cover it).
-                if (analyzer.userWaiting()) {
+                if (analyzer.userWaiting() || clients != null && clients.userWaiting()) {
                     skipped.incrementAndGet();
                     return null;
                 }
@@ -217,7 +231,8 @@ public class Warmer {
                     return null;
 
                 try {
-                    if (analyzer.warm(token, pr)) // recomputes only if the latest build isn't already cached
+                    // recomputes only if the latest build isn't already cached
+                    if (client ? clients.warm(token, pr) : analyzer.warm(token, pr))
                         recomputed.incrementAndGet();
                     else
                         cached.incrementAndGet();
@@ -234,7 +249,7 @@ public class Warmer {
                 }
                 catch (RuntimeException e) {
                     failed.incrementAndGet();
-                    log.debug("warm of PR {} failed: {}", pr, e.toString());
+                    log.debug("warm of PR {}{} failed: {}", client ? clients.repo() + "#" : "", pr, e.toString());
                 }
                 finally {
                     cycleDone = done.incrementAndGet();

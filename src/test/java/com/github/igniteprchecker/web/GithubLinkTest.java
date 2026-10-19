@@ -234,6 +234,26 @@ class GithubLinkTest {
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
+    /**
+     * A link begun on the Python client's PR #69 came back to Ignite's PR #69. The page comes back to the client's PR,
+     * and a repo the page does not know adds nothing to the address.
+     */
+    @Test
+    void theLinkComesBackToTheClientsPr() {
+        ResponseEntity<?> asked = links.link("Europe/Moscow", 69, "python", "tc-alice", "alice");
+        String state = state(URI.create(String.valueOf(((Map<?, ?>)asked.getBody()).get("url"))));
+
+        ResponseEntity<Void> back = links.callback(null, state, "access_denied", browserOf("alice", "tc-alice"));
+
+        assertThat(back.getHeaders().getLocation()).hasToString("/?repo=python&pr=69&github=denied");
+
+        ResponseEntity<?> other = links.link("Europe/Moscow", 69, "evil.example/x", "tc-alice", "alice");
+        String otherState = state(URI.create(String.valueOf(((Map<?, ?>)other.getBody()).get("url"))));
+
+        assertThat(links.callback(null, otherState, "access_denied", browserOf("alice", "tc-alice")).getHeaders()
+            .getLocation()).hasToString("/?pr=69&github=denied");
+    }
+
     /** An expired or used code: GitHub answers 200 with an error and no token. */
     @Test
     void aCodeGitHubRefusesLinksNothing() {
