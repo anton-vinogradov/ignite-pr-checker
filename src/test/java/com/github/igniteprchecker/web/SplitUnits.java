@@ -10,10 +10,10 @@ import java.util.regex.Pattern;
 final class SplitUnits {
     /**
      * A digit, a plain space and a unit of time or size, or the word that counts how many times; or the word that
-     * names what a number counts, a colon and a plain space before the number.
+     * names what a number counts, Russian or a name such as JIRA, a colon and a plain space before the number.
      */
     private static final Pattern SPLIT =
-        Pattern.compile("\\d (?:мс|с|мин|минут|секунд|ч|д|день|дня|дней|МБ|раз|раза)(?![а-яё])|[а-яё]: \\d");
+        Pattern.compile("\\d (?:мс|с|мин|минут|секунд|ч|д|день|дня|дней|МБ|раз|раза)(?![а-яё])|[A-Za-zА-Яа-яЁё]: \\d");
 
     private SplitUnits() {
     }

@@ -225,6 +225,10 @@
         .live.running { background: var(--ok-bg); color: var(--ok); }
         .live.queued { background: var(--warn-bg); color: var(--warn); }
         .suite-runs { flex: none; display: flex; gap: 0.3rem; }
+        /* Beside a long name or a live chip, a suite's Rerun pair would squeeze the name into a column of letters
+           and cover the chip: the pair goes under a name it does not fit beside, at the right, as one group. */
+        .suite-head, .suite-runs { flex-wrap: wrap; }
+        .suite-runs { flex-shrink: 1; margin-left: auto; justify-content: flex-end; }
         .hint { border-bottom: 1px dotted var(--muted); cursor: help; }
         .pr-legend { flex: 1 0 100%; margin: 0; font-size: 0.72rem; line-height: 1.7; text-transform: none; letter-spacing: normal; }
         .pr-legend summary { cursor: pointer; color: var(--muted); }
@@ -284,10 +288,6 @@
             ul.suite-tests { display: block; }
             ul.suite-tests > li.test-row { display: flex; flex-wrap: wrap; column-gap: 0.35rem; }
             ul.suite-tests > li.test-row > .reason, ul.suite-tests > li.test-row > .details { flex: 1 1 100%; }
-            /* Beside a long name or a live chip, a suite's Rerun pair would squeeze the name into a column of letters
-               and cover the chip: the pair goes under the name, at the right, as one group. */
-            .suite-head, .suite-runs { flex-wrap: wrap; }
-            .suite-runs { flex-shrink: 1; margin-left: auto; justify-content: flex-end; }
             #freshness .hint { white-space: normal; }
             .group-by { flex-wrap: wrap; }
             /* The Russian section pair and the Russian notes on runs are longer than the English ones: here the section
@@ -642,7 +642,7 @@
                     </div>
                     <div id="prTestsCard" class="card hidden">
                         <h2>This PR's tests <span id="prTestsCount"></span> <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="How the test classes this PR adds or changes ran in this RunAll" aria-label="What this means">?</a></h2>
-                        <p id="prTestsPrevious" class="muted hidden">These are the tests of the previous RunAll. The tests of this RunAll are still loading.</p>
+                        <p id="prTestsPrevious" class="muted hidden">These are the tests of an earlier RunAll. The tests of this RunAll are still loading.</p>
                         <p id="prTestsWarn" class="caveat hidden"></p>
                         <p id="prTestsCheck" class="muted hidden"></p>
                         <p id="prTestsNote" class="muted hidden"></p>

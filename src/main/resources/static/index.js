@@ -1853,13 +1853,14 @@ async function loadPrTests(res) {
 }
 
 // A newer RunAll of the PR is on screen, and its tests are on the way. Until they come, the card keeps its place with
-// the tests of the run before, but not with what that run's verdict did with them: the verdict on screen is another.
+// the tests of an earlier run, but not with what that run's verdict did with them: the verdict on screen is another.
+// It keeps them on a return to the PR too: a hidden card would come back after the late cards and push them down.
 function showPreviousPrTests() {
     lastPrTests.previous = true;
     renderPrTests(lastPrTests.body, null);
 }
 
-// The tests of the RunAll on screen did not come: the previous RunAll's would stand in for them.
+// The tests of the RunAll on screen did not come: an earlier RunAll's would stand in for them.
 function dropPreviousPrTests() {
     if (lastPrTests && lastPrTests.previous) $('prTestsCard').classList.add('hidden');
 }

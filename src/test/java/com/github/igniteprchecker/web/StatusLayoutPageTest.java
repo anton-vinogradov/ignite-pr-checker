@@ -48,6 +48,15 @@ class StatusLayoutPageTest {
     }
 
     /**
+     * In Russian, "предупреждений: 3" in the log card is 124 px wide, and 132 px in Terminal. A card of 150 px had 119
+     * px for it, so in a 500 px window, 700 px in Terminal, the 3 went to the next line. A card of 165 px has 134 px.
+     */
+    @Test
+    void aCardHoldsACountWithItsNoun() throws Exception {
+        assertThat(rule(Files.readString(PAGE, UTF_8), ".cards")).contains("repeat(auto-fill, minmax(165px, 1fr))");
+    }
+
+    /**
      * The sections stay hidden until the first status is drawn, and show as they are once it fails; the CSS shows them
      * after 2 s whatever happens.
      */

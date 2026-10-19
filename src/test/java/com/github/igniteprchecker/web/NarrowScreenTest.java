@@ -91,17 +91,17 @@ class NarrowScreenTest {
      * At 375 px in English, the Rerun pair of a broken group stood beside "non-zero exit code" and left the name 89 px,
      * 62 px in Terminal: it broke as "non-zero exi | t code", and a live chip of 160 px ran under the Rerun button. In
      * Russian, the pair wrapped under the name, and each button stood at the left like the grey reason line under it.
-     * On a phone the pair goes under a name it does not fit beside, at the right, as one group, in both languages; a
-     * name breaks between its words.
+     * At 769 px with the PR list open, the result pane is 442 px wide, and the Russian pair of Queries 1 covered its
+     * live chip and its AI button. The pair goes under a name it does not fit beside, at the right, as one group, at
+     * every width and in both languages; a name breaks between its words.
      */
     @Test
     void aSuitesRerunPairGoesUnderItsNameAtTheRight() throws Exception {
         String css = Files.readString(Path.of("src/main/resources/static/index.html"));
-        String narrow = narrow("index.html");
+        String wide = css.substring(0, css.indexOf("@media (max-width: 768px)"));
 
-        assertThat(rule(narrow, ".suite-head, .suite-runs")).contains("flex-wrap: wrap");
-        assertThat(rule(narrow, ".suite-runs")).contains("flex-shrink: 1", "margin-left: auto",
-            "justify-content: flex-end");
+        assertThat(rule(wide, ".suite-head, .suite-runs")).contains("flex-wrap: wrap");
+        assertThat(wide).contains(".suite-runs { flex-shrink: 1; margin-left: auto; justify-content: flex-end; }");
         assertThat(rule(css, ".suite-name")).contains("overflow-wrap: anywhere").doesNotContain("break-all");
     }
 

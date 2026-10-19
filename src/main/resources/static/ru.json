@@ -379,7 +379,7 @@
     "new": "новый",
     "changed": "изменён",
     "{0} passed": "{0} {0|прошёл|прошли|прошли}",
-    "These are the tests of the previous RunAll. The tests of this RunAll are still loading.": "Это тесты прошлого RunAll. Тесты этого RunAll ещё загружаются.",
+    "These are the tests of an earlier RunAll. The tests of this RunAll are still loading.": "Это тесты более раннего RunAll. Тесты этого RunAll ещё загружаются.",
     "{0} failed ({1})": "{0} {0|упал|упали|упали} ({1})",
     "{0} failed": "{0} {0|упал|упали|упали}",
     "{0} ignored": "{0} {0|проигнорирован|проигнорированы|проигнорированы}",
