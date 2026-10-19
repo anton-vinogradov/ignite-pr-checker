@@ -47,6 +47,21 @@ class OperatorPagesTest {
         assertThat(out.get("last").asText()).isEqualTo("last flush: avinogradov · 2m ago");
     }
 
+    /** The operator's part of the page had a card of the one-shot Auto visas armed: visas come from ⚙ alone now. */
+    @Test
+    void theOperatorSeesNoCardOfOneShotAutoVisas() throws Exception {
+        JsonNode out = PageScript.run("status.html", STATUS + """
+            Object.assign(status, { operator: true, admin: { last: {} },
+                watcher: { standingEnrolled: 7, standingPosted: 5, standingLastSweepAt: page.now() - 120000 } });
+            await page.load('');
+            report(Object.assign(seen(), { cards: page.el('watcherCards').textContent }));
+            """);
+
+        assertThat(out.get("restart").asBoolean()).isTrue();
+        assertThat(out.get("tabs").asBoolean()).isTrue();
+        assertThat(out.get("cards").asText()).contains("Standing options7").doesNotContain("Auto visa");
+    }
+
     @Test
     void anotherSignedInViewerSeesHowManyButNotWhat() throws Exception {
         JsonNode out = PageScript.run("status.html", STATUS + """
@@ -126,10 +141,10 @@ class OperatorPagesTest {
                 mark: !page.el('operatorMark').classList.contains('hidden') });
             """;
         JsonNode operator = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/me', { body: { username: 'avinogradov', jira: false, admin: true } });
+            page.route('/api/me', { body: { username: 'avinogradov', admin: true, jiraInCookie: false } });
             """ + scenario);
         JsonNode other = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            page.route('/api/me', { body: { username: 'alice', jira: false, admin: false } });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false } });
             """ + scenario);
 
         assertThat(operator.get("name").asText()).isEqualTo("avinogradov");

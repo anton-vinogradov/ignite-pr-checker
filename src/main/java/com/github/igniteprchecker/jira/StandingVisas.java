@@ -37,8 +37,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -53,7 +55,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Standing auto-visa: an opted-in user gets the verdict posted to the ticket for EVERY finished
- * RunAll they triggered — no per-PR arming, no open tab. The price, stated plainly in the UI: the
+ * RunAll they triggered, with no tab open. The price, stated plainly in the UI: the
  * user's TeamCity and JIRA tokens are stored encrypted (session key) for as long as the option is
  * on; disabling removes them. Each finished build is posted at most once (per user+PR build memory).
  */
@@ -117,6 +119,12 @@ public class StandingVisas implements SnapshotCache {
 
     /** Runs settled without a visa because their PR's title names no IGNITE ticket. */
     private final Set<Long> ticketless = ConcurrentHashMap.newKeySet();
+
+    /** What the settle of each run did with its visa, by build, the newest {@link #RUN_VISAS_KEPT}. Persisted. */
+    private final ConcurrentSkipListMap<Long, RunVisa> runVisas = new ConcurrentSkipListMap<>();
+
+    /** How many runs' visas are kept for the PR page; the oldest runs go first. */
+    private static final int RUN_VISAS_KEPT = 2000;
 
     /** How often the sweep goes through the open PRs. */
     private static final long SWEEP_MS = 600_000;
@@ -226,23 +234,25 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /** A settings change with no time zone from the browser. */
-    public Optional<Refusal> change(String username, String tcToken, String sessionJira, String sessionGh,
+    public Optional<Refusal> change(String username, String tcToken, String offeredJira, String offeredGh,
         OptionChange change) {
-        return change(username, tcToken, sessionJira, sessionGh, change, null);
+        return change(username, tcToken, offeredJira, offeredGh, change, null);
     }
 
     /**
      * Applies a settings change, touching only the options it names: a click on one switch must not
      * turn the others off. An option that needs a token takes the one offered with the change when it is
-     * new (checked with the service first), else the stored one, so a fresh login without the PATs in
-     * its cookie still works; a stored token goes only when the last option that needs it is switched
-     * off explicitly. {@code offeredGh} is the GitHub token the page sends with the switch of an option that
-     * commits: it is kept on the server only, and only a token that commits and does no more. The options that write
-     * to GitHub go on only while the checker has an account to write with. {@code browserTz}, the browser's time
-     * zone, becomes the user's when it is one. A verdict an earlier refusal held back goes out once its option is on
-     * again. Empty when the change was made, else what is missing.
+     * new (checked with the service first), else the stored one; a stored token goes only when the last option that
+     * needs it is switched off explicitly. A new token the service refuses or cannot check refuses the change and
+     * leaves the stored one, since the user meant to replace it. Only the switch of an option that needs a token, or a
+     * token offered, asks for one: an option that waits for its token stops no other switch. {@code offeredJira} is the
+     * JIRA token the page sends with the switch of the visa, and {@code offeredGh} the GitHub token it sends with the
+     * switch of an option that commits: each is kept on the server only, and a GitHub token only when it commits and
+     * does no more. The options that write to GitHub go on only while the checker has an account to write with.
+     * {@code browserTz}, the browser's time zone, becomes the user's when it is one. A verdict an earlier refusal held
+     * back goes out once its option is on again. Empty when the change was made, else what is missing.
      */
-    public Optional<Refusal> change(String username, String tcToken, String sessionJira, String offeredGh,
+    public Optional<Refusal> change(String username, String tcToken, String offeredJira, String offeredGh,
         OptionChange change, String browserTz) {
         Enrollment prev = enrolled.get(username);
         Options after = (prev == null ? Options.NONE : prev.options()).apply(change);
@@ -258,21 +268,21 @@ public class StandingVisas implements SnapshotCache {
         }
 
         Credential jiraCred = null;
-        if (after.autoVisa()) {
+        if (after.autoVisa() && (Boolean.TRUE.equals(change.visa()) || offeredJira != null)) {
             String stored = prev == null ? null : decrypt(prev.jira()).orElse(null);
-            boolean fresh = sessionJira != null && !sessionJira.equals(stored);
+            boolean fresh = offeredJira != null && !offeredJira.equals(stored);
             Optional<String> jiraUser = Optional.empty();
             boolean unchecked = false;
             try {
-                jiraUser = fresh ? jira.myself(sessionJira) : Optional.empty();
+                jiraUser = fresh ? jira.myself(offeredJira) : Optional.empty();
             }
             catch (RuntimeException e) {
                 log.warn("JIRA could not check the token offered for {}: {}", username, e.toString());
                 unchecked = true;
             }
             if (jiraUser.isPresent())
-                jiraCred = new Credential(codec.encryptString(sessionJira), 0);
-            else if (stored == null)
+                jiraCred = new Credential(codec.encryptString(offeredJira), 0);
+            else if (fresh || stored == null)
                 return Optional.of(unchecked ? Refusal.unchecked("JIRA") : new Refusal("jira", fresh
                     ? "JIRA rejected the token — paste a new one" : "Visa my runs in JIRA needs your JIRA token"));
         }
@@ -281,7 +291,7 @@ public class StandingVisas implements SnapshotCache {
 
         Credential ghCred = null;
         GithubClient.GhUser login = null;
-        if (after.needsGh()) {
+        if (after.needsGh() && (change.switchesOnCommits() || offeredGh != null)) {
             String stored = prev == null ? null : decrypt(prev.gh()).orElse(null);
             boolean fresh = offeredGh != null && !offeredGh.equals(stored);
             // A token GitHub can't put a name to is dead. Storing it buys nothing and costs the login: with no login,
@@ -310,7 +320,7 @@ public class StandingVisas implements SnapshotCache {
             if (login != null)
                 ghCred = new Credential(codec.encryptString(offeredGh), 0,
                     CommitTokens.note(offeredGh, owner.scopes()));
-            else if (stored == null) {
+            else if (fresh || stored == null) {
                 if (unchecked)
                     return Optional.of(Refusal.unchecked("GitHub"));
                 if (fresh)
@@ -321,8 +331,8 @@ public class StandingVisas implements SnapshotCache {
                     : "this option needs your GitHub token for commits"));
             }
         }
-        else if (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
-            || prev != null && prev.options().needsGh())
+        else if (!after.needsGh() && (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
+            || prev != null && prev.options().needsGh()))
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || !prev.ghLoginProven()))
@@ -427,6 +437,11 @@ public class StandingVisas implements SnapshotCache {
         boolean switchesOnGithub() {
             return Boolean.TRUE.equals(gh) || Boolean.TRUE.equals(style) || Boolean.TRUE.equals(commands)
                 || Boolean.TRUE.equals(suites);
+        }
+
+        /** Whether it switches on an option that commits with the user's GitHub token. */
+        boolean switchesOnCommits() {
+            return Boolean.TRUE.equals(style) || Boolean.TRUE.equals(suites);
         }
     }
 
@@ -1030,84 +1045,130 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * What the user's standing auto-visa does about this build's verdict in {@code issue}: it is in
-     * (the living visa of the build, interim or final), the sweep is still to post it, or neither. A PR
-     * the sweep no longer lists keeps its posted visa: the visa went to the ticket of the PR's title. A run
-     * a newer RunAll of the PR replaces, or holds back while it goes, gets no standing visa (see {@link #runEnd}).
-     * A visa held back, JIRA having failed it, is still to be posted while its owner's option and token stand, the PR
-     * listed or not: a later sweep posts it.
+     * Where the visa of the PR's run {@code buildId} stands, for the line on the PR page {@code viewer} opened. The
+     * visa of a run comes only from the option of whoever started it; {@code run} asks TeamCity who that is, and only
+     * when the checker's own records do not answer. {@code merged}: the PR is merged. Of someone else's run the viewer
+     * learns what became of the run and its visa, whose option it is and whether it is on, and nothing more: their
+     * paused tokens and when they switched the option on stay theirs.
      */
-    public VisaCover visaCover(String username, int pr, long buildId, String issue) {
-        Enrollment e = username == null ? null : enrolled.get(username);
-        Optional<String> ticket = titleTicket(pr);
-        if (e == null || ticket.isPresent() && !ticket.get().equals(issue))
-            return VisaCover.NONE;
+    public VisaLine visaLine(String viewer, int pr, long buildId, Supplier<Run> run, boolean merged) {
+        RunVisa v = runVisas.get(buildId);
+        if (v != null && v.pr() == pr && v.commentId() != null)
+            return posted(viewer, v);
+        if (v != null && v.pr() == pr)
+            return VisaLine.of(VisaLine.NO_TICKET, v.by(), v.by().equals(viewer));
 
-        JiraThread t = e.handled().jiraThreads().get(pr);
-        if (t != null && t.buildId() == buildId)
-            return VisaCover.POSTED;
+        Optional<RunEnd> end = runEnd(pr, buildId);
+        if (merged || end.isPresent() && end.get().replacedBy() == 0)
+            return VisaLine.of(VisaLine.CLOSED, null, false);
+        if (end.isPresent())
+            return VisaLine.of(VisaLine.REPLACED, null, false);
+
+        Run r = run.get();
+        if (r.starter() == null)
+            return VisaLine.of(VisaLine.UNKNOWN, null, false);
+        boolean mine = r.starter().equals(viewer);
+        if (r.cancelled())
+            return VisaLine.of(VisaLine.CANCELLED, r.starter(), mine);
+        Enrollment e = enrolled.get(r.starter());
+        if (e == null || !e.options().autoVisa() || e.jira().token() == null && !e.jira().removed())
+            return new VisaLine(VisaLine.OFF, r.starter(), mine, null, null, mine && e != null && e.jira().rejected());
+        if (!mine)
+            return VisaLine.of(VisaLine.ON, r.starter(), false);
 
         boolean settled = Long.valueOf(buildId).equals(e.handled().posted().get(pr));
         Owed owed = e.handled().owed().get(pr);
-        boolean comes = settled ? owed != null && owed.buildId() == buildId && owed.visaDeliverableBy(e)
-            : visaTicket(username, pr).isPresent();
+        boolean late = settled ? owed == null || owed.buildId() != buildId || !owed.visa()
+            : r.finishedMs() > 0 && e.since(Option.VISA) > r.finishedMs();
+        if (late)
+            return VisaLine.of(VisaLine.LATE, viewer, true);
+        if (e.tc().rejected())
+            return VisaLine.of(VisaLine.PAUSED, viewer, true);
+        if (e.jira().removed())
+            return VisaLine.of(VisaLine.JIRA_TOKEN_REMOVED, viewer, true);
 
-        return comes && runEnd(pr, buildId).isEmpty() ? VisaCover.PENDING : VisaCover.NONE;
-    }
-
-    /** See {@link #visaCover}. */
-    public enum VisaCover {
-        POSTED, PENDING, NONE
+        return VisaLine.of(settled ? VisaLine.RETRYING : VisaLine.DUE, viewer, true);
     }
 
     /**
-     * A one-shot Auto visa put the verdict of the PR's run {@code buildId} in {@code issue}. A standing visa of that
-     * run held back for the same ticket would be a copy of it now, so it no longer goes out.
+     * The line of a posted visa. Visas of v1.20.11 and before do not name their ticket: it is the one the PR title
+     * names while the PR is open, and unknown, with no link, after.
      */
-    public void visaServed(int pr, long buildId, String issue) {
-        synchronized (settleLock) {
-            Optional<String> ticket = titleTicket(pr);
-            if (ticket.isPresent() && !ticket.get().equals(issue))
-                return;
+    private VisaLine posted(String viewer, RunVisa v) {
+        String issue = v.issue() != null ? v.issue() : github.openPrs().stream().filter(p -> p.number() == v.pr())
+            .findFirst().flatMap(p -> ticketIn(p.title())).orElse(null);
 
-            enrolled.forEach((user, e) -> e.handled().owed().computeIfPresent(pr, (k, owed) -> {
-                if (owed.buildId() != buildId || !owed.visa())
-                    return owed;
+        return new VisaLine(VisaLine.POSTED, v.by(), v.by().equals(viewer), issue,
+            issue == null ? null : jira.commentUrl(issue, v.commentId()), false);
+    }
 
-                log.info("PR {}: the held-back visa of RunAll {} for {} no longer goes out: a one-shot Auto visa put "
-                    + "it in {}", pr, buildId, user, issue);
-                Owed left = owed.after(true, false);
+    private void keepRunVisa(long buildId, RunVisa v) {
+        runVisas.put(buildId, v);
+        while (runVisas.size() > RUN_VISAS_KEPT)
+            runVisas.pollFirstEntry();
+    }
 
-                return left.comment() ? left : null;
-            }));
+    /**
+     * What TeamCity says of a run: who started it ({@code starter}, null when it names nobody), whether it was
+     * {@code cancelled}, and when it finished ({@code finishedMs}, 0 while it goes).
+     */
+    public record Run(String starter, boolean cancelled, long finishedMs) {
+        /** A run TeamCity tells nothing of. */
+        public static final Run UNKNOWN = new Run(null, false, 0);
+    }
+
+    /**
+     * See {@link #visaLine}. {@code starter}: whose option the line is about, null when it is about none. {@code
+     * issue} and {@code url}: the ticket and the comment of the posted visa, null for the other states and when the
+     * ticket is not known. {@code mine}: the viewer is the starter. {@code jiraRefused}: JIRA refused the viewer's own
+     * token, which switched their option off.
+     */
+    public record VisaLine(String state, String starter, boolean mine, String issue, String url, boolean jiraRefused) {
+        /** The visa of the run is in the ticket. */
+        public static final String POSTED = "posted";
+
+        /** The viewer's option posts it once the run, with its re-runs, settles. */
+        public static final String DUE = "due";
+
+        /** The visa did not go in when the run settled: JIRA failed it, and the next sweeps try again. */
+        public static final String RETRYING = "retrying";
+
+        /** The starter's option is off. */
+        public static final String OFF = "off";
+
+        /** Someone else started the run, and their option is on. */
+        public static final String ON = "on";
+
+        /** TeamCity refused the token the viewer's options use: they wait for a login with a fresh one. */
+        public static final String PAUSED = "paused";
+
+        /**
+         * The state was restored from a copy without the viewer's JIRA token: the option stays on and the visa waits
+         * until they save the token again.
+         */
+        public static final String JIRA_TOKEN_REMOVED = "jira-token-removed";
+
+        /** The run finished before the viewer switched their option on, so the option does not act on it. */
+        public static final String LATE = "late";
+
+        /** The run settled while the PR title named no IGNITE ticket, so no visa went out. */
+        public static final String NO_TICKET = "no-ticket";
+
+        /** Someone cancelled the run: a cancelled run gets no visa. */
+        public static final String CANCELLED = "cancelled";
+
+        /** A newer RunAll of the PR replaces the run: that one gets the visa. */
+        public static final String REPLACED = "replaced";
+
+        /** The PR was closed or merged before the run's visa went in. */
+        public static final String CLOSED = "closed";
+
+        /** TeamCity did not say who started the run. */
+        public static final String UNKNOWN = "unknown";
+
+        static VisaLine of(String state, String starter, boolean mine) {
+            return new VisaLine(state, starter, mine, null, null, false);
         }
-    }
-
-    /**
-     * The user whose standing auto-visa posts the verdict of the PR's run under way: the starter of the
-     * chains the rerun tracker watches. Null when no chain is under way or its starter's visa posts none.
-     */
-    public String visaOwnerOfRunUnderWay(int pr) {
-        String starter = rerunTracker.chainStarter(pr);
-
-        return starter != null && visaTicket(starter, pr).isPresent() ? starter : null;
-    }
-
-    /**
-     * The ticket the sweep posts the user's visas for the PR to: their auto-visa is on and not paused,
-     * with a JIRA token, and the PR is among those the sweep goes through.
-     */
-    private Optional<String> visaTicket(String username, int pr) {
-        Enrollment e = enrolled.get(username);
-        if (e == null || !e.options().autoVisa() || e.tc().rejected() || e.jira().token() == null)
-            return Optional.empty();
-
-        return titleTicket(pr);
-    }
-
-    /** The IGNITE ticket in the title of an open PR the sweep goes through. */
-    private Optional<String> titleTicket(int pr) {
-        return github.openPrs().stream().filter(p -> p.number() == pr).findFirst().flatMap(p -> ticketIn(p.title()));
     }
 
     /** The IGNITE ticket a PR title names, spelled as JIRA spells it; empty when it names none. */
@@ -2010,6 +2071,7 @@ public class StandingVisas implements SnapshotCache {
         Optional<String> issue = ticketIn(pr.title());
         if (issue.isEmpty()) {
             ticketless.add(buildId);
+            keepRunVisa(buildId, new RunVisa(pr.number(), who, null, null));
             log.info("no visa for PR {} (build {}, by {}): its title names no IGNITE ticket", pr.number(), buildId, who);
 
             return Delivery.NOT_DUE;
@@ -2021,6 +2083,8 @@ public class StandingVisas implements SnapshotCache {
             && verdict.equals(last.verdict())) {
             e.handled().jiraThreads().put(pr.number(),
                 new JiraThread(buildId, last.commentId(), last.issue(), sha, verdict, true));
+            if (last.commentId() != null)
+                keepRunVisa(buildId, new RunVisa(pr.number(), who, last.issue(), last.commentId()));
             log.info("no new visa for PR {} (build {}, by {}): the last one in {} says the same of revision {}",
                 pr.number(), buildId, who, issue.get(), sha);
 
@@ -2347,7 +2411,8 @@ public class StandingVisas implements SnapshotCache {
         dropSpentEarlyReruns();
         Map<Long, List<String>> early = new HashMap<>();
         earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
-        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, newestPerPr(), early, new HashMap<>(waves)));
+        Snapshots.writeAtomic(mapper, file, new Snapshot(snap, newestPerPr(), early, new HashMap<>(waves),
+            new HashMap<>(runVisas)));
     }
 
     /**
@@ -2368,9 +2433,11 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         Persisted[] enrollments;
+        Map<Long, RunVisa> visasOfRuns = null;
         try {
             Snapshot s = mapper.readValue(file.toFile(), Snapshot.class);
             enrollments = s.enrollments() == null ? new Persisted[0] : s.enrollments().toArray(new Persisted[0]);
+            visasOfRuns = s.visas();
             if (s.waves() != null)
                 s.waves().forEach((build, r) -> waves.put(build, r.mergingEarlyWaves()));
             if (s.retries() != null)
@@ -2388,6 +2455,23 @@ public class StandingVisas implements SnapshotCache {
             Enrollment e = p.enrollment();
             boolean refusedKept = e.tc().rejected() && e.tc().token() != null;
             enrolled.put(p.username(), refusedKept ? e.withTc(refused(e.tc(), e.tc().rejectedAt())) : e);
+        }
+        if (visasOfRuns != null)
+            visasOfRuns.forEach(this::keepRunVisa);
+        else
+            keepPostedVisasOf(enrollments);
+    }
+
+    /** The visas of a snapshot written before the visas of runs were kept apart: those its enrollments still edit. */
+    private void keepPostedVisasOf(Persisted[] enrollments) {
+        for (Persisted p : enrollments) {
+            if (p.jiraThreads() == null)
+                continue;
+
+            p.jiraThreads().forEach((pr, t) -> {
+                if (t.commentId() != null)
+                    keepRunVisa(t.buildId(), new RunVisa(pr, p.username(), t.issue(), t.commentId()));
+            });
         }
     }
 
@@ -2684,6 +2768,15 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
+     * What the settle of a run of PR {@code pr} did with its visa: posted it to {@code issue} as comment {@code
+     * commentId} under the option of {@code by}, or posted none, as the PR title named no IGNITE ticket ({@code
+     * commentId} null). Kept apart from the options, so the PR page still tells of a posted visa after {@code by}
+     * switched every option off. Visas of v1.20.11 and before do not name their {@code issue}.
+     */
+    private record RunVisa(int pr, String by, String issue, String commentId) {
+    }
+
+    /**
      * The verdict comment of a run in the PR: which build it tells, where to edit it, whether it is final, whether it
      * says a newer run superseded it, and the owner's earlier verdict comments on the PR still to be marked so.
      * {@code app}: the checker's account posted it. Earlier versions posted with the owner's token, which the checker
@@ -2769,10 +2862,11 @@ public class StandingVisas implements SnapshotCache {
     /**
      * The snapshot on disk: enrollments plus the auto re-run bookkeeping (so a restart can't grant extra
      * attempts or lose a wave). {@code waves} holds every chain's; {@code retries}, one per PR, its newest
-     * chain's, is what v1.20.11 and before read.
+     * chain's, is what v1.20.11 and before read. {@code visas}, what the settle of each run did with its visa, is
+     * absent from the files of earlier versions: their posted visas are those the enrollments still edit.
      */
     private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries,
-        Map<Long, List<String>> earlyReruns, Map<Long, Retry> waves) {
+        Map<Long, List<String>> earlyReruns, Map<Long, Retry> waves, Map<Long, RunVisa> visas) {
     }
 
     /** Each PR's newest chain's waves, keyed by the PR as v1.20.11 keyed them. */
@@ -2796,6 +2890,7 @@ public class StandingVisas implements SnapshotCache {
             try {
                 jira.updateComment(jiraToken, issueKey, t.commentId(), body);
                 e.handled().jiraThreads().put(pr, new JiraThread(buildId, t.commentId(), issueKey, sha, verdict, true));
+                keepRunVisa(buildId, new RunVisa(pr, who, issueKey, t.commentId()));
                 log.info("standing visa updated in place for PR {} (build {}, by {})", pr, buildId, who);
 
                 return true;
@@ -2821,6 +2916,7 @@ public class StandingVisas implements SnapshotCache {
             return false;
         }
         e.handled().jiraThreads().put(pr, new JiraThread(buildId, posted.id(), issueKey, sha, verdict, true));
+        keepRunVisa(buildId, new RunVisa(pr, who, issueKey, posted.id()));
         log.info("standing auto-visa posted for PR {} (build {}, by {}) -> {}", pr, buildId, who, posted.url());
 
         return true;

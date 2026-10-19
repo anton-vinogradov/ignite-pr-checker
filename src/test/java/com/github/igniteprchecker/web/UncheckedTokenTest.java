@@ -1,40 +1,33 @@
 package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
-import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 
 /**
  * A token saved while GitHub or JIRA was down was answered "GitHub rejected the token": the user threw away a good
- * token and made another. A visa posted with a token JIRA no longer takes was answered "JIRA rejected the comment",
- * with nothing asking for a new token.
+ * token and made another.
  */
 class UncheckedTokenTest {
     private static final String USER = "avinogradov";
@@ -56,12 +49,8 @@ class UncheckedTokenTest {
     private final StandingVisas standing = new StandingVisas(mapper, codec, mock(TcClient.class), github, analyzer,
         jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
-    private final JiraController controller = new JiraController(jira, mock(TcClient.class), analyzer, codec,
-        mock(VisaService.class), mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false);
-
-    private final SessionCodec.Session session = new SessionCodec.Session(USER, "tc", null);
-
-    private final long checkedAt = System.currentTimeMillis();
+    private final JiraController controller = new JiraController(jira, mock(TcClient.class), standing,
+        mock(MergedVerdicts.class), new UserDirectory(mapper));
 
     @Test
     void aTokenGithubCouldNotCheckIsNotCalledRejected() {
@@ -76,7 +65,10 @@ class UncheckedTokenTest {
         assertThat(standing.settings(USER).suites()).isFalse();
     }
 
-    /** The stored token keeps serving the options while GitHub cannot check one the page brings. */
+    /**
+     * The stored token keeps serving the options while GitHub cannot check one the page brings. The switch that brings
+     * the new token is refused: it went on with the stored token, and the new one was dropped without a word.
+     */
     @Test
     void aStoredTokenServesWhileGithubCannotCheckANewOne() {
         when(github.writes()).thenReturn(true);
@@ -89,8 +81,9 @@ class UncheckedTokenTest {
         ResponseEntity<?> res = controller.standingVisa(null, null, null, true, null, null, "tc", USER, null,
             "new-pat");
 
-        assertThat(res.getStatusCode().value()).isEqualTo(200);
-        assertThat(standing.styleFixOn(USER)).isTrue();
+        assertAnswer(res, 502, UNCHECKED_GH);
+        assertThat(standing.styleFixOn(USER)).isFalse();
+        assertThat(standing.settings(USER).suites()).isTrue();
         assertThat(standing.actor(USER)).hasValueSatisfying(a -> assertThat(a.ghToken()).isEqualTo("gh-pat"));
     }
 
@@ -98,25 +91,9 @@ class UncheckedTokenTest {
     void aTokenJiraCouldNotCheckIsNotCalledRejected() {
         when(jira.myself("jira-pat")).thenThrow(new HttpServerErrorException(HttpStatus.BAD_GATEWAY));
 
-        assertAnswer(controller.saveToken(new JiraController.TokenRequest("jira-pat"), session, checkedAt), 502,
-            UNCHECKED_JIRA);
         assertAnswer(controller.standingVisa(true, null, null, null, null, null, "tc", USER, "jira-pat", null), 502,
             UNCHECKED_JIRA);
-        assertAnswer(controller.armAutoVisa(13654, "IGNITE-28890", USER, "jira-pat"), 502, UNCHECKED_JIRA);
-    }
-
-    @Test
-    void aVisaJiraRefusesAsksForANewTokenWhenTheTokenIsDead() {
-        when(analyzer.analyze("tc", 13654)).thenReturn(Optional.of(new AnalysisResult(13654, 9391879L,
-            "pull/13654/head", 0, List.of(), List.of(), List.of(), List.of(), List.of(), 140, 0, false, 0, false, 0, 0,
-            0, 0, 0)));
-        when(jira.addComment(anyString(), eq("IGNITE-28890"), any()))
-            .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
-        when(jira.tokenRejected("dead-pat")).thenReturn(true);
-
-        assertAnswer(controller.visa(13654, "IGNITE-28890", "tc", "dead-pat"), 412,
-            "JIRA rejected your token — paste a new one");
-        assertThat(controller.visa(13654, "IGNITE-28890", "tc", "jira-pat").getStatusCode().value()).isEqualTo(502);
+        assertThat(standing.visaOn(USER)).isFalse();
     }
 
     private static void assertAnswer(ResponseEntity<?> res, int status, String error) {

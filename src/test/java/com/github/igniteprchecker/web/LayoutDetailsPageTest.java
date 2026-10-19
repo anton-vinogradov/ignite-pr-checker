@@ -13,8 +13,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Small layout faults the self-review found on the pages: "verdict computed 46s ago↻" glued the ↻ to the text; the
  * theme list of the dark themes had a transparent fill, which Chromium on Windows and Linux draws as light text on
- * white; "🔔 Will notify" looked like "🔔 Notify me", while Auto visa is filled when on; at 375 px two live chips of a
- * suite ran over its Rerun pair, and the log of /status left about 50 px to a message; the bars of "per RunAll" were
+ * white; "🔔 Will notify" looked like "🔔 Notify me", while a switch that is on is filled; at 375 px two live chips of
+ * a suite ran over its Rerun pair, and the log of /status left about 50 px to a message; the bars of "per RunAll" were
  * links 8 px wide and 2 px apart.
  */
 class LayoutDetailsPageTest {
@@ -31,15 +31,14 @@ class LayoutDetailsPageTest {
             .doesNotContain("transparent");
     }
 
-    /** A switch that is on is filled: Notify me as Auto visa, the Terminal theme included. */
+    /** A switch that is on is filled: Notify me as the primary buttons, the Terminal theme included. */
     @Test
     void notifyMeIsFilledWhileOn() throws IOException {
         String css = read("index.html");
 
-        assertThat(rule(css, "#autoVisaBtn[aria-pressed=\"true\"], #autoVisaBtn[aria-pressed=\"true\"]:disabled, "
-            + "#notifyBtn[aria-pressed=\"true\"]")).contains("background: var(--accent)", "color: var(--on-accent)");
-        assertThat(css).contains(".act.primary, .act.primary:not(:disabled):hover, #autoVisaBtn[aria-pressed=\"true\"],"
-                + " #autoVisaBtn[aria-pressed=\"true\"]:disabled, #notifyBtn[aria-pressed=\"true\"] {"
+        assertThat(rule(css, "#notifyBtn[aria-pressed=\"true\"]"))
+            .contains("background: var(--accent)", "color: var(--on-accent)");
+        assertThat(css).contains(".act.primary, .act.primary:not(:disabled):hover, #notifyBtn[aria-pressed=\"true\"] {"
                 + " background: var(--accent);")
             .contains("#notifyBtn[aria-pressed=\"true\"]::before, #notifyBtn[aria-pressed=\"true\"]::after "
                 + "{ color: var(--on-accent); }");

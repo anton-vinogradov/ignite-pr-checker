@@ -28,7 +28,10 @@ import java.util.zip.ZipOutputStream;
  * {@link #FIELDS}, in whatever file and however deep.
  */
 public final class TokenScrub {
-    /** The fields of the snapshot files that hold a token: the standing options' three, a one-shot visa's one. */
+    /**
+     * The fields of the snapshot files that hold a token: the standing options' three, and the one of a one-shot Auto
+     * visa, which copies made by earlier versions keep in visa-subs.json.
+     */
     public static final Set<String> FIELDS = Set.of("tcToken", "jiraToken", "ghToken", "token");
 
     /** Ends the name of the field that marks a token as taken out. */

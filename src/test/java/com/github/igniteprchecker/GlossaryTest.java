@@ -145,12 +145,19 @@ class GlossaryTest {
         quoted(PAGE, "Suites that never ran", "Broken suites", "Fewer tests than master",
             "Crashed near the end of the run", "Not confirmed: 1 run", "Not confirmed yet", "Recently started failing",
             "Could not be checked", "This PR's tests", "Not blamed on this PR", "Run at top", "Run RunAll",
-            "Cancel my runs", "JIRA visa", "Post now", "Auto visa", "Notify me");
+            "Cancel my runs", "Notify me");
         quoted(PAGE_SCRIPT, "On ci2 now", "✓ No blockers", "No proven blockers yet", "No blockers found — not proven clean",
             "No blockers found", "1 run", "new test / no master history", "unverified", "not in any suite", "flaky?",
             "on latest commit", "⚠ old commit", "takes latest commit at start", "● includes an unfinished run",
             " reused from earlier runs", "The verdict is for older code", "♻︎ Auto re-run #",
-            "♻︎ Deciding whether to re-run", "Rerun at top", "Auto visa ✓", "armed by ", "on in your ⚙",
+            "♻︎ Deciding whether to re-run", "Rerun at top", "Visa: posted to ", "when the run settles",
+            "JIRA did not take it, the checker tries again every 10 minutes", "is off in ⚙",
+            "because JIRA rejected your token",
+            "Visa: waits until you log in again", "Visa: waits until you save your JIRA token in ⚙ again",
+            "Visa: none for this run, a newer RunAll replaces it",
+            "Visa: none, the PR is closed", "Visa: unknown, TeamCity does not say who started this run",
+            "Visa: the PR title names no IGNITE ticket", "who started this run, has ",
+            "Visa: none, the PR title named no IGNITE ticket when the run settled", "Visa: none, this run was cancelled",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
             "Blockers since the ", " dropped out", " still blocking");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "environment/timing — a re-run may pass",

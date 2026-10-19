@@ -53,8 +53,8 @@ import org.mockito.ArgumentCaptor;
 /**
  * PR 13335, RunAll 9389046: the chain finished at 23:00:32 and the 23:08:42 sweep re-ran the suites
  * of a verdict cached while the chain was still running. Queries 5 had failed at 22:31, after that
- * verdict, so wave 1 left it out and it got one attempt instead of two. Whatever acts on a verdict —
- * the sweep or the one-shot auto visa — must have it computed after the chain finished.
+ * verdict, so wave 1 left it out and it got one attempt instead of two. The sweep must act on a verdict
+ * computed after the chain finished.
  */
 class SweepFreshnessTest {
     private static final String USER = "avinogradov";
@@ -251,28 +251,6 @@ class SweepFreshnessTest {
         assertThat(rerunSuites())
             .as("Disk Page Compressions 1 passed its re-run before the sweep asked; a compute that read it earlier must not decide")
             .containsExactlyInAnyOrder(QUERIES5.id(), QUERIES6.id());
-    }
-
-    /** The one-shot auto visa fires the moment the chain finishes, so it meets the verdict cached mid-run too. */
-    @Test
-    void theOneShotAutoVisaPostsTheVerdictOfTheFinishedChain() {
-        cache.putResult(RUN_ALL, verdict((now - 2580) * 1000, RUN_ALL, 0, List.of(DPC1, QUERIES6), now - 2640));
-        Warmer warmer = mock(Warmer.class);
-        when(warmer.borrowToken()).thenReturn(TOK);
-        VisaService visas = mock(VisaService.class);
-        when(visas.compose(eq(PR), any(), any(), any())).thenReturn("visa");
-        VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, mock(JiraClient.class), visas, analyzer, warmer,
-            mock(PendingCommits.class), tc, standing);
-        subs.arm(PR, "IGNITE-28867", "jira-pat", USER);
-        when(chains.findBuildIdFresh(TOK, PR)).thenReturn(Optional.of(RUN_ALL));
-
-        subs.onChainFinished(new RerunTracker.ChainFinished(PR, RUN_ALL, false));
-
-        ArgumentCaptor<AnalysisResult> posted = ArgumentCaptor.forClass(AnalysisResult.class);
-        verify(visas, timeout(10_000)).compose(eq(PR), posted.capture(), any(), any());
-        assertThat(posted.getValue().blockers()).extracting(TestVerdict::suite)
-            .as("Queries 5 failed after the verdict cached mid-run; the visa must carry it")
-            .containsExactlyInAnyOrder(DPC1.id(), QUERIES5.id(), QUERIES6.id());
     }
 
     /** Waits until the thread parks: past the verdict lookup, the only wait left is on a compute. */

@@ -1,7 +1,6 @@
 package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -30,7 +29,6 @@ import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
-import com.github.igniteprchecker.web.JiraController;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -108,28 +106,6 @@ class VerdictRevisionTest {
             + "pull/13335/commits/" + TESTED + ") ·"));
         verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), contains("· tested [ec2c458|https://github.com/apache/"
             + "ignite/pull/13335/commits/" + TESTED + "] ·"));
-    }
-
-    @Test
-    void theOneShotAndTheManualVisaNameTheCommitToo() {
-        when(analyzer.forceRefresh("tc", PR)).thenReturn(Optional.of(verdict(FIRST)));
-        when(analyzer.analyze("tc", PR)).thenReturn(Optional.of(verdict(FIRST)));
-        when(jira.addComment(anyString(), eq(ISSUE), anyString())).thenReturn("https://issues.example/" + ISSUE);
-        Warmer warmer = mock(Warmer.class);
-        when(warmer.borrowToken()).thenReturn("tc");
-        StandingVisas noStanding = mock(StandingVisas.class);
-        when(noStanding.visaCover(any(), anyInt(), anyLong(), any())).thenReturn(StandingVisas.VisaCover.NONE);
-        VisaSubscriptions subs = new VisaSubscriptions(mapper, codec, jira, visas, analyzer, warmer,
-            mock(PendingCommits.class), tc, noStanding);
-        subs.arm(PR, ISSUE, "reviewer-jira-pat", REVIEWER);
-
-        subs.settle(PR, FIRST, System.currentTimeMillis());
-        new JiraController(jira, tc, analyzer, codec, visas, subs, standing, mock(PendingCommits.class), false)
-            .visa(PR, ISSUE, "tc", "jira-pat");
-
-        String tested = "· tested [ec2c458|https://github.com/apache/ignite/pull/13335/commits/" + TESTED + "] ·";
-        verify(jira).addComment(eq("reviewer-jira-pat"), eq(ISSUE), contains(tested));
-        verify(jira).addComment(eq("jira-pat"), eq(ISSUE), contains(tested));
     }
 
     @Test

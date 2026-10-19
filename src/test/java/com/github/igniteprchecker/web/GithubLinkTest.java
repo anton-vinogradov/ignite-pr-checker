@@ -376,8 +376,7 @@ class GithubLinkTest {
 
     private MockHttpServletRequest browserOf(String username, String tcToken) {
         MockHttpServletRequest req = new MockHttpServletRequest();
-        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(username, tcToken,
-            null))));
+        req.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(username, tcToken))));
 
         return req;
     }

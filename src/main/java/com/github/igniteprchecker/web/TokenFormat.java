@@ -33,8 +33,8 @@ public class TokenFormat extends RequestBodyAdviceAdapter {
     @Override
     public Object afterBodyRead(Object body, HttpInputMessage input, MethodParameter parameter, Type targetType,
         Class<? extends HttpMessageConverter<?>> converterType) {
-        if (body instanceof CarriesToken carried && carried.token() != null && !carried.token().isBlank()
-            && !TOKEN.matcher(carried.token().strip()).matches())
+        if (body instanceof CarriesToken carried && carried.tokens().stream()
+            .anyMatch(t -> t != null && !t.isBlank() && !TOKEN.matcher(t.strip()).matches()))
             throw new Malformed();
 
         return body;

@@ -5,15 +5,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.igniteprchecker.analysis.BlockerAnalyzer;
-import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.SessionProperties;
-import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.Cookie;
@@ -23,7 +18,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpHeaders;
@@ -54,12 +48,6 @@ class SessionLifetimeTest {
         new SessionProperties(false, "test-secret"), warmer, users, null,
         new AdminActions(new AdminProperties(List.of()), mapper), mock(StandingVisas.class));
 
-    private final JiraClient jira = mock(JiraClient.class);
-
-    private final JiraController tokens = new JiraController(jira, mock(TcClient.class), mock(BlockerAnalyzer.class),
-        codec, mock(VisaService.class), mock(VisaSubscriptions.class), mock(StandingVisas.class),
-        mock(PendingCommits.class), true);
-
     @Test
     void aCookieInUseIsIssuedAgainBeforeTheBrowserDropsIt() throws Exception {
         MockHttpServletResponse resp = guard(cookie("alice", System.currentTimeMillis() - 31 * DAY));
@@ -82,7 +70,7 @@ class SessionLifetimeTest {
 
         assertThat(resp.getStatus()).isEqualTo(200);
         assertThat(codec.decode(setCookie(resp).getValue())).hasValueSatisfying(s -> {
-            assertThat(s.jiraToken()).isEqualTo("jira-pat");
+            assertThat(s.carriesJira()).isFalse();
             assertThat(s.issuedAt()).isPositive();
         });
     }
@@ -111,7 +99,7 @@ class SessionLifetimeTest {
 
     @Test
     void theLoginCookieAsksForWhatBrowsersKeep() {
-        String cookie = codec.encode(new SessionCodec.Session("alice", "alice-tc", null));
+        String cookie = codec.encode(new SessionCodec.Session("alice", "alice-tc"));
 
         ResponseEntity<?> me = login.me(request(codec.encryptString(
             "{\"username\":\"alice\",\"token\":\"alice-tc\"}")));
@@ -158,24 +146,6 @@ class SessionLifetimeTest {
     }
 
     /**
-     * Someone with a copy of alice's cookie pasted a JIRA token while alice logged out: the guard had let the copy
-     * through before the logout, and the cookie issued once JIRA answered was dated after it, so the logout did not
-     * end it.
-     */
-    @Test
-    void aCookieIssuedWithAJiraTokenWhileALogoutCameIsEndedByIt() throws Exception {
-        String copy = cookie("alice", System.currentTimeMillis() - DAY);
-        MockHttpServletRequest req = passed(copy);
-        when(jira.myself("mallory-jira")).thenAnswer(inv -> answerAfterLogout(copy, "Mallory"));
-
-        ResponseEntity<?> saved = tokens.saveToken(new JiraController.TokenRequest("mallory-jira"),
-            (SessionCodec.Session)req.getAttribute(AuthInterceptor.SESSION_ATTR),
-            (Long)req.getAttribute(AuthInterceptor.CHECKED_AT_ATTR));
-
-        assertEnded(saved);
-    }
-
-    /**
      * A logout ended a copy of alice's cookie, yet the copy could still log out: each time alice logged in again, a
      * logout with the dead copy ended her new login.
      */
@@ -184,7 +154,7 @@ class SessionLifetimeTest {
         String copy = cookie("alice", System.currentTimeMillis() - DAY);
         login.logout(true, request(copy));
         Thread.sleep(5); // alice logs in again a moment later
-        String later = codec.encode(new SessionCodec.Session("alice", "alice-tc", null));
+        String later = codec.encode(new SessionCodec.Session("alice", "alice-tc"));
 
         login.logout(true, request(copy));
 
@@ -236,29 +206,6 @@ class SessionLifetimeTest {
     private String cookie(String user, String tcToken, long issuedAt) {
         return codec.encryptString("{\"username\":\"" + user + "\",\"token\":\"" + tcToken + "\",\"iat\":" + issuedAt
             + "}");
-    }
-
-    /** What GitHub or JIRA answers a moment after alice logged out with her cookie. */
-    private Optional<String> answerAfterLogout(String cookie, String who) throws InterruptedException {
-        login.logout(true, request(cookie));
-        Thread.sleep(5);
-
-        return Optional.of(who);
-    }
-
-    private void assertEnded(ResponseEntity<?> saved) throws Exception {
-        assertThat(saved.getStatusCode().value()).isEqualTo(200);
-        String issued = HttpCookie.parse(saved.getHeaders().getFirst(HttpHeaders.SET_COOKIE)).get(0).getValue();
-        assertThat(guard(issued).getStatus()).isEqualTo(401);
-        assertThat(login.me(request(issued)).getStatusCode().value()).isEqualTo(401);
-    }
-
-    /** The request the guard let through. */
-    private MockHttpServletRequest passed(String cookie) throws Exception {
-        MockHttpServletRequest req = request(cookie);
-        assertThat(auth.preHandle(req, new MockHttpServletResponse(), new Object())).isTrue();
-
-        return req;
     }
 
     private MockHttpServletResponse guard(String cookie) throws Exception {

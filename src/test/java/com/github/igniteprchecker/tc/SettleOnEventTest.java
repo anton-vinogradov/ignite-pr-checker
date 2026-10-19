@@ -25,7 +25,6 @@ import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
@@ -115,10 +114,10 @@ class SettleOnEventTest {
         context.registerBean(VisaService.class,
             () -> new VisaService(new TeamcityProperties("https://ci2.example/"), "https://checker.example"));
         context.registerBean(PendingCommits.class, () -> mock(PendingCommits.class));
-        for (String pool : List.of("earlyRerunExecutor", "settleExecutor", "visaPosterExecutor"))
+        for (String pool : List.of("earlyRerunExecutor", "settleExecutor"))
             context.registerBean(pool, ExecutorService.class, () -> Executors.newSingleThreadExecutor(),
                 bd -> bd.setDestroyMethodName("shutdown"));
-        context.register(RerunTracker.class, StandingVisas.class, VisaSubscriptions.class);
+        context.register(RerunTracker.class, StandingVisas.class);
         context.refresh();
 
         stubs();

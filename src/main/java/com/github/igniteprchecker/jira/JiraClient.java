@@ -72,11 +72,6 @@ public class JiraClient {
         }
     }
 
-    /** Posts a comment to the issue; the URL of the created comment. */
-    public String addComment(String token, String issueKey, String body) {
-        return addCommentWithId(token, issueKey, body).url();
-    }
-
     /** Posts a comment to the issue; its id (for later in-place edits) and browse URL. */
     public PostedComment addCommentWithId(String token, String issueKey, String body) {
         Comment c = recorded("visa", () -> http.post().uri(baseUrl + "/rest/api/2/issue/" + issueKey + "/comment")
@@ -86,8 +81,15 @@ public class JiraClient {
             .retrieve()
             .body(Comment.class));
 
-        return new PostedComment(c == null ? null : c.id(), baseUrl + "/browse/" + issueKey
-            + (c != null && c.id() != null ? "?focusedCommentId=" + c.id() + "#comment-" + c.id() : ""));
+        String id = c == null ? null : c.id();
+
+        return new PostedComment(id, commentUrl(issueKey, id));
+    }
+
+    /** Where the comment {@code commentId} of the issue opens in the browser; the issue itself without an id. */
+    public String commentUrl(String issueKey, String commentId) {
+        return baseUrl + "/browse/" + issueKey
+            + (commentId != null ? "?focusedCommentId=" + commentId + "#comment-" + commentId : "");
     }
 
     /** Replaces the body of an existing issue comment — the living visa updates in place. */

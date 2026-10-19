@@ -8,9 +8,9 @@ import org.junit.jupiter.api.Test;
 /**
  * Enter on "Rerun 2 suites" in Broken suites: Chrome took the focus off the button as the page disabled it for the
  * request, so the focus fell to the page; the answer "⚠ Not queued…" went into the note under the buttons and the
- * status line, and the page had no live region to read it out. The answer to Rerun, Run, Cancel my runs, Post now and
- * Auto visa is read out from one polite live region, emptied first so the same answer twice is heard twice; the focus
- * comes back to the button, on the status page too.
+ * status line, and the page had no live region to read it out. The answer to Rerun, Run and Cancel my runs is read out
+ * from one polite live region, emptied first so the same answer twice is heard twice; the focus comes back to the
+ * button, on the status page too.
  */
 class SpokenAnswersPageTest {
     /** A button that loses the focus when it is disabled, as in a browser; the scenario focuses it. */
@@ -98,18 +98,14 @@ class SpokenAnswersPageTest {
     }
 
     @Test
-    void runCancelAndTheVisaButtonsAreReadOutToo() throws Exception {
+    void runAndCancelAreReadOutToo() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + BUTTONS + """
-            page.route('/api/me', { body: { username: 'alice', jira: true } });
             page.route('/api/runs', { body: [{ buildId: 201, state: 'running', name: 'RunAll', btId: 'RunAll',
                 webUrl: 'https://ci2.example/build/201', pct: -1, by: 'alice', mine: true, runAll: true }] });
             page.route('/api/trigger', { body: { triggered: [{ buildId: 301, webUrl: 'https://ci2.example/build/301' }],
                 replaced: true } }, 'POST');
             page.route('/api/cancel-all', { body: { cancelled: 1 } }, 'POST');
-            page.route('/api/jira-visa', { body: { url: 'https://issues.example/browse/IGNITE-29049' } }, 'POST');
-            page.route('/api/auto-visa', (url, method) => ({ body: { armed: method === 'POST' } }));
             await page.load('?pr=13575');
-            page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
             const heard = {};
             const press = async (name, id, act) => {
                 const b = focused(id);
@@ -119,18 +115,13 @@ class SpokenAnswersPageTest {
             };
             await press('run', 'runBtn', b => page.run('doTrigger')('trigger', 'false', b));
             await press('cancel', 'cancelMine', () => page.run('cancelMine')());
-            await press('visa', 'visaBtn', () => page.run('postVisa')());
-            await press('auto', 'autoVisaBtn', () => page.run('armAutoVisa')());
             report(heard);
             """);
 
         assertThat(out.at("/run/answer").asText())
             .isEqualTo("Queued 1 build: #301. Your previous RunAll was cancelled.");
         assertThat(out.at("/cancel/answer").asText()).isEqualTo("Cancelled 1 run.");
-        assertThat(out.at("/visa/answer").asText()).isEqualTo("Visa posted to IGNITE-29049");
-        assertThat(out.at("/auto/answer").asText())
-            .isEqualTo("Auto visa armed: the verdict goes to IGNITE-29049 the next time a RunAll of this PR finishes.");
-        for (String button : new String[] {"run", "cancel", "visa", "auto"})
+        for (String button : new String[] {"run", "cancel"})
             assertThat(out.at("/" + button + "/back").asBoolean()).as(button).isTrue();
     }
 

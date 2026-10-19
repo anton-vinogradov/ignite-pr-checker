@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -16,11 +17,11 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.web.JiraController;
+import com.github.igniteprchecker.web.UserDirectory;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -40,8 +41,7 @@ class SuiteFixCountTest {
         mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 
     private final JiraController controller = new JiraController(mock(JiraClient.class), mock(TcClient.class),
-        mock(BlockerAnalyzer.class), new SessionCodec(new SessionProperties(false, "test-secret"), mapper),
-        mock(VisaService.class), mock(VisaSubscriptions.class), standing, mock(PendingCommits.class), false);
+        standing, mock(MergedVerdicts.class), mock(UserDirectory.class));
 
     private final SuiteFixService suiteFix = new SuiteFixService(github, mock(PrTestRuns.class), standing, mapper,
         Runnable::run, System::currentTimeMillis);

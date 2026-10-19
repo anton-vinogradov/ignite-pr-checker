@@ -7,6 +7,7 @@ import com.github.igniteprchecker.session.SessionCodec;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -17,12 +18,19 @@ import org.springframework.stereotype.Component;
 
 /**
  * Who has been using the tool: usernames seen on authenticated requests, with first/last activity
- * and login counts, and when each last logged out. Persisted within a second, so the answer to "who
- * logged in?" and a logout survive restarts: the session cookies a user had before a logout stay
- * refused. No tokens here — names only.
+ * and login counts, when each last logged out, and when a cookie of theirs last carried a JIRA token the checker does
+ * not use. Persisted within a second, so the answer to "who logged in?" and a logout survive restarts: the session
+ * cookies a user had before a logout stay refused. No tokens here — names only.
  */
 @Component
 public class UserDirectory implements SnapshotCache {
+    /**
+     * How long after a cookie of the user last carried a JIRA token ⚙ tells them that visas need Visa my runs in JIRA.
+     * Such a cookie loses the token at its next request, so without the mark the user would learn it only from the
+     * visas that do not come.
+     */
+    static final Duration JIRA_IN_COOKIE_TOLD_FOR = Duration.ofDays(30);
+
     private final ObjectMapper mapper;
     private final ConcurrentMap<String, Info> users = new ConcurrentHashMap<>();
 
@@ -40,6 +48,29 @@ public class UserDirectory implements SnapshotCache {
         Info i = info(username);
         i.lastSeen = System.currentTimeMillis();
         i.logins.incrementAndGet();
+    }
+
+    /** A request whose cookie carries a JIRA token, which the checker does not use; see {@link #jiraInCookie}. */
+    public void sawJiraInCookie(String username) {
+        info(username).jiraInCookieAt = System.currentTimeMillis();
+    }
+
+    /**
+     * Whether a cookie of the user carried a JIRA token within {@link #JIRA_IN_COOKIE_TOLD_FOR}: they pasted it into an
+     * earlier version, and get visas only once they switch on Visa my runs in JIRA with it.
+     */
+    public boolean jiraInCookie(String username) {
+        Info i = users.get(username);
+
+        return i != null && i.jiraInCookieAt > 0
+            && System.currentTimeMillis() - i.jiraInCookieAt <= JIRA_IN_COOKIE_TOLD_FOR.toMillis();
+    }
+
+    /** The user's visa option has a JIRA token of its own: nothing is left to tell of the one in their cookie. */
+    public void forgetJiraInCookie(String username) {
+        Info i = users.get(username);
+        if (i != null)
+            i.jiraInCookieAt = 0;
     }
 
     /** A logout: every session of the user issued until now ends, in any browser, copies of its cookie included. */
@@ -68,7 +99,7 @@ public class UserDirectory implements SnapshotCache {
     public List<UserView> list() {
         List<UserView> out = new ArrayList<>();
         users.forEach((name, i) -> out.add(new UserView(name, i.firstSeen, i.lastSeen, i.logins.get(),
-            i.sessionsEndedAt)));
+            i.sessionsEndedAt, i.jiraInCookieAt)));
         out.sort(Comparator.comparingLong(UserView::lastSeen).reversed());
 
         return out;
@@ -104,6 +135,7 @@ public class UserDirectory implements SnapshotCache {
             i.lastSeen = u.lastSeen();
             i.logins.set(u.logins());
             i.sessionsEndedAt = u.sessionsEndedAt();
+            i.jiraInCookieAt = u.jiraInCookieAt();
             users.put(u.name(), i);
         }
     }
@@ -113,6 +145,7 @@ public class UserDirectory implements SnapshotCache {
         volatile long lastSeen;
         final AtomicLong logins = new AtomicLong();
         volatile long sessionsEndedAt;
+        volatile long jiraInCookieAt;
 
         Info(long firstSeen) {
             this.firstSeen = firstSeen;
@@ -120,9 +153,10 @@ public class UserDirectory implements SnapshotCache {
     }
 
     /**
-     * One user of the tool: identity and activity summary (no secrets), and when they last logged out (0: never;
-     * absent from the files of earlier versions).
+     * One user of the tool: identity and activity summary (no secrets), when they last logged out, and when a cookie
+     * of theirs last carried a JIRA token (0: never; both absent from the files of earlier versions).
      */
-    public record UserView(String name, long firstSeen, long lastSeen, long logins, long sessionsEndedAt) {
+    public record UserView(String name, long firstSeen, long lastSeen, long logins, long sessionsEndedAt,
+        long jiraInCookieAt) {
     }
 }

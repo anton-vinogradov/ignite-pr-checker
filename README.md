@@ -79,9 +79,10 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   shared limit stops, does not.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
-  adding tests to suites, the two options that commit. Copies of these tokens stay in the backups of the
-  [cache directory](#the-cache-directory) for 2 days; backups older than 2 days keep the rest of the state, without
-  the tokens.
+  adding tests to suites, the two options that commit. Visas come only from **Visa my runs in JIRA**. The page sends
+  the JIRA token in the request that switches this option on. No cookie keeps the token. Copies of these tokens stay
+  in the backups of the [cache directory](#the-cache-directory) for 2 days; backups older than 2 days keep the rest of
+  the state, without the tokens.
 - **GitHub account.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in
   ⚙, or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no
   scope.
@@ -309,8 +310,7 @@ each boot, or the tokens can stay in the swap file.
 
 | File | What it holds |
 |---|---|
-| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; for a TeamCity token that TeamCity refused, only its SHA-256, to recognize that token again), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the re-run waves. |
-| `visa-subs.json` | Armed one-shot Auto visas, each with its JIRA token (encrypted), and those JIRA refused the token of, without it. |
+| `standing-visas.json` | Each user's standing options, their stored TeamCity, JIRA and GitHub tokens (encrypted; for a TeamCity token that TeamCity refused, only its SHA-256, to recognize that token again), GitHub logins and account ids, the comments and visas the options follow, the visas and comments a refused token held back, the ticket and comment of the visa of each of the last 2000 settled runs, the re-run waves. |
 | `pr-commands.json` | The PR command poll: handled comments, run stories, who got the onboarding reply, the reactions and replies GitHub has not taken yet. |
 | `suite-fixes.json` | Adding PRs' tests to suites: each head commit tried once, the commit pushed and the comment that reports it. |
 | `reruns.json` | Queued and running builds the page and the options follow. |
@@ -332,7 +332,7 @@ when the user opens the checker or logs in. ⚙ asks the user to save the JIRA t
 again. A `.bad-` file that is not JSON keeps its tokens: the log names it, so delete it once you no longer need it.
 
 The tokens in these files, the backups included, are encrypted with `SESSION_SECRET`. Changing the secret logs
-everyone out and makes the stored tokens unreadable. Armed Auto visas are dropped. The standing options do not wait
+everyone out and makes the stored tokens unreadable. The standing options do not wait
 for their owner: when a run of a user with auto re-run, auto-visa or the PR comment on finishes, the checker drops all
 their options, the linked GitHub login included, if it cannot read their TeamCity token, or their JIRA token while
 auto-visa is on. A user stores a fresh TeamCity token by logging in again, and a fresh JIRA or GitHub token by
@@ -407,7 +407,7 @@ One Spring Boot application; the packages under `com.github.igniteprchecker`:
 |---|---|
 | `tc` | The TeamCity REST client, and `RerunTracker`, which follows queued and running builds. What a user does goes under their own token; background reads borrow other users' tokens and only read with them. |
 | `analysis` | The verdict: `ChainCollector` walks the RunAll chain, `BlockerAnalyzer` judges each failure, plus caveats, root causes, the flaky board, merged PRs' verdicts, and the warmer with its token pool. |
-| `jira` | Verdict texts (`VisaService`), the standing options that settle runs with re-runs, comments and visas (`StandingVisas`), and one-shot Auto visas. |
+| `jira` | Verdict texts (`VisaService`), and the standing options that settle runs with re-runs, comments and visas (`StandingVisas`). |
 | `github` | The GitHub client (PR list, comments, reactions, commits) and the PR command poll (`PrCommands`). |
 | `style` | The checkstyle autofix of the author's own PR. |
 | `web` | The HTTP API, login, operator actions, security headers. |

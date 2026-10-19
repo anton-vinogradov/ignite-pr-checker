@@ -73,10 +73,9 @@ class TokenTextsTest {
             report({ msg: page.el('settingsMsg').textContent });
             """);
 
-        assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options; "
-            + "an Auto visa you armed keeps your JIRA token until the visa is posted or you cancel it. Copies of the "
-            + "tokens stay in the server's backups for 2 days, and your session cookie keeps the TeamCity and JIRA "
-            + "tokens you pasted until you log out.");
+        assertThat(out.get("msg").asText()).isEqualTo("All off — the server no longer keeps tokens for your options. "
+            + "Copies of the tokens stay in the server's backups for 2 days. Your session cookie keeps your TeamCity "
+            + "token until you log out.");
     }
 
     @Test

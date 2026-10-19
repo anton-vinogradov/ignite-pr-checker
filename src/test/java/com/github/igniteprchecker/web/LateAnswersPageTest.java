@@ -6,11 +6,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 
 /**
- * A reader clicked Rerun, Run, Cancel my runs or Post now on PR 13575 and opened PR 13461 before the answer came. The
- * answer then landed on 13461: "Queued #777" in its status line and a queued chip on its suite, "Visa posted to
- * IGNITE-28972" for a visa that went to IGNITE-29049, an Auto visa shown as armed on the wrong PR. A refusal under the
- * Rerun buttons stayed there on the next PR, and a late answer about an earlier build's tests replaced the card of the
- * build on screen.
+ * A reader clicked Rerun, Run or Cancel my runs on PR 13575 and opened PR 13461 before the answer came. The answer
+ * then landed on 13461: "Queued #777" in its status line and a queued chip on its suite. A refusal under the Rerun
+ * buttons stayed there on the next PR, and a late answer about an earlier build's tests replaced the card of the build
+ * on screen. Where the visa of 13575 stands must not show on 13461 either.
  */
 class LateAnswersPageTest {
     /** Holds the answers to {@code prefix}; {@code release(prefix, answer)} lets the earliest one go. */
@@ -27,7 +26,7 @@ class LateAnswersPageTest {
             page.run('openPr')(13461, true);
             await page.settle();
             page.run('setPrTitle')(13461, 'IGNITE-28972 Check marshalled kind', null);
-            page.run('paintVisaGroup')();
+            page.run('paintVisaLine')();
         }
         """;
 
@@ -95,26 +94,27 @@ class LateAnswersPageTest {
         assertThat(out.get("status").asText()).doesNotContain("Cancelled");
     }
 
-    /** Auto visa was armed on 13575; on 13461 the page could not ask for its state, and kept showing 13575's. */
+    /** The visa of 13575 was posted; on 13461 the page could not ask where the visa stands. */
     @Test
-    void anAutoVisaArmedOnOnePrIsNotShownOnTheNext() throws Exception {
+    void theVisaLineOfOnePrIsNotShownOnTheNext() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
-            page.route('/api/me', { body: { username: 'alice', jira: true } });
-            page.route('/api/auto-visa', { body: { armed: true } });
+            page.route('/api/visa', { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29049',
+                url: 'https://issues.apache.org/jira/browse/IGNITE-29049?focusedCommentId=1#comment-1' } });
             await page.load('?pr=13575');
             page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
-            page.run('paintVisaGroup')();
-            const armed = page.el('autoVisaBtn').textContent;
-            page.route('/api/auto-visa', { status: 502, body: {} });
+            await page.run('loadVisaLine')(13575);
+            const posted = page.el('visaLine').textContent;
+            page.route('/api/visa', { status: 502, body: {} });
+            page.route('/api/analyze', { body: verdict({ prNumber: 13461, buildId: 9300 }) });
             await openOther();
-            report({ armed, button: page.el('autoVisaBtn').textContent, title: page.el('autoVisaBtn').title,
-                asked: page.fetches('/api/auto-visa?pr=13461').length });
+            await page.run('loadVisaLine')(13461);
+            report({ posted, line: page.el('visaLine').textContent,
+                asked: page.fetches('/api/visa?pr=13461').length });
             """);
 
-        assertThat(out.get("armed").asText()).isEqualTo("Auto visa ✓");
+        assertThat(out.get("posted").asText()).isEqualTo("Visa: posted to IGNITE-29049");
         assertThat(out.get("asked").asInt()).isPositive();
-        assertThat(out.get("button").asText()).isEqualTo("Auto visa");
-        assertThat(out.get("title").asText()).doesNotContain("Armed by you");
+        assertThat(out.get("line").asText()).doesNotContain("posted");
     }
 
     @Test
@@ -133,48 +133,22 @@ class LateAnswersPageTest {
     }
 
     @Test
-    void aVisaPostedAfterAnotherPrOpenedIsNotToldThere() throws Exception {
+    void aVisaLineAnsweredAfterAnotherPrOpenedIsNotShownThere() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
-            page.route('/api/me', { body: { username: 'alice', jira: true } });
+            hold('/api/visa');
             await page.load('?pr=13575');
             page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
-            page.run('paintVisaGroup')();
-            hold('/api/jira-visa', 'POST');
-            const posting = page.run('postVisa')();
+            page.run('loadVisaLine')(13575);
             await page.settle();
-            const asked = page.fetches('/api/jira-visa')[0].url;
+            const asked = page.fetches('/api/visa')[0].url;
             await openOther();
-            await release('/api/jira-visa', { body: { url: 'https://issues.apache.org/jira/browse/IGNITE-29049#c1' } });
-            await posting;
-            report({ asked, note: !page.el('visaNote').classList.contains('hidden'),
-                status: page.el('status').textContent });
+            await release('/api/visa', { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29049',
+                url: 'https://issues.apache.org/jira/browse/IGNITE-29049?focusedCommentId=1#comment-1' } });
+            report({ asked, line: page.el('visaLine').textContent });
             """);
 
-        assertThat(out.get("asked").asText()).isEqualTo("/api/jira-visa?pr=13575&issue=IGNITE-29049");
-        assertThat(out.get("note").asBoolean()).isFalse();
-        assertThat(out.get("status").asText()).doesNotContain("Visa posted");
-    }
-
-    @Test
-    void anAutoVisaArmedAfterAnotherPrOpenedIsNotShownThere() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + HELD + """
-            page.route('/api/me', { body: { username: 'alice', jira: true } });
-            await page.load('?pr=13575');
-            page.run('setPrTitle')(13575, 'IGNITE-29049 Move MDC to JUnit', null);
-            page.run('paintVisaGroup')();
-            hold('/api/auto-visa');
-            const arming = page.run('armAutoVisa')();
-            await page.settle();
-            await openOther();
-            await release('/api/auto-visa', { body: { armed: true, issue: 'IGNITE-29049' } });
-            await arming;
-            report({ armed: page.run('autoVisa').armed, button: page.el('autoVisaBtn').textContent,
-                note: !page.el('visaNote').classList.contains('hidden') });
-            """);
-
-        assertThat(out.get("armed").asBoolean()).isFalse();
-        assertThat(out.get("button").asText()).isEqualTo("Auto visa");
-        assertThat(out.get("note").asBoolean()).isFalse();
+        assertThat(out.get("asked").asText()).isEqualTo("/api/visa?pr=13575&build=9001");
+        assertThat(out.get("line").asText()).doesNotContain("IGNITE-29049");
     }
 
     /** The tests of RunAll 9001 came after the page had moved on to RunAll 9100 of the same PR. */

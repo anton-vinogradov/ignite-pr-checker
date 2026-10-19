@@ -14,7 +14,6 @@ import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.persist.CacheStore;
 import com.github.igniteprchecker.suitefix.SuiteFixService;
@@ -50,9 +49,9 @@ class FirstPassTimesTest {
     @SuppressWarnings("unchecked")
     private final StatusController status = new StatusController(mock(Metrics.class), mock(AnalysisCache.class),
         warmer, mock(GithubClient.class), new LogTracker(mapper),
-        new ServiceHealth(warmer, standing, commands, store, config), mock(RerunTracker.class),
-        mock(VisaSubscriptions.class), standing, commands, mock(AuthInterceptor.class),
-        new AdminActions(new AdminProperties(List.of()), mapper), store, config, mock(ObjectProvider.class), suiteFix);
+        new ServiceHealth(warmer, standing, commands, store, config), mock(RerunTracker.class), standing, commands,
+        mock(AuthInterceptor.class), new AdminActions(new AdminProperties(List.of()), mapper), store, config,
+        mock(ObjectProvider.class), suiteFix);
 
     @Test
     void eachFirstPassIsDueItsJobsInitialDelayAfterTheJobsAreScheduled() {

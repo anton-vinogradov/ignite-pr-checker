@@ -1009,6 +1009,13 @@ public class TcClient {
         return b == null ? Optional.empty() : Optional.ofNullable(starter(b));
     }
 
+    /** Who queued a build, its state, when it finished and whether it was cancelled; empty when TeamCity says nothing. */
+    public Optional<TcModel.Build> buildEnd(String token, long buildId) {
+        return Optional.ofNullable(get("buildState", token, url("app/rest/builds/id:" + buildId, query(
+            "fields", "id,state,finishDate,triggered(type,user(username)),canceledInfo(text,user(username))")),
+            TcModel.Build.class));
+    }
+
     /** Moves an already-queued build to the top of the build queue (position 1). */
     public void moveToQueueTop(String token, long buildId) {
         recorded("queueTop", () -> http.put()

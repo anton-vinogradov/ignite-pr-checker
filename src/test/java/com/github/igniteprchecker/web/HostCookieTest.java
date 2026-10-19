@@ -94,7 +94,7 @@ class HostCookieTest {
     /** A cookie of this version set under the old name came from a page that planted it there. */
     @Test
     void aNewCookieUnderTheOldNameIsRefused() throws Exception {
-        String planted = codec.encode(new SessionCodec.Session("mallory", "mallory-tc", null));
+        String planted = codec.encode(new SessionCodec.Session("mallory", "mallory-tc"));
 
         MockHttpServletResponse guarded = new MockHttpServletResponse();
         assertThat(auth.preHandle(browser(AuthInterceptor.COOKIE, planted), guarded, new Object())).isFalse();
@@ -148,7 +148,7 @@ class HostCookieTest {
     /** A cookie of this version under the old name came from a page that planted it: it goes without a word. */
     @Test
     void aPlantedCookieUnderTheOldNameGoesWithoutAWord() {
-        String planted = codec.encode(new SessionCodec.Session("mallory", "mallory-tc", null));
+        String planted = codec.encode(new SessionCodec.Session("mallory", "mallory-tc"));
 
         ResponseEntity<?> me = login.me(browser(AuthInterceptor.COOKIE, planted));
 
@@ -161,8 +161,8 @@ class HostCookieTest {
     @Test
     void aLogoutRemovesTheCookieUnderBothNames() throws Exception {
         MockHttpServletRequest both = new MockHttpServletRequest();
-        both.setCookies(new Cookie(SessionCookies.HOST_COOKIE, codec.encode(new SessionCodec.Session(USER, TOKEN,
-            null))), new Cookie(AuthInterceptor.COOKIE, earlierCookie()));
+        both.setCookies(new Cookie(SessionCookies.HOST_COOKIE, codec.encode(new SessionCodec.Session(USER, TOKEN))),
+            new Cookie(AuthInterceptor.COOKIE, earlierCookie()));
 
         List<String> set = login.logout(true, both).getHeaders().get(HttpHeaders.SET_COOKIE);
 

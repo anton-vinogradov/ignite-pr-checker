@@ -41,7 +41,7 @@ class PrTestsSoonPageTest {
         assertThat(out.get("atAsk").get("verdict").asText()).as("the verdict at the ask").isEmpty();
         assertThat(out.get("atAsk").get("before")).extracting(JsonNode::asText)
             .noneMatch(url -> url.startsWith("/api/delta") || url.startsWith("/api/pending")
-                || url.startsWith("/api/auto-visa") || url.startsWith("/api/settling"));
+                || url.startsWith("/api/auto-visa") || url.startsWith("/api/visa") || url.startsWith("/api/settling"));
         assertThat(out.get("verdict").asText()).isNotEmpty();
     }
 

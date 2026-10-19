@@ -18,7 +18,6 @@ import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.jira.VisaSubscriptions;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -46,7 +45,9 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
  * load and save back with nothing lost; a field added since may show up in what is saved. Unknown fields fail here,
  * though the app itself ignores them. What the checker no longer acts on is forgotten on purpose, and only that: the
  * PR comments and run stories written with the user's own GitHub token, which the checker no longer writes with, and
- * the logins told once for good how to switch PR commands on, which name no PR: such a reply now goes once per PR.
+ * the logins told once for good how to switch PR commands on, which name no PR: such a reply now goes once per PR. The
+ * one-shot Auto visas of visa-subs.json are gone with their file, which the start removes
+ * ({@code RetiredVisaSubscriptionsTest}).
  */
 class ReleaseSnapshotsTest {
     private static final String RELEASE = "/snapshots/v1.20.11/";
@@ -71,13 +72,10 @@ class ReleaseSnapshotsTest {
             mock(ApplicationEventPublisher.class));
         StandingVisas standing = new StandingVisas(MAPPER, codec, tc, github, analyzer, jira, visas, tracker, warmer,
             pending);
-        VisaSubscriptions subs = new VisaSubscriptions(MAPPER, codec, jira, visas, analyzer, warmer, pending, tc,
-            standing);
 
         return Stream.of(standing,
             new PrCommands(MAPPER, github, standing, tc, tracker, mock(StyleFixService.class), mock(SuiteBaseline.class),
                 "https://ignite-pr-checker.is-a.dev", new TeamcityProperties("https://ci2.ignite.apache.org/")),
-            subs,
             tracker,
             new UserDirectory(MAPPER));
     }
@@ -116,7 +114,7 @@ class ReleaseSnapshotsTest {
     @Test
     void whatTheServiceActsOnIsWrittenAtOnce() {
         assertThat(stateOfTheRelease().filter(SnapshotCache::durable).map(SnapshotCache::fileName))
-            .containsExactly("standing-visas.json", "pr-commands.json", "visa-subs.json", "reruns.json", "users.json");
+            .containsExactly("standing-visas.json", "pr-commands.json", "reruns.json", "users.json");
     }
 
     /**

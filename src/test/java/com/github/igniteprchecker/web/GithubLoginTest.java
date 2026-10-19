@@ -260,8 +260,8 @@ class GithubLoginTest {
         String code = "code-of-" + username;
         when(github.oauthUser(code)).thenReturn(Optional.of(account));
         MockHttpServletRequest browser = new MockHttpServletRequest();
-        browser.setCookies(new Cookie(AuthInterceptor.COOKIE, codec.encode(new SessionCodec.Session(username, tcToken,
-            null))));
+        browser.setCookies(new Cookie(AuthInterceptor.COOKIE,
+            codec.encode(new SessionCodec.Session(username, tcToken))));
 
         String back = String.valueOf(links.callback(code, state, null, browser).getHeaders().getLocation());
 
