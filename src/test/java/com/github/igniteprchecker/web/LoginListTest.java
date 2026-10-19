@@ -293,6 +293,50 @@ class LoginListTest {
         assertThat(guard(bobs, CHROME_MAC).getStatus()).isEqualTo(200);
     }
 
+    /**
+     * alice ended her lost laptop's login in ⚙, and then the service ran a jar without logins for a day. That jar took
+     * a copy of the laptop's cookie and issued it again, naming no login, so after the update back the copy got a login
+     * of its own. The README tells her to press Log out everywhere else then, and it ends that login.
+     */
+    @Test
+    void everywhereElseEndsALoginARollbackBroughtBack() throws Exception {
+        now.addAndGet(-2 * DAY);
+        String desktop = loggedIn("alice");
+        String laptop = loggedIn("alice");
+        login.endLogins(new LoginController.EndRequest(List.of(loginOf(laptop))), "alice", loginOf(desktop));
+        now.addAndGet(DAY);
+        String reissued = earlierCookie("alice", now.get());
+        now.addAndGet(DAY);
+
+        assertThat(guard(laptop, CHROME_MAC).getStatus()).isEqualTo(401);
+        assertThat(guard(reissued, CHROME_MAC).getStatus()).as("the README says the copy works again").isEqualTo(200);
+
+        login.endOtherLogins("alice", loginOf(desktop));
+
+        assertThat(guard(reissued, CHROME_MAC).getStatus()).isEqualTo(401);
+        assertThat(guard(desktop, CHROME_MAC).getStatus()).isEqualTo(200);
+    }
+
+    /**
+     * During a rollback to a jar without logins, alice pressed Log out there, which ended every browser of hers in that
+     * jar, and logged in again on her desktop. Back on this version, her phone's cookie names its login, so that Log
+     * out does not end it. The README tells her to press Log out everywhere else then, and it does.
+     */
+    @Test
+    void everywhereElseEndsTheLoginsALogoutDuringARollbackLeft() throws Exception {
+        String phone = loggedIn("alice");
+        users.endSessions("alice");
+        String desktop = earlierCookie("alice", now.get() + 1000);
+
+        assertThat(guard(phone, CHROME_MAC).getStatus()).as("the README says the cookie works again").isEqualTo(200);
+        String desktopNow = issuedCookie(guard(desktop, CHROME_MAC));
+
+        login.endOtherLogins("alice", loginOf(desktopNow));
+
+        assertThat(guard(phone, CHROME_MAC).getStatus()).isEqualTo(401);
+        assertThat(guard(desktopNow, CHROME_MAC).getStatus()).isEqualTo(200);
+    }
+
     /** A request writes the file: the last-seen time moves once in five minutes, not on every request. */
     @Test
     void aLoginInUseIsSeenAtMostOnceInFiveMinutes() throws Exception {

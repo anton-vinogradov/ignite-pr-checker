@@ -267,6 +267,13 @@ Use `install`, not `cp`: `cp` writes into the jar the running service still read
 its state as it stops. A jar installed before v1.35.0 is not in `installed-jars`, so after a rollback to it an update
 from the page fails. Install the next release with `update.sh` as shown above.
 
+A jar without **Your logins** in ⚙ keeps no list of logins. After a rollback to it, a login ended in ⚙ or with
+**Log out** works again where a copy of its cookie is left. Once such a copy is a day old, that jar issues it again
+without the login. That copy also works after the update back. **Log out** in that jar logs out every browser of its
+user, but after the update back the cookies this version issued before the rollback work again. In ⚙,
+**Log out everywhere else** ends both. After the update back, ask the users who ended a login before the rollback, or
+logged out during it, to press it.
+
 The first start of a new build copies each state file to `<file>.before-<version>-built-<time>`. To undo what a bad
 release wrote, stop the service, copy that file over the state file, and start the old jar. A copy older than 2 days
 holds no tokens. A jar of v1.37.0 or older started on such a copy switches off the visa and the options that commit, as
