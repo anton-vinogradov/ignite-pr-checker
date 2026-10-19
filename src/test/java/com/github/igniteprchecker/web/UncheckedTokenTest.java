@@ -65,7 +65,10 @@ class UncheckedTokenTest {
         assertThat(standing.settings(USER).suites()).isFalse();
     }
 
-    /** The stored token keeps serving the options while GitHub cannot check one the page brings. */
+    /**
+     * The stored token keeps serving the options while GitHub cannot check one the page brings. The switch that brings
+     * the new token is refused: it went on with the stored token, and the new one was dropped without a word.
+     */
     @Test
     void aStoredTokenServesWhileGithubCannotCheckANewOne() {
         when(github.writes()).thenReturn(true);
@@ -78,8 +81,9 @@ class UncheckedTokenTest {
         ResponseEntity<?> res = controller.standingVisa(null, null, null, true, null, null, "tc", USER, null,
             "new-pat");
 
-        assertThat(res.getStatusCode().value()).isEqualTo(200);
-        assertThat(standing.styleFixOn(USER)).isTrue();
+        assertAnswer(res, 502, UNCHECKED_GH);
+        assertThat(standing.styleFixOn(USER)).isFalse();
+        assertThat(standing.settings(USER).suites()).isTrue();
         assertThat(standing.actor(USER)).hasValueSatisfying(a -> assertThat(a.ghToken()).isEqualTo("gh-pat"));
     }
 

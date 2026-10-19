@@ -162,6 +162,30 @@ class RestoredWithoutTokensTest {
     }
 
     /**
+     * A switch of any other option asked for the missing token first: the author could not switch the auto re-run on
+     * without the JIRA token, nor dave switch it off without the GitHub token. The options that wait for a token still
+     * do, and switching the visa on again still asks for it.
+     */
+    @Test
+    void theOtherSwitchesWorkWhileATokenIsAwaited() {
+        Optional<StandingVisas.Refusal> author = restored.change(AUTHOR, "author-tc", null, null,
+            new StandingVisas.OptionChange(null, true, null, null, null));
+        Optional<StandingVisas.Refusal> fixer = restored.change(FIXER, "dave-tc", null, null,
+            new StandingVisas.OptionChange(null, false, null, null, null));
+
+        assertThat(author).isEmpty();
+        assertThat(fixer).isEmpty();
+        assertThat(restored.settings(AUTHOR).rerun()).isTrue();
+        assertThat(restored.settings(AUTHOR).tokensRemoved()).containsExactly("jira");
+        assertThat(restored.settings(FIXER).rerun()).isFalse();
+        assertThat(restored.settings(FIXER).suites()).isTrue();
+        assertThat(restored.settings(FIXER).tokensRemoved()).containsExactly("github");
+        assertThat(restored.change(AUTHOR, "author-tc", null, null,
+            new StandingVisas.OptionChange(true, null, null, null, null)))
+            .contains(new StandingVisas.Refusal("jira", "Visa my runs in JIRA needs your JIRA token"));
+    }
+
+    /**
      * The line under the verdict said "Visa my runs in JIRA is off in ⚙" of a visa that waits for the JIRA token, and
      * "JIRA did not take it" once the run settled. The author is told to save the token; another viewer, only that the
      * author's option is on.

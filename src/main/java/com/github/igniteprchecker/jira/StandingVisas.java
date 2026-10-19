@@ -243,12 +243,14 @@ public class StandingVisas implements SnapshotCache {
      * Applies a settings change, touching only the options it names: a click on one switch must not
      * turn the others off. An option that needs a token takes the one offered with the change when it is
      * new (checked with the service first), else the stored one; a stored token goes only when the last option that
-     * needs it is switched off explicitly. {@code offeredJira} is the JIRA token the page sends with the switch of the
-     * visa, and {@code offeredGh} the GitHub token it sends with the switch of an option that commits: each is kept on
-     * the server only, and a GitHub token only when it commits and does no more. The options that write
-     * to GitHub go on only while the checker has an account to write with. {@code browserTz}, the browser's time
-     * zone, becomes the user's when it is one. A verdict an earlier refusal held back goes out once its option is on
-     * again. Empty when the change was made, else what is missing.
+     * needs it is switched off explicitly. A new token the service refuses or cannot check refuses the change and
+     * leaves the stored one, since the user meant to replace it. Only the switch of an option that needs a token, or a
+     * token offered, asks for one: an option that waits for its token stops no other switch. {@code offeredJira} is the
+     * JIRA token the page sends with the switch of the visa, and {@code offeredGh} the GitHub token it sends with the
+     * switch of an option that commits: each is kept on the server only, and a GitHub token only when it commits and
+     * does no more. The options that write to GitHub go on only while the checker has an account to write with.
+     * {@code browserTz}, the browser's time zone, becomes the user's when it is one. A verdict an earlier refusal held
+     * back goes out once its option is on again. Empty when the change was made, else what is missing.
      */
     public Optional<Refusal> change(String username, String tcToken, String offeredJira, String offeredGh,
         OptionChange change, String browserTz) {
@@ -266,7 +268,7 @@ public class StandingVisas implements SnapshotCache {
         }
 
         Credential jiraCred = null;
-        if (after.autoVisa()) {
+        if (after.autoVisa() && (Boolean.TRUE.equals(change.visa()) || offeredJira != null)) {
             String stored = prev == null ? null : decrypt(prev.jira()).orElse(null);
             boolean fresh = offeredJira != null && !offeredJira.equals(stored);
             Optional<String> jiraUser = Optional.empty();
@@ -280,7 +282,7 @@ public class StandingVisas implements SnapshotCache {
             }
             if (jiraUser.isPresent())
                 jiraCred = new Credential(codec.encryptString(offeredJira), 0);
-            else if (stored == null)
+            else if (fresh || stored == null)
                 return Optional.of(unchecked ? Refusal.unchecked("JIRA") : new Refusal("jira", fresh
                     ? "JIRA rejected the token — paste a new one" : "Visa my runs in JIRA needs your JIRA token"));
         }
@@ -289,7 +291,7 @@ public class StandingVisas implements SnapshotCache {
 
         Credential ghCred = null;
         GithubClient.GhUser login = null;
-        if (after.needsGh()) {
+        if (after.needsGh() && (change.switchesOnCommits() || offeredGh != null)) {
             String stored = prev == null ? null : decrypt(prev.gh()).orElse(null);
             boolean fresh = offeredGh != null && !offeredGh.equals(stored);
             // A token GitHub can't put a name to is dead. Storing it buys nothing and costs the login: with no login,
@@ -318,7 +320,7 @@ public class StandingVisas implements SnapshotCache {
             if (login != null)
                 ghCred = new Credential(codec.encryptString(offeredGh), 0,
                     CommitTokens.note(offeredGh, owner.scopes()));
-            else if (stored == null) {
+            else if (fresh || stored == null) {
                 if (unchecked)
                     return Optional.of(Refusal.unchecked("GitHub"));
                 if (fresh)
@@ -329,8 +331,8 @@ public class StandingVisas implements SnapshotCache {
                     : "this option needs your GitHub token for commits"));
             }
         }
-        else if (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
-            || prev != null && prev.options().needsGh())
+        else if (!after.needsGh() && (Boolean.FALSE.equals(change.style()) || Boolean.FALSE.equals(change.suites())
+            || prev != null && prev.options().needsGh()))
             ghCred = Credential.NONE;
 
         if (Boolean.TRUE.equals(change.commands()) && login == null && (prev == null || !prev.ghLoginProven()))
@@ -435,6 +437,11 @@ public class StandingVisas implements SnapshotCache {
         boolean switchesOnGithub() {
             return Boolean.TRUE.equals(gh) || Boolean.TRUE.equals(style) || Boolean.TRUE.equals(commands)
                 || Boolean.TRUE.equals(suites);
+        }
+
+        /** Whether it switches on an option that commits with the user's GitHub token. */
+        boolean switchesOnCommits() {
+            return Boolean.TRUE.equals(style) || Boolean.TRUE.equals(suites);
         }
     }
 

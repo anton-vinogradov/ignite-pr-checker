@@ -219,6 +219,86 @@ class MissingAccessPageTest {
         assertThat(out.get("field").asText()).isEmpty();
     }
 
+    /**
+     * JIRA refused the token she pasted to replace the stored one, and the server kept the old token. The page showed
+     * the visa off: it is on, with the saved token. The reason stands at the form.
+     */
+    @Test
+    void aReplacedJiraTokenTheServerRefusesLeavesTheVisaOn() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
+            page.route('/api/auto-visa-all', { body: ON }, 'GET');
+            page.route('/api/auto-visa-all', { status: 412, body: { need: 'jira',
+                error: 'JIRA rejected the token — paste a new one' } }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('jiraTokenBtn').onclick();
+            page.el('settingsJiraToken').value = 'jira-pat-dead';
+            await page.el('settingsJiraSave').onclick();
+            await page.settle();
+            report({ form: !page.el('settingsJira').classList.contains('hidden'),
+                msg: page.el('settingsJiraMsg').textContent, state: page.el('jiraState').textContent,
+                on: page.el('standingVisaToggle').checked });
+            """);
+
+        assertThat(out.get("form").asBoolean()).isTrue();
+        assertThat(out.get("msg").asText()).isEqualTo("JIRA rejected the token — paste a new one");
+        assertThat(out.get("state").asText()).isEqualTo("saved");
+        assertThat(out.get("on").asBoolean()).isTrue();
+    }
+
+    /** The same while JIRA could not check the new token: the server says so, and she tries again later. */
+    @Test
+    void aReplacedJiraTokenJiraCouldNotCheckLeavesTheVisaOn() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
+            page.route('/api/auto-visa-all', { body: ON }, 'GET');
+            page.route('/api/auto-visa-all', { status: 502, body: {
+                error: 'JIRA could not check the token right now — try again in a minute' } }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('jiraTokenBtn').onclick();
+            page.el('settingsJiraToken').value = 'jira-pat-new';
+            await page.el('settingsJiraSave').onclick();
+            await page.settle();
+            report({ form: !page.el('settingsJira').classList.contains('hidden'),
+                msg: page.el('settingsJiraMsg').textContent, on: page.el('standingVisaToggle').checked });
+            """);
+
+        assertThat(out.get("form").asBoolean()).isTrue();
+        assertThat(out.get("msg").asText())
+            .isEqualTo("JIRA could not check the token right now — try again in a minute");
+        assertThat(out.get("on").asBoolean()).isTrue();
+    }
+
+    /**
+     * GitHub refused the token she pasted to replace the stored one. The form closed as if the token were saved, since
+     * the option was on before; the reason now stands at the form, and the option stays on with the saved token.
+     */
+    @Test
+    void aReplacedGithubTokenTheServerRefusesStaysAtTheForm() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
+            const ON = Object.assign({}, SETTINGS, { suites: true, ghStored: true, login: 'alice-v' });
+            page.route('/api/auto-visa-all', { body: ON }, 'GET');
+            page.route('/api/auto-visa-all', { status: 412, body: { need: 'github',
+                error: 'GitHub rejected the token — paste a new one' } }, 'POST');
+            await page.load('?pr=13575');
+            """ + OPEN + """
+            await page.el('ghTokenBtn').onclick();
+            page.el('settingsGhToken').value = 'github_pat_dead';
+            await page.el('settingsGhSave').onclick();
+            await page.settle();
+            report({ form: !page.el('settingsGh').classList.contains('hidden'),
+                msg: page.el('settingsGhMsg').textContent, state: page.el('ghTokenState').textContent,
+                on: page.el('suiteFixToggle').checked });
+            """);
+
+        assertThat(out.get("form").asBoolean()).isTrue();
+        assertThat(out.get("msg").asText()).isEqualTo("GitHub rejected the token — paste a new one");
+        assertThat(out.get("state").asText()).isEqualTo("saved");
+        assertThat(out.get("on").asBoolean()).isTrue();
+    }
+
     /** Visas come from the option alone: Save in the JIRA group switches it on with the token. */
     @Test
     void aSavedJiraTokenSwitchesTheVisaOnWithIt() throws Exception {

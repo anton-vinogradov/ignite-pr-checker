@@ -333,7 +333,8 @@ A visa comes only from this option.
 When JIRA refuses the stored token itself, the checker drops it and switches the visa off; ⚙ says so. A rate limit,
 an outage or a ticket you may not comment on keeps the token, and the visa is tried again at the next sweeps. A visa a
 refused token held back goes out once you save a fresh token and switch the option back on, unless a newer RunAll
-replaced the run.
+replaced the run. A new token that JIRA refuses or cannot check replaces nothing: ⚙ says so at the form, and the
+saved token stays in use.
 
 The checker does not use a JIRA token from your login cookie. If one was there and your option is off, ⚙ says so for
 30 days and asks you to switch the option on with the token.
@@ -386,7 +387,8 @@ gets a note on what it can push to.
 
 When GitHub refuses the stored token itself, the checker drops it and switches off both options; ⚙ says so. A PR
 comment GitHub did not take from the checker's account goes at the next sweeps; what that account is refused never
-touches your token.
+touches your token. A new token that GitHub refuses or cannot check replaces nothing: ⚙ says so at the form, and the
+saved token stays in use.
 
 ## Visas and PR comments
 

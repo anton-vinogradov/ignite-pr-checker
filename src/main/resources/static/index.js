@@ -3146,6 +3146,9 @@ async function setOption(name, on, githubToken, jiraToken) {
         return;
     }
     const before = standingSettings || {};
+    // A refused switch shows the option as the server keeps it: a token that failed to replace the saved one leaves
+    // its option on.
+    const undo = () => { toggle.checked = !on || !!before[name]; };
     const need = OPTION_NEEDS[name];
     const pasted = need === 'github' ? githubToken : need === 'jira' ? jiraToken : undefined;
     if (on && need && !pasted && !tokenAvailable(need)) {
@@ -3169,16 +3172,16 @@ async function setOption(name, on, githubToken, jiraToken) {
         if (r.status === 401) return loggedOut(r);
         const res = await r.json().catch(() => ({}));
         if (r.status === 412 && res.need === 'commands') {
-            toggle.checked = !on;
+            undo();
             msg.textContent = AUTOFIX_NEEDS_COMMANDS;
             return;
         }
         if (r.status === 412) {
-            toggle.checked = !on;
+            undo();
             return askForToken(res.need, name, res.error);
         }
         if (!r.ok) {
-            toggle.checked = !on;
+            undo();
             msg.textContent = friendly(res.error, 'could not change the setting');
             return;
         }
@@ -3193,7 +3196,7 @@ async function setOption(name, on, githubToken, jiraToken) {
         if (pendingOption === name) pendingOption = null;
         return true;
     } catch (e) {
-        toggle.checked = !on;
+        undo();
         msg.textContent = 'could not reach the service — try again';
     } finally {
         toggle.disabled = githubLocked(name, standingSettings || {});
@@ -3315,8 +3318,7 @@ $('settingsGhSave').onclick = async () => {
     m.textContent = 'asking GitHub about the token…';
     pendingOption = null;
     $(OPTION_TOGGLES[option]).checked = true;
-    await setOption(option, true, token);
-    if (standingSettings && standingSettings[option]) {
+    if (await setOption(option, true, token)) {
         m.textContent = '';
         $('settingsGh').classList.add('hidden');
     } else {
