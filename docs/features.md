@@ -435,7 +435,7 @@ checker kept this list says so instead of a date. The server keeps the list with
   until that login ends. **Log out everywhere else** keeps a copy of this browser's cookie logged in. To end it, use
   **Log out** in this browser, then log in again.
 - A copy of a cookie taken before the update to v1.40.0, the first version with this list, can be a login of its own.
-  Earlier versions issued the cookie anew each day, so a copy of an older one is not the cookie of this browser. Such a
+  Earlier versions issued a new cookie each day, so a copy of an older one is not the cookie of this browser. Such a
   copy is not in the list until its first request. **Log out** in this browser does not end it, but
   **Log out everywhere else** does.
 - A login also ends after 400 days without use: the browser then drops its cookie.
@@ -620,7 +620,7 @@ from its own GitHub account, the app account.
   included. [Your logins](#your-logins) in ⚙ lists the others, and you can end them there. A login left unused for
   400 days ends too, and your 51st login ends an older one. TeamCity may reject 3 login attempts from one network
   address in 10 minutes; past that, the login form says how long to wait. Each attempt with a rejected token counts,
-  the same token sent again too; a login that works does not.
+  even when the same token is sent again. A login that works does not count.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

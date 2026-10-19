@@ -84,8 +84,8 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   TeamCity may reject 3 login attempts from one network address in 10 minutes. For all users together, the checker
   checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from the server's address, and if
   ci2 blocks that address, the checker stops for everyone. Past either limit, the login form says how long to wait.
-  Each attempt with a rejected token counts against its address, the same token sent again too. A login that works,
-  one that TeamCity could not check, and one that the shared limit stops do not count.
+  Each attempt with a rejected token counts against its address, even when the same token is sent again. A login that
+  works, one that TeamCity could not check, and one that the shared limit stops do not count.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Visas come only from **Visa my runs in JIRA**. The page sends
@@ -345,9 +345,9 @@ each boot, or the tokens can stay in the swap file.
 | `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |
 | `<file>.before-<version>-built-<time>` | A file as it was before a new build first ran; the newest 5 kept per file. |
 
-State is written within a second of a change, the caches every 5 minutes, and everything at shutdown. Each file is
-written to a `.tmp` file first and then renamed. A stop in the middle of a write or a backup leaves the `.tmp` file,
-which may hold tokens, and the next start deletes it. A backup that fails deletes its `.tmp` file at once.
+State is written within a second of a change, the caches every 5 minutes, and everything at shutdown. The service
+writes each file to a `.tmp` file first and then renames it. A stop in the middle of a write or a backup leaves the
+`.tmp` file, which may hold tokens. The next start deletes it. A backup that fails deletes its `.tmp` file at once.
 
 Backups and the `.before-` and `.bad-` files keep their tokens for 2 days after they are made. Then the service takes
 the tokens out of them and keeps the rest; it looks for such copies every 10 minutes. In a state restored from such a
