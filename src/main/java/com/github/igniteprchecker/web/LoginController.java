@@ -107,6 +107,8 @@ public class LoginController {
             username = tc.currentUsername(token);
         }
         catch (RestClientResponseException e) {
+            throttle.refund(client);
+
             return ResponseEntity.status(502).body(Map.of("error",
                 "TeamCity could not check the token (HTTP " + e.getStatusCode().value() + ") — try again in a moment"));
         }
@@ -117,6 +119,7 @@ public class LoginController {
             return rejected();
         }
 
+        throttle.refund(client);
         users.touchLogin(username.get());
         long issuedAt = System.currentTimeMillis();
         SessionCodec.Session session = sessionOf(username.get(), token, http);
@@ -148,11 +151,10 @@ public class LoginController {
             .body(Map.of("error", message));
     }
 
-    /** The answer to a login from an address that has used its attempts: the limit and how long to wait. */
+    /** The answer to a login from an address whose tokens TeamCity rejected too often: the limit and the wait. */
     private static String addressUsedUp(Duration wait) {
-        return "One network address gets " + LoginThrottle.ATTEMPTS_PER_CLIENT + " login attempts in "
-            + LoginThrottle.CLIENT_WINDOW.toMinutes() + " minutes, and yours has used them. Try again in "
-            + minutes(wait) + ".";
+        return "TeamCity rejected " + LoginThrottle.ATTEMPTS_PER_CLIENT + " tokens from your network address in the"
+            + " last " + LoginThrottle.CLIENT_WINDOW.toMinutes() + " minutes. Try again in " + minutes(wait) + ".";
     }
 
     /** The answer to a login when all logins together have used the TeamCity checks of the last minute. */

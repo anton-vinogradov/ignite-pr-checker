@@ -77,7 +77,8 @@ public class LoginThrottle {
     /**
      * Admits a login from {@code client} to a TeamCity check: null when granted, else the wait. Only a granted check
      * counts as an attempt of the client: a login the shared checks turn away costs it nothing, so the logins of
-     * others cannot use up the attempts of a user who retries as told.
+     * others cannot use up the attempts of a user who retries as told. A check whose token TeamCity accepts, or that
+     * TeamCity does not answer, gives the attempt back ({@link #refund}).
      */
     public synchronized Wait admitCheck(String client) {
         long now = nowMs.getAsLong();
@@ -94,6 +95,16 @@ public class LoginThrottle {
         checks.addLast(now);
 
         return null;
+    }
+
+    /**
+     * Gives {@code client} back the attempt of its last granted check: only a token TeamCity rejects costs an attempt,
+     * so people behind one office address can log in one after another.
+     */
+    public synchronized void refund(String client) {
+        Deque<Long> times = attempts.get(client);
+        if (times != null && !times.isEmpty())
+            times.removeLast();
     }
 
     /** Whether TeamCity rejected this very token a short while ago. */

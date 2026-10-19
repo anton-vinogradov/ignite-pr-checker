@@ -72,10 +72,11 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   from TeamCity, to pre-analyse open PRs for everyone. Any standing option keeps the token there while the option is
   on, unless PR commands is the only option on. When the host moves the server's memory to swap, the token goes to the
   disk with it, in plain text unless the swap is encrypted. A login lasts until the user logs out, which ends it in
-  every browser, or leaves it unused for 400 days. One network address gets 3 login attempts in 10 minutes. For all
-  users together, the checker checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from
+  every browser, or leaves it unused for 400 days. TeamCity may reject 3 tokens from one network address in 10 minutes.
+  For all users together, the checker checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from
   the server's address, and if ci2 blocks that address, the checker stops for everyone. Past either limit, the login
-  form says how long to wait. A login that the shared limit stops does not use up an attempt of its address.
+  form says how long to wait. Only a rejected token counts against its address: a login that works, or that the
+  shared limit stops, does not.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Copies of these tokens stay in the backups of the

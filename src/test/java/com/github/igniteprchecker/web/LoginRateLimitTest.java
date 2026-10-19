@@ -115,8 +115,34 @@ class LoginRateLimitTest {
 
         assertThat(res.getStatusCode().value()).isEqualTo(429);
         assertThat(res.getHeaders().getFirst("Retry-After")).isIn("599", "600");
-        assertThat(error(res)).isEqualTo("One network address gets 3 login attempts in 10 minutes, and yours has used"
-            + " them. Try again in 10 minutes.");
+        assertThat(error(res)).isEqualTo("TeamCity rejected 3 tokens from your network address in the last 10"
+            + " minutes. Try again in 10 minutes.");
+    }
+
+    /**
+     * Every login TeamCity checked used an attempt of its address, the ones that worked too: four people behind one
+     * office address logging in within 10 minutes left the fourth waiting with a good token.
+     */
+    @Test
+    void loginsThatWorkCostTheirAddressNothing() {
+        for (int i = 0; i < 5; i++)
+            assertThat(post(USER_TOKEN, "203.0.113.7")).as("login " + i).isEqualTo(200);
+
+        for (int i = 0; i < 3; i++)
+            assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(401);
+        assertThat(post("guess-3", "203.0.113.7")).isEqualTo(429);
+    }
+
+    /** A check TeamCity did not answer is no rejection: the address keeps the attempt for when TeamCity is back. */
+    @Test
+    void aCheckTeamCityDoesNotAnswerCostsNothing() {
+        answer = 503;
+        for (int i = 0; i < 4; i++)
+            assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(502);
+
+        answer = 401;
+        for (int i = 4; i < 7; i++)
+            assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(401);
     }
 
     @Test

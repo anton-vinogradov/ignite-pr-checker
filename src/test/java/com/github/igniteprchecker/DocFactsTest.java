@@ -140,9 +140,9 @@ class DocFactsTest {
     void theDocsStateTheLoginLimits() throws IOException {
         String throttle = Files.readString(Path.of("src/main/java/com/github/igniteprchecker/web/LoginThrottle.java"),
             UTF_8);
-        String perAddress = "One network address gets " + constant(throttle, "ATTEMPTS_PER_CLIENT = (\\d+);")
-            + " login attempts in " + constant(throttle, "CLIENT_WINDOW = Duration.ofMinutes\\((\\d+)\\);")
-            + " minutes";
+        String perAddress = "TeamCity may reject " + constant(throttle, "ATTEMPTS_PER_CLIENT = (\\d+);")
+            + " tokens from one network address in "
+            + constant(throttle, "CLIENT_WINDOW = Duration.ofMinutes\\((\\d+)\\);") + " minutes";
 
         assertThat(collapsed(README)).contains(perAddress)
             .contains("checks the tokens of at most " + constant(throttle, "CHECKS_PER_MINUTE = (\\d+);")

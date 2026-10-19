@@ -74,6 +74,22 @@ class LoginThrottleTest {
             .isEqualTo(Duration.ofMinutes(10));
     }
 
+    /** Each granted check used an attempt even when TeamCity accepted the token, so a fourth good login waited. */
+    @Test
+    void aRefundGivesTheLastAttemptBack() {
+        for (int i = 0; i < 5; i++) {
+            assertThat(throttle.admitCheck("203.0.113.7")).isNull();
+            throttle.refund("203.0.113.7");
+        }
+
+        for (int i = 0; i < 3; i++)
+            assertThat(throttle.admitCheck("203.0.113.7")).isNull();
+        assertThat(throttle.admitCheck("203.0.113.7")).isEqualTo(new LoginThrottle.Wait(Duration.ofMinutes(10), false));
+
+        throttle.refund("198.51.100.1");
+        assertThat(throttle.admitCheck("198.51.100.1")).as("a refund without a check gives nothing").isNull();
+    }
+
     @Test
     void aRejectedTokenIsRememberedForAWhile() {
         throttle.rejected("dead-token");
