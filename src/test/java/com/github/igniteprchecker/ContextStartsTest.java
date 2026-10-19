@@ -172,6 +172,23 @@ class ContextStartsTest {
     }
 
     /**
+     * Anyone can post a body to /api/login. Jackson 3 reads a string of up to 100 million characters, which takes
+     * hundreds of megabytes of the heap before the token is refused. The read stops at Jackson 2's 20 million.
+     */
+    @Test
+    void aLoginBodyPastTheLimitOfJackson2IsCutOffWhileRead(CapturedOutput output) throws Exception {
+        HttpRequest login = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/login"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"" + "a".repeat(20_000_001) + "\"}")).build();
+
+        HttpResponse<String> res = HttpClient.newHttpClient().send(login, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(res.statusCode()).isEqualTo(400);
+        assertThat(res.body()).contains("bad JSON");
+        assertThat(output.getAll()).contains("Unreadable body of POST /api/login");
+    }
+
+    /**
      * A heap dump and the tokens in old copies of the state go on time only while a job looks for them every 10
      * minutes: without the job they stay on disk, and nothing else fails.
      */

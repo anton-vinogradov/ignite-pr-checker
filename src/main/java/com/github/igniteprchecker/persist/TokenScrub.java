@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.persist;
 
+import com.github.igniteprchecker.config.Jackson2Json;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,10 +19,8 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 import tools.jackson.core.exc.JacksonIOException;
-import tools.jackson.core.exc.StreamReadException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -40,8 +39,11 @@ public final class TokenScrub {
     /** Ends the name of the field that marks a token as taken out. */
     public static final String REMOVED = "Removed";
 
-    /** Jackson 3's own defaults refuse a file with more after its JSON, which Jackson 2 read up to there. */
-    private static final ObjectMapper JSON = JsonMapper.builderWithJackson2Defaults().build();
+    /**
+     * Jackson 3's own defaults refuse a file with more after its JSON, which Jackson 2 read up to there, and a file
+     * nested more than 500 deep, which Jackson 2 read up to 1000.
+     */
+    private static final ObjectMapper JSON = Jackson2Json.builder().build();
 
     private TokenScrub() {
     }
@@ -56,7 +58,7 @@ public final class TokenScrub {
             if (!holdsTokens(in))
                 return false;
         }
-        catch (StreamReadException e) {
+        catch (JacksonException e) {
             throw new NotJson(null, e);
         }
 
@@ -79,7 +81,7 @@ public final class TokenScrub {
                     if (holdsTokens(in))
                         holding.add(e.getName());
                 }
-                catch (StreamReadException ex) {
+                catch (JacksonException ex) {
                     throw new NotJson(e.getName(), ex);
                 }
             }
@@ -117,8 +119,9 @@ public final class TokenScrub {
 
     /**
      * Reads the JSON as a stream, so a large cache in a backup costs no memory to look through. It reads to the end: a
-     * copy cut short after its first token is found here, not halfway through rewriting it. Text that is not JSON is a
-     * {@link StreamReadException}; a read the disk failed is an {@link IOException}, and the copy is tried again.
+     * copy cut short after its first token is found here, not halfway through rewriting it. Text that is not JSON, or
+     * JSON past a limit of the reader, such as a number of 1001 digits, is a {@link JacksonException}. A read the disk
+     * failed is an {@link IOException}, and the copy is tried again.
      */
     static boolean holdsTokens(InputStream in) throws IOException {
         boolean holds = false;
@@ -186,10 +189,13 @@ public final class TokenScrub {
             o.put(refused, now);
     }
 
-    /** A copy, or a file in a zip, that is not JSON: no field in it can be told from the text around it. */
+    /**
+     * A copy, or a file in a zip, that the reader cannot take for JSON: no field in it can be told from the text
+     * around it.
+     */
     public static final class NotJson extends IOException {
         /** {@code entry}: the file of the zip that is not JSON; null for the copy itself. */
-        NotJson(String entry, StreamReadException cause) {
+        NotJson(String entry, JacksonException cause) {
             super((entry == null ? "it" : "its " + entry) + " is not JSON (" + cause.getOriginalMessage() + ")", cause);
         }
     }

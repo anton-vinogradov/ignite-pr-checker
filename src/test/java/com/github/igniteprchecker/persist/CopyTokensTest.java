@@ -194,6 +194,46 @@ class CopyTokensTest {
     }
 
     /**
+     * A state file past a limit of Jackson's reader, such as a number of 1001 digits, fails to load and is set aside
+     * as a .bad- copy. Such a copy, alone or in a backup, is not JSON to the reader: the log asks to delete it, and the
+     * backups after it in the list still lose their tokens.
+     */
+    @Test
+    void aCopyPastALimitOfTheReaderIsNotJsonAndTheBackupsAfterItLoseTheirTokens(@TempDir Path dir)
+        throws IOException {
+        String tooLong = "{\"13335\":{\"rate\":" + "1".repeat(1001) + "}}";
+        copy(dir, "analysis.json.bad-20261012-080000", tooLong, Duration.ofDays(3));
+        Path backups = Files.createDirectories(dir.resolve("backups"));
+        zip(backups.resolve("cache-2026-10-11.zip"), Map.of("analysis.json", tooLong), Duration.ofDays(3));
+        Path old = zip(backups.resolve("cache-2026-10-10.zip"), Map.of("standing-visas.json", STANDING),
+            Duration.ofDays(4));
+
+        String log;
+        try (LogCapture capture = new LogCapture(Map.of())) {
+            store(dir).removeTokensFromCopies(NOW);
+            log = capture.text();
+        }
+
+        assertThat(unzip(old).get("standing-visas.json")).doesNotContain("tc-cipher", "jira-cipher");
+        assertThat(log).contains("analysis.json.bad-20261012-080000: it is not JSON (Number value length (1001)",
+            "cache-2026-10-11.zip: its analysis.json is not JSON (Number value length (1001)");
+    }
+
+    /**
+     * Jackson 2 read JSON nested up to 1000 deep, and Jackson 3 by default only up to 500. A copy in between loses its
+     * tokens, as with v1.41.0.
+     */
+    @Test
+    void aCopyNestedAsDeepAsJackson2ReadLosesItsTokens(@TempDir Path dir) throws IOException {
+        Path deep = copy(dir, "standing-visas.json.before-1.35.0-built-20261010-120000",
+            "[".repeat(600) + STANDING + "]".repeat(600), Duration.ofDays(3));
+
+        store(dir).removeTokensFromCopies(NOW);
+
+        assertThat(deep).content().doesNotContain("tc-cipher", "jira-cipher").contains("\"tcTokenRemoved\":true");
+    }
+
+    /**
      * Jackson 3 reports a failed read as its own unchecked error. Taken for a copy that is not JSON, a copy the disk
      * failed to read would keep its tokens for good; as an IOException it is tried again in 10 minutes.
      */

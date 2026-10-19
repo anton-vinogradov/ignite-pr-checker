@@ -47,6 +47,15 @@ spring:
     # Jackson 3's own defaults fail a file that lacks a number field its record has, as each file written before the
     # field was added does. They also write an enum by its toString, which a rolled-back build cannot read.
     use-jackson2-defaults: true
+    factory:
+      constraints:
+        # Jackson 2.21's limits, as in Jackson2Json. Anyone can post a body to /api/login without a login, and Jackson 3
+        # would read a string of 100 million characters from it, which takes hundreds of megabytes of the heap.
+        read:
+          max-string-length: 20000000
+          max-nesting-depth: 1000
+        write:
+          max-nesting-depth: 1000
     deserialization:
       # TeamCity REST responses carry many fields we don't map; ignore the rest.
       fail-on-unknown-properties: false

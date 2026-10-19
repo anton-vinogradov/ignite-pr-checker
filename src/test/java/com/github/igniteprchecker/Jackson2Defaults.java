@@ -1,7 +1,7 @@
 package com.github.igniteprchecker;
 
+import com.github.igniteprchecker.config.Jackson2Json;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The mapper that {@code new ObjectMapper()} was in Jackson 2. Tests that build parts of the service by hand pass it
@@ -9,7 +9,7 @@ import tools.jackson.databind.json.JsonMapper;
  * on a state file that lacks a field its record has.
  */
 public final class Jackson2Defaults {
-    private static final ObjectMapper MAPPER = JsonMapper.builderWithJackson2Defaults().build();
+    private static final ObjectMapper MAPPER = Jackson2Json.builder().build();
 
     private Jackson2Defaults() {
     }
