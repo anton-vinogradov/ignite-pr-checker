@@ -2,7 +2,6 @@ package com.github.igniteprchecker.analysis;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -23,6 +22,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Stream;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A durable, accumulating record of tests that fail on master (the "fix master" queue). Unlike the

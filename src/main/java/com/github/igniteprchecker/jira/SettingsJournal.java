@@ -2,7 +2,6 @@ package com.github.igniteprchecker.jira;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.i18n.Lang;
 import com.github.igniteprchecker.i18n.Texts;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -26,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Each user's journal in ⚙: what changed in their settings and who changed it, and each visa the checker posted or

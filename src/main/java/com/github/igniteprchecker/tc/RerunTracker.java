@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.tc;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.persist.SnapshotCache;
@@ -19,6 +18,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Tracks queued/running builds launched for PRs (suite re-runs and whole RunAll chains), so the UI

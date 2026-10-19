@@ -2,8 +2,8 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The page took a PR's title only from its row in the list of 50 open PRs. Merged PR 13692, and an open PR past the

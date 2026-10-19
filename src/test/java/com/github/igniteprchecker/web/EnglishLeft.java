@@ -1,12 +1,11 @@
 package com.github.igniteprchecker.web;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import tools.jackson.databind.JsonNode;
 
 /**
  * What a page in Russian still says in English. The Russian page keeps the terms the Russian tour keeps in English
@@ -38,10 +37,8 @@ final class EnglishLeft {
      */
     static List<String> in(JsonNode texts, String html, List<String> names, Pattern foreign) {
         List<String> all = new ArrayList<>();
-        for (Iterator<Map.Entry<String, JsonNode>> it = texts.fields(); it.hasNext(); ) {
-            Map.Entry<String, JsonNode> e = it.next();
+        for (Map.Entry<String, JsonNode> e : texts.properties())
             all.add(e.getKey() + ": " + e.getValue().asText());
-        }
         Matcher title = TITLE.matcher(html);
         while (title.find())
             all.add("title: " + title.group(1));

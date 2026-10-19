@@ -5,7 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.util.UriComponentsBuilder;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The GitHub login for PR commands was typed in by hand and proved nothing: anyone could take a login nobody had linked
@@ -38,7 +39,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 class GithubLoginTest {
     private final GithubClient github = AppWriting.github();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
 

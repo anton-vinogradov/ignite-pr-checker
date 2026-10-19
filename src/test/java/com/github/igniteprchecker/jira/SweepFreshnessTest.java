@@ -14,8 +14,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.ChainCollector;
@@ -49,6 +48,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * PR 13335, RunAll 9389046: the chain finished at 23:00:32 and the 23:08:42 sweep re-ran the suites
@@ -77,7 +78,7 @@ class SweepFreshnessTest {
     private static final DateTimeFormatter TC_DATE =
         DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssZ").withZone(ZoneOffset.UTC);
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final TcClient tc = mock(TcClient.class);
 

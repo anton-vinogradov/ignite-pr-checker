@@ -4,8 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
@@ -38,6 +37,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Adding PRs' tests to suites takes the user's GitHub token and nothing of the operator's: the suite is picked by a
@@ -49,7 +50,7 @@ class SuiteFixSettingsTest {
     private static final String[] CARD_FUNCTIONS = {"card", "countedCard", "spanShort", "firstPassState", "lateTitle",
         "passText", "suiteFixCard"};
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = AppWriting.github();
 

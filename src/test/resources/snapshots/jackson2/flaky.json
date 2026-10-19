@@ -1,0 +1,1 @@
+[{"testId":1760780096789,"name":"name","suite":"suite","suiteName":"suiteName","suiteBuildId":1760780096789,"occurrenceId":"occurrenceId","masterFails":7,"masterRuns":7,"failStreak":7,"lastSeen":1760780096789,"prs":[7],"prSeen":{"7":1760780096789},"masterFailures":[{"buildId":1760780096789,"btId":"btId","occ":"occ"}],"masterAnchorAt":1760780096789,"muted":true}]

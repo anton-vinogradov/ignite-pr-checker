@@ -8,7 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.Caveats.Glance;
 import com.github.igniteprchecker.analysis.Caveats.Standing;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -93,7 +93,7 @@ class ListStandingTest {
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
         return new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-            Executors.newFixedThreadPool(2), new AnalysisCache(cfg, new ObjectMapper()),
-            new RunDeltaStore(new ObjectMapper()));
+            Executors.newFixedThreadPool(2), new AnalysisCache(cfg, Jackson2Defaults.mapper()),
+            new RunDeltaStore(Jackson2Defaults.mapper()));
     }
 }

@@ -3,7 +3,7 @@ package com.github.igniteprchecker.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
@@ -22,7 +22,7 @@ import org.junit.jupiter.api.function.Executable;
 class HeaderValueOutOfErrorsTest {
     private static final String BROKEN = "FAKEpartOne0123456789\nFAKEpartTwo0123456789";
 
-    private final Metrics metrics = new Metrics(new ObjectMapper());
+    private final Metrics metrics = new Metrics(Jackson2Defaults.mapper());
 
     @Test
     void aRefusedHeaderComesBackWithoutItsValue() {

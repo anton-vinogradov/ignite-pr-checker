@@ -13,8 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -42,6 +41,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The only visa in IGNITE-28938 still reads "(x) 3 blockers… Auto re-run #1 in progress", and PR 13427 was merged
@@ -81,7 +82,7 @@ class ThreadEndingTest {
 
     private final JiraClient jira = mock(JiraClient.class);
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 

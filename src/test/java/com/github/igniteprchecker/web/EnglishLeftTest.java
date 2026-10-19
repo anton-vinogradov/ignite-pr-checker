@@ -3,19 +3,20 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The check of a Russian page leaves alone only the English the Russian tour keeps itself, and the names of the
  * scenario; a phrase of the English page left untranslated, in a text or a tooltip, is caught.
  */
 class EnglishLeftTest {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
     @Test
     void theTermsLeftInEnglishAreTheRussianToursOwn() throws Exception {

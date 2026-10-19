@@ -2,8 +2,8 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * On PR 13335 "This PR's tests" came late, after the verdict. The page asked for it only once it had drawn the

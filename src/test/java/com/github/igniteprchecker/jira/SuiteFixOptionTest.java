@@ -5,8 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -23,6 +22,8 @@ import java.nio.file.Path;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * "Add my PRs' tests to a suite" is a standing option like the checkstyle autofix: it commits with the author's
@@ -32,7 +33,7 @@ import org.junit.jupiter.api.io.TempDir;
 class SuiteFixOptionTest {
     private static final String FIXTURE = "/snapshots/standing-visas-v1.20.11.json";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = AppWriting.github();
 

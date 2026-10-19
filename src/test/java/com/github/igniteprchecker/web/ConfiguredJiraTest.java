@@ -3,7 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
@@ -24,7 +24,7 @@ class ConfiguredJiraTest {
         ConfigController config = new ConfigController(new TeamcityProperties("https://ci2.example/"),
             new GithubProperties(null, null, null), mock(GithubClient.class),
             new AnalysisProperties(null, "RunAll", null, null, null, 300, null), mock(SuiteBaseline.class),
-            new JiraClient("https://jira.example/", Duration.ofSeconds(5), new Metrics(new ObjectMapper())));
+            new JiraClient("https://jira.example/", Duration.ofSeconds(5), new Metrics(Jackson2Defaults.mapper())));
 
         assertThat(config.config()).containsEntry("jiraUrl", "https://jira.example");
     }

@@ -3,14 +3,20 @@ package com.github.igniteprchecker.config;
 import java.io.IOException;
 import java.time.Duration;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
+import org.springframework.boot.http.client.HttpRedirects;
 import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.converter.HttpMessageConverters;
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.springframework.web.client.ResourceAccessException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The one place outbound HTTP clients (TeamCity, JIRA, GitHub) get their request factories, each bounded by a
- * connect and a read timeout. Without them a peer that accepts the connection and never answers holds the
- * calling thread for good: an analysis, the sweep, or one of the three scheduler threads.
+ * connect and a read timeout, and their JSON. Without the timeouts a peer that accepts the connection and never answers
+ * holds the calling thread for good: an analysis, the sweep, or one of the three scheduler threads.
  */
 public final class OutboundHttp {
     /** The slowest TeamCity call in an hour of prod traffic took 3.3 s. */
@@ -20,6 +26,16 @@ public final class OutboundHttp {
 
     /** How the JDK's HTTP client starts the error for a header it refuses, the header's value after it. */
     private static final String REFUSED_HEADER = "Illegal character(s) in message header";
+
+    /**
+     * The JSON of the calls, read and written by Jackson 2's rules and limits, as the service's own JSON is
+     * (spring.jackson in application.yml). Jackson 3's own rules fail an answer that lacks a number field the record
+     * has, or holds a null for it.
+     */
+    private static final JsonMapper JSON = Jackson2Json.builder()
+        .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+        .disable(MapperFeature.DEFAULT_VIEW_INCLUSION)
+        .build();
 
     private OutboundHttp() {
     }
@@ -43,11 +59,19 @@ public final class OutboundHttp {
      */
     public static ClientHttpRequestFactory withPatchNoRedirects(Duration readTimeout) {
         return ClientHttpRequestFactoryBuilder.httpComponents()
-            .build(settings(readTimeout).withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW));
+            .build(settings(readTimeout).withRedirects(HttpRedirects.DONT_FOLLOW));
     }
 
-    private static ClientHttpRequestFactorySettings settings(Duration readTimeout) {
-        return ClientHttpRequestFactorySettings.defaults()
+    /**
+     * Makes a client read and write JSON by {@link #JSON}, with Spring's other converters as they are:
+     * {@code .configureMessageConverters(OutboundHttp::json)}.
+     */
+    public static void json(HttpMessageConverters.ClientBuilder converters) {
+        converters.registerDefaults().withJsonConverter(new JacksonJsonHttpMessageConverter(JSON));
+    }
+
+    private static HttpClientSettings settings(Duration readTimeout) {
+        return HttpClientSettings.defaults()
             .withConnectTimeout(CONNECT_TIMEOUT)
             .withReadTimeout(readTimeout);
     }

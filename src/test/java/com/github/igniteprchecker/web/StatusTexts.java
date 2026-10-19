@@ -1,6 +1,6 @@
 package com.github.igniteprchecker.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.health.LogTracker;
@@ -109,8 +109,8 @@ final class StatusTexts {
 
     /** What the server answers a user who is not an operator and tries this action. */
     static String refusal(AdminActions.Action action) {
-        return new AdminActions(new AdminProperties(null), new ObjectMapper()).claim("alice", action).orElseThrow()
-            .message();
+        return new AdminActions(new AdminProperties(null), Jackson2Defaults.mapper()).claim("alice", action)
+            .orElseThrow().message();
     }
 
     private static GithubClient.AppAccount account(List<GithubClient.AppAccount.Check> checks) {

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.RETURNS_MOCKS;
 import static org.mockito.Mockito.mock;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
@@ -12,6 +11,7 @@ import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.jira.JiraClient;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * "verdict computed just now" was computed once, so a tab left open for a day still said "just now", and the

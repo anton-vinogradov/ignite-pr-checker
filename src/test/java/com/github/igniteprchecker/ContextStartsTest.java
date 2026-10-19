@@ -20,10 +20,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.info.BuildProperties;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
@@ -54,6 +55,7 @@ import org.springframework.test.util.ReflectionTestUtils;
     "github.api-url=http://127.0.0.1:9",
     "jira.base-url=http://127.0.0.1:9",
 })
+@AutoConfigureTestRestTemplate
 @DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
 class ContextStartsTest {
@@ -113,6 +115,29 @@ class ContextStartsTest {
         }
     }
 
+    /**
+     * A browser lets a page of another site send a JSON request, or read an answer, only when the answer names that
+     * site in Access-Control-Allow-Origin. Spring 7 answers the preflight of such a page with 200, not 403, so only the
+     * missing header stops the page.
+     */
+    @Test
+    void aPageOfAnotherSiteIsAllowedNothing() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest preflight = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/login"))
+            .header("Origin", "https://another.example").header("Access-Control-Request-Method", "POST")
+            .header("Access-Control-Request-Headers", "content-type")
+            .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build();
+        HttpRequest read = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/status"))
+            .header("Origin", "https://another.example").GET().build();
+
+        for (HttpRequest req : List.of(preflight, read)) {
+            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+
+            assertThat(res.headers().map().keySet()).as(req.method())
+                .noneMatch(h -> h.toLowerCase().startsWith("access-control-allow"));
+        }
+    }
+
     /** A page of another site cannot change anything: the filter that refuses its requests is in place. */
     @Test
     void aPostFromAnotherSiteIsRefused() {
@@ -144,6 +169,23 @@ class ContextStartsTest {
 
             assertThat(res.statusCode()).as(path).isEqualTo(403);
         }
+    }
+
+    /**
+     * Anyone can post a body to /api/login. Jackson 3 reads a string of up to 100 million characters, which takes
+     * hundreds of megabytes of the heap before the token is refused. The read stops at Jackson 2's 20 million.
+     */
+    @Test
+    void aLoginBodyPastTheLimitOfJackson2IsCutOffWhileRead(CapturedOutput output) throws Exception {
+        HttpRequest login = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/login"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("{\"token\":\"" + "a".repeat(20_000_001) + "\"}")).build();
+
+        HttpResponse<String> res = HttpClient.newHttpClient().send(login, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(res.statusCode()).isEqualTo(400);
+        assertThat(res.body()).contains("bad JSON");
+        assertThat(output.getAll()).contains("Unreadable body of POST /api/login");
     }
 
     /**

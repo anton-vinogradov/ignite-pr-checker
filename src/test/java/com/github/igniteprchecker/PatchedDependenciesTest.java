@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.LoggerContext;
-import com.fasterxml.jackson.core.json.PackageVersion;
 import java.util.Properties;
 import org.apache.catalina.util.ServerInfo;
 import org.apache.commons.lang3.StringUtils;
@@ -16,31 +15,34 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.core.io.ClassPathResource;
+import tools.jackson.core.json.PackageVersion;
 
 /**
  * Prod ran Spring Boot 3.5.0: Tomcat 10.1.41 with 26 published vulnerabilities and jackson-core 2.19.0 with a
- * ReDoS in number parsing, which the anonymous /api/login endpoint reaches. Boot 3.5.16 alone still brings a
+ * ReDoS in number parsing, which the anonymous /api/login endpoint reaches. Boot 4.1.1 alone still brings a
  * vulnerable Jackson and Tomcat, so both are pinned higher, and a later Boot bump must not drop below them.
  */
 class PatchedDependenciesTest {
+    /** Boot 4.1.1 brings jackson-core 3.1.5, with CVE-2026-89407 and CVE-2026-89425 in parsing. */
     @Test
     void jacksonHasTheParserFixes() {
-        assertThat(PackageVersion.VERSION.getMajorVersion()).isEqualTo(2);
+        assertThat(PackageVersion.VERSION.getMajorVersion()).isEqualTo(3);
         assertThat(PackageVersion.VERSION.getMinorVersion() * 1000 + PackageVersion.VERSION.getPatchLevel())
-            .isGreaterThanOrEqualTo(21_007);
+            .isGreaterThanOrEqualTo(1_007);
     }
 
+    /** Boot 4.1.1 brings Tomcat 11.0.24, with CVE-2026-65182, -65905 and -68525. */
     @Test
     void tomcatHasTheSecurityConstraintFixes() {
         String[] v = ServerInfo.getServerNumber().split("\\.");
 
         assertThat(Integer.parseInt(v[0]) * 10_000 + Integer.parseInt(v[1]) * 1_000 + Integer.parseInt(v[2]))
-            .isGreaterThanOrEqualTo(101_058);
+            .isGreaterThanOrEqualTo(110_025);
     }
 
     /**
-     * Boot 3.5.16 brings httpcore5 5.3.6, httpclient5 5.5.2, commons-lang3 3.17.0 and log4j-api 2.24.3, each with a
-     * published vulnerability; the GitHub client runs on the first two.
+     * The versions the build pinned for published vulnerabilities in httpcore5, httpclient5, commons-lang3 and
+     * log4j-api, which Boot 4.1.1 brings or newer. The GitHub client runs on the first two.
      */
     @Test
     void httpComponentsCommonsLangAndLog4jHaveTheirFixes() {

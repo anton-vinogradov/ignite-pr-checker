@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
@@ -37,8 +38,8 @@ class BlockerAnalyzerTest {
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(4), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        new AnalysisCache(cfg, new com.fasterxml.jackson.databind.ObjectMapper()),
-        new RunDeltaStore(new com.fasterxml.jackson.databind.ObjectMapper()));
+        new AnalysisCache(cfg, Jackson2Defaults.mapper()),
+        new RunDeltaStore(Jackson2Defaults.mapper()));
 
     @Test
     void blockerIsAPrFailureCleanOnMasterAndStillFailingInLastRun() {

@@ -8,7 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -47,8 +47,8 @@ class EarlyRerunFreshnessTest {
 
     private final GithubClient github = mock(GithubClient.class);
 
-    private final StandingVisas standing = new StandingVisas(new ObjectMapper(),
-        new SessionCodec(new SessionProperties(false, "test-secret"), new ObjectMapper()),
+    private final StandingVisas standing = new StandingVisas(Jackson2Defaults.mapper(),
+        new SessionCodec(new SessionProperties(false, "test-secret"), Jackson2Defaults.mapper()),
         tc, github, analyzer, mock(JiraClient.class), mock(VisaService.class),
         mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class));
 

@@ -8,7 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The autofix report now lists the violations it left in a folded block. GitHub reads everything up to the next
@@ -45,7 +46,7 @@ class AutofixNoteTest {
 
     private final StyleFixService styleFix = mock(StyleFixService.class);
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,

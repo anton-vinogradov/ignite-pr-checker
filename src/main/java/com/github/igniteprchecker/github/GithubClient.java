@@ -3,8 +3,6 @@ package com.github.igniteprchecker.github;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -53,6 +51,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.util.UriUtils;
+import tools.jackson.databind.ObjectMapper;
 
 /** Lists open pull requests of the configured GitHub repo, cached to stay within the API rate limit. */
 @Component
@@ -188,7 +187,7 @@ public class GithubClient implements SnapshotCache {
                 .body(unlogged(json))
                 .retrieve().toBodilessEntity());
         }
-        catch (JsonProcessingException | RuntimeException e) {
+        catch (RuntimeException e) {
             log.warn("GitHub did not revoke the token of a GitHub account link: {}", e.toString());
         }
     }
@@ -986,8 +985,10 @@ public class GithubClient implements SnapshotCache {
         @Value("${app.public-url:}") String publicUrl) {
         this(props, mapper, metrics, publicUrl, RestClient.builder()
             .requestFactory(OutboundHttp.withPatch(props.readTimeout()))
+            .configureMessageConverters(OutboundHttp::json)
             .build(), RestClient.builder()
             .requestFactory(OutboundHttp.withPatchNoRedirects(props.readTimeout()))
+            .configureMessageConverters(OutboundHttp::json)
             .build());
     }
 

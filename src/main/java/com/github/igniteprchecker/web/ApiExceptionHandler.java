@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.web;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.tc.TcClient;
@@ -15,6 +14,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
+import tools.jackson.core.JacksonException;
 
 /**
  * Turns outbound failures into answers the page can act on, instead of a raw 500 with a full stack trace in
@@ -92,7 +92,7 @@ public class ApiExceptionHandler {
     }
 
     private static String whereBroken(HttpMessageNotReadableException e) {
-        if (!(e.getCause() instanceof JsonProcessingException json) || json.getLocation() == null)
+        if (!(e.getCause() instanceof JacksonException json) || json.getLocation() == null)
             return "";
 
         return " at line " + json.getLocation().getLineNr() + ", column " + json.getLocation().getColumnNr();

@@ -2,8 +2,8 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * On prod all 31 blockers of five PRs rested on one run, yet the page drew blockers and tests to watch without

@@ -124,6 +124,7 @@ public class TcClient {
         this.baseUrl = tc.baseUrl().endsWith("/") ? tc.baseUrl() : tc.baseUrl() + "/";
         this.http = RestClient.builder()
             .requestFactory(OutboundHttp.plain(tc.readTimeout()))
+            .configureMessageConverters(OutboundHttp::json)
             .defaultHeader("Accept", "application/json")
             .build();
     }

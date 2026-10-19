@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * One test id runs in several suites of a chain: the C++ thin-client tests of apache/ignite#13335 run on
@@ -57,7 +58,7 @@ class CandidatesPerSuiteTest {
         chainWith(suite(9388972L, WIN), suite(9388971L, LINUX));
         reconnectFails(9388972L, 9388971L);
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, collector, cfg, Executors.newFixedThreadPool(2),
             Executors.newSingleThreadExecutor(), Executors.newSingleThreadExecutor(), new AnalysisCache(cfg, mapper),
             new RunDeltaStore(mapper));

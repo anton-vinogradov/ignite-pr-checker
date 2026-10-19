@@ -2,9 +2,9 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The "ai" prompts of PR 13655: every one said "git checkout FETCH_HEAD" although two commits had been pushed

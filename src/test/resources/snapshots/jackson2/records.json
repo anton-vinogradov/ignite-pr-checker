@@ -1,0 +1,1160 @@
+{
+  "com.github.igniteprchecker.analysis.AnalysisCache$HistoryKey" : {
+    "empty" : {
+      "testId" : 1760780096789,
+      "buildTypeId" : ""
+    },
+    "null" : {
+      "testId" : 1760780096789,
+      "buildTypeId" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.AnalysisCache$Persisted" : {
+    "empty" : {
+      "masterHistory" : [ ],
+      "prBranchHistory" : [ ],
+      "results" : [ ],
+      "rules" : 7,
+      "facts" : null,
+      "texts" : 7,
+      "carriedOver" : [ ]
+    },
+    "null" : {
+      "masterHistory" : null,
+      "prBranchHistory" : null,
+      "results" : null,
+      "rules" : null,
+      "facts" : null,
+      "texts" : null,
+      "carriedOver" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.BuildFacts$Checked<com.github.igniteprchecker.tc.dto.TcModel$Build>" : {
+    "empty" : {
+      "value" : null,
+      "checkedAt" : 1760780096789
+    },
+    "null" : {
+      "value" : null,
+      "checkedAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.BuildFacts$Checked<java.util.List<com.github.igniteprchecker.tc.dto.TcModel$TestOccurrence>>" : {
+    "empty" : {
+      "value" : [ ],
+      "checkedAt" : 1760780096789
+    },
+    "null" : {
+      "value" : null,
+      "checkedAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.BuildFacts$Saved" : {
+    "empty" : {
+      "failedTests" : [ ],
+      "chains" : [ ],
+      "testRuns" : [ ],
+      "latestRuns" : [ ],
+      "checkedAt" : { }
+    },
+    "null" : {
+      "failedTests" : null,
+      "chains" : null,
+      "testRuns" : null,
+      "latestRuns" : null,
+      "checkedAt" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.BuildFacts$SuiteKey" : {
+    "empty" : {
+      "pr" : 7,
+      "suite" : ""
+    },
+    "null" : {
+      "pr" : 7,
+      "suite" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.BuildFacts$TestKey" : {
+    "empty" : {
+      "pr" : 7,
+      "testId" : 1760780096789,
+      "suite" : ""
+    },
+    "null" : {
+      "pr" : 7,
+      "testId" : 1760780096789,
+      "suite" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.FlakyStats$MasterRef" : {
+    "empty" : {
+      "buildId" : 1760780096789,
+      "btId" : "",
+      "occ" : ""
+    },
+    "null" : {
+      "buildId" : 1760780096789,
+      "btId" : null,
+      "occ" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.FlakyStats$Persisted" : {
+    "empty" : {
+      "testId" : 1760780096789,
+      "name" : "",
+      "suite" : "",
+      "suiteName" : "",
+      "suiteBuildId" : 1760780096789,
+      "occurrenceId" : "",
+      "masterFails" : 7,
+      "masterRuns" : 7,
+      "failStreak" : 7,
+      "lastSeen" : 1760780096789,
+      "prs" : [ ],
+      "prSeen" : { },
+      "masterFailures" : [ ],
+      "masterAnchorAt" : 1760780096789,
+      "muted" : false
+    },
+    "null" : {
+      "testId" : 1760780096789,
+      "name" : null,
+      "suite" : null,
+      "suiteName" : null,
+      "suiteBuildId" : 1760780096789,
+      "occurrenceId" : null,
+      "masterFails" : 7,
+      "masterRuns" : 7,
+      "failStreak" : 7,
+      "lastSeen" : 1760780096789,
+      "prs" : null,
+      "prSeen" : null,
+      "masterFailures" : null,
+      "masterAnchorAt" : 1760780096789,
+      "muted" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.MergedVerdicts$Merged" : {
+    "empty" : {
+      "pr" : 7,
+      "title" : "",
+      "mergedAt" : 1760780096789,
+      "mergeCommit" : "",
+      "head" : "",
+      "keptAt" : 1760780096789,
+      "rules" : 7,
+      "verdict" : null
+    },
+    "null" : {
+      "pr" : 7,
+      "title" : null,
+      "mergedAt" : 1760780096789,
+      "mergeCommit" : null,
+      "head" : null,
+      "keptAt" : 1760780096789,
+      "rules" : 7,
+      "verdict" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.RunDeltaStore$Persisted" : {
+    "empty" : {
+      "pr" : 7,
+      "latest" : null,
+      "prev" : null,
+      "history" : [ ],
+      "rules" : 7
+    },
+    "null" : {
+      "pr" : 7,
+      "latest" : null,
+      "prev" : null,
+      "history" : null,
+      "rules" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.RunDeltaStore$Point" : {
+    "empty" : {
+      "buildId" : 1760780096789,
+      "at" : 1760780096789,
+      "blockers" : 7,
+      "brokenSuites" : 7
+    },
+    "null" : {
+      "buildId" : 1760780096789,
+      "at" : 1760780096789,
+      "blockers" : 7,
+      "brokenSuites" : 7
+    }
+  },
+  "com.github.igniteprchecker.analysis.RunDeltaStore$Ref" : {
+    "empty" : {
+      "name" : "",
+      "suite" : "",
+      "suiteName" : ""
+    },
+    "null" : {
+      "name" : null,
+      "suite" : null,
+      "suiteName" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.RunDeltaStore$Snap" : {
+    "empty" : {
+      "buildId" : 1760780096789,
+      "blockers" : { }
+    },
+    "null" : {
+      "buildId" : 1760780096789,
+      "blockers" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.RunEnv" : {
+    "empty" : {
+      "jdk" : "",
+      "scale" : ""
+    },
+    "null" : {
+      "jdk" : null,
+      "scale" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.RunHistory" : {
+    "empty" : {
+      "results" : "",
+      "envOf" : "",
+      "envs" : [ ],
+      "prs" : [ ]
+    },
+    "null" : {
+      "results" : null,
+      "envOf" : null,
+      "envs" : null,
+      "prs" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.SuiteBaseline$Persisted" : {
+    "empty" : {
+      "fetchedAt" : 1760780096789,
+      "counts" : { },
+      "durations" : { },
+      "chainSuites" : 7
+    },
+    "null" : {
+      "fetchedAt" : 1760780096789,
+      "counts" : null,
+      "durations" : null,
+      "chainSuites" : 7
+    }
+  },
+  "com.github.igniteprchecker.analysis.TtlCache$Snapshot<com.github.igniteprchecker.analysis.AnalysisCache$HistoryKey,com.github.igniteprchecker.analysis.RunHistory>" : {
+    "empty" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.TtlCache$Snapshot<com.github.igniteprchecker.analysis.BuildFacts$SuiteKey,com.github.igniteprchecker.analysis.BuildFacts$Checked<com.github.igniteprchecker.tc.dto.TcModel$Build>>" : {
+    "empty" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.TtlCache$Snapshot<com.github.igniteprchecker.analysis.BuildFacts$TestKey,com.github.igniteprchecker.analysis.BuildFacts$Checked<java.util.List<com.github.igniteprchecker.tc.dto.TcModel$TestOccurrence>>>" : {
+    "empty" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.TtlCache$Snapshot<java.lang.Long,com.github.igniteprchecker.analysis.model.AnalysisResult>" : {
+    "empty" : {
+      "key" : 1760780096789,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.TtlCache$Snapshot<java.lang.Long,com.github.igniteprchecker.tc.dto.TcModel$Build>" : {
+    "empty" : {
+      "key" : 1760780096789,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.TtlCache$Snapshot<java.lang.Long,java.util.List<com.github.igniteprchecker.tc.dto.TcModel$TestOccurrence>>" : {
+    "empty" : {
+      "key" : 1760780096789,
+      "value" : [ ],
+      "expiresAt" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "value" : null,
+      "expiresAt" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.analysis.model.AnalysisResult" : {
+    "empty" : {
+      "prNumber" : 7,
+      "buildId" : 1760780096789,
+      "branchName" : "",
+      "computedAt" : 1760780096789,
+      "blockers" : [ ],
+      "watch" : [ ],
+      "filtered" : [ ],
+      "brokenSuites" : [ ],
+      "shrunkSuites" : [ ],
+      "suitesRan" : 7,
+      "suitesReused" : 7,
+      "interrupted" : true,
+      "canceledSuites" : 7,
+      "live" : true,
+      "liveBuildId" : 1760780096789,
+      "queuedAt" : 1760780096789,
+      "startedAt" : 1760780096789,
+      "finishedAt" : 1760780096789,
+      "branchWatermarkAt" : 1760780096789,
+      "unstableSuites" : [ ],
+      "cancelledSuites" : [ ],
+      "unverified" : [ ],
+      "incompleteSince" : 1760780096789,
+      "revision" : "",
+      "mergedAt" : 1760780096789,
+      "brokenGroups" : [ ]
+    },
+    "null" : {
+      "prNumber" : 7,
+      "buildId" : 1760780096789,
+      "branchName" : null,
+      "computedAt" : 1760780096789,
+      "blockers" : [ ],
+      "watch" : [ ],
+      "filtered" : [ ],
+      "brokenSuites" : [ ],
+      "shrunkSuites" : [ ],
+      "suitesRan" : 7,
+      "suitesReused" : 7,
+      "interrupted" : true,
+      "canceledSuites" : 7,
+      "live" : true,
+      "liveBuildId" : 1760780096789,
+      "queuedAt" : 1760780096789,
+      "startedAt" : 1760780096789,
+      "finishedAt" : 1760780096789,
+      "branchWatermarkAt" : 1760780096789,
+      "unstableSuites" : [ ],
+      "cancelledSuites" : [ ],
+      "unverified" : [ ],
+      "incompleteSince" : 1760780096789,
+      "revision" : null,
+      "mergedAt" : 1760780096789,
+      "brokenGroups" : [ ]
+    }
+  },
+  "com.github.igniteprchecker.analysis.model.BrokenSuite" : {
+    "empty" : {
+      "suite" : "",
+      "suiteBuildId" : 1760780096789,
+      "suiteName" : "",
+      "problems" : [ ],
+      "tests" : 7,
+      "baseline" : 7,
+      "problemTypes" : [ ],
+      "failedUpstream" : null,
+      "compileError" : false
+    },
+    "null" : {
+      "suite" : null,
+      "suiteBuildId" : 1760780096789,
+      "suiteName" : null,
+      "problems" : null,
+      "tests" : 7,
+      "baseline" : 7,
+      "problemTypes" : [ ],
+      "failedUpstream" : null,
+      "compileError" : false
+    }
+  },
+  "com.github.igniteprchecker.analysis.model.CancelledSuite" : {
+    "empty" : {
+      "suite" : "",
+      "suiteBuildId" : 1760780096789,
+      "suiteName" : "",
+      "reason" : "",
+      "cancelledBy" : "",
+      "byTeamCity" : true,
+      "baseline" : 7,
+      "failedUpstream" : null
+    },
+    "null" : {
+      "suite" : null,
+      "suiteBuildId" : 1760780096789,
+      "suiteName" : null,
+      "reason" : null,
+      "cancelledBy" : null,
+      "byTeamCity" : true,
+      "baseline" : 7,
+      "failedUpstream" : null
+    }
+  },
+  "com.github.igniteprchecker.analysis.model.ShrunkSuite" : {
+    "empty" : {
+      "suite" : "",
+      "suiteName" : "",
+      "suiteBuildId" : 1760780096789,
+      "tests" : 7,
+      "baseline" : 7,
+      "dropPct" : 7
+    },
+    "null" : {
+      "suite" : null,
+      "suiteName" : null,
+      "suiteBuildId" : 1760780096789,
+      "tests" : 7,
+      "baseline" : 7,
+      "dropPct" : 7
+    }
+  },
+  "com.github.igniteprchecker.analysis.model.TestVerdict" : {
+    "empty" : {
+      "testId" : "1760780096789",
+      "name" : "",
+      "suite" : "",
+      "suiteBuildId" : 1760780096789,
+      "suiteName" : "",
+      "occurrenceId" : "",
+      "blocker" : true,
+      "watch" : true,
+      "reason" : "",
+      "branchRuns" : "",
+      "codeRuns" : 7,
+      "doubts" : [ ]
+    },
+    "null" : {
+      "testId" : "1760780096789",
+      "name" : null,
+      "suite" : null,
+      "suiteBuildId" : 1760780096789,
+      "suiteName" : null,
+      "occurrenceId" : null,
+      "blocker" : true,
+      "watch" : true,
+      "reason" : null,
+      "branchRuns" : null,
+      "codeRuns" : 7,
+      "doubts" : [ ]
+    }
+  },
+  "com.github.igniteprchecker.analysis.model.Upstream" : {
+    "empty" : {
+      "suite" : "",
+      "buildId" : 1760780096789,
+      "name" : ""
+    },
+    "null" : {
+      "suite" : null,
+      "buildId" : 1760780096789,
+      "name" : null
+    }
+  },
+  "com.github.igniteprchecker.github.GithubClient$Persisted" : {
+    "empty" : {
+      "prs" : [ ],
+      "cacheTs" : 1760780096789
+    },
+    "null" : {
+      "prs" : null,
+      "cacheTs" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.github.PrCommands$CommandRun" : {
+    "empty" : {
+      "commentId" : 1760780096789,
+      "baseBody" : "",
+      "buildId" : 1760780096789,
+      "username" : "",
+      "narrationId" : 1760780096789,
+      "app" : true,
+      "pr" : 7,
+      "note" : "",
+      "ending" : "",
+      "readyId" : 1760780096789
+    },
+    "null" : {
+      "commentId" : 1760780096789,
+      "baseBody" : null,
+      "buildId" : 1760780096789,
+      "username" : null,
+      "narrationId" : 1760780096789,
+      "app" : true,
+      "pr" : 7,
+      "note" : null,
+      "ending" : null,
+      "readyId" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.github.PrCommands$Persisted" : {
+    "empty" : {
+      "sinceMs" : 1760780096789,
+      "handled" : { },
+      "handledTotal" : 7,
+      "watching" : { },
+      "onboarded" : { },
+      "onboardedPrs" : { },
+      "strangerCommands" : { },
+      "toldTcRefused" : { },
+      "hinted" : { },
+      "narrations" : [ ],
+      "outbox" : [ ],
+      "explained" : { }
+    },
+    "null" : {
+      "sinceMs" : 1760780096789,
+      "handled" : null,
+      "handledTotal" : 7,
+      "watching" : null,
+      "onboarded" : null,
+      "onboardedPrs" : null,
+      "strangerCommands" : null,
+      "toldTcRefused" : null,
+      "hinted" : null,
+      "narrations" : null,
+      "outbox" : null,
+      "explained" : null
+    }
+  },
+  "com.github.igniteprchecker.github.PrCommands$Reply" : {
+    "empty" : {
+      "key" : "",
+      "pr" : 7,
+      "user" : "",
+      "commentId" : 1760780096789,
+      "reaction" : "",
+      "body" : "",
+      "since" : 1760780096789
+    },
+    "null" : {
+      "key" : null,
+      "pr" : 7,
+      "user" : null,
+      "commentId" : 1760780096789,
+      "reaction" : null,
+      "body" : null,
+      "since" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.github.PrSummary" : {
+    "empty" : {
+      "number" : 7,
+      "title" : "",
+      "url" : "",
+      "triggeredBy" : "",
+      "blockers" : 7,
+      "proven" : false,
+      "headSha" : "",
+      "standing" : ""
+    },
+    "null" : {
+      "number" : 7,
+      "title" : null,
+      "url" : null,
+      "triggeredBy" : null,
+      "blockers" : null,
+      "proven" : null,
+      "headSha" : null,
+      "standing" : null
+    }
+  },
+  "com.github.igniteprchecker.health.LogTracker$Entry" : {
+    "empty" : {
+      "t" : 1760780096789,
+      "level" : "",
+      "logger" : "",
+      "message" : "",
+      "client" : true
+    },
+    "null" : {
+      "t" : 1760780096789,
+      "level" : null,
+      "logger" : null,
+      "message" : null,
+      "client" : true
+    }
+  },
+  "com.github.igniteprchecker.jira.SettingsJournal$Entry" : {
+    "empty" : {
+      "at" : 1760780096789,
+      "kind" : "",
+      "login" : "",
+      "browser" : "",
+      "options" : [ ],
+      "tokens" : [ ],
+      "why" : "",
+      "account" : "",
+      "pr" : 7,
+      "issue" : "",
+      "build" : 1760780096789,
+      "url" : "",
+      "lang" : ""
+    },
+    "null" : {
+      "at" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.jira.SettingsJournal$Snapshot" : {
+    "empty" : {
+      "users" : { }
+    },
+    "null" : {
+      "users" : null
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$GhThread" : {
+    "empty" : {
+      "buildId" : 1760780096789,
+      "commentId" : 1760780096789,
+      "done" : true,
+      "superseded" : true,
+      "unmarked" : [ ],
+      "app" : true
+    },
+    "null" : {
+      "buildId" : 1760780096789,
+      "commentId" : 1760780096789,
+      "done" : true,
+      "superseded" : true,
+      "unmarked" : [ ],
+      "app" : true
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$JiraThread" : {
+    "empty" : {
+      "buildId" : 1760780096789,
+      "commentId" : "",
+      "issue" : "",
+      "sha" : "",
+      "verdict" : "",
+      "done" : true
+    },
+    "null" : {
+      "buildId" : 1760780096789,
+      "commentId" : null,
+      "issue" : null,
+      "sha" : null,
+      "verdict" : null,
+      "done" : true
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$Owed" : {
+    "empty" : {
+      "buildId" : 1760780096789,
+      "visa" : true,
+      "comment" : true,
+      "waves" : [ ],
+      "note" : ""
+    },
+    "null" : {
+      "buildId" : 1760780096789,
+      "visa" : true,
+      "comment" : true,
+      "waves" : null,
+      "note" : null
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$Persisted" : {
+    "empty" : {
+      "username" : "",
+      "tcToken" : "",
+      "jiraToken" : "",
+      "ghToken" : "",
+      "ghLogin" : "",
+      "tz" : "",
+      "enabledAt" : 1760780096789,
+      "posted" : { },
+      "ghThreads" : { },
+      "jiraThreads" : { },
+      "autoVisa" : false,
+      "autoRerun" : true,
+      "ghComment" : false,
+      "styleFix" : false,
+      "ghRejectedAt" : 1760780096789,
+      "jiraRejectedAt" : 1760780096789,
+      "tcRejectedAt" : 1760780096789,
+      "commands" : false,
+      "onSince" : { },
+      "suiteFix" : false,
+      "owed" : { },
+      "ghId" : 1760780096789,
+      "ghLoginProven" : false,
+      "ghTokenNote" : "",
+      "tcRefusedHash" : "",
+      "tcTokenRemoved" : false,
+      "jiraTokenRemoved" : false,
+      "ghTokenRemoved" : false,
+      "ghLinkedAt" : 1760780096789,
+      "ghLinkedFrom" : "",
+      "ghFirstCommandDue" : false,
+      "tcTokenUnread" : "",
+      "jiraTokenUnread" : "",
+      "ghTokenUnread" : ""
+    },
+    "null" : {
+      "username" : null,
+      "tcToken" : null,
+      "jiraToken" : null,
+      "ghToken" : null,
+      "ghLogin" : null,
+      "tz" : null,
+      "enabledAt" : 1760780096789,
+      "posted" : null,
+      "ghThreads" : null,
+      "jiraThreads" : null,
+      "autoVisa" : null,
+      "autoRerun" : true,
+      "ghComment" : null,
+      "styleFix" : null,
+      "ghRejectedAt" : null,
+      "jiraRejectedAt" : null,
+      "tcRejectedAt" : null,
+      "commands" : null,
+      "onSince" : null,
+      "suiteFix" : null,
+      "owed" : null,
+      "ghId" : null,
+      "ghLoginProven" : null,
+      "ghTokenNote" : null,
+      "tcRefusedHash" : null,
+      "tcTokenRemoved" : null,
+      "jiraTokenRemoved" : null,
+      "ghTokenRemoved" : null,
+      "ghLinkedAt" : null,
+      "ghLinkedFrom" : null,
+      "ghFirstCommandDue" : null,
+      "tcTokenUnread" : null,
+      "jiraTokenUnread" : null,
+      "ghTokenUnread" : null
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$Retry" : {
+    "empty" : {
+      "pr" : 7,
+      "buildId" : 1760780096789,
+      "attempts" : 7,
+      "what" : "",
+      "history" : [ ],
+      "note" : "",
+      "by" : "",
+      "queued" : [ ]
+    },
+    "null" : {
+      "pr" : 7,
+      "buildId" : 1760780096789,
+      "attempts" : 7,
+      "what" : null,
+      "history" : null,
+      "note" : null,
+      "by" : null,
+      "queued" : null
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$RunVisa" : {
+    "empty" : {
+      "pr" : 7,
+      "by" : "",
+      "issue" : "",
+      "commentId" : ""
+    },
+    "null" : {
+      "pr" : 7,
+      "by" : null,
+      "issue" : null,
+      "commentId" : null
+    }
+  },
+  "com.github.igniteprchecker.jira.StandingVisas$Snapshot" : {
+    "empty" : {
+      "enrollments" : [ ],
+      "retries" : { },
+      "earlyReruns" : { },
+      "waves" : { },
+      "visas" : { },
+      "keyCheck" : ""
+    },
+    "null" : {
+      "enrollments" : null,
+      "retries" : null,
+      "earlyReruns" : null,
+      "waves" : null,
+      "visas" : null,
+      "keyCheck" : null
+    }
+  },
+  "com.github.igniteprchecker.metrics.Metrics$Persisted" : {
+    "empty" : {
+      "tcSinceStart" : 1760780096789,
+      "githubSinceStart" : 1760780096789,
+      "jiraSinceStart" : 1760780096789
+    },
+    "null" : {
+      "tcSinceStart" : 1760780096789,
+      "githubSinceStart" : 1760780096789,
+      "jiraSinceStart" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.session.SessionCodec$Payload" : {
+    "empty" : {
+      "username" : "",
+      "token" : "",
+      "jiraToken" : "",
+      "iat" : 1760780096789,
+      "v" : 7,
+      "lid" : ""
+    },
+    "null" : {
+      "username" : null,
+      "token" : null,
+      "iat" : null,
+      "v" : null
+    }
+  },
+  "com.github.igniteprchecker.suitefix.SuiteFixService$Attempt" : {
+    "empty" : {
+      "pr" : 7,
+      "head" : "",
+      "at" : 1760780096789,
+      "user" : "",
+      "pushed" : "",
+      "commentId" : 1760780096789,
+      "report" : "",
+      "added" : [ ],
+      "followed" : true,
+      "app" : true
+    },
+    "null" : {
+      "pr" : 7,
+      "head" : null,
+      "at" : 1760780096789,
+      "user" : null,
+      "pushed" : null,
+      "commentId" : null,
+      "report" : null,
+      "added" : [ ],
+      "followed" : true,
+      "app" : true
+    }
+  },
+  "com.github.igniteprchecker.suitefix.SuiteFixService$Snapshot" : {
+    "empty" : {
+      "attempts" : [ ],
+      "pushed" : 7
+    },
+    "null" : {
+      "attempts" : null,
+      "pushed" : 7
+    }
+  },
+  "com.github.igniteprchecker.tc.RerunTracker$Persisted" : {
+    "empty" : {
+      "pr" : 7,
+      "buildTypeId" : "",
+      "suiteName" : "",
+      "buildId" : 1760780096789,
+      "webUrl" : "",
+      "state" : ""
+    },
+    "null" : {
+      "pr" : 7,
+      "buildTypeId" : null,
+      "suiteName" : null,
+      "buildId" : 1760780096789,
+      "webUrl" : null,
+      "state" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$Build" : {
+    "empty" : {
+      "id" : 1760780096789,
+      "status" : "",
+      "state" : "",
+      "branchName" : "",
+      "buildTypeId" : "",
+      "webUrl" : "",
+      "queuedDate" : "",
+      "startDate" : "",
+      "finishDate" : "",
+      "startEstimate" : "",
+      "finishEstimate" : "",
+      "buildType" : null,
+      "triggered" : null,
+      "snapshot-dependencies" : null,
+      "running-info" : null,
+      "problemOccurrences" : null,
+      "revisions" : null,
+      "testOccurrences" : null,
+      "canceledInfo" : null
+    },
+    "null" : {
+      "id" : 1760780096789,
+      "status" : null,
+      "state" : null,
+      "branchName" : null,
+      "buildTypeId" : null,
+      "webUrl" : null,
+      "queuedDate" : null,
+      "startDate" : null,
+      "finishDate" : null,
+      "startEstimate" : null,
+      "finishEstimate" : null,
+      "buildType" : null,
+      "triggered" : null,
+      "snapshot-dependencies" : null,
+      "running-info" : null,
+      "problemOccurrences" : null,
+      "revisions" : null,
+      "testOccurrences" : null,
+      "canceledInfo" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$BuildRef" : {
+    "empty" : {
+      "id" : 1760780096789,
+      "branchName" : "",
+      "state" : "",
+      "status" : "",
+      "buildTypeId" : "",
+      "buildType" : null,
+      "revisions" : null,
+      "resultingProperties" : null
+    },
+    "null" : {
+      "id" : 1760780096789,
+      "branchName" : null,
+      "state" : null,
+      "status" : null,
+      "buildTypeId" : null,
+      "buildType" : null,
+      "revisions" : null,
+      "resultingProperties" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$BuildType" : {
+    "empty" : {
+      "id" : "",
+      "name" : ""
+    },
+    "null" : {
+      "id" : null,
+      "name" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$CanceledInfo" : {
+    "empty" : {
+      "text" : "",
+      "user" : null
+    },
+    "null" : {
+      "text" : null,
+      "user" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$ProblemOccurrence" : {
+    "empty" : {
+      "type" : "",
+      "details" : ""
+    },
+    "null" : {
+      "type" : null,
+      "details" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$ProblemOccurrences" : {
+    "empty" : {
+      "problemOccurrence" : [ ]
+    },
+    "null" : {
+      "problemOccurrence" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$Properties" : {
+    "empty" : {
+      "property" : [ ]
+    },
+    "null" : {
+      "property" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$Property" : {
+    "empty" : {
+      "name" : "",
+      "value" : ""
+    },
+    "null" : {
+      "name" : null,
+      "value" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$Revision" : {
+    "empty" : {
+      "version" : ""
+    },
+    "null" : {
+      "version" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$Revisions" : {
+    "empty" : {
+      "revision" : [ ]
+    },
+    "null" : {
+      "revision" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$RunningInfo" : {
+    "empty" : {
+      "percentageComplete" : 7,
+      "elapsedSeconds" : 1760780096789,
+      "estimatedTotalSeconds" : 1760780096789
+    },
+    "null" : {
+      "percentageComplete" : null,
+      "elapsedSeconds" : null,
+      "estimatedTotalSeconds" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$SnapshotDeps" : {
+    "empty" : {
+      "count" : 7,
+      "build" : [ ]
+    },
+    "null" : {
+      "count" : 7,
+      "build" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$TestOccurrence" : {
+    "empty" : {
+      "id" : "",
+      "name" : "",
+      "status" : "",
+      "test" : null,
+      "build" : null,
+      "details" : "",
+      "duration" : 1760780096789,
+      "muted" : false
+    },
+    "null" : {
+      "id" : null,
+      "name" : null,
+      "status" : null,
+      "test" : null,
+      "build" : null,
+      "details" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$TestOccurrences" : {
+    "empty" : {
+      "count" : 7,
+      "testOccurrence" : [ ]
+    },
+    "null" : {
+      "count" : 7,
+      "testOccurrence" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$TestRef" : {
+    "empty" : {
+      "id" : 1760780096789
+    },
+    "null" : {
+      "id" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$Triggered" : {
+    "empty" : {
+      "type" : "",
+      "user" : null
+    },
+    "null" : {
+      "type" : null,
+      "user" : null
+    }
+  },
+  "com.github.igniteprchecker.tc.dto.TcModel$User" : {
+    "empty" : {
+      "username" : ""
+    },
+    "null" : {
+      "username" : null
+    }
+  },
+  "com.github.igniteprchecker.web.AdminActions$Use" : {
+    "empty" : {
+      "by" : "",
+      "at" : 1760780096789
+    },
+    "null" : {
+      "by" : null,
+      "at" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.web.Logins$Login" : {
+    "empty" : {
+      "id" : "",
+      "user" : "",
+      "browser" : "",
+      "createdAt" : 1760780096789,
+      "lastSeen" : 1760780096789,
+      "earlierIssuedAt" : 1760780096789,
+      "endedAt" : 1760780096789
+    },
+    "null" : {
+      "createdAt" : 1760780096789,
+      "lastSeen" : 1760780096789
+    }
+  },
+  "com.github.igniteprchecker.web.UserDirectory$UserView" : {
+    "empty" : {
+      "name" : "",
+      "firstSeen" : 1760780096789,
+      "lastSeen" : 1760780096789,
+      "logins" : 1760780096789,
+      "sessionsEndedAt" : 1760780096789,
+      "jiraInCookieAt" : 1760780096789,
+      "language" : ""
+    },
+    "null" : {
+      "name" : null,
+      "firstSeen" : 1760780096789,
+      "lastSeen" : 1760780096789,
+      "logins" : 1760780096789,
+      "sessionsEndedAt" : 1760780096789,
+      "jiraInCookieAt" : 1760780096789
+    }
+  }
+}

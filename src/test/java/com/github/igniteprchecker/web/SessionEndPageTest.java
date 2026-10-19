@@ -2,9 +2,9 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * A login ended from another browser sent this one to the login form without a word of why. The logout the page
@@ -19,7 +19,7 @@ class SessionEndPageTest {
             await page.load('?pr=13575');
             report({ loginShown: !page.el('loginView').classList.contains('hidden'),
                 message: page.el('loginErr').textContent, logouts: page.fetches('/api/logout').length });
-            """.replace("ENDED", new ObjectMapper().writeValueAsString(AuthInterceptor.ENDED)));
+            """.replace("ENDED", Jackson2Defaults.mapper().writeValueAsString(AuthInterceptor.ENDED)));
 
         assertThat(out.get("loginShown").asBoolean()).isTrue();
         assertThat(out.get("message").asText()).isEqualTo(AuthInterceptor.ENDED);

@@ -8,8 +8,9 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Nothing in the checker heard GitHub's 403 and 429 of its secondary rate limit: writing on through them gets the
@@ -32,11 +34,11 @@ class AppWritesTest {
 
     private static final String COMMENTS = "https://api.github.com/repos/apache/ignite/issues/13800/comments";
 
-    private final RestClient.Builder http = RestClient.builder();
+    private final RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     @Test
     void aWriteGithubMadeWaitIsDeferredAndTheNextOnesDoNotReachGithubMeanwhile() {

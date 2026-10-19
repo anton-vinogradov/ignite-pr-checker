@@ -4,7 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -64,6 +64,6 @@ class JiraTokenCheckTest {
         server.start();
 
         return new JiraClient("http://" + server.getAddress().getHostString() + ":" + server.getAddress().getPort()
-            + "/jira", Duration.ofSeconds(10), new Metrics(new ObjectMapper()));
+            + "/jira", Duration.ofSeconds(10), new Metrics(Jackson2Defaults.mapper()));
     }
 }

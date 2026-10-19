@@ -8,7 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PersistProperties;
@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * One pool of two threads ran the warm cycle's PRs, the refresh a view started and the recompute after a re-run
@@ -49,7 +50,7 @@ class RecomputeThreadsTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, 120, null);
 
-    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+    private final AnalysisCache cache = new AnalysisCache(cfg, Jackson2Defaults.mapper());
 
     private final ExecutorService foreground = Executors.newFixedThreadPool(2);
 
@@ -68,7 +69,7 @@ class RecomputeThreadsTest {
     private final CountDownLatch warmCycleWaits = new CountDownLatch(1);
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg, foreground, background, recompute,
-        recomputeFanOut, cache, new RunDeltaStore(new ObjectMapper()));
+        recomputeFanOut, cache, new RunDeltaStore(Jackson2Defaults.mapper()));
 
     private final long stale = System.currentTimeMillis() - 3_600_000;
 
@@ -159,7 +160,7 @@ class RecomputeThreadsTest {
     void theAnalysisPoolsAreBeansThatStopWithTheApplication() {
         List<ExecutorService> pools;
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
-            context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+            context.registerBean(ObjectMapper.class, () -> Jackson2Defaults.mapper());
             context.registerBean(AnalysisProperties.class, () -> cfg);
             context.registerBean(WarmProperties.class, () -> new WarmProperties(false, 50, 10, 60));
             context.registerBean(GithubClient.class, () -> mock(GithubClient.class));

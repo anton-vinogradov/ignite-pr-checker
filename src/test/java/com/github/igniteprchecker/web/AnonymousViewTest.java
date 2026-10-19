@@ -6,7 +6,7 @@ import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.LoggingEvent;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mock.web.MockHttpServletRequest;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The public /api/status listed the log's warnings word for word, TeamCity logins included, and the public
@@ -37,7 +38,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
  * warnings and who restarted or flushed last, and anyone may register on ci2: only the operators get those now.
  */
 class AnonymousViewTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final SessionCodec codec = new SessionCodec(new SessionProperties(true, "test-secret"), mapper);
 

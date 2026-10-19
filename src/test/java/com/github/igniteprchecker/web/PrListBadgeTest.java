@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Caveats.Glance;
 import com.github.igniteprchecker.github.GithubClient;
@@ -15,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The green tick in the PR list stood at PRs 13583, 13577 and 13389, whose pages said "No test blockers" over

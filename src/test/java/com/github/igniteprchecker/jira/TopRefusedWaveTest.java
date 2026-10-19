@@ -10,7 +10,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Auto re-run asks for the top of the queue, which ci2 lets only some accounts reorder, and TeamCity queues a build
@@ -79,13 +80,13 @@ class TopRefusedWaveTest {
 
         tc = spy(new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"), new AnalysisProperties(null, "RunAll", null, null, null, null, null),
-            new Metrics(new ObjectMapper())));
+            new Metrics(Jackson2Defaults.mapper())));
         doReturn(Optional.of(USER)).when(tc).buildTriggeredBy(anyString(), eq(CHAIN));
         doReturn(Optional.empty()).when(tc).prsWithChainsFinishedAfter(anyString(), anyLong());
         doReturn(new TcModel.Build(1L, null, "queued", null, null, null, null, null, null, null, null, null, null,
             null, null, null, null, null)).when(tc).getBuildState(anyString(), anyLong());
 
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         standing = new StandingVisas(mapper, new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc,
             github, analyzer, mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
             mock(Warmer.class), mock(PendingCommits.class));

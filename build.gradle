@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.springframework.boot' version '3.5.16'
+    id 'org.springframework.boot' version '4.1.1'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -45,28 +45,31 @@ repositories {
     mavenCentral()
 }
 
-// Patch releases newer than Boot 3.5.16 manages: Jackson 2.21.4 has CVE-2026-89407 and CVE-2026-89425,
-// Tomcat 10.1.55 has CVE-2026-65182, -65905 and -68525, httpcore5 5.3.6 has CVE-2026-54399 and, in httpcore5-h2,
-// CVE-2026-54428, httpclient5 5.5.2 has CVE-2026-64607, commons-lang3 3.17.0 has CVE-2025-48924, log4j-api 2.24.3 has
-// CVE-2026-49844. Drop a pin once Boot manages that version or newer.
-ext['jackson-bom.version'] = '2.21.7'
-ext['tomcat.version'] = '10.1.60'
-ext['httpcore5.version'] = '5.4.3'
-ext['httpclient5.version'] = '5.6.4'
-ext['commons-lang3.version'] = '3.18.0'
-ext['log4j2.version'] = '2.25.5'
+// Patch releases newer than Boot 4.1.1 manages: Jackson 3.1.5 has CVEs in jackson-core and jackson-databind (OSV lists
+// seven, CVE-2026-89407 among them), Tomcat 11.0.24 has CVE-2026-65182, -65905 and -68525. Drop a pin once Boot
+// manages that version or newer.
+ext['jackson-bom.version'] = '3.1.8'
+ext['tomcat.version'] = '11.0.25'
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    // The request factories of the TeamCity, JIRA and GitHub clients (OutboundHttp).
+    implementation 'org.springframework.boot:spring-boot-http-client'
     // GitHub calls (PATCH included) run on it; checkstyle 10 used to bring it in by accident.
     implementation 'org.apache.httpcomponents.client5:httpclient5'
     // The version Ignite's own build runs, so the style autofix counts violations by the same rules.
     implementation('com.puppycrawl.tools:checkstyle:12.3.1') {
-        // A second SLF4J backend next to Logback, and a commons-logging that spring-jcl already replaces.
+        // A second SLF4J backend next to Logback.
         exclude group: 'org.slf4j', module: 'slf4j-simple'
-        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+    constraints {
+        // Checkstyle brings plexus-utils 3.3.0 in through doxia; it has CVE-2025-67030, fixed in 3.6.1.
+        implementation 'org.codehaus.plexus:plexus-utils:3.6.1'
     }
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // TestRestTemplate, which ContextStartsTest calls the started service with, and the RestTemplateBuilder it needs.
+    testImplementation 'org.springframework.boot:spring-boot-resttestclient'
+    testImplementation 'org.springframework.boot:spring-boot-restclient'
     // Tests render the PR comment by the CommonMark rules GitHub's markdown follows.
     testImplementation 'org.commonmark:commonmark:0.28.0'
 }

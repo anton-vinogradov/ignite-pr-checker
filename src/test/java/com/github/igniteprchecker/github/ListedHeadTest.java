@@ -8,13 +8,13 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.web.AnalyzeController;
@@ -30,6 +30,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * PR 13335's page said "No blockers 🎉 … good to go" from the cached analysis of build 9398719 and, once /api/pending
@@ -46,11 +48,11 @@ class ListedHeadTest {
 
     private static final long BUILD = 9398719L;
 
-    private final RestClient.Builder http = RestClient.builder();
+    private final RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper,
         new Metrics(mapper), http.build());

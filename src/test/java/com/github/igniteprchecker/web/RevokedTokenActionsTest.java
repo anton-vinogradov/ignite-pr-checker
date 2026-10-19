@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
@@ -43,6 +43,7 @@ import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.handler.MappedInterceptor;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A copy of alice's cookie, or her own session right after she revoked its token in ci2, could link a GitHub account,
@@ -54,7 +55,7 @@ import org.springframework.web.servlet.handler.MappedInterceptor;
 class RevokedTokenActionsTest {
     private static final String USER = "alice";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final SessionProperties props = new SessionProperties(false, "test-secret");
 

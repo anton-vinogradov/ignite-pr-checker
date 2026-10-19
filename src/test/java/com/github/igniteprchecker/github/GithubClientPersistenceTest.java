@@ -2,7 +2,7 @@ package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.nio.file.Files;
@@ -10,9 +10,10 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
 
 class GithubClientPersistenceTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private GithubClient client() {
         return new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper, new Metrics(mapper));

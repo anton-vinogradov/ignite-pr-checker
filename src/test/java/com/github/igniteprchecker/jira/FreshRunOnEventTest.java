@@ -11,7 +11,7 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.ChainCollector;
@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * PR 13335: RunAll 9389046 finished while its author had the PR page open, which looked the PR's run up every
@@ -54,7 +55,7 @@ class FreshRunOnEventTest {
 
     private final GithubClient github = AppWriting.github();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, 120, null);
 

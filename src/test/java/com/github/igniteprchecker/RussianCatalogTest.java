@@ -3,8 +3,6 @@ package com.github.igniteprchecker;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,6 +18,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import tools.jackson.core.type.TypeReference;
 
 /**
  * The pages spoke English only. A user who chooses Russian in ⚙ reads every page in Russian, the PR page, the login
@@ -163,7 +162,7 @@ class RussianCatalogTest {
 
     /** The catalog's sections, each its English strings and their Russian. */
     static Map<String, Map<String, String>> sections() throws IOException {
-        return new ObjectMapper().readValue(STATIC.resolve("ru.json").toFile(), new TypeReference<>() {
+        return Jackson2Defaults.mapper().readValue(STATIC.resolve("ru.json").toFile(), new TypeReference<>() {
         });
     }
 

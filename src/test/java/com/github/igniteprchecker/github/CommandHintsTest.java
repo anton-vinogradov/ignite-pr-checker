@@ -14,7 +14,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
@@ -40,6 +40,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpServerErrorException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * "/run all", "/run-all.", "`/run-all`" and "Please /run-all" were ignored without a word, "/run-all
@@ -60,7 +61,7 @@ class CommandHintsTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,

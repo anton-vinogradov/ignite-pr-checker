@@ -46,6 +46,7 @@ public class JiraClient {
         @Value("${jira.read-timeout:60s}") Duration readTimeout, Metrics metrics) {
         this.http = RestClient.builder()
             .requestFactory(OutboundHttp.plain(readTimeout))
+            .configureMessageConverters(OutboundHttp::json)
             .build();
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.metrics = metrics;

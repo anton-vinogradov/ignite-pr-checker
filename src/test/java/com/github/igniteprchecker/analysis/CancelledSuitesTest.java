@@ -12,7 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
@@ -35,6 +35,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * PR 13592: TeamCity itself cancelled four suites of the RunAll with "Build revision not found". The
@@ -224,7 +225,7 @@ class CancelledSuitesTest {
 
     private BlockerAnalyzer analyzer(ChainCollector chains) {
         AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
 
         return new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(2), Executors.newSingleThreadExecutor(),
             Executors.newSingleThreadExecutor(), new AnalysisCache(cfg, mapper), new RunDeltaStore(mapper));
@@ -268,7 +269,8 @@ class CancelledSuitesTest {
     private static TcClient client(HttpServer server) {
         return new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"),
-            new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+            new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            new Metrics(Jackson2Defaults.mapper()));
     }
 
     private static String param(String rawQuery, String name) {

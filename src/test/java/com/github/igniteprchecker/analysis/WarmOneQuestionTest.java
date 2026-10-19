@@ -10,7 +10,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
@@ -48,12 +48,12 @@ class WarmOneQuestionTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
-    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+    private final AnalysisCache cache = new AnalysisCache(cfg, Jackson2Defaults.mapper());
 
     private final ExecutorService recompute = Executors.newSingleThreadExecutor();
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(2),
-        Executors.newSingleThreadExecutor(), recompute, cache, new RunDeltaStore(new ObjectMapper()));
+        Executors.newSingleThreadExecutor(), recompute, cache, new RunDeltaStore(Jackson2Defaults.mapper()));
 
     /** When the analysed chains finished, in epoch seconds. */
     private final long finishedAt = System.currentTimeMillis() / 1000 - 7200;

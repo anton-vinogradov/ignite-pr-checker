@@ -1,11 +1,13 @@
 package com.github.igniteprchecker.persist;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.exc.JacksonIOException;
+import tools.jackson.databind.ObjectMapper;
 
 /** Shared JSON snapshot IO for {@link SnapshotCache} implementations. */
 public final class Snapshots {
@@ -15,11 +17,20 @@ public final class Snapshots {
     /**
      * Writes {@code value} as JSON to {@code file} via a temp file and an atomic rename, so a crash
      * mid-write can never leave a half-written snapshot in place. A snapshot equal to the file's content
-     * leaves the file alone: durable state is offered for saving every second, changed or not.
+     * leaves the file alone: durable state is offered for saving every second, changed or not. Any failure is an
+     * {@link IOException}, on which the callers keep the state they could not write.
      */
     public static void writeAtomic(ObjectMapper mapper, Path file, Object value) throws IOException {
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-        mapper.writeValue(tmp.toFile(), value);
+        try {
+            mapper.writeValue(tmp.toFile(), value);
+        }
+        catch (JacksonIOException e) {
+            throw e.getCause();
+        }
+        catch (JacksonException e) {
+            throw new IOException(e.getMessage(), e);
+        }
 
         if (Files.exists(file) && Files.mismatch(tmp, file) == -1L) {
             Files.delete(tmp);

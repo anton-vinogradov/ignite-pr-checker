@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.github;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.Markup;
 import com.github.igniteprchecker.jira.SettingsJournal;
@@ -35,6 +34,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Slash commands in PR comments: an enrolled user (PR commands on) comments {@code /run-all} on a pull request and

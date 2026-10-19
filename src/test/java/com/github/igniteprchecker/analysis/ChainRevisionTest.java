@@ -6,7 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -74,7 +74,8 @@ class ChainRevisionTest {
         when(baseline.counts(anyString())).thenReturn(Map.of());
         TcClient tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"),
-            new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+            new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            new Metrics(Jackson2Defaults.mapper()));
 
         return new ChainCollector(tc, baseline);
     }

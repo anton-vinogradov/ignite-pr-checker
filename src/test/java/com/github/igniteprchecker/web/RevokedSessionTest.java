@@ -9,7 +9,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
@@ -33,6 +33,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.client.HttpClientErrorException;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The session cookie lives ten years and is never checked again, so after TeamCity revoked a user's token the
@@ -40,7 +41,7 @@ import org.springframework.web.client.HttpClientErrorException;
  * now ends such sessions until a fresh login; a 403, which the ci2 WAF also gives valid tokens, does not.
  */
 class RevokedSessionTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final SessionCodec codec = new SessionCodec(new SessionProperties(true, "test-secret"), mapper);
 

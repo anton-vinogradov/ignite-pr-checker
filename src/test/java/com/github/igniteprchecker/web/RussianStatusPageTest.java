@@ -3,13 +3,14 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A user who chose Russian in ⚙ read the status page in English: its cards, its problems, its log notes and the server's
@@ -18,7 +19,7 @@ import org.junit.jupiter.api.Test;
  * and the names. A reader without a login reads it in English, as before.
  */
 class RussianStatusPageTest {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
     /** The log lines of the scenario: the service's log stays English. */
     private static final List<String> LOG = List.of("PR 13655 skipped: TeamCity rejected the token of nsamelchev",

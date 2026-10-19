@@ -4,8 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.tc.TcClient;
@@ -15,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * One test id can be a blocker in several suites, each failing its own way. The page puts each cluster's
@@ -41,7 +41,7 @@ class CauseClustersTest {
         when(tc.testDetails(TOK, "o-win")).thenReturn("Connection refused: 127.0.0.1:10800");
         AnalysisResult res = run(blocker(RECONNECT, LINUX, "o-linux"), blocker(RECONNECT, WIN, "o-win"));
 
-        JsonNode json = new ObjectMapper().valueToTree(causes.clusters(TOK, res));
+        JsonNode json = Jackson2Defaults.mapper().valueToTree(causes.clusters(TOK, res));
 
         Map<String, List<String>> members = new LinkedHashMap<>();
         for (JsonNode c : json.get("clusters")) {

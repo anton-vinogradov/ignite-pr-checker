@@ -12,7 +12,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -42,12 +42,12 @@ class ChangeDrivenRefreshTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, 120, null);
 
-    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+    private final AnalysisCache cache = new AnalysisCache(cfg, Jackson2Defaults.mapper());
 
     private final ExecutorService refreshPool = Executors.newSingleThreadExecutor();
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg, Executors.newFixedThreadPool(2),
-        Executors.newSingleThreadExecutor(), refreshPool, cache, new RunDeltaStore(new ObjectMapper()));
+        Executors.newSingleThreadExecutor(), refreshPool, cache, new RunDeltaStore(Jackson2Defaults.mapper()));
 
     private final long now = System.currentTimeMillis();
 

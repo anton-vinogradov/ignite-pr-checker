@@ -3,7 +3,7 @@ package com.github.igniteprchecker.tc;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -20,6 +20,7 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * How the PR's new and changed test classes ran in its RunAll is one call, more only for hundreds of classes: the
@@ -116,7 +117,7 @@ class PrTestsQueryTest {
     /** Runs kept on disk (analysis.json) read and write as before when no duration and no mute was asked for. */
     @Test
     void aRunWithoutItsDurationIsKeptAsBefore() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         TcModel.TestOccurrence run = new TcModel.TestOccurrence("o", "t", "FAILURE", null, null, null);
 
         assertThat(mapper.writeValueAsString(run)).doesNotContain("duration", "muted");
@@ -132,7 +133,8 @@ class PrTestsQueryTest {
 
     private TcClient client() {
         return new TcClient(new TeamcityProperties("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
-            new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+            new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            new Metrics(Jackson2Defaults.mapper()));
     }
 
     private static String param(String rawQuery, String name) {

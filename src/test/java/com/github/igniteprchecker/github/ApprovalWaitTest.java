@@ -5,18 +5,20 @@ import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AbandonedTestsCheck;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.PrTestRuns;
 import com.github.igniteprchecker.analysis.model.PrTests.SuiteCheck.State;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * apache/ignite asks a maintainer to approve the workflow runs of every push by a contributor outside the project. Till
@@ -45,11 +47,11 @@ class ApprovalWaitTest {
            "app": {"id": 15368, "slug": "github-actions", "name": "GitHub Actions"}}]}
         """;
 
-    private final RestClient.Builder http = RestClient.builder();
+    private final RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     @Test
     void theCheckSaysItWaitsForAMaintainer() {

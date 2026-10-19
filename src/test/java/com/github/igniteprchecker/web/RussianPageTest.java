@@ -3,8 +3,7 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BrokenRuns;
 import com.github.igniteprchecker.i18n.Lang;
 import com.github.igniteprchecker.jira.SettingsJournal;
@@ -14,6 +13,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A user who chose Russian in ⚙ read the PR page, its cards and ⚙ in English. The page now takes the Russian catalog
@@ -22,7 +23,7 @@ import org.junit.jupiter.api.Test;
  * stays English and asks for no catalog.
  */
 class RussianPageTest {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
     /** TeamCity's own messages about the broken suites of the scenario: TeamCity's words, not the checker's. */
     private static final Pattern TEAMCITY_TEXT = Pattern.compile("Failed to resolve artifacts from <.*?[\\d\\]]>"

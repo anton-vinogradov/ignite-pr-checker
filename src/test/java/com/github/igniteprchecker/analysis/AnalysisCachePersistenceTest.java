@@ -2,9 +2,7 @@ package com.github.igniteprchecker.analysis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
@@ -16,6 +14,9 @@ import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 class AnalysisCachePersistenceTest {
     private static final RunEnv JDK17 = new RunEnv("17", "1.0");
@@ -24,7 +25,7 @@ class AnalysisCachePersistenceTest {
     private static final RunHistory MASTER_JDK21_BREAK = new RunHistory("PFPP", "abaa",
         List.of(JDK17, new RunEnv("21", "1.0")), List.of());
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private static AnalysisProperties props() {
         return new AnalysisProperties(null, null, null, null, 15, null, null);

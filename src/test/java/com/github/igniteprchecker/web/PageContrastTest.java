@@ -3,8 +3,7 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The dark themes put white text on their light-blue accent: 2.3:1 on the selected tab and the update button, 2.8:1
@@ -194,6 +194,6 @@ class PageContrastTest {
         assertThat(node.waitFor(60, TimeUnit.SECONDS)).isTrue();
         assertThat(node.exitValue()).as(out).isZero();
 
-        return new ObjectMapper().readTree(out);
+        return Jackson2Defaults.mapper().readTree(out);
     }
 }

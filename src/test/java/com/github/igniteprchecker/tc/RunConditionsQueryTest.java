@@ -3,7 +3,7 @@ package com.github.igniteprchecker.tc;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.metrics.Metrics;
@@ -102,7 +102,8 @@ class RunConditionsQueryTest {
         String baseUrl = "http://" + server.getAddress().getHostString() + ":" + server.getAddress().getPort() + "/";
 
         return new TcClient(new TeamcityProperties(baseUrl),
-            new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+            new AnalysisProperties(null, "RunAll", null, null, null, null, null),
+            new Metrics(Jackson2Defaults.mapper()));
     }
 
     private static String param(String rawQuery, String name) {

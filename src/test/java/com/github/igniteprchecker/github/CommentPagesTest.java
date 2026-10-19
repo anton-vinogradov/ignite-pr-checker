@@ -4,8 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The command poll read one page of 100 comments. After a GitHub outage the window holds more than
@@ -22,11 +24,11 @@ import org.springframework.web.client.RestClient;
 class CommentPagesTest {
     private static final String SINCE = "2026-10-07T10:00:00Z";
 
-    private final RestClient.Builder http = RestClient.builder();
+    private final RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper,
         new Metrics(mapper), http.build());

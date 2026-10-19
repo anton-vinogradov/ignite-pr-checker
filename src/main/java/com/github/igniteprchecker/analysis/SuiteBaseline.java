@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.analysis;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.TcClient;
@@ -12,6 +11,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * How many tests each suite runs on master — the yardstick for "this suite ran far fewer tests than

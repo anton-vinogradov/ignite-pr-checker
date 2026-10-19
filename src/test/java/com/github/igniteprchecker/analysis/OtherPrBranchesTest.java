@@ -11,7 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
@@ -56,11 +56,11 @@ class OtherPrBranchesTest {
 
     private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
 
-    private final AnalysisCache cache = new AnalysisCache(cfg, new ObjectMapper());
+    private final AnalysisCache cache = new AnalysisCache(cfg, Jackson2Defaults.mapper());
 
     private final BlockerAnalyzer analyzer = new BlockerAnalyzer(tc, chains, cfg,
         Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
-        cache, new RunDeltaStore(new ObjectMapper()));
+        cache, new RunDeltaStore(Jackson2Defaults.mapper()));
 
     @Test
     void aTestFailingInThreeOtherPrsIsFlakyUnderPrConditions() {

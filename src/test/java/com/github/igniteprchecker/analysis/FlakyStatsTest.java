@@ -6,8 +6,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -30,6 +29,8 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The fix-master queue for a test that runs in several suites: the C++ thin-client tests of
@@ -49,7 +50,7 @@ class FlakyStatsTest {
 
     private static final String CLANG = "IgniteTests24Java8_PlatformCPPCMakeLinuxClang";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final FakeTeamCity ci2 = new FakeTeamCity();
 
@@ -59,7 +60,7 @@ class FlakyStatsTest {
     private final Warmer warmer = mock(Warmer.class);
 
     private final TcClient tc = new TcClient(new TeamcityProperties(ci2.baseUrl()),
-        new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(new ObjectMapper()));
+        new AnalysisProperties(null, "RunAll", null, null, null, null, null), new Metrics(Jackson2Defaults.mapper()));
 
     @AfterEach
     void stopTeamCity() {

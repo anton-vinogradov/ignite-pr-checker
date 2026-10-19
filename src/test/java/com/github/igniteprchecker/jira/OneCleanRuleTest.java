@@ -6,8 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.Caveats.Glance;
@@ -23,6 +22,7 @@ import com.github.igniteprchecker.web.PrHeads;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * "Is this verdict clean" was decided in four places: the PR list's tick, the page's head, and each of the two
@@ -75,7 +75,7 @@ class OneCleanRuleTest {
         AnalyzeController served = new AnalyzeController(analyzer, mock(RunDeltaStore.class),
             mock(PendingCommits.class), mock(PrHeads.class));
 
-        JsonNode json = new ObjectMapper().valueToTree(served.analyze(13593, "t").getBody());
+        JsonNode json = Jackson2Defaults.mapper().valueToTree(served.analyze(13593, "t").getBody());
 
         assertThat(json.get("prNumber").asInt()).isEqualTo(13593);
         assertThat(json.get("buildId").asLong()).isEqualTo(9390000L);

@@ -13,12 +13,13 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -44,6 +45,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * GitHub answers 403 to a secondary rate limit too, and the checker took any 403 for a revoked token: a working PAT
@@ -92,7 +94,7 @@ class PatRefusalRuleTest {
 
     private final TcClient tc = mock(TcClient.class);
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final StandingVisas standing = new StandingVisas(mapper,
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github,
@@ -130,7 +132,7 @@ class PatRefusalRuleTest {
 
     @Test
     void aTokenIsRejectedOnlyWhenGithubSays401() {
-        RestClient.Builder http = RestClient.builder();
+        RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
         MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
         GithubClient client = new GithubClient(new GithubProperties("apache/ignite", "app-token", 300), mapper,
             new Metrics(mapper), http.build());

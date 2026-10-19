@@ -3,7 +3,6 @@ package com.github.igniteprchecker.health;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import jakarta.annotation.PostConstruct;
@@ -28,6 +27,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Captures WARN/ERROR log events into a ring buffer (with running counts) so the status page can surface

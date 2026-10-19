@@ -7,7 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.i18n.Lang;
@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * The status page and the flaky board have no login form, so they did not know a reader had chosen Russian. They ask
@@ -27,7 +28,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
  * /api/me does when the PR page opens.
  */
 class PageLanguageTest {
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
 

@@ -1,6 +1,5 @@
 package com.github.igniteprchecker.metrics;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import java.io.IOException;
@@ -14,6 +13,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * In-memory service metrics for the status page. The breakdowns (per-category counts, latency, the

@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.config.PersistProperties;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.info.BuildProperties;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Subscriptions, stored tokens and handled commands were written once every 5 minutes, and an OOM exit skips the
@@ -344,7 +345,7 @@ class CacheStoreTest {
     @Test
     void anUnchangedSnapshotLeavesTheFileAlone(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("users.json");
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = Jackson2Defaults.mapper();
         Snapshots.writeAtomic(mapper, file, List.of("alice"));
         FileTime past = FileTime.fromMillis(1_000_000_000_000L);
         Files.setLastModifiedTime(file, past);

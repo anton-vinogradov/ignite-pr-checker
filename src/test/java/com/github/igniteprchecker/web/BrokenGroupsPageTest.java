@@ -2,13 +2,14 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BrokenRuns;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * PR 13655's page showed 62 broken suites as 62 rows with their own Rerun, Rerun top and ai, 60 of them one ci2
@@ -17,7 +18,7 @@ import org.junit.jupiter.api.Test;
  * them, from the verdict as the server writes it.
  */
 class BrokenGroupsPageTest {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = Jackson2Defaults.mapper();
 
     @Test
     void aFailedBuildLeadsAndTheSuitesItKeptFromRunningAreOneLine() throws Exception {

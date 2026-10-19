@@ -2,7 +2,7 @@ package com.github.igniteprchecker.jira;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.i18n.Lang;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +66,7 @@ class JournalInRussianTest {
     /** Where a change came from reads in Russian too, the browser's label with it. */
     @Test
     void theBrowserOfAChangeReadsInRussian() {
-        SettingsJournal journal = new SettingsJournal(new ObjectMapper());
+        SettingsJournal journal = new SettingsJournal(Jackson2Defaults.mapper());
         journal.add("alice", SettingsJournal.Entry.switchedOn(LAPTOP, "rerun", null));
         journal.add("alice", SettingsJournal.Entry.switchedOn(SettingsJournal.By.of("desk", "a browser on Windows"),
             "rerun", null));

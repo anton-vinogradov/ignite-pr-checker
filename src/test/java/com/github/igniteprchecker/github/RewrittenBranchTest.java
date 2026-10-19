@@ -7,11 +7,12 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.RunDeltaStore;
 import com.github.igniteprchecker.config.GithubProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.metrics.Metrics;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.web.AnalyzeController;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * A PR run on one commit, then rebased on master and force-pushed: GitHub compares the two as "diverged", 150
@@ -33,11 +35,11 @@ class RewrittenBranchTest {
 
     private static final String HEAD = "def5678a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e";
 
-    private final RestClient.Builder http = RestClient.builder();
+    private final RestClient.Builder http = RestClient.builder().configureMessageConverters(OutboundHttp::json);
 
     private final MockRestServiceServer server = MockRestServiceServer.bindTo(http).build();
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
     private final GithubClient github = new GithubClient(new GithubProperties("apache/ignite", null, 300), mapper,
         new Metrics(mapper), http.build());
