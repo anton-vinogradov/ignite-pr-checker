@@ -2,12 +2,14 @@ package com.github.igniteprchecker.web;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.config.OutboundHttp;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -48,6 +51,12 @@ class LoginRateLimitTest {
 
     private volatile int answer = 401;
 
+    /** TeamCity closes the connection without an answer. */
+    private volatile boolean silent;
+
+    /** TeamCity answers 200 with a body that is not its JSON. */
+    private volatile boolean garbled;
+
     private HttpServer teamcity;
 
     private SessionCodec codec;
@@ -61,9 +70,15 @@ class LoginRateLimitTest {
         teamcity = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         teamcity.createContext("/app/rest/users/current", ex -> {
             whoami.incrementAndGet();
+            if (silent) {
+                ex.close();
+
+                return;
+            }
             boolean user = ("Bearer " + USER_TOKEN).equals(ex.getRequestHeaders().getFirst("Authorization"));
-            int status = user ? 200 : answer;
-            byte[] body = (status == 200 ? "{\"username\":\"avinogradov\"}" : "{}").getBytes(UTF_8);
+            int status = user || garbled ? 200 : answer;
+            byte[] body = (garbled ? "<html>proxy" : status == 200 ? "{\"username\":\"avinogradov\"}" : "{}")
+                .getBytes(UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
             ex.sendResponseHeaders(status, body.length);
             ex.getResponseBody().write(body);
@@ -145,8 +160,24 @@ class LoginRateLimitTest {
 
         assertThat(res.getStatusCode().value()).isEqualTo(429);
         assertThat(res.getHeaders().getFirst("Retry-After")).isIn("599", "600");
-        assertThat(error(res)).isEqualTo("TeamCity rejected 3 tokens from your network address in the last 10"
-            + " minutes. Try again in 10 minutes.");
+        assertThat(error(res)).isEqualTo("TeamCity rejected 3 login attempts from your network address in the last"
+            + " 10 minutes. Try again in 10 minutes.");
+    }
+
+    /**
+     * A user pressed Log in three times with a mistyped token. TeamCity checked it once, yet the wait said that TeamCity
+     * rejected 3 tokens. Each attempt counts, so the wait counts attempts.
+     */
+    @Test
+    void theWaitAfterOneTokenSentThreeTimesCountsAttempts() {
+        for (int i = 0; i < 3; i++)
+            assertThat(post("typo-token", "203.0.113.7")).isEqualTo(401);
+
+        ResponseEntity<?> res = login.login(new LoginController.LoginRequest(USER_TOKEN), from("203.0.113.7"));
+
+        assertThat(whoami).hasValue(1);
+        assertThat(res.getStatusCode().value()).isEqualTo(429);
+        assertThat(error(res)).startsWith("TeamCity rejected 3 login attempts from your network address");
     }
 
     /**
@@ -173,6 +204,37 @@ class LoginRateLimitTest {
         answer = 401;
         for (int i = 4; i < 7; i++)
             assertThat(post("guess-" + i, "203.0.113.7")).isEqualTo(401);
+    }
+
+    /**
+     * ci2 restarted and dropped the connections. Three logins with a good token from one office address got "TeamCity
+     * did not answer", and the fourth, with ci2 back, was told to wait 10 minutes: no token had been rejected.
+     */
+    @Test
+    void aCheckTeamCityDropsCostsNothing() {
+        silent = true;
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> post(USER_TOKEN, "203.0.113.7")).as("login " + i)
+                .isInstanceOf(OutboundHttp.NoAnswer.class);
+        }
+
+        silent = false;
+
+        assertThat(post(USER_TOKEN, "203.0.113.7")).isEqualTo(200);
+    }
+
+    /** A proxy in front of ci2 answered 200 with a page that is not TeamCity's JSON: no token was rejected either. */
+    @Test
+    void aCheckTeamCityAnswersUnreadablyCostsNothing() {
+        garbled = true;
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> post(USER_TOKEN, "203.0.113.7")).as("login " + i)
+                .isInstanceOf(RestClientException.class);
+        }
+
+        garbled = false;
+
+        assertThat(post(USER_TOKEN, "203.0.113.7")).isEqualTo(200);
     }
 
     @Test

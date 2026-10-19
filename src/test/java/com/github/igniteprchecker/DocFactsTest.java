@@ -141,7 +141,7 @@ class DocFactsTest {
         String throttle = Files.readString(Path.of("src/main/java/com/github/igniteprchecker/web/LoginThrottle.java"),
             UTF_8);
         String perAddress = "TeamCity may reject " + constant(throttle, "ATTEMPTS_PER_CLIENT = (\\d+);")
-            + " tokens from one network address in "
+            + " login attempts from one network address in "
             + constant(throttle, "CLIENT_WINDOW = Duration.ofMinutes\\((\\d+)\\);") + " minutes";
 
         assertThat(collapsed(README)).contains(perAddress)

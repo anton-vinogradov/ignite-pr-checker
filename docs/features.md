@@ -614,8 +614,9 @@ from its own GitHub account, the app account.
   actions: **Link GitHub**, **Unlink**, a switch in ⚙, ending your other logins, and the operator's buttons. With a
   revoked token, the action does not happen. **Log out** ends your login in this browser, copies of its cookie
   included. [Your logins](#your-logins) in ⚙ lists the others, and you can end them there. A login left unused for
-  400 days ends too, and your 51st login ends an older one. TeamCity may reject 3 tokens from one network address in
-  10 minutes; past that, the login form says how long to wait. A login that works does not count.
+  400 days ends too, and your 51st login ends an older one. TeamCity may reject 3 login attempts from one network
+  address in 10 minutes; past that, the login form says how long to wait. Each attempt with a rejected token counts,
+  the same token sent again too; a login that works does not.
 - **Four themes**: Light, Dark, JetBrains (dense, with status stripes) and Terminal (monospace, bracket buttons). The
   choice is kept per browser, with no flash on load.
 - **Warming**: the heavy lifting is cached and pre-warmed in the background, so opening a PR is usually instant. There

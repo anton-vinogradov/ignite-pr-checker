@@ -79,10 +79,11 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   it. ⚙ lists the user's logins and can end any of the others. A login left unused for 400 days ends too, and a
   user's 51st login ends an older one. A copy of a browser's session cookie is the same login: it works until that
   login ends. The options in ⚙ belong to the account: they are the same in every login, and no logout changes them.
-  TeamCity may reject 3 tokens from one network address in 10 minutes. For all users together, the checker checks the
-  tokens of at most 30 logins a minute with TeamCity. Each check is a call from the server's address, and if ci2
-  blocks that address, the checker stops for everyone. Past either limit, the login form says how long to wait. Only a
-  rejected token counts against its address: a login that works, or that the shared limit stops, does not.
+  TeamCity may reject 3 login attempts from one network address in 10 minutes. For all users together, the checker
+  checks the tokens of at most 30 logins a minute with TeamCity. Each check is a call from the server's address, and if
+  ci2 blocks that address, the checker stops for everyone. Past either limit, the login form says how long to wait.
+  Each attempt with a rejected token counts against its address, the same token sent again too. A login that works,
+  one that TeamCity could not check, and one that the shared limit stops do not count.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
   adding tests to suites, the two options that commit. Visas come only from **Visa my runs in JIRA**. The page sends
