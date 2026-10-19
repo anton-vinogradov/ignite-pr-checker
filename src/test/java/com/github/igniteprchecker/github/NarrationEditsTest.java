@@ -99,7 +99,8 @@ class NarrationEditsTest {
 
         ArgumentCaptor<String> bodies = ArgumentCaptor.forClass(String.class);
         verify(github, times(3)).appEdit(anyInt(), any(), eq(NARRATION), bodies.capture());
-        assertThat(bodies.getAllValues().get(0)).contains("Queued — expected to finish **≈ ").contains("/top");
+        assertThat(bodies.getAllValues().get(0)).contains("Queued — expected to finish **≈ ")
+            .endsWith("_ _Reply `/top` to move this build to the top of the queue._");
         assertThat(bodies.getAllValues().get(1)).contains("Running — expected to finish **≈ ").doesNotContain("/top");
     }
 

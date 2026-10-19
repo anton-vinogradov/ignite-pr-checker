@@ -30,9 +30,33 @@ class ClientVerdictTest {
             + "apache/ignite-python-thin-client/pull/69/commits/a1b2c3d4e5f6) against Ignite master at [`1f2e3d4`]"
             + "(https://github.com/apache/ignite/commit/1f2e3d4c5b6a).\n\n"
             + "✅ **No blockers** — no test failed.\n\n"
-            + "<sub>Ignite is master at the commit above, so a client change that needs an Ignite change is not tested"
-            + " with it. What each label means and what to do: [verdict glossary](" + VisaService.GLOSSARY
-            + ").</sub>");
+            + "<sub>This run uses Ignite master at the commit above. If this PR needs an Ignite change that is not in"
+            + " that commit, the run tests this PR without that change. What each label means and what to do: [verdict"
+            + " glossary](" + VisaService.GLOSSARY + ").</sub>");
+    }
+
+    /**
+     * A test failed the only run of this PR's head with Ignite master at 1f2e3d4, after passes on other commits. The
+     * suite timed out after running nearly all of master's tests. The comment says which /run-all decides the test,
+     * and that the crash does not void the run.
+     */
+    @Test
+    void aTestThatStartedFailingSaysWhichRunAllDecidesIt() {
+        TestVerdict watched = new TestVerdict(800L, "tests/test_sql.py::test_sql_fields_query", SUITE, 9424005L,
+            "Thin client: Python", "o8", false, true, "failed the only run on commits 1f2e3d4 and a1b2c3d", "F", 1);
+        BrokenSuite crashed = new BrokenSuite(SUITE, 9424005L, "Thin client: Python", List.of("execution timeout"),
+            398, 400);
+
+        String md = ClientVerdict.markdown("https://ci2.example/", "Author", RUN, new AnalysisResult(69, 9424005L,
+            "pull/69", 0, List.of(), List.of(watched), List.of(), List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0,
+            0, 0, List.of(crashed), List.of(), List.of(), 0));
+
+        assertThat(md).contains("ℹ️ **Crashed near the end of the run:** execution timeout. It ran nearly all of"
+            + " master's tests, so its results are reliable.\n\n")
+            .contains("👀 **1 test started failing on this code** — not proven blockers yet. There are too few runs of"
+                + " this code to tell a break from a flake. A new `/run-all` decides it while this PR's head and Ignite"
+                + " master stay at the commits above.\n- `tests/test_sql.py::test_sql_fields_query` — failed the only"
+                + " run on commits 1f2e3d4 and a1b2c3d");
     }
 
     @Test

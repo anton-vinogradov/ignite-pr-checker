@@ -401,9 +401,10 @@ public class PrCommands implements SnapshotCache {
                 + ": this PR's head `" + shortSha(clientSha(queued.pinned())) + "` against Ignite master at `"
                 + shortSha(igniteSha(queued.pinned())) + "`."
                 + (belowTop ? " " + notMovedUp("it", queued.belowTop()) + "." : "")
-                + (cancelled == 0 ? "" : cancelled == 1 ? " Your previous run was cancelled — this one supersedes it."
-                    : " Your previous runs were cancelled — this one supersedes them.")
-                + " When the run finishes, a new comment brings you the verdict, and this story goes.";
+                + (cancelled == 0 ? ""
+                    : cancelled == 1 ? " The checker cancelled your previous run. This run replaces it."
+                    : " The checker cancelled your previous runs. This run replaces them.")
+                + " When the run finishes, the checker posts the verdict in a new comment and deletes this one.";
             tell(pr, c, user, ack, null, build.id(), queued.pinned());
 
             log.info("/run-all by {} ({}): {} queued for PR {}{}", c.user().login(), user, build.buildTypeId(), pr,
@@ -1052,7 +1053,7 @@ public class PrCommands implements SnapshotCache {
             && narrate(run, run.baseBody() + "\n⏱ _" + (queued ? "Queued" : "Running")
                 + (finishAt < 0 ? " — no finish estimate yet._"
                     : " — expected to finish **≈ " + wallClock(finishAt, tz) + "**._")
-                + (queued ? " _Reply `/top` to jump the queue._" : "")))
+                + (queued ? " _Reply `/top` to move this build to the top of the queue._" : "")))
             shown.put(run.commentId(), new Shown(run.buildId(), stage, finishAt));
     }
 

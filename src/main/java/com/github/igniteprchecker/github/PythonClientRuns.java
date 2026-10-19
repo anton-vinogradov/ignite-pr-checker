@@ -81,20 +81,20 @@ public class PythonClientRuns {
     public Queued queue(String token, int pr, boolean top, String comment) {
         String clientSha = github.prHeadSha(props.repo(), pr);
         if (clientSha == null)
-            throw new NotQueued("GitHub names no head commit of this PR");
+            throw new NotQueued("GitHub returned no head commit for this PR");
 
         String master = baseBranch.replaceFirst("^refs/heads/", "");
         String igniteSha = github.branchHeadSha(github.repo(), master);
         if (igniteSha == null)
-            throw new NotQueued("GitHub names no head commit of " + master + " in " + github.repo());
+            throw new NotQueued("GitHub returned no head commit of " + master + " in " + github.repo());
 
         Map<String, String> roots = tc.vcsRootInstances(token, props.suite())
             .orElseThrow(() -> new NotQueued("TeamCity has no suite " + props.suite()));
         List<String> missing = Stream.of(props.igniteVcsRoot(), props.clientVcsRoot())
             .filter(root -> !roots.containsKey(root)).toList();
         if (!missing.isEmpty()) {
-            throw new NotQueued("TeamCity names no VCS root " + String.join(" or ", missing) + " of suite "
-                + props.suite());
+            throw new NotQueued("suite " + props.suite() + " has no VCS root " + String.join(" or ", missing)
+                + " in TeamCity");
         }
 
         PinnedRun run = new PinnedRun(props.suite(), branch(pr), List.of(

@@ -553,19 +553,19 @@ from its own GitHub account, the app account.
 ### PRs of the Python thin client
 
 The commands also work in the pull requests of
-[apache/ignite-python-thin-client](https://github.com/apache/ignite-python-thin-client), with the same rights:
+[apache/ignite-python-thin-client](https://github.com/apache/ignite-python-thin-client), under the same conditions:
 **PR commands** on and your GitHub account linked. There `/run-all` runs one suite instead of RunAll:
 **Thin client: Python**.
 
 - `/run-all` queues the suite under your TeamCity account. The run tests the PR's head commit against the commit
-  Ignite master has at the moment of the command. The request names both commits, so a run that waits in the queue
-  still tests them. `/run-all top` and `/top` work as in Ignite's PRs.
-- The checker judges the failed tests by the rules of a suite of a RunAll: the suite's runs on master, its runs in
+  Ignite master has at the moment of the command. The checker gives TeamCity both commits when it queues the run, so
+  a run that waits in the queue still tests them. `/run-all top` and `/top` work as in Ignite's PRs.
+- The checker judges the failed tests the same way as in a RunAll: by the suite's runs on master, its runs in
   other Ignite PRs, and its runs in this PR. Two runs of this PR count as the same code only when both commits match,
   the client's and Ignite's. The suite takes the client's code from its parameter `OVERRIDDEN_BRANCH`, and `/run-all`
   sets it to the PR's commit. A run that does not set it tests the client's master. So the checker does not count a
   run someone started in this PR from TeamCity without it.
-- As for a RunAll, a comment of the checker tells how the run goes. When the run finishes, a new comment mentions you
+- As with a RunAll, a comment of the checker tells how the run goes. When the run finishes, a new comment mentions you
   and brings the verdict: the two commits, the blockers, the tests that started failing and the tests not blamed on
   the PR, each with its reason and a link to TeamCity. The checker's page has no PRs of the client.
 - Not tested: a client change together with an Ignite change it needs, since the run always takes Ignite master. Run

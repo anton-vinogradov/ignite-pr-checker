@@ -120,7 +120,8 @@ class ClientCommandTest {
         verify(github).appReact(CLIENT_REPO, PR, "author", 1L, "rocket");
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued** — [build"
             + " 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d` against Ignite"
-            + " master at `1f2e3d4`. When the run finishes, a new comment brings you the verdict, and this story goes.");
+            + " master at `1f2e3d4`. When the run finishes, the checker posts the verdict in a new comment and deletes"
+            + " this one.");
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
         verify(github, never()).appComment(anyInt(), any(), anyString());
         verify(github, never()).appReact(anyInt(), any(), anyLong(), anyString());
@@ -202,9 +203,52 @@ class ClientCommandTest {
 
         clientComment(1L, "/run-all", "Author");
 
-        verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: TeamCity names no VCS"
-            + " root GitHubApacheIgnitePythonThinClient of suite IgniteTests24Java8_WiPThinClientPython._");
+        verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: suite"
+            + " IgniteTests24Java8_WiPThinClientPython has no VCS root GitHubApacheIgnitePythonThinClient in"
+            + " TeamCity._");
         verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    /** GitHub's answer has no head commit for the PR: the run has no client commit to test, so nothing is queued. */
+    @Test
+    void aPrWithoutAHeadCommitIsSaidInThePr() {
+        when(github.prHeadSha(CLIENT_REPO, PR)).thenReturn(null);
+
+        clientComment(1L, "/run-all", "Author");
+
+        verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: GitHub returned no head"
+            + " commit for this PR._");
+        verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void anIgniteMasterWithoutAHeadCommitIsSaidInThePr() {
+        when(github.branchHeadSha("apache/ignite", "master")).thenReturn(null);
+
+        clientComment(1L, "/run-all", "Author");
+
+        verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 _Nothing was queued: GitHub returned no head"
+            + " commit of master in apache/ignite._");
+        verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    /**
+     * A new /run-all cancels the author's queued and running runs of the suite in the PR: the story says that the
+     * checker cancelled one run or two, and that the new run replaces them.
+     */
+    @Test
+    void aNewRunAllSaysTheCheckerCancelledTheAuthorsEarlierRuns() {
+        when(tc.cancelOwnBuilds(eq("tc"), eq("pull/69"), eq("author"), any())).thenReturn(1, 2);
+
+        clientComment(1L, "/run-all", "Author");
+        clientComment(2L, "/run-all", "Author");
+
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. The checker"
+            + " cancelled your previous run. This run replaces it. When the run finishes, the checker posts the verdict"
+            + " in a new comment and deletes this one."));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), endsWith(" master at `1f2e3d4`. The checker"
+            + " cancelled your previous runs. This run replaces them. When the run finishes, the checker posts the"
+            + " verdict in a new comment and deletes this one."));
     }
 
     @Test
@@ -298,8 +342,8 @@ class ClientCommandTest {
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued, but not at the"
             + " top** — [build 9424005](https://ci2.example/viewLog.html?buildId=9424005): this PR's head `a1b2c3d`"
             + " against Ignite master at `1f2e3d4`. TeamCity refused to move it up (HTTP 403): your ci2 account may not"
-            + " have the permission to reorder the build queue. When the run finishes, a new comment brings you the"
-            + " verdict, and this story goes.");
+            + " have the permission to reorder the build queue. When the run finishes, the checker posts the verdict in"
+            + " a new comment and deletes this one.");
     }
 
     /**

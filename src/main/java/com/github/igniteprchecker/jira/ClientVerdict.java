@@ -51,7 +51,7 @@ public final class ClientVerdict {
             .append(Markup.text(problems(s))).append(".\n\n"));
         r.unstableSuites().forEach(s -> b.append("ℹ️ **Crashed near the end of the run:** ")
             .append(Markup.text(String.join(" · ", s.problems())))
-            .append(". It ran nearly all of master's tests, so its results stand.\n\n"));
+            .append(". It ran nearly all of master's tests, so its results are reliable.\n\n"));
         r.shrunkSuites().forEach(s -> b.append("🔍 **The suite ran fewer tests than on master:** ").append(ranOf(s))
             .append(". Tests that never ran can't fail.\n\n"));
 
@@ -62,8 +62,9 @@ public final class ClientVerdict {
         }
         if (!r.watch().isEmpty()) {
             b.append("👀 **").append(count(r.watch().size(), "test")).append(" started failing on this code** — not"
-                + " proven blockers yet. There are too few runs of this code to tell a break from a flake. A re-run of"
-                + " the suite on the same commits decides it.\n").append(list(tcBase, r.watch(), tests)).append('\n');
+                + " proven blockers yet. There are too few runs of this code to tell a break from a flake. A new"
+                + " `/run-all` decides it while this PR's head and Ignite master stay at the commits above.\n")
+                .append(list(tcBase, r.watch(), tests)).append('\n');
         }
         if (!r.unverified().isEmpty()) {
             b.append("❔ **").append(count(r.unverified().size(), "failed test")).append(" could not be checked** —"
@@ -91,8 +92,9 @@ public final class ClientVerdict {
         if (!legend.isEmpty())
             b.append(legend).append("\n\n");
 
-        return b.append("<sub>Ignite is master at the commit above, so a client change that needs an Ignite change is"
-            + " not tested with it. What each label means and what to do: [verdict glossary](")
+        return b.append("<sub>This run uses Ignite master at the commit above. If this PR needs an Ignite change that"
+            + " is not in that commit, the run tests this PR without that change. What each label means and what to"
+            + " do: [verdict glossary](")
             .append(VisaService.GLOSSARY).append(").</sub>").toString();
     }
 
