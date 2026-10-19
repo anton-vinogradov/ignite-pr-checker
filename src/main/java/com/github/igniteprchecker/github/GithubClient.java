@@ -837,6 +837,104 @@ public class GithubClient implements SnapshotCache {
         }
     }
 
+    /** See {@link #prsOf(String, String)}: the PRs of the configured repo. */
+    public PrsOf prsOf(String login) {
+        return prsOf(props.repo(), login);
+    }
+
+    /**
+     * The open PRs of {@code repo} that concern a GitHub user, the most recently updated first: {@code mine}, the ones
+     * they wrote; {@code involved}, the others, where someone asked them to review, they reviewed or they commented.
+     * Up to 100 PRs a search. One GraphQL call of four searches under the app token: GitHub answers GraphQL only to a
+     * caller with a token, and names each PR's head there. Throws when GitHub could not say.
+     */
+    public PrsOf prsOf(String repo, String login) {
+        if (login == null || !LOGIN.matcher(login).matches())
+            return new PrsOf(List.of(), List.of());
+
+        String open = "repo:" + repo + " is:pr is:open sort:updated-desc ";
+        String others = " -author:" + login;
+        Map<String, String> queries = Map.of("mine", open + "author:" + login,
+            "requested", open + "review-requested:" + login + others,
+            "reviewed", open + "reviewed-by:" + login + others,
+            "commented", open + "commenter:" + login + others);
+        return recorded("prSearch", () -> found(login, http.post()
+            .uri(URI.create(props.apiUrl() + "/graphql"))
+            .header("Authorization", "Bearer " + props.token())
+            .header("Accept", "application/vnd.github+json")
+            .body(Map.of("query", PRS_OF, "variables", queries))
+            .retrieve().body(Searched.class)));
+    }
+
+    /**
+     * Both lists of GitHub's answer. Throws when GitHub left a search out: it answers so with 200, and the call must
+     * count as failed on the status page.
+     */
+    private static PrsOf found(String login, Searched answer) {
+        List<Searched.Pr> mine = answer == null ? null : answer.prs("mine");
+        List<Searched.Pr> involved = answer == null ? null
+            : both(answer.prs("requested"), both(answer.prs("reviewed"), answer.prs("commented")));
+        if (mine == null || involved == null)
+            throw new IllegalStateException("GitHub's search of the PRs of " + login + " failed: "
+                + (answer == null ? "no answer" : answer.errors()));
+
+        return new PrsOf(Searched.listed(mine), Searched.listed(involved));
+    }
+
+    /** Both lists, or null when either is null: GitHub left a search out. */
+    private static <T> List<T> both(List<T> a, List<T> b) {
+        return a == null || b == null ? null : Stream.concat(a.stream(), b.stream()).toList();
+    }
+
+    /** The open PRs that concern a GitHub user: the ones they wrote, and the others they take part in. */
+    public record PrsOf(List<PrSummary> mine, List<PrSummary> involved) {
+    }
+
+    /** Four searches of open PRs by the queries {@link #prsOf} names; each PR with its head. */
+    private static final String PRS_OF = """
+        query($mine: String!, $requested: String!, $reviewed: String!, $commented: String!) {
+          mine: search(query: $mine, type: ISSUE, first: 100) { ...prs }
+          requested: search(query: $requested, type: ISSUE, first: 100) { ...prs }
+          reviewed: search(query: $reviewed, type: ISSUE, first: 100) { ...prs }
+          commented: search(query: $commented, type: ISSUE, first: 100) { ...prs }
+        }
+        fragment prs on SearchResultItemConnection {
+          nodes { ... on PullRequest { number title url headRefOid updatedAt } }
+        }""";
+
+    /** GitHub's answer to {@link #PRS_OF}: each search by its name; null when GitHub left it out, as on an error. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record Searched(Map<String, Search> data, List<Object> errors) {
+        List<Pr> prs(String search) {
+            Search s = data == null ? null : data.get(search);
+
+            return s == null || s.nodes() == null ? null : s.nodes();
+        }
+
+        /** The PRs once each, the most recently updated first. A node of no PR, an issue, has no number. */
+        static List<PrSummary> listed(List<Pr> found) {
+            Map<Integer, Pr> byNumber = new java.util.LinkedHashMap<>();
+            for (Pr pr : found) {
+                if (pr != null && pr.number() != null)
+                    byNumber.putIfAbsent(pr.number(), pr);
+            }
+
+            return byNumber.values().stream()
+                .sorted(java.util.Comparator.comparing(Pr::updatedAt,
+                    java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .map(pr -> new PrSummary(pr.number(), pr.title(), pr.url(), null, null, null, pr.headRefOid(), null))
+                .toList();
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Search(List<Pr> nodes) {
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private record Pr(Integer number, String title, String url, String headRefOid, String updatedAt) {
+        }
+    }
+
     /**
      * Creates ONE commit updating the given files on a branch — pure Git Data API, no clone: blobs ->
      * tree (on top of the parent's) -> commit -> ref. Runs under the USER'S OWN PAT (their fork,

@@ -26,6 +26,10 @@ each label means and what to do about it.
 - **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
+- **Your PRs.** Three tabs over the PR list choose which PRs it shows. **All** lists the 50 most recently updated
+  open PRs. **Mine** lists your open PRs, also those outside the 50. **Involved** lists other people's open PRs where
+  someone asked you to review, you reviewed or you commented. Mine and Involved need your GitHub account linked in ⚙.
+  See [Finding your PR](docs/features.md#finding-your-pr).
 - **Standing options.** ⚙ groups them by what they need. Auto re-run of failed suites and a PR comment for each of
   your runs need only your TeamCity login. A JIRA visa needs a JIRA token, PR commands need your linked GitHub
   account, and a checkstyle fix and tests added to suites need a GitHub token for commits. The options work while the
@@ -202,7 +206,7 @@ settings by hand.
 | `SERVER_PORT` | `8080` | The port. |
 | `SESSION_SECRET` | a random key per start; `install.sh` writes a stable one | Encrypts the session cookies and the stored tokens. Read [The cache directory](#the-cache-directory) before you change it. |
 | `SESSION_COOKIE_SECURE` | `false`; `true` in the env template | Send the session cookie over HTTPS only. Set `false` only for a test install on plain HTTP. |
-| `GITHUB_TOKEN` | none | Token of the app account, which writes every comment of the checker: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix and tests to suites are off. |
+| `GITHUB_TOKEN` | none | Token of the app account, which writes every comment of the checker: a separate GitHub account with no rights in `apache/*`, a classic token with the `public_repo` scope. Without it GitHub answers the service at most 60 calls an hour, and the checker has no account to write with: the PR comment, PR commands, the checkstyle autofix and tests to suites are off. The tabs **Mine** and **Involved** of the PR list need it too: GitHub runs their search only for a caller with a token. |
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | none | The client ID and a client secret of the checker's GitHub OAuth App, for **Link GitHub** in ⚙. See [Quick start](#quick-start). Without them users link a GitHub account only with a GitHub token for commits. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Operators](#operators). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |

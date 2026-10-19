@@ -8,7 +8,7 @@ let selectedPr = null;
 let lastResult = null; // the currently rendered analysis (drives the root-cause view)
 let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll you triggered ("my run")
 let canAdmin = false; // an operator: may update the service
-let allPrs = []; // last-loaded open-PR list, for the list filter
+let allPrs = []; // the PRs the list shows now, those of the chosen tab, for the list filter
 let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
 
 async function api(path, opts = {}) {
@@ -190,14 +190,163 @@ async function loadPrs() {
     const r = await api('/api/prs');
     if (!r.ok) return;
     const prs = await r.json();
-    if (!prs.length && $('prList').children.length) return; // keep the current list on an empty response
-    $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
+    if (!prs.length && tabPrs.all && tabPrs.all.length) return; // keep the current list on an empty response
+    tabPrs.all = prs;
+    if (prTab === 'all') renderPrList();
+}
+
+// The tabs over the list. All: the open PRs GitHub lists. Mine and Involved: those of the user's linked GitHub
+// account, from /api/your-prs, which needs the link. A tab's PRs are null until they come.
+const PR_TABS = { all: 'prTabAll', mine: 'prTabMine', involved: 'prTabInvolved' };
+const tabPrs = { all: null, mine: null, involved: null };
+let prTab = 'all';
+let githubLinked = false;
+let yourPrsAt = 0; // when Mine and Involved came; 0: they are due
+let yourPrsAsking = false;
+let yourPrsProblem = null; // why Mine and Involved did not come: the server's reason, or NOT_LOADED
+// Counts the restarts of the tabs. An answer to a search asked before the last restart is of another user or link.
+let yourPrsRound = 0;
+// The tab note last read out. Null until a tab is clicked: a note is read out as the answer to a click.
+let prTabNoteSaid = null;
+
+// The server keeps GitHub's answer for Mine and Involved a minute: the page asks again no sooner.
+const YOUR_PRS_KEEP_MS = 60000;
+
+const PR_TAB_TITLES = {
+    all: phrase('Lists the 50 most recently updated open PRs.'),
+    mine: phrase('Lists the open PRs your linked GitHub account created.'),
+    involved: phrase('Lists other people\'s open PRs where someone asked you to review, you reviewed or you commented.'),
+};
+const PR_TAB_LOCKED = phrase('Link your GitHub account in ⚙ to use this tab. A click opens ⚙.');
+const PR_TAB_EMPTY = {
+    mine: phrase('You have no open PRs.'),
+    involved: phrase('There are no open PRs by other people where someone asked for your review, you reviewed or you commented.'),
+};
+const YOUR_PRS_PROBLEMS = {
+    NO_ACCOUNT: phrase('This checker has no GitHub account, so it cannot search GitHub for these PRs.'),
+    NO_ANSWER: phrase('GitHub did not answer the search for these PRs. Click the tab again in a minute.'),
+    NOT_LOADED: phrase('Could not load these PRs. Click the tab again in a moment.'),
+};
+
+// The tab the list opens on: the one last chosen in this browser, else Mine for a user with a linked GitHub account.
+function startTab() {
+    let saved = null;
+    try { saved = localStorage.getItem('prTab'); } catch (e) { /* private mode */ }
+    const tab = Object.hasOwn(PR_TABS, saved || '') ? saved : githubLinked ? 'mine' : 'all';
+    return tab === 'all' || githubLinked ? tab : 'all';
+}
+
+// A click on a tab. One that needs a linked GitHub account opens ⚙ instead, where the account is linked.
+function pickPrTab(tab) {
+    if (tab !== 'all' && !githubLinked) {
+        if ($('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
+        return;
+    }
+    try { localStorage.setItem('prTab', tab); } catch (e) { /* private mode */ }
+    prTabNoteSaid = ''; // a note already on screen is read out again: it answers this click too
+    showPrTab(tab);
+}
+
+function showPrTab(tab) {
+    prTab = tab;
+    paintPrTabs();
+    if (tab !== 'all' && !yourPrsAsking && Date.now() - yourPrsAt >= YOUR_PRS_KEEP_MS) loadYourPrs();
+    renderPrList();
+}
+
+function paintPrTabs() {
+    for (const [tab, id] of Object.entries(PR_TABS)) {
+        const locked = tab !== 'all' && !githubLinked;
+        $(id).classList.toggle('on', tab === prTab);
+        $(id).setAttribute('aria-pressed', String(tab === prTab));
+        if (locked) $(id).setAttribute('aria-disabled', 'true');
+        else $(id).removeAttribute('aria-disabled');
+        $(id).title = T(locked ? PR_TAB_LOCKED : PR_TAB_TITLES[tab]);
+    }
+}
+
+// Links, so a PR opens in a new tab or from the keyboard; a plain click stays in the page.
+function renderPrList() {
+    const prs = tabPrs[prTab] || [];
     allPrs = prs;
-    // Links, so a PR opens in a new tab or from the keyboard; a plain click stays in the page.
+    for (const p of prs) delete p.shown; // a row drawn anew shows the badge the server gave
+    $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
     $('prList').innerHTML = prs.map(prRow).join('');
     for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
     markMine();
+    paintPrTabNote();
     applyPrFilter();
+    syncListBadge();
+}
+
+// What Mine or Involved says when it lists no PR: that they are coming, why they did not, or that there are none.
+function paintPrTabNote() {
+    const prs = tabPrs[prTab];
+    const note = prTab === 'all' || prs && prs.length ? ''
+        : prs ? T(PR_TAB_EMPTY[prTab])
+        : yourPrsProblem ? T(YOUR_PRS_PROBLEMS[yourPrsProblem]) : T('Loading the PRs…');
+    $('prTabNote').textContent = note;
+    $('prTabNote').classList.toggle('hidden', !note);
+    if (prTabNoteSaid === null || note === prTabNoteSaid) return;
+    prTabNoteSaid = note;
+    if (note) sayAloud(note);
+}
+
+async function loadYourPrs() {
+    const round = yourPrsRound;
+    yourPrsAsking = true;
+    let r = null;
+    let answer = null;
+    try {
+        r = await api('/api/your-prs');
+        if (r.ok) answer = await r.json();
+    } catch (e) {
+        /* the tab says the PRs did not load */
+    }
+    if (round !== yourPrsRound) return;
+    yourPrsAsking = false;
+    if (r && r.status === 401) return loggedOut(r);
+    takeYourPrs(answer);
+}
+
+// The server's answer for Mine and Involved, null when there was none. An answer without a login: the account was
+// unlinked meanwhile, and the list goes back to All.
+function takeYourPrs(answer) {
+    const shown = prTab;
+    if (answer && !answer.login) {
+        githubLinked = false;
+        prTab = 'all';
+    } else if (answer && !answer.problem) {
+        tabPrs.mine = answer.mine;
+        tabPrs.involved = answer.involved;
+        yourPrsAt = Date.now();
+        yourPrsProblem = null;
+    } else {
+        yourPrsProblem = answer ? answer.problem : 'NOT_LOADED';
+    }
+    paintPrTabs();
+    if (shown !== 'all') renderPrList();
+}
+
+// A new user on the page: the tabs start over, and Mine and Involved are theirs.
+function resetPrTabs(linked) {
+    yourPrsRound++;
+    yourPrsAsking = false;
+    githubLinked = !!linked;
+    tabPrs.mine = tabPrs.involved = null;
+    yourPrsAt = 0;
+    yourPrsProblem = null;
+    prTabNoteSaid = null;
+    prTab = startTab();
+    paintPrTabs();
+    if (prTab !== 'all') loadYourPrs();
+    renderPrList();
+}
+
+// The account linked or unlinked in ⚙: the tabs follow.
+function followGithubLink(login) {
+    if (!!login === githubLinked) return;
+    resetPrTabs(!!login);
 }
 
 // The ticket key a PR title starts with, and what follows it.
@@ -243,7 +392,8 @@ function applyPrFilter() {
         any.dataset.num = open;
         any.textContent = T`Open PR #${open} →`;
     }
-    $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null);
+    $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null
+        || !$('prTabNote').classList.contains('hidden'));
 }
 
 // Flag PRs whose latest RunAll you triggered (matched by TeamCity username).
@@ -826,8 +976,9 @@ function prFromUrl() {
     return v && /^\d+$/.test(v) ? +v : null;
 }
 
-async function enterApp(username) {
+async function enterApp(username, linked) {
     myUsername = username || '';
+    resetPrTabs(linked);
     $('username').textContent = username;
     $('operatorMark').classList.toggle('hidden', !canAdmin);
     show('analyze');
@@ -866,12 +1017,12 @@ function goHome(push) {
 async function loadMe() {
     const r = await api('/api/me').catch(e => { useLanguage(null); throw e; });
     if (r.ok) {
-        const { username, admin, jiraInCookie, lang } = await r.json();
+        const { username, admin, jiraInCookie, lang, githubLinked: linked } = await r.json();
         jiraInCookieUnused = !!jiraInCookie;
         canAdmin = !!admin;
         await useLanguage(lang);
         checkUpdate();
-        await enterApp(username);
+        await enterApp(username, linked);
         if (askedToOfferCommands()) offerCommands();
     } else {
         await loggedOut(r);
@@ -886,7 +1037,7 @@ async function login() {
     try {
         const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ token }) });
         if (r.ok) {
-            const { username, admin, jiraInCookie, lang } = await r.json();
+            const { username, admin, jiraInCookie, lang, githubLinked: linked } = await r.json();
             $('token').value = '';
             if (speaksOtherThan(lang)) {
                 offerCommandsOnReopening();
@@ -897,7 +1048,7 @@ async function login() {
             jiraInCookieUnused = !!jiraInCookie;
             await useLanguage(lang);
             checkUpdate();
-            await enterApp(username);
+            await enterApp(username, linked);
             offerCommands();
         } else {
             const { error } = await r.json().catch(() => ({ error: 'login failed' }));
@@ -3135,6 +3286,7 @@ function renderSettings(st) {
     }
     renderAccess(st);
     renderLogin(st);
+    followGithubLink(st.login);
     showTokenNotes(st);
     showRemovedTokens(st);
     renderGithubAccount(st);
@@ -3902,6 +4054,7 @@ for (const id of ['brand', 'navPrs']) $(id).addEventListener('click', e => {
     e.preventDefault();
     if (selectedPr) goHome(true);
 });
+for (const [tab, id] of Object.entries(PR_TABS)) $(id).addEventListener('click', () => pickPrTab(tab));
 $('prFilter').addEventListener('input', applyPrFilter);
 $('prFilter').addEventListener('keydown', e => {
     if (e.key === 'Escape') {

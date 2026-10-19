@@ -75,13 +75,19 @@ class DocFactsTest {
     }
 
     @Test
-    void theTourSaysHowManyOpenPrsTheListHolds() throws IOException {
+    void theDocsSayHowManyOpenPrsTheListHolds() throws IOException {
         Matcher page = OPEN_PRS_PAGE.matcher(Files.readString(
             Path.of("src/main/java/com/github/igniteprchecker/github/GithubClient.java"), UTF_8));
         assertThat(page.find()).isTrue();
 
-        assertThat(collapsed(TOUR)).contains("lists the " + page.group(1) + " most recently updated open PRs");
-        assertThat(collapsed(TOUR_RU)).contains(page.group(1) + " последних обновлённых открытых PR");
+        assertThat(collapsed(TOUR)).contains("**All** shows the " + page.group(1) + " most recently updated open PRs");
+        assertThat(collapsed(TOUR_RU)).contains("«Все» (**All**) — " + page.group(1)
+            + " открытых PR, которые обновлялись последними");
+        assertThat(collapsed(README)).contains("**All** lists the " + page.group(1) + " most recently updated open PRs");
+        assertThat(collapsed(README_RU)).contains("«Все» (**All**) — " + page.group(1)
+            + " открытых PR, которые обновлялись последними");
+        assertThat(Files.readString(Path.of("src/main/resources/static/index.js"), UTF_8))
+            .contains("Lists the " + page.group(1) + " most recently updated open PRs.");
     }
 
     /** StandingVisas.WaveSuites re-runs a suite TeamCity cancelled by itself, and counts it towards the 30. */
