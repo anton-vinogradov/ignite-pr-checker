@@ -203,6 +203,11 @@ class ServerTextsInRussianTest {
             "no RunAll build found for PR 13575", "JIRA could not check the token right now — try again in a minute",
             "this token is of @ignite-pr-checker, the checker's own GitHub account — paste a token of your own account",
             "TeamCity answered 500 — try again in a moment", "update failed: HTTP 404"));
+        out.addAll(List.of(
+            "The PR title now names IGNITE-29117, not IGNITE-29049. Reload the page, then post the visa.",
+            "JIRA refused the comment (HTTP 403). Check that your JIRA account can comment on IGNITE-29049.",
+            "JIRA has no ticket IGNITE-29049, or your JIRA account cannot see it (HTTP 404).",
+            "JIRA did not take the visa (HTTP 500). Try again later."));
 
         for (int[] counts : new int[][] {{2, 0, 1, 0}, {0, 1, 0, 0}, {0, 0, 3, 0}, {0, 0, 0, 1}, {1, 1, 1, 1}, {3, 0, 0, 0}})
             out.add(privateText(StandingVisas.class, "suitesLabel", counts[0], counts[1], counts[2], counts[3]));

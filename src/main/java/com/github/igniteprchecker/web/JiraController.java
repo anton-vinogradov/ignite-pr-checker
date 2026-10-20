@@ -170,14 +170,23 @@ public class JiraController {
     }
 
     /**
+     * The visa row of the PR's run {@code build} in the verdict's heading: where its visa stands, and what Post visa
+     * can do for the viewer; see {@link PostVisaController}.
+     */
+    @GetMapping("/visa")
+    public PostVisaController.VisaRow visaRow(@RequestParam int pr, @RequestParam long build,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
+        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        return PostVisaController.VisaRow.of(visaLine(pr, build, tcToken, username),
+            standing.visaButton(username, null, pr, build));
+    }
+
+    /**
      * Where the visa of the PR's run {@code build} stands, for the line in the verdict's heading; see
      * {@link StandingVisas#visaLine}. TeamCity is asked about the run only when the checker's own records do not
      * tell.
      */
-    @GetMapping("/visa")
-    public StandingVisas.VisaLine visaLine(@RequestParam int pr, @RequestParam long build,
-        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
-        @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+    public StandingVisas.VisaLine visaLine(int pr, long build, String tcToken, String username) {
         return standing.visaLine(username, pr, build, () -> run(tcToken, build), merged.verdict(pr).isPresent());
     }
 

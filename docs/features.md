@@ -141,20 +141,21 @@ and the visa.
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
 | `Visa: posted to IGNITE-12345` | The visa of this run is in the ticket. The key links to the comment. | — |
 | `Visa: will be posted to IGNITE-12345 when the run settles` | You started the run, and your **Visa my runs in JIRA** is on. The visa goes out once the run and its auto re-runs settle. | Wait. |
-| `Visa: JIRA did not take it, the checker tries again every 10 minutes` | You started the run. It settled, but JIRA did not take the visa. The checker keeps trying while Visa my runs in JIRA stays on and no newer RunAll replaces the run. | Wait. |
-| `Visa: bob, who started this run, has Visa my runs in JIRA on` | Only the option of whoever started a run posts its visa, and bob's is on. The line says nothing more about another person's option. | — |
-| `Visa: Visa my runs in JIRA is off in ⚙` | You started this run, and your option is off. When the line ends with `because JIRA rejected your token`, JIRA refused your stored token, and that switched the option off. | Switch it on in ⚙ with your JIRA token. |
-| `Visa: none, bob started this run and has Visa my runs in JIRA off` | Only the option of whoever started a run posts its visa, and bob's is off. | Start a RunAll yourself with the option on. |
+| `Visa: JIRA did not take it, the checker tries again every 10 minutes` | You started the run. It settled, but JIRA did not take the visa. The checker keeps trying while Visa my runs in JIRA stays on and no newer RunAll replaces the run. | Wait, or press **Post visa**. |
+| `Visa: bob, who started this run, has Visa my runs in JIRA on` | Only the option of whoever started a run posts its automatic visa, and bob's is on. The line says nothing more about another person's option. | — |
+| `Visa: Visa my runs in JIRA is off in ⚙` | You started this run, and your option is off. When the line ends with `because JIRA rejected your token`, JIRA refused your stored token, and that switched the option off. | Switch it on in ⚙ with your JIRA token. Then press **Post visa** to post the visa of this run. |
+| `Visa: none, bob started this run and has Visa my runs in JIRA off` | Only the option of whoever started a run posts its automatic visa, and bob's is off. | Press **Post visa** to post it yourself, or start a RunAll yourself with the option on. |
 | `Visa: waits until you log in again` | You started the run, and TeamCity refused the token your options use, so they pause. The visa goes out after a login with a fresh token, unless a newer RunAll replaced the run. | Log in again. |
 | `Visa: waits until you save your JIRA token in ⚙ again` | You started the run, and the checker's state was restored from a backup older than 2 days, which keeps no tokens. Your option stays on and waits for your JIRA token. The visa goes out once you save it, unless a newer RunAll replaced the run. | Save your JIRA token in ⚙. |
 | `Visa: waits for a new JIRA token in ⚙` | You started the run, and the checker could not read the JIRA token your Visa my runs in JIRA stored: the server key was changed, or the token got damaged. The option stays on. The visa goes out once you save a new token, unless a newer RunAll replaced the run. | Save a new JIRA token in ⚙. |
-| `Visa: none, this run finished before you switched on Visa my runs in JIRA` | The option acts only on runs that finish after it goes on. | Run RunAll again. |
-| `Visa: none, the PR title named no IGNITE ticket when the run settled` | Adding the key to the title after the run settled does not post this run's visa. | Run RunAll again. |
+| `Visa: none, this run finished before you switched on Visa my runs in JIRA` | The option acts only on runs that finish after it goes on. | Press **Post visa**, or run RunAll again. |
+| `Visa: none, the PR title named no IGNITE ticket when the run settled` | Adding the key to the title after the run settled does not post this run's visa. | Press **Post visa**, or run RunAll again. |
 | `Visa: none, this run was cancelled` | A cancelled run gets no visa. The page shows a cancelled run only when every finished run of the PR was cancelled. | Run RunAll again. |
 | `Visa: none for this run, a newer RunAll replaces it` | The newer RunAll of the PR gets the visa instead. | — |
-| `Visa: none, the PR is closed` | The PR was closed or merged before the visa of this run went out. | — |
-| `Visa: unknown, TeamCity does not say who started this run` | Only the starter's option posts a visa, and TeamCity named no starter. | — |
+| `Visa: none, the PR is closed` | The PR was closed or merged before the visa of this run went out. | To post it now, press **Post visa**. |
+| `Visa: unknown, TeamCity does not say who started this run` | Only the starter's option posts an automatic visa, and TeamCity named no starter. | To post it yourself, press **Post visa**. |
 | `Visa: the PR title names no IGNITE ticket` | A visa goes to the IGNITE ticket the PR title names. The key may be in any case. For a PR that is not in the left pane, the line appears once the page gets the PR's title. | Put the key in the PR title. |
+| **Post visa** | Posts the visa of the run on the page now, to the IGNITE ticket the PR title names, as your comment in JIRA. It uses the JIRA token you saved in ⚙ for Visa my runs in JIRA; the checker keeps your JIRA token nowhere else. It asks first and names the run and the ticket. The visa has the text of the run's automatic visa for the verdict as it is now, without the line about auto re-run waves. Its last line names you by your ci2 user name, and by your GitHub login when it is proven. Pressed again for the same run, it updates your comment instead of adding one. The button is grey until the verdict is final, the PR title names a ticket and you have a JIRA token saved. When TeamCity errors left part of the verdict unchecked, the button also waits up to 20 minutes while the checker checks that part again. The **?** next to it says why the button is grey; when the JIRA token is missing, a click on it opens ⚙. | — |
 | **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same commit. | — |
 
 ### Thresholds
@@ -376,7 +377,7 @@ token: the options resume on it. Nobody else's options stop.
 The state reads not saved, saved or rejected. Create the token in your ASF JIRA profile. It acts with all the rights
 of your JIRA account (ASF JIRA has no token scopes), so give it an expiry, say 90 days. Save switches on **Visa my
 runs in JIRA** below with the token. The server stores the token encrypted while the option is on. No cookie keeps it.
-A visa comes only from this option.
+A visa comes from this option, or from **Post visa** on the PR page, which uses the same token.
 
 - **Visa my runs in JIRA** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
   re-runs settle. The title needs a key like `IGNITE-12345`, in any case: no key, no visa. No visa goes out while a
@@ -491,7 +492,8 @@ journal.
 - Each visa the checker posts or edits with your JIRA token is an entry: the PR, the ticket, the RunAll and when. The
   ticket links to the comment in JIRA. The entry of a visa in a PR of the Python thin client names the client's repo,
   and the suite's build instead of the RunAll. A RunAll someone started in TeamCity with your ci2 token gets a visa from
-  your **Visa my runs in JIRA** too, and the journal shows it.
+  your **Visa my runs in JIRA** too, and the journal shows it. A visa you post or update with **Post visa** is an
+  entry from your browser and names the button.
 - An entry names options, services and GitHub accounts, never a token or a part of one.
 
 ### Language
@@ -511,10 +513,16 @@ log in from. The journal lists each change. A page that opens without a login is
 
 ## Visas and PR comments
 
-- **The visa** of a run comes only from **Visa my runs in JIRA** of whoever started it. A line under the verdict
-  says where it stands: posted, with a link to the comment; still to come once the run settles; or
+- **The visa** of a run comes from **Visa my runs in JIRA** of whoever started it, or from **Post visa**. A line
+  under the verdict says where it stands: posted, with a link to the comment; still to come once the run settles; or
   why none comes. For someone else's run it names whose option it is and whether it is on, and nothing more about
   their options. The [glossary](#runs-buttons-and-visas) lists every state.
+- **Post visa**, next to that line, posts the visa of the run on the page now, with your own JIRA token from ⚙,
+  whoever started the run. Use it when no option posted the visa, or when the verdict changed after the visa went
+  out. For example, a suite with a blocker re-ran on a newer commit and passed: the run became a mixed run, and you
+  want the ticket to show that. The visa says what the run's automatic visa would say now, the mixed-run caveat
+  included. The last line of the visa names who posted it. A second press for the same run updates that comment. On a
+  merged PR's page it posts the verdict kept at the merge.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
 - The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the
@@ -636,6 +644,8 @@ The commands also work in the pull requests of
   waits. Meanwhile the checker's comment on the run says that it tries the visa again. After that the verdict comes
   without the visa. The verdict comment says where the visa went, or why none did. The journal in ⚙ lists the visa with
   the client's repo.
+- **Post visa** works on the client PR's page too: it posts the visa of the run the page shows. When the verdict
+  counts a later run of the same two commits, the visa names that run too.
 - Not tested: a client change together with an Ignite change it needs, since the run always takes Ignite master. Run
   `/run-all` again once the Ignite change is in master.
 - A new `/run-all` cancels your run of the suite in this PR that is queued or running, and its auto re-run. **Run**

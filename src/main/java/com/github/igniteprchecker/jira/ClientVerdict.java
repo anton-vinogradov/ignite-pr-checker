@@ -51,12 +51,27 @@ public final class ClientVerdict {
      * The run's auto re-run on the same commits: its build, 0 when none was queued, whether the verdict counts its
      * results ({@code counted}), and why it does not, in words that follow the build: it was cancelled, or TeamCity no
      * longer has it. For a re-run never queued, {@code why} says what TeamCity answered. {@code standsIn}: TeamCity
-     * cancelled the run by itself, so the run has no result, and the re-run gives the verdict.
+     * cancelled the run by itself, so the run has no result, and the re-run gives the verdict. {@code auto}: the
+     * checker queued it as the run's auto re-run; false for a later run of the same commits that the checker cannot
+     * tell the origin of.
      */
-    public record Rerun(long buildId, boolean counted, String why, boolean standsIn) {
+    public record Rerun(long buildId, boolean counted, String why, boolean standsIn, boolean auto) {
+        /** The run's auto re-run. */
+        public Rerun(long buildId, boolean counted, String why, boolean standsIn) {
+            this(buildId, counted, why, standsIn, true);
+        }
+
         /** A re-run that finished: the verdict counts the failed tests of both runs. */
         public static Rerun counted(long buildId) {
             return new Rerun(buildId, true, null, false);
+        }
+
+        /**
+         * A later run of the same commits that the verdict counts too, which may or may not be the run's auto re-run:
+         * the verdict on the checker's page pairs the two newest runs of the same commits, whoever queued them.
+         */
+        public static Rerun sameCommits(long buildId) {
+            return new Rerun(buildId, true, null, false, false);
         }
 
         /** A re-run that finished in place of a run TeamCity cancelled by itself: the verdict is the re-run's. */
@@ -246,6 +261,9 @@ public final class ClientVerdict {
                 + run.buildId())).append(" by itself. The checker ran the suite again on the same commits. This"
                 + " verdict comes from that re-run.");
         }
+        else if (rerun.counted() && !rerun.auto())
+            b.append("This verdict counts ").append(build)
+                .append(" too: a later run of the suite on the same commits.");
         else if (rerun.counted())
             b.append("Settled after one auto re-run: ").append(build)
                 .append(" ran the suite again on the same commits.");

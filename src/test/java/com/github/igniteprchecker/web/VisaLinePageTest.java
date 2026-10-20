@@ -160,9 +160,10 @@ class VisaLinePageTest {
         assertThat(out.at("/before/text").asText()).isEqualTo("Visa: …");
         assertThat(out.get("text").asText()).isEqualTo("Visa: will be posted to IGNITE-29049 when the run settles");
         String page = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
-        Matcher rule = Pattern.compile("\\.visa-group \\{([^}]*)}").matcher(page);
+        Matcher rule = Pattern.compile("\\.visa-row \\{([^}]*)}").matcher(page);
         assertThat(rule.find()).isTrue();
-        assertThat(rule.group(1)).contains("flex-basis: 100%").doesNotContain("margin-left: auto");
+        assertThat(rule.group(1)).as("the row of the line and Post visa").contains("flex-basis: 100%")
+            .doesNotContain("margin-left: auto");
     }
 
     /** The server could not say where the visa stands: "Visa: …" does not stay on the page as if it would. */

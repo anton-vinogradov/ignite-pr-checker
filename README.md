@@ -35,6 +35,10 @@ each label means and what to do about it.
   account, and a checkstyle fix and tests added to suites need a GitHub token for commits. The options work while the
   page is closed. When something is missing, ⚙ and the PR replies say what to do. See
   [Standing options](docs/features.md#standing-options).
+- **Visa from the page.** **Post visa** on the PR page posts the visa of the run on the page now, to the IGNITE
+  ticket the PR title names. The visa is your comment in JIRA, posted with the JIRA token you saved in ⚙. It works
+  once the verdict is final, also on a merged PR and on a PR of the Python thin client. See
+  [Visas and PR comments](docs/features.md#visas-and-pr-comments).
 - **In Russian.** Choose Русский under **Language** in ⚙ and press **Save**: every page of the checker then shows in
   Russian in every browser you log in from. PR comments and visas stay in English. See
   [Language](docs/features.md#language).
@@ -98,10 +102,10 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   works, one that TeamCity could not check, and one that the shared limit stops do not count.
 - **Standing options** store the tokens they need while they are on, encrypted with `SESSION_SECRET`: the TeamCity
   token with any option, the user's JIRA token for visas, and the user's GitHub token for the checkstyle autofix and
-  adding tests to suites, the two options that commit. Visas come only from **Visa my runs in JIRA**. The page sends
-  the JIRA token in the request that switches this option on. No cookie keeps the token. Copies of these tokens stay
-  in the backups of the [cache directory](#the-cache-directory) for 2 days; backups older than 2 days keep the rest of
-  the state, without the tokens.
+  adding tests to suites, the two options that commit. Visas come from **Visa my runs in JIRA** and from
+  **Post visa**, which uses the same token. The page sends the JIRA token in the request that switches this option on.
+  No cookie keeps the token. Copies of these tokens stay in the backups of the [cache directory](#the-cache-directory)
+  for 2 days; backups older than 2 days keep the rest of the state, without the tokens.
 - **GitHub account.** PR commands act on the comments of the GitHub account the user linked: with **Link GitHub** in
   ⚙, or with the GitHub token kept for the commits. **Link GitHub** goes through the checker's OAuth App, with no
   scope.
@@ -142,7 +146,8 @@ are listed apart as broken suites. The [glossary](docs/features.md#verdict-gloss
   account can push to the repo or to the checker's own, where its releases come from. What GitHub does not say shows
   as unknown. Only operators see the day the token expires and how many days it has left.
 
-There is no shared JIRA account: visas go out under the JIRA token of the user they are for.
+There is no shared JIRA account: a visa goes out under the JIRA token of the user whose option posts it, or who
+pressed **Post visa**.
 
 ## Quick start
 

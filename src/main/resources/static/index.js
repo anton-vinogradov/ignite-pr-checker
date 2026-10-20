@@ -970,6 +970,7 @@ async function loadSettling(number) {
     phaseNow = phase ? { ...phase, pr: number, build: res.buildId } : null;
     paintPrimary();
     paintTab();
+    paintVisaLine();
     // A hidden tab whose poll found nothing to wait for may learn only now that re-runs settle the verdict.
     if (!pollTimer && waitingForFinal()) schedulePoll();
 }
@@ -3470,6 +3471,7 @@ function paintVisaLine() {
     const html = lastIssueKey === '' ? T('Visa: the PR title names no IGNITE ticket')
         : !lastIssueKey || v === undefined || v === false ? null
         : v === null ? T('Visa: …') : visaLineText(v, lastIssueKey);
+    paintVisaPost(res, v);
     if (html === visaLinePainted) return;
     visaLinePainted = html;
     el.innerHTML = html || '';
@@ -3522,6 +3524,125 @@ function visaLineText(v, key) {
             return null;
     }
 }
+
+// Post visa puts the visa of the run on screen into the PR's ticket now: as the viewer's own comment in JIRA, with the
+// JIRA token they saved in ⚙, the only place the checker keeps it. It waits for a ticket in the PR title, that token
+// and the final verdict with no part left unchecked; the ? next to it says what keeps it off. A second press for the
+// same run updates that comment (PostVisaController on the server).
+const VISA_POST_OFF = {
+    ticket: phrase('The PR title names no IGNITE ticket, so there is no ticket to post the visa to. Add the ticket '
+        + 'key to the title.'),
+    token: phrase('Post visa uses the JIRA token you save in ⚙, and you have none there. Saving one also switches on '
+        + 'Visa my runs in JIRA.'),
+    wait: phrase('Post visa waits for the final verdict: runs of this PR can still change it.'),
+    retry: phrase('TeamCity errors left part of this verdict unchecked. The checker checks that part again, and Post '
+        + 'visa waits up to 20 minutes for that.'),
+};
+let visaPostOff = ''; // the key of VISA_POST_OFF that keeps Post visa off now, '' while it is on
+let visaRetryTimer = null; // paints Post visa again when its wait for the verdict's TeamCity errors ends
+
+// What keeps Post visa off for the run on screen, '' when nothing does; null while the row has no button: the PR's
+// ticket or the server's answer for the run is not known yet.
+function visaPostReason(res, v) {
+    if (lastIssueKey === '') return 'ticket';
+    if (!res || !lastIssueKey || !v) return null;
+    if (!v.jiraReady) return 'token';
+    if (!verdictFinal(res)) return 'wait';
+    return retryLeftMs(res) > 0 ? 'retry' : '';
+}
+
+// How long the server still takes no visa of the verdict: TeamCity errors left part of it unchecked, and the checker
+// checks it again for 20 minutes from the first error (BlockerAnalyzer.stillRetrying). 0 when nothing is left to wait.
+const VISA_RETRY_HOLD_MS = 20 * 60000;
+function retryLeftMs(res) {
+    return res.incompleteSince > 0 ? Math.max(0, res.incompleteSince + VISA_RETRY_HOLD_MS - Date.now()) : 0;
+}
+
+// Whether the verdict on screen is the final one of its run: no run of the PR goes, no auto re-run settles it, and a
+// merged PR's verdict is not waiting for runs that went at the merge, the only runs that may still change it.
+function verdictFinal(res) {
+    if (res.mergedAt) return !res.runsAtMergeDue;
+    const phase = phaseNow && phaseNow.pr === res.prNumber && phaseNow.build === res.buildId ? phaseNow : null;
+    return !res.live && !verdictDue && !runsNow.length && !!phase && phase.phase === 'final';
+}
+
+function paintVisaPost(res, v) {
+    const why = res && isOpen(res.prNumber, res.repo) ? visaPostReason(res, v) : null;
+    $('visaPostGroup').classList.toggle('hidden', why === null);
+    visaPostOff = why || '';
+    if (why === null) return;
+    $('visaPost').disabled = !!why;
+    $('visaPost').title = why ? ''
+        : v.yoursIn === lastIssueKey ? T('Updates your visa of this run in {0} with the verdict on this page. It uses '
+            + 'the JIRA token you saved in ⚙.', lastIssueKey)
+        : T('Posts the verdict on this page to {0} as your comment in JIRA, with the JIRA token you saved in ⚙. A '
+            + 'second press for this run updates that comment.', lastIssueKey);
+    $('visaPostWhy').classList.toggle('hidden', !why);
+    $('visaPostWhy').title = !why ? '' : T(VISA_POST_OFF[why]) + (why === 'token' ? ' ' + T('A click opens ⚙.') : '');
+    clearTimeout(visaRetryTimer);
+    visaRetryTimer = why === 'retry' ? setTimeout(paintVisaLine, retryLeftMs(res) + 1000) : null;
+}
+
+// What Post visa asks before it posts: the run, the ticket, and whether the visa replaces the viewer's own visa of the
+// run there or goes in next to someone else's. A client's run has questions of its own, so that a language can put
+// the build and the suite where it needs them.
+function visaQuestion(res, key, v) {
+    const suite = res.suiteName || clientSuite, run = 'RunAll ' + res.buildId;
+    if (v.yoursIn === key) {
+        return res.repo ? T`Update your visa of ${suite} build ${res.buildId} in ${key} with the verdict on this page?`
+            : T`Update your visa of ${run} in ${key} with the verdict on this page?`;
+    }
+    const theirs = v.state === 'posted' && !v.mine && v.starter
+        ? '\n\n' + T('{0}\'s visa of this run is in {1} already. Yours goes in as a comment of its own.', v.starter,
+            v.issue || key) : '';
+    const post = res.repo ? T`Post the visa of ${suite} build ${res.buildId} to ${key}?`
+        : T`Post the visa of ${run} to ${key}?`;
+    return post + ' ' + T('It goes in as your comment in JIRA, with the verdict on this page.') + theirs;
+}
+
+async function postVisa() {
+    const res = lastResult;
+    if (!res || !isOpen(res.prNumber, res.repo) || visaPostOff) return;
+    const pr = res.prNumber, repo = res.repo || null, key = lastIssueKey;
+    const row = prTag(pr, repo) + ':' + res.buildId;
+    const v = visaLines.get(row);
+    if (!v || !confirm(visaQuestion(res, key, v))) return;
+    const btn = $('visaPost');
+    const refocus = keepFocus(btn);
+    btn.disabled = true;
+    try {
+        sayStatus(T('Posting the visa…'), { busy: true });
+        const r = await api(prApi('visa', pr, repo) + '&build=' + res.buildId + '&issue=' + encodeURIComponent(key),
+            { method: 'POST' });
+        if (r.status === 401) return loggedOut(r);
+        const answer = await r.json().catch(() => ({}));
+        if (!isOpen(pr, repo)) return;
+        if (!r.ok) {
+            sayStatus(notDone(T('Visa not posted'), answer.error), { err: true, aloud: true });
+            const was = visaLines.get(row);
+            if (answer.need === 'jira' && was) visaLines.set(row, { ...was, jiraReady: false });
+            loadRuns(pr); // the runs, the phase and the visa row as they are now
+            return;
+        }
+        visaLines.set(row, answer);
+        const link = `<a href="${esc(answer.url)}" target="_self" rel="noopener" `
+            + `title="${T('Opens the visa in JIRA.')}">${esc(answer.issue)}</a>`;
+        sayStatus(answer.edited ? T`Your visa in ${link} now has the verdict on this page.`
+            : T`Visa posted to ${link}.`, { html: true, aloud: true });
+    } finally {
+        paintVisaLine();
+        refocus();
+    }
+}
+
+$('visaPost').onclick = postVisa;
+// The ? says what keeps Post visa off in the status line too, which a keyboard and a phone reach; for a missing JIRA
+// token it opens ⚙, where the token is saved.
+$('visaPostWhy').onclick = () => {
+    if (!visaPostOff) return;
+    sayStatus(T(VISA_POST_OFF[visaPostOff]), { aloud: true });
+    if (visaPostOff === 'token' && $('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
+};
 
 // The browser's time zone goes with every change in ⚙: the run's story in the PR gives its times in it.
 function zoneParam(sep) {

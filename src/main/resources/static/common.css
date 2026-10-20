@@ -60,6 +60,9 @@ a.ext { font-size: 0.72rem; font-weight: 500; padding: 0.1rem 0.45rem; margin: 0
 a.ext:hover, a.ext:focus-visible { text-decoration: underline; }
 a.help { display: inline-block; width: 1.2em; line-height: 1.2em; text-align: center; border: 1px solid var(--line); border-radius: 50%; font-size: 0.7rem; font-weight: 600; color: var(--muted); text-decoration: none; text-transform: none; letter-spacing: normal; vertical-align: middle; }
 a.help:hover, a.help:focus-visible { color: var(--accent); border-color: var(--accent); }
+/* A ? that acts on the page rather than opening the glossary: a button with the circle of a.help. */
+button.help { display: inline-block; width: 1.2em; height: 1.2em; padding: 0; line-height: 1.2em; text-align: center; border: 1px solid var(--line); border-radius: 50%; background: none; font-size: 0.7rem; font-weight: 600; color: var(--muted); vertical-align: middle; }
+button.help:hover, button.help:focus-visible { color: var(--accent); border-color: var(--accent); }
 
 button { font: inherit; padding: 0.4rem 0.8rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--btn-bg); color: var(--fg); cursor: pointer; }
 button:hover { border-color: var(--line-strong); }

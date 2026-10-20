@@ -142,8 +142,12 @@
         .card.verdict.clean > h2 { color: var(--ok); }
         .card.verdict.watch, .card.verdict.unproven { border-left-color: var(--warn); }
         .card.verdict.watch > h2, .card.verdict.unproven > h2 { color: var(--warn); }
-        .visa-group { flex-basis: 100%; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; font-size: 0.85rem; font-weight: 400; color: var(--fg); }
+        /* The visa line and Post visa share a row of their own in the verdict's heading; the row goes while both are hidden. */
+        .visa-row { flex-basis: 100%; font-size: 0.85rem; font-weight: 400; }
+        .visa-row:not(:has(> :not(.hidden))) { display: none; }
+        .visa-group { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-right: 0.4rem; vertical-align: middle; color: var(--fg); }
         .visa-group.muted { color: var(--muted); }
+        .visa-post { display: inline-flex; align-items: center; gap: 0.3rem; vertical-align: middle; }
         #notifyBtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); opacity: 1; }
         #notifyBtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); outline-offset: -3px; }
         .verdict-lines { font-size: 0.86rem; color: var(--warn); }
@@ -615,7 +619,7 @@
                         <p id="mergedNote" class="merged-note hidden"></p>
                         <h2 id="verdictHead"><span class="verdict-title"><span id="verdictText"></span>
                             <a class="help" href="https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#cards-on-the-pr-page" target="_self" rel="noopener" title="What each verdict means and what to do next" aria-label="What this means">?</a></span>
-                            <span id="visaLine" class="visa-group muted hidden"></span>
+                            <span id="visaRow" class="visa-row"><span id="visaLine" class="visa-group muted hidden"></span><span id="visaPostGroup" class="visa-post hidden"><button id="visaPost" class="act" type="button" disabled>Post visa</button><button id="visaPostWhy" class="help hidden" type="button" aria-label="Why Post visa is off">?</button></span></span>
                         </h2>
                         <div id="verdictLines" class="verdict-lines"></div>
                         <div id="deltaRow" class="delta hidden"><span id="delta"></span><span id="trend" class="trend"></span></div>

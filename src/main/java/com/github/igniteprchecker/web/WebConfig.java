@@ -11,11 +11,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
     /**
-     * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, ending other logins, restart,
-     * update, flush.
+     * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, ending other logins, Post visa,
+     * restart, update, flush. The guard checks only a POST, so the visa line the page reads asks TeamCity nothing.
      */
     static final String[] LIVE_TOKEN_ACTIONS = {"/api/github/link", "/api/github/unlink", "/api/auto-visa-all",
-        "/api/logins/end", "/api/logins/end-others", "/api/restart", "/api/update", "/api/flush-caches"};
+        "/api/logins/end", "/api/logins/end-others", "/api/visa", "/api/client/visa", "/api/restart", "/api/update",
+        "/api/flush-caches"};
 
     private final AuthInterceptor auth;
 
