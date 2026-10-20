@@ -153,7 +153,8 @@ and the visa.
 | `Visa: none, the PR title named no IGNITE ticket when the run settled` | Adding the key to the title after the run settled does not post this run's visa. | Press **Post visa**, or run RunAll again. |
 | `Visa: none, this run was cancelled` | A cancelled run gets no visa. The page shows a cancelled run only when every finished run of the PR was cancelled. | Run RunAll again. |
 | `Visa: none for this run, a newer RunAll replaces it` | The newer RunAll of the PR gets the visa instead. | — |
-| `Visa: none, the PR is closed` | The PR was closed or merged before the visa of this run went out. | To post it now, press **Post visa**. |
+| `Visa: none, the PR is merged` | The PR was merged before the visa of this run went out. | To post it now, press **Post visa**. |
+| `Visa: none, the PR is closed` | The PR was closed without a merge before the visa of this run went out. | To post it now, press **Post visa**. |
 | `Visa: unknown, TeamCity does not say who started this run` | Only the starter's option posts an automatic visa, and TeamCity named no starter. | To post it yourself, press **Post visa**. |
 | `Visa: the PR title names no IGNITE ticket` | A visa goes to the IGNITE ticket the PR title names. The key may be in any case. For a PR that is not in the left pane, the line appears once the page gets the PR's title. | Put the key in the PR title. |
 | **Post visa** | Posts the visa of the run on the page now, to the IGNITE ticket the PR title names, as your comment in JIRA. It uses the JIRA token you saved in ⚙ for Visa my runs in JIRA; the checker keeps your JIRA token nowhere else. It asks first and names the run and the ticket. The visa has the text of the run's automatic visa for the verdict as it is now, without the line about auto re-run waves. Its last line names you by your ci2 user name, and by your GitHub login when it is proven. Pressed again for the same run, it updates your comment instead of adding one. The button is grey until the verdict is final, the PR title names a ticket and you have a JIRA token saved. When TeamCity errors left part of the verdict unchecked, the button also waits up to 20 minutes while the checker checks that part again. The **?** next to it says why the button is grey; when the JIRA token is missing, a click on it opens ⚙. | — |
@@ -203,7 +204,7 @@ and the visa.
 
 ## Reading the verdict
 
-![The PR page of #13694: the verdict card "1 blocker in 1 suite, all on 1 run", the "Blockers" and "This PR's tests" cards](img/pr-page.jpg)
+![The PR page of #13705: the verdict card "1 blocker in 1 suite, all on 1 run" with the "Post visa" button, the "Blockers" and "This PR's tests" cards](img/pr-page.jpg)
 
 The page answers one question: which tests did this PR break? The verdict card answers it first, in the words of the
 PR comment and the visa. The [cards](#cards-on-the-pr-page) under it go from what makes the run unreliable (suites that

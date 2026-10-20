@@ -66,6 +66,24 @@ class VisaLinePageTest {
         assertThat(out.get("strange").isNull()).as("a state this page does not know shows no line").isTrue();
     }
 
+    /** A merged PR's line said "the PR is closed", as of a PR closed without a merge. */
+    @Test
+    void aMergedPrSaysItIsMerged() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SAY + """
+            await page.load('');
+            page.run('selectedPr = 13709');
+            const title = state => page.run('setPrTitle')(13709, 'IGNITE-29174 Cleanup of binary modules', null,
+                { state, closedAt: 1792491159, head: '9b0256173a55' });
+            title('merged');
+            const merged = say('closed', false);
+            title('closed');
+            report({ merged, closed: say('closed', false) });
+            """);
+
+        assertThat(out.get("merged").asText()).isEqualTo("Visa: none, the PR is merged");
+        assertThat(out.get("closed").asText()).isEqualTo("Visa: none, the PR is closed");
+    }
+
     /** A TeamCity username goes into the line as text, whatever it holds. */
     @Test
     void theStartersNameIsText() throws Exception {

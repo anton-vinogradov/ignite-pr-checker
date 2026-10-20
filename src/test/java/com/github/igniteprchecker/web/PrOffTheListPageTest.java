@@ -55,7 +55,8 @@ class PrOffTheListPageTest {
         assertThat(titled.get("html").asText()).contains("<a href=\"https://issues.apache.org/jira/browse/IGNITE-29117\" "
             + "target=\"_self\" rel=\"noopener\" title=\"Open IGNITE-29117 in JIRA\">IGNITE-29117</a>");
         assertThat(titled.get("line").asBoolean()).isTrue();
-        assertThat(titled.get("text").asText()).isEqualTo("Visa: none, the PR is closed");
+        assertThat(titled.get("text").asText()).as("its verdict, kept at the merge, tells it is merged")
+            .isEqualTo("Visa: none, the PR is merged");
     }
 
     @Test

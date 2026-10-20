@@ -499,6 +499,7 @@
     "Visa: none, this run was cancelled": "Виза: нет, этот прогон отменили",
     "Visa: none for this run, a newer RunAll replaces it": "Виза: для этого прогона нет, его заменяет более новый RunAll",
     "Visa: none, the PR is closed": "Виза: нет, PR закрыт",
+    "Visa: none, the PR is merged": "Виза: нет, PR смержен",
     "Visa: unknown, TeamCity does not say who started this run": "Виза: неизвестно, TeamCity не говорит, кто запустил этот прогон",
     "Visa: waits for a new JIRA token in ⚙, because the server key was changed": "Виза: ждёт новый токен JIRA в ⚙, потому что ключ сервера сменили",
     "Visa: waits for a new JIRA token in ⚙, because the checker could not read the stored one": "Виза: ждёт новый токен JIRA в ⚙, потому что чекер не смог прочитать сохранённый",
