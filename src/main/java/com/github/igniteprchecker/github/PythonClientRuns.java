@@ -235,6 +235,18 @@ public class PythonClientRuns {
         return ClientVerdict.wiki(tcBase, run(pr, buildId, suiteName, pinned, null), r, rerun);
     }
 
+    /**
+     * The visa of the run {@code buildId} of the suite {@code suiteName} for Post visa on the checker's page of PR
+     * {@code pr}, as the run's automatic visa says it: it names the commits of the client and of Ignite the run tested,
+     * {@code clientSha} and {@code igniteSha}, and {@code rerunId}, the later run of the same commits that the verdict
+     * {@code r} counts too, 0 when none.
+     */
+    public String pageVisaBody(int pr, long buildId, long rerunId, String suiteName, String clientSha,
+        String igniteSha, AnalysisResult r) {
+        return ClientVerdict.wiki(tcBase, new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha,
+            props.repo(), pr, clientSha), r, rerunId == 0 ? null : ClientVerdict.Rerun.sameCommits(rerunId));
+    }
+
     /** The suite's name as TeamCity gives it with the build; its id when it gives none. */
     public static String suiteName(TcModel.Build build, PinnedRun pinned) {
         return build.buildType() != null && build.buildType().name() != null ? build.buildType().name()

@@ -64,18 +64,24 @@ public class PrTitleController {
     /** {@code title}: the PR's title; 404 when GitHub has no such PR or could not be asked. */
     @GetMapping("/pr-title")
     public ResponseEntity<?> title(@RequestParam int pr) {
+        return knownTitle(pr).<ResponseEntity<?>>map(t -> ResponseEntity.ok(Map.of("title", t)))
+            .orElseGet(() -> notKnown(pr));
+    }
+
+    /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
+    Optional<String> knownTitle(int pr) {
         long now = clock.getAsLong();
         Known k = known.get(pr);
         if (k == null || now - k.at() >= KEPT_MS) {
             k = lookUp(pr, now);
             if (k == null)
-                return notKnown(pr);
+                return Optional.empty();
 
             known.values().removeIf(old -> now - old.at() >= KEPT_MS);
             known.put(pr, k);
         }
 
-        return k.title() == null ? notKnown(pr) : ResponseEntity.ok(Map.of("title", k.title()));
+        return Optional.ofNullable(k.title());
     }
 
     /** The PR's title, or a null title when GitHub has no such PR; null when GitHub could not be asked. */

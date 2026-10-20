@@ -242,14 +242,18 @@ public class ClientPrsController {
         return commands.clientPhase(pr, build);
     }
 
-    /** Where the visa of the run {@code build} stands, as far as the checker's records tell; see the verdict kept. */
+    /**
+     * The visa row of the run {@code build}: where its visa stands, as far as the checker's records tell, see the
+     * verdict kept, and what Post visa can do for the viewer; see {@link PostVisaController}.
+     */
     @GetMapping("/visa")
-    public StandingVisas.VisaLine visaLine(@RequestParam int pr, @RequestParam long build,
+    public PostVisaController.VisaRow visaLine(@RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         String revision = clients.kept(pr).map(ClientVerdicts.Verdict::result)
             .filter(r -> r.buildId() == build).map(AnalysisResult::revision).orElse(null);
 
-        return standing.clientVisaLine(username, python.repo(), pr, build, revision);
+        return PostVisaController.VisaRow.of(standing.clientVisaLine(username, python.repo(), pr, build, revision),
+            standing.visaButton(username, python.repo(), pr, build));
     }
 
     /**
@@ -259,18 +263,24 @@ public class ClientPrsController {
      */
     @GetMapping("/pr-title")
     public ResponseEntity<?> title(@RequestParam int pr) {
+        return knownTitle(pr).<ResponseEntity<?>>map(t -> ResponseEntity.ok(Map.of("title", t)))
+            .orElseGet(() -> noTitle(pr));
+    }
+
+    /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
+    Optional<String> knownTitle(int pr) {
         long now = clock.getAsLong();
         Title t = titles.get(pr);
         if (t == null || now - t.at() >= TITLE_KEPT_MS) {
             t = titleOf(pr, now);
             if (t == null)
-                return noTitle(pr);
+                return Optional.empty();
 
             titles.values().removeIf(old -> now - old.at() >= TITLE_KEPT_MS);
             titles.put(pr, t);
         }
 
-        return t.title() == null ? noTitle(pr) : ResponseEntity.ok(Map.of("title", t.title()));
+        return Optional.ofNullable(t.title());
     }
 
     private Title titleOf(int pr, long now) {

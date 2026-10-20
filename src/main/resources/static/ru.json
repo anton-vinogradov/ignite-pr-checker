@@ -497,7 +497,23 @@
     "Visa: none, the PR is closed": "Виза: нет, PR закрыт",
     "Visa: unknown, TeamCity does not say who started this run": "Виза: неизвестно, TeamCity не говорит, кто запустил этот прогон",
     "Visa: waits for a new JIRA token in ⚙, because the server key was changed": "Виза: ждёт новый токен JIRA в ⚙, потому что ключ сервера сменили",
-    "Visa: waits for a new JIRA token in ⚙, because the checker could not read the stored one": "Виза: ждёт новый токен JIRA в ⚙, потому что чекер не смог прочитать сохранённый"
+    "Visa: waits for a new JIRA token in ⚙, because the checker could not read the stored one": "Виза: ждёт новый токен JIRA в ⚙, потому что чекер не смог прочитать сохранённый",
+    "Post visa": "Поставить визу",
+    "Why Post visa is off": "Почему кнопка «Поставить визу» недоступна",
+    "Visa: none for this run": "Виза: для этого прогона нет",
+    "The PR title names no IGNITE ticket, so there is no ticket to post the visa to. Add the ticket key to the title.": "В заголовке PR нет тикета IGNITE, поэтому визу некуда поставить. Добавь ключ тикета в заголовок.",
+    "Post visa uses the JIRA token you save in ⚙, and you have none there. Saving one also switches on Visa my runs in JIRA.": "Кнопка «Поставить визу» берёт токен JIRA, который ты сохраняешь в ⚙, а там его нет. Когда ты сохранишь токен, заодно включится опция «Ставить визу моим прогонам в JIRA».",
+    "Post visa waits for the final verdict: runs of this PR can still change it.": "Кнопка «Поставить визу» ждёт окончательного вердикта: прогоны этого PR ещё могут его изменить.",
+    "Posts the verdict on this page to {0} as your comment in JIRA, with the JIRA token you saved in ⚙. A second press for this run updates that comment.": "Ставит вердикт с этой страницы в {0} твоим комментарием в JIRA, с токеном JIRA, который ты сохранил в ⚙. Повторное нажатие для этого прогона правит тот же комментарий.",
+    "A click opens ⚙.": "Щелчок открывает ⚙.",
+    "Update your visa of {0} in {1} with the verdict on this page?": "Обновить твою визу {0} в {1} вердиктом с этой страницы?",
+    "{0}'s visa of this run is in {1} already. Yours goes in as a comment of its own.": "Виза этого прогона от {0} уже есть в {1}. Твоя встанет отдельным комментарием.",
+    "Post the visa of {0} to {1}?": "Поставить визу {0} в {1}?",
+    "It goes in as your comment in JIRA, with the verdict on this page.": "Она встанет твоим комментарием в JIRA и скажет то же, что вердикт на этой странице.",
+    "Posting the visa…": "Ставлю визу…",
+    "Visa not posted": "Виза не поставлена",
+    "Your visa in {0} now has the verdict on this page.": "Твоя виза в {0} теперь говорит то же, что вердикт на этой странице.",
+    "Visa posted to {0}.": "Виза поставлена в {0}."
   },
   "runs": {
     "queued": "в очереди",
@@ -795,7 +811,11 @@
     "Edited the visa in {0} for PR #{1}, RunAll {2}.": "Исправлена виза в {0} для PR #{1}, RunAll {2}.",
     "Switched the language to Russian.": "Язык переключён на русский.",
     "Switched the language to English.": "Язык переключён на английский.",
-    "A change this version of the checker cannot describe.": "Изменение, которое эта версия чекера не умеет описать."
+    "A change this version of the checker cannot describe.": "Изменение, которое эта версия чекера не умеет описать.",
+    "Posted a visa to {0} for PR #{1}, RunAll {2}, with Post visa on the PR page.": "Отправлена виза в {0} для PR #{1}, RunAll {2}, кнопкой «Поставить визу» на странице PR.",
+    "Posted a visa to {0} for PR #{1} of {2}, build {3}, with Post visa on the PR page.": "Отправлена виза в {0} для PR #{1} в {2}, сборка {3}, кнопкой «Поставить визу» на странице PR.",
+    "Updated your visa in {0} for PR #{1}, RunAll {2}, with Post visa on the PR page.": "Обновлена твоя виза в {0} для PR #{1}, RunAll {2}, кнопкой «Поставить визу» на странице PR.",
+    "Updated your visa in {0} for PR #{1} of {2}, build {3}, with Post visa on the PR page.": "Обновлена твоя виза в {0} для PR #{1} в {2}, сборка {3}, кнопкой «Поставить визу» на странице PR."
   },
   "status page": {
     "Ignite PR Checker — Status": "Ignite PR Checker — Статус",
@@ -1219,7 +1239,15 @@
     "this classic token has {0}: with it, anyone who reads it could administer, delete repositories or change workflows, and the checker only commits. Create one without them: a fine-grained token for your fork, or a classic one with public_repo": "у этого classic токена есть {0}: с ним любой, кто его прочитает, сможет администрировать, удалять репозитории или менять workflow, а чекеру нужно только коммитить. Создай токен без них: fine-grained токен для своего форка или classic с public_repo",
     "this classic token has no public_repo scope, so it cannot commit to your PR's branch: create a fine-grained token for your fork, or a classic one with public_repo": "у этого classic токена нет права public_repo, поэтому он не может коммитить в ветку твоего PR: создай fine-grained токен для своего форка или classic с public_repo",
     "Your saved token is a classic one: it can push to every public repository you can push to, apache/ignite too if you are a committer. A fine-grained token for your fork can push there only.": "Твой сохранённый токен — classic: он может пушить в любой публичный репозиторий, куда можешь пушить ты, в том числе в apache/ignite, если ты коммитер. Fine-grained токен для твоего форка может пушить только туда.",
-    "Your saved token is a classic one: it can push to every public repository you can push to, apache/ignite too if you are a committer, and with the repo scope to your private ones as well; public_repo is enough. A fine-grained token for your fork can push there only.": "Твой сохранённый токен — classic: он может пушить в любой публичный репозиторий, куда можешь пушить ты, в том числе в apache/ignite, если ты коммитер, а с правом repo — ещё и в твои приватные; хватит public_repo. Fine-grained токен для твоего форка может пушить только туда."
+    "Your saved token is a classic one: it can push to every public repository you can push to, apache/ignite too if you are a committer, and with the repo scope to your private ones as well; public_repo is enough. A fine-grained token for your fork can push there only.": "Твой сохранённый токен — classic: он может пушить в любой публичный репозиторий, куда можешь пушить ты, в том числе в apache/ignite, если ты коммитер, а с правом repo — ещё и в твои приватные; хватит public_repo. Fine-grained токен для твоего форка может пушить только туда.",
+    "TeamCity errors left part of this verdict unchecked. The checker tries it again, and Post visa waits up to 20 minutes for that.": "Из-за ошибок TeamCity часть этого вердикта не проверена. Чекер проверяет её снова, а кнопка «Поставить визу» ждёт этого до 20 минут.",
+    "The PR title now names {0}, not {1}. Reload the page, then post the visa.": "Заголовок PR теперь называет {0}, а не {1}. Обнови страницу, затем поставь визу.",
+    "JIRA rejected your JIRA token, so the checker dropped it and switched off Visa my runs in JIRA. Save a new token in ⚙.": "JIRA отвергла твой токен JIRA, поэтому чекер удалил его и выключил опцию «Ставить визу моим прогонам в JIRA». Сохрани новый токен в ⚙.",
+    "JIRA refused the comment (HTTP 403). Check that your JIRA account can comment on {0}.": "JIRA не приняла комментарий (HTTP 403). Проверь, что твой аккаунт JIRA может комментировать {0}.",
+    "JIRA has no ticket {0}, or your JIRA account cannot see it (HTTP 404).": "В JIRA нет тикета {0}, или твой аккаунт JIRA его не видит (HTTP 404).",
+    "JIRA did not take the visa (HTTP {0:n}). Try again later.": "JIRA не приняла визу (HTTP {0}). Попробуй позже.",
+    "The checker has a newer verdict of this PR than the page shows. Reload the page, then post the visa.": "У чекера есть вердикт этого PR новее того, что на странице. Обнови страницу, затем поставь визу.",
+    "The checker could not get the PR's title from GitHub, so it does not know the ticket. Try again in a minute.": "Чекер не смог получить заголовок PR от GitHub, поэтому не знает тикет. Попробуй через минуту."
   },
   "server: status": {
     "standing sweep last started {0:n} min ago": "постоянный обход последний раз начинался {0} мин назад",

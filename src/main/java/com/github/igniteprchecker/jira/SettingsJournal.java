@@ -196,6 +196,16 @@ public class SettingsJournal implements SnapshotCache {
                 : Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}.", e.issue(), e.pr(), e.build());
             case Entry.VISA_EDITED -> Texts.t(lang, "Edited the visa in {0} for PR #{1}, RunAll {2}.", e.issue(),
                 e.pr(), e.build());
+            case Entry.PAGE_VISA -> e.repo() != null
+                ? Texts.t(lang, "Posted a visa to {0} for PR #{1} of {2}, build {3}, with Post visa on the PR page.",
+                    e.issue(), e.pr(), e.repo(), e.build())
+                : Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}, with Post visa on the PR page.",
+                    e.issue(), e.pr(), e.build());
+            case Entry.PAGE_VISA_EDITED -> e.repo() != null
+                ? Texts.t(lang, "Updated your visa in {0} for PR #{1} of {2}, build {3}, with Post visa on the PR"
+                    + " page.", e.issue(), e.pr(), e.repo(), e.build())
+                : Texts.t(lang, "Updated your visa in {0} for PR #{1}, RunAll {2}, with Post visa on the PR page.",
+                    e.issue(), e.pr(), e.build());
             case Entry.LANGUAGE -> Lang.of(e.lang()) == Lang.RU ? Texts.t(lang, "Switched the language to Russian.")
                 : Texts.t(lang, "Switched the language to English.");
             default -> Texts.t(lang, "A change this version of the checker cannot describe.");
@@ -391,6 +401,12 @@ public class SettingsJournal implements SnapshotCache {
         /** A visa edited in place. */
         static final String VISA_EDITED = "visa-edited";
 
+        /** A visa the user posted with Post visa on the PR page. */
+        static final String PAGE_VISA = "page-visa";
+
+        /** The user's visa of a run edited in place with Post visa on the PR page. */
+        static final String PAGE_VISA_EDITED = "page-visa-edited";
+
         /** The language of the pages chosen. */
         static final String LANGUAGE = "lang";
 
@@ -457,6 +473,16 @@ public class SettingsJournal implements SnapshotCache {
         /** A visa posted for PR {@code pr} of {@code repo}, the Python thin client's, by its run {@code build}. */
         static Entry clientVisa(String repo, int pr, String issue, long build, String url) {
             return new Entry(0, VISA, null, null, null, null, null, null, pr, issue, build, url, null, repo);
+        }
+
+        /**
+         * A visa the user posted, or {@code edited} in place, with Post visa on the PR page, from the browser of
+         * {@code by}: for PR {@code pr} of {@code repo}, the Python thin client's, by its run {@code build}; for a
+         * RunAll of an Ignite PR with {@code repo} null.
+         */
+        static Entry pageVisa(By by, boolean edited, String repo, int pr, String issue, long build, String url) {
+            return new Entry(0, edited ? PAGE_VISA_EDITED : PAGE_VISA, by.login(), by.browser(), null, null, null,
+                null, pr, issue, build, url, null, repo);
         }
 
         /** The user chose the language of the pages in ⚙. */
