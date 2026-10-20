@@ -185,10 +185,17 @@ public final class TcModel {
      * The build a test occurrence came from. {@code revisions} is the VCS state that build ran on —
      * the only honest way to tell whether two runs of a test were made on the same code.
      * {@code resultingProperties} holds the few build parameters asked for by name, such as the JDK.
+     * {@code finishDate} is null when not asked for, and then left out of the runs kept on disk.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildRef(long id, String branchName, String state, String status,
-        String buildTypeId, BuildType buildType, Revisions revisions, Properties resultingProperties) {
+        String buildTypeId, BuildType buildType, Revisions revisions, Properties resultingProperties,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String finishDate) {
+        /** A build without its finish date, in the shape callers used before it was read. */
+        public BuildRef(long id, String branchName, String state, String status, String buildTypeId,
+            BuildType buildType, Revisions revisions, Properties resultingProperties) {
+            this(id, branchName, state, status, buildTypeId, buildType, revisions, resultingProperties, null);
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

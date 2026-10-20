@@ -156,7 +156,7 @@ class PrListPageTest {
             + "latest commit.");
         assertThat(out.get("unproven").asText()).isEqualTo("No blockers found, but the run can't prove the PR clean: "
             + "it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be "
-            + "checked, or a newer run is still going.");
+            + "checked, suites re-ran on other commits, or a newer run is still going.");
         assertThat(out.get("one").asText()).startsWith("<span class=\"pr-badge bad\" title=\"1 blocker\"")
             .endsWith(">1</span>");
         assertThat(out.get("many").asText()).startsWith("<span class=\"pr-badge bad\" title=\"33 blockers\"")

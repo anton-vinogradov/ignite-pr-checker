@@ -10,6 +10,7 @@ import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -40,6 +41,9 @@ import tools.jackson.databind.ObjectMapper;
  * call says whether it was merged. Only a verdict computed before the merge, or within the hour after it, is kept.
  * A PR closed without a merge is left alone, and one still open past the list is asked again some hours later.
  * Without a usable directory the verdicts are kept in memory only.
+ *
+ * <p>A kept verdict changes once at most: when runs queued before the merge that it did not read end, {@link
+ * RunsAtMerge} computes it again with their results. Until it has looked, the PR's verdict is due for that look.
  */
 @Component
 public class MergedVerdicts {
@@ -56,6 +60,12 @@ public class MergedVerdicts {
 
     /** How long a PR found open, though not in the list, is left before it is asked about again. */
     private static final long RECHECK_OPEN_MS = 6 * 3_600_000L;
+
+    /**
+     * How long after its merge a verdict kept by a release before {@link RunsAtMerge} is still looked at for runs it
+     * did not read, once: TeamCity keeps about 15 days of builds.
+     */
+    static final long LOOK_BACK_MS = 7 * 86_400_000L;
 
     private static final Pattern FILE = Pattern.compile("(\\d+)\\.json");
 
@@ -77,6 +87,9 @@ public class MergedVerdicts {
     /** When each PR found not merged may be asked about again; never, for one closed without a merge. */
     private final Map<Integer, Long> notBefore = new ConcurrentHashMap<>();
 
+    /** The PRs whose kept verdict is due for a look at the runs queued before the merge that it did not read. */
+    private final Set<Integer> runsDue = ConcurrentHashMap.newKeySet();
+
     @Autowired
     public MergedVerdicts(GithubClient github, AnalysisCache cache, PersistProperties persist, ObjectMapper mapper) {
         this(github, cache, persist.enabled() ? Path.of(persist.dir()).resolve("merged") : null, mapper);
@@ -94,23 +107,56 @@ public class MergedVerdicts {
         return new MergedVerdicts(null, null, (Path)null, null);
     }
 
-    /** Learns which PRs have a kept verdict; a directory that cannot be used leaves them in memory. */
+    /**
+     * Learns which PRs have a kept verdict, and which of them are due for a look at the runs that were going at the
+     * merge; a directory that cannot be used leaves them in memory. Only the files written within {@link #LOOK_BACK_MS}
+     * are read for that.
+     */
     @PostConstruct
     void load() {
         if (dir == null)
             return;
 
+        List<Path> recent = new ArrayList<>();
+        long since = System.currentTimeMillis() - LOOK_BACK_MS;
         try {
             Files.createDirectories(dir);
             try (Stream<Path> files = Files.list(dir)) {
-                files.map(f -> FILE.matcher(f.getFileName().toString()))
-                    .filter(Matcher::matches)
-                    .forEach(m -> kept.add(Integer.parseInt(m.group(1))));
+                for (Path f : files.toList()) {
+                    Matcher m = FILE.matcher(f.getFileName().toString());
+                    if (!m.matches())
+                        continue;
+                    kept.add(Integer.parseInt(m.group(1)));
+                    if (modifiedSince(f, since))
+                        recent.add(f);
+                }
             }
         }
         catch (IOException | RuntimeException e) {
             log.warn("merged PRs' verdicts cannot be kept in {} ({}); keeping them in memory only", dir, e.toString());
             dir = null;
+
+            return;
+        }
+
+        for (Path f : recent) {
+            try {
+                Merged m = mapper.readValue(f.toFile(), Merged.class);
+                if (m.runsAtMergeDue() == null ? m.mergedAt() * 1000 >= since : m.runsAtMergeDue())
+                    runsDue.add(m.pr());
+            }
+            catch (JacksonException e) {
+                log.warn("could not read the verdict kept in {}: {}", f, e.toString());
+            }
+        }
+    }
+
+    private static boolean modifiedSince(Path f, long since) {
+        try {
+            return Files.getLastModifiedTime(f).toMillis() >= since;
+        }
+        catch (IOException e) {
+            return false;
         }
     }
 
@@ -124,7 +170,39 @@ public class MergedVerdicts {
         return merged(pr).map(Merged::title);
     }
 
-    private Optional<Merged> merged(int pr) {
+    /** The merged PRs whose kept verdict is due for a look at the runs queued before the merge that it did not read. */
+    public Set<Integer> runsDue() {
+        return Set.copyOf(runsDue);
+    }
+
+    /** Whether the merged PR's kept verdict is due for that look: it may yet be computed once more. */
+    public boolean runsDue(int pr) {
+        return runsDue.contains(pr);
+    }
+
+    /**
+     * Keeps {@code verdict}, computed with the results of the runs queued before the merge that the kept one did not
+     * read, as the PR's verdict for good.
+     */
+    public void completed(int pr, AnalysisResult verdict) {
+        merged(pr).ifPresent(m -> {
+            write(new Merged(m.pr(), m.title(), m.mergedAt(), m.mergeCommit(), m.head(), m.keptAt(), TestVerdict.RULES,
+                verdict, false));
+            log.info("PR {}: completed its verdict at the merge with {} run(s) queued before it ({} blocker(s), "
+                + "{} to watch, {} filtered)", pr, verdict.runsAtMerge().size(), verdict.blockers().size(),
+                verdict.watch().size(), verdict.filtered().size());
+        });
+        runsDue.remove(pr);
+    }
+
+    /** No run queued before the merge adds to the PR's kept verdict: it stays as it is, for good. */
+    public void settled(int pr) {
+        merged(pr).ifPresent(m -> write(new Merged(m.pr(), m.title(), m.mergedAt(), m.mergeCommit(), m.head(),
+            m.keptAt(), m.rules(), m.verdict(), false)));
+        runsDue.remove(pr);
+    }
+
+    Optional<Merged> merged(int pr) {
         if (!kept.contains(pr))
             return Optional.empty();
 
@@ -201,25 +279,32 @@ public class MergedVerdicts {
     }
 
     private void keep(AnalysisResult r, GithubClient.PrOutcome outcome) {
-        Merged m = new Merged(r.prNumber(), outcome.title(), outcome.mergedAt(), outcome.mergeCommitSha(),
-            outcome.headSha(), System.currentTimeMillis(), TestVerdict.RULES, mergedAt(r, outcome.mergedAt()));
-
-        Path d = dir;
-        if (d == null)
-            inMemory.put(r.prNumber(), m);
-        else {
-            try {
-                Snapshots.writeAtomic(mapper, d.resolve(r.prNumber() + ".json"), m);
-            }
-            catch (IOException e) {
-                log.warn("could not keep the verdict of merged PR {} in {}: {}", r.prNumber(), d, e.toString());
-                inMemory.put(r.prNumber(), m);
-            }
-        }
+        write(new Merged(r.prNumber(), outcome.title(), outcome.mergedAt(), outcome.mergeCommitSha(),
+            outcome.headSha(), System.currentTimeMillis(), TestVerdict.RULES, mergedAt(r, outcome.mergedAt()), true));
         kept.add(r.prNumber());
+        runsDue.add(r.prNumber());
 
         log.info("PR {} was merged: kept its verdict of build {} ({} blocker(s), {} to watch, {} filtered)",
             r.prNumber(), r.buildId(), r.blockers().size(), r.watch().size(), r.filtered().size());
+    }
+
+    /** Writes a merged PR's file, or keeps it in memory when there is no directory or the disk does not take it. */
+    private void write(Merged m) {
+        Path d = dir;
+        if (d == null) {
+            inMemory.put(m.pr(), m);
+
+            return;
+        }
+
+        try {
+            Snapshots.writeAtomic(mapper, d.resolve(m.pr() + ".json"), m);
+            inMemory.remove(m.pr());
+        }
+        catch (IOException e) {
+            log.warn("could not keep the verdict of merged PR {} in {}: {}", m.pr(), d, e.toString());
+            inMemory.put(m.pr(), m);
+        }
     }
 
     private static AnalysisResult mergedAt(AnalysisResult r, long mergedAt) {
@@ -227,14 +312,16 @@ public class MergedVerdicts {
             r.filtered(), r.brokenSuites(), r.shrunkSuites(), r.suitesRan(), r.suitesReused(), r.interrupted(),
             r.canceledSuites(), r.live(), r.liveBuildId(), r.queuedAt(), r.startedAt(), r.finishedAt(),
             r.branchWatermarkAt(), r.unstableSuites(), r.cancelledSuites(), r.unverified(), r.incompleteSince(),
-            r.revision(), mergedAt);
+            r.revision(), mergedAt, r.otherCodeRuns(), r.runsAtMerge());
     }
 
     /**
      * A merged PR's kept verdict, with what a later check against master needs: when it was merged and as which
-     * commit, its head then, when the verdict was kept and under which classification rules.
+     * commit, its head then, when the verdict was kept and under which classification rules. {@code runsAtMergeDue}
+     * is whether the verdict is still due for a look at the runs queued before the merge that it did not read; null in
+     * the files of releases before that look.
      */
     record Merged(int pr, String title, long mergedAt, String mergeCommit, String head, long keptAt, int rules,
-        AnalysisResult verdict) {
+        AnalysisResult verdict, Boolean runsAtMergeDue) {
     }
 }

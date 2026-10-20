@@ -29,6 +29,13 @@ final class BuildFacts {
     /** How long a fetched answer is kept at most. */
     static final long TTL_MS = 3 * 3_600_000L;
 
+    /**
+     * The version of the fields chains and suite runs are fetched with. Raised when a release asks TeamCity for more of
+     * them: the ones kept by an earlier release lack those fields and are fetched again. Version 1 added the commit of
+     * each suite run.
+     */
+    static final int RUN_FIELDS = 1;
+
     private final TtlCache<Long, List<TcModel.TestOccurrence>> failedTests = new TtlCache<>(TTL_MS);
 
     private final TtlCache<Long, TcModel.Build> chains = new TtlCache<>(TTL_MS);
@@ -89,18 +96,22 @@ final class BuildFacts {
 
     Saved export() {
         return new Saved(failedTests.export(), chains.export(), testRuns.export(), latestRuns.export(),
-            new HashMap<>(checkedAt));
+            new HashMap<>(checkedAt), RUN_FIELDS);
     }
 
-    /** Takes back what a snapshot kept, each entry with the expiry it had. */
+    /**
+     * Takes back what a snapshot kept, each entry with the expiry it had; chains and suite runs only when they were
+     * fetched with the fields this release asks for.
+     */
     void importUnexpired(Saved saved) {
+        boolean sameRunFields = saved.runFields() != null && saved.runFields() == RUN_FIELDS;
         if (saved.failedTests() != null)
             failedTests.importUnexpired(saved.failedTests());
-        if (saved.chains() != null)
+        if (sameRunFields && saved.chains() != null)
             chains.importUnexpired(saved.chains());
         if (saved.testRuns() != null)
             testRuns.importUnexpired(saved.testRuns());
-        if (saved.latestRuns() != null)
+        if (sameRunFields && saved.latestRuns() != null)
             latestRuns.importUnexpired(saved.latestRuns());
         if (saved.checkedAt() != null)
             saved.checkedAt().forEach((pr, at) -> checkedAt.merge(pr, at, Math::max));
@@ -215,13 +226,17 @@ final class BuildFacts {
     record SuiteKey(int pr, String suite) {
     }
 
-    /** What a snapshot keeps; any part missing from an older snapshot is simply fetched again. */
+    /**
+     * What a snapshot keeps; any part missing from an older snapshot is simply fetched again. {@code runFields} is the
+     * {@link #RUN_FIELDS} the chains and suite runs were fetched with; null in snapshots of releases before it.
+     */
     record Saved(
         List<TtlCache.Snapshot<Long, List<TcModel.TestOccurrence>>> failedTests,
         List<TtlCache.Snapshot<Long, TcModel.Build>> chains,
         List<TtlCache.Snapshot<TestKey, Checked<List<TcModel.TestOccurrence>>>> testRuns,
         List<TtlCache.Snapshot<SuiteKey, Checked<TcModel.Build>>> latestRuns,
-        Map<Integer, Long> checkedAt
+        Map<Integer, Long> checkedAt,
+        Integer runFields
     ) {
     }
 }

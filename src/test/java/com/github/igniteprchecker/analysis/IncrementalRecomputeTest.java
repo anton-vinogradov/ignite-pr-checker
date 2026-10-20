@@ -261,6 +261,33 @@ class IncrementalRecomputeTest {
         verify(tc, never()).latestSuiteRun(anyString(), anyInt(), anyString());
     }
 
+    /**
+     * A release that asks TeamCity for new fields of chains and suite runs, such as the commit each suite run tested,
+     * cannot use the ones an earlier release kept without them: they are fetched again. Failed tests and test runs
+     * are kept.
+     */
+    @Test
+    void chainsAndSuiteRunsKeptWithOtherFieldsAreFetchedAgain(@TempDir Path dir) throws Exception {
+        analyzer.forceRefresh(TOK, PR);
+        Path file = dir.resolve("analysis.json");
+        cache.saveTo(file);
+        ObjectNode root = (ObjectNode)mapper.readTree(file.toFile());
+        ((ObjectNode)root.get("facts")).remove("runFields");
+        mapper.writeValue(file.toFile(), root);
+
+        AnalysisCache restarted = new AnalysisCache(cfg, mapper);
+        restarted.loadFrom(file);
+        clearInvocations(tc);
+        when(tc.suitesFinishedAfter(eq(TOK), eq(PR), anyLong())).thenReturn(Optional.of(Set.of()));
+
+        analyzer(restarted).forceRefresh(TOK, PR);
+
+        verify(tc).getBuildWithDeps(TOK, CHAIN);
+        verify(tc).latestSuiteRun(TOK, PR, SNAPSHOTS);
+        verify(tc, never()).getFailedTests(anyString(), anyLong());
+        verify(tc, never()).prBranchRuns(anyString(), anyInt(), anyLong(), anyString());
+    }
+
     /** "Flush caches" is how an operator has the next analysis read everything from TeamCity again. */
     @Test
     void flushCachesDropsWhatTeamCitySaid() {

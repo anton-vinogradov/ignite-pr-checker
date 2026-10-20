@@ -342,16 +342,34 @@ public class TcClient {
 
     /**
      * The PR branch's finished, not cancelled builds of any kind that started since the given TeamCity time,
-     * or the newest ones when it is null, with their test counts: what may have run a suite a chain left
-     * unrun since, and whether it ran in full. One call for all its suites; a chain and its re-runs fit well
-     * within the count.
+     * or the newest ones when it is null, with their test counts and commits: what may have run a suite a chain left
+     * unrun since, whether it ran in full, and on which code. One call for all its suites; a chain and its re-runs fit
+     * well within the count.
      */
     public List<TcModel.Build> finishedBuildsSince(String token, int prNumber, String since) {
         String locator = "branch:(name:pull/" + prNumber + "/head),state:finished,canceled:false"
             + (since == null ? "" : ",sinceDate:" + since) + ",count:1000";
 
         TcModel.BuildList list = get("branchRuns", token, url("app/rest/builds", query(
-            "locator", locator, "fields", "build(id,buildTypeId,status,testOccurrences(count))")),
+            "locator", locator,
+            "fields", "build(id,buildTypeId,status,testOccurrences(count),revisions(revision(version)))")),
+            TcModel.BuildList.class);
+
+        return list == null || list.build() == null ? List.of() : list.build();
+    }
+
+    /**
+     * Every build on the PR branch, newest first, up to 1000, in any state, cancelled ones included: its suite, when it
+     * was queued and finished, how it ended, its test count, its commit, and whether a person or another build queued
+     * it. What tells the runs of a merged PR queued before the merge from those queued after it, in one call.
+     */
+    public List<TcModel.Build> branchBuilds(String token, int prNumber) {
+        String locator = "branch:(name:" + prBranch(prNumber) + "),defaultFilter:false,personal:false,count:1000";
+
+        TcModel.BuildList list = get("branchRuns", token, url("app/rest/builds", query(
+            "locator", locator,
+            "fields", "build(id,buildTypeId,state,status,queuedDate,finishDate,buildType(name),triggered(type),"
+                + "canceledInfo(text),testOccurrences(count),revisions(revision(version)))")),
             TcModel.BuildList.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
@@ -431,7 +449,7 @@ public class TcClient {
      */
     private static final String SUITE_FIELDS = "id,buildTypeId,status,state,queuedDate,buildType(name),"
         + "testOccurrences(count),problemOccurrences(problemOccurrence(type,details)),canceledInfo(text,user(username)),"
-        + "snapshot-dependencies(build(id,buildTypeId,status,buildType(name)))";
+        + "revisions(revision(version)),snapshot-dependencies(build(id,buildTypeId,status,buildType(name)))";
 
     /**
      * One suite run on its own, with what a chain's suite is judged by, and its branch, dates and commits: the run of
@@ -439,7 +457,7 @@ public class TcClient {
      */
     public TcModel.Build suiteRun(String token, long buildId) {
         return get("suiteRun", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", SUITE_FIELDS + ",branchName,webUrl,startDate,finishDate,revisions(revision(version))")),
+            "fields", SUITE_FIELDS + ",branchName,webUrl,startDate,finishDate")),
             TcModel.Build.class);
     }
 
@@ -537,6 +555,32 @@ public class TcClient {
     }
 
     /**
+     * The same history, of the runs that finished by {@code finishedBy}, epoch seconds: master's runs before a PR was
+     * merged, which do not hold the PR's own code. Each run's finish date comes in the same request.
+     */
+    public List<TcModel.TestOccurrence> getBaseBranchHistory(String token, long testId, String buildTypeId,
+        long finishedBy) {
+        TcModel.TestOccurrences occ = occurrencesWithConditions("history", token,
+            "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:"
+                + analysis.historyDepth(),
+            "testOccurrence(status,build(id,finishDate," + CONDITIONS_SLOT + "))");
+
+        if (occ == null || occ.testOccurrence() == null)
+            return List.of();
+
+        return occ.testOccurrence().stream()
+            .filter(o -> o.build() != null && finishedBy(o.build().finishDate(), finishedBy))
+            .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
+            .toList();
+    }
+
+    private static boolean finishedBy(String finishDate, long epochSec) {
+        long finished = TcDates.epochSeconds(finishDate);
+
+        return finished > 0 && finished <= epochSec;
+    }
+
+    /**
      * The test's <em>finished, non-cancelled</em> runs in one suite on the PR branch, oldest → newest
      * (up to 100 — effectively every run of any real PR). The last element is the latest completed run
      * (a blocker must still be FAILURE there — a passing re-run clears it); the whole sequence backs the
@@ -629,10 +673,25 @@ public class TcClient {
      * PR. Finished, non-cancelled runs only, muted failures left out, as in {@link #prBranchRuns}.
      */
     public List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId) {
+        return otherBranchRuns(token, testId, buildTypeId, "", b -> true);
+    }
+
+    /**
+     * The same runs, of those that finished by {@code finishedBy}, epoch seconds: other PRs' runs before a PR was
+     * merged. A PR that took master after the merge holds the merged PR's code. Each run's finish date comes in the
+     * same request.
+     */
+    public List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId,
+        long finishedBy) {
+        return otherBranchRuns(token, testId, buildTypeId, "finishDate,", b -> finishedBy(b.finishDate(), finishedBy));
+    }
+
+    private List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId,
+        String moreFields, Predicate<TcModel.BuildRef> kept) {
         TcModel.TestOccurrences occ = occurrencesWithConditions("otherBranchRuns", token,
             "test:(id:" + testId + "),branch:(default:false),buildType:(id:" + buildTypeId + "),muted:false,count:"
                 + OTHER_BRANCH_RUNS,
-            "testOccurrence(status,build(id,state,status,branchName," + CONDITIONS_SLOT + "))");
+            "testOccurrence(status,build(id,state,status,branchName," + moreFields + CONDITIONS_SLOT + "))");
 
         if (occ == null || occ.testOccurrence() == null)
             return List.of();
@@ -640,7 +699,8 @@ public class TcClient {
         return occ.testOccurrence().stream()
             .filter(o -> o.build() != null
                 && "finished".equals(o.build().state())
-                && !"UNKNOWN".equals(o.build().status()))
+                && !"UNKNOWN".equals(o.build().status())
+                && kept.test(o.build()))
             .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
             .toList();
     }
@@ -1078,13 +1138,14 @@ public class TcClient {
             roots.putIfAbsent(instance.vcsRootId(), instance.id());
     }
 
-    /** The newest finished run of one suite on the PR branch — standalone re-runs included. */
+    /** The newest finished run of one suite on the PR branch — standalone re-runs included — with its commit. */
     public Optional<TcModel.Build> latestSuiteRun(String token, int prNumber, String buildTypeId) {
         String locator = "buildType:(id:" + buildTypeId + "),branch:(name:pull/" + prNumber + "/head)"
             + ",state:finished,canceled:false,failedToStart:any,count:1";
 
         TcModel.BuildList list = get("suiteRun", token, url("app/rest/builds", query(
-            "locator", locator, "fields", "build(id,status,testOccurrences(count))")), TcModel.BuildList.class);
+            "locator", locator, "fields", "build(id,status,testOccurrences(count),revisions(revision(version)))")),
+            TcModel.BuildList.class);
 
         return list == null || list.build() == null || list.build().isEmpty()
             ? Optional.empty() : Optional.of(list.build().get(0));

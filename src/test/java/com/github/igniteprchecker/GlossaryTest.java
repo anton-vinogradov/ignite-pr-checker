@@ -136,7 +136,9 @@ class GlossaryTest {
         quoted(MAIN.resolve("analysis/Caveats.java"), "the RunAll was interrupted — ", " never ran",
             " no reliable result (", " ran fewer tests than the same ", " could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail",
-            " pushed since this run — it tested older code", "new commits pushed since this run — it tested older code");
+            " pushed since this run — it tested older code", "new commits pushed since this run — it tested older code",
+            "mixed run — ", " re-ran on ", ", the rest of the RunAll ran on ",
+            "; only a RunAll of the PR's head can prove it clean");
         quoted(MAIN.resolve("analysis/ChainCollector.java"), "compilation error", "execution timeout",
             "non-zero exit code", "JVM crash / out of memory", "failed dependency", "failed without running tests");
         quoted(MAIN.resolve("analysis/model/BrokenGroup.java"), "ci2 glitch: artifacts unavailable (",
@@ -160,6 +162,7 @@ class GlossaryTest {
             "Visa: the PR title names no IGNITE ticket", "who started this run, has ",
             "Visa: none, the PR title named no IGNITE ticket when the run settled", "Visa: none, this run was cancelled",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
+            "⚠ Mixed run", "it is a mixed run (see the note at the top)",
             "Blockers since the ", " dropped out", " still blocking");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");
@@ -329,6 +332,17 @@ class GlossaryTest {
                 assertThat(all(BOLD, ruRow)).as("bold labels, " + where).isEqualTo(all(BOLD, enRow));
             }
         }
+    }
+
+    /**
+     * The PR comment and the visa write their caveats in English. The Russian glossary gives each caveat it quotes
+     * its Russian words in «», so a reader learns what the comment's line says.
+     */
+    @Test
+    void eachCaveatInTheRussianGlossaryHasItsRussianWords() throws IOException {
+        List<String> caveats = rows(section(glossary(TOUR_RU), "Оговорки")).stream().map(row -> row.get(0)).toList();
+
+        assertThat(caveats).hasSizeGreaterThanOrEqualTo(9).allSatisfy(cell -> assertThat(cell).contains("«"));
     }
 
     /** Each phrase is in the source, so the glossary quotes what the checker really writes, and in the glossary. */

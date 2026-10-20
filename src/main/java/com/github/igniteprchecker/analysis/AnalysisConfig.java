@@ -33,7 +33,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *   tracker's timer, which announces them.</li>
  *   <li>Spring's scheduler (three threads, {@code spring.task.scheduling.pool.size}) runs the timers, and some
  *   of them call TeamCity, GitHub and JIRA on it: the rerun tracker, the standing sweep, the PR command poll
- *   and the narration of accepted commands, the flaky-test harvest (up to 10 TeamCity calls a cycle). The
+ *   and the narration of accepted commands, the flaky-test harvest (up to 10 TeamCity calls a cycle), the look at
+ *   the runs that were going when a PR was merged (its computes fan out on {@code backgroundExecutor}). The
  *   cache snapshots are written to disk on it too.</li>
  * </ul>
  * Every pool here is shut down with the application. Two single threads live with the class they serve and stop

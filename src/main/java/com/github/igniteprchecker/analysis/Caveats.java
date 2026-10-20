@@ -2,15 +2,18 @@ package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenGroup;
+import com.github.igniteprchecker.analysis.model.RunRef;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * Why an empty blocker list may still not mean "this PR is fine": the run behind it never covered
  * everything (aborted, suites without a reliable result, suites that ran far fewer tests than
  * master, failed tests TeamCity errors kept from being checked, a newer run still going), or it no
- * longer describes the PR's code (commits pushed since).
+ * longer describes the PR's code (commits pushed since, or suites re-run on other commits: a mixed run).
  * Every surface states these next to the verdict instead of showing a bare green tick.
  */
 public final class Caveats {
@@ -25,6 +28,9 @@ public final class Caveats {
 
     private static final String NEWER_RUN_GOING = "a newer run is still going — its unfinished suites can still fail";
 
+    /** How many suites of one commit the caveat about a mixed run names before "and N more". */
+    private static final int RERUNS_NAMED = 3;
+
     private Caveats() {
     }
 
@@ -33,6 +39,20 @@ public final class Caveats {
      * {@code commitsAhead} is null when nobody checked whether the PR head has moved.
      */
     public static List<String> of(AnalysisResult r, Integer commitsAhead) {
+        List<String> out = onPage(r);
+        if (!r.otherCodeRuns().isEmpty())
+            out.add(mixed(r));
+        else if (commitsAhead != null && commitsAhead > 0)
+            out.add(pushedSince(commitsAhead));
+
+        return out;
+    }
+
+    /**
+     * The caveats the page lists under the verdict: those of {@link #of}, but the one about the code the run tested.
+     * The page says that in its own line, next to the PR's head.
+     */
+    public static List<String> onPage(AnalysisResult r) {
         Gaps g = Gaps.of(r);
         List<String> out = new ArrayList<>(g.upstream());
         if (g.neverRan() > 0)
@@ -51,10 +71,42 @@ public final class Caveats {
         }
         if (g.live())
             out.add(NEWER_RUN_GOING);
-        if (commitsAhead != null && commitsAhead > 0)
-            out.add(pushedSince(commitsAhead));
 
         return out;
+    }
+
+    /**
+     * The caveat of a mixed run, a verdict that reads suites re-run on other commits than the RunAll: "mixed run —
+     * Control Utility 5 re-ran on 9b02561, the rest of the RunAll ran on c577b18; only a RunAll of the PR's head can
+     * prove it clean". It stands for the caveat of commits pushed since: the reruns may have tested the PR's head.
+     */
+    static String mixed(AnalysisResult r) {
+        Map<String, List<String>> byCommit = new LinkedHashMap<>();
+        for (RunRef run : r.otherCodeRuns())
+            byCommit.computeIfAbsent(shortSha(run.revision()), c -> new ArrayList<>()).add(run.suiteName());
+
+        List<String> groups = new ArrayList<>();
+        byCommit.forEach((commit, names) -> groups.add(named(names) + (groups.isEmpty() ? " re-ran on " : " on ")
+            + commit));
+
+        return "mixed run — " + String.join(", ", groups) + ", the rest of the RunAll ran on " + shortSha(r.revision())
+            + "; only a RunAll of the PR's head can prove it clean";
+    }
+
+    /** "A", "A and B", "A, B and C", "A, B, C and 2 more suites". */
+    private static String named(List<String> names) {
+        List<String> shown = names.size() > RERUNS_NAMED ? names.subList(0, RERUNS_NAMED) : names;
+        int more = names.size() - shown.size();
+        if (more > 0)
+            return String.join(", ", shown) + " and " + more + " more " + (more == 1 ? "suite" : "suites");
+        if (shown.size() == 1)
+            return shown.get(0);
+
+        return String.join(", ", shown.subList(0, shown.size() - 1)) + " and " + shown.get(shown.size() - 1);
+    }
+
+    private static String shortSha(String sha) {
+        return sha.length() > 7 ? sha.substring(0, 7) : sha;
     }
 
     /**
@@ -76,6 +128,8 @@ public final class Caveats {
             out.add(g.unchecked() + " failed test(s) could not be checked (TeamCity errors)");
         if (g.live())
             out.add(NEWER_RUN_GOING);
+        if (!r.otherCodeRuns().isEmpty())
+            out.add("mixed run — suites re-ran on other commits than the rest of the RunAll");
 
         return out;
     }

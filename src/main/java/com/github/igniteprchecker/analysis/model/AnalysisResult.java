@@ -75,18 +75,45 @@ public record AnalysisResult(
      * Epoch seconds the PR was merged at, on the verdict kept as it stood at the merge; 0 on any other. Such a
      * verdict is served instead of a recompute: by then master's history holds the PR's own failures.
      */
-    long mergedAt
+    long mergedAt,
+    /**
+     * The suites whose result here comes from a run of other code than the chain's {@code revision}: a re-run of the
+     * suite, or a newer RunAll's run of it, on another commit. Each with that run, the newest one the verdict read.
+     * Such a verdict is a mixed run: it cannot prove the PR clean. On #13709 Control Utility 5 re-ran on the PR's head
+     * and passed, while the other suites ran 3 commits earlier, and the page called it a verdict for older code.
+     */
+    List<RunRef> otherCodeRuns,
+    /**
+     * On a merged PR's verdict, the runs queued before the merge that the verdict kept at the merge did not read, and
+     * whose results it now holds: it is computed once more when they end. Empty on any other verdict.
+     */
+    List<RunRef> runsAtMerge
 ) {
     public AnalysisResult {
         unstableSuites = unstableSuites == null ? List.of() : unstableSuites;
         cancelledSuites = cancelledSuites == null ? List.of() : cancelledSuites;
         unverified = unverified == null ? List.of() : unverified;
+        otherCodeRuns = otherCodeRuns == null ? List.of() : otherCodeRuns;
+        runsAtMerge = runsAtMerge == null ? List.of() : runsAtMerge;
     }
 
     /** The broken and never-run suites grouped by what broke them (see {@link BrokenGroup}). */
     @JsonProperty("brokenGroups")
     public List<BrokenGroup> brokenGroups() {
         return BrokenGroup.of(this);
+    }
+
+    /** A result read from runs of the chain's own code, in the shape callers used before other code was told apart. */
+    public AnalysisResult(int prNumber, long buildId, String branchName, long computedAt, List<TestVerdict> blockers,
+        List<TestVerdict> watch, List<TestVerdict> filtered, List<BrokenSuite> brokenSuites,
+        List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
+        boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt, long branchWatermarkAt,
+        List<BrokenSuite> unstableSuites, List<CancelledSuite> cancelledSuites, List<TestVerdict> unverified,
+        long incompleteSince, String revision, long mergedAt) {
+        this(prNumber, buildId, branchName, computedAt, blockers, watch, filtered, brokenSuites, shrunkSuites, suitesRan,
+            suitesReused, interrupted, canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt,
+            branchWatermarkAt, unstableSuites, cancelledSuites, unverified, incompleteSince, revision, mergedAt,
+            List.of(), List.of());
     }
 
     /** A result of an open PR whose chain's revision is not known, in the shape callers used before it was kept. */

@@ -39,7 +39,7 @@ public record TestVerdict(
      * deploy would show a stale verdict, or report the rule change as "new blockers since your last
      * run". Snapshot stores drop what does not match.
      */
-    public static final int RULES = 10;
+    public static final int RULES = 11;
 
     public TestVerdict {
         doubts = doubts == null ? List.of() : List.copyOf(doubts);
