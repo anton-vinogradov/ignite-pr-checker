@@ -90,7 +90,7 @@ public class PostVisaController {
             : res.get().live() || res.get().finishedAt() == 0
                 || !StandingVisas.Phase.FINAL.equals(standing.phase(pr, build).phase())
                 || !tc.currentUserBuilds(tcToken, pr).isEmpty();
-        Optional<ResponseEntity<?>> refused = notFinal(going, res.get(), () -> titles.knownTitle(pr), issue);
+        Optional<ResponseEntity<?>> refused = notFinal(going, res.get(), () -> titles.titleNow(pr), issue);
         if (refused.isPresent())
             return refused.get();
 
@@ -124,7 +124,7 @@ public class PostVisaController {
         boolean going = !StandingVisas.Phase.FINAL.equals(commands.clientPhase(pr, build).phase())
             || tc.currentUserBuilds(tcToken, PythonClientRuns.branch(pr)).stream()
                 .anyMatch(b -> python.suite().equals(b.buildTypeId()));
-        Optional<ResponseEntity<?>> refused = notFinal(going, res, () -> clientPrs.knownTitle(pr), issue);
+        Optional<ResponseEntity<?>> refused = notFinal(going, res, () -> clientPrs.titleNow(pr), issue);
         if (refused.isPresent())
             return refused.get();
 

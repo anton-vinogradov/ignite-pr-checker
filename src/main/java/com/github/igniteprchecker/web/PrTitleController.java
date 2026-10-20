@@ -68,6 +68,16 @@ public class PrTitleController {
             .orElseGet(() -> notKnown(pr));
     }
 
+    /**
+     * The PR's title as it is now, for the visa that goes to the ticket it names: from the open list, which follows a
+     * renamed title, for an open PR, else as the page gets it.
+     */
+    Optional<String> titleNow(int pr) {
+        Optional<String> listed = listed(pr);
+
+        return listed.isPresent() ? listed : knownTitle(pr);
+    }
+
     /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
     Optional<String> knownTitle(int pr) {
         long now = clock.getAsLong();
@@ -86,8 +96,7 @@ public class PrTitleController {
 
     /** The PR's title, or a null title when GitHub has no such PR; null when GitHub could not be asked. */
     private Known lookUp(int pr, long now) {
-        Optional<String> listed = github.openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::title)
-            .filter(Objects::nonNull).findFirst();
+        Optional<String> listed = listed(pr);
         if (listed.isPresent())
             return new Known(listed.get(), now);
 
@@ -106,6 +115,12 @@ public class PrTitleController {
 
             return null;
         }
+    }
+
+    /** The title of the PR in the open list; empty when the list does not hold it. */
+    private Optional<String> listed(int pr) {
+        return github.openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::title).filter(Objects::nonNull)
+            .findFirst();
     }
 
     private synchronized boolean mayAskGithub(long now) {

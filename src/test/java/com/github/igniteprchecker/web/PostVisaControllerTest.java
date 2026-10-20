@@ -196,6 +196,29 @@ class PostVisaControllerTest {
         verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
     }
 
+    /**
+     * The author renamed the PR to name IGNITE-29101 after a press for IGNITE-29100, and the page shows the new ticket:
+     * the next press goes there, as the open list has it, not as the checker read the title at the first press.
+     */
+    @Test
+    void aTicketRenamedAfterAPressIsTheTicketOfTheNext() throws Exception {
+        asAlice(post("/api/visa"), ISSUE).andExpect(status().isOk());
+        when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29101 Fix the control utility", null,
+            null, null, null)));
+        when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq("IGNITE-29101"), any()))
+            .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, "IGNITE-29101", URL, 0));
+
+        asAlice(post("/api/visa"), "IGNITE-29101").andExpect(status().isOk());
+
+        clientVerdict(CLIENT_RUN);
+        when(standing.postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
+            .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, "IGNITE-29117", URL, 0));
+        asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isOk());
+        when(clients.openPrs()).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29118 Fix test to forcefully use"
+            + " H2 engine", null, null, null, null)));
+        asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29118").andExpect(status().isOk());
+    }
+
     /** GitHub did not give the title of a PR the open list does not hold: the checker does not guess its ticket. */
     @Test
     void anUnknownTitleIsNotATitleWithoutATicket() throws Exception {
@@ -284,6 +307,29 @@ class PostVisaControllerTest {
                 + " suite on the same commits.");
     }
 
+    /** The client's run is still settling: its auto re-run can still change the verdict. */
+    @Test
+    void aClientRunStillSettlingWaits() throws Exception {
+        clientVerdict(CLIENT_RUN);
+        when(commands.clientPhase(CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.SETTLING));
+
+        asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.going").value(true));
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    /** The page shows the client's run 9424200, and the checker's verdict is of a newer run of the suite. */
+    @Test
+    void aClientRunOlderThanTheCheckersIsNotPosted() throws Exception {
+        clientVerdict(CLIENT_RUN + 100);
+
+        asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.stale").value(true));
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
     @Test
     void aClientRunOfTheSuiteGoingHoldsTheVisa() throws Exception {
         AnalysisResult res = result(CLIENT_PR, CLIENT_RUN, false);
@@ -312,6 +358,12 @@ class PostVisaControllerTest {
             .andExpect(jsonPath("$.jiraReady").value(true))
             .andExpect(jsonPath("$.yoursIn").value(ISSUE))
             .andExpect(jsonPath("$.edited").doesNotExist());
+    }
+
+    private void clientVerdict(long build) {
+        when(clients.verdict("tok", CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+            result(CLIENT_PR, build, false), new ClientVerdicts.Run(build, 0, "Thin client: Python", "alice", null,
+                null))));
     }
 
     private ResultActions posting(String outcome, int status) throws Exception {

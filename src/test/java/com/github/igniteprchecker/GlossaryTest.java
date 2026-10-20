@@ -159,7 +159,6 @@ class GlossaryTest {
             "Visa: waits for a new JIRA token in ⚙",
             "Visa: none for this run, a newer RunAll replaces it",
             "Visa: none, the PR is closed", "Visa: unknown, TeamCity does not say who started this run",
-            "Visa: none for this run",
             "Visa: the PR title names no IGNITE ticket", "who started this run, has ",
             "Visa: none, the PR title named no IGNITE ticket when the run settled", "Visa: none, this run was cancelled",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",

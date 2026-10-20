@@ -267,6 +267,16 @@ public class ClientPrsController {
             .orElseGet(() -> noTitle(pr));
     }
 
+    /**
+     * The PR's title as it is now, for the visa that goes to the ticket it names: from the list of the client's open
+     * PRs, which follows a renamed title, for an open PR, else as the page gets it.
+     */
+    Optional<String> titleNow(int pr) {
+        Optional<String> listed = listed(pr);
+
+        return listed.isPresent() ? listed : knownTitle(pr);
+    }
+
     /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
     Optional<String> knownTitle(int pr) {
         long now = clock.getAsLong();
@@ -284,8 +294,7 @@ public class ClientPrsController {
     }
 
     private Title titleOf(int pr, long now) {
-        Optional<String> listed = clients.openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::title)
-            .filter(Objects::nonNull).findFirst();
+        Optional<String> listed = listed(pr);
         if (listed.isPresent())
             return new Title(listed.get(), now);
         if (!mayAskGithub(now))
@@ -297,6 +306,12 @@ public class ClientPrsController {
         catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /** The title of the PR in the list of the client's open PRs; empty when the list does not hold it. */
+    private Optional<String> listed(int pr) {
+        return clients.openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::title).filter(Objects::nonNull)
+            .findFirst();
     }
 
     private synchronized boolean mayAskGithub(long now) {

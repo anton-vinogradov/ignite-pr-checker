@@ -3,6 +3,7 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,23 @@ class PostVisaPageTest {
         + " there. Saving one also switches on Visa my runs in JIRA.";
 
     private static final String WAIT = "Post visa waits for the final verdict: runs of this PR can still change it.";
+
+    private static final String RETRIED = "TeamCity errors left part of this verdict unchecked. The checker tries it"
+        + " again, and Post visa waits up to 20 minutes for that.";
+
+    /** The client's PR #69, whose newest run of the suite has a final verdict. */
+    private static final String CLIENT_PR = """
+        page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
+            starCount: 1, refreshAfterSeconds: 120, clientRepo: 'apache/ignite-python-thin-client',
+            clientSuite: 'Thin client: Python' } });
+        page.route('/api/client/analyze', { body: Object.assign(verdict({ prNumber: 69, buildId: 9424794,
+            branchName: 'pull/69', blockers: [] }), { repo: 'python', rerunId: 0, suiteName: 'Thin client: Python',
+            standing: 'CLEAN', caveats: [], pushed: { pending: false, checked: true } }) });
+        page.route('/api/client/runs', { body: [] });
+        page.route('/api/client/settling', { body: { phase: 'final', wave: 0, of: 1 } });
+        page.route('/api/client/pr-title', { body: { title: 'IGNITE-29117 Fix test to forcefully use H2 engine' } });
+        page.route('/api/client/prs', { body: [] });
+        """;
 
     /** The row of alice's run, whose visa JIRA did not take, and a page that keeps the questions it asks. */
     private static final String ROW = """
@@ -44,6 +62,15 @@ class PostVisaPageTest {
             off: page.el('visaPost').disabled, why: page.el('visaPostWhy').classList.contains('hidden') ? null
                 : page.el('visaPostWhy').title, title: page.el('visaPost').title });
         """;
+
+    /** The page in Russian, for alice. */
+    private static String russian() throws IOException {
+        return "const CATALOG = " + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + """
+            ;
+            page.route('/ru.json', { body: CATALOG });
+            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            """;
+    }
 
     @Test
     void aFinalVerdictIsPostedAfterTheQuestionAndTheLineLinksTheVisa() throws Exception {
@@ -82,11 +109,14 @@ class PostVisaPageTest {
                 jiraReady: true, yoursIn: 'IGNITE-29049', edited: true } };
             await page.load('?pr=13575');
             await page.settle();
+            const title = page.el('visaPost').title;
             await page.el('visaPost').onclick();
             await page.settle();
-            report({ asked, status: page.el('status').textContent });
+            report({ title, asked, status: page.el('status').textContent });
             """);
 
+        assertThat(out.get("title").asText()).isEqualTo("Updates your visa of this run in IGNITE-29049 with the verdict"
+            + " on this page. It uses the JIRA token you saved in ⚙.");
         assertThat(out.get("asked").get(0).asText())
             .isEqualTo("Update your visa of RunAll 9001 in IGNITE-29049 with the verdict on this page?");
         assertThat(out.get("status").asText()).isEqualTo("Your visa in IGNITE-29049 now has the verdict on this page.");
@@ -121,7 +151,8 @@ class PostVisaPageTest {
             page.el('visaPostWhy').onclick({ preventDefault() {} });
             await page.settle();
             report({ before, posts: posts().length, status: page.el('status').textContent,
-                settings: !page.el('settingsPanel').classList.contains('hidden') });
+                settings: !page.el('settingsPanel').classList.contains('hidden'), tag: page.el('visaPostWhy').tagName,
+                type: page.el('visaPostWhy').getAttribute('type') });
             """);
 
         assertThat(out.at("/before/shown").asBoolean()).isTrue();
@@ -131,6 +162,9 @@ class PostVisaPageTest {
         assertThat(out.get("posts").asInt()).isZero();
         assertThat(out.get("status").asText()).isEqualTo(TOKEN_MISSING);
         assertThat(out.get("settings").asBoolean()).isTrue();
+        assertThat(out.get("tag").asText()).as("the ? acts on this page: a screen reader calls it a button")
+            .isEqualTo("BUTTON");
+        assertThat(out.get("type").asText()).isEqualTo("button");
     }
 
     /** A suite re-run of the PR is going: the mixed verdict can still change, so the visa waits. */
@@ -154,6 +188,63 @@ class PostVisaPageTest {
         assertThat(out.at("/going/why").asText()).isEqualTo(WAIT);
         assertThat(out.at("/settling/off").asBoolean()).isTrue();
         assertThat(out.at("/settling/why").asText()).isEqualTo(WAIT);
+    }
+
+    /** The RunAll just ended, and the verdict of what it ran has not come yet: the one on screen is not final. */
+    @Test
+    void whileTheVerdictOfRunsThatJustEndedIsDueTheButtonWaits() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROW + """
+            page.route('/api/runs', { body: [{ buildId: 9001, buildTypeId: 'IgniteTests24Java8_RunAll',
+                name: 'RunAll', state: 'running', webUrl: 'https://ci2.example/b', by: 'alice', mine: true,
+                runAll: true }] });
+            await page.load('?pr=13575');
+            await page.settle();
+            page.route('/api/runs', { body: [] });
+            await page.run('loadRuns')(13575);
+            await page.settle();
+            report({ due: state() });
+            """);
+
+        assertThat(out.at("/due/off").asBoolean()).isTrue();
+        assertThat(out.at("/due/why").asText()).isEqualTo(WAIT);
+    }
+
+    /** #13709 is merged, and the checker still looks for the runs that went at the merge: they may change its verdict. */
+    @Test
+    void aMergedPrsVerdictWaitsForTheRunsAtTheMerge() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROW + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], mergedAt: Math.floor(page.now() / 1000) - 3600,
+                runsAtMergeDue: true }) });
+            await page.load('?pr=13575');
+            await page.settle();
+            report({ due: state() });
+            """);
+
+        assertThat(out.at("/due/shown").asBoolean()).isTrue();
+        assertThat(out.at("/due/off").asBoolean()).isTrue();
+        assertThat(out.at("/due/why").asText()).isEqualTo(WAIT);
+    }
+
+    /**
+     * TeamCity errors left tests of the run unchecked a minute ago, and the checker checks them again: the server takes
+     * no visa of that verdict for 20 minutes, so the button waits as long and says why.
+     */
+    @Test
+    void aVerdictTeamCityErrorsLeftUncheckedWaitsUpToTwentyMinutes() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROW + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], incompleteSince: page.now() - 60000 }) });
+            await page.load('?pr=13575');
+            await page.settle();
+            const checking = state();
+            await page.tick(19 * 60000 + 1000);
+            await page.settle();
+            report({ checking, after: state() });
+            """);
+
+        assertThat(out.at("/checking/off").asBoolean()).isTrue();
+        assertThat(out.at("/checking/why").asText()).isEqualTo(RETRIED);
+        assertThat(out.at("/after/off").asBoolean()).isFalse();
+        assertThat(out.at("/after/why").isNull()).isTrue();
     }
 
     @Test
@@ -199,35 +290,24 @@ class PostVisaPageTest {
     }
 
     /**
-     * The client's PR #69: its run has no visa on record and its verdict is final, so the line says none came, and Post
-     * visa posts to the client's endpoint, naming the suite's build.
+     * The client's PR #69: its run has no visa on record, and its verdict is final while the run's option may still
+     * try its visa again, so the line says nothing. Post visa posts to the client's endpoint, naming the suite's build.
      */
     @Test
     void aClientPrsRunIsPostedToTheClientsEndpoint() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROW + """
-            page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
-                starCount: 1, refreshAfterSeconds: 120, clientRepo: 'apache/ignite-python-thin-client',
-                clientSuite: 'Thin client: Python' } });
-            page.route('/api/client/analyze', { body: Object.assign(verdict({ prNumber: 69, buildId: 9424794,
-                branchName: 'pull/69', blockers: [] }), { repo: 'python', rerunId: 0, suiteName: 'Thin client: Python',
-                standing: 'CLEAN', caveats: [], pushed: { pending: false, checked: true } }) });
-            page.route('/api/client/runs', { body: [] });
-            page.route('/api/client/settling', { body: { phase: 'final', wave: 0, of: 1 } });
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROW + CLIENT_PR + """
             shown = { body: { state: null, starter: null, mine: false, jiraReady: true, yoursIn: null } };
             answer = { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29117', url: URL,
                 jiraReady: true, yoursIn: 'IGNITE-29117', edited: false } };
-            page.route('/api/client/pr-title', { body: {
-                title: 'IGNITE-29117 Fix test to forcefully use H2 engine' } });
-            page.route('/api/client/prs', { body: [] });
             await page.load('?repo=python&pr=69');
             await page.tick(100);
-            const line = page.el('visaLine').textContent;
+            const line = page.el('visaLine').classList.contains('hidden') ? null : page.el('visaLine').textContent;
             await page.el('visaPost').onclick();
             await page.settle();
             report({ line, asked, posts: posts().map(f => f.url), status: page.el('status').textContent });
             """);
 
-        assertThat(out.get("line").asText()).isEqualTo("Visa: none for this run");
+        assertThat(out.get("line").isNull()).isTrue();
         assertThat(out.get("asked").get(0).asText()).isEqualTo("Post the visa of Thin client: Python build 9424794 to"
             + " IGNITE-29117? It goes in as your comment in JIRA, with the verdict on this page.");
         assertThat(out.get("posts").get(0).asText())
@@ -254,5 +334,46 @@ class PostVisaPageTest {
             + " в ⚙, а там его нет. Когда ты сохранишь токен, заодно включится опция «Ставить визу моим прогонам в"
             + " JIRA». Щелчок открывает ⚙.");
         assertThat(out.get("label").asText()).isEqualTo("Почему кнопка «Поставить визу» недоступна");
+    }
+
+    /** The Russian status after a press and the visa line under it name the same event with one word. */
+    @Test
+    void theRussianStatusAndLineSayItWithOneWord() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + russian() + ROW + """
+            await page.load('?pr=13575');
+            await page.settle();
+            await page.el('visaPost').onclick();
+            await page.settle();
+            report({ status: page.el('status').textContent, line: page.el('visaLine').textContent, asked });
+            """);
+
+        assertThat(out.get("status").asText()).isEqualTo("Виза отправлена в IGNITE-29049.");
+        assertThat(out.get("line").asText()).isEqualTo("Виза: отправлена в IGNITE-29049");
+        assertThat(out.get("asked").get(0).asText()).isEqualTo("Поставить в IGNITE-29049 визу RunAll 9001? Она"
+            + " встанет твоим комментарием в JIRA и скажет то же, что вердикт на этой странице.");
+    }
+
+    /** The Russian question of a client PR names the ticket first, then the build and the suite it is of. */
+    @Test
+    void theRussianQuestionOfAClientPrNamesTheTicketFirst() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + russian() + ROW + CLIENT_PR + """
+            shown = { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29117', url: URL,
+                jiraReady: true, yoursIn: 'IGNITE-29117' } };
+            await page.load('?repo=python&pr=69');
+            await page.tick(100);
+            await page.el('visaPost').onclick();
+            await page.settle();
+            shown = { body: { state: null, starter: null, mine: false, jiraReady: true, yoursIn: null } };
+            await page.run('loadVisaLine')(69);
+            await page.el('visaPost').onclick();
+            await page.settle();
+            report({ asked });
+            """);
+
+        assertThat(out.get("asked").get(0).asText()).isEqualTo("Обновить в IGNITE-29117 твою визу сборки 9424794"
+            + " сьюты «Thin client: Python» вердиктом с этой страницы?");
+        assertThat(out.get("asked").get(1).asText()).isEqualTo("Поставить в IGNITE-29117 визу сборки 9424794 сьюты"
+            + " «Thin client: Python»? Она встанет твоим комментарием в JIRA и скажет то же, что вердикт на этой"
+            + " странице.");
     }
 }
