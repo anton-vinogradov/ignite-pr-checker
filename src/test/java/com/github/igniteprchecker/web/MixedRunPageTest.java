@@ -113,10 +113,10 @@ class MixedRunPageTest {
         assertThat(out.get("line").asText()).isEqualTo("⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the commit "
             + "the PR was merged at; the rest of the RunAll ran on c577b18.");
         assertThat(out.get("button").asBoolean()).isFalse();
-        assertThat(out.get("merged").asText()).isEqualTo("Merged 6 Oct 12:00. This is the verdict as it stood at the "
-            + "merge. The checker computed it once more when these runs, queued before the merge, ended: Control "
-            + "Utility 5 on 9b02561. It is not recomputed again: master's history now holds this PR's own runs. Runs "
-            + "queued after the merge do not change this verdict.");
+        assertThat(out.get("merged").asText()).isEqualTo("Merged 6 Oct 12:00. The verdict at the merge did not have "
+            + "the results of these runs, queued before the merge: Control Utility 5 on 9b02561. When they ended, the "
+            + "checker computed the verdict once more. This is that new verdict. It is not recomputed again: master's "
+            + "history now holds this PR's own runs. Runs queued after the merge do not change this verdict.");
     }
 
     /**
@@ -168,8 +168,8 @@ class MixedRunPageTest {
             report(state());
             """);
 
-        assertThat(out.get("merged").asText()).contains("queued before the merge, ended: Cache 1 on 9b02561, Cache 2 "
-            + "on 9b02561, Cache 3 on 9b02561 and 2 more runs. It is not recomputed again");
+        assertThat(out.get("merged").asText()).contains("queued before the merge: Cache 1 on 9b02561, Cache 2 on "
+            + "9b02561, Cache 3 on 9b02561 and 2 more runs. When they ended");
     }
 
     /** A new verdict of the same RunAll that is no longer mixed takes the line back to older code. */
@@ -205,7 +205,7 @@ class MixedRunPageTest {
             """);
 
         assertThat(out.get("line").asText()).isEqualTo("⚠ Смешанный прогон: Control Utility 5 перезапустили на "
-            + "9b02561 — последнем коммите PR; Queries 1 на 1a2b3c4; остальные сьюты RunAll прошли на c577b18. "
+            + "9b02561 — последнем коммите PR; Queries 1 на 1a2b3c4; остальные сьюты RunAll прогнали на c577b18. "
             + "Доказать, что PR чист, может только RunAll последнего коммита PR.");
         assertThat(out.get("lines").asText())
             .isEqualTo("Этот прогон не может доказать, что PR чист: это смешанный прогон (см. строку наверху).");

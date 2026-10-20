@@ -1883,10 +1883,10 @@ function renderMerged(res) {
     const more = runs.length - 3;
     const named = more > 0 ? runs.slice(0, 3).concat(T`${more} more run${more === 1 ? '' : 's'}`) : runs;
     $('mergedNote').textContent = runs.length
-        ? T('Merged {0}. This is the verdict as it stood at the merge. The checker computed it once more when these '
-            + 'runs, queued before the merge, ended: {1}. It is not recomputed again: master\'s history now holds this '
-            + 'PR\'s own runs. Runs queued after the merge do not change this verdict.', fmtDay(res.mergedAt * 1000),
-            listed(named))
+        ? T('Merged {0}. The verdict at the merge did not have the results of these runs, queued before the merge: '
+            + '{1}. When they ended, the checker computed the verdict once more. This is that new verdict. It is not '
+            + 'recomputed again: master\'s history now holds this PR\'s own runs. Runs queued after the merge do not '
+            + 'change this verdict.', fmtDay(res.mergedAt * 1000), listed(named))
         : res.runsAtMergeDue
         ? T('Merged {0}. This is the verdict as it stood at the merge. The checker still looks for runs queued before '
             + 'the merge that this verdict did not count. If it finds any, it computes the verdict once more when they '

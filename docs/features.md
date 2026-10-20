@@ -73,7 +73,7 @@ and the visa.
 | `N failed tests could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. The comment and the visa use these words; the page says `it tested older code (see the note at the top)`, and the line at the top names both commits, with their count once GitHub answers. | Run RunAll again. |
-| `mixed run — Cache 2 re-ran on abc1234, the rest of the RunAll ran on def5678; only a RunAll of the PR's head can prove it clean` | A mixed run: the verdict counts runs of some suites on another commit than the rest of the RunAll, so no single commit is checked in full. The comment and the visa use these words instead of the caveat about commits pushed since; the page says `it is a mixed run (see the note at the top)`, and the line at the top says which commit is the PR's head. | Run RunAll on the PR's head. |
+| `mixed run — Cache 2 re-ran on abc1234, the rest of the RunAll ran on def5678; only a RunAll of the PR's head can prove it clean` | A mixed run: the verdict counts runs of some suites on another commit than the rest of the RunAll, so no single commit is checked in full. The comment and the visa use these words instead of the caveat about commits pushed since. The page says `it is a mixed run (see the note at the top)`. The line at the top says which commit is the PR's head. | Run RunAll on the PR's head. |
 | `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the commit the run tested, so the page does not call the verdict clean. The same can happen while fewer than a fifth of the checker's hourly GitHub calls are left: the page then does not ask GitHub about it. | Reload the page in a minute. If the **GitHub API** card on the status page shows fewer than a fifth of the calls left, wait until GitHub resets the hourly limit. |
 
 ### Broken suite causes
@@ -217,9 +217,9 @@ own tests, and what was not blamed on the PR.
   and not recomputed, since master's history now holds the PR's own runs. New runs do not change it, so no button is
   filled and no line says that a re-run would change it. Runs queued before the merge that this verdict did not count
   are the one exception: they were still going at the merge, or ended after the verdict was computed. When the last of
-  them ends, the checker computes the verdict once more, and the card names those runs. It counts only runs queued
-  before the merge, and runs of master and other PRs that finished before it. While the checker still looks for such
-  runs, the card says so.
+  them ends, the checker computes the verdict once more, and the card names those runs. The verdict computed once more
+  counts only runs queued before the merge, and runs of master and other PRs that finished before the merge. While the
+  checker still looks for such runs, the card says so.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
