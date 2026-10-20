@@ -12,8 +12,9 @@ import org.junit.jupiter.api.Test;
 /**
  * The verdict of Thin client: Python for PR #69 of apache/ignite-python-thin-client, build 9424005: it names the two
  * commits the run tested, every failure with its reason, and links TeamCity, GitHub and, in the PR's comment, the
- * checker's page of the PR. A client change that broke the whole suite fails a hundred tests: the comment lists 20 and
- * links the rest in TeamCity.
+ * checker's page of the PR. A client change that broke the whole suite fails a hundred tests: a list shows 20 and
+ * links the rest in TeamCity. A comment that links the checker's page only counts the failures not blamed on the PR,
+ * and the page lists them.
  */
 class ClientVerdictTest {
     private static final String SUITE = "IgniteTests24Java8_WiPThinClientPython";
@@ -100,6 +101,36 @@ class ClientVerdictTest {
             .doesNotContain("test_20`")
             .contains("- … and 80 more in [TeamCity](https://ci2.example/build/9424005?buildTab=tests)\n")
             .doesNotContain("/opt/buildagent");
+    }
+
+    /**
+     * Build 9424794 of PR #69 has 3 blockers and 29 failures not blamed on the PR. The comment lists the blockers and
+     * counts the other 29, as the verdict comment of a RunAll does: the checker's page lists them. The visa links no
+     * page, so it lists them, 20 at most.
+     */
+    @Test
+    void theCommentCountsTheFailuresNotBlamedAndThePageListsThem() {
+        ClientVerdict.Run run = new ClientVerdict.Run(9424794L, "Thin client: Python", "apache/ignite", "1f2e3d4c5b6a",
+            "apache/ignite-python-thin-client", 69, "a1b2c3d4e5f6", "https://checker.example/?repo=python&pr=69");
+        List<TestVerdict> blockers = IntStream.range(0, 3).mapToObj(i -> new TestVerdict(700L + i,
+            "tests/test_examples.py::test_example_" + i, SUITE, 9424794L, "Thin client: Python", "b" + i, true, false,
+            "not seen failing in 100 master runs; failed the only run on this branch", "F", 1)).toList();
+        List<TestVerdict> notBlamed = IntStream.range(0, 29).mapToObj(i -> new TestVerdict(600L + i,
+            "tests/test_sql.py::test_" + i, SUITE, 9424794L, "Thin client: Python", "o" + i, false, false,
+            "pre-existing: fails 100/100 on master", "F", 0)).toList();
+        AnalysisResult r = result(List.of(), notBlamed, blockers);
+
+        String md = ClientVerdict.markdown("https://ci2.example/", "Author", run, r, null, ClientVisa.NONE);
+
+        assertThat(md).contains("❌ **3 blockers:**\n- `tests/test_examples.py::test_example_0` — not seen failing in"
+                + " 100 master runs; failed the only run on this branch")
+            .contains("\n- `tests/test_examples.py::test_example_2` —")
+            .contains("**29 failing tests are not blamed on this PR.** [The checker's page]"
+                + "(https://checker.example/?repo=python&pr=69) lists them with their reasons.\n\n")
+            .doesNotContain("tests/test_sql.py");
+        assertThat(ClientVerdict.wiki("https://ci2.example/", run, r, null))
+            .contains("*29 failing tests are not blamed on this PR:*\n- {{tests/test_sql.py::test_0}} — pre-existing:")
+            .contains("- … and 9 more in [TeamCity|https://ci2.example/build/9424794?buildTab=tests]\n");
     }
 
     @Test
@@ -230,10 +261,10 @@ class ClientVerdictTest {
             .isEqualTo("📝 No JIRA visa: the PR was merged before the run's verdict.");
         assertThat(visaLine(new ClientVisa(ClientVisa.WAITS, null, null, StandingVisas.TOKEN_REMOVED)))
             .isEqualTo("📝 No JIRA visa: the checker's state was restored from a backup older than 2 days, which keeps"
-                + " no tokens. Save your JIRA token in ⚙ again, and the next `/run-all` gets a visa.");
+                + " no tokens. Save your JIRA token in ⚙ again, and your next run gets a visa.");
         assertThat(visaLine(new ClientVisa(ClientVisa.WAITS, null, null, SettingsJournal.Entry.KEY_CHANGED)))
             .isEqualTo("📝 No JIRA visa: the server key was changed, so the checker could no longer read your JIRA"
-                + " token. Save a new one in ⚙, and the next `/run-all` gets a visa.");
+                + " token. Save a new one in ⚙, and your next run gets a visa.");
         assertThat(visaLine(new ClientVisa(ClientVisa.REFUSED, null, null, null)))
             .isEqualTo("📝 No JIRA visa: JIRA refused your JIRA token, so the checker dropped it and switched off"
                 + " **Visa my runs in JIRA**. Save a new token in ⚙ to switch it on again.");

@@ -593,26 +593,31 @@ The commands also work in the pull requests of
   sets it to the PR's commit. A run that does not set it tests the client's master. So the checker does not count a
   run someone started in this PR from TeamCity without it.
 - As with a RunAll, a comment of the checker tells how the run goes. When the run finishes, a new comment mentions you
-  and brings the verdict: the two commits, the blockers, the tests that started failing and the tests not blamed on
-  the PR, each with its reason and a link to TeamCity. Both comments link the PR's page on the checker.
+  and brings the verdict: the two commits, the blockers and the tests that started failing, each with its reason and a
+  link to TeamCity. Of the tests not blamed on the PR, the comment gives only the number, and the PR's page on the
+  checker lists them. Both comments link that page.
 - The checker's page of such a PR is `?repo=python&pr=69`. It shows the verdict of the newest of the PR's runs that
   tested the PR's own commit. When the run before the newest one tested the same two commits, the verdict counts the
   failed tests of both runs. For example, an auto re-run tests the same two commits as the run it re-runs. The page
   names the suite's build and both commits above the verdict. It has the verdict's cards, but not **This PR's tests**:
   the client's tests are not Java classes. The cards have no **Rerun** buttons and no AI prompts. **Run** and
   **Run at top** queue the suite as `/run-all` and `/run-all top` do. On a PR with merge conflicts they queue nothing
-  and offer **Run anyway**. A run you start there gets no comment in the PR, no visa and no auto re-run: these come with
-  `/run-all`. The checker computes the verdicts of the client's open PRs in advance, in the background, as it does for
-  Ignite's PRs.
+  and offer **Run anyway**. The checker computes the verdicts of the client's open PRs in advance, in the background,
+  as it does for Ignite's PRs.
+- Your options act on a run you start with **Run** or **Run at top** as on a run of `/run-all`.
+  **Re-run failed suites of my runs** and **Visa my runs in JIRA** work on it as the next bullets say. With
+  **Post my runs' verdicts in the PR** on, the verdict comes in a comment that mentions you when your GitHub account is
+  linked. With that option off, the run leaves no comment in the PR. No comment tells how such a run goes, as for a
+  RunAll you start on the page of an Ignite PR.
 - **Re-run failed suites of my runs** works here too, once per run. When the verdict has a blocker, a test that started
   failing or a broken suite, the checker queues the suite again at the top of the queue. The re-run tests the same two
-  commits with the same `OVERRIDDEN_BRANCH`, even after Ignite master or the PR moved on. The checker's comment on the
-  run also tells how the re-run goes, and the verdict comes after the re-run. The verdict counts both runs, and one of
-  its lines says how the re-run went. A suite that failed to compile is not re-run, and neither is a run that finished
-  before you switched the option on. A run TeamCity cancelled by itself is re-run as well, and the verdict is that
-  re-run's. A run that a person cancelled is not re-run, nor one that TeamCity cancelled because a failed Build kept it
-  from running. When the re-run of a cancelled run gives no result either, there is no verdict, and the checker's
-  comment on the run says why.
+  commits with the same `OVERRIDDEN_BRANCH`, even after Ignite master or the PR moved on. For a `/run-all`, the
+  checker's comment on the run also tells how the re-run goes. The verdict comes after the re-run and counts both runs.
+  One of its lines says how the re-run went. A suite that failed to compile is not re-run, and neither is a run that
+  finished before you switched the option on. A run TeamCity cancelled by itself is re-run as well, and the verdict is
+  that re-run's. A run that a person cancelled is not re-run, nor one that TeamCity cancelled because a failed Build
+  kept it from running. When the re-run of a cancelled run gives no result either, there is no verdict, and the
+  checker's comment on the run says why.
 - **Visa my runs in JIRA** posts the verdict to the IGNITE ticket in the title of the client's PR, as for a RunAll,
   after the re-run if there is one. The first line of the visa says `one suite only, not a RunAll`, so nobody takes it
   for the visa of a RunAll. It names the suite, its build, the PR's commit and Ignite master's commit. Then it lists the
@@ -624,8 +629,8 @@ The commands also work in the pull requests of
   the client's repo.
 - Not tested: a client change together with an Ignite change it needs, since the run always takes Ignite master. Run
   `/run-all` again once the Ignite change is in master.
-- A new `/run-all` cancels your run of the suite in this PR that is queued or running, and its auto re-run. When
-  TeamCity has no such suite or refuses the run, the reply says so.
+- A new `/run-all` cancels your run of the suite in this PR that is queued or running, and its auto re-run. **Run**
+  on the page does the same after it asks you. When TeamCity has no such suite or refuses the run, the reply says so.
 - The **PR commands** card on the status page names both repos.
 
 ## The flaky board (`/flaky.html`)

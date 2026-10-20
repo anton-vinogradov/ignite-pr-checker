@@ -45,7 +45,8 @@ each label means and what to do about it.
   [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
   `/run-all` runs the client's suite against Ignite master. There, too, `/run-all` on a PR with merge conflicts
   needs `force`. The auto re-run and the JIRA visa work there as well. The client's open PRs have a group of their own
-  in the PR list, and each has a page with its verdict, `?repo=python&pr=69`. See
+  in the PR list, and each has a page with its verdict, `?repo=python&pr=69`. **Run** on that page queues the same run
+  as `/run-all`, and your options act on it the same way. See
   [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
