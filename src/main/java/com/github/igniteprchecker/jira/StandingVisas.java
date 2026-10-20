@@ -2507,7 +2507,7 @@ public class StandingVisas implements SnapshotCache {
         if (visa) {
             String body = visas.compose(pr.number(), res, commitsAhead, sha);
             if (ahead != null)
-                body = body + "\n\n_" + revisions(ahead, "{{", "}}") + "_";
+                body = body + "\n\n_" + revisions(res, ahead, "{{", "}}") + "_";
             if (settled != null)
                 body = body + "\n\n" + settled;
             if (note != null)
@@ -2518,7 +2518,7 @@ public class StandingVisas implements SnapshotCache {
         if (comment) {
             String md = mention(e) + visas.composeMarkdown(pr.number(), res, commitsAhead, sha);
             if (ahead != null)
-                md = md + "\n\n_" + revisions(ahead, "`", "`") + "_";
+                md = md + "\n\n_" + revisions(res, ahead, "`", "`") + "_";
             if (settled != null)
                 md = md + "\n\n_" + settled + "_";
             if (note != null)
@@ -2649,10 +2649,16 @@ public class StandingVisas implements SnapshotCache {
             String.join(";", Caveats.keyOf(r)));
     }
 
-    /** "Tested commit abc1234; the PR is now at def5678." with the commits wrapped in the markup's code marks. */
-    private static String revisions(PendingCommits.Ahead ahead, String open, String close) {
-        return "Tested commit " + open + ahead.builtShort() + close + "; the PR is now at " + open
-            + ahead.headShort() + close + ".";
+    /**
+     * "Tested commit abc1234; the PR is now at def5678." with the commits wrapped in the markup's code marks. A mixed
+     * run tested more than one commit, and its caveat names them: the line names only the PR's head.
+     */
+    private static String revisions(AnalysisResult res, PendingCommits.Ahead ahead, String open, String close) {
+        String head = open + ahead.headShort() + close;
+
+        return res.otherCodeRuns().isEmpty()
+            ? "Tested commit " + open + ahead.builtShort() + close + "; the PR is now at " + head + "."
+            : "The PR is now at " + head + ".";
     }
 
     /**

@@ -101,7 +101,8 @@ public class AnalyzeController {
     }
 
     private ResponseEntity<?> respond(int pr, Optional<AnalysisResult> result) {
-        return result.<ResponseEntity<?>>map(r -> ResponseEntity.ok(Served.of(r, pending.listedPast(r))))
+        return result.<ResponseEntity<?>>map(r -> ResponseEntity.ok(Served.of(r, pending.listedPast(r),
+                r.mergedAt() > 0 && analyzer.runsAtMergeDue(pr))))
             .orElseGet(() -> ResponseEntity.status(404)
                 .body(Map.of("error", "no RunAll build found for PR " + pr)));
     }
@@ -111,16 +112,18 @@ public class AnalyzeController {
      * them, so the page's head says what the PR list, the visa and the PR comment say. Commits pushed since the run
      * come with /api/pending; {@code pushed} is its answer ahead of time when the PR list already shows the head past
      * the run, the way the list badges it, and null otherwise. The page words a mixed run itself, next to the head.
+     * {@code runsAtMergeDue} is whether a merged PR's verdict may yet be computed once more, with runs queued before
+     * the merge that it did not read.
      */
     public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats,
-        Map<String, Object> pushed) {
+        Map<String, Object> pushed, boolean runsAtMergeDue) {
         static Served of(AnalysisResult r) {
-            return of(r, null);
+            return of(r, null, false);
         }
 
-        static Served of(AnalysisResult r, PendingCommits.Ahead listed) {
+        static Served of(AnalysisResult r, PendingCommits.Ahead listed, boolean runsAtMergeDue) {
             return new Served(r, Caveats.standing(r, null), Caveats.onPage(r),
-                listed == null ? null : answer(listed, Caveats.headMoved()));
+                listed == null ? null : answer(listed, Caveats.headMoved()), runsAtMergeDue);
         }
     }
 }

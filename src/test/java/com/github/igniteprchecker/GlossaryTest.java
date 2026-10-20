@@ -334,6 +334,17 @@ class GlossaryTest {
         }
     }
 
+    /**
+     * The PR comment and the visa write their caveats in English. The Russian glossary gives each caveat it quotes
+     * its Russian words in «», so a reader learns what the comment's line says.
+     */
+    @Test
+    void eachCaveatInTheRussianGlossaryHasItsRussianWords() throws IOException {
+        List<String> caveats = rows(section(glossary(TOUR_RU), "Оговорки")).stream().map(row -> row.get(0)).toList();
+
+        assertThat(caveats).hasSizeGreaterThanOrEqualTo(9).allSatisfy(cell -> assertThat(cell).contains("«"));
+    }
+
     /** Each phrase is in the source, so the glossary quotes what the checker really writes, and in the glossary. */
     private static void quoted(Path source, String... phrases) throws IOException {
         String code = read(source);

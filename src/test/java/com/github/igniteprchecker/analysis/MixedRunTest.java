@@ -13,8 +13,10 @@ import com.github.igniteprchecker.analysis.Caveats.Glance;
 import com.github.igniteprchecker.analysis.Caveats.Standing;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
+import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
 import com.github.igniteprchecker.analysis.model.RunRef;
+import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -106,6 +108,56 @@ class MixedRunTest {
         assertThat(Caveats.standing(r, null)).isEqualTo(Standing.UNPROVEN);
     }
 
+    /**
+     * Control Utility 5 broke again in its re-run on the head: the chain read that re-run, which is the suite's broken
+     * run now. The verdict reads it as the chain did.
+     */
+    @Test
+    void aReRunOnTheHeadThatTheChainReadMakesAMixedRun() {
+        BrokenSuite broken = new BrokenSuite(CU5, RERUN, "Control Utility 5", List.of("execution timeout"), 10, 200);
+        when(chains.findBuildId(TOK, PR)).thenReturn(Optional.of(CHAIN));
+        when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(new ChainCollector.Chain(CHAIN,
+            "pull/13709/head", List.of(), List.of(broken), List.of(), 148, 1, false, 0, false, 0, 0, 0, 1, List.of(),
+            List.of(), RUN_ALL_COMMIT, List.of(new RunRef(CU5, "Control Utility 5", RERUN, HEAD))));
+        when(tc.latestSuiteRun(TOK, PR, CU5)).thenReturn(Optional.of(suiteRun(RERUN, "FAILURE", HEAD,
+            "TC_EXECUTION_TIMEOUT")));
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.brokenSuites()).hasSize(1);
+        assertThat(r.otherCodeRuns()).containsExactly(new RunRef(CU5, "Control Utility 5", RERUN, HEAD));
+    }
+
+    /** Control Utility 5 ran 20 of its 200 tests in the RunAll; its re-run on the head ran them all. */
+    @Test
+    void aShrunkSuiteThatRanInFullOnTheHeadMakesAMixedRun() {
+        when(chains.findBuildId(TOK, PR)).thenReturn(Optional.of(CHAIN));
+        when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(new ChainCollector.Chain(CHAIN,
+            "pull/13709/head", List.of(), List.of(), List.of(new ShrunkSuite(CU5, "Control Utility 5", CHAIN_CU5, 20,
+                200, 90)), 148, 1, false, 0, false, 0, 0, 0, 1, List.of(), List.of(), RUN_ALL_COMMIT));
+        when(tc.latestSuiteRun(TOK, PR, CU5)).thenReturn(Optional.of(passedRun(HEAD)));
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.shrunkSuites()).isEmpty();
+        assertThat(r.otherCodeRuns()).containsExactly(new RunRef(CU5, "Control Utility 5", RERUN, HEAD));
+    }
+
+    /** TeamCity cancelled Control Utility 5 in the RunAll; the author ran it on the head, in full. */
+    @Test
+    void aCancelledSuiteThatRanOnTheHeadMakesAMixedRun() {
+        when(chains.findBuildId(TOK, PR)).thenReturn(Optional.of(CHAIN));
+        when(chains.collectForBuild(eq(TOK), eq(PR), eq(CHAIN), any())).thenReturn(new ChainCollector.Chain(CHAIN,
+            "pull/13709/head", List.of(), List.of(), List.of(), 147, 1, true, 1, false, 0, 0, 0, 1, List.of(),
+            List.of(new CancelledSuite(CU5, CHAIN_CU5, "Control Utility 5", null, null, true, 200)), RUN_ALL_COMMIT));
+        when(tc.finishedBuildsSince(TOK, PR, null)).thenReturn(List.of(passedRun(HEAD)));
+
+        AnalysisResult r = analyzer.analyze(TOK, PR).orElseThrow();
+
+        assertThat(r.cancelledSuites()).isEmpty();
+        assertThat(r.otherCodeRuns()).containsExactly(new RunRef(CU5, "Control Utility 5", RERUN, HEAD));
+    }
+
     /** A re-run that failed again on another commit is read by the chain itself, broken or not. */
     @Test
     void theChainNamesTheReRunsItReadWithTheirCommits() {
@@ -167,6 +219,13 @@ class MixedRunTest {
             new TcModel.BuildType(CU5, "Control Utility 5"), null, null, null,
             new TcModel.ProblemOccurrences(List.of(new TcModel.ProblemOccurrence(problem, null))), revisions(commit),
             new TcModel.TestOccurrences(10, List.of()));
+    }
+
+    /** The re-run of Control Utility 5 on {@code commit}, which passed all its 200 tests. */
+    private static TcModel.Build passedRun(String commit) {
+        return new TcModel.Build(RERUN, "SUCCESS", "finished", "pull/13709/head", CU5, null, null, null, null, null,
+            null, new TcModel.BuildType(CU5, "Control Utility 5"), null, null, null, null, revisions(commit),
+            new TcModel.TestOccurrences(200, List.of()));
     }
 
     private static TcModel.Revisions revisions(String commit) {

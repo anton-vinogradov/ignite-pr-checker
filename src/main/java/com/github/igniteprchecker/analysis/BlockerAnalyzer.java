@@ -384,6 +384,14 @@ public class BlockerAnalyzer {
     }
 
     /**
+     * Whether a merged PR's kept verdict may yet be computed once more, with runs queued before the merge that it did
+     * not read (see {@link RunsAtMerge}).
+     */
+    public boolean runsAtMergeDue(int prNumber) {
+        return merged.runsDue(prNumber);
+    }
+
+    /**
      * Recomputes now (ignoring any cached result) and returns the fresh analysis, or empty if no
      * RunAll build exists yet. Backs the manual "refresh" button. A merged PR keeps the one it had at the merge.
      */
@@ -569,12 +577,13 @@ public class BlockerAnalyzer {
     }
 
     /**
-     * The verdict of a merged PR's RunAll {@code chainId} with the runs queued on its branch before the merge. {@code
-     * branchBuilds} are the branch's builds as TeamCity listed them; a run in {@code afterMerge}, queued after the merge,
-     * does not count, nor a master run that finished after {@code mergedAt}, epoch seconds: master then holds the PR's
-     * own code, and its failures would read as pre-existing. A suite's newest run is its newest in {@code
-     * branchBuilds} that counts. {@code runsAtMerge} names the runs that were still going at the merge. Neither cached
-     * nor compared with the PR's earlier runs: the open PR's verdicts stay as they were.
+     * The verdict of a merged PR's RunAll {@code chainId} with the runs queued on its branch before the merge.
+     * {@code branchBuilds} are the branch's builds as TeamCity listed them; a run in {@code afterMerge}, queued after
+     * the merge, does not count, nor a run of master or of another PR that finished after {@code mergedAt}, epoch
+     * seconds: they may hold the PR's own code, and its failures would read as pre-existing or flaky. A suite's newest
+     * run is its newest in {@code branchBuilds} that counts. {@code runsAtMerge} names the runs the verdict kept at the
+     * merge did not read. Neither cached nor compared with the PR's earlier runs: the open PR's verdicts stay as they
+     * were.
      */
     public AnalysisResult verdictAtMerge(String token, int prNumber, long chainId, long mergedAt, Set<Long> afterMerge,
         List<TcModel.Build> branchBuilds, List<RunRef> runsAtMerge) {
@@ -1001,7 +1010,7 @@ public class BlockerAnalyzer {
             reason = "rare on master: fails " + h.fails() + "/" + h.runs() + onJdk + ", passed the last "
                 + h.greenStreak();
         else {
-            scaleOnlyBar = scaleOnlyOnMaster(token, subject.pr(), t, master, env, h, failedLookups, footing);
+            scaleOnlyBar = scaleOnlyOnMaster(token, subject, t, master, env, h, failedLookups, footing);
             if (scaleOnlyBar == null)
                 return verdict(t, lastRun, false, false, preExisting, branchRuns, 0);
 
@@ -1026,7 +1035,7 @@ public class BlockerAnalyzer {
         // flaky under PR conditions, whatever master says. The nightly master RunAll runs at test scale
         // factor 1.0 and PR chains at 0.1, so a test green in all 101 master runs failed 14 of 131 runs
         // in 13 other PRs, and was a blocker in each.
-        HistoryStats others = otherPrs(token, subject.pr(), t, env, failedLookups, footing);
+        HistoryStats others = otherPrs(token, subject, t, env, failedLookups, footing);
         if (others == null || others.failingPrs() < FLAKY_IN_PRS)
             return v;
 
@@ -1110,12 +1119,12 @@ public class BlockerAnalyzer {
      * time, not any failure: a test master broke last week also passes on older PR branches, and that
      * must stay pre-existing.
      */
-    private HistoryStats scaleOnlyOnMaster(String token, int prNumber, FailedTest t, RunHistory master, RunEnv env,
-        HistoryStats h, FailedLookups failedLookups, Footing footing) {
+    private HistoryStats scaleOnlyOnMaster(String token, Subject subject, FailedTest t, RunHistory master,
+        RunEnv env, HistoryStats h, FailedLookups failedLookups, Footing footing) {
         if (masterScaleOfFailures(master, env, h) == null)
             return null;
 
-        HistoryStats others = otherPrs(token, prNumber, t, env, failedLookups, footing);
+        HistoryStats others = otherPrs(token, subject, t, env, failedLookups, footing);
         if (others == null || others.runs() < MIN_OTHER_PR_RUNS || others.failingPrs() >= FLAKY_IN_PRS)
             return null;
 
@@ -1126,15 +1135,19 @@ public class BlockerAnalyzer {
      * How the test does in its suite on other PRs' branches under this PR's run conditions, or null when
      * TeamCity can't say. It only ever overrides master's verdict, so a TeamCity error leaves master's
      * verdict standing rather than turning the test into an unverified one; the result is incomplete
-     * all the same, and is retried, and the verdict says it went unchecked.
+     * all the same, and is retried, and the verdict says it went unchecked. A merged PR's subject reads the runs
+     * that finished before the merge only, as it reads master's: a PR that took master after the merge holds the
+     * merged PR's code.
      */
-    private HistoryStats otherPrs(String token, int prNumber, FailedTest t, RunEnv env, FailedLookups failedLookups,
-        Footing footing) {
+    private HistoryStats otherPrs(String token, Subject subject, FailedTest t, RunEnv env,
+        FailedLookups failedLookups, Footing footing) {
         try {
-            RunHistory onPrs = cache.prBranchHistory(t.testId(), t.suite(),
-                () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite())));
+            RunHistory onPrs = subject.masterUntil() > 0
+                ? RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite(), subject.masterUntil()))
+                : cache.prBranchHistory(t.testId(), t.suite(),
+                    () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite())));
 
-            return onPrs.otherPrsAs(env, prNumber);
+            return onPrs.otherPrsAs(env, subject.pr());
         }
         catch (RuntimeException e) {
             failedLookups.add("other PRs' runs of " + t.name(), e);
@@ -1348,8 +1361,8 @@ public class BlockerAnalyzer {
     /**
      * What a failed test is judged against besides master: its runs on the branch under review, the Ignite PR whose
      * runs are not "other PRs" (0: none), and whether a run's code is the commit of every VCS root or only the first.
-     * {@code masterUntil}, epoch seconds, keeps out the master runs that finished after it; 0 keeps them all. {@code
-     * read} notes the newest run of each suite the verdict reads.
+     * {@code masterUntil}, epoch seconds, keeps out the master runs and other PRs' runs that finished after it; 0
+     * keeps them all. {@code read} notes the newest run of each suite the verdict reads.
      */
     private record Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot,
         long masterUntil, RunsRead read) {

@@ -673,10 +673,25 @@ public class TcClient {
      * PR. Finished, non-cancelled runs only, muted failures left out, as in {@link #prBranchRuns}.
      */
     public List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId) {
+        return otherBranchRuns(token, testId, buildTypeId, "", b -> true);
+    }
+
+    /**
+     * The same runs, of those that finished by {@code finishedBy}, epoch seconds: other PRs' runs before a PR was
+     * merged. A PR that took master after the merge holds the merged PR's code. Each run's finish date comes in the
+     * same request.
+     */
+    public List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId,
+        long finishedBy) {
+        return otherBranchRuns(token, testId, buildTypeId, "finishDate,", b -> finishedBy(b.finishDate(), finishedBy));
+    }
+
+    private List<TcModel.TestOccurrence> otherBranchRuns(String token, long testId, String buildTypeId,
+        String moreFields, Predicate<TcModel.BuildRef> kept) {
         TcModel.TestOccurrences occ = occurrencesWithConditions("otherBranchRuns", token,
             "test:(id:" + testId + "),branch:(default:false),buildType:(id:" + buildTypeId + "),muted:false,count:"
                 + OTHER_BRANCH_RUNS,
-            "testOccurrence(status,build(id,state,status,branchName," + CONDITIONS_SLOT + "))");
+            "testOccurrence(status,build(id,state,status,branchName," + moreFields + CONDITIONS_SLOT + "))");
 
         if (occ == null || occ.testOccurrence() == null)
             return List.of();
@@ -684,7 +699,8 @@ public class TcClient {
         return occ.testOccurrence().stream()
             .filter(o -> o.build() != null
                 && "finished".equals(o.build().state())
-                && !"UNKNOWN".equals(o.build().status()))
+                && !"UNKNOWN".equals(o.build().status())
+                && kept.test(o.build()))
             .sorted(Comparator.comparingLong((TcModel.TestOccurrence o) -> o.build().id()).reversed())
             .toList();
     }

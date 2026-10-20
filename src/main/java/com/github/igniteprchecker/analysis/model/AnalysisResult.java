@@ -84,8 +84,8 @@ public record AnalysisResult(
      */
     List<RunRef> otherCodeRuns,
     /**
-     * On a merged PR's verdict, the runs that were still going at the merge and whose results it holds: the verdict
-     * kept at the merge is computed once more when they end. Empty on any other verdict.
+     * On a merged PR's verdict, the runs queued before the merge that the verdict kept at the merge did not read, and
+     * whose results it now holds: it is computed once more when they end. Empty on any other verdict.
      */
     List<RunRef> runsAtMerge
 ) {

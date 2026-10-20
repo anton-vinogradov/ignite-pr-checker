@@ -19,6 +19,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.RunRef;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
@@ -178,6 +179,32 @@ class OneVerdictPerRunTest {
             .contains("_Tested commit {{9f1c2e7}}; the PR is now at {{41b0d3a}}._");
         verify(github).appComment(eq(PR), any(), contains("_Tested commit `9f1c2e7`; the PR is now at"
             + " `41b0d3a`._"));
+    }
+
+    /**
+     * apache/ignite#13709: RunAll on c577b18, Control Utility 5 re-run on the PR's head 9b02561. The mixed-run line
+     * names both commits; the line after it names the PR's head and does not say the run tested one commit.
+     */
+    @Test
+    void aMixedRunNamesThePrsHeadButNoSingleTestedCommit() {
+        options(false);
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(new AnalysisResult(PR, RUN_ALL,
+            "pull/13335/head", System.currentTimeMillis(), List.of(), List.of(), List.of(), List.of(), List.of(), 140,
+            1, false, 0, false, 0, 0, 0, 1, 0, List.of(), List.of(), List.of(), 0,
+            "c577b18e2f0d4a6b8c1d3e5f7a9b0c2d4e6f8a1b", 0, List.of(new RunRef("IgniteTests24Java8_ControlUtility5",
+                "Control Utility 5", 9426316L, "9b02561a7c3e5f9d1b2a4c6e8f0a1b3c5d7e9f2a")), List.of())));
+        when(pending.since("tc", PR, RUN_ALL)).thenReturn(new PendingCommits.Ahead(3, "c577b18", "9b02561",
+            "c577b18e2f0d4a6b8c1d3e5f7a9b0c2d4e6f8a1b", false));
+
+        standing.sweep();
+
+        ArgumentCaptor<String> visa = ArgumentCaptor.forClass(String.class);
+        verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), visa.capture());
+        assertThat(visa.getValue()).contains("mixed run — Control Utility 5 re-ran on 9b02561, the rest of the RunAll "
+            + "ran on c577b18").contains("_The PR is now at {{9b02561}}._").doesNotContain("Tested commit");
+        ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
+        verify(github).appComment(eq(PR), any(), comment.capture());
+        assertThat(comment.getValue()).contains("_The PR is now at `9b02561`._").doesNotContain("Tested commit");
     }
 
     private void options(boolean rerun) {

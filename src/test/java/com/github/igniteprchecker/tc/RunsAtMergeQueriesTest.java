@@ -24,9 +24,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * apache/ignite#13709 was merged at 10:12:39 UTC while its re-run of Control Utility 5 on the PR's head still went.
- * Completing its verdict takes, in one call, every build of the branch with when it was queued and finished, and
- * master's runs that finished before the merge. Telling a mixed run takes the commit of each run the verdict reads, in
- * the calls that read those runs anyway.
+ * Completing its verdict takes, in one call, every build of the branch with when it was queued and finished, and the
+ * runs of master and other PRs that finished before the merge. Telling a mixed run takes the commit of each run the
+ * verdict reads, in the calls that read those runs anyway.
  */
 class RunsAtMergeQueriesTest {
     /** 2026-10-20 10:12:39 UTC. */
@@ -54,8 +54,17 @@ class RunsAtMergeQueriesTest {
                 """);
         });
         server.createContext("/app/rest/testOccurrences", ex -> {
-            asked.put("history", param(ex.getRequestURI().getRawQuery(), "fields"));
-            answer(ex, """
+            boolean otherPrs = param(ex.getRequestURI().getRawQuery(), "locator").contains("branch:(default:false)");
+            asked.put(otherPrs ? "other PRs" : "history", param(ex.getRequestURI().getRawQuery(), "fields"));
+            answer(ex, otherPrs ? """
+                {"testOccurrence":[
+                 {"status":"FAILURE","build":{"id":9427200,"state":"finished","status":"FAILURE",
+                  "branchName":"pull/13720/head","finishDate":"20261020T120000+0000"}},
+                 {"status":"SUCCESS","build":{"id":9420100,"state":"finished","status":"SUCCESS",
+                  "branchName":"pull/13650/head","finishDate":"20261019T230000+0000"}},
+                 {"status":"SUCCESS","build":{"id":9410100,"state":"finished","status":"SUCCESS",
+                  "branchName":"pull/13640/head"}}]}
+                """ : """
                 {"testOccurrence":[
                  {"status":"FAILURE","build":{"id":9427100,"finishDate":"20261020T120000+0000"}},
                  {"status":"SUCCESS","build":{"id":9420000,"finishDate":"20261019T230000+0000"}},
@@ -93,6 +102,19 @@ class RunsAtMergeQueriesTest {
 
         assertThat(asked.get("history")).contains("build(id,finishDate,");
         assertThat(runs).extracting(o -> o.build().id()).containsExactly(9420000L);
+    }
+
+    /**
+     * A PR that took master after the merge holds the merged PR's code, so its runs that finished after the merge are
+     * left out, as master's are.
+     */
+    @Test
+    void otherPrsRunsThatFinishedAfterTheMergeAreLeftOut() {
+        List<TcModel.TestOccurrence> runs = client().otherBranchRuns("tok", 1001L,
+            "IgniteTests24Java8_ControlUtility5", MERGED_AT);
+
+        assertThat(asked.get("other PRs")).contains("build(id,state,status,branchName,finishDate,");
+        assertThat(runs).extracting(o -> o.build().id()).containsExactly(9420100L);
     }
 
     @Test

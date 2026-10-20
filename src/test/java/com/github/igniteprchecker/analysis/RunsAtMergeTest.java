@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.ServiceMapper;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.RunRef;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
@@ -20,6 +21,8 @@ import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
+import com.github.igniteprchecker.web.AnalyzeController;
+import com.github.igniteprchecker.web.PrHeads;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -28,6 +31,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -36,7 +40,7 @@ import tools.jackson.databind.node.ObjectNode;
  * 5, and the author's re-run of that suite on the PR's head 9b02561, build 9426316, ran from 10:02 to 10:28 and passed.
  * The verdict kept at the merge, computed at 10:11, kept showing the blocker for good, while the open PR's verdict
  * after 10:28 had none. Once such a run ends, the kept verdict is computed once more, of the runs queued before the
- * merge and of master's runs that finished before it, and it names the runs it adds.
+ * merge and of the runs of master and other PRs that finished before it, and it names the runs it adds.
  */
 class RunsAtMergeTest {
     private static final String TOK = "tok";
@@ -194,19 +198,201 @@ class RunsAtMergeTest {
         assertThat(merged.verdict(13500)).isPresent();
     }
 
+    /**
+     * The verdict kept at the merge was computed at 10:05. The author's re-run passed at 10:10, before the merge at
+     * 10:12:39, and no compute read it before the PR left the open list. The look counts it as a run the kept verdict
+     * did not read.
+     */
+    @Test
+    void aReRunThatEndedAfterTheKeptVerdictButBeforeTheMergeCompletesIt(@TempDir Path dir) {
+        MergedVerdicts merged = kept(dir, "20261020T100500+0000", "20261020T100400+0000", keptAtTheMergeBlocker());
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(rerun("finished", "20261020T101000+0000"), runAll(),
+            chainCu5()));
+        now = at("20261020T103000+0000") * 1000;
+
+        runsAtMerge(merged).sweep();
+
+        AnalysisResult done = merged.verdict(PR).orElseThrow();
+        assertThat(done.blockers()).isEmpty();
+        assertThat(done.runsAtMerge()).extracting(RunRef::buildId).containsExactly(RERUN);
+    }
+
+    /**
+     * The re-run going at the merge failed the test again on the PR's head. By the look, three PRs had taken master
+     * after the merge, and with it this PR's code, and each failed the test. Other PRs' runs count only when they
+     * finished before the merge, as master's do, so the PR's blocker stays one.
+     */
+    @Test
+    void otherPrsRunsAfterTheMergeDoNotTurnItsBlockerFlaky(@TempDir Path dir) {
+        MergedVerdicts merged = keptAtTheMerge(dir);
+        when(tc.prBranchRuns(TOK, PR, TEST, CU5)).thenReturn(List.of(occurrence(CHAIN_CU5, "FAILURE", RUN_ALL_COMMIT),
+            occurrence(RERUN, "FAILURE", HEAD)));
+        List<TcModel.TestOccurrence> others = new ArrayList<>();
+        for (int pr = 13720; pr <= 13722; pr++) {
+            others.add(onOtherPr(9427000L + pr * 10L, pr));
+            others.add(onOtherPr(9427001L + pr * 10L, pr));
+        }
+        when(tc.otherBranchRuns(TOK, TEST, CU5)).thenReturn(others);
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(build(RERUN, CU5, "Control Utility 5", "finished", "FAILURE",
+            "20261020T100150+0000", "20261020T102800+0000", "user", HEAD), runAll(), chainCu5()));
+        now = at("20261020T103000+0000") * 1000;
+
+        runsAtMerge(merged).sweep();
+
+        AnalysisResult done = merged.verdict(PR).orElseThrow();
+        assertThat(done.runsAtMerge()).as("computed once more").hasSize(1);
+        assertThat(done.blockers()).extracting(TestVerdict::testId).containsExactly(TEST);
+        verify(tc).otherBranchRuns(TOK, TEST, CU5, MERGED_AT);
+        verify(tc, never()).otherBranchRuns(TOK, TEST, CU5);
+    }
+
+    /**
+     * The open PR's verdict computed at 10:45, half an hour after the merge, was kept: it read a re-run queued at
+     * 10:15, after the merge, which passed. Nothing was going at the merge, but the verdict is computed once more
+     * without that run, as the merged code's verdict.
+     */
+    @Test
+    void aRunQueuedAfterTheMergeDoesNotStayInAVerdictKeptAfterIt(@TempDir Path dir) {
+        long afterMerge = 9426400L;
+        MergedVerdicts merged = kept(dir, "20261020T104500+0000", "20261020T104400+0000", new TestVerdict(TEST,
+            "GridCommandHandlerTest.testCacheIdle", CU5, CHAIN_CU5, "Control Utility 5",
+            "build:(id:" + CHAIN_CU5 + "),id:1", false, false,
+            "not failing in the last finished run (passed on re-run)", "FP", 0));
+        when(tc.prBranchRuns(TOK, PR, TEST, CU5)).thenReturn(List.of(occurrence(CHAIN_CU5, "FAILURE", RUN_ALL_COMMIT),
+            occurrence(afterMerge, "SUCCESS", HEAD)));
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(build(afterMerge, CU5, "Control Utility 5", "finished",
+            "SUCCESS", "20261020T101500+0000", "20261020T104000+0000", "user", HEAD), runAll(), chainCu5()));
+        now = at("20261020T110000+0000") * 1000;
+
+        runsAtMerge(merged).sweep();
+
+        AnalysisResult done = merged.verdict(PR).orElseThrow();
+        assertThat(done.blockers()).as("the merged code's verdict").extracting(TestVerdict::testId)
+            .containsExactly(TEST);
+        assertThat(done.runsAtMerge()).isEmpty();
+        assertThat(merged.runsDue()).isEmpty();
+    }
+
+    /**
+     * Control Utility 5 timed out in the RunAll. A full run of it queued after the merge passed: it does not heal the
+     * suite in the merged PR's verdict. The verdict is computed once more for a re-run of Cache 1 that was going at
+     * the merge.
+     */
+    @Test
+    void aRunQueuedAfterTheMergeDoesNotHealABrokenSuite(@TempDir Path dir) {
+        MergedVerdicts merged = keptAtTheMerge(dir);
+        when(tc.getBuildWithDeps(TOK, CHAIN)).thenReturn(chainWithCu5("TC_EXECUTION_TIMEOUT", 10));
+        when(tc.getFailedTests(TOK, CHAIN_CU5)).thenReturn(List.of());
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(
+            build(9426990L, CU5, "Control Utility 5", "finished", "SUCCESS", "20261020T101500+0000",
+                "20261020T104000+0000", "user", HEAD),
+            build(9426300L, "IgniteTests24Java8_Cache1", "Cache 1", "finished", "SUCCESS", "20261020T100100+0000",
+                "20261020T102800+0000", "user", HEAD),
+            runAll(), chainCu5()));
+        now = at("20261020T110000+0000") * 1000;
+
+        runsAtMerge(merged).sweep();
+
+        AnalysisResult done = merged.verdict(PR).orElseThrow();
+        assertThat(done.runsAtMerge()).extracting(RunRef::buildId).containsExactly(9426300L);
+        assertThat(done.brokenSuites()).extracting(BrokenSuite::suite).containsExactly(CU5);
+    }
+
+    /** A re-run queued before the merge and cancelled after it has no result: the verdict stays as it was. */
+    @Test
+    void aRunCancelledAfterTheMergeDoesNotCount(@TempDir Path dir) {
+        MergedVerdicts merged = keptAtTheMerge(dir);
+        TcModel.Build cancelled = new TcModel.Build(RERUN, "UNKNOWN", "finished", "pull/13709/head", CU5, null,
+            "20261020T100150+0000", null, "20261020T102000+0000", null, null,
+            new TcModel.BuildType(CU5, "Control Utility 5"), new TcModel.Triggered("user", null), null, null, null,
+            revisions(HEAD), new TcModel.TestOccurrences(0, List.of()), new TcModel.CanceledInfo("stopped", null));
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(cancelled, runAll(), chainCu5()));
+        now = at("20261020T103000+0000") * 1000;
+
+        runsAtMerge(merged).sweep();
+
+        assertThat(merged.verdict(PR).orElseThrow().blockers()).hasSize(1);
+        assertThat(merged.runsDue()).isEmpty();
+        verify(tc, never()).getBuildWithDeps(anyString(), anyLong());
+    }
+
+    /**
+     * TeamCity fails every look at #13600, whose number is lower than #13709's. The next sweep looks at #13709 first,
+     * and #13600 is settled as it is once the week of looks after its merge has passed.
+     */
+    @Test
+    void aPrTeamCityAlwaysFailsDoesNotHoldUpTheOthers(@TempDir Path dir) throws Exception {
+        long realNow = System.currentTimeMillis() / 1000;
+        writeAsTheReleaseBefore(dir, 13600, realNow - 3 * 86_400);
+        MergedVerdicts merged = keptAtTheMerge(dir);
+        assertThat(merged.runsDue()).containsExactlyInAnyOrder(13600, PR);
+        when(tc.branchBuilds(TOK, 13600)).thenThrow(new IllegalStateException("404 Not Found"));
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(rerun("finished", "20261020T102800+0000"), rerunsBuild(),
+            runAll(), chainCu5()));
+        now = at("20261020T103000+0000") * 1000;
+        RunsAtMerge runs = runsAtMerge(merged);
+
+        runs.sweep();
+        runs.sweep();
+
+        assertThat(merged.verdict(PR).orElseThrow().blockers()).as("#13709's re-run passed").isEmpty();
+        assertThat(merged.runsDue()).containsExactly(13600);
+
+        now = (realNow + 8 * 86_400) * 1000;
+        runs.sweep();
+
+        assertThat(merged.runsDue()).isEmpty();
+        assertThat(merged.verdict(13600)).isPresent();
+    }
+
+    /** While the look is due, the page is told that the merged PR's verdict may still change; after it, not. */
+    @Test
+    void thePageIsToldWhileTheVerdictMayStillChange(@TempDir Path dir) {
+        MergedVerdicts merged = keptAtTheMerge(dir);
+        AnalyzeController page = new AnalyzeController(new BlockerAnalyzer(tc, new ChainCollector(tc, baseline), cfg,
+            Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2), Executors.newFixedThreadPool(2),
+            Executors.newFixedThreadPool(2), cache, new RunDeltaStore(mapper), merged), mock(RunDeltaStore.class),
+            mock(PendingCommits.class), mock(PrHeads.class));
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(rerun("running", null), rerunsBuild(), runAll(), chainCu5()));
+        RunsAtMerge runs = runsAtMerge(merged);
+
+        runs.sweep();
+        JsonNode going = mapper.valueToTree(page.analyze(PR, TOK).getBody());
+
+        now = at("20261020T103000+0000") * 1000;
+        when(tc.branchBuilds(TOK, PR)).thenReturn(branch(rerun("finished", "20261020T102800+0000"), rerunsBuild(),
+            runAll(), chainCu5()));
+        runs.sweep();
+        JsonNode done = mapper.valueToTree(page.analyze(PR, TOK).getBody());
+
+        assertThat(going.get("runsAtMergeDue").asBoolean()).isTrue();
+        assertThat(going.get("blockers")).hasSize(1);
+        assertThat(done.get("runsAtMergeDue").asBoolean()).isFalse();
+        assertThat(done.get("blockers")).isEmpty();
+    }
+
     /** The open PR's verdict computed at 10:11, a minute before the merge, kept once the PR left the list. */
     private MergedVerdicts keptAtTheMerge(Path dir) {
+        return kept(dir, "20261020T101100+0000", "20261020T101000+0000", keptAtTheMergeBlocker());
+    }
+
+    /** The test of Control Utility 5 the RunAll failed, a blocker in the verdict kept at the merge. */
+    private static TestVerdict keptAtTheMergeBlocker() {
+        return new TestVerdict(TEST, "GridCommandHandlerTest.testCacheIdle", CU5, CHAIN_CU5, "Control Utility 5",
+            "build:(id:" + CHAIN_CU5 + "),id:1", true, false,
+            "not seen failing in 50 master runs; failed the only run on this branch", "F", 1);
+    }
+
+    /**
+     * The open PR's verdict of the RunAll, computed at {@code computedAt} with the branch read up to {@code watermark},
+     * with {@code test} as a blocker or a filtered test, kept once the PR left the list.
+     */
+    private MergedVerdicts kept(Path dir, String computedAt, String watermark, TestVerdict test) {
         when(baseline.counts(anyString())).thenReturn(Map.of());
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13800, "IGNITE-1 x", "u", null, null, null)));
         when(github.prOutcome(PR)).thenReturn(new GithubClient.PrOutcome(true, true, MERGED_AT, "f00dcafe", HEAD,
             "IGNITE-29000 Fix the idle check"));
-        when(tc.getBuildWithDeps(TOK, CHAIN)).thenReturn(new TcModel.Build(CHAIN, "FAILURE", "finished",
-            "pull/13709/head", RUN_ALL, null, "20261020T080000+0000", "20261020T080100+0000", "20261020T095000+0000",
-            null, null, new TcModel.BuildType(RUN_ALL, "Run All"), null, new TcModel.SnapshotDeps(1, List.of(
-                new TcModel.Build(CHAIN_CU5, "FAILURE", "finished", "pull/13709/head", CU5, null,
-                    "20261020T080000+0000", null, null, null, null, new TcModel.BuildType(CU5, "Control Utility 5"),
-                    null, null, null, null, revisions(RUN_ALL_COMMIT), new TcModel.TestOccurrences(200, List.of())))),
-            null, null, revisions(RUN_ALL_COMMIT), null));
+        when(tc.getBuildWithDeps(TOK, CHAIN)).thenReturn(chainWithCu5(null, 200));
         when(tc.getFailedTests(TOK, CHAIN_CU5)).thenReturn(List.of(new TcModel.TestOccurrence(
             "build:(id:" + CHAIN_CU5 + "),id:1", "GridCommandHandlerTest.testCacheIdle", "FAILURE",
             new TcModel.TestRef(TEST), null, null)));
@@ -214,19 +400,29 @@ class RunsAtMergeTest {
         when(tc.prBranchRuns(TOK, PR, TEST, CU5)).thenReturn(List.of(occurrence(CHAIN_CU5, "FAILURE", RUN_ALL_COMMIT),
             occurrence(RERUN, "SUCCESS", HEAD)));
 
-        TestVerdict blocker = new TestVerdict(TEST, "GridCommandHandlerTest.testCacheIdle", CU5, CHAIN_CU5,
-            "Control Utility 5", "build:(id:" + CHAIN_CU5 + "),id:1", true, false,
-            "not seen failing in 50 master runs; failed the only run on this branch", "F", 1);
-        cache.putResult(CHAIN, new AnalysisResult(PR, CHAIN, "pull/13709/head", at("20261020T101100+0000") * 1000,
-            List.of(blocker), List.of(), List.of(), List.of(), List.of(), 148, 1, false, 0, false, 0,
-            at("20261020T080000+0000"), at("20261020T080100+0000"), at("20261020T095000+0000"),
-            at("20261020T101000+0000"), List.of(), List.of(), List.of(), 0, RUN_ALL_COMMIT, 0));
+        cache.putResult(CHAIN, new AnalysisResult(PR, CHAIN, "pull/13709/head", at(computedAt) * 1000,
+            test.blocker() ? List.of(test) : List.of(), List.of(), test.blocker() ? List.of() : List.of(test),
+            List.of(), List.of(), 148, 1, false, 0, false, 0, at("20261020T080000+0000"), at("20261020T080100+0000"),
+            at("20261020T095000+0000"), at(watermark), List.of(), List.of(), List.of(), 0, RUN_ALL_COMMIT, 0));
 
         MergedVerdicts merged = new MergedVerdicts(github, cache, dir, mapper);
         merged.load();
         merged.sweep();
 
         return merged;
+    }
+
+    /** RunAll 9425992 with its Control Utility 5, which ran {@code tests} tests and hit {@code problem}, if any. */
+    private static TcModel.Build chainWithCu5(String problem, int tests) {
+        return new TcModel.Build(CHAIN, "FAILURE", "finished", "pull/13709/head", RUN_ALL, null,
+            "20261020T080000+0000", "20261020T080100+0000", "20261020T095000+0000", null, null,
+            new TcModel.BuildType(RUN_ALL, "Run All"), null, new TcModel.SnapshotDeps(1, List.of(
+                new TcModel.Build(CHAIN_CU5, "FAILURE", "finished", "pull/13709/head", CU5, null,
+                    "20261020T080000+0000", null, null, null, null, new TcModel.BuildType(CU5, "Control Utility 5"),
+                    null, null, null, problem == null ? null
+                        : new TcModel.ProblemOccurrences(List.of(new TcModel.ProblemOccurrence(problem, null))),
+                    revisions(RUN_ALL_COMMIT), new TcModel.TestOccurrences(tests, List.of())))),
+            null, null, revisions(RUN_ALL_COMMIT), null);
     }
 
     private RunsAtMerge runsAtMerge(MergedVerdicts merged) {
@@ -271,6 +467,12 @@ class RunsAtMergeTest {
         return new TcModel.TestOccurrence("build:(id:" + buildId + "),id:1", null, status, null,
             new TcModel.BuildRef(buildId, null, "finished", status, CU5,
                 new TcModel.BuildType(CU5, "Control Utility 5"), revisions(commit), null), null);
+    }
+
+    /** A failure of the test in Control Utility 5 on another PR's branch. */
+    private static TcModel.TestOccurrence onOtherPr(long buildId, int pr) {
+        return new TcModel.TestOccurrence(null, null, "FAILURE", null, new TcModel.BuildRef(buildId,
+            "pull/" + pr + "/head", "finished", "FAILURE", CU5, null, null, null), null);
     }
 
     private static TcModel.Revisions revisions(String commit) {

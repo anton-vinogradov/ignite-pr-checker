@@ -1870,8 +1870,9 @@ function clientRunLabel(res) {
 }
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
-// no refresh for it, and the cards do not ask for re-runs that would change nothing. The runs that were still going
-// at the merge are the one exception (RunsAtMerge): the note names them once their results are in.
+// no refresh for it, and the cards do not ask for re-runs that would change nothing. Runs queued before the merge that
+// the kept verdict did not read are the one exception (RunsAtMerge): while the server may still look for them, the
+// note says so, and once their results are in, it names them.
 function renderMerged(res) {
     const merged = !!res.mergedAt;
     $('mergedNote').classList.toggle('hidden', !merged);
@@ -1882,9 +1883,14 @@ function renderMerged(res) {
     const more = runs.length - 3;
     const named = more > 0 ? runs.slice(0, 3).concat(T`${more} more run${more === 1 ? '' : 's'}`) : runs;
     $('mergedNote').textContent = runs.length
-        ? T('Merged {0}. This is the verdict as it stood at the merge, with the results of the runs that were still '
-            + 'going then: {1}. It is not recomputed again: master\'s history now holds this PR\'s own runs. Runs '
-            + 'queued after the merge do not change this verdict.', fmtDay(res.mergedAt * 1000), listed(named))
+        ? T('Merged {0}. This is the verdict as it stood at the merge. The checker computed it once more when these '
+            + 'runs, queued before the merge, ended: {1}. It is not recomputed again: master\'s history now holds this '
+            + 'PR\'s own runs. Runs queued after the merge do not change this verdict.', fmtDay(res.mergedAt * 1000),
+            listed(named))
+        : res.runsAtMergeDue
+        ? T('Merged {0}. This is the verdict as it stood at the merge. The checker still looks for runs queued before '
+            + 'the merge that this verdict did not count. If it finds any, it computes the verdict once more when they '
+            + 'end.', fmtDay(res.mergedAt * 1000))
         : T('Merged {0}. This is the verdict as it stood at the merge. It is not recomputed: '
             + 'master\'s history now holds this PR\'s own runs. New runs do not change this verdict.',
             fmtDay(res.mergedAt * 1000));
@@ -2203,7 +2209,8 @@ function mixedNote(res) {
     const groups = [...byCommit].map(([sha, names], i) => i === 0 ? T`${esc(suiteNames(names))} re-ran on ${at(sha)}`
         : T`${esc(suiteNames(names))} on ${at(sha)}`);
     const rest = shortSha(res.revision);
-    const elsewhere = head && head !== rest && !byCommit.has(head) ? ' ' + T`The PR is now at ${esc(head)}.` : '';
+    const elsewhere = !head || head === rest || byCommit.has(head) ? ''
+        : ' ' + (res.mergedAt ? T`The PR was merged at its commit ${esc(head)}.` : T`The PR is now at ${esc(head)}.`);
     return T`<b>⚠ Mixed run:</b> ${groups.join('; ')}; the rest of the RunAll ran on ${at(rest)}.` + elsewhere;
 }
 

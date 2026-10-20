@@ -186,7 +186,8 @@
     "Includes results from a RunAll that is still running — failures from the suites that did finish are folded in": "Включает результаты RunAll, который ещё идёт: падения из уже закончившихся сьют вошли в вердикт",
     "● includes an unfinished run": "● включает незаконченный прогон",
     "Merged {0}. This is the verdict as it stood at the merge. It is not recomputed: master's history now holds this PR's own runs. New runs do not change this verdict.": "Смержен {0}. Это вердикт на момент мержа. Он не пересчитывается: история master теперь содержит собственные прогоны этого PR. Новые прогоны этот вердикт не меняют.",
-    "Merged {0}. This is the verdict as it stood at the merge, with the results of the runs that were still going then: {1}. It is not recomputed again: master's history now holds this PR's own runs. Runs queued after the merge do not change this verdict.": "Смержен {0}. Это вердикт на момент мержа с результатами прогонов, которые тогда ещё шли: {1}. Больше он не пересчитывается: история master теперь содержит собственные прогоны этого PR. Прогоны, поставленные после мержа, этот вердикт не меняют.",
+    "Merged {0}. This is the verdict as it stood at the merge. The checker computed it once more when these runs, queued before the merge, ended: {1}. It is not recomputed again: master's history now holds this PR's own runs. Runs queued after the merge do not change this verdict.": "Смержен {0}. Это вердикт на момент мержа. Чекер посчитал его заново, когда закончились эти прогоны, поставленные до мержа: {1}. Больше он не пересчитывается: история master теперь содержит собственные прогоны этого PR. Прогоны, поставленные после мержа, этот вердикт не меняют.",
+    "Merged {0}. This is the verdict as it stood at the merge. The checker still looks for runs queued before the merge that this verdict did not count. If it finds any, it computes the verdict once more when they end.": "Смержен {0}. Это вердикт на момент мержа. Чекер ещё ищет прогоны, поставленные до мержа, которые этот вердикт не учёл. Если найдёт, посчитает вердикт заново, когда они закончатся.",
     "Analyzing the latest RunAll…": "Разбираю последний RunAll…",
     "Analyzing the latest run…": "Разбираю последний прогон…",
     "Analyzing a new run: {0} of {1} failed tests checked. Only the first view of a new run waits for this.": "Разбираю новый прогон: проверено {0} из {1} {1|упавшего теста|упавших тестов|упавших тестов}. Этого ждёт только первый просмотр нового прогона.",
@@ -223,6 +224,7 @@
     "{0} more suite{1}": "ещё {0} {0|сьюта|сьюты|сьют}",
     "{0} more run{1}": "ещё {0} {0|прогон|прогона|прогонов}",
     "The PR is now at {0}.": "Сейчас PR на {0}.",
+    "The PR was merged at its commit {0}.": "PR смержили на его коммите {0}.",
     "Only a RunAll of the PR's head can prove it clean.": "Доказать, что PR чист, может только RunAll последнего коммита PR."
   },
   "verdict": {

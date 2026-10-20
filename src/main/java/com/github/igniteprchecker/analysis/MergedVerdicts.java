@@ -42,8 +42,8 @@ import tools.jackson.databind.ObjectMapper;
  * A PR closed without a merge is left alone, and one still open past the list is asked again some hours later.
  * Without a usable directory the verdicts are kept in memory only.
  *
- * <p>A kept verdict changes once at most: when runs that were still going at the merge end, {@link RunsAtMerge}
- * computes it again with their results. Until it has looked, the PR's verdict is due for that look.
+ * <p>A kept verdict changes once at most: when runs queued before the merge that it did not read end, {@link
+ * RunsAtMerge} computes it again with their results. Until it has looked, the PR's verdict is due for that look.
  */
 @Component
 public class MergedVerdicts {
@@ -62,8 +62,8 @@ public class MergedVerdicts {
     private static final long RECHECK_OPEN_MS = 6 * 3_600_000L;
 
     /**
-     * How long after its merge a verdict kept by a release before {@link RunsAtMerge} is still looked at for runs that
-     * were going at the merge, once: TeamCity keeps about 15 days of builds.
+     * How long after its merge a verdict kept by a release before {@link RunsAtMerge} is still looked at for runs it
+     * did not read, once: TeamCity keeps about 15 days of builds.
      */
     static final long LOOK_BACK_MS = 7 * 86_400_000L;
 
@@ -87,7 +87,7 @@ public class MergedVerdicts {
     /** When each PR found not merged may be asked about again; never, for one closed without a merge. */
     private final Map<Integer, Long> notBefore = new ConcurrentHashMap<>();
 
-    /** The PRs whose kept verdict is due for a look at the runs that were going at the merge. */
+    /** The PRs whose kept verdict is due for a look at the runs queued before the merge that it did not read. */
     private final Set<Integer> runsDue = ConcurrentHashMap.newKeySet();
 
     @Autowired
@@ -170,27 +170,32 @@ public class MergedVerdicts {
         return merged(pr).map(Merged::title);
     }
 
-    /** The merged PRs whose kept verdict is due for a look at the runs that were going at the merge. */
+    /** The merged PRs whose kept verdict is due for a look at the runs queued before the merge that it did not read. */
     public Set<Integer> runsDue() {
         return Set.copyOf(runsDue);
     }
 
+    /** Whether the merged PR's kept verdict is due for that look: it may yet be computed once more. */
+    public boolean runsDue(int pr) {
+        return runsDue.contains(pr);
+    }
+
     /**
-     * Keeps {@code verdict}, computed with the results of the runs that were going at the merge, as the PR's verdict
-     * for good.
+     * Keeps {@code verdict}, computed with the results of the runs queued before the merge that the kept one did not
+     * read, as the PR's verdict for good.
      */
     public void completed(int pr, AnalysisResult verdict) {
         merged(pr).ifPresent(m -> {
             write(new Merged(m.pr(), m.title(), m.mergedAt(), m.mergeCommit(), m.head(), m.keptAt(), TestVerdict.RULES,
                 verdict, false));
-            log.info("PR {}: completed its verdict at the merge with {} run(s) that were going then ({} blocker(s), "
+            log.info("PR {}: completed its verdict at the merge with {} run(s) queued before it ({} blocker(s), "
                 + "{} to watch, {} filtered)", pr, verdict.runsAtMerge().size(), verdict.blockers().size(),
                 verdict.watch().size(), verdict.filtered().size());
         });
         runsDue.remove(pr);
     }
 
-    /** No run that was going at the merge adds to the PR's kept verdict: it stays as it is, for good. */
+    /** No run queued before the merge adds to the PR's kept verdict: it stays as it is, for good. */
     public void settled(int pr) {
         merged(pr).ifPresent(m -> write(new Merged(m.pr(), m.title(), m.mergedAt(), m.mergeCommit(), m.head(),
             m.keptAt(), m.rules(), m.verdict(), false)));
@@ -313,8 +318,8 @@ public class MergedVerdicts {
     /**
      * A merged PR's kept verdict, with what a later check against master needs: when it was merged and as which
      * commit, its head then, when the verdict was kept and under which classification rules. {@code runsAtMergeDue}
-     * is whether the verdict is still due for a look at the runs that were going at the merge; null in the files of
-     * releases before that look.
+     * is whether the verdict is still due for a look at the runs queued before the merge that it did not read; null in
+     * the files of releases before that look.
      */
     record Merged(int pr, String title, long mergedAt, String mergeCommit, String head, long keptAt, int rules,
         AnalysisResult verdict, Boolean runsAtMergeDue) {
