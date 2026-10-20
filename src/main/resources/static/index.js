@@ -204,6 +204,12 @@ function prStateTag(closing) {
     return `<span>${tag} <a class="help" href="${esc(glossary)}" target="_self" rel="noopener" title="${esc(help)}" aria-label="${esc(T('What Merged means'))}">?</a></span>`;
 }
 
+// Whether the PR on the page is merged: /api/pr-title says so, or the checker keeps its verdict from the merge.
+function prMerged() {
+    if (shownTitle && shownTitle[0] === selectedPr && shownTitle[3]) return shownTitle[3].state === 'merged';
+    return !!(lastResult && lastResult.prNumber === selectedPr && lastResult.mergedAt);
+}
+
 // "The PR was merged at its commit 9b02561 on 20 Oct at 13:12."
 function prStateTitle(state) {
     const when = fmtDayAt(state.closedAt * 1000);
@@ -3524,7 +3530,7 @@ function visaLineText(v, key) {
         case 'replaced':
             return T('Visa: none for this run, a newer RunAll replaces it');
         case 'closed':
-            return T('Visa: none, the PR is closed');
+            return prMerged() ? T('Visa: none, the PR is merged') : T('Visa: none, the PR is closed');
         case 'unknown':
             return T('Visa: unknown, TeamCity does not say who started this run');
         case 'waits':
