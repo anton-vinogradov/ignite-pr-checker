@@ -34,7 +34,8 @@ import org.springframework.web.bind.annotation.RestController;
  * What the checker's page shows and does for a PR of the Python thin client, whose numbers overlap Ignite's: the list
  * of the client's open PRs, the verdict of a PR's newest run of the client's suite (see {@link ClientVerdicts}), its
  * runs on ci2, and the buttons that queue and cancel them. Run queues what {@code /run-all} in the PR queues: the
- * suite with the PR's head and Ignite's master (see {@link PythonClientRuns#queue}).
+ * suite with the PR's head and Ignite's master (see {@link PythonClientRuns#queue}). The starter's options act on the
+ * run as on the run of a {@code /run-all}.
  */
 @RestController
 @RequestMapping("/api/client")
@@ -176,9 +177,10 @@ public class ClientPrsController {
     }
 
     /**
-     * Queues the client's suite for the PR as {@code /run-all} does. {@code replace} first cancels the user's own runs
-     * of the suite on the PR. A PR that GitHub reports merge conflicts for gets 409 with {@code conflicts}, and nothing
-     * is cancelled or queued, unless {@code force}. A run that cannot be put together gets 409 with why.
+     * Queues the client's suite for the PR as {@code /run-all} does, and the user's options act on the run as on the
+     * run of a {@code /run-all} (see {@link PrCommands#queueFromPage}). {@code replace} first cancels the user's own
+     * runs of the suite on the PR. A PR that GitHub reports merge conflicts for gets 409 with {@code conflicts}, and
+     * nothing is cancelled or queued, unless {@code force}. A run that cannot be put together gets 409 with why.
      */
     @PostMapping("/trigger")
     public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
@@ -188,23 +190,32 @@ public class ClientPrsController {
         if (!force && heads.spare() && github.reportsConflicts(python.repo(), pr))
             return ResponseEntity.status(409).body(Map.of("error", CONFLICTS, "conflicts", true));
 
-        int replaced = replace ? python.cancelOwn(token, username, pr) : 0;
+        int[] replaced = {0};
+        boolean[] queuing = {false};
         PythonClientRuns.Queued queued;
         try {
-            queued = python.queue(token, pr, top, "Ignite PR Checker: Run on the checker's page for https://github.com/"
-                + python.repo() + "/pull/" + pr);
+            queued = commands.queueFromPage(username, pr, replace, () -> {
+                replaced[0] = replace ? python.cancelOwn(token, username, pr) : 0;
+                queuing[0] = true;
+
+                return python.queue(token, pr, top, "Ignite PR Checker: Run on the checker's page for"
+                    + " https://github.com/" + python.repo() + "/pull/" + pr);
+            });
         }
         catch (PythonClientRuns.NotQueued e) {
-            return ResponseEntity.status(409).body(replaced == 0 ? Map.of("error", e.getMessage())
-                : Map.of("error", PREVIOUS_RUN_CANCELLED + ": " + e.getMessage(), "replaced", replaced));
+            return ResponseEntity.status(409).body(replaced[0] == 0 ? Map.of("error", e.getMessage())
+                : Map.of("error", PREVIOUS_RUN_CANCELLED + ": " + e.getMessage(), "replaced", replaced[0]));
         }
         catch (RuntimeException e) {
+            if (!queuing[0])
+                throw e;
+
             RuntimeException refused = e instanceof TcResponseException tcError && tcError.getStatusCode().value() == 403
                 ? new QueueRefusedException(tcError) : e;
-            if (replaced == 0)
+            if (replaced[0] == 0)
                 throw refused;
 
-            throw new ReplacementNotQueuedException(replaced, refused, PREVIOUS_RUN_CANCELLED);
+            throw new ReplacementNotQueuedException(replaced[0], refused, PREVIOUS_RUN_CANCELLED);
         }
 
         Map<String, Object> m = TriggerController.brief(queued.build());
@@ -213,7 +224,7 @@ public class ClientPrsController {
             m.put("topRefusal", queued.belowTop());
         }
 
-        return ResponseEntity.ok(Map.of("triggered", List.of(m), "replaced", replaced));
+        return ResponseEntity.ok(Map.of("triggered", List.of(m), "replaced", replaced[0]));
     }
 
     /** Cancels the user's own runs of the suite on the PR, only those in {@code ids} when given. */

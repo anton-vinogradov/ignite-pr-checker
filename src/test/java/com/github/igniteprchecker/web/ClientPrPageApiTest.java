@@ -30,17 +30,21 @@ import com.github.igniteprchecker.github.PythonClientRuns;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.PinnedRun;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcResponseException;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.client.HttpClientErrorException;
 
 /**
  * The checker's page of PR #69 of apache/ignite-python-thin-client: apache/ignite has a PR #69 too, so the page asks
@@ -84,6 +88,8 @@ class ClientPrPageApiTest {
             "GitHubApacheIgnitePythonThinClient", "314")));
         when(tc.queuePinned(eq("tok"), any(), anyBoolean(), anyString())).thenReturn(build(9424794L, "queued",
             "alice"));
+        when(commands.queueFromPage(anyString(), anyInt(), anyBoolean(), any())).thenAnswer(inv ->
+            inv.<Supplier<PythonClientRuns.Queued>>getArgument(3).get());
 
         PythonClientRuns python = new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc,
             mock(BlockerAnalyzer.class), new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null,
@@ -185,6 +191,21 @@ class ClientPrPageApiTest {
         InOrder order = inOrder(tc);
         order.verify(tc).cancelOwnBuilds(eq("tok"), eq("pull/69"), eq("alice"), any());
         order.verify(tc).queuePinned(eq("tok"), any(), eq(true), anyString());
+        verify(commands).queueFromPage(eq("alice"), eq(PR), eq(true), any());
+    }
+
+    /** ci2 refused to cancel Alice's run: nothing is queued, and the answer is ci2's refusal, not one to queue. */
+    @Test
+    void aRefusedCancelIsNotTakenForARefusedQueue() throws Exception {
+        when(github.reportsConflicts(CLIENT_REPO, PR)).thenReturn(false);
+        when(tc.cancelOwnBuilds(eq("tok"), eq("pull/69"), eq("alice"), any())).thenThrow(new TcResponseException(
+            HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", null, null, null)));
+
+        asAlice(post("/api/client/trigger").param("replace", "true"))
+            .andExpect(status().isBadGateway())
+            .andExpect(jsonPath("$.error").value(ApiExceptionHandler.FORBIDDEN));
+
+        verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
     }
 
     @Test

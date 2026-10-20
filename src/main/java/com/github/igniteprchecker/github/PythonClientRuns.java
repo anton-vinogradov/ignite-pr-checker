@@ -220,11 +220,13 @@ public class PythonClientRuns {
     /**
      * The verdict comment of the run {@code buildId} of the suite {@code suiteName}, which mentions {@code login} when
      * known. {@code pinned}: what the run was queued with. It says what became of the run's auto {@code rerun}, null
-     * when none was due, and of its {@code visa}, and links the checker's {@code page} of the PR.
+     * when none was due, and of its {@code visa}, and links the checker's {@code page} of the PR. {@code fromPage}: the
+     * run was queued on that page, not by a {@code /run-all}.
      */
     public String verdictComment(String login, int pr, long buildId, String suiteName, PinnedRun pinned,
-        AnalysisResult r, ClientVerdict.Rerun rerun, ClientVisa visa, String page) {
-        return ClientVerdict.markdown(tcBase, login, run(pr, buildId, suiteName, pinned, page), r, rerun, visa);
+        AnalysisResult r, ClientVerdict.Rerun rerun, ClientVisa visa, String page, boolean fromPage) {
+        return ClientVerdict.markdown(tcBase, login, run(pr, buildId, suiteName, pinned, page), r, rerun, visa,
+            fromPage);
     }
 
     /** The visa of the run: its verdict in JIRA's wiki markup, which says that it is of one suite. */

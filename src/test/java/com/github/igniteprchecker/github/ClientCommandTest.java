@@ -168,8 +168,9 @@ class ClientCommandTest {
             .contains("❌ **1 blocker:**\n- `test_sql.test_sql_fields_query` — not seen failing in 100 master runs;"
                 + " failed the only run on this branch (1 run) · [TC](https://ci2.example/buildConfiguration/"
                 + SUITE + "/9424005?buildTab=tests&expandedTest=o2#testNameId502)")
-            .contains("**1 failing test is not blamed on this PR:**\n- `test_cache_config.test_get` — pre-existing:"
-                + " fails 3/100 on master · [TC](")
+            .contains("**1 failing test is not blamed on this PR.** [The checker's page](" + PAGE + ") shows it with"
+                + " its reason.\n\n")
+            .doesNotContain("test_cache_config")
             .contains(" against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite/commit/" + IGNITE + ")."
                 + " The checker's page shows each failed test with its failure message: [Ignite PR Checker](" + PAGE
                 + ").\n\n");

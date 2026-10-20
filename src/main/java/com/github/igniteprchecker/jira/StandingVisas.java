@@ -1399,8 +1399,8 @@ public class StandingVisas implements SnapshotCache {
     /**
      * Where the visa of a run of the Python thin client's suite stands, for the line on the checker's page of PR {@code
      * pr} of {@code repo}: the visa of the run {@code buildId} itself, else the newest visa of the PR of the same
-     * commits, {@code revision}, as an auto re-run that stood in for a cancelled run has. Such a visa comes only with a
-     * {@code /run-all}, so a run with none has state null, and the page says nothing.
+     * commits, {@code revision}, as an auto re-run that stood in for a cancelled run has. Such a visa comes only from
+     * the starter's option, so a run with none has state null, and the page says nothing.
      */
     public VisaLine clientVisaLine(String viewer, String repo, int pr, long buildId, String revision) {
         RunVisa v = runVisas.get(buildId);
@@ -1720,12 +1720,33 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
+     * Whether the user's "Post my runs' verdicts in the PR" acts on their run that finished at {@code finishedMs}: it
+     * was on by then, and TeamCity has not refused the token the run is followed with.
+     */
+    public boolean commentActsOn(String username, long finishedMs) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && !e.tc().rejected() && e.actingOn(finishedMs).ghComment();
+    }
+
+    /**
+     * The user's GitHub login once a token proved it, which the verdict comment of their run mentions; null when none
+     * is linked or proven.
+     */
+    public String provenGhLogin(String username) {
+        Enrollment e = enrolled.get(username);
+
+        return e != null && e.ghLoginProven() ? e.ghLogin() : null;
+    }
+
+    /**
      * Posts the visa of a run of the Python thin client's suite, {@code buildId}, that {@code username} started with
-     * a {@code /run-all} in PR {@code pr} of {@code repo}: their "Visa my runs in JIRA" posts {@code body} to the
-     * IGNITE ticket the PR title names, as for a RunAll. The option acts on a run that finished after it went on
-     * ({@code finishedMs}). {@code pull} asks GitHub for the PR's title. A closed PR gets no visa, and none goes out
-     * that says what the user's last visa of the PR in that ticket said of the same commits. Each visa posted is in the
-     * user's journal with the repo. A refused JIRA token is dropped and switches the option off, as after any visa.
+     * a {@code /run-all} in PR {@code pr} of {@code repo}, or on the checker's page of the PR: their "Visa my runs in
+     * JIRA" posts {@code body} to the IGNITE ticket the PR title names, as for a RunAll. The option acts on a run that
+     * finished after it went on ({@code finishedMs}). {@code pull} asks GitHub for the PR's title. A closed PR gets no
+     * visa, and none goes out that says what the user's last visa of the PR in that ticket said of the same commits.
+     * Each visa posted is in the user's journal with the repo. A refused JIRA token is dropped and switches the option
+     * off, as after any visa.
      */
     public ClientVisa clientVisa(String username, String repo, int pr, long buildId, long finishedMs,
         AnalysisResult res, String body, Supplier<Optional<GithubClient.PullState>> pull) {

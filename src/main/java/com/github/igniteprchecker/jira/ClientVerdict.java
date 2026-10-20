@@ -11,10 +11,11 @@ import java.util.stream.Stream;
 
 /**
  * The verdict of a run of the Python thin client's suite for a PR of the client: in GitHub's markdown for the PR, and
- * in JIRA's wiki markup for the visa. It names the commits the run tested, then what failed, and why each failure is
- * or is not blamed on the PR, by the rules of a suite of a RunAll. The visa opens by saying it is of this one suite:
- * read as the visa of a RunAll, it would vouch for suites that never ran. Its links go to TeamCity and GitHub, and
- * the comment's also to the checker's page of the PR.
+ * in JIRA's wiki markup for the visa. It names the commits the run tested, then what failed, and why each failure is or
+ * is not blamed on the PR, by the rules of a suite of a RunAll. The comment only counts the tests not blamed: the
+ * checker's page lists them. The visa opens by saying it is of this one suite: read as the visa of a RunAll, it would
+ * vouch for suites that never ran. Its links go to TeamCity and GitHub, and the comment's also to the checker's page of
+ * the PR.
  */
 public final class ClientVerdict {
     /** Tests a list names; the rest are counted, with a link to the run's tests in TeamCity. */
@@ -90,17 +91,27 @@ public final class ClientVerdict {
      */
     public static String markdown(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
         ClientVisa visa) {
+        return markdown(tcBase, login, run, r, rerun, visa, false);
+    }
+
+    /**
+     * See {@link #markdown(String, String, Run, AnalysisResult, Rerun, ClientVisa)}: {@code fromPage}, the run was
+     * queued on the checker's page rather than by a {@code /run-all}, and the comment's first words say so. A comment
+     * that links the checker's page leaves the list of the tests not blamed on the PR to the page, as the verdict
+     * comment of a RunAll does, and only counts them: one PR can have dozens of them.
+     */
+    public static String markdown(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
+        ClientVisa visa, boolean fromPage) {
         Ink ink = Ink.MARKDOWN;
         long ran = ran(run, rerun);
         StringBuilder b = new StringBuilder();
-        b.append(login == null || login.isBlank() ? "The verdict of a `/run-all`" : "@" + login
-            + " the verdict of your `/run-all`").append(": ").append(ink.bold(ink.text(run.suiteName()))).append(' ')
+        b.append(opening(login, fromPage)).append(": ").append(ink.bold(ink.text(run.suiteName()))).append(' ')
             .append(ink.link("build " + ran, tcBase + "build/" + ran))
             .append(" ran this PR's head ").append(clientCommit(ink, run))
             .append(" against Ignite master at ").append(igniteCommit(ink, run)).append('.');
         pageLine(ink, run, r, b);
         b.append("\n\n");
-        body(ink, tcBase, ran, r, b);
+        body(ink, tcBase, ran, r, run.page(), b);
         rerunLine(ink, tcBase, run, rerun, b);
         visaLine(visa, b);
 
@@ -123,11 +134,25 @@ public final class ClientVerdict {
             .append(ink.link("build " + ran, tcBase + "build/" + ran))
             .append(" tested the PR's head ").append(clientCommit(ink, run))
             .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(". No other suite ran.\n\n");
-        body(ink, tcBase, ran, r, b);
+        body(ink, tcBase, ran, r, null, b);
         rerunLine(ink, tcBase, run, rerun, b);
 
         return b.append('_').append(FOOTER).append(ink.link("verdict glossary", VisaService.GLOSSARY)).append("._")
             .toString();
+    }
+
+    /**
+     * How the comment opens: whose run it is the verdict of, with a mention GitHub tells {@code login} of, and how the
+     * run was queued.
+     */
+    private static String opening(String login, boolean fromPage) {
+        boolean nobody = login == null || login.isBlank();
+        if (fromPage) {
+            return nobody ? "The verdict of a run queued on the checker's page"
+                : "@" + login + " the verdict of the run you queued on the checker's page";
+        }
+
+        return nobody ? "The verdict of a `/run-all`" : "@" + login + " the verdict of your `/run-all`";
     }
 
     /** The build the verdict names as the one that ran: the run's, or the re-run that stands in for it. */
@@ -137,9 +162,10 @@ public final class ClientVerdict {
 
     /**
      * What failed and why, the verdict's standing, the tests not blamed, and what the tags of the lists mean; past the
-     * tests a list shows, it links those of build {@code ran}.
+     * tests a list shows, it links those of build {@code ran}. With the checker's {@code page} of the PR, the tests not
+     * blamed are only counted, and the page lists them; without it, as in the visa, they are listed.
      */
-    private static void body(Ink ink, String tcBase, long ran, AnalysisResult r, StringBuilder b) {
+    private static void body(Ink ink, String tcBase, long ran, AnalysisResult r, String page, StringBuilder b) {
         r.brokenSuites().forEach(s -> b.append(ink.icon("⚠️", "(!)")).append(' ')
             .append(ink.bold("The suite has no reliable result:")).append(' ').append(ink.text(problems(s)))
             .append(".\n\n"));
@@ -189,8 +215,15 @@ public final class ClientVerdict {
 
         if (!r.filtered().isEmpty()) {
             int n = r.filtered().size();
-            b.append(ink.bold(count(n, "failing test") + (n == 1 ? " is" : " are") + " not blamed on this PR:"))
-                .append('\n').append(list(ink, tcBase, r.filtered(), tests)).append('\n');
+            String notBlamed = count(n, "failing test") + (n == 1 ? " is" : " are") + " not blamed on this PR";
+            if (page == null) {
+                b.append(ink.bold(notBlamed + ":")).append('\n').append(list(ink, tcBase, r.filtered(), tests))
+                    .append('\n');
+            }
+            else {
+                b.append(ink.bold(notBlamed + ".")).append(' ').append(ink.link("The checker's page", page))
+                    .append(n == 1 ? " shows it with its reason.\n\n" : " lists them with their reasons.\n\n");
+            }
         }
 
         List<TestVerdict> tagged = Stream.concat(r.blockers().stream(), r.watch().stream()).toList();
@@ -260,13 +293,13 @@ public final class ClientVerdict {
     private static String waits(String why) {
         if (StandingVisas.TOKEN_REMOVED.equals(why)) {
             return "No JIRA visa: the checker's state was restored from a backup older than 2 days, which keeps no"
-                + " tokens. Save your JIRA token in ⚙ again, and the next `/run-all` gets a visa.";
+                + " tokens. Save your JIRA token in ⚙ again, and your next run gets a visa.";
         }
 
         return "No JIRA visa: " + (SettingsJournal.Entry.KEY_CHANGED.equals(why)
             ? "the server key was changed, so the checker could no longer read your JIRA token."
             : "the checker could not read your JIRA token.")
-            + " Save a new one in ⚙, and the next `/run-all` gets a visa.";
+            + " Save a new one in ⚙, and your next run gets a visa.";
     }
 
     /** One line per test, with why it is listed and a link to it in TeamCity; past {@link #LISTED}, how many more. */

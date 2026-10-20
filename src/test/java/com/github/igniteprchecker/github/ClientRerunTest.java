@@ -160,8 +160,10 @@ class ClientRerunTest {
         assertThat(bodies.getAllValues().get(1)).startsWith("@Author the verdict of your `/run-all`: **Thin client:"
                 + " Python** [build 9424005](https://ci2.example/build/9424005)")
             .contains("against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite/commit/" + IGNITE + ")")
-            .contains("- `test_sql.test_sql_fields_query` — flaky on branch: failed only the latest of 2 runs")
-            .contains("✅ **No blockers**").doesNotContain("❌")
+            .contains("✅ **No blockers** — nothing in this run looks caused by this PR.\n\n**2 failing tests are not"
+                + " blamed on this PR.** [The checker's page](https://checker.example/?repo=python&pr=69) lists them"
+                + " with their reasons.\n\n")
+            .doesNotContain("❌").doesNotContain("test_sql.test_sql_fields_query")
             .contains("\n\n♻️ Settled after one auto re-run: [build 9424010](https://ci2.example/build/9424010) ran"
                 + " the suite again on the same commits.\n\n<sub>");
         verify(github).appDelete(CLIENT_REPO, PR, "author", 88L);

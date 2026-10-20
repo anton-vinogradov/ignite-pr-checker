@@ -472,7 +472,7 @@ class ClientVisaTest {
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("📝 No JIRA visa: the checker's state"
             + " was restored from a backup older than 2 days, which keeps no tokens. Save your JIRA token in ⚙ again,"
-            + " and the next `/run-all` gets a visa."));
+            + " and your next run gets a visa."));
     }
 
     private StandingVisas standing() {
