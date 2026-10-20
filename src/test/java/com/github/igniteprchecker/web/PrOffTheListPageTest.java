@@ -43,13 +43,15 @@ class PrOffTheListPageTest {
 
         JsonNode waiting = out.get("waiting");
         assertThat(waiting.get("line").asBoolean()).as("no word of a ticket before the title is known").isFalse();
-        assertThat(waiting.get("head").asText()).isEqualTo("#13692");
+        assertThat(waiting.get("head").asText()).as("its verdict, kept at the merge, tells it is merged")
+            .isEqualTo("#13692 Merged ?");
         assertThat(out.get("asked").asText()).isEqualTo("/api/pr-title?pr=13692");
         assertThat(out.get("visaAsked").toString()).as("where the visa stands is asked once the ticket is known")
             .contains("/api/visa?pr=13692&build=9001").doesNotContain("pr=13575");
 
         JsonNode titled = out.get("titled");
-        assertThat(titled.get("head").asText()).isEqualTo("#13692 IGNITE-29117 Python thin client: fix examples");
+        assertThat(titled.get("head").asText())
+            .isEqualTo("#13692 Merged ? IGNITE-29117 Python thin client: fix examples");
         assertThat(titled.get("html").asText()).contains("<a href=\"https://issues.apache.org/jira/browse/IGNITE-29117\" "
             + "target=\"_self\" rel=\"noopener\" title=\"Open IGNITE-29117 in JIRA\">IGNITE-29117</a>");
         assertThat(titled.get("line").asBoolean()).isTrue();

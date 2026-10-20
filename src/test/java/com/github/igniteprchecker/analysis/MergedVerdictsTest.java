@@ -66,7 +66,9 @@ class MergedVerdictsTest {
             .containsExactly("GridCommandHandlerTest.testCacheIdle");
         assertThat(kept.filtered()).extracting(TestVerdict::reason)
             .containsExactly("pre-existing: fails 15/98 on master on JDK 17");
-        assertThat(restarted.title(PR)).as("the page's head names the ticket from it").contains("IGNITE-28890 Fix it");
+        assertThat(restarted.atMerge(PR)).as("the page's head names the ticket from it, and when and at which commit "
+            + "the PR was merged").contains(new GithubClient.PullState("IGNITE-28890 Fix it", false, true, MERGED_AT,
+                "5be1c0d"));
     }
 
     @Test

@@ -162,7 +162,7 @@ class GlossaryTest {
             "Visa: the PR title names no IGNITE ticket", "who started this run, has ",
             "Visa: none, the PR title named no IGNITE ticket when the run settled", "Visa: none, this run was cancelled",
             "could not check whether the PR changed since this run", "it tested older code (see the note at the top)",
-            "⚠ Mixed run", "it is a mixed run (see the note at the top)",
+            "⚠ Mixed run", "it is a mixed run (see the note at the top)", "Merged", "Closed",
             "Blockers since the ", " dropped out", " still blocking");
         quoted(COMMON_SCRIPT, "⚖ assertion — likely a real logic failure", "environment/timing — a re-run may pass",
             "⌛ hang — the test ran out of time");

@@ -26,7 +26,7 @@ class MixedRunPageTest {
             line: page.el('pendingRow').classList.contains('hidden') ? null : page.el('pending').textContent,
             button: !page.el('pendingRerun').classList.contains('hidden'),
             primary: page.el('pendingRerun').classList.contains('primary'),
-            merged: page.el('mergedNote').classList.contains('hidden') ? null : page.el('mergedNote').textContent });
+            tag: (/<span class="tag" title="([^"]*)">/.exec(page.el('prTitle').innerHTML) || [])[1] || null });
         """;
 
     @Test
@@ -113,10 +113,9 @@ class MixedRunPageTest {
         assertThat(out.get("line").asText()).isEqualTo("⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the commit "
             + "the PR was merged at; the rest of the RunAll ran on c577b18.");
         assertThat(out.get("button").asBoolean()).isFalse();
-        assertThat(out.get("merged").asText()).isEqualTo("Merged 6 Oct 12:00. The verdict at the merge did not have "
-            + "the results of these runs, queued before the merge: Control Utility 5 on 9b02561. When they ended, the "
-            + "checker computed the verdict once more. This is that new verdict. It is not recomputed again: master's "
-            + "history now holds this PR's own runs. Runs queued after the merge do not change this verdict.");
+        assertThat(out.get("tag").asText()).isEqualTo("The PR was merged on 6 Oct at 12:00. After the merge, the "
+            + "checker computed the verdict once more, adding runs queued before the merge: Control Utility 5 on "
+            + "9b02561.");
     }
 
     /**
@@ -140,7 +139,7 @@ class MixedRunPageTest {
 
     /**
      * #13709 right after the merge: its re-run of Control Utility 5 still goes, and the checker computes the verdict
-     * kept at the merge once more when it ends. The note does not say that no run changes the verdict.
+     * kept at the merge once more when it ends. The Merged tag does not say that no run changes the verdict.
      */
     @Test
     void aMergedPrWhoseRunsAtTheMergeAreStillDueSaysTheVerdictMayChange() throws Exception {
@@ -151,12 +150,11 @@ class MixedRunPageTest {
             report(state());
             """);
 
-        assertThat(out.get("merged").asText()).isEqualTo("Merged 6 Oct 12:00. This is the verdict as it stood at the "
-            + "merge. The checker still looks for runs queued before the merge that this verdict did not count. If it "
-            + "finds any, it computes the verdict once more when they end.");
+        assertThat(out.get("tag").asText()).isEqualTo("The PR was merged on 6 Oct at 12:00. The verdict may change "
+            + "once more: the checker still looks for runs queued before the merge that the verdict did not count.");
     }
 
-    /** A RunAll cancelled at the merge leaves its finished suites: the note names three of them. */
+    /** A RunAll cancelled at the merge leaves its finished suites: the Merged tag names three of them. */
     @Test
     void theNoteNamesThreeRunsAtTheMergeAtMost() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + MIXED + """
@@ -168,8 +166,8 @@ class MixedRunPageTest {
             report(state());
             """);
 
-        assertThat(out.get("merged").asText()).contains("queued before the merge: Cache 1 on 9b02561, Cache 2 on "
-            + "9b02561, Cache 3 on 9b02561 and 2 more runs. When they ended");
+        assertThat(out.get("tag").asText()).endsWith("queued before the merge: Cache 1 on 9b02561, Cache 2 on 9b02561, "
+            + "Cache 3 on 9b02561 and 2 more runs.");
     }
 
     /** A new verdict of the same RunAll that is no longer mixed takes the line back to older code. */

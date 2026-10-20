@@ -165,9 +165,9 @@ public class MergedVerdicts {
         return merged(pr).map(Merged::verdict);
     }
 
-    /** The title a merged PR had at its merge, if its verdict was kept. */
-    public Optional<String> title(int pr) {
-        return merged(pr).map(Merged::title);
+    /** A merged PR as it stood at its merge, if its verdict was kept: its title, when it was merged and its head. */
+    public Optional<GithubClient.PullState> atMerge(int pr) {
+        return merged(pr).map(m -> new GithubClient.PullState(m.title(), false, true, m.mergedAt(), m.head()));
     }
 
     /** The merged PRs whose kept verdict is due for a look at the runs queued before the merge that it did not read. */

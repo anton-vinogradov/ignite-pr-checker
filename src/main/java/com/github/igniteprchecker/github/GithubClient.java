@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -443,17 +444,41 @@ public class GithubClient implements SnapshotCache {
         try {
             java.util.Map<?, ?> pr = recorded("prState", () -> appGet(
                 props.apiUrl() + "/repos/" + repo + "/pulls/" + prNumber).body(java.util.Map.class));
+            if (pr == null)
+                return java.util.Optional.empty();
 
-            return java.util.Optional.ofNullable(pr == null ? null : new PullState((String)pr.get("title"),
-                "open".equals(pr.get("state")), Boolean.TRUE.equals(pr.get("merged"))));
+            boolean open = "open".equals(pr.get("state"));
+            Object closedAt = pr.get("merged_at") != null ? pr.get("merged_at") : pr.get("closed_at");
+            Object head = pr.get("head");
+
+            return java.util.Optional.of(new PullState((String)pr.get("title"), open,
+                Boolean.TRUE.equals(pr.get("merged")), open ? 0 : epochSeconds(closedAt),
+                head instanceof java.util.Map<?, ?> h ? (String)h.get("sha") : null));
         }
         catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
             return java.util.Optional.empty();
         }
     }
 
-    /** A PR as GitHub has it now: its title, whether it is open, and whether it was merged. */
-    public record PullState(String title, boolean open, boolean merged) {
+    /** An ISO 8601 moment as GitHub writes it, in epoch seconds; 0 for none or one that does not read. */
+    private static long epochSeconds(Object moment) {
+        try {
+            return moment == null ? 0 : Instant.parse(moment.toString()).getEpochSecond();
+        }
+        catch (DateTimeParseException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * A PR as GitHub has it now: its title, whether it is open, and whether it was merged. {@code closedAt}: when it
+     * was merged, or closed without a merge, in epoch seconds; 0 while it is open or when GitHub does not say.
+     * {@code head}: the sha of its head commit; null when GitHub names none.
+     */
+    public record PullState(String title, boolean open, boolean merged, long closedAt, String head) {
+        public PullState(String title, boolean open, boolean merged) {
+            this(title, open, merged, 0, null);
+        }
     }
 
     /** The PR's author and head (source branch) coordinates — where a style-fix commit must go. */

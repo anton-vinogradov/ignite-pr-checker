@@ -38,7 +38,7 @@ class PrTitleControllerTest {
     void listed() {
         when(github.openPrs()).thenReturn(List.of(new PrSummary(13575, "IGNITE-29049 Move MDC to JUnit",
             "https://github.com/apache/ignite/pull/13575", null, null, null)));
-        when(merged.title(anyInt())).thenReturn(Optional.empty());
+        when(merged.atMerge(anyInt())).thenReturn(Optional.empty());
         when(github.pullState(anyInt())).thenReturn(Optional.empty());
     }
 
@@ -50,7 +50,8 @@ class PrTitleControllerTest {
 
     @Test
     void aMergedPrsTitleIsTheOneAtItsMerge() {
-        when(merged.title(13692)).thenReturn(Optional.of("IGNITE-29117 Python thin client: fix examples"));
+        when(merged.atMerge(13692)).thenReturn(Optional.of(new GithubClient.PullState(
+            "IGNITE-29117 Python thin client: fix examples", false, true, 1_791_208_920L, "5be1c0d")));
 
         assertThat(body(titles.title(13692))).containsEntry("title", "IGNITE-29117 Python thin client: fix examples");
         verify(github, never()).pullState(anyInt());
@@ -103,6 +104,39 @@ class PrTitleControllerTest {
         now.addAndGet(60 * 60_000L);
         titles.title(201);
         verify(github).pullState(201);
+    }
+
+    /**
+     * apache/ignite#13709 was merged on 20 Oct at 10:12 UTC at its commit 9b02561, and the page's head tags it so. The
+     * verdict kept at the merge says when and at which commit, with no call to GitHub.
+     */
+    @Test
+    void aMergedPrSaysWhenAndAtWhichCommitItWasMerged() {
+        when(merged.atMerge(13709)).thenReturn(Optional.of(new GithubClient.PullState("IGNITE-29120 Fix control.sh",
+            false, true, 1_792_491_159L, "9b02561a7c3e5f9d1b2a4c6e8f0a1b3c5d7e9f2a")));
+
+        assertThat(body(titles.title(13709))).containsEntry("title", "IGNITE-29120 Fix control.sh")
+            .containsEntry("state", "merged").containsEntry("closedAt", 1_792_491_159L)
+            .containsEntry("head", "9b02561a7c3e5f9d1b2a4c6e8f0a1b3c5d7e9f2a");
+        verify(github, never()).pullState(anyInt());
+    }
+
+    @Test
+    void aPrClosedWithoutAMergeSaysWhenFromGithub() {
+        when(github.pullState(13100)).thenReturn(Optional.of(new GithubClient.PullState("IGNITE-28800 Old work",
+            false, false, 1_792_400_000L, "def4567")));
+
+        assertThat(body(titles.title(13100))).containsEntry("state", "closed").containsEntry("closedAt", 1_792_400_000L)
+            .containsEntry("head", "def4567");
+    }
+
+    @Test
+    void anOpenPrIsNeitherMergedNorClosed() {
+        when(github.pullState(13100)).thenReturn(Optional.of(new GithubClient.PullState("IGNITE-28800 Old work",
+            true, false)));
+
+        assertThat(body(titles.title(13100))).containsOnlyKeys("title");
+        assertThat(body(titles.title(13575))).containsOnlyKeys("title");
     }
 
     @SuppressWarnings("unchecked")
