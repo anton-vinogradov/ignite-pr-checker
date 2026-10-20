@@ -35,9 +35,9 @@ each label means and what to do about it.
   account, and a checkstyle fix and tests added to suites need a GitHub token for commits. The options work while the
   page is closed. When something is missing, ⚙ and the PR replies say what to do. See
   [Standing options](docs/features.md#standing-options).
-- **Visa from the page.** **Post visa** on the PR page posts the visa of the run the page shows to the PR's IGNITE
-  ticket now, as your comment in JIRA, with the JIRA token you saved in ⚙. It works once the verdict is final, on a
-  merged PR and on a PR of the Python thin client too. See
+- **Visa from the page.** **Post visa** on the PR page posts the visa of the run on the page now, to the IGNITE
+  ticket the PR title names. The visa is your comment in JIRA, posted with the JIRA token you saved in ⚙. It works
+  once the verdict is final, also on a merged PR and on a PR of the Python thin client. See
   [Visas and PR comments](docs/features.md#visas-and-pr-comments).
 - **In Russian.** Choose Русский under **Language** in ⚙ and press **Save**: every page of the checker then shows in
   Russian in every browser you log in from. PR comments and visas stay in English. See

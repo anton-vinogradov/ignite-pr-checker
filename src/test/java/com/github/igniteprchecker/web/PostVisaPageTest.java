@@ -22,8 +22,8 @@ class PostVisaPageTest {
 
     private static final String WAIT = "Post visa waits for the final verdict: runs of this PR can still change it.";
 
-    private static final String RETRIED = "TeamCity errors left part of this verdict unchecked. The checker tries it"
-        + " again, and Post visa waits up to 20 minutes for that.";
+    private static final String RETRIED = "TeamCity errors left part of this verdict unchecked. The checker checks"
+        + " that part again, and Post visa waits up to 20 minutes for that.";
 
     /** The client's PR #69, whose newest run of the suite has a final verdict. */
     private static final String CLIENT_PR = """

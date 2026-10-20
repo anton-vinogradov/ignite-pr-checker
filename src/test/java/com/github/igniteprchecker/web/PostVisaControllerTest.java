@@ -173,7 +173,7 @@ class PostVisaControllerTest {
         when(analyzer.stillRetrying(any())).thenReturn(true);
 
         refusedAs("going").andExpect(jsonPath("$.error").value("TeamCity errors left part of this verdict unchecked."
-            + " The checker tries it again, and Post visa waits up to 20 minutes for that."));
+            + " The checker checks that part again, and Post visa waits up to 20 minutes for that."));
     }
 
     /** The page shows RunAll 9425992, and the checker has a newer RunAll of the PR. */

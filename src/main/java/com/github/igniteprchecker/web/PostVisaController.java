@@ -149,7 +149,8 @@ public class PostVisaController {
         }
         if (analyzer.stillRetrying(res)) {
             return Optional.of(ResponseEntity.status(409).body(Map.of("error", "TeamCity errors left part of this"
-                + " verdict unchecked. The checker tries it again, and Post visa waits up to 20 minutes for that.",
+                + " verdict unchecked. The checker checks that part again, and Post visa waits up to 20 minutes for"
+                + " that.",
                 "going", true)));
         }
 

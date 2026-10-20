@@ -3535,8 +3535,8 @@ const VISA_POST_OFF = {
     token: phrase('Post visa uses the JIRA token you save in ⚙, and you have none there. Saving one also switches on '
         + 'Visa my runs in JIRA.'),
     wait: phrase('Post visa waits for the final verdict: runs of this PR can still change it.'),
-    retry: phrase('TeamCity errors left part of this verdict unchecked. The checker tries it again, and Post visa '
-        + 'waits up to 20 minutes for that.'),
+    retry: phrase('TeamCity errors left part of this verdict unchecked. The checker checks that part again, and Post '
+        + 'visa waits up to 20 minutes for that.'),
 };
 let visaPostOff = ''; // the key of VISA_POST_OFF that keeps Post visa off now, '' while it is on
 let visaRetryTimer = null; // paints Post visa again when its wait for the verdict's TeamCity errors ends
