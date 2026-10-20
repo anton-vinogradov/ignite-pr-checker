@@ -594,8 +594,8 @@ The commands also work in the pull requests of
   run someone started in this PR from TeamCity without it.
 - As with a RunAll, a comment of the checker tells how the run goes. When the run finishes, a new comment mentions you
   and brings the verdict: the two commits, the blockers and the tests that started failing, each with its reason and a
-  link to TeamCity. Of the tests not blamed on the PR, the comment gives only the number, and the PR's page on the
-  checker lists them. Both comments link that page.
+  link to TeamCity. The comment gives only the number of tests not blamed on the PR. The PR's page on the checker
+  lists these tests. Both comments link that page.
 - The checker's page of such a PR is `?repo=python&pr=69`. It shows the verdict of the newest of the PR's runs that
   tested the PR's own commit. When the run before the newest one tested the same two commits, the verdict counts the
   failed tests of both runs. For example, an auto re-run tests the same two commits as the run it re-runs. The page
@@ -605,10 +605,10 @@ The commands also work in the pull requests of
   and offer **Run anyway**. The checker computes the verdicts of the client's open PRs in advance, in the background,
   as it does for Ignite's PRs.
 - Your options act on a run you start with **Run** or **Run at top** as on a run of `/run-all`. An option you switch
-  on while the run goes acts on it too. **Re-run failed suites of my runs** and **Visa my runs in JIRA** work on it as
-  the next bullets say. With **Post my runs' verdicts in the PR** on, the verdict comes in a comment that mentions you
-  when your GitHub account is linked. With that option off, the run leaves no comment in the PR. No comment tells how
-  such a run goes, as for a RunAll you start on the page of an Ignite PR.
+  on before the run finishes acts on it too. **Re-run failed suites of my runs** and **Visa my runs in JIRA** work on
+  it as the next bullets say. With **Post my runs' verdicts in the PR** on, the verdict comes in a comment in the PR.
+  The comment mentions you when your GitHub account is linked. With that option off, the run leaves no comment in the
+  PR. No comment tells how such a run goes. The same is true for a RunAll you start on the page of an Ignite PR.
 - **Re-run failed suites of my runs** works here too, once per run. When the verdict has a blocker, a test that started
   failing or a broken suite, the checker queues the suite again at the top of the queue. The re-run tests the same two
   commits with the same `OVERRIDDEN_BRANCH`, even after Ignite master or the PR moved on. For a `/run-all`, the
@@ -630,7 +630,7 @@ The commands also work in the pull requests of
 - Not tested: a client change together with an Ignite change it needs, since the run always takes Ignite master. Run
   `/run-all` again once the Ignite change is in master.
 - A new `/run-all` cancels your run of the suite in this PR that is queued or running, and its auto re-run. **Run**
-  on the page does the same after it asks you. When TeamCity has no such suite or refuses the run, the reply says so.
+  on the page does the same once you confirm. When TeamCity has no such suite or refuses the run, the reply says so.
 - The **PR commands** card on the status page names both repos.
 
 ## The flaky board (`/flaky.html`)
