@@ -314,6 +314,22 @@ class ClientPrPageApiTest {
         verify(github).pullState(CLIENT_REPO, 68);
     }
 
+    /** A merged client PR, as the page's head tags it: when it was merged and at which commit. */
+    @Test
+    void theTitleOfAMergedPrSaysWhenAndAtWhichCommit() throws Exception {
+        when(github.pullState(CLIENT_REPO, 68)).thenReturn(Optional.of(new GithubClient.PullState(
+            "IGNITE-29001 Support Python 3.13", false, true, 1_792_491_159L, CLIENT)));
+        when(clients.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
+            "https://github.com/" + CLIENT_REPO + "/pull/69", null, null, null, CLIENT, null)));
+
+        mvc.perform(get("/api/client/pr-title").param("pr", "68"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.state").value("merged"))
+            .andExpect(jsonPath("$.closedAt").value(1_792_491_159L))
+            .andExpect(jsonPath("$.head").value(CLIENT));
+        asAlice(get("/api/client/pr-title")).andExpect(jsonPath("$.state").doesNotExist());
+    }
+
     /** A reader trying PR numbers one after another: GitHub is asked about 60 of them an hour, as for Ignite's PRs. */
     @Test
     void gitHubIsAskedAboutSixtyTitlesAnHour() throws Exception {

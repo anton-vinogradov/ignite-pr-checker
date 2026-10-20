@@ -258,12 +258,14 @@ public class ClientPrsController {
 
     /**
      * {@code title}: the PR's title, from the list of the client's open PRs, else from GitHub; 404 when GitHub has no
-     * such PR or could not be asked. GitHub's answer is kept 5 minutes, and GitHub is asked about 60 PRs an hour at
-     * most.
+     * such PR or could not be asked. A merged or closed PR also gets when and at which commit, as Ignite's PRs get it
+     * (see {@link PrTitleController#answer}). GitHub's answer is kept 5 minutes, and GitHub is asked about 60 PRs an
+     * hour at most.
      */
     @GetMapping("/pr-title")
     public ResponseEntity<?> title(@RequestParam int pr) {
-        return knownTitle(pr).<ResponseEntity<?>>map(t -> ResponseEntity.ok(Map.of("title", t)))
+        return known(pr).filter(p -> p.title() != null)
+            .<ResponseEntity<?>>map(p -> ResponseEntity.ok(PrTitleController.answer(p)))
             .orElseGet(() -> noTitle(pr));
     }
 
@@ -279,6 +281,11 @@ public class ClientPrsController {
 
     /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
     Optional<String> knownTitle(int pr) {
+        return known(pr).map(GithubClient.PullState::title);
+    }
+
+    /** The PR as the page gets it; empty when GitHub has no such PR or could not be asked. */
+    private Optional<GithubClient.PullState> known(int pr) {
         long now = clock.getAsLong();
         Title t = titles.get(pr);
         if (t == null || now - t.at() >= TITLE_KEPT_MS) {
@@ -290,18 +297,18 @@ public class ClientPrsController {
             titles.put(pr, t);
         }
 
-        return Optional.ofNullable(t.title());
+        return Optional.ofNullable(t.pull());
     }
 
     private Title titleOf(int pr, long now) {
         Optional<String> listed = listed(pr);
         if (listed.isPresent())
-            return new Title(listed.get(), now);
+            return new Title(new GithubClient.PullState(listed.get(), true, false), now);
         if (!mayAskGithub(now))
             return null;
 
         try {
-            return new Title(python.pullState(pr).map(GithubClient.PullState::title).orElse(null), now);
+            return new Title(python.pullState(pr).orElse(null), now);
         }
         catch (RuntimeException e) {
             return null;
@@ -329,8 +336,8 @@ public class ClientPrsController {
         return ResponseEntity.status(404).body(Map.of("error", "no title known for PR " + pr));
     }
 
-    /** A title, null for a PR GitHub does not have, and when it was learned. */
-    private record Title(String title, long at) {
+    /** A PR, null for one GitHub does not have, and when it was learned. */
+    private record Title(GithubClient.PullState pull, long at) {
     }
 
     /**

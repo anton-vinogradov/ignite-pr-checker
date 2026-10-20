@@ -10,27 +10,32 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * A merged PR's page was recomputed against a master history that by then held the PR's own failures, and called
- * them "pre-existing". It now shows the verdict the PR had at the merge, says so, and says that new runs do not change
- * it.
+ * them "pre-existing". It now shows the verdict the PR had at the merge, tags the PR Merged, and offers nothing that
+ * would change that verdict.
  */
 class MergedPrPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
+    /**
+     * The owner, 20 Oct: the note over a merged PR's verdict ("Merged 6 Oct 12:00. This is the verdict as it stood at
+     * the merge. It is not recomputed: master's history now holds this PR's own runs…") told more about the merge than
+     * a reader needs. The tag Merged beside the number says when; the glossary behind its ? says how the verdict is
+     * kept.
+     */
     @Test
-    void aMergedPrSaysItsVerdictIsTheOneAtTheMerge() throws Exception {
+    void aMergedPrIsTaggedInItsHeadWithNoNoteOverTheVerdict() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/pr-title', { body: { title: 'IGNITE-29049 Move MDC to JUnit' } });
             page.route('/api/analyze', { body: verdict({ mergedAt: Math.floor(page.now() / 1000) - 86400 }) });
             await page.load('?pr=13575');
-            report({ note: page.el('mergedNote').textContent,
-                shown: !page.el('mergedNote').classList.contains('hidden'),
+            report({ head: page.text('prTitle'), card: page.text('verdictCard'),
                 refresh: !page.el('refreshBtn').classList.contains('hidden') });
             """);
 
-        assertThat(out.get("shown").asBoolean()).isTrue();
-        assertThat(out.get("note").asText()).isEqualTo("Merged 6 Oct 12:00. This is the verdict as it stood at the "
-            + "merge. It is not recomputed: master's history now holds this PR's own runs. New runs do not change this "
-            + "verdict.");
+        assertThat(out.get("head").asText()).isEqualTo("#13575 Merged ? IGNITE-29049 Move MDC to JUnit");
+        assertThat(out.get("card").asText()).doesNotContain("Merged", "at the merge", "recomputed");
         assertThat(out.get("refresh").asBoolean()).isFalse();
+        assertThat(Files.readString(PAGE, UTF_8)).doesNotContain("mergedNote", "merged-note");
     }
 
     /** The page redraws the run's age every half minute; that brought ↻ back on a merged PR. */
@@ -107,12 +112,12 @@ class MergedPrPageTest {
     }
 
     @Test
-    void anOpenPrHasNoSuchNote() throws Exception {
+    void anOpenPrHasNoTag() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('?pr=13575');
-            report({ shown: !page.el('mergedNote').classList.contains('hidden') });
+            report({ head: page.el('prTitle').innerHTML });
             """);
 
-        assertThat(out.get("shown").asBoolean()).isFalse();
+        assertThat(out.get("head").asText()).doesNotContain("class=\"tag\"", "Merged", "Closed");
     }
 }

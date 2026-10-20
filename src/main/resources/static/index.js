@@ -166,14 +166,16 @@ function clockOf(ms) {
 }
 
 let shownTitle = null; // what setPrTitle last drew, to redraw once /api/config names the hosts
+let shownPrState = ''; // the Merged or Closed tag setPrTitle last drew beside the number
 
 // An IGNITE ticket key in a PR title, in any case: the rule the server finds the ticket of a visa by.
 const ISSUE_KEY = /\bIGNITE-\d{4,}\b/i;
 
 // `title` is null while the page does not know it: then the PR's ticket is not known either (lastIssueKey null), which
-// is not the same as a title that names none ('').
-function setPrTitle(number, title, url) {
-    shownTitle = [number, title, url];
+// is not the same as a title that names none (''). `closing` is what /api/pr-title says of a merged or closed PR.
+function setPrTitle(number, title, url, closing = null) {
+    shownTitle = [number, title, url, closing];
+    shownPrState = prStateTag(closing);
     lastIssueKey = title == null ? null : ((title.match(ISSUE_KEY) || [''])[0]).toUpperCase();
     const href = url || prUrlOf(number, selectedRepo);
     $('prTitle').classList.remove('muted');
@@ -183,7 +185,33 @@ function setPrTitle(number, title, url) {
     }) : '';
     $('prTitle').innerHTML = (selectedRepo ? `<span class="tag">${T('Python client')}</span> ` : '')
         + `<a href="${esc(href)}" target="_self" rel="noopener" title="${T`Open PR #${esc(number)} on GitHub`}">#${esc(number)}</a>`
-        + (linked ? ' ' + linked : '');
+        + (shownPrState ? ' ' + shownPrState : '') + (linked ? ' ' + linked : '');
+}
+
+// "Merged" beside the number of a merged PR, and "Closed" beside that of a PR closed without a merge. /api/pr-title
+// tells which; until it does, or when it cannot, a verdict kept at the merge tells it. Only a kept verdict gets the ?
+// into the glossary: the checker computes the verdict of any other merged PR as an open PR's.
+function prStateTag(closing) {
+    const res = lastResult && isOpen(lastResult.prNumber, lastResult.repo) ? lastResult : null;
+    const kept = !!(res && res.mergedAt);
+    const state = closing || (kept ? { state: 'merged', closedAt: res.mergedAt } : null);
+    if (!state) return '';
+    const merged = state.state === 'merged';
+    const tag = `<span class="tag" title="${esc(prStateTitle(state))}">${merged ? T('Merged') : T('Closed')}</span>`;
+    if (!merged || !kept) return tag;
+    const glossary = T('https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas');
+    const help = T('Opens the verdict glossary on GitHub. It says how the checker keeps the verdict of a merged PR.');
+    return `<span>${tag} <a class="help" href="${esc(glossary)}" target="_self" rel="noopener" title="${esc(help)}" aria-label="${esc(T('What Merged means'))}">?</a></span>`;
+}
+
+// "The PR was merged at its commit 9b02561 on 20 Oct at 13:12."
+function prStateTitle(state) {
+    const when = fmtDayAt(state.closedAt * 1000);
+    const head = state.head ? shortSha(state.head) : '';
+    if (state.state !== 'merged')
+        return head ? T('The PR was closed without a merge at its commit {0} on {1}.', head, when)
+            : T`The PR was closed without a merge on ${when}.`;
+    return head ? T('The PR was merged at its commit {0} on {1}.', head, when) : T`The PR was merged on ${when}.`;
 }
 
 async function loadConfig() {
@@ -630,9 +658,9 @@ async function loadPrTitle(number) {
     try {
         const r = await api(prApi('pr-title', number, repo));
         if (!r.ok) return;
-        const { title } = await r.json();
+        const { title, state, closedAt, head } = await r.json();
         if (!isOpen(number, repo) || typeof title !== 'string') return;
-        setPrTitle(number, title, null);
+        setPrTitle(number, title, null, state ? { state, closedAt, head } : null);
         loadVisaLine(number);
     } catch (e) { /* the head keeps the number alone, and the visa line stays hidden */ }
 }
@@ -1872,29 +1900,12 @@ function clientRunLabel(res) {
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
 // no refresh for it, and the cards do not ask for re-runs that would change nothing. Runs queued before the merge that
-// the kept verdict did not read are the one exception (RunsAtMerge): while the server may still look for them, the
-// note says so, and once their results are in, it names them.
+// the kept verdict did not read are the one exception (RunsAtMerge). The head is drawn again when the verdict changes
+// its tag: the title and the verdict come in either order.
 function renderMerged(res) {
-    const merged = !!res.mergedAt;
-    $('mergedNote').classList.toggle('hidden', !merged);
-    $('results').classList.toggle('merged', merged);
-    if (!merged) return;
-    const runs = (res.runsAtMerge || []).map(r => r.revision
-        ? T`${r.suiteName || r.suite} on ${shortSha(r.revision)}` : r.suiteName || r.suite);
-    const more = runs.length - 3;
-    const named = more > 0 ? runs.slice(0, 3).concat(T`${more} more run${more === 1 ? '' : 's'}`) : runs;
-    $('mergedNote').textContent = runs.length
-        ? T('Merged {0}. The verdict at the merge did not have the results of these runs, queued before the merge: '
-            + '{1}. When they ended, the checker computed the verdict once more. This is that new verdict. It is not '
-            + 'recomputed again: master\'s history now holds this PR\'s own runs. Runs queued after the merge do not '
-            + 'change this verdict.', fmtDay(res.mergedAt * 1000), listed(named))
-        : res.runsAtMergeDue
-        ? T('Merged {0}. This is the verdict as it stood at the merge. The checker still looks for runs queued before '
-            + 'the merge that this verdict did not count. If it finds any, it computes the verdict once more when they '
-            + 'end.', fmtDay(res.mergedAt * 1000))
-        : T('Merged {0}. This is the verdict as it stood at the merge. It is not recomputed: '
-            + 'master\'s history now holds this PR\'s own runs. New runs do not change this verdict.',
-            fmtDay(res.mergedAt * 1000));
+    $('results').classList.toggle('merged', !!res.mergedAt);
+    if (shownTitle && shownTitle[0] === res.prNumber && prStateTag(shownTitle[3]) !== shownPrState)
+        setPrTitle(...shownTitle);
 }
 
 function clearFreshness() {

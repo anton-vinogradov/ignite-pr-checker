@@ -5,6 +5,7 @@ import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -21,10 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The title of one PR, for a page opened on a PR the open list does not hold: merged, closed, or past the 50 most
- * recently updated. The page's head names the PR's ticket from it, and the JIRA visa posts there. The open list answers
- * first, then the title a merged PR had at its merge, then GitHub. GitHub is asked under the bot's token, whose hourly
- * quota also serves PR commands and visas. So GitHub's answer, a title or "no such PR", is kept for five minutes, and
- * GitHub is asked about {@value #ASKED_PER_HOUR} PRs an hour at most, however many numbers readers try.
+ * recently updated. The page's head names the PR's ticket from it, and the JIRA visa posts there. For a merged or
+ * closed PR, the answer also says which, when, and at which commit: the page's head tags the PR with it. The open list
+ * answers first, then the merged PR as it stood at its merge, then GitHub. GitHub is asked under the bot's token,
+ * whose hourly quota also serves PR commands and visas. So GitHub's answer, a title or "no such PR", is kept for five
+ * minutes, and GitHub is asked about {@value #ASKED_PER_HOUR} PRs an hour at most, however many numbers readers try.
  */
 @RestController
 @RequestMapping("/api")
@@ -61,11 +63,32 @@ public class PrTitleController {
         this.clock = clock;
     }
 
-    /** {@code title}: the PR's title; 404 when GitHub has no such PR or could not be asked. */
+    /**
+     * {@code title}: the PR's title; 404 when GitHub has no such PR or could not be asked. A merged or closed PR also
+     * gets what {@link #answer} adds.
+     */
     @GetMapping("/pr-title")
     public ResponseEntity<?> title(@RequestParam int pr) {
-        return knownTitle(pr).<ResponseEntity<?>>map(t -> ResponseEntity.ok(Map.of("title", t)))
+        return known(pr).filter(p -> p.title() != null).<ResponseEntity<?>>map(p -> ResponseEntity.ok(answer(p)))
             .orElseGet(() -> notKnown(pr));
+    }
+
+    /**
+     * The PR's title, and for a merged PR or one closed without a merge, what the page's head says of it: {@code
+     * state}, "merged" or "closed"; {@code closedAt}, when, in epoch seconds; {@code head}, the sha of its head commit
+     * then, when known.
+     */
+    static Map<String, Object> answer(GithubClient.PullState pull) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("title", pull.title());
+        if (!pull.open() && pull.closedAt() > 0) {
+            out.put("state", pull.merged() ? "merged" : "closed");
+            out.put("closedAt", pull.closedAt());
+            if (pull.head() != null)
+                out.put("head", pull.head());
+        }
+
+        return out;
     }
 
     /**
@@ -80,6 +103,11 @@ public class PrTitleController {
 
     /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
     Optional<String> knownTitle(int pr) {
+        return known(pr).map(GithubClient.PullState::title);
+    }
+
+    /** The PR as the page gets it; empty when GitHub has no such PR or could not be asked. */
+    private Optional<GithubClient.PullState> known(int pr) {
         long now = clock.getAsLong();
         Known k = known.get(pr);
         if (k == null || now - k.at() >= KEPT_MS) {
@@ -91,16 +119,16 @@ public class PrTitleController {
             known.put(pr, k);
         }
 
-        return Optional.ofNullable(k.title());
+        return Optional.ofNullable(k.pull());
     }
 
-    /** The PR's title, or a null title when GitHub has no such PR; null when GitHub could not be asked. */
+    /** The PR, or a null one when GitHub has no such PR; null when GitHub could not be asked. */
     private Known lookUp(int pr, long now) {
         Optional<String> listed = listed(pr);
         if (listed.isPresent())
-            return new Known(listed.get(), now);
+            return new Known(new GithubClient.PullState(listed.get(), true, false), now);
 
-        Optional<String> atMerge = merged.title(pr);
+        Optional<GithubClient.PullState> atMerge = merged.atMerge(pr).filter(p -> p.title() != null);
         if (atMerge.isPresent())
             return new Known(atMerge.get(), now);
 
@@ -108,7 +136,7 @@ public class PrTitleController {
             return null;
 
         try {
-            return new Known(github.pullState(pr).map(GithubClient.PullState::title).orElse(null), now);
+            return new Known(github.pullState(pr).orElse(null), now);
         }
         catch (RuntimeException e) {
             log.debug("could not ask GitHub for the title of PR {}: {}", pr, e.toString());
@@ -139,7 +167,7 @@ public class PrTitleController {
         return ResponseEntity.status(404).body(Map.of("error", "no title known for PR " + pr));
     }
 
-    /** A title, null for a PR GitHub does not have, and when it was learned. */
-    private record Known(String title, long at) {
+    /** A PR, null for one GitHub does not have, and when it was learned. */
+    private record Known(GithubClient.PullState pull, long at) {
     }
 }
