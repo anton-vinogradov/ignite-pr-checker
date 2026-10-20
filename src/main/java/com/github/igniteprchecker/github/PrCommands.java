@@ -447,8 +447,9 @@ public class PrCommands implements SnapshotCache {
      * it the auto re-run, the visa, and the verdict comment of "Post my runs' verdicts in the PR". As for a RunAll
      * queued on the page, no comment tells how the run goes. {@code replace}: {@code queue} first cancels the user's
      * runs of the suite on the PR, and their stories end. It runs while no auto re-run can go in, so a re-run is either
-     * cancelled with those runs or never queued. The run is followed while the checker keeps a TeamCity token of the
-     * user, which it does while an option of theirs is on.
+     * cancelled with those runs or never queued. While no option of the user is on, the checker keeps no TeamCity token
+     * of theirs to look at the run with, and the run waits for one: an option switched on before the run finishes acts
+     * on it, as on a RunAll queued on the page.
      */
     public PythonClientRuns.Queued queueFromPage(String user, int pr, boolean replace,
         Supplier<PythonClientRuns.Queued> queue) {
@@ -464,8 +465,8 @@ public class PrCommands implements SnapshotCache {
                     + PythonClientRuns.pageUrl(publicUrl, pr) + ")._");
             }
         }
-        if (automation && standing.actor(user).isPresent()) {
-            CommandRun run = CommandRun.queuedOnPage(user, ref, queued);
+        if (automation) {
+            CommandRun run = CommandRun.queuedOnPage(user, ref, queued, clock.getAsLong());
             watching.put(run.commentId(), run);
             log.info("{} queued build {} for PR {} on the page: followed by their options", user, run.buildId(), ref);
         }
@@ -1035,6 +1036,13 @@ public class PrCommands implements SnapshotCache {
     private final ConcurrentMap<Long, Long> visaTries = new ConcurrentHashMap<>();
 
     /**
+     * How long after it was queued a run on the checker's page waits for an option of its starter while none is on.
+     * It only keeps the runs of people who never switch an option on from piling up: an option switched on later
+     * misses the run only when the run still goes by then.
+     */
+    private static final long OPTION_WAIT_MS = 7 * 24 * 3600_000L;
+
+    /**
      * The verdicts of runs of the Python thin client's suite whose visa is tried again, by command comment, with what
      * became of the auto re-run: each try would judge the run again, with TeamCity requests, for the same verdict, and
      * could queue a re-run the held verdict does not count.
@@ -1086,6 +1094,8 @@ public class PrCommands implements SnapshotCache {
             Optional<String> gone = standing.waitingToken(run.username(), SettingsJournal.Entry.TEAMCITY);
             if (gone.isPresent())
                 waitForTokenBack(run, gone.get());
+            else if (run.onPage())
+                waitForOption(run);
             else
                 end(run, "\n🛑 _No longer followed: the options of the user who started it were switched off._");
 
@@ -1360,13 +1370,22 @@ public class PrCommands implements SnapshotCache {
      * being analysed, and while a failed visa is tried again, it says so. A verdict GitHub did not take now goes at a
      * later look. {@code suiteName}: the suite's name in TeamCity; {@code rerun}: what became of the run's auto re-run,
      * null while none was queued. A run queued on the checker's page is judged only while an option of its starter
-     * acts on runs, and gets the comment only from "Post my runs' verdicts in the PR", as a RunAll queued there does.
+     * acts on runs, and gets the comment only from "Post my runs' verdicts in the PR", as a RunAll queued there does: a
+     * comment GitHub did not take goes later only while that option is still on.
      */
     private void finishClientRun(CommandRun run, StandingVisas.GhActor actor, String suiteName,
         ClientVerdict.Rerun rerun) {
         CommandRun now = current(run);
         if (now.readyId() == 0) {
             String body = verdictBodies.get(now.commentId());
+            if (body != null && now.onPage() && !commentStillDue(now)) {
+                log.info("the verdict of build {} on PR {}, queued on the page, that GitHub did not take goes in no"
+                    + " comment: {} no longer posts their runs' verdicts in the PR", now.buildId(), now.of(),
+                    now.username());
+                stopNarrating(now);
+
+                return;
+            }
             if (body == null) {
                 Judged held = heldVerdicts.get(now.commentId());
                 if (held == null && now.onPage() && !standing.settlesRuns(now.username())) {
@@ -1519,6 +1538,15 @@ public class PrCommands implements SnapshotCache {
         return github.writes() && standing.commentActsOn(run.username(), verdict.finishedAt() * 1000);
     }
 
+    /**
+     * Whether the verdict comment of the run that GitHub did not take may still go: its starter's "Post my runs'
+     * verdicts in the PR" is on, and the checker has a GitHub account to post from. A verdict of a RunAll held back
+     * goes out on the same terms.
+     */
+    private boolean commentStillDue(CommandRun run) {
+        return github.writes() && standing.ghOn(run.username());
+    }
+
     /** The story's comment goes once the verdict is out; a story GitHub never showed has nothing to remove. */
     private void finishStory(CommandRun run) {
         if (run.narrationId() == 0 || removeStory(run))
@@ -1575,6 +1603,20 @@ public class PrCommands implements SnapshotCache {
                 + " again, and the story goes on.";
         if (worthEditing(run, stage, -1) && narrate(run, run.baseBody() + "\n⏸ _" + line + "_"))
             shown.put(run.commentId(), new Shown(run.buildId(), stage, -1));
+    }
+
+    /**
+     * A run queued on the checker's page waits while no option of its starter is on: the checker keeps no TeamCity
+     * token of theirs to look at the run with. An option switched on before the run finishes acts on it, as on a
+     * RunAll queued on the page. {@link #OPTION_WAIT_MS} after it was queued, the run is no longer followed.
+     */
+    private void waitForOption(CommandRun run) {
+        if (clock.getAsLong() - run.queuedAt() < OPTION_WAIT_MS)
+            return;
+
+        log.info("build {} on PR {}, queued on the page, is no longer followed: no option of {} went on in {} days",
+            run.buildId(), run.of(), run.username(), OPTION_WAIT_MS / (24 * 3600_000L));
+        stopNarrating(run);
     }
 
     /** The run as the story keeps it now: posting its comment gives it an id. */
@@ -1781,7 +1823,10 @@ public class PrCommands implements SnapshotCache {
             .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm zzz", java.util.Locale.ENGLISH));
     }
 
-    /** Counts the visa tries by {@code time} instead of the system's clock. */
+    /**
+     * Counts the visa tries, and how long a run queued on the checker's page waits for an option, by {@code time}
+     * instead of the system's clock.
+     */
     void clock(LongSupplier time) {
         clock = time;
     }
@@ -1936,24 +1981,25 @@ public class PrCommands implements SnapshotCache {
      * visa}: what became of the client's run's visa, null until it is decided; {@code rerunStandsIn}: TeamCity
      * cancelled the client's run by itself, and its auto re-run gives the verdict. Records of earlier versions have
      * none of the three. A run of the client queued on the checker's page has no command comment and no story: see
-     * {@link #queuedOnPage}.
+     * {@link #queuedOnPage}. {@code queuedAt}: when such a run was queued, epoch ms; 0 for the runs of commands.
      */
     private record CommandRun(long commentId, String baseBody, long buildId, String username,
         long narrationId, boolean app, int pr, String note, String ending, long readyId, String repo,
-        PinnedRun pinned, long rerunId, ClientVisa visa, boolean rerunStandsIn) {
+        PinnedRun pinned, long rerunId, ClientVisa visa, boolean rerunStandsIn, long queuedAt) {
         CommandRun(long commentId, String baseBody, long buildId, String username, long narrationId, boolean app,
             int pr, String note, String ending, long readyId, String repo, PinnedRun pinned) {
             this(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId, repo, pinned, 0,
-                null, false);
+                null, false, 0);
         }
 
         /**
-         * A run of the Python thin client's suite that {@code user} queued on the checker's page of {@code pr}. It has
-         * no command comment: its key is its build's id, negated, which no comment's id is.
+         * A run of the Python thin client's suite that {@code user} queued on the checker's page of {@code pr} at
+         * {@code at}, epoch ms. It has no command comment: its key is its build's id, negated, and no comment's id
+         * is negative.
          */
-        static CommandRun queuedOnPage(String user, PrRef pr, PythonClientRuns.Queued queued) {
+        static CommandRun queuedOnPage(String user, PrRef pr, PythonClientRuns.Queued queued, long at) {
             return new CommandRun(-queued.build().id(), "", queued.build().id(), user, 0, true, pr.number(), null,
-                null, 0, pr.repo(), queued.pinned());
+                null, 0, pr.repo(), queued.pinned(), 0, null, false, at);
         }
 
         /** Whether the run was queued on the checker's page: see {@link #queuedOnPage}. */
@@ -1963,37 +2009,37 @@ public class PrCommands implements SnapshotCache {
 
         CommandRun ofPr(int number) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, number, note, ending,
-                readyId, repo, pinned, rerunId, visa, rerunStandsIn);
+                readyId, repo, pinned, rerunId, visa, rerunStandsIn, queuedAt);
         }
 
         CommandRun postedAs(long id) {
             return new CommandRun(commentId, baseBody, buildId, username, id, app, pr, note, ending, readyId, repo,
-                pinned, rerunId, visa, rerunStandsIn);
+                pinned, rerunId, visa, rerunStandsIn, queuedAt);
         }
 
         CommandRun withBase(String body) {
             return new CommandRun(commentId, body, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, rerunId, visa, rerunStandsIn);
+                repo, pinned, rerunId, visa, rerunStandsIn, queuedAt);
         }
 
         CommandRun endingWith(String line) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, line, readyId,
-                repo, pinned, rerunId, visa, rerunStandsIn);
+                repo, pinned, rerunId, visa, rerunStandsIn, queuedAt);
         }
 
         CommandRun readyAs(long id) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, id, repo,
-                pinned, rerunId, visa, rerunStandsIn);
+                pinned, rerunId, visa, rerunStandsIn, queuedAt);
         }
 
         CommandRun rerunAs(long id, boolean standsIn) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, id, visa, standsIn);
+                repo, pinned, id, visa, standsIn, queuedAt);
         }
 
         CommandRun withVisa(ClientVisa decided) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, rerunId, decided, rerunStandsIn);
+                repo, pinned, rerunId, decided, rerunStandsIn, queuedAt);
         }
 
         /** The PR the run is for. */

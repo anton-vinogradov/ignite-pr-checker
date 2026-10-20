@@ -43,6 +43,7 @@ import com.github.igniteprchecker.web.ClientPrsController;
 import com.github.igniteprchecker.web.PrHeads;
 import com.github.igniteprchecker.web.YourPrs;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The author of PR #69 of apache/ignite-python-thin-client, "IGNITE-29117 Fix test to forcefully use H2 engine",
@@ -107,8 +109,9 @@ class ClientPageRunTest {
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
-    private final StandingVisas standing = new StandingVisas(mapper,
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, mock(BlockerAnalyzer.class),
+    private final SessionCodec codec = new SessionCodec(new SessionProperties(false, "test-secret"), mapper);
+
+    private final StandingVisas standing = new StandingVisas(mapper, codec, tc, github, mock(BlockerAnalyzer.class),
         jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class),
         new SettingsJournal(mapper));
 
@@ -188,6 +191,79 @@ class ClientPageRunTest {
     }
 
     /**
+     * The author's enrollment comes from v1.28, which took the GitHub login Vladsz83 as typed, with no token to prove
+     * it. Anyone could have typed that login, so the verdict comment of the author's run mentions nobody.
+     */
+    @Test
+    void anUnprovenLoginIsNotMentioned(@TempDir Path dir) throws Exception {
+        ObjectNode e = mapper.createObjectNode();
+        e.put("username", "author");
+        e.put("tcToken", codec.encryptString("tc"));
+        e.putNull("jiraToken");
+        e.putNull("ghToken");
+        e.put("ghLogin", "Vladsz83");
+        e.put("enabledAt", 1760000000000L);
+        e.put("autoVisa", false);
+        e.put("autoRerun", false);
+        e.put("ghComment", true);
+        e.put("commands", false);
+        e.put("ghLoginProven", false);
+        ObjectNode snapshot = mapper.createObjectNode();
+        snapshot.putArray("enrollments").add(e);
+        Path file = dir.resolve("standing-visas.json");
+        mapper.writeValue(file.toFile(), snapshot);
+        standing.loadFrom(file);
+
+        page.trigger(PR, false, false, false, "tc", "author");
+        finished(RUN, "FAILURE");
+        commands.updateEtas();
+
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), startsWith("The verdict of a run queued on the"
+            + " checker's page: **Thin client: Python** [build 9424794]"));
+    }
+
+    /** GitHub asked the checker to wait when the verdict comment of the author's run went out: it goes later. */
+    @Test
+    void aVerdictCommentGithubPutOffGoesLater() {
+        linkGithub();
+        options(null, null, true);
+        when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString()))
+            .thenThrow(new GithubClient.WriteDeferred("GitHub asked to wait"))
+            .thenReturn(new GithubClient.PostedComment(89L, "https://github.com/" + CLIENT_REPO
+                + "/pull/69#issuecomment-89"));
+
+        page.trigger(PR, false, false, false, "tc", "author");
+        finished(RUN, "FAILURE");
+        commands.updateEtas();
+        commands.updateEtas();
+
+        verify(github, times(2)).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), startsWith("@Author the verdict of"
+            + " the run you queued on the checker's page"));
+        verify(analyzer, times(1)).analyzeSuiteRun("tc", PR, "pull/69", RUN);
+    }
+
+    /**
+     * GitHub asked the checker to wait when the verdict comment of the author's run went out, and the author switched
+     * verdict comments off before the next try. With that option off, the run leaves no comment in the PR.
+     */
+    @Test
+    void aVerdictCommentGithubPutOffDoesNotGoOnceTheOptionIsOff() {
+        linkGithub();
+        options(null, null, true);
+        when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString()))
+            .thenThrow(new GithubClient.WriteDeferred("GitHub asked to wait"));
+
+        page.trigger(PR, false, false, false, "tc", "author");
+        finished(RUN, "FAILURE");
+        commands.updateEtas();
+        options(null, null, false);
+        commands.updateEtas();
+
+        verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString());
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+    }
+
+    /**
      * The author has the auto re-run and the visa on, and verdict comments off. The run failed a test master never
      * failed: the suite runs once more on the same commits, the visa follows the re-run, and the PR gets no comment.
      * Until then the page reads the verdict as settling.
@@ -220,21 +296,83 @@ class ClientPageRunTest {
     }
 
     /**
-     * Someone with no option on presses Run: the checker keeps no TeamCity token of theirs, so it neither follows the
-     * run nor keeps it in pr-commands.json.
+     * The author has no option on when they press Run, so the checker keeps no TeamCity token of theirs and does not
+     * look at the run, and the page reads its verdict as final. While the run goes, the author switches on the visa,
+     * the auto re-run and verdict comments: they act on the run, as on a RunAll queued on the page.
      */
     @Test
-    void aRunOfSomeoneWithNoOptionIsNotFollowed(@TempDir Path dir) throws Exception {
+    void optionsSwitchedOnWhileTheRunGoesActOnIt(@TempDir Path dir) throws Exception {
         page.trigger(PR, false, false, false, "tc", "author");
+        commands.updateEtas();
         Path file = dir.resolve("pr-commands.json");
         commands.saveTo(file);
+
+        verify(tc, never()).getBuildState(anyString(), anyLong());
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+
+        options(true, true, true);
         finished(RUN, "FAILURE");
         commands.updateEtas();
 
+        verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
+
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(RUN, false));
+        commands.updateEtas();
+
+        verify(jira).addCommentWithId(eq("jira-pat"), eq(ISSUE), startsWith("Ignite PR Checker verdict for [PR 69 of "
+            + CLIENT_REPO));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), startsWith("The verdict of a run queued on the"
+            + " checker's page: **Thin client: Python** [build 9424794]"));
+        assertThat(mapper.readTree(file.toFile()).get("pageRuns").size()).as("kept while it waits").isEqualTo(1);
+    }
+
+    /**
+     * The author switches the auto re-run, the visa and verdict comments on an hour after the run they queued on the
+     * page with no option on finished. An option does not reach back: none of them acts on the run.
+     */
+    @Test
+    void optionsSwitchedOnAfterTheRunFinishedDoNotActOnIt() {
+        page.trigger(PR, false, false, false, "tc", "author");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN))
+            .thenReturn(verdict(RUN, true, Instant.now().minusSeconds(3600)));
+        options(true, true, true);
+        commands.updateEtas();
+        commands.updateEtas();
+
+        verify(tc, never()).queuePinned("tc", PINNED, true, AUTO_RERUN);
+        verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
+        verify(github, never()).appComment(anyString(), anyInt(), any(), anyString());
+        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+    }
+
+    /**
+     * The author pressed Run with no option on and switched none on for a week: the checker no longer waits for one,
+     * and pr-commands.json no longer keeps the run. An option switched on after that does not act on it.
+     */
+    @Test
+    void aRunNoOptionWentOnForInAWeekIsNoLongerFollowed(@TempDir Path dir) throws Exception {
+        long[] now = {System.currentTimeMillis()};
+        commands.clock(() -> now[0]);
+        page.trigger(PR, false, false, false, "tc", "author");
+        Path file = dir.resolve("pr-commands.json");
+        now[0] += Duration.ofDays(7).toMillis() - 60_000;
+        commands.updateEtas();
+        commands.saveTo(file);
+        int waiting = mapper.readTree(file.toFile()).get("pageRuns").size();
+
+        now[0] += 60_000;
+        commands.updateEtas();
+        commands.saveTo(file);
+        options(null, true, true);
+        finished(RUN, "FAILURE");
+        commands.updateEtas();
+
+        assertThat(waiting).isEqualTo(1);
         assertThat(mapper.readTree(file.toFile()).get("pageRuns").isEmpty()).isTrue();
         verify(tc, never()).getBuildState(anyString(), anyLong());
-        verify(analyzer, never()).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        verify(github, never()).appComment(anyString(), anyInt(), any(), anyString());
     }
 
     /**
@@ -279,6 +417,26 @@ class ClientPageRunTest {
         verify(github, never()).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("your `/run-all`"));
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), startsWith("@Author the verdict of the run"
             + " you queued on the checker's page: **Thin client: Python** [build 9424794]"));
+    }
+
+    /**
+     * The author's {@code /run-all} still runs when they press Run on the page without replacing it: the story of the
+     * {@code /run-all} goes on, and its verdict comes.
+     */
+    @Test
+    void runWithoutReplaceLeavesTheStoryOfTheCommandAlone() {
+        linkGithub();
+        options(null, null, true);
+        clientComment(1L, "/run-all");
+
+        page.trigger(PR, false, false, false, "tc", "author");
+        finished(COMMAND_RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", COMMAND_RUN)).thenReturn(verdict(COMMAND_RUN, true));
+        commands.updateEtas();
+
+        verify(github, never()).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), contains("Superseded"));
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), startsWith("@Author the verdict of your"
+            + " `/run-all`: **Thin client: Python** [build 9424005]"));
     }
 
     /** {@code /top} moves the run of the author's own {@code /run-all}: a run queued on the page is not one. */
@@ -419,6 +577,11 @@ class ClientPageRunTest {
      * blocker when {@code blocked}, else flaky, and a test master fails too.
      */
     private static AnalysisResult verdict(long buildId, boolean blocked) {
+        return verdict(buildId, blocked, Instant.now().plusSeconds(60));
+    }
+
+    /** Build {@code buildId} as {@link #verdict(long, boolean)} judges it, finished at {@code finished}. */
+    private static AnalysisResult verdict(long buildId, boolean blocked, Instant finished) {
         TestVerdict sql = new TestVerdict(502L, "test_sql.test_sql_fields_query", SUITE, buildId,
             "Thin client: Python", "o2", blocked, false, blocked ? "not seen failing in 100 master runs; failed the"
             + " only run on this branch" : "flaky on branch: passed on the re-run", "F", 1);
@@ -427,7 +590,7 @@ class ClientPageRunTest {
 
         return new AnalysisResult(PR, buildId, "pull/69", System.currentTimeMillis(),
             blocked ? List.of(sql) : List.of(), List.of(), blocked ? List.of(shared) : List.of(shared, sql), List.of(),
-            List.of(), 1, 0, false, 0, false, 0, 0, 0, Instant.now().plusSeconds(60).getEpochSecond(), 0, List.of(),
-            List.of(), List.of(), 0, IGNITE + "+" + CLIENT, 0);
+            List.of(), 1, 0, false, 0, false, 0, 0, 0, finished.getEpochSecond(), 0, List.of(), List.of(), List.of(), 0,
+            IGNITE + "+" + CLIENT, 0);
     }
 }

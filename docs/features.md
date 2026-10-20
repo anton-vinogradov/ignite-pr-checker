@@ -604,11 +604,11 @@ The commands also work in the pull requests of
   **Run at top** queue the suite as `/run-all` and `/run-all top` do. On a PR with merge conflicts they queue nothing
   and offer **Run anyway**. The checker computes the verdicts of the client's open PRs in advance, in the background,
   as it does for Ignite's PRs.
-- Your options act on a run you start with **Run** or **Run at top** as on a run of `/run-all`.
-  **Re-run failed suites of my runs** and **Visa my runs in JIRA** work on it as the next bullets say. With
-  **Post my runs' verdicts in the PR** on, the verdict comes in a comment that mentions you when your GitHub account is
-  linked. With that option off, the run leaves no comment in the PR. No comment tells how such a run goes, as for a
-  RunAll you start on the page of an Ignite PR.
+- Your options act on a run you start with **Run** or **Run at top** as on a run of `/run-all`. An option you switch
+  on while the run goes acts on it too. **Re-run failed suites of my runs** and **Visa my runs in JIRA** work on it as
+  the next bullets say. With **Post my runs' verdicts in the PR** on, the verdict comes in a comment that mentions you
+  when your GitHub account is linked. With that option off, the run leaves no comment in the PR. No comment tells how
+  such a run goes, as for a RunAll you start on the page of an Ignite PR.
 - **Re-run failed suites of my runs** works here too, once per run. When the verdict has a blocker, a test that started
   failing or a broken suite, the checker queues the suite again at the top of the queue. The re-run tests the same two
   commits with the same `OVERRIDDEN_BRANCH`, even after Ignite master or the PR moved on. For a `/run-all`, the
