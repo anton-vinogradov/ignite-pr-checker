@@ -124,7 +124,7 @@ and the visa.
 
 | Label | What it means | What to do |
 |---|---|---|
-| `Merged`, `Closed` | The PR was merged, or closed without a merge. The tag stands next to the PR's number, and its tooltip says when and at which commit. A merged PR keeps the verdict it had at the merge. The checker does not compute it again: master's history now holds the PR's own runs, so a new verdict would take the PR's failures for failures of master. New runs do not change it, so no button is filled and no line says that a re-run would change it. Runs queued before the merge that this verdict did not count are the one exception: they were still going at the merge, or ended after the verdict was computed. When the last of them ends, the checker computes the verdict once more, and the tooltip names those runs. That verdict counts only runs queued before the merge, and runs of master and other PRs that finished before the merge. While the checker still looks for such runs, the tooltip says so. The checker does not keep the verdict of a PR closed without a merge: it computes it as for an open PR. | — |
+| `Merged`, `Closed` | The PR was merged, or closed without a merge. The tag stands next to the PR's number, and its tooltip says when and at which commit. The checker keeps a merged Ignite PR's verdict if it computed that verdict before the merge or within the hour after it. Then `Merged` has a **?** that opens this row. The checker does not compute a kept verdict again: master's history now holds the PR's own runs, so a new verdict would take the PR's failures for failures of master. New runs do not change it, so no button is filled and no line says that a re-run would change it. Runs queued before the merge that this verdict did not count are the one exception: they were still going at the merge, or ended after the verdict was computed. When the last of them ends, the checker computes the verdict once more. That verdict counts only runs queued before the merge, and runs of master and other PRs that finished before the merge. When those runs tested a commit other than the RunAll's, the `⚠ Mixed run` line names them. The checker keeps no verdict of other merged PRs, of Python client PRs or of PRs closed without a merge: it computes their verdict as for an open PR. | — |
 | `queued`, `running` | A build of this PR on ci2 now, under **On ci2 now**. The time next to it is how long it has waited or run so far; `~14m left` and `starts ~5m` are estimates from the queue and the suite's progress. | — |
 | `on latest commit` | The run tests the PR's latest commit. | — |
 | `⚠ old commit abc1234` | Commits were pushed after the run started: it tests older code. | Run RunAll again when it matters. |
@@ -212,11 +212,11 @@ own tests, and what was not blamed on the PR.
 
 - **The head** names the PR, its number a link to GitHub and its IGNITE ticket a link to JIRA, and has the RunAll
   buttons. A merged PR has the tag `Merged` next to its number, and a PR closed without a merge has `Closed`. The
-  tag's tooltip says when and at which commit. A merged PR keeps the verdict it had at the merge; the
-  [glossary](#runs-buttons-and-visas) says how. The line under the head names the RunAll build with its TeamCity link,
-  when the run finished and when the verdict was computed. The finish time turns amber when the run is over a week
-  old. The ↻ button computes the verdict again. When TeamCity reused suites, the line also says
-  `135 suites ran, 12 reused from earlier runs`.
+  tag's tooltip says when and at which commit. When the checker keeps the verdict a merged PR had at the merge,
+  `Merged` has a **?**: the [glossary](#runs-buttons-and-visas) says when and how the checker keeps it. The line under
+  the head names the RunAll build with its TeamCity link, when the run finished and when the verdict was computed. The
+  finish time turns amber when the run is over a week old. The ↻ button computes the verdict again. When TeamCity
+  reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
 - **Lines under the head** say when the verdict is for older code or a mixed run, when auto re-runs still settle it,
   and what is on ci2 now.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest

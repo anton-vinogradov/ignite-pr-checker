@@ -188,38 +188,30 @@ function setPrTitle(number, title, url, closing = null) {
         + (shownPrState ? ' ' + shownPrState : '') + (linked ? ' ' + linked : '');
 }
 
-// "Merged" beside the number of a merged PR, with a ? into the glossary, and "Closed" beside that of a PR closed without
-// a merge. /api/pr-title tells which; until it does, or when it cannot, a verdict kept at the merge tells it.
+// "Merged" beside the number of a merged PR, and "Closed" beside that of a PR closed without a merge. /api/pr-title
+// tells which; until it does, or when it cannot, a verdict kept at the merge tells it. Only a kept verdict gets the ?
+// into the glossary: the checker computes the verdict of any other merged PR as an open PR's.
 function prStateTag(closing) {
     const res = lastResult && isOpen(lastResult.prNumber, lastResult.repo) ? lastResult : null;
-    const state = closing || (res && res.mergedAt ? { state: 'merged', closedAt: res.mergedAt } : null);
+    const kept = !!(res && res.mergedAt);
+    const state = closing || (kept ? { state: 'merged', closedAt: res.mergedAt } : null);
     if (!state) return '';
     const merged = state.state === 'merged';
-    const tag = `<span class="tag" title="${esc(prStateTitle(state, res))}">${merged ? T('Merged') : T('Closed')}</span>`;
-    if (!merged) return tag;
+    const tag = `<span class="tag" title="${esc(prStateTitle(state))}">${merged ? T('Merged') : T('Closed')}</span>`;
+    if (!merged || !kept) return tag;
     const glossary = T('https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/features.md#runs-buttons-and-visas');
     const help = T('Opens the verdict glossary on GitHub. It says how the checker keeps the verdict of a merged PR.');
     return `<span>${tag} <a class="help" href="${esc(glossary)}" target="_self" rel="noopener" title="${esc(help)}" aria-label="${esc(T('What Merged means'))}">?</a></span>`;
 }
 
-// "The PR was merged at its commit 9b02561 on 20 Oct at 13:12.", and for a verdict kept at the merge, the runs queued
-// before the merge that it counts since, or that the checker still looks for them.
-function prStateTitle(state, res) {
+// "The PR was merged at its commit 9b02561 on 20 Oct at 13:12."
+function prStateTitle(state) {
     const when = fmtDayAt(state.closedAt * 1000);
     const head = state.head ? shortSha(state.head) : '';
     if (state.state !== 'merged')
         return head ? T('The PR was closed without a merge at its commit {0} on {1}.', head, when)
             : T`The PR was closed without a merge on ${when}.`;
-    const merged = head ? T('The PR was merged at its commit {0} on {1}.', head, when) : T`The PR was merged on ${when}.`;
-    if (!res || !res.mergedAt) return merged;
-    const runs = (res.runsAtMerge || []).map(r => r.revision
-        ? T`${r.suiteName || r.suite} on ${shortSha(r.revision)}` : r.suiteName || r.suite);
-    const more = runs.length - 3;
-    const named = more > 0 ? runs.slice(0, 3).concat(T`${more} more run${more === 1 ? '' : 's'}`) : runs;
-    return merged + (runs.length ? ' ' + T('After the merge, the checker computed the verdict once more, adding runs '
-            + 'queued before the merge: {0}.', listed(named))
-        : res.runsAtMergeDue ? ' ' + T('The verdict may change once more: the checker still looks for runs queued '
-            + 'before the merge that the verdict did not count.') : '');
+    return head ? T('The PR was merged at its commit {0} on {1}.', head, when) : T`The PR was merged on ${when}.`;
 }
 
 async function loadConfig() {
@@ -1908,8 +1900,8 @@ function clientRunLabel(res) {
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
 // no refresh for it, and the cards do not ask for re-runs that would change nothing. Runs queued before the merge that
-// the kept verdict did not read are the one exception (RunsAtMerge): the Merged tag's title names them, or says that
-// the checker still looks for them.
+// the kept verdict did not read are the one exception (RunsAtMerge). The head is drawn again when the verdict changes
+// its tag: the title and the verdict come in either order.
 function renderMerged(res) {
     $('results').classList.toggle('merged', !!res.mergedAt);
     if (shownTitle && shownTitle[0] === res.prNumber && prStateTag(shownTitle[3]) !== shownPrState)

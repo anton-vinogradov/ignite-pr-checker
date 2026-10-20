@@ -97,7 +97,7 @@ class MixedRunPageTest {
 
     /**
      * #13709 was merged at 10:12:39 UTC while its re-run went: the verdict kept at the merge takes the re-run's result
-     * once it ends, and the page names it.
+     * once it ends, and the Mixed run line names it. The Merged tag says only when.
      */
     @Test
     void aMergedPrNamesTheRunsThatWereGoingAtTheMerge() throws Exception {
@@ -113,9 +113,7 @@ class MixedRunPageTest {
         assertThat(out.get("line").asText()).isEqualTo("⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the commit "
             + "the PR was merged at; the rest of the RunAll ran on c577b18.");
         assertThat(out.get("button").asBoolean()).isFalse();
-        assertThat(out.get("tag").asText()).isEqualTo("The PR was merged on 6 Oct at 12:00. After the merge, the "
-            + "checker computed the verdict once more, adding runs queued before the merge: Control Utility 5 on "
-            + "9b02561.");
+        assertThat(out.get("tag").asText()).isEqualTo("The PR was merged on 6 Oct at 12:00.");
     }
 
     /**
@@ -135,39 +133,6 @@ class MixedRunPageTest {
 
         assertThat(out.get("line").asText()).isEqualTo("⚠ Mixed run: Control Utility 5 re-ran on 9b02561; the rest of "
             + "the RunAll ran on c577b18. The PR was merged at its commit 7d7d7d7.");
-    }
-
-    /**
-     * #13709 right after the merge: its re-run of Control Utility 5 still goes, and the checker computes the verdict
-     * kept at the merge once more when it ends. The Merged tag does not say that no run changes the verdict.
-     */
-    @Test
-    void aMergedPrWhoseRunsAtTheMergeAreStillDueSaysTheVerdictMayChange() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + MIXED + """
-            page.route('/api/analyze', { body: Object.assign(MIXED, { mergedAt: Math.floor(page.now() / 1000) - 86400,
-                otherCodeRuns: [], runsAtMergeDue: true }) });
-            await page.load('?pr=13575');
-            report(state());
-            """);
-
-        assertThat(out.get("tag").asText()).isEqualTo("The PR was merged on 6 Oct at 12:00. The verdict may change "
-            + "once more: the checker still looks for runs queued before the merge that the verdict did not count.");
-    }
-
-    /** A RunAll cancelled at the merge leaves its finished suites: the Merged tag names three of them. */
-    @Test
-    void theNoteNamesThreeRunsAtTheMergeAtMost() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + MIXED + """
-            const runs = ['Cache 1', 'Cache 2', 'Cache 3', 'Cache 4', 'Cache 5'].map((suiteName, i) =>
-                ({ suite: 'S' + i, suiteName, buildId: 9426400 + i, revision: HEAD }));
-            page.route('/api/analyze', { body: Object.assign(MIXED, { mergedAt: Math.floor(page.now() / 1000) - 86400,
-                runsAtMerge: runs }) });
-            await page.load('?pr=13575');
-            report(state());
-            """);
-
-        assertThat(out.get("tag").asText()).endsWith("queued before the merge: Cache 1 on 9b02561, Cache 2 on 9b02561, "
-            + "Cache 3 on 9b02561 and 2 more runs.");
     }
 
     /** A new verdict of the same RunAll that is no longer mixed takes the line back to older code. */

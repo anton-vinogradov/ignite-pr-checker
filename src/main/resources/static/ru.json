@@ -191,8 +191,6 @@
     "The PR was merged on {0}.": "PR смержили {0}.",
     "The PR was closed without a merge at its commit {0} on {1}.": "PR закрыли без мержа {1} на его коммите {0}.",
     "The PR was closed without a merge on {0}.": "PR закрыли без мержа {0}.",
-    "After the merge, the checker computed the verdict once more, adding runs queued before the merge: {0}.": "После мержа чекер посчитал вердикт ещё раз и добавил прогоны, поставленные до мержа: {0}.",
-    "The verdict may change once more: the checker still looks for runs queued before the merge that the verdict did not count.": "Вердикт ещё может измениться один раз: чекер ищет прогоны, поставленные до мержа, которые вердикт не учёл.",
     "Opens the verdict glossary on GitHub. It says how the checker keeps the verdict of a merged PR.": "Открывает словарь вердикта на GitHub. Там сказано, как чекер хранит вердикт смерженного PR.",
     "What Merged means": "Что значит метка «Смержен»",
     "Analyzing the latest RunAll…": "Разбираю последний RunAll…",
@@ -229,7 +227,6 @@
     "{0}, the PR's head": "{0} — последнем коммите PR",
     "{0}, the commit the PR was merged at": "{0} — коммите, на котором PR смержили",
     "{0} more suite{1}": "ещё {0} {0|сьюта|сьюты|сьют}",
-    "{0} more run{1}": "ещё {0} {0|прогон|прогона|прогонов}",
     "The PR is now at {0}.": "Сейчас PR на {0}.",
     "The PR was merged at its commit {0}.": "PR смержили на его коммите {0}.",
     "Only a RunAll of the PR's head can prove it clean.": "Доказать, что PR чист, может только RunAll последнего коммита PR."
