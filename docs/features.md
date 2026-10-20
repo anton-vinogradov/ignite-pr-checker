@@ -73,6 +73,7 @@ and the visa.
 | `N failed tests could not be checked (TeamCity errors)` | See **Could not be checked**. The visa, the PR comment and the auto re-run wait up to 20 minutes for a retry; then they go ahead and list those tests apart. | Wait. |
 | `a newer run is still going — its unfinished suites can still fail` | The verdict folds in a RunAll that is still running. | Wait for it to finish. |
 | `N commits pushed since this run — it tested older code`, `new commits pushed since this run — it tested older code` | The PR's head has moved since the run. The comment and the visa use these words; the page says `it tested older code (see the note at the top)`, and the line at the top names both commits, with their count once GitHub answers. | Run RunAll again. |
+| `mixed run — Cache 2 re-ran on abc1234, the rest of the RunAll ran on def5678; only a RunAll of the PR's head can prove it clean` | A mixed run: the verdict counts runs of some suites on another commit than the rest of the RunAll, so no single commit is checked in full. The comment and the visa use these words instead of the caveat about commits pushed since; the page says `it is a mixed run (see the note at the top)`, and the line at the top says which commit is the PR's head. | Run RunAll on the PR's head. |
 | `could not check whether the PR changed since this run` | On the page only: GitHub or ci2 did not say whether the PR's head is still the commit the run tested, so the page does not call the verdict clean. The same can happen while fewer than a fifth of the checker's hourly GitHub calls are left: the page then does not ask GitHub about it. | Reload the page in a minute. If the **GitHub API** card on the status page shows fewer than a fifth of the calls left, wait until GitHub resets the hourly limit. |
 
 ### Broken suite causes
@@ -113,7 +114,7 @@ and the visa.
 |---|---|---|
 | red number | Blockers in the PR's latest analysed RunAll. | Open the PR. |
 | **!** | No blockers yet, but tests started failing on the code the run tested. | A re-run shows whether these tests are blockers. |
-| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
+| **?** | No blockers found, but the PR is not proven clean, for one or more of these reasons. The run can't prove it ([caveats](#caveats)): it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be checked, suites re-ran on other commits, or a newer run is still going. Commits were pushed after the run. It is not known whether the run tested the PR's latest commit. | Open the PR for the reason. |
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
@@ -132,6 +133,7 @@ and the visa.
 | `6 suites ran, 141 reused from earlier runs` | How many suites of the chain ran, and how many TeamCity reused from earlier runs of the same commit. Shown when some were reused, or while the run still goes. | — |
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
 | `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
+| `⚠ Mixed run` | The verdict counts runs of some suites on another commit than the rest of the RunAll. The line says which suites re-ran on which commit, which commit is the PR's head, and that only a RunAll of the PR's head can prove it clean. It stands in place of `⚠ The verdict is for older code`. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR it names the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
 | **Run anyway** | **Run**, **Run at top** and **Run RunAll** queue nothing on a PR that GitHub reports merge conflicts for. The status line says so, and this button appears next to it. It asks first, then queues that RunAll anyway. | Resolve the conflicts and run RunAll again. |
@@ -210,10 +212,12 @@ own tests, and what was not blamed on the PR.
   buttons. The line under it names the RunAll build with its TeamCity link, when the run finished and when the verdict
   was computed. The finish time turns amber when the run is over a week old. The ↻ button computes the verdict again.
   When TeamCity reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
-- **Lines under the head** say when the verdict is for older code, when auto re-runs still settle it, and what is on
-  ci2 now. A merged PR's verdict card says that this is the verdict as it stood at the merge: it is kept and not
-  recomputed, since master's history now holds the PR's own runs. New runs do not change it, so no button is filled
-  and no line says that a re-run would change it.
+- **Lines under the head** say when the verdict is for older code or a mixed run, when auto re-runs still settle it,
+  and what is on ci2 now. A merged PR's verdict card says that this is the verdict as it stood at the merge: it is kept
+  and not recomputed, since master's history now holds the PR's own runs. New runs do not change it, so no button is
+  filled and no line says that a re-run would change it. Runs queued before the merge that were still going at it are
+  the one exception. When the last of them ends, the checker computes the verdict once more, from the runs queued
+  before the merge and master's runs that finished before it, and the card names those runs.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
@@ -221,7 +225,8 @@ own tests, and what was not blamed on the PR.
   wait for a finished chain.
 - **Re-runs count.** A suite re-run on its own, by hand or by auto re-run, joins the verdict when it is newer than the
   chain's run of that suite. A pass on re-run clears a blocker; a broken suite whose full re-run did not break is
-  judged by that run.
+  judged by that run. A re-run on another commit than the RunAll makes the verdict a mixed run, which never reads
+  green: its other suites did not test that commit.
 - **Each suite on its own.** One test can run in several suites (the C++ tests run on Windows, Linux and Clang). It is
   listed in each suite it failed in, with that suite's own verdict, so a pass on Windows does not hide a steady break
   on Linux.
@@ -305,16 +310,18 @@ own tests, and what was not blamed on the PR.
 - **Older code**: a line says
   `⚠ The verdict is for older code: this run tested 0013263, and the PR is now at b52666a, 7 commits later.` with
   **Run RunAll** right after it. After a rebase or force-push it says so instead of a count; while a new RunAll is
-  queued or running, it says that instead of showing the button.
+  queued or running, it says that instead of showing the button. A mixed run has its own line instead, such as
+  `⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the PR's head; the rest of the RunAll ran on c577b18.`
 - When your chain or a re-run finishes, the page shows the new verdict without a reload.
 
 ## Standing options
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
-`/run-all` comment, or in TeamCity. An option does not reach back: runs that finished before it was switched on are
-left alone. ⚙ puts the options in four groups, by what they need, and each group starts with the state of that
-access. While any of them is on, the server stores your TeamCity token, encrypted, and each also stores the JIRA or
-GitHub token it needs while it is on.
+`/run-all` comment, or in TeamCity. They act on the runs you start in a
+[PR of the Python thin client](#prs-of-the-python-thin-client) too. An option does not reach back: runs that finished
+before it was switched on are left alone. ⚙ puts the options in four groups, by what they need, and each group starts
+with the state of that access. While any of them is on, the server stores your TeamCity token, encrypted, and each also
+stores the JIRA or GitHub token it needs while it is on.
 
 When you switch on an option without what it needs, ⚙ says what is missing in one sentence and opens the form or
 shows the button that gives it.

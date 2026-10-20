@@ -549,8 +549,8 @@ const STANDING_BADGES = {
     WATCH: ['watch', '!', phrase('No blockers yet, but some tests started failing on the code the run tested. A re-run '
         + 'shows whether they are blockers.'), phrase('started failing')],
     UNPROVEN: ['unproven', '?', phrase('No blockers found, but the run can\'t prove the PR clean: it was interrupted, '
-        + 'suites broke or ran fewer tests than on master, failed tests could not be checked, or a newer run is still '
-        + 'going.'), phrase('not proven clean')],
+        + 'suites broke or ran fewer tests than on master, failed tests could not be checked, suites re-ran on other '
+        + 'commits, or a newer run is still going.'), phrase('not proven clean')],
     OLD_CODE: ['unproven', '?', phrase('No blockers found, but commits were pushed after this run.'),
         phrase('not proven clean')],
     UNKNOWN_CODE: ['unproven', '?', phrase('No blockers found, but it is not known whether this run tested the PR\'s '
@@ -798,8 +798,9 @@ function suiteRowActs(suite, above) {
 
 // The one filled button, the next step. None on a merged PR, whose verdict no run changes, and none while auto re-runs
 // go, a RunAll of the PR is queued or running, or the suites that step would re-run are already queued: then the next
-// step is to wait. Else Run RunAll when the verdict is for older code; else the pair of Broken suites or of Suites that
-// never ran; else the pair of the blockers on one run, or the card's own when they are all of its blockers.
+// step is to wait. Else Run RunAll when the verdict is for older code or a mixed run; else the pair of Broken suites
+// or of Suites that never ran; else the pair of the blockers on one run, or the card's own when they are all of its
+// blockers.
 function paintPrimary() {
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
     $('pendingRerun').classList.remove('primary');
@@ -807,7 +808,7 @@ function paintPrimary() {
     if (!res || res.mergedAt) return;
     const settling = phaseNow && phaseNow.pr === selectedPr && phaseNow.phase === 'settling';
     if (settling || runsNow.some(b => b.runAll)) return;
-    if (codeOf(res) === 'old') { $('pendingRerun').classList.add('primary'); return; }
+    if (codeOf(res) === 'old' || mixedRuns(res).length) { $('pendingRerun').classList.add('primary'); return; }
     const withSuites = ids => ids.map(id => sectActs.get(id)).find(s => s && s.suites.length);
     const sect = withSuites(['brokenActs', 'cancelledActs'])
         || ((res.blockers || []).some(oneRun) ? withSuites(['oneRunActs', 'blockerActs']) : null);
@@ -1869,15 +1870,24 @@ function clientRunLabel(res) {
 }
 
 // A merged PR keeps the verdict it had at the merge (MergedVerdicts on the server), so renderFreshness offers
-// no refresh for it, and the cards do not ask for re-runs that would change nothing.
+// no refresh for it, and the cards do not ask for re-runs that would change nothing. The runs that were still going
+// at the merge are the one exception (RunsAtMerge): the note names them once their results are in.
 function renderMerged(res) {
     const merged = !!res.mergedAt;
     $('mergedNote').classList.toggle('hidden', !merged);
     $('results').classList.toggle('merged', merged);
     if (!merged) return;
-    $('mergedNote').textContent = T('Merged {0}. This is the verdict as it stood at the merge. It is not recomputed: '
-        + 'master\'s history now holds this PR\'s own runs. New runs do not change this verdict.',
-        fmtDay(res.mergedAt * 1000));
+    const runs = (res.runsAtMerge || []).map(r => r.revision
+        ? T`${r.suiteName || r.suite} on ${shortSha(r.revision)}` : r.suiteName || r.suite);
+    const more = runs.length - 3;
+    const named = more > 0 ? runs.slice(0, 3).concat(T`${more} more run${more === 1 ? '' : 's'}`) : runs;
+    $('mergedNote').textContent = runs.length
+        ? T('Merged {0}. This is the verdict as it stood at the merge, with the results of the runs that were still '
+            + 'going then: {1}. It is not recomputed again: master\'s history now holds this PR\'s own runs. Runs '
+            + 'queued after the merge do not change this verdict.', fmtDay(res.mergedAt * 1000), listed(named))
+        : T('Merged {0}. This is the verdict as it stood at the merge. It is not recomputed: '
+            + 'master\'s history now holds this PR\'s own runs. New runs do not change this verdict.',
+            fmtDay(res.mergedAt * 1000));
 }
 
 function clearFreshness() {
@@ -1934,6 +1944,8 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     const watch = res.watch || [];
     const hasBlockers = res.blockers.length > 0;
     if (res.pushed && !res.live && !(pendingFor(res) && pendingOf.code === 'old')) notePending(res, res.pushed);
+    if (mixedRuns(res).length) paintMixed(res);
+    else if ($('pendingRow').classList.contains('mixed')) noLongerMixed(res);
     renderVerdictHead(res);
     syncListBadge();
     $('filteredCount').textContent = countLabel(res.filtered);
@@ -2028,8 +2040,16 @@ function listOf(el) {
 // from the analysis when the server's PR list already shows them.
 function caveatsOf(res, standing) {
     const ahead = aheadOf(res);
-    return (res.caveats || []).map(tr).concat(ahead > 0 ? [T('it tested older code (see the note at the top)')] : [])
+    const code = mixedRuns(res).length ? [T('it is a mixed run (see the note at the top)')]
+        : ahead > 0 ? [T('it tested older code (see the note at the top)')] : [];
+    return (res.caveats || []).map(tr).concat(code)
         .concat(standing === 'UNKNOWN_CODE' ? [T('could not check whether the PR changed since this run')] : []);
+}
+
+// The suites whose newest run in the verdict tested another commit than the RunAll (otherCodeRuns on the server): such
+// a verdict is a mixed run. The Python client's runs are one suite each.
+function mixedRuns(res) {
+    return !res.repo && res.otherCodeRuns ? res.otherCodeRuns : [];
 }
 
 // How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run is CLEAN only once it
@@ -2113,14 +2133,17 @@ function notePending(res, p) {
     if (code === 'unknown' && pendingFor(res) && pendingOf.code === 'old') return;
     const ahead = p.pending ? (p.ahead > 0 ? p.ahead : 1) : null; // superseded code can't be a clean verdict
     pendingOf = { pr: res.prNumber, buildId: res.buildId, code, ahead, pushed: p.pending ? p : null };
-    $('pendingRow').classList.toggle('hidden', !p.pending);
+    $('pendingRow').classList.toggle('hidden', !p.pending && !mixedRuns(res).length);
     paintPending();
     paintPrimary();
 }
 
 // The line about older code. While a RunAll of the PR is queued or running, the line says so instead of offering
-// Run RunAll: the next step is to wait. A merged PR's line only names the commits: no run changes its verdict.
+// Run RunAll: the next step is to wait. A merged PR's line only names the commits: no run changes its verdict. A mixed
+// run has its own line instead.
 function paintPending() {
+    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    if (res && mixedRuns(res).length) return paintMixed(res);
     const p = pendingOf.pushed;
     if (!p || $('pendingRow').classList.contains('hidden')) return;
     if (lastResult && lastResult.prNumber === selectedPr && lastResult.mergedAt) {
@@ -2142,6 +2165,52 @@ function paintPending() {
         + (going ? ' ' + going : '');
     $('pendingRerun').classList.toggle('hidden', !!chain);
     paintPrimary();
+}
+
+// The line about a mixed run, in place of the one about older code: which suites re-ran on which commit, what the rest
+// of the RunAll ran on, and where the PR's head is once the page knows it. Run RunAll is the next step, unless a RunAll
+// is already queued or running, or the PR is merged.
+function paintMixed(res) {
+    $('pendingRow').classList.remove('hidden');
+    $('pendingRow').classList.add('mixed');
+    const chain = res.mergedAt ? null : runsNow.find(b => b.runAll);
+    const next = res.mergedAt ? ''
+        : !chain ? T('Only a RunAll of the PR\'s head can prove it clean.')
+        : chain.state === 'running' ? T('A new RunAll is running.') : T('A new RunAll is queued.');
+    $('pending').innerHTML = mixedNote(res) + (next ? ' ' + next : '');
+    $('pendingRerun').classList.toggle('hidden', !!res.mergedAt || !!chain);
+    paintPrimary();
+}
+
+// A new verdict of the same PR that is not a mixed run takes the line back to older code, or hides it.
+function noLongerMixed(res) {
+    $('pendingRow').classList.remove('mixed');
+    $('pendingRow').classList.toggle('hidden', !(pendingFor(res) && pendingOf.pushed));
+    paintPending();
+}
+
+// "<b>⚠ Mixed run:</b> Control Utility 5 re-ran on 9b02561, the PR's head; the rest of the RunAll ran on c577b18."
+function mixedNote(res) {
+    const head = !pendingFor(res) ? null : pendingOf.code === 'current' ? shortSha(res.revision)
+        : pendingOf.pushed ? pendingOf.pushed.headSha : null;
+    const byCommit = new Map();
+    for (const run of mixedRuns(res)) {
+        const sha = shortSha(run.revision);
+        byCommit.set(sha, (byCommit.get(sha) || []).concat(run.suiteName || run.suite));
+    }
+    const at = sha => sha !== head ? esc(sha) : res.mergedAt ? T`${esc(sha)}, the commit the PR was merged at`
+        : T`${esc(sha)}, the PR's head`;
+    const groups = [...byCommit].map(([sha, names], i) => i === 0 ? T`${esc(suiteNames(names))} re-ran on ${at(sha)}`
+        : T`${esc(suiteNames(names))} on ${at(sha)}`);
+    const rest = shortSha(res.revision);
+    const elsewhere = head && head !== rest && !byCommit.has(head) ? ' ' + T`The PR is now at ${esc(head)}.` : '';
+    return T`<b>⚠ Mixed run:</b> ${groups.join('; ')}; the rest of the RunAll ran on ${at(rest)}.` + elsewhere;
+}
+
+// "a", "a and b", "a, b and c", "a, b, c and 2 more suites".
+function suiteNames(names) {
+    const more = names.length - 3;
+    return more > 0 ? listed(names.slice(0, 3).concat(T`${more} more suite${more === 1 ? '' : 's'}`)) : listed(names);
 }
 
 // The PR list badges a clean run by the PR's head as the server last saw it. The open PR's ✓ waits for the page's
@@ -2620,7 +2689,7 @@ function fmtTestTime(ms) {
 // Has the PR head moved since the analysed run? Then the verdict is for older code — say so
 // and offer a re-run.
 async function loadPending(res) {
-    if (aheadOf(res) == null) $('pendingRow').classList.add('hidden');
+    if (aheadOf(res) == null && !mixedRuns(res).length) $('pendingRow').classList.add('hidden');
     if (res.live) return; // a newer run is already being folded in — not stale
     let p = null;
     try {

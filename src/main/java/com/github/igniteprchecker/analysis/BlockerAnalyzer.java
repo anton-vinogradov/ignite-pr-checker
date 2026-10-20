@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
+import com.github.igniteprchecker.analysis.model.RunRef;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.analysis.model.TestVerdict.Doubt;
@@ -29,6 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.LongPredicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -539,16 +541,91 @@ public class BlockerAnalyzer {
         Progress prog = new Progress(prNumber, chain.failedTests().size(), new AtomicInteger());
         progress.put(buildId, prog);
 
-        FailedLookups failedLookups = new FailedLookups();
         Subject subject = Subject.ofPr(prNumber, t -> branch.testRuns(t.testId(), t.suite(),
             () -> tc.prBranchRuns(token, prNumber, t.testId(), t.suite())));
+        SuiteRuns suites = new SuiteRuns(suite -> latestRun(token, prNumber, branch, suite),
+            since -> tc.finishedBuildsSince(token, prNumber, since));
+        Judged judged = judgeChain(token, chain, subject, suites, taskPool, prog.done());
+
+        long now = System.currentTimeMillis();
+        long incompleteSince = judged.failedLookups().count() == 0 ? 0 : cache.peekResult(buildId)
+            .map(AnalysisResult::incompleteSince).filter(since -> since > 0).orElse(now);
+        if (judged.failedLookups().count() > 0) {
+            log.warn("PR {} (build {}): {} TeamCity lookup(s) failed, {} failed test(s) left unchecked, retrying; "
+                + "first: {}", prNumber, buildId, judged.failedLookups().count(), judged.unverified().size(),
+                judged.failedLookups().first());
+        }
+
+        AnalysisResult result = judged.result(prNumber, chain, now, watermarkAt, incompleteSince,
+            chain.revision() != null ? chain.revision() : chainRevision(token, buildId), 0, List.of());
+
+        cache.putResult(buildId, result);
+        rememberVerdict(prNumber, result);
+        // A test left unchecked is not "fixed": the run-to-run comparison waits for a complete result.
+        if (incompleteSince == 0)
+            deltas.onResult(prNumber, buildId, result.blockers(), result.brokenSuites().size());
+
+        return result;
+    }
+
+    /**
+     * The verdict of a merged PR's RunAll {@code chainId} with the runs queued on its branch before the merge. {@code
+     * branchBuilds} are the branch's builds as TeamCity listed them; a run in {@code afterMerge}, queued after the merge,
+     * does not count, nor a master run that finished after {@code mergedAt}, epoch seconds: master then holds the PR's
+     * own code, and its failures would read as pre-existing. A suite's newest run is its newest in {@code
+     * branchBuilds} that counts. {@code runsAtMerge} names the runs that were still going at the merge. Neither cached
+     * nor compared with the PR's earlier runs: the open PR's verdicts stay as they were.
+     */
+    public AnalysisResult verdictAtMerge(String token, int prNumber, long chainId, long mergedAt, Set<Long> afterMerge,
+        List<TcModel.Build> branchBuilds, List<RunRef> runsAtMerge) {
+        LongPredicate counted = id -> !afterMerge.contains(id);
+        long watermarkAt = System.currentTimeMillis() / 1000 - WATERMARK_MARGIN_SECONDS;
+        BuildFacts.Branch branch = cache.facts().branch(prNumber, watermarkAt,
+            since -> tc.suitesFinishedAfter(token, prNumber, since));
+        ChainCollector.Chain chain = chains.collectForBuild(token, prNumber, chainId, bgPool, counted);
+
+        List<TcModel.Build> finished = branchBuilds.stream()
+            .filter(b -> "finished".equalsIgnoreCase(b.state()) && b.canceledInfo() == null && counted.test(b.id()))
+            .toList();
+        Map<String, TcModel.Build> newest = new HashMap<>();
+        for (TcModel.Build b : finished) {
+            if (b.buildTypeId() != null)
+                newest.merge(b.buildTypeId(), b, (x, y) -> x.id() >= y.id() ? x : y);
+        }
+
+        Subject subject = new Subject(prNumber, t -> branch.testRuns(t.testId(), t.suite(),
+                () -> tc.prBranchRuns(token, prNumber, t.testId(), t.suite())).stream()
+            .filter(o -> o.build() != null && counted.test(o.build().id())).toList(), false, mergedAt, new RunsRead());
+        SuiteRuns suites = new SuiteRuns(suite -> Optional.ofNullable(newest.get(suite)), since -> finished);
+        Judged judged = judgeChain(token, chain, subject, suites, bgPool, new AtomicInteger());
+
+        long now = System.currentTimeMillis();
+        if (judged.failedLookups().count() > 0) {
+            log.warn("merged PR {} (build {}): {} TeamCity lookup(s) failed, {} failed test(s) left unchecked; "
+                + "first: {}", prNumber, chainId, judged.failedLookups().count(), judged.unverified().size(),
+                judged.failedLookups().first());
+        }
+
+        return judged.result(prNumber, chain, now, watermarkAt, judged.failedLookups().count() == 0 ? 0 : now,
+            chain.revision() != null ? chain.revision() : chainRevision(token, chainId), mergedAt, runsAtMerge);
+    }
+
+    /**
+     * Classifies each failed test of the chain by what {@code subject} reads of the branch, and settles the broken,
+     * never-run and shrunk suites by the newer runs {@code suites} finds. Fans out on {@code taskPool}, counting the
+     * tests classified in {@code done}.
+     */
+    private Judged judgeChain(String token, ChainCollector.Chain chain, Subject subject, SuiteRuns suites,
+        ExecutorService taskPool, AtomicInteger done) {
+        chain.newerRuns().forEach(subject.read()::note);
+        FailedLookups failedLookups = new FailedLookups();
         List<Callable<Classified>> tasks = chain.failedTests().stream()
             .<Callable<Classified>>map(t -> () -> {
                 try {
                     return classify(token, subject, t, failedLookups);
                 }
                 finally {
-                    prog.done().incrementAndGet();
+                    done.incrementAndGet();
                 }
             })
             .toList();
@@ -570,33 +647,13 @@ public class BlockerAnalyzer {
             (blamed.contains(s.suite()) ? chainBroken : unstable).add(s);
 
         List<ShrunkSuite> shortReruns = new ArrayList<>();
-        List<BrokenSuite> broken = withoutHealed(token, prNumber, branch, chainBroken, shortReruns, failedLookups);
-        List<CancelledSuite> cancelled = notRunSince(token, prNumber, chain, broken, shortReruns, failedLookups);
+        List<BrokenSuite> broken = withoutHealed(suites, chainBroken, shortReruns, failedLookups, subject.read());
+        List<CancelledSuite> cancelled = notRunSince(suites, chain, broken, shortReruns, failedLookups, subject.read());
         List<ShrunkSuite> shrunk = newestPerSuite(
-            withFullRunsDropped(token, prNumber, branch, chain.shrunkSuites(), failedLookups), shortReruns);
+            withFullRunsDropped(suites, chain.shrunkSuites(), failedLookups, subject.read()), shortReruns);
 
-        long now = System.currentTimeMillis();
-        long incompleteSince = failedLookups.count() == 0 ? 0 : cache.peekResult(buildId)
-            .map(AnalysisResult::incompleteSince).filter(since -> since > 0).orElse(now);
-        if (failedLookups.count() > 0) {
-            log.warn("PR {} (build {}): {} TeamCity lookup(s) failed, {} failed test(s) left unchecked, retrying; "
-                + "first: {}", prNumber, buildId, failedLookups.count(), unverified.size(), failedLookups.first());
-        }
-
-        AnalysisResult result = new AnalysisResult(prNumber, buildId, chain.branchName(),
-            now, blockers, watch, filtered, broken, shrunk,
-            chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(), cancelled.size(),
-            chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(), chain.finishedAt(), watermarkAt,
-            unstable, cancelled, unverified, incompleteSince,
-            chain.revision() != null ? chain.revision() : chainRevision(token, buildId), 0);
-
-        cache.putResult(buildId, result);
-        rememberVerdict(prNumber, result);
-        // A test left unchecked is not "fixed": the run-to-run comparison waits for a complete result.
-        if (incompleteSince == 0)
-            deltas.onResult(prNumber, buildId, blockers, broken.size());
-
-        return result;
+        return new Judged(blockers, watch, filtered, unverified, broken, unstable, cancelled, shrunk, subject.read(),
+            failedLookups);
     }
 
     /**
@@ -717,18 +774,20 @@ public class BlockerAnalyzer {
      * disappeared" long after the re-runs put them back, which reads as a coverage hole that no
      * longer exists.
      */
-    private List<ShrunkSuite> withFullRunsDropped(String token, int prNumber, BuildFacts.Branch branch,
-        List<ShrunkSuite> shrunk, FailedLookups failedLookups) {
+    private List<ShrunkSuite> withFullRunsDropped(SuiteRuns suites, List<ShrunkSuite> shrunk,
+        FailedLookups failedLookups, RunsRead read) {
         if (shrunk.isEmpty())
             return shrunk;
 
         List<ShrunkSuite> out = new ArrayList<>();
         for (ShrunkSuite s : shrunk) {
             try {
-                Optional<TcModel.Build> last = latestRun(token, prNumber, branch, s.suite());
+                Optional<TcModel.Build> last = suites.latest().apply(s.suite());
                 if (last.isPresent() && last.get().id() > s.suiteBuildId() && last.get().testOccurrences() != null
-                    && ChainCollector.isFullRun(last.get().testOccurrences().count(), s.baseline()))
+                    && ChainCollector.isFullRun(last.get().testOccurrences().count(), s.baseline())) {
+                    read.note(s.suite(), s.suiteName(), last.get());
                     continue;
+                }
             }
             catch (RuntimeException e) {
                 // TC hiccup — keep the entry rather than silently claiming the coverage is back
@@ -747,16 +806,17 @@ public class BlockerAnalyzer {
      * master's settles nothing: it goes to {@code shortReruns}, so the hole in coverage stays in sight.
      * Kept on any doubt. A newer full run that failed tests is settled already: see ChainCollector.
      */
-    private List<BrokenSuite> withoutHealed(String token, int prNumber, BuildFacts.Branch branch,
-        List<BrokenSuite> broken, List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
+    private List<BrokenSuite> withoutHealed(SuiteRuns suites, List<BrokenSuite> broken, List<ShrunkSuite> shortReruns,
+        FailedLookups failedLookups, RunsRead read) {
         if (broken.isEmpty())
             return broken;
 
         List<BrokenSuite> out = new ArrayList<>();
         for (BrokenSuite s : broken) {
             try {
-                Optional<TcModel.Build> last = latestRun(token, prNumber, branch, s.suite());
+                Optional<TcModel.Build> last = suites.latest().apply(s.suite());
                 if (last.isPresent() && last.get().id() > s.suiteBuildId() && "SUCCESS".equals(last.get().status())) {
+                    read.note(s.suite(), s.suiteName(), last.get());
                     int tests = last.get().testOccurrences() == null ? 0 : last.get().testOccurrences().count();
                     if (!ChainCollector.isFullRun(tests, s.baseline()))
                         shortReruns.add(ChainCollector.shrunk(s.suite(), s.suiteName(), last.get().id(), tests, s.baseline()));
@@ -803,15 +863,15 @@ public class BlockerAnalyzer {
      * must not read as covering it. One request for all of them, and none when nothing was cancelled. Kept
      * on any doubt.
      */
-    private List<CancelledSuite> notRunSince(String token, int prNumber, ChainCollector.Chain chain,
-        List<BrokenSuite> broken, List<ShrunkSuite> shortReruns, FailedLookups failedLookups) {
+    private List<CancelledSuite> notRunSince(SuiteRuns suites, ChainCollector.Chain chain, List<BrokenSuite> broken,
+        List<ShrunkSuite> shortReruns, FailedLookups failedLookups, RunsRead read) {
         if (chain.cancelledSuites().isEmpty())
             return chain.cancelledSuites();
 
         try {
             Map<String, TcModel.Build> newestRuns = new HashMap<>();
-            for (TcModel.Build b : tc.finishedBuildsSince(token, prNumber,
-                chain.queuedAt() > 0 ? TcDates.format(chain.queuedAt()) : null)) {
+            for (TcModel.Build b : suites.finishedSince()
+                .apply(chain.queuedAt() > 0 ? TcDates.format(chain.queuedAt()) : null)) {
                 if (b.buildTypeId() != null)
                     newestRuns.merge(b.buildTypeId(), b, (x, y) -> x.id() >= y.id() ? x : y);
             }
@@ -824,6 +884,7 @@ public class BlockerAnalyzer {
                     continue;
                 }
 
+                read.note(c.suite(), c.suiteName(), run);
                 int tests = run.testOccurrences() == null ? 0 : run.testOccurrences().count();
                 boolean brokeSince = broken.stream().anyMatch(b -> b.suite().equals(c.suite()));
                 if (!brokeSince && !ChainCollector.isFullRun(tests, c.baseline()))
@@ -880,14 +941,17 @@ public class BlockerAnalyzer {
 
     private TestVerdict judge(String token, Subject subject, FailedTest t, FailedLookups failedLookups,
         Footing footing) {
-        RunHistory master = cache.history(t.testId(), t.suite(),
-            () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
+        RunHistory master = subject.masterUntil() > 0
+            ? RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite(), subject.masterUntil()))
+            : cache.history(t.testId(), t.suite(),
+                () -> RunHistory.ofMaster(tc.getBaseBranchHistory(token, t.testId(), t.suite())));
 
         // The finished runs of this test in its suite on the PR branch (one request, unless no run of the suite has
         // finished since the last compute fetched them; also drives the history strip).
         List<TcModel.TestOccurrence> runs = withResult(subject.runs().apply(t));
         String branchRuns = strip(runs);
         TcModel.TestOccurrence lastRun = runs.isEmpty() ? null : runs.get(runs.size() - 1);
+        subject.read().note(t, lastRun);
 
         // Master runs on another JDK are no evidence either way: some nightly master RunAlls run on JDK
         // 21, and a test broken only there read "15/98 on master" for every PR run on JDK 17.
@@ -1284,11 +1348,85 @@ public class BlockerAnalyzer {
     /**
      * What a failed test is judged against besides master: its runs on the branch under review, the Ignite PR whose
      * runs are not "other PRs" (0: none), and whether a run's code is the commit of every VCS root or only the first.
+     * {@code masterUntil}, epoch seconds, keeps out the master runs that finished after it; 0 keeps them all. {@code
+     * read} notes the newest run of each suite the verdict reads.
      */
-    private record Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot) {
+    private record Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot,
+        long masterUntil, RunsRead read) {
+        /** A subject judged against every master run, whose reads nobody looks at. */
+        Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot) {
+            this(pr, runs, everyRoot, 0, new RunsRead());
+        }
+
         /** An Ignite PR, whose RunAll takes the PR's code from one VCS root. */
         static Subject ofPr(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs) {
             return new Subject(pr, runs, false);
+        }
+    }
+
+    /**
+     * A PR branch's suite runs as one compute reads them: a suite's newest finished run, and the branch's finished
+     * builds since a TeamCity time (null: the newest ones).
+     */
+    private record SuiteRuns(Function<String, Optional<TcModel.Build>> latest,
+        Function<String, List<TcModel.Build>> finishedSince) {
+    }
+
+    /**
+     * A chain's verdict before it is dated: the tests by list, the suites as the newer runs left them, the runs read,
+     * and the TeamCity lookups that failed.
+     */
+    private record Judged(List<TestVerdict> blockers, List<TestVerdict> watch, List<TestVerdict> filtered,
+        List<TestVerdict> unverified, List<BrokenSuite> broken, List<BrokenSuite> unstable,
+        List<CancelledSuite> cancelled, List<ShrunkSuite> shrunk, RunsRead read, FailedLookups failedLookups) {
+        /** The verdict of {@code chain} as computed at {@code now}, epoch ms, of the chain's {@code revision}. */
+        AnalysisResult result(int prNumber, ChainCollector.Chain chain, long now, long watermarkAt,
+            long incompleteSince, String revision, long mergedAt, List<RunRef> runsAtMerge) {
+            return new AnalysisResult(prNumber, chain.buildId(), chain.branchName(), now, blockers, watch, filtered,
+                broken, shrunk, chain.suitesRan(), chain.suitesReused(), chain.interrupted() && !cancelled.isEmpty(),
+                cancelled.size(), chain.live(), chain.liveBuildId(), chain.queuedAt(), chain.startedAt(),
+                chain.finishedAt(), watermarkAt, unstable, cancelled, unverified, incompleteSince, revision, mergedAt,
+                read.otherThan(revision), runsAtMerge);
+        }
+    }
+
+    /**
+     * The newest run of each suite a verdict reads: the chain's own, a re-run, or a newer chain's run. Those that tested
+     * another commit than the chain make the verdict a mixed run.
+     */
+    private static final class RunsRead {
+        private final Map<String, RunRef> newest = new ConcurrentHashMap<>();
+
+        void note(RunRef run) {
+            if (run.suite() != null)
+                newest.merge(run.suite(), run, (a, b) -> a.buildId() >= b.buildId() ? a : b);
+        }
+
+        void note(String suite, String suiteName, TcModel.Build run) {
+            note(new RunRef(suite, suiteName, run.id(), ChainCollector.revisionOf(run)));
+        }
+
+        /** The last run of a failed test, in the suite the run names, else the suite the test failed in. */
+        void note(FailedTest t, TcModel.TestOccurrence lastRun) {
+            if (lastRun == null || lastRun.build() == null)
+                return;
+
+            TcModel.BuildRef b = lastRun.build();
+            note(new RunRef(b.buildTypeId() != null ? b.buildTypeId() : t.suite(),
+                b.buildType() != null && b.buildType().name() != null ? b.buildType().name() : t.suiteName(), b.id(),
+                firstRevision(b.revisions())));
+        }
+
+        /** The runs read that tested another commit than {@code revision}, by suite name; none when it is unknown. */
+        List<RunRef> otherThan(String revision) {
+            if (revision == null)
+                return List.of();
+
+            return newest.values().stream()
+                .filter(r -> r.revision() != null && !r.revision().equalsIgnoreCase(revision))
+                .sorted(Comparator.comparing(RunRef::suiteName, Comparator.nullsLast(Comparator.naturalOrder()))
+                    .thenComparingLong(RunRef::buildId))
+                .toList();
         }
     }
 

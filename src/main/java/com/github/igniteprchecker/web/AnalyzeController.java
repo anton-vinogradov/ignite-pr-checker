@@ -110,7 +110,7 @@ public class AnalyzeController {
      * The analysis as the page gets it: with how its verdict stands and the caveats behind that, as the server words
      * them, so the page's head says what the PR list, the visa and the PR comment say. Commits pushed since the run
      * come with /api/pending; {@code pushed} is its answer ahead of time when the PR list already shows the head past
-     * the run, the way the list badges it, and null otherwise.
+     * the run, the way the list badges it, and null otherwise. The page words a mixed run itself, next to the head.
      */
     public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats,
         Map<String, Object> pushed) {
@@ -119,7 +119,7 @@ public class AnalyzeController {
         }
 
         static Served of(AnalysisResult r, PendingCommits.Ahead listed) {
-            return new Served(r, Caveats.standing(r, null), Caveats.of(r, null),
+            return new Served(r, Caveats.standing(r, null), Caveats.onPage(r),
                 listed == null ? null : answer(listed, Caveats.headMoved()));
         }
     }

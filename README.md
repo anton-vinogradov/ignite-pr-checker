@@ -354,7 +354,7 @@ each boot, or the tokens can stay in the swap file.
 | `logins.json` | Each user's logins: the browser and its system, when it logged in and when it was last seen. No tokens and no IP addresses. If the file loses a browser's login, that browser goes to the login form. |
 | `journal.json` | Each user's journal in ⚙: each change of their settings and the browser it came from, each token a service refused or the checker could not read, each visa posted or edited with their JIRA token. The last 100 switches of options, the last 100 saved tokens and the last 100 other entries of each user. No tokens. |
 | `analysis.json`, `flaky.json`, `suite-baseline.json`, `delta.json`, `github.json`, `metrics.json` | Caches: verdicts and what TeamCity said, the flaky board, master's test counts, run-to-run deltas, the open PRs, the status page's counters. Without them the service starts slower. |
-| `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge. Written once, never removed. |
+| `merged/<pr>.json` | The verdict of a merged PR as it stood at the merge, with the results of the runs that were still going then. Written when the checker finds the PR merged, and once more when it has looked at the runs that were going at the merge. Never removed. |
 | `backups/cache-YYYY-MM-DD.zip` | All snapshot files, zipped once a day, the newest 7 kept. `merged/` is not in them. |
 | `<file>.bad-<time>` | A file that could not be read at the start, set aside; that part started empty. |
 | `<file>.before-<version>-built-<time>` | A file as it was before a new build first ran; the newest 5 kept per file. |

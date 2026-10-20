@@ -3,6 +3,7 @@ package com.github.igniteprchecker.analysis;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.CancelledSuite;
 import com.github.igniteprchecker.analysis.model.FailedTest;
+import com.github.igniteprchecker.analysis.model.RunRef;
 import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.Upstream;
 import com.github.igniteprchecker.tc.TcClient;
@@ -20,6 +21,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.function.LongPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -117,6 +119,14 @@ public class ChainCollector {
     private static final int SHRINK_MIN_BASELINE = 20;
 
     public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool) {
+        return collectForBuild(token, prNumber, buildId, pool, id -> true);
+    }
+
+    /**
+     * The same, of the runs on the branch {@code counted} lets in, by build id: a merged PR's verdict leaves out what
+     * was queued on its branch after the merge. The chain itself is always read.
+     */
+    public Chain collectForBuild(String token, int prNumber, long buildId, ExecutorService pool, LongPredicate counted) {
         TcModel.Build build = chainWithDeps(token, buildId);
 
         // The subject itself may still be running (a PR's first chain, hours before it ends): its
@@ -157,9 +167,10 @@ public class ChainCollector {
         long liveBuildId = subjectRunning ? build.id() : 0;
         Set<Long> newerChainSuites = new HashSet<>();
         Map<String, Long> fullRuns = new HashMap<>();
+        List<RunRef> newerRuns = new ArrayList<>();
         for (TcModel.Build chain : tc.recentChains(token, prNumber, 3)) {
-            if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()))
-                continue; // not newer than the baseline, or nothing has run in it yet
+            if (chain.id() <= buildId || "queued".equalsIgnoreCase(chain.state()) || !counted.test(chain.id()))
+                continue; // not newer than the baseline, nothing has run in it yet, or not counted
             if ("running".equalsIgnoreCase(chain.state())) {
                 live = true;
                 liveBuildId = Math.max(liveBuildId, chain.id());
@@ -173,16 +184,19 @@ public class ChainCollector {
             for (SuiteResult r : Parallel.run(pool, rTasks)) {
                 supersede(broken, unstable, r);
                 noteFullRun(fullRuns, r, masterCounts);
+                newerRuns.add(runRef(r.run()));
                 for (FailedTest ft : r.tests())
                     if (seen.add(new Candidate(ft.testId(), ft.suite())))
                         failed.add(ft);
             }
         }
 
-        List<Callable<SuiteResult>> reruns = singleSuiteReruns(token, prNumber, build, newerChainSuites, masterCounts);
+        List<Callable<SuiteResult>> reruns =
+            singleSuiteReruns(token, prNumber, build, newerChainSuites, masterCounts, counted);
         for (SuiteResult r : Parallel.run(pool, reruns)) {
             supersede(broken, unstable, r);
             noteFullRun(fullRuns, r, masterCounts);
+            newerRuns.add(runRef(r.run()));
             for (FailedTest ft : r.tests())
                 if (seen.add(new Candidate(ft.testId(), ft.suite())))
                     failed.add(ft);
@@ -229,7 +243,15 @@ public class ChainCollector {
             shrunkSuites(depBuilds(build), masterCounts, brokenRuns),
             ran, reused, interrupted, cancelled.size(), live, liveBuildId,
             TcDates.epochSeconds(build.queuedDate()), TcDates.epochSeconds(build.startDate()),
-            TcDates.epochSeconds(build.finishDate()), unstable, cancelled, revisionOf(build));
+            TcDates.epochSeconds(build.finishDate()), unstable, cancelled, revisionOf(build), newerRuns);
+    }
+
+    /** A suite run and the commit it tested. */
+    static RunRef runRef(TcModel.Build run) {
+        String name = run.buildType() != null && run.buildType().name() != null ? run.buildType().name()
+            : run.buildTypeId();
+
+        return new RunRef(run.buildTypeId(), name, run.id(), revisionOf(run));
     }
 
     /**
@@ -279,7 +301,7 @@ public class ChainCollector {
     }
 
     /** The VCS revision a build ran on, or null when TeamCity gave none. */
-    private static String revisionOf(TcModel.Build build) {
+    static String revisionOf(TcModel.Build build) {
         TcModel.Revisions revs = build.revisions();
         if (revs == null || revs.revision() == null || revs.revision().isEmpty())
             return null;
@@ -335,7 +357,7 @@ public class ChainCollector {
      * collected. One list call, plus the failed tests of each re-run.
      */
     private List<Callable<SuiteResult>> singleSuiteReruns(String token, int prNumber, TcModel.Build chain,
-        Set<Long> newerChainSuites, Map<String, Integer> masterCounts) {
+        Set<Long> newerChainSuites, Map<String, Integer> masterCounts, LongPredicate counted) {
         Map<String, Long> chainRuns = new HashMap<>();
         for (TcModel.Build dep : depBuilds(chain)) {
             if (dep.buildTypeId() != null)
@@ -345,7 +367,7 @@ public class ChainCollector {
             return List.of();
 
         return tc.failedBuildsSince(token, prNumber, chain.queuedDate()).stream()
-            .filter(b -> !newerChainSuites.contains(b.id()))
+            .filter(b -> !newerChainSuites.contains(b.id()) && counted.test(b.id()))
             .filter(b -> b.id() > chainRuns.getOrDefault(b.buildTypeId(), Long.MAX_VALUE))
             .<Callable<SuiteResult>>map(b -> () -> suiteResultOf(token, b, masterCounts))
             .toList();
@@ -549,13 +571,28 @@ public class ChainCollector {
      * {@code unstableSuites} crashed after running nearly all their tests: their failed tests are among the
      * candidates, and the analysis decides whether each suite counts as broken. {@code cancelledSuites}
      * are the chain's suites that never ran, as the chain left them. {@code revision} is the VCS revision the chain
-     * ran on, null when TeamCity gave none.
+     * ran on, null when TeamCity gave none. {@code newerRuns} are the failed suite runs after the chain's own that it
+     * read: of newer chains and of suites re-run on their own.
      */
     public record Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
         List<ShrunkSuite> shrunkSuites,
         int suitesRan, int suitesReused, boolean interrupted, int canceledSuites, boolean live, long liveBuildId,
         long queuedAt, long startedAt, long finishedAt, List<BrokenSuite> unstableSuites,
-        List<CancelledSuite> cancelledSuites, String revision) {
+        List<CancelledSuite> cancelledSuites, String revision, List<RunRef> newerRuns) {
+        public Chain {
+            newerRuns = newerRuns == null ? List.of() : newerRuns;
+        }
+
+        /** A chain that read no newer run, in the shape callers used before such runs were told. */
+        public Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
+            List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
+            boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt,
+            List<BrokenSuite> unstableSuites, List<CancelledSuite> cancelledSuites, String revision) {
+            this(buildId, branchName, failedTests, brokenSuites, shrunkSuites, suitesRan, suitesReused, interrupted,
+                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, unstableSuites, cancelledSuites,
+                revision, List.of());
+        }
+
         /** A chain whose revision is not known, in the shape callers used before it was read. */
         public Chain(long buildId, String branchName, List<FailedTest> failedTests, List<BrokenSuite> brokenSuites,
             List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
@@ -563,7 +600,7 @@ public class ChainCollector {
             List<BrokenSuite> unstableSuites, List<CancelledSuite> cancelledSuites) {
             this(buildId, branchName, failedTests, brokenSuites, shrunkSuites, suitesRan, suitesReused, interrupted,
                 canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, unstableSuites, cancelledSuites,
-                null);
+                null, List.of());
         }
 
         /** A chain with no unstable or listed cancelled suites, in the shape callers used before they were tracked. */
@@ -571,7 +608,8 @@ public class ChainCollector {
             List<ShrunkSuite> shrunkSuites, int suitesRan, int suitesReused, boolean interrupted, int canceledSuites,
             boolean live, long liveBuildId, long queuedAt, long startedAt, long finishedAt) {
             this(buildId, branchName, failedTests, brokenSuites, shrunkSuites, suitesRan, suitesReused, interrupted,
-                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, List.of(), List.of(), null);
+                canceledSuites, live, liveBuildId, queuedAt, startedAt, finishedAt, List.of(), List.of(), null,
+                List.of());
         }
     }
 }
