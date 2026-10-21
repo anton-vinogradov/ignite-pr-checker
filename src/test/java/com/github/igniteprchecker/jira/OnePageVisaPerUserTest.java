@@ -37,7 +37,7 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * On python#69 the author's Visa my runs in JIRA put the visa of build 9424005 into IGNITE-29100, and a reviewer posted
- * their own visa of the run with Post visa. The checker kept one record of the run's visa, and the reviewer's press
+ * their own visa of the run with Post to JIRA. The checker kept one record of the run's visa, and the reviewer's press
  * took it. So the author's next press added a second comment instead of editing theirs, and their option's next run of
  * the same commits posted the same visa again. A press of the author while the sweep posted the visa their option owed
  * added a second comment too. Each user now has their own visa of a run, which a press of anyone else leaves alone.

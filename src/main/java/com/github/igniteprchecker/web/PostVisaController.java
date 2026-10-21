@@ -8,7 +8,6 @@ import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.github.PythonClientRuns;
-import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,13 +22,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Post visa on the PR page: the viewer posts the visa of the run the page shows to the PR's IGNITE ticket now, with the
- * JIRA token they saved in ⚙ for Visa my runs in JIRA, as their own comment in JIRA. The visa has the text the run's
- * automatic visa has, and a last line that says who posted it. A second press for the same run edits that comment. The
- * visa goes only for a final verdict: no run of the PR is going, no auto re-run settles it, TeamCity errors left no
- * part of it to check again, and a merged PR's verdict is not waiting for runs that went at the merge. It goes only to
- * the ticket the viewer confirmed, which the PR title names. A PR of the Python thin client gets the visa of its newest
- * run of the client's suite. See {@link StandingVisas#postVisaFromPage}.
+ * Post to JIRA on the PR page: the viewer posts the visa of the run the page shows to the PR's IGNITE ticket now, with
+ * the JIRA token they saved in ⚙ for Visa my runs in JIRA, as their own comment in JIRA. The visa has the text the
+ * run's automatic visa has, and a last line that says who posted it. A second press for the same run edits that
+ * comment. The visa goes only for a final verdict: no run of the PR is going, no auto re-run settles it, TeamCity
+ * errors left no part of it to check again, and a merged PR's verdict is not waiting for runs that went at the merge.
+ * It goes only to the ticket the viewer confirmed, which the PR title names. A PR of the Python thin client gets the
+ * visa of its newest run of the client's suite. See {@link StandingVisas#postVisaFromPage}.
  */
 @RestController
 @RequestMapping("/api")
@@ -79,23 +78,16 @@ public class PostVisaController {
         if (!standing.visaButton(username, null, pr, build).jiraReady())
             return noToken();
 
-        Optional<AnalysisResult> atMerge = merged.verdict(pr);
-        Optional<AnalysisResult> res = atMerge.isPresent() ? atMerge : analyzer.analyzeForAction(tcToken, pr);
-        if (res.isEmpty())
-            return ResponseEntity.status(404).body(Map.of("error", "no RunAll build found for PR " + pr));
-        if (res.get().buildId() != build)
-            return stale();
+        Final verdict = igniteVerdict(tcToken, pr, build);
+        if (verdict.refused() != null)
+            return refused(verdict.refused(), "no RunAll build found for PR " + pr);
 
-        boolean going = atMerge.isPresent() ? analyzer.runsAtMergeDue(pr)
-            : res.get().live() || res.get().finishedAt() == 0
-                || !StandingVisas.Phase.FINAL.equals(standing.phase(pr, build).phase())
-                || !tc.currentUserBuilds(tcToken, pr).isEmpty();
-        Optional<ResponseEntity<?>> refused = notFinal(going, res.get(), () -> titles.titleNow(pr), issue);
-        if (refused.isPresent())
-            return refused.get();
+        Optional<ResponseEntity<?>> wrongTicket = wrongTicket(() -> titles.titleNow(pr), issue);
+        if (wrongTicket.isPresent())
+            return wrongTicket.get();
 
         StandingVisas.PagePost posted = standing.postVisaFromPage(username, AuthInterceptor.by(req), tcToken, pr,
-            build, issue, res.get());
+            build, issue, verdict.res());
 
         return answer(posted, username, null, pr, build, issue);
     }
@@ -112,22 +104,16 @@ public class PostVisaController {
         if (!standing.visaButton(username, python.repo(), pr, build).jiraReady())
             return noToken();
 
-        Optional<ClientVerdicts.Verdict> verdict = clients.verdict(tcToken, pr);
-        if (verdict.isEmpty())
-            return ResponseEntity.status(404).body(Map.of("error", ClientPrsController.NO_RUN));
+        Final verdict = clientVerdict(tcToken, pr, build);
+        if (verdict.refused() != null)
+            return refused(verdict.refused(), ClientPrsController.NO_RUN);
 
-        AnalysisResult res = verdict.get().result();
-        ClientVerdicts.Run run = verdict.get().run();
-        if (res.buildId() != build)
-            return stale();
+        Optional<ResponseEntity<?>> wrongTicket = wrongTicket(() -> clientPrs.titleNow(pr), issue);
+        if (wrongTicket.isPresent())
+            return wrongTicket.get();
 
-        boolean going = !StandingVisas.Phase.FINAL.equals(commands.clientPhase(pr, build).phase())
-            || tc.currentUserBuilds(tcToken, PythonClientRuns.branch(pr)).stream()
-                .anyMatch(b -> python.suite().equals(b.buildTypeId()));
-        Optional<ResponseEntity<?>> refused = notFinal(going, res, () -> clientPrs.titleNow(pr), issue);
-        if (refused.isPresent())
-            return refused.get();
-
+        AnalysisResult res = verdict.res();
+        ClientVerdicts.Run run = verdict.run();
         String body = python.pageVisaBody(pr, run.buildId(), run.rerunId(), run.suiteName(), run.clientSha(),
             run.igniteSha(), res);
         StandingVisas.PagePost posted = standing.postClientVisaFromPage(username, AuthInterceptor.by(req),
@@ -137,23 +123,71 @@ public class PostVisaController {
     }
 
     /**
-     * Why the visa of the verdict {@code res} does not go now: runs can still change it ({@code going}), TeamCity
-     * errors left part of it to check again, the PR's {@code title} is not known, or it names another ticket than
-     * {@code issue}, the one the viewer confirmed, or none. Empty when it goes.
+     * The verdict of the RunAll {@code build} of PR {@code pr} the page shows, for a button that posts it, or why it
+     * may not go now; see {@link Final}. A merged PR's verdict is the one kept at the merge, which only the runs that
+     * went at the merge may still change. Any other verdict is final when no run of the PR is going on ci2 and no auto
+     * re-run settles it.
      */
-    private Optional<ResponseEntity<?>> notFinal(boolean going, AnalysisResult res, Supplier<Optional<String>> title,
-        String issue) {
-        if (going) {
-            return Optional.of(ResponseEntity.status(409).body(Map.of("error", "Post visa waits for the final verdict:"
-                + " runs of this PR can still change it.", "going", true)));
-        }
-        if (analyzer.stillRetrying(res)) {
-            return Optional.of(ResponseEntity.status(409).body(Map.of("error", "TeamCity errors left part of this"
-                + " verdict unchecked. The checker checks that part again, and Post visa waits up to 20 minutes for"
-                + " that.",
-                "going", true)));
-        }
+    Final igniteVerdict(String tcToken, int pr, long build) {
+        Optional<AnalysisResult> atMerge = merged.verdict(pr);
+        Optional<AnalysisResult> res = atMerge.isPresent() ? atMerge : analyzer.analyzeForAction(tcToken, pr);
+        if (res.isEmpty())
+            return Final.refused(Final.NONE);
+        if (res.get().buildId() != build)
+            return Final.refused(Final.STALE);
 
+        boolean going = atMerge.isPresent() ? analyzer.runsAtMergeDue(pr)
+            : res.get().live() || res.get().finishedAt() == 0
+                || !StandingVisas.Phase.FINAL.equals(standing.phase(pr, build).phase())
+                || !tc.currentUserBuilds(tcToken, pr).isEmpty();
+
+        return finalOrNot(res.get(), null, going);
+    }
+
+    /**
+     * The verdict of the run {@code build} of the client's suite for PR {@code pr} of the Python thin client the page
+     * shows, as {@link #igniteVerdict} has a RunAll's: the PR's newest run that tested its own commit. It is final
+     * when its story settled it and no run of the suite on the PR's branch is going.
+     */
+    Final clientVerdict(String tcToken, int pr, long build) {
+        Optional<ClientVerdicts.Verdict> verdict = clients.verdict(tcToken, pr);
+        if (verdict.isEmpty())
+            return Final.refused(Final.NONE);
+        if (verdict.get().result().buildId() != build)
+            return Final.refused(Final.STALE);
+
+        boolean going = !StandingVisas.Phase.FINAL.equals(commands.clientPhase(pr, build).phase())
+            || tc.currentUserBuilds(tcToken, PythonClientRuns.branch(pr)).stream()
+                .anyMatch(b -> python.suite().equals(b.buildTypeId()));
+
+        return finalOrNot(verdict.get().result(), verdict.get().run(), going);
+    }
+
+    /** The verdict, or why it may not go: runs can still change it ({@code going}), or TeamCity errors left a part. */
+    private Final finalOrNot(AnalysisResult res, ClientVerdicts.Run run, boolean going) {
+        String refused = going ? Final.GOING : analyzer.stillRetrying(res) ? Final.RETRYING : null;
+
+        return new Final(res, run, refused);
+    }
+
+    /** The answer to a press whose verdict may not go, by why; {@code none} says the PR has no run to post. */
+    private static ResponseEntity<?> refused(String why, String none) {
+        return switch (why) {
+            case Final.NONE -> ResponseEntity.status(404).body(Map.of("error", none));
+            case Final.STALE -> stale();
+            case Final.GOING -> ResponseEntity.status(409).body(Map.of("error", "Post to JIRA waits for the final"
+                + " verdict: runs of this PR can still change it.", "going", true));
+            default -> ResponseEntity.status(409).body(Map.of("error", "TeamCity errors left part of this verdict"
+                + " unchecked. The checker checks that part again, and Post to JIRA waits up to 20 minutes for that.",
+                "going", true));
+        };
+    }
+
+    /**
+     * Why the visa does not go to {@code issue}, the ticket the viewer confirmed: the PR's {@code title} is not known,
+     * or it names another ticket or none. Empty when it goes.
+     */
+    private static Optional<ResponseEntity<?>> wrongTicket(Supplier<Optional<String>> title, String issue) {
         Optional<String> known = title.get();
         if (known.isEmpty()) {
             return Optional.of(ResponseEntity.status(502).body(Map.of("error", "The checker could not get the PR's"
@@ -206,7 +240,7 @@ public class PostVisaController {
     }
 
     private static ResponseEntity<?> noToken() {
-        return ResponseEntity.status(412).body(Map.of("error", "Post visa uses the JIRA token you save in ⚙, and you"
+        return ResponseEntity.status(412).body(Map.of("error", "Post to JIRA uses the JIRA token you save in ⚙, and you"
             + " have none there. Saving one also switches on Visa my runs in JIRA.", "need", "jira"));
     }
 
@@ -216,9 +250,29 @@ public class PostVisaController {
     }
 
     /**
+     * The verdict {@code res} of the run the PR page shows, and for a client's PR the {@code run} it is of, null for a
+     * RunAll. {@code refused}: why nothing may be posted of it now, null when it may: the PR has no such run ({@link
+     * #NONE}), the checker has a newer verdict than the page ({@link #STALE}), runs of the PR can still change it
+     * ({@link #GOING}), or TeamCity errors left part of it to check again ({@link #RETRYING}).
+     */
+    record Final(AnalysisResult res, ClientVerdicts.Run run, String refused) {
+        static final String NONE = "none";
+
+        static final String STALE = "stale";
+
+        static final String GOING = "going";
+
+        static final String RETRYING = "retrying";
+
+        static Final refused(String why) {
+            return new Final(null, null, why);
+        }
+    }
+
+    /**
      * The visa row of a run on the PR page: where its visa stands, see {@link StandingVisas#visaLine}, and what Post
-     * visa can do for the viewer. {@code edited}: the visa Post visa just put in edited the viewer's own visa of the
-     * run; null in any other answer.
+     * to JIRA can do for the viewer. {@code edited}: the visa Post to JIRA just put in edited the viewer's own visa of
+     * the run; null in any other answer.
      */
     public record VisaRow(@JsonUnwrapped StandingVisas.VisaLine line, @JsonUnwrapped StandingVisas.VisaButton button,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean edited) {

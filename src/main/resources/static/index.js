@@ -3457,6 +3457,7 @@ let visaLinePainted = null; // what the line shows, so a poll with the same answ
 let jiraInCookieUnused = false; // a JIRA token sat in the user's cookie, unused, and their visa option is off
 
 async function loadVisaLine(number) {
+    loadPrPost(number); // Post to PR shares the row, and it needs no ticket in the PR title
     const res = lastResult;
     if (!res || res.prNumber !== number || !lastIssueKey) {
         paintVisaLine();
@@ -3489,6 +3490,7 @@ function paintVisaLine() {
         : !lastIssueKey || v === undefined || v === false ? null
         : v === null ? T('Visa: …') : visaLineText(v, lastIssueKey);
     paintVisaPost(res, v);
+    paintPrPost(res);
     if (html === visaLinePainted) return;
     visaLinePainted = html;
     el.innerHTML = html || '';
@@ -3542,23 +3544,23 @@ function visaLineText(v, key) {
     }
 }
 
-// Post visa puts the visa of the run on screen into the PR's ticket now: as the viewer's own comment in JIRA, with the
-// JIRA token they saved in ⚙, the only place the checker keeps it. It waits for a ticket in the PR title, that token
-// and the final verdict with no part left unchecked; the ? next to it says what keeps it off. A second press for the
-// same run updates that comment (PostVisaController on the server).
+// Post to JIRA puts the visa of the run on screen into the PR's ticket now: as the viewer's own comment in JIRA, with
+// the JIRA token they saved in ⚙, the only place the checker keeps it. It waits for a ticket in the PR title, that
+// token and the final verdict with no part left unchecked; the ? next to it says what keeps it off. A second press for
+// the same run updates that comment (PostVisaController on the server).
 const VISA_POST_OFF = {
     ticket: phrase('The PR title names no IGNITE ticket, so there is no ticket to post the visa to. Add the ticket '
         + 'key to the title.'),
-    token: phrase('Post visa uses the JIRA token you save in ⚙, and you have none there. Saving one also switches on '
-        + 'Visa my runs in JIRA.'),
-    wait: phrase('Post visa waits for the final verdict: runs of this PR can still change it.'),
+    token: phrase('Post to JIRA uses the JIRA token you save in ⚙, and you have none there. Saving one also switches '
+        + 'on Visa my runs in JIRA.'),
+    wait: phrase('Post to JIRA waits for the final verdict: runs of this PR can still change it.'),
     retry: phrase('TeamCity errors left part of this verdict unchecked. The checker checks that part again, and Post '
-        + 'visa waits up to 20 minutes for that.'),
+        + 'to JIRA waits up to 20 minutes for that.'),
 };
-let visaPostOff = ''; // the key of VISA_POST_OFF that keeps Post visa off now, '' while it is on
-let visaRetryTimer = null; // paints Post visa again when its wait for the verdict's TeamCity errors ends
+let visaPostOff = ''; // the key of VISA_POST_OFF that keeps Post to JIRA off now, '' while it is on
+let visaRetryTimer = null; // paints Post to JIRA again when its wait for the verdict's TeamCity errors ends
 
-// What keeps Post visa off for the run on screen, '' when nothing does; null while the row has no button: the PR's
+// What keeps Post to JIRA off for the run on screen, '' when nothing does; null while the row has no button: the PR's
 // ticket or the server's answer for the run is not known yet.
 function visaPostReason(res, v) {
     if (lastIssueKey === '') return 'ticket';
@@ -3592,16 +3594,16 @@ function paintVisaPost(res, v) {
     $('visaPost').title = why ? ''
         : v.yoursIn === lastIssueKey ? T('Updates your visa of this run in {0} with the verdict on this page. It uses '
             + 'the JIRA token you saved in ⚙.', lastIssueKey)
-        : T('Posts the verdict on this page to {0} as your comment in JIRA, with the JIRA token you saved in ⚙. A '
-            + 'second press for this run updates that comment.', lastIssueKey);
+        : T('Posts the verdict on this page to {0} as your visa of this run: a comment in JIRA, with the JIRA token '
+            + 'you saved in ⚙. A second press for this run updates that visa.', lastIssueKey);
     $('visaPostWhy').classList.toggle('hidden', !why);
     $('visaPostWhy').title = !why ? '' : T(VISA_POST_OFF[why]) + (why === 'token' ? ' ' + T('A click opens ⚙.') : '');
     clearTimeout(visaRetryTimer);
     visaRetryTimer = why === 'retry' ? setTimeout(paintVisaLine, retryLeftMs(res) + 1000) : null;
 }
 
-// What Post visa asks before it posts: the run, the ticket, and whether the visa replaces the viewer's own visa of the
-// run there or goes in next to someone else's. A client's run has questions of its own, so that a language can put
+// What Post to JIRA asks before it posts: the run, the ticket, and whether the visa replaces the viewer's own visa of
+// the run there or goes in next to someone else's. A client's run has questions of its own, so that a language can put
 // the build and the suite where it needs them.
 function visaQuestion(res, key, v) {
     const suite = res.suiteName || clientSuite, run = 'RunAll ' + res.buildId;
@@ -3653,12 +3655,129 @@ async function postVisa() {
 }
 
 $('visaPost').onclick = postVisa;
-// The ? says what keeps Post visa off in the status line too, which a keyboard and a phone reach; for a missing JIRA
+// The ? says what keeps Post to JIRA off in the status line too, which a keyboard and a phone reach; for a missing JIRA
 // token it opens ⚙, where the token is saved.
 $('visaPostWhy').onclick = () => {
     if (!visaPostOff) return;
     sayStatus(T(VISA_POST_OFF[visaPostOff]), { aloud: true });
     if (visaPostOff === 'token' && $('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
+};
+
+// Post to PR puts the verdict of the run on screen into the PR now, as a comment of the checker's GitHub account. A run
+// has one verdict comment: a press updates the one the checker knows of the run, from Post my runs' verdicts in the PR
+// or from an earlier press (PostToPrController on the server). It waits for the final verdict, as Post to JIRA does,
+// and for a checker that can write to GitHub; the ? next to it says what keeps it off.
+const PR_POST_OFF = {
+    none: phrase('This checker has no GitHub account to write with (GITHUB_TOKEN), so it cannot post to the PR. Its '
+        + 'operator can add one.'),
+    refused: phrase('GitHub refuses the token the checker writes with (GITHUB_TOKEN), so the checker cannot post to '
+        + 'the PR now.'),
+    paused: phrase('GitHub asked the checker to wait before it writes again. Try again later.'),
+    wait: phrase('Post to PR waits for the final verdict: runs of this PR can still change it.'),
+    retry: phrase('TeamCity errors left part of this verdict unchecked. The checker checks that part again, and Post '
+        + 'to PR waits up to 20 minutes for that.'),
+};
+// /api/pr-comment's last answer for each run, by "pr:build": null while the first answer is not in, false when it failed.
+const prPosts = new Map();
+let prPostOff = ''; // the key of PR_POST_OFF that keeps Post to PR off now, '' while it is on
+let prRetryTimer = null; // paints Post to PR again when its wait for the verdict's TeamCity errors ends
+
+async function loadPrPost(number) {
+    const res = lastResult;
+    if (!res || res.prNumber !== number) return;
+    const key = prTag(number, res.repo) + ':' + res.buildId;
+    if (!prPosts.has(key)) prPosts.set(key, null);
+    while (prPosts.size > VISA_LINES_KEPT) prPosts.delete(prPosts.keys().next().value);
+    let row;
+    try {
+        const r = await api(prApi('pr-comment', number, res.repo) + '&build=' + res.buildId);
+        row = r.ok ? await r.json() : undefined;
+    } catch (e) {
+        row = undefined;
+    }
+    if (row !== undefined) prPosts.set(key, row);
+    else if (prPosts.get(key) === null) prPosts.set(key, false);
+    if (!isOpen(number, res.repo) || lastResult !== res) return;
+    paintPrPost(res);
+}
+
+// What keeps Post to PR off for the run on screen, '' when nothing does; null while the server's answer for the run is
+// not in.
+function prPostReason(res, c) {
+    if (!res || !c) return null;
+    if (c.bot !== 'ready') return PR_POST_OFF[c.bot] ? c.bot : 'refused';
+    if (!verdictFinal(res)) return 'wait';
+    return retryLeftMs(res) > 0 ? 'retry' : '';
+}
+
+function paintPrPost(res) {
+    const c = res ? prPosts.get(prTag(res.prNumber, res.repo) + ':' + res.buildId) : undefined;
+    const why = res && isOpen(res.prNumber, res.repo) ? prPostReason(res, c) : null;
+    $('prPostGroup').classList.toggle('hidden', why === null);
+    prPostOff = why || '';
+    if (why === null) return;
+    $('prPost').disabled = !!why;
+    $('prPost').title = why ? ''
+        : c.url ? T('Updates the verdict comment of this run in the PR with the verdict on this page.')
+        : T('Posts the verdict on this page to the PR as a comment of the checker\'s GitHub account. A second press '
+            + 'for this run updates that comment.');
+    $('prPostWhy').classList.toggle('hidden', !why);
+    $('prPostWhy').title = why ? T(PR_POST_OFF[why]) : '';
+    clearTimeout(prRetryTimer);
+    prRetryTimer = why === 'retry' ? setTimeout(() => paintPrPost(lastResult), retryLeftMs(res) + 1000) : null;
+}
+
+// What Post to PR asks before it posts: the run, the PR, and whether the press updates the run's verdict comment. A
+// client's run has questions of its own, as for Post to JIRA.
+function prPostQuestion(res, c) {
+    const suite = res.suiteName || clientSuite, run = 'RunAll ' + res.buildId, pr = '#' + res.prNumber;
+    if (c.url) {
+        return res.repo
+            ? T`Update the verdict comment of ${suite} build ${res.buildId} in PR ${pr} with the verdict on this page?`
+            : T`Update the verdict comment of ${run} in PR ${pr} with the verdict on this page?`;
+    }
+    const post = res.repo ? T`Post the verdict of ${suite} build ${res.buildId} to PR ${pr}?`
+        : T`Post the verdict of ${run} to PR ${pr}?`;
+    return post + ' ' + T('It goes in as a comment of the checker\'s GitHub account, and its last line names you.');
+}
+
+async function postToPr() {
+    const res = lastResult;
+    if (!res || !isOpen(res.prNumber, res.repo) || prPostOff) return;
+    const pr = res.prNumber, repo = res.repo || null;
+    const row = prTag(pr, repo) + ':' + res.buildId;
+    const c = prPosts.get(row);
+    if (!c || !confirm(prPostQuestion(res, c))) return;
+    const btn = $('prPost');
+    const refocus = keepFocus(btn);
+    btn.disabled = true;
+    try {
+        sayStatus(T('Posting the verdict to the PR…'), { busy: true });
+        const r = await api(prApi('pr-comment', pr, repo) + '&build=' + res.buildId, { method: 'POST' });
+        if (r.status === 401) return loggedOut(r);
+        const answer = await r.json().catch(() => ({}));
+        if (!isOpen(pr, repo)) return;
+        if (!r.ok) {
+            sayStatus(notDone(T('Verdict not posted to the PR'), answer.error), { err: true, aloud: true });
+            if (answer.bot) prPosts.set(row, { ...c, bot: answer.bot });
+            loadRuns(pr); // the runs, the phase and the row as they are now
+            return;
+        }
+        prPosts.set(row, answer);
+        const link = `<a href="${esc(answer.url)}" target="_self" rel="noopener" `
+            + `title="${T('Opens the comment on GitHub.')}">PR #${esc(pr)}</a>`;
+        sayStatus(answer.edited ? T`The verdict comment in ${link} now has the verdict on this page.`
+            : T`Verdict posted to ${link}.`, { html: true, aloud: true });
+    } finally {
+        paintPrPost(lastResult);
+        refocus();
+    }
+}
+
+$('prPost').onclick = postToPr;
+// The ? says what keeps Post to PR off in the status line too, which a keyboard and a phone reach.
+$('prPostWhy').onclick = () => {
+    if (prPostOff) sayStatus(T(PR_POST_OFF[prPostOff]), { aloud: true });
 };
 
 // The browser's time zone goes with every change in ⚙: the run's story in the PR gives its times in it.
@@ -4357,8 +4476,9 @@ function renderJournal() {
 function journalRow(e) {
     let text = esc(e.text);
     if (e.url && e.linkText) {
-        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="${T('Opens the visa in JIRA.')}">`
-            + `${esc(e.linkText)}</a>`;
+        const where = e.url.startsWith('https://github.com/') ? T('Opens the comment on GitHub.')
+            : T('Opens the visa in JIRA.');
+        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="${where}">${esc(e.linkText)}</a>`;
         text = text.replace(esc(e.linkText), () => link);
     }
     return `<li>${esc(fmtDay(e.at))} — ${text} <span class="muted">${esc(e.from)}</span></li>`;

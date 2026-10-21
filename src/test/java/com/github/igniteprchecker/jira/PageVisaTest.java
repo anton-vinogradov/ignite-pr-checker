@@ -40,8 +40,8 @@ import tools.jackson.databind.ObjectMapper;
  * On apache/ignite#13709 RunAll 9425992 found a blocker in Control Utility 5, and its author's Visa my runs in JIRA put
  * it into the ticket. The author fixed the code and re-ran that suite on the PR's head: it passed, and the verdict
  * became a mixed run with no blockers. Nothing could put that verdict into the ticket: S5 had taken the manual visa
- * away. Post visa on the PR page posts the visa of the run now, with the JIRA token the user stored for the option, and
- * a run keeps one visa of theirs: a second press, and a press after their option's visa, edit it in place.
+ * away. Post to JIRA on the PR page posts the visa of the run now, with the JIRA token the user stored for the option,
+ * and a run keeps one visa of theirs: a second press, and a press after their option's visa, edit it in place.
  */
 class PageVisaTest {
     private static final String AUTHOR = "author";
@@ -123,8 +123,8 @@ class PageVisaTest {
         verify(jira, times(1)).addCommentWithId(anyString(), anyString(), anyString());
         assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux").get(0))
             .extracting(SettingsJournal.View::text, SettingsJournal.View::from, SettingsJournal.View::url)
-            .containsExactly("Updated your visa in IGNITE-29100 for PR #13709, RunAll 9425992, with Post visa on the PR"
-                + " page.", "from this browser", URL);
+            .containsExactly("Updated your visa in IGNITE-29100 for PR #13709, RunAll 9425992, with Post to JIRA on"
+                + " the PR page.", "from this browser", URL);
     }
 
     /** The first press posts a comment, the second edits it: a run has one visa of the user's. */
@@ -141,8 +141,9 @@ class PageVisaTest {
             .isEqualTo(new StandingVisas.VisaLine(StandingVisas.VisaLine.POSTED, AUTHOR, false, ISSUE, URL, false));
         assertThat(standing.visaButton(AUTHOR, null, PR, RUN)).isEqualTo(new StandingVisas.VisaButton(true, ISSUE));
         assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux")).extracting(SettingsJournal.View::text)
-            .startsWith("Updated your visa in IGNITE-29100 for PR #13709, RunAll 9425992, with Post visa on the PR"
-                + " page.", "Posted a visa to IGNITE-29100 for PR #13709, RunAll 9425992, with Post visa on the PR page.");
+            .startsWith("Updated your visa in IGNITE-29100 for PR #13709, RunAll 9425992, with Post to JIRA on the PR"
+                + " page.", "Posted a visa to IGNITE-29100 for PR #13709, RunAll 9425992, with Post to JIRA on the PR"
+                + " page.");
     }
 
     /**
@@ -275,7 +276,7 @@ class PageVisaTest {
         assertThat(standing.clientVisaLine(REVIEWER, repo, 69, build, null).state())
             .isEqualTo(StandingVisas.VisaLine.POSTED);
         assertThat(journal.views(AUTHOR, "laptop", "Firefox on Linux").get(0).text()).isEqualTo("Posted a visa to"
-            + " IGNITE-29100 for PR #69 of apache/ignite-python-thin-client, build 9424005, with Post visa on the PR"
+            + " IGNITE-29100 for PR #69 of apache/ignite-python-thin-client, build 9424005, with Post to JIRA on the PR"
             + " page.");
     }
 

@@ -1553,10 +1553,14 @@ public class PrCommands implements SnapshotCache {
             stopNarrating(run);
     }
 
-    /** Posts the verdict of a run of the Python thin client's suite: its comment's id, 0 when it did not go in now. */
+    /**
+     * Posts the verdict of a run of the Python thin client's suite, in place of the comment Post to PR put in for the
+     * run when there is one: its comment's id, 0 when it did not go in now.
+     */
     private long postVerdict(CommandRun run, String body) {
         try {
-            GithubClient.PostedComment c = comment(run.of(), run.username(), body);
+            GithubClient.PostedComment c = standing.clientVerdictComment(run.repo(), run.pr(), run.verdictBuildId(),
+                run.username(), body, run.onPage());
 
             return c == null ? 0 : c.id();
         }
@@ -2005,6 +2009,14 @@ public class PrCommands implements SnapshotCache {
         /** Whether the run was queued on the checker's page: see {@link #queuedOnPage}. */
         boolean onPage() {
             return commentId < 0;
+        }
+
+        /**
+         * The build the checker's page shows the run's verdict by: its auto re-run when that stands in for the run
+         * TeamCity cancelled, since the page lists no cancelled run.
+         */
+        long verdictBuildId() {
+            return rerunStandsIn ? rerunId : buildId;
         }
 
         CommandRun ofPr(int number) {

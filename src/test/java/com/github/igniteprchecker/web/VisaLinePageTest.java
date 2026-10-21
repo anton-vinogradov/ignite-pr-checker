@@ -180,7 +180,7 @@ class VisaLinePageTest {
         String page = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
         Matcher rule = Pattern.compile("\\.visa-row \\{([^}]*)}").matcher(page);
         assertThat(rule.find()).isTrue();
-        assertThat(rule.group(1)).as("the row of the line and Post visa").contains("flex-basis: 100%")
+        assertThat(rule.group(1)).as("the row of the line and Post to JIRA").contains("flex-basis: 100%")
             .doesNotContain("margin-left: auto");
     }
 

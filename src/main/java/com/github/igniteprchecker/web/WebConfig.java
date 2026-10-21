@@ -11,12 +11,13 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
     /**
-     * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, ending other logins, Post visa,
-     * restart, update, flush. The guard checks only a POST, so the visa line the page reads asks TeamCity nothing.
+     * What {@link LiveTokenGuard} checks before: GitHub link and unlink, the options, ending other logins, Post to
+     * JIRA, Post to PR, restart, update, flush. The guard checks only a POST, so the visa row the page reads asks
+     * TeamCity nothing.
      */
     static final String[] LIVE_TOKEN_ACTIONS = {"/api/github/link", "/api/github/unlink", "/api/auto-visa-all",
-        "/api/logins/end", "/api/logins/end-others", "/api/visa", "/api/client/visa", "/api/restart", "/api/update",
-        "/api/flush-caches"};
+        "/api/logins/end", "/api/logins/end-others", "/api/visa", "/api/client/visa", "/api/pr-comment",
+        "/api/client/pr-comment", "/api/restart", "/api/update", "/api/flush-caches"};
 
     private final AuthInterceptor auth;
 
@@ -34,14 +35,14 @@ public class WebConfig implements WebMvcConfigurer {
                 "/api/rerun-suite", "/api/rerun-suites", "/api/runs", "/api/cancel-all", "/api/update", "/api/restart", "/api/users", "/api/github-token", "/api/github/link", "/api/github/unlink", "/api/visa", "/api/auto-visa-all", "/api/test-details",
                 "/api/flush-caches", "/api/delta", "/api/causes", "/api/progress", "/api/pending",
                 "/api/settling", "/api/logins", "/api/logins/end", "/api/logins/end-others");
-        registry.addInterceptor(auth).addPathPatterns("/api/pr-tests", "/api/pr-title");
+        registry.addInterceptor(auth).addPathPatterns("/api/pr-tests", "/api/pr-title", "/api/pr-comment");
         registry.addInterceptor(auth).addPathPatterns("/api/journal");
         registry.addInterceptor(auth).addPathPatterns("/api/token-expiry");
         registry.addInterceptor(auth).addPathPatterns("/api/language");
         registry.addInterceptor(auth).addPathPatterns("/api/your-prs");
         registry.addInterceptor(auth).addPathPatterns("/api/client/your-prs", "/api/client/analyze",
             "/api/client/refresh", "/api/client/runs", "/api/client/trigger", "/api/client/cancel-all",
-            "/api/client/settling", "/api/client/visa", "/api/client/pr-title");
+            "/api/client/settling", "/api/client/visa", "/api/client/pr-title", "/api/client/pr-comment");
         registry.addInterceptor(live).addPathPatterns(LIVE_TOKEN_ACTIONS);
     }
 }

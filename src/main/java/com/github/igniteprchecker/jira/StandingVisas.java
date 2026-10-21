@@ -40,6 +40,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -132,18 +133,45 @@ public class StandingVisas implements SnapshotCache {
     private static final int RUN_VISAS_KEPT = 2000;
 
     /**
-     * The visas users posted with Post visa on the PR page, by build, one of each user, for the newest {@link
+     * The visas users posted with Post to JIRA on the PR page, by build, one of each user, for the newest {@link
      * #RUN_VISAS_KEPT} builds. Each user's press edits their own; another user's press for the run does not take it
      * away. Persisted.
      */
     private final ConcurrentSkipListMap<Long, List<RunVisa>> pageVisas = new ConcurrentSkipListMap<>();
 
     /**
-     * Held while a visa of a run goes to JIRA, from Post visa or from an option, so a press and the option make one
+     * Held while a visa of a run goes to JIRA, from Post to JIRA or from an option, so a press and the option make one
      * comment of the user's for the run, and two presses too. Not {@link #settleLock}: a settle holds that while it
      * computes a verdict, which can take minutes, and the press would wait for it.
      */
     private final Object visaPosts = new Object();
+
+    /**
+     * The verdict comment of each run, by build, for the newest {@link #RUN_VISAS_KEPT} builds: the one Post to PR on
+     * the PR page, Post my runs' verdicts in the PR, or the story of a run of the Python thin client's suite last put
+     * in. The comment of a RunAll's option is also its starter's {@link GhThread}, which goes when the starter switches
+     * every option off; this one stays, so Post to PR still updates that comment. Persisted.
+     */
+    private final ConcurrentSkipListMap<Long, RunComment> runComments = new ConcurrentSkipListMap<>();
+
+    /**
+     * Held while a verdict comment of a run goes to GitHub, from Post to PR or from an option, so a press and the
+     * option make one comment of the run, and two presses too. Not {@link #settleLock}, as for {@link #visaPosts}.
+     */
+    private final Object commentPosts = new Object();
+
+    /**
+     * How many presses of Post to PR the checker takes for one PR in an hour. Anyone logged in may press it on any PR,
+     * and each press writes to the PR with the checker's account, which may write there 40 times an hour. Without
+     * this cap, presses alone could use up those writes, and the PR would get no story and no verdict comment for an
+     * hour.
+     */
+    public static final int PRESSES_PER_PR_HOUR = 5;
+
+    private static final long HOUR_MS = 3_600_000;
+
+    /** When Post to PR was taken for each PR in the last hour, by "repo#number". Under {@link #commentPosts}. */
+    private final Map<String, List<Long>> presses = new HashMap<>();
 
     /** How often the sweep goes through the open PRs. */
     private static final long SWEEP_MS = 600_000;
@@ -1367,8 +1395,8 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Where the visa of the PR's run {@code buildId} stands, for the line on the PR page {@code viewer} opened: the
-     * viewer's own visa of the run from Post visa, else the visa from the option of whoever started the run, or from
-     * the first press of Post visa when the option posted none; see {@link #keptFromPage}. {@code run} asks TeamCity
+     * viewer's own visa of the run from Post to JIRA, else the visa from the option of whoever started the run, or from
+     * the first press of Post to JIRA when the option posted none; see {@link #keptFromPage}. {@code run} asks TeamCity
      * who started it, and only when the checker's own records do not answer. {@code merged}: the PR is merged. Of
      * someone else's run the viewer learns what became of the run and its visa, whose option it is and whether it is
      * on, and nothing more: their paused tokens and when they switched the option on stay theirs.
@@ -1416,7 +1444,7 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Where the visa of a run of the Python thin client's suite stands, for the line on the checker's page of PR {@code
-     * pr} of {@code repo}: the viewer's own visa of the run {@code buildId} from Post visa, else the visa of the run
+     * pr} of {@code repo}: the viewer's own visa of the run {@code buildId} from Post to JIRA, else the visa of the run
      * itself, else the newest visa of the PR of the same commits, {@code revision}, as an auto re-run that stood in for
      * a cancelled run has. A run with none has state null, and the page says nothing.
      */
@@ -1449,8 +1477,8 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The visa of the run {@code buildId} the PR page shows {@code viewer}: their own from Post visa, unless the run's
-     * visa is theirs too; else the run's visa. Null when the checker keeps neither.
+     * The visa of the run {@code buildId} the PR page shows {@code viewer}: their own from Post to JIRA, unless the
+     * run's visa is theirs too; else the run's visa. Null when the checker keeps neither.
      */
     private RunVisa visaShownTo(String viewer, String repo, int pr, long buildId) {
         RunVisa run = runVisas.get(buildId);
@@ -1465,7 +1493,9 @@ public class StandingVisas implements SnapshotCache {
             runVisas.pollFirstEntry();
     }
 
-    /** Keeps {@code v} as the visa its user posted of the run {@code buildId} with Post visa, in place of the last. */
+    /**
+     * Keeps {@code v} as the visa its user posted of the run {@code buildId} with Post to JIRA, in place of the last.
+     */
     private void keepPageVisa(long buildId, RunVisa v) {
         pageVisas.merge(buildId, List.of(v), (was, now) -> Stream.concat(was.stream()
             .filter(o -> !o.by().equals(v.by())), now.stream()).toList());
@@ -1473,7 +1503,7 @@ public class StandingVisas implements SnapshotCache {
             pageVisas.pollFirstEntry();
     }
 
-    /** The visa {@code username} posted of the run {@code buildId} with Post visa; null when they posted none. */
+    /** The visa {@code username} posted of the run {@code buildId} with Post to JIRA; null when they posted none. */
     private RunVisa pageVisa(String username, String repo, int pr, long buildId) {
         return pageVisas.getOrDefault(buildId, List.of()).stream()
             .filter(v -> v.pr() == pr && Objects.equals(repo, v.repo()) && username.equals(v.by()))
@@ -1481,8 +1511,8 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * What Post visa on the PR page can do for {@code username} on the run {@code buildId} of PR {@code pr} of {@code
-     * repo}, null for Ignite's own PRs. See {@link VisaButton}.
+     * What Post to JIRA on the PR page can do for {@code username} on the run {@code buildId} of PR {@code pr} of
+     * {@code repo}, null for Ignite's own PRs. See {@link VisaButton}.
      */
     public VisaButton visaButton(String username, String repo, int pr, long buildId) {
         Enrollment e = enrolled.get(username);
@@ -1493,18 +1523,18 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * {@code jiraReady}: the user's JIRA token is stored for Visa my runs in JIRA, the only place it is kept, so Post
-     * visa can post with it. {@code yoursIn}: the ticket of the user's own visa of the run, which Post visa edits in
-     * place; null when they have none.
+     * to JIRA can post with it. {@code yoursIn}: the ticket of the user's own visa of the run, which Post to JIRA edits
+     * in place; null when they have none.
      */
     public record VisaButton(boolean jiraReady, String yoursIn) {
     }
 
     /**
-     * Posts the visa of the RunAll {@code buildId} of PR {@code pr} to {@code issue} for Post visa on the PR page: the
-     * text the run's automatic visa has, with the verdict {@code res} as it is now, and a last line that names {@code
-     * username} as the one who posted it. Asks TeamCity for the commit the run tested and GitHub for the PR's head. The
-     * re-run waves the automatic visa tells are not in it: the checker forgets them once the run's verdict went out.
-     * See {@link #postFromPage}.
+     * Posts the visa of the RunAll {@code buildId} of PR {@code pr} to {@code issue} for Post to JIRA on the PR page:
+     * the text the run's automatic visa has, with the verdict {@code res} as it is now, and a last line that names
+     * {@code username} as the one who posted it. Asks TeamCity for the commit the run tested and GitHub for the PR's
+     * head. The re-run waves the automatic visa tells are not in it: the checker forgets them once the run's verdict
+     * went out. See {@link #postFromPage}.
      */
     public PagePost postVisaFromPage(String username, SettingsJournal.By by, String tcToken, int pr, long buildId,
         String issue, AnalysisResult res) {
@@ -1516,7 +1546,7 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * Posts the visa of the run {@code buildId} of the Python thin client's suite for PR {@code pr} of {@code repo} to
-     * {@code issue} for Post visa on the PR page: {@code body}, the text of the run's automatic visa for the verdict
+     * {@code issue} for Post to JIRA on the PR page: {@code body}, the text of the run's automatic visa for the verdict
      * {@code res}, and a last line that names {@code username} as the one who posted it. See {@link #postFromPage}.
      */
     public PagePost postClientVisaFromPage(String username, SettingsJournal.By by, String repo, int pr, long buildId,
@@ -1628,8 +1658,8 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The user's own visa of the run that Post visa edits in place: theirs from Post visa, else the run's visa when
-     * their option posted it, else, for a RunAll, their visa of the PR when it is of this run. Null when they have
+     * The user's own visa of the run that Post to JIRA edits in place: theirs from Post to JIRA, else the run's visa
+     * when their option posted it, else, for a RunAll, their visa of the PR when it is of this run. Null when they have
      * none, and for a visa of v1.20.11 or before, which does not name its ticket.
      */
     private RunVisa ownVisa(String username, Enrollment e, String repo, int pr, long buildId) {
@@ -1665,9 +1695,9 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * What Post visa did: {@link #POSTED} or {@link #EDITED} the visa in {@code issue}, at {@code url}; found no JIRA
-     * token stored ({@link #NO_TOKEN}); JIRA refused the token, which the checker dropped ({@link #REFUSED}); or JIRA
-     * did not take the visa ({@link #FAILED}), with the HTTP {@code status} it answered, 0 when it did not answer.
+     * What Post to JIRA did: {@link #POSTED} or {@link #EDITED} the visa in {@code issue}, at {@code url}; found no
+     * JIRA token stored ({@link #NO_TOKEN}); JIRA refused the token, which the checker dropped ({@link #REFUSED}); or
+     * JIRA did not take the visa ({@link #FAILED}), with the HTTP {@code status} it answered, 0 when it did not answer.
      */
     public record PagePost(String outcome, String issue, String url, int status) {
         public static final String POSTED = "posted";
@@ -1686,6 +1716,293 @@ public class StandingVisas implements SnapshotCache {
 
         static PagePost failed(RuntimeException e) {
             return new PagePost(FAILED, null, null,
+                e instanceof RestClientResponseException rest ? rest.getStatusCode().value() : 0);
+        }
+    }
+
+    /**
+     * The address of the verdict comment of the run {@code buildId} of PR {@code pr} of {@code repo}, null for
+     * Ignite's own PRs: the comment Post to PR edits. {@code rerunId}: the later run of the same commits that the
+     * verdict of a client's run counts too, whose story may have posted the comment; 0 when none. Empty when the
+     * checker knows no verdict comment of the run.
+     */
+    public Optional<String> runCommentUrl(String repo, int pr, long buildId, long rerunId) {
+        return Optional.ofNullable(foundComment(repo, pr, buildId, rerunId)).map(FoundComment::url);
+    }
+
+    /**
+     * Posts the verdict of the RunAll {@code buildId} of PR {@code pr} to the PR for Post to PR on the PR page: the
+     * text of the run's automatic verdict comment for the verdict {@code res} as it is now. It mentions {@code
+     * starter}, who started the run, as that comment does. The lines that comment has from the starter's options, on
+     * their visa and their auto re-run waves, are not in it. Asks TeamCity for the commit the run tested and GitHub for
+     * the PR's head. See {@link #commentFromPage}.
+     */
+    public CommentPost postCommentFromPage(String username, SettingsJournal.By by, String tcToken, int pr,
+        long buildId, AnalysisResult res, String starter) {
+        PendingCommits.Ahead ahead = pending.since(tcToken, pr, buildId);
+        Integer commitsAhead = ahead == null ? null : Math.max(ahead.commits(), 1);
+        Enrollment started = starter == null ? null : enrolled.get(starter);
+        String body = (started == null ? "" : mention(started)) + commentText(pr, res, ahead,
+            revision(tcToken, buildId)) + (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS
+            ? NEXT_STEP : "");
+
+        return commentFromPage(username, by, null, pr, buildId, 0, starter, fromPage -> body);
+    }
+
+    /**
+     * Posts the verdict of the run {@code buildId} of the Python thin client's suite for PR {@code pr} of {@code repo}
+     * to the PR for Post to PR on the PR page: the text of the run's verdict comment, which {@code body} writes by how
+     * the run was queued, as far as the checker knows it (see {@link RunComment}). {@code rerunId}: the later run of
+     * the same commits the verdict counts too, 0 when none. See {@link #commentFromPage}.
+     */
+    public CommentPost postClientCommentFromPage(String username, SettingsJournal.By by, String repo, int pr,
+        long buildId, long rerunId, Function<Boolean, String> body) {
+        return commentFromPage(username, by, repo, pr, buildId, rerunId, null, body);
+    }
+
+    /**
+     * Puts the verdict of the run into its PR as a comment of the checker's account, with a last line that names
+     * {@code username} as the one who pressed. A run has one verdict comment: the one the checker knows of the run,
+     * posted by an option or by Post to PR, gets the new text in place, and its last line says who updated it. A
+     * failed edit posts a new comment. The comment of a RunAll is also the verdict comment of the run of its {@code
+     * starter}: their option edits it, and marks it superseded once a newer run's verdict comes. An entry of the
+     * journal of {@code username}, from the browser of {@code by}. Nothing goes to GitHub once the PR had {@link
+     * #PRESSES_PER_PR_HOUR} presses in the last hour.
+     */
+    private CommentPost commentFromPage(String username, SettingsJournal.By by, String repo, int pr, long buildId,
+        long rerunId, String starter, Function<Boolean, String> body) {
+        synchronized (commentPosts) {
+            if (!pressTaken(repo, pr, System.currentTimeMillis())) {
+                log.info("verdict of build {} to PR {} from the page for {} not taken: {} presses in the last hour",
+                    buildId, pr, username, PRESSES_PER_PR_HOUR);
+
+                return CommentPost.of(CommentPost.CAPPED);
+            }
+
+            FoundComment found = foundComment(repo, pr, buildId, rerunId);
+            String text = body.apply(found == null ? null : found.fromPage());
+            String presser = presser(username, enrolled.get(username));
+            boolean edited = false;
+            long commentId;
+            String url;
+            try {
+                if (found != null) {
+                    edited = edited(repo, pr, username, found.commentId(),
+                        text + "\n\n_Updated by " + presser + " from the checker's page._");
+                }
+                if (edited) {
+                    commentId = found.commentId();
+                    url = found.url();
+                }
+                else {
+                    String posted = text + "\n\n_Posted by " + presser + " from the checker's page._";
+                    GithubClient.PostedComment c = repo == null ? github.appComment(pr, username, posted)
+                        : github.appComment(repo, pr, username, posted);
+                    if (c == null)
+                        return CommentPost.of(CommentPost.NO_BOT);
+
+                    commentId = c.id();
+                    url = c.htmlUrl();
+                }
+            }
+            catch (GithubClient.WriteDeferred e) {
+                log.info("verdict of build {} to PR {} from the page for {} waits: {}", buildId, pr, username,
+                    e.getMessage());
+
+                return CommentPost.of(CommentPost.DEFERRED);
+            }
+            catch (RuntimeException e) {
+                log.warn("verdict of build {} to PR {} from the page for {} failed: {}", buildId, pr, username,
+                    e.toString());
+
+                return CommentPost.failed(e);
+            }
+
+            long build = found == null ? buildId : found.buildId();
+            keepRunComment(build, new RunComment(repo, pr, commentId, url, found == null ? null : found.fromPage()));
+            if (repo == null)
+                keptAsVerdictOf(found != null && found.owner() != null ? found.owner() : starter, pr, build,
+                    commentId);
+            journal.add(username, SettingsJournal.Entry.pageComment(by, edited, repo, pr, buildId, url));
+            log.info("verdict of build {} {} PR {} from the page by {} -> {}", buildId, edited ? "edited in"
+                : "posted to", pr, username, url);
+
+            return new CommentPost(edited ? CommentPost.EDITED : CommentPost.POSTED, url, 0);
+        }
+    }
+
+    /**
+     * Counts a press of Post to PR on PR {@code pr} of {@code repo} at {@code now}. False, and counts nothing, when the
+     * PR had {@link #PRESSES_PER_PR_HOUR} presses in the last hour.
+     */
+    private boolean pressTaken(String repo, int pr, long now) {
+        presses.values().removeIf(times -> {
+            times.removeIf(at -> at <= now - HOUR_MS);
+
+            return times.isEmpty();
+        });
+        List<Long> times = presses.computeIfAbsent((repo == null ? github.repo() : repo) + "#" + pr,
+            k -> new ArrayList<>());
+        if (times.size() >= PRESSES_PER_PR_HOUR)
+            return false;
+
+        times.add(now);
+
+        return true;
+    }
+
+    /**
+     * Keeps the comment Post to PR put in for the RunAll {@code buildId} as the verdict comment of {@code user}'s run,
+     * when they have options: their option edits it instead of posting a second one, and marks it superseded once a
+     * newer run's verdict comes. A verdict comment of a newer run of theirs stays.
+     */
+    private void keptAsVerdictOf(String user, int pr, long buildId, long commentId) {
+        Enrollment e = user == null ? null : enrolled.get(user);
+        GhThread t = e == null ? null : e.handled().ghThreads().get(pr);
+        if (e == null || t != null && (t.buildId() > buildId || t.buildId() == buildId && t.commentId() == commentId))
+            return;
+
+        e.handled().ghThreads().put(pr, GhThread.posted(buildId, commentId,
+            t != null && t.buildId() == buildId ? t.unmarked() : unmarkedAfter(e, pr, t, buildId)));
+    }
+
+    /**
+     * Posts {@code body}, the verdict of the run {@code buildId} of the Python thin client's suite that the story of
+     * {@code user}'s run tells, to PR {@code pr} of {@code repo}: in place of the comment Post to PR put in for the
+     * run, else as a new comment, which Post to PR then edits. {@code fromPage}: the run was queued on the checker's
+     * page, not by a {@code /run-all}. Null without GITHUB_TOKEN; throws what GitHub answered, or {@link
+     * GithubClient.WriteDeferred} when the write is to wait.
+     */
+    public GithubClient.PostedComment clientVerdictComment(String repo, int pr, long buildId, String user,
+        String body, boolean fromPage) {
+        synchronized (commentPosts) {
+            RunComment pressed = runComment(repo, pr, buildId);
+            GithubClient.PostedComment c = pressed != null && edited(repo, pr, user, pressed.commentId(), body)
+                ? new GithubClient.PostedComment(pressed.commentId(), pressed.url())
+                : github.appComment(repo, pr, user, body);
+            if (c != null)
+                keepRunComment(buildId, new RunComment(repo, pr, c.id(), c.htmlUrl(), fromPage));
+
+            return c;
+        }
+    }
+
+    /**
+     * Edits a comment of the checker's account in PR {@code pr} of {@code repo}, null for Ignite's own. False when the
+     * edit did not go in, and a new comment is to take its place: GitHub has the comment no longer, or failed.
+     */
+    private boolean edited(String repo, int pr, String user, long commentId, String body) {
+        try {
+            return repo == null ? github.appEdit(pr, user, commentId, body)
+                : github.appEdit(repo, pr, user, commentId, body);
+        }
+        catch (GithubClient.WriteDeferred deferred) {
+            throw deferred;
+        }
+        catch (RuntimeException e) {
+            log.warn("editing verdict comment {} of PR {} failed ({}), posting a new one", commentId, pr,
+                e.toString());
+
+            return false;
+        }
+    }
+
+    /**
+     * The verdict comment the checker knows of the run {@code buildId} of PR {@code pr} of {@code repo}, or of {@code
+     * rerunId}, the later run of the same commits a client's verdict counts too, 0 when none: the one {@link
+     * #runComments} keeps, else, for a RunAll, the comment of an option of the checker's account that a version
+     * without {@link #runComments} posted. Null when it knows none.
+     */
+    private FoundComment foundComment(String repo, int pr, long buildId, long rerunId) {
+        for (long build : rerunId == 0 ? List.of(buildId) : List.of(buildId, rerunId)) {
+            RunComment c = runComment(repo, pr, build);
+            if (c != null) {
+                Map.Entry<String, GhThread> option = repo == null ? optionComment(pr, build) : null;
+
+                return new FoundComment(build, c.commentId(), c.url(), c.fromPage(),
+                    option == null ? null : option.getKey());
+            }
+        }
+        Map.Entry<String, GhThread> option = repo == null ? optionComment(pr, buildId) : null;
+        if (option == null)
+            return null;
+
+        long commentId = option.getValue().commentId();
+
+        return new FoundComment(buildId, commentId, github.commentUrl(pr, commentId), null, option.getKey());
+    }
+
+    /**
+     * The user whose option posted the verdict comment of the RunAll {@code buildId} in PR {@code pr} with the
+     * checker's account, and that comment; null when no enrolled user's option did.
+     */
+    private Map.Entry<String, GhThread> optionComment(int pr, long buildId) {
+        for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
+            GhThread t = en.getValue().handled().ghThreads().get(pr);
+            if (t != null && t.buildId() == buildId && t.app())
+                return Map.entry(en.getKey(), t);
+        }
+
+        return null;
+    }
+
+    /** The verdict comment Post to PR or a client's story put in for the run {@code buildId}; null when none. */
+    private RunComment runComment(String repo, int pr, long buildId) {
+        RunComment c = runComments.get(buildId);
+
+        return c != null && c.pr() == pr && Objects.equals(repo, c.repo()) ? c : null;
+    }
+
+    private void keepRunComment(long buildId, RunComment c) {
+        runComments.put(buildId, c);
+        while (runComments.size() > RUN_VISAS_KEPT)
+            runComments.pollFirstEntry();
+    }
+
+    /**
+     * Who pressed Post to PR, for the last line of the comment: their ci2 user name, and their GitHub login when a
+     * token proved it, written so that GitHub tells them nothing of it.
+     */
+    private static String presser(String username, Enrollment e) {
+        String ci2 = "ci2 user " + Markup.text(username);
+
+        return e != null && e.ghLoginProven() ? Markup.text("@" + e.ghLogin()) + " (" + ci2 + ")" : ci2;
+    }
+
+    /**
+     * A verdict comment of a run the checker knows: the run {@code buildId} it is kept by, its id and {@code url},
+     * how the run was queued ({@link RunComment#fromPage}), and the user whose option posted it, null for one kept in
+     * {@link #runComments}.
+     */
+    private record FoundComment(long buildId, long commentId, String url, Boolean fromPage, String owner) {
+    }
+
+    /**
+     * What Post to PR did: {@link #POSTED} a new verdict comment at {@code url}, or {@link #EDITED} the run's comment
+     * there; found no GITHUB_TOKEN ({@link #NO_BOT}); the writes of the checker's account wait ({@link #DEFERRED}):
+     * GitHub asked them to, or the writes to the PR, or for the user, in the last hour reached their cap; the PR had
+     * {@link #PRESSES_PER_PR_HOUR} presses in the last hour ({@link #CAPPED}); or GitHub did not take the comment
+     * ({@link #FAILED}), with the HTTP {@code status} it answered, 0 when it did not answer.
+     */
+    public record CommentPost(String outcome, String url, int status) {
+        public static final String POSTED = "posted";
+
+        public static final String EDITED = "edited";
+
+        public static final String NO_BOT = "no-bot";
+
+        public static final String DEFERRED = "deferred";
+
+        public static final String CAPPED = "capped";
+
+        public static final String FAILED = "failed";
+
+        static CommentPost of(String outcome) {
+            return new CommentPost(outcome, null, 0);
+        }
+
+        static CommentPost failed(RuntimeException e) {
+            return new CommentPost(FAILED, null,
                 e instanceof RestClientResponseException rest ? rest.getStatusCode().value() : 0);
         }
     }
@@ -1999,7 +2316,7 @@ public class StandingVisas implements SnapshotCache {
      * JIRA" posts {@code body} to the IGNITE ticket the PR title names, as for a RunAll. The option acts on a run that
      * finished after it went on ({@code finishedMs}). {@code pull} asks GitHub for the PR's title. A closed PR gets no
      * visa, and none goes out that says what the user's last visa of the PR in that ticket said of the same commits.
-     * Nor does one for a run the user posted the visa of with Post visa on the PR page, while the option tried. Each
+     * Nor does one for a run the user posted the visa of with Post to JIRA on the PR page, while the option tried. Each
      * visa posted is in the user's journal with the repo. A refused JIRA token is dropped and switches the option off,
      * as after any visa.
      */
@@ -2010,7 +2327,7 @@ public class StandingVisas implements SnapshotCache {
         }
     }
 
-    /** {@link #clientVisa}, under the lock that makes a press of Post visa wait for it. */
+    /** {@link #clientVisa}, under the lock that makes a press of Post to JIRA wait for it. */
     private ClientVisa clientVisaNow(String username, String repo, int pr, long buildId, long finishedMs,
         AnalysisResult res, String body, Supplier<Optional<GithubClient.PullState>> pull) {
         Enrollment e = enrolled.get(username);
@@ -2048,7 +2365,7 @@ public class StandingVisas implements SnapshotCache {
 
         RunVisa own = ownVisa(username, e, repo, pr, buildId);
         if (own != null && issue.get().equals(own.issue())) {
-            log.info("no new visa for {}#{} (build {}, by {}): Post visa on the PR page put one in {}", repo, pr,
+            log.info("no new visa for {}#{} (build {}, by {}): Post to JIRA on the PR page put one in {}", repo, pr,
                 buildId, username, issue.get());
 
             return ClientVisa.posted(issue.get(), jira.commentUrl(issue.get(), own.commentId()));
@@ -2088,8 +2405,8 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * The newest visa the user posted for PR {@code pr} of {@code repo}, by their option or with Post visa; null when
-     * none is kept.
+     * The newest visa the user posted for PR {@code pr} of {@code repo}, by their option or with Post to JIRA; null
+     * when none is kept.
      */
     private RunVisa lastClientVisa(String username, String repo, int pr) {
         Stream<Map.Entry<Long, RunVisa>> pressed = pageVisas.entrySet().stream()
@@ -2793,9 +3110,7 @@ public class StandingVisas implements SnapshotCache {
         }
         boolean commentIn = false;
         if (comment) {
-            String md = mention(e) + visas.composeMarkdown(pr.number(), res, commitsAhead, sha);
-            if (ahead != null)
-                md = md + "\n\n_" + revisions(res, ahead, "`", "`") + "_";
+            String md = mention(e) + commentText(pr.number(), res, ahead, sha);
             if (settled != null)
                 md = md + "\n\n_" + settled + "_";
             if (note != null)
@@ -2806,7 +3121,9 @@ public class StandingVisas implements SnapshotCache {
                 md = md + "\n\n_" + visaWaits(whyGone(e.jira())) + "_";
             if (Caveats.standing(res, commitsAhead) == Caveats.Standing.BLOCKERS)
                 md = md + NEXT_STEP;
-            commentIn = upsertGhComment(who, e, pr.number(), buildId, md);
+            synchronized (commentPosts) {
+                commentIn = upsertGhComment(who, e, pr.number(), buildId, md);
+            }
         }
 
         Owed left = owed.after(visa && visaSent != Delivery.FAILED, commentIn);
@@ -2828,6 +3145,17 @@ public class StandingVisas implements SnapshotCache {
         String body = visas.compose(pr, res, commitsAhead, sha);
 
         return ahead == null ? body : body + "\n\n_" + revisions(res, ahead, "{{", "}}") + "_";
+    }
+
+    /**
+     * The verdict of the PR's run in its verdict comment, as {@link #visaText} has it in the visa, in GitHub's
+     * markdown.
+     */
+    private String commentText(int pr, AnalysisResult res, PendingCommits.Ahead ahead, String sha) {
+        Integer commitsAhead = ahead == null ? null : Math.max(ahead.commits(), 1);
+        String md = visas.composeMarkdown(pr, res, commitsAhead, sha);
+
+        return ahead == null ? md : md + "\n\n_" + revisions(res, ahead, "`", "`") + "_";
     }
 
     /**
@@ -2875,7 +3203,7 @@ public class StandingVisas implements SnapshotCache {
     /**
      * Posts the visa to the ticket the PR title names. None when it names none, and no second one when the
      * last visa there said the same of the same revision: the ticket filled up with copies. Nor when the user put the
-     * visa of the run there with Post visa: that one is theirs of the run.
+     * visa of the run there with Post to JIRA: that one is theirs of the run.
      */
     private Delivery postVisa(String who, Enrollment e, PrSummary pr, long buildId, AnalysisResult res,
         String jiraToken, String body, String sha) {
@@ -2890,7 +3218,7 @@ public class StandingVisas implements SnapshotCache {
 
         RunVisa pressed = pageVisa(who, null, pr.number(), buildId);
         if (pressed != null && issue.get().equals(pressed.issue())) {
-            log.info("no visa for PR {} (build {}, by {}): Post visa on the PR page put one in {}", pr.number(),
+            log.info("no visa for PR {} (build {}, by {}): Post to JIRA on the PR page put one in {}", pr.number(),
                 buildId, who, issue.get());
 
             return Delivery.NOT_DUE;
@@ -3139,18 +3467,24 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The run's verdict in ONE PR comment of the checker's account, edited in place when it is posted again for the
-     * same build. A failure never breaks the sweep (the JIRA visa may already be out), and a failed edit falls back
-     * to a fresh comment rather than losing the verdict. False when the comment is not in: GitHub failed, or asked
-     * the checker to wait, and it is tried again at the next settle. What the checker's account is refused never
+     * same build, or in place of the comment Post to PR put in for the build. The comment is the run's in {@link
+     * #runComments} too. A failure never breaks the sweep (the JIRA visa may already be out), and a failed edit falls
+     * back to a fresh comment rather than losing the verdict. False when the comment is not in: GitHub failed, or
+     * asked the checker to wait, and it is tried again at the next settle. What the checker's account is refused never
      * touches the user's own token.
      */
     private boolean upsertGhComment(String who, Enrollment e, int pr, long buildId, String md) {
         try {
             GhThread t = e.handled().ghThreads().get(pr);
-            if (t != null && t.buildId() == buildId) {
+            RunComment pressed = t != null && t.buildId() == buildId ? null : runComment(null, pr, buildId);
+            if (t != null && t.buildId() == buildId || pressed != null) {
+                long commentId = pressed == null ? t.commentId() : pressed.commentId();
+                List<Long> unmarked = pressed == null ? t.unmarked() : unmarkedAfter(e, pr, t, buildId);
                 try {
-                    if (github.appEdit(pr, who, t.commentId(), md)) {
-                        e.handled().ghThreads().put(pr, GhThread.posted(buildId, t.commentId(), t.unmarked()));
+                    if (github.appEdit(pr, who, commentId, md)) {
+                        e.handled().ghThreads().put(pr, GhThread.posted(buildId, commentId, unmarked));
+                        keepRunComment(buildId, new RunComment(null, pr, commentId, github.commentUrl(pr, commentId),
+                            null));
                         log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
 
                         return true;
@@ -3161,7 +3495,7 @@ public class StandingVisas implements SnapshotCache {
                 }
                 catch (RuntimeException editEx) {
                     log.warn("editing GitHub comment {} for PR {} failed ({}), posting fresh",
-                        t.commentId(), pr, editEx.toString());
+                        commentId, pr, editEx.toString());
                 }
             }
             GithubClient.PostedComment posted = github.appComment(pr, who, md);
@@ -3169,6 +3503,7 @@ public class StandingVisas implements SnapshotCache {
                 return false;
 
             e.handled().ghThreads().put(pr, GhThread.posted(buildId, posted.id(), unmarkedAfter(e, pr, t, buildId)));
+            keepRunComment(buildId, new RunComment(null, pr, posted.id(), posted.htmlUrl(), null));
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
 
             return true;
@@ -3239,7 +3574,7 @@ public class StandingVisas implements SnapshotCache {
         Map<Long, List<String>> early = new HashMap<>();
         earlyReruns.forEach((build, suites) -> early.put(build, List.copyOf(suites)));
         Snapshots.writeAtomic(mapper, file, new Snapshot(snap, newestPerPr(), early, new HashMap<>(waves),
-            new HashMap<>(runVisas), codec.keyCheck(), new HashMap<>(pageVisas)));
+            new HashMap<>(runVisas), codec.keyCheck(), new HashMap<>(pageVisas), new HashMap<>(runComments)));
     }
 
     /**
@@ -3269,6 +3604,8 @@ public class StandingVisas implements SnapshotCache {
             keyCheck = s.keyCheck();
             if (s.pageVisas() != null)
                 s.pageVisas().forEach((build, visas) -> visas.forEach(v -> keepPageVisa(build, v)));
+            if (s.runComments() != null)
+                s.runComments().forEach(this::keepRunComment);
             if (s.waves() != null)
                 s.waves().forEach((build, r) -> waves.put(build, r.mergingEarlyWaves()));
             if (s.retries() != null)
@@ -3714,7 +4051,7 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * What became of the visa of a run of PR {@code pr}: the settle posted it to {@code issue} as comment {@code
-     * commentId} under the option of {@code by}, or {@code by} posted it there with Post visa on the PR page, or the
+     * commentId} under the option of {@code by}, or {@code by} posted it there with Post to JIRA on the PR page, or the
      * settle posted none, as the PR title named no IGNITE ticket ({@code commentId} null). Kept apart from the options,
      * so the PR page still tells of a posted visa after {@code by} switched every option off. Visas of v1.20.11 and
      * before do not name their {@code issue}. {@code repo}: the Python thin client's for a run of its suite, null for a
@@ -3727,6 +4064,15 @@ public class StandingVisas implements SnapshotCache {
         RunVisa(int pr, String by, String issue, String commentId) {
             this(pr, by, issue, commentId, null, null, null);
         }
+    }
+
+    /**
+     * The verdict comment of a run in PR {@code pr} of {@code repo}, null for the repo the checker lists: its id and
+     * its {@code url} on GitHub. {@code fromPage}: how the run of the Python thin client's suite was queued, which the
+     * comment's first words say: true on the checker's page, false by a {@code /run-all}; null when the checker does
+     * not know, as for a run whose first verdict comment came from Post to PR.
+     */
+    private record RunComment(String repo, int pr, long commentId, String url, Boolean fromPage) {
     }
 
     /**
@@ -3818,12 +4164,13 @@ public class StandingVisas implements SnapshotCache {
      * chain's, is what v1.20.11 and before read. {@code visas}, what the settle of each run did with its visa, is
      * absent from the files of earlier versions: their posted visas are those the enrollments still edit. {@code
      * keyCheck} names the key the tokens were encrypted with, {@link SessionCodec#keyCheck}; the files of earlier
-     * versions have none. {@code pageVisas}, the visas posted with Post visa by build, are absent from the files of
-     * versions without the button.
+     * versions have none. {@code pageVisas}, the visas posted with Post to JIRA by build, are absent from the files of
+     * versions without the button. {@code runComments}, the verdict comments of runs Post to PR and the stories of the
+     * client's runs put in, by build, are absent from the files of versions without Post to PR.
      */
     private record Snapshot(List<Persisted> enrollments, Map<Integer, Retry> retries,
         Map<Long, List<String>> earlyReruns, Map<Long, Retry> waves, Map<Long, RunVisa> visas, String keyCheck,
-        Map<Long, List<RunVisa>> pageVisas) {
+        Map<Long, List<RunVisa>> pageVisas, Map<Long, RunComment> runComments) {
     }
 
     /** Each PR's newest chain's waves, keyed by the PR as v1.20.11 keyed them. */

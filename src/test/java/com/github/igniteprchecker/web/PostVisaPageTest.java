@@ -11,19 +11,19 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * The author of apache/ignite#13709 re-ran the suite that had a blocker on the PR's head, and the verdict became a
- * mixed run with no blockers. The page had no way to put that verdict into the ticket. Post visa stands in the visa's
- * row: it asks first, naming the run and the ticket, posts with the author's stored JIRA token, and the line then links
- * the visa. While the verdict can change, the PR title names no ticket or the reader has no JIRA token stored, it is
- * grey, and the ? next to it says why; for the token it opens ⚙.
+ * mixed run with no blockers. The page had no way to put that verdict into the ticket. Post to JIRA stands in the
+ * visa's row: it asks first, naming the run and the ticket, posts with the author's stored JIRA token, and the line
+ * then links the visa. While the verdict can change, the PR title names no ticket or the reader has no JIRA token
+ * stored, it is grey, and the ? next to it says why; for the token it opens ⚙.
  */
 class PostVisaPageTest {
-    private static final String TOKEN_MISSING = "Post visa uses the JIRA token you save in ⚙, and you have none"
+    private static final String TOKEN_MISSING = "Post to JIRA uses the JIRA token you save in ⚙, and you have none"
         + " there. Saving one also switches on Visa my runs in JIRA.";
 
-    private static final String WAIT = "Post visa waits for the final verdict: runs of this PR can still change it.";
+    private static final String WAIT = "Post to JIRA waits for the final verdict: runs of this PR can still change it.";
 
     private static final String RETRIED = "TeamCity errors left part of this verdict unchecked. The checker checks"
-        + " that part again, and Post visa waits up to 20 minutes for that.";
+        + " that part again, and Post to JIRA waits up to 20 minutes for that.";
 
     /** The client's PR #69, whose newest run of the suite has a final verdict. */
     private static final String CLIENT_PR = """
@@ -45,7 +45,7 @@ class PostVisaPageTest {
         const row = over => ({ body: Object.assign({ state: 'retrying', starter: 'alice', mine: true, issue: null,
             url: null, jiraRefused: false, jiraReady: true, yoursIn: null }, over || {}) });
         page.route('/api/pr-title', { body: { title: 'IGNITE-29049 Move MDC to JUnit' } });
-        // The row the page polls for, and the answer to Post visa; a scenario sets either, or a function for it.
+        // The row the page polls for, and the answer to Post to JIRA; a scenario sets either, or a function for it.
         let shown = row();
         let answer = { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29049', url: URL,
             jiraRefused: false, jiraReady: true, yoursIn: 'IGNITE-29049', edited: false } };
@@ -88,8 +88,8 @@ class PostVisaPageTest {
         assertThat(out.at("/before/off").asBoolean()).isFalse();
         assertThat(out.at("/before/why").isNull()).isTrue();
         assertThat(out.at("/before/title").asText()).isEqualTo("Posts the verdict on this page to IGNITE-29049 as your"
-            + " comment in JIRA, with the JIRA token you saved in ⚙. A second press for this run updates that"
-            + " comment.");
+            + " visa of this run: a comment in JIRA, with the JIRA token you saved in ⚙. A second press for this run"
+            + " updates that visa.");
         assertThat(out.get("asked").get(0).asText()).isEqualTo("Post the visa of RunAll 9001 to IGNITE-29049? It goes"
             + " in as your comment in JIRA, with the verdict on this page.");
         assertThat(out.get("posts").get(0).asText()).isEqualTo("/api/visa?pr=13575&build=9001&issue=IGNITE-29049");
@@ -290,8 +290,8 @@ class PostVisaPageTest {
     }
 
     /**
-     * The client's PR #69: its run has no visa on record, and its verdict is final while the run's option may still
-     * try its visa again, so the line says nothing. Post visa posts to the client's endpoint, naming the suite's build.
+     * The client's PR #69: its run has no visa on record, and its verdict is final while the run's option may still try
+     * its visa again, so the line says nothing. Post to JIRA posts to the client's endpoint, naming the suite's build.
      */
     @Test
     void aClientPrsRunIsPostedToTheClientsEndpoint() throws Exception {
@@ -329,11 +329,11 @@ class PostVisaPageTest {
                 label: page.el('visaPostWhy').getAttribute('aria-label') });
             """);
 
-        assertThat(out.get("button").asText()).isEqualTo("Поставить визу");
-        assertThat(out.get("why").asText()).isEqualTo("Кнопка «Поставить визу» берёт токен JIRA, который ты сохраняешь"
+        assertThat(out.get("button").asText()).isEqualTo("В JIRA");
+        assertThat(out.get("why").asText()).isEqualTo("Кнопка «В JIRA» берёт токен JIRA, который ты сохраняешь"
             + " в ⚙, а там его нет. Когда ты сохранишь токен, заодно включится опция «Ставить визу моим прогонам в"
             + " JIRA». Щелчок открывает ⚙.");
-        assertThat(out.get("label").asText()).isEqualTo("Почему кнопка «Поставить визу» недоступна");
+        assertThat(out.get("label").asText()).isEqualTo("Почему кнопка «В JIRA» недоступна");
     }
 
     /** The Russian status after a press and the visa line under it name the same event with one word. */
@@ -342,10 +342,16 @@ class PostVisaPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + russian() + ROW + """
             await page.load('?pr=13575');
             await page.settle();
+            const title = page.el('visaPost').title;
             await page.el('visaPost').onclick();
             await page.settle();
-            report({ status: page.el('status').textContent, line: page.el('visaLine').textContent, asked });
+            report({ title, status: page.el('status').textContent, line: page.el('visaLine').textContent, asked });
             """);
+
+        assertThat(out.get("title").asText()).as("the button's name lost the visa, and its tooltip keeps it")
+            .isEqualTo("Отправляет вердикт с этой страницы в IGNITE-29049 твоей визой этого прогона — комментарием в"
+                + " JIRA, с токеном JIRA, который ты сохранил в ⚙. Повторное нажатие для этого прогона правит ту же"
+                + " визу.");
 
         assertThat(out.get("status").asText()).isEqualTo("Виза отправлена в IGNITE-29049.");
         assertThat(out.get("line").asText()).isEqualTo("Виза: отправлена в IGNITE-29049");

@@ -244,7 +244,7 @@ public class ClientPrsController {
 
     /**
      * The visa row of the run {@code build}: where its visa stands, as far as the checker's records tell, see the
-     * verdict kept, and what Post visa can do for the viewer; see {@link PostVisaController}.
+     * verdict kept, and what Post to JIRA can do for the viewer; see {@link PostVisaController}.
      */
     @GetMapping("/visa")
     public PostVisaController.VisaRow visaLine(@RequestParam int pr, @RequestParam long build,

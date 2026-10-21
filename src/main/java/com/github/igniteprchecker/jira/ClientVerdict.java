@@ -117,6 +117,22 @@ public final class ClientVerdict {
      */
     public static String markdown(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
         ClientVisa visa, boolean fromPage) {
+        return comment(tcBase, login, run, r, rerun, visa, fromPage);
+    }
+
+    /**
+     * The verdict comment Post to PR on the checker's page puts in: see {@link #markdown(String, String, Run,
+     * AnalysisResult, Rerun, ClientVisa, boolean)}, with no line on the visa, which only the commander's option posts.
+     * {@code fromPage}: how the run was queued, null when the checker does not know; the comment's first words then
+     * say only whose run it is.
+     */
+    public static String pageMarkdown(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
+        Boolean fromPage) {
+        return comment(tcBase, login, run, r, rerun, ClientVisa.NONE, fromPage);
+    }
+
+    private static String comment(String tcBase, String login, Run run, AnalysisResult r, Rerun rerun,
+        ClientVisa visa, Boolean fromPage) {
         Ink ink = Ink.MARKDOWN;
         long ran = ran(run, rerun);
         StringBuilder b = new StringBuilder();
@@ -158,10 +174,12 @@ public final class ClientVerdict {
 
     /**
      * How the comment opens: whose run it is the verdict of, with a mention GitHub tells {@code login} of, and how the
-     * run was queued.
+     * run was queued, when {@code fromPage} is not null.
      */
-    private static String opening(String login, boolean fromPage) {
+    private static String opening(String login, Boolean fromPage) {
         boolean nobody = login == null || login.isBlank();
+        if (fromPage == null)
+            return nobody ? "The verdict of a run" : "@" + login + " the verdict of your run";
         if (fromPage) {
             return nobody ? "The verdict of a run queued on the checker's page"
                 : "@" + login + " the verdict of the run you queued on the checker's page";

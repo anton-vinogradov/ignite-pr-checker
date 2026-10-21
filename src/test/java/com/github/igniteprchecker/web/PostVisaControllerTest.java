@@ -42,7 +42,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 /**
- * Post visa on the page of apache/ignite#13709: its author re-ran Control Utility 5 on the PR's head after RunAll
+ * Post to JIRA on the page of apache/ignite#13709: its author re-ran Control Utility 5 on the PR's head after RunAll
  * 9425992 found a blocker there, and the verdict became a mixed run with no blockers. The visa goes to the ticket the
  * author confirmed, and only while nothing can change the verdict: a run of the PR going, an auto re-run settling it,
  * a TeamCity error to check again. The answer says what JIRA said. The page of PR #69 of the Python thin client posts
@@ -141,7 +141,7 @@ class PostVisaControllerTest {
         asAlice(post("/api/visa"), ISSUE)
             .andExpect(status().isPreconditionFailed())
             .andExpect(jsonPath("$.need").value("jira"))
-            .andExpect(jsonPath("$.error").value("Post visa uses the JIRA token you save in ⚙, and you have none"
+            .andExpect(jsonPath("$.error").value("Post to JIRA uses the JIRA token you save in ⚙, and you have none"
                 + " there. Saving one also switches on Visa my runs in JIRA."));
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isPreconditionFailed());
 
@@ -173,7 +173,7 @@ class PostVisaControllerTest {
         when(analyzer.stillRetrying(any())).thenReturn(true);
 
         refusedAs("going").andExpect(jsonPath("$.error").value("TeamCity errors left part of this verdict unchecked."
-            + " The checker checks that part again, and Post visa waits up to 20 minutes for that."));
+            + " The checker checks that part again, and Post to JIRA waits up to 20 minutes for that."));
     }
 
     /** The page shows RunAll 9425992, and the checker has a newer RunAll of the PR. */
