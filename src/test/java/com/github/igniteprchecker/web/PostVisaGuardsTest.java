@@ -42,9 +42,9 @@ import org.springframework.web.servlet.handler.MappedInterceptor;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Post visa posts with the JIRA token alice stored on the server. A copy of her cookie whose TeamCity token she revoked
- * in ci2 a moment ago, or a form on a page of another site that her browser sends the cookie with, could post visas
- * in her name: the login guard learns of a revoked token only once a call under it fails, and the visa calls no
+ * Post to JIRA posts with the JIRA token alice stored on the server. A copy of her cookie whose TeamCity token she
+ * revoked in ci2 a moment ago, or a form on a page of another site that her browser sends the cookie with, could post
+ * visas in her name: the login guard learns of a revoked token only once a call under it fails, and the visa calls no
  * TeamCity. Both visa posts, Ignite's and the Python client's, ask TeamCity whether the token works first, and come
  * only from the checker's own page. The visa line the page polls asks TeamCity nothing.
  */

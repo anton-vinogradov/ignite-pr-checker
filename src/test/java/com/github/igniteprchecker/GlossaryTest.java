@@ -147,7 +147,7 @@ class GlossaryTest {
         quoted(PAGE, "Suites that never ran", "Broken suites", "Fewer tests than master",
             "Crashed near the end of the run", "Not confirmed: 1 run", "Not confirmed yet", "Recently started failing",
             "Could not be checked", "This PR's tests", "Not blamed on this PR", "Run at top", "Run RunAll",
-            "Cancel my runs", "Notify me", "Post visa");
+            "Cancel my runs", "Notify me", "Post to JIRA", "Post to PR");
         quoted(PAGE_SCRIPT, "On ci2 now", "✓ No blockers", "No proven blockers yet", "No blockers found — not proven clean",
             "No blockers found", "1 run", "new test / no master history", "unverified", "not in any suite", "flaky?",
             "on latest commit", "⚠ old commit", "takes latest commit at start", "● includes an unfinished run",

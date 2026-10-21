@@ -177,6 +177,27 @@ class ClientPageRunTest {
         verify(analyzer, times(1)).analyzeSuiteRun("tc", PR, "pull/69", RUN);
     }
 
+    /**
+     * A reviewer put the verdict of the run into the PR with Post to PR before the run's own verdict comment went out.
+     * The comment of Post my runs' verdicts in the PR takes the place of that one: the run keeps one verdict comment.
+     */
+    @Test
+    void theVerdictCommentTakesThePlaceOfTheOnePostToPrPutIn() {
+        options(null, null, true);
+        page.trigger(PR, false, false, false, "tc", "author");
+        when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("reviewer"), anyString())).thenReturn(
+            new GithubClient.PostedComment(90L, "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-90"));
+        standing.postClientCommentFromPage("reviewer", SettingsJournal.By.of("laptop", "Firefox on Linux"),
+            CLIENT_REPO, PR, RUN, 0, fromPage -> "the verdict from the page");
+
+        finished(RUN, "FAILURE");
+        commands.updateEtas();
+
+        verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(90L), startsWith("The verdict of a run queued on"
+            + " the checker's page: **Thin client: Python** [build 9424794]"));
+        verify(github, never()).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString());
+    }
+
     /** Post my runs' verdicts in the PR needs no linked GitHub account: the comment then mentions nobody. */
     @Test
     void withoutALinkedGithubAccountTheCommentMentionsNobody() {

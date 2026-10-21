@@ -236,7 +236,7 @@ public class PythonClientRuns {
     }
 
     /**
-     * The visa of the run {@code buildId} of the suite {@code suiteName} for Post visa on the checker's page of PR
+     * The visa of the run {@code buildId} of the suite {@code suiteName} for Post to JIRA on the checker's page of PR
      * {@code pr}, as the run's automatic visa says it: it names the commits of the client and of Ignite the run tested,
      * {@code clientSha} and {@code igniteSha}, and {@code rerunId}, the later run of the same commits that the verdict
      * {@code r} counts too, 0 when none.
@@ -245,6 +245,20 @@ public class PythonClientRuns {
         String igniteSha, AnalysisResult r) {
         return ClientVerdict.wiki(tcBase, new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha,
             props.repo(), pr, clientSha), r, rerunId == 0 ? null : ClientVerdict.Rerun.sameCommits(rerunId));
+    }
+
+    /**
+     * The verdict comment of the run {@code buildId} of the suite {@code suiteName} for Post to PR on the checker's
+     * {@code page} of PR {@code pr}, as the run's verdict comment says it: it mentions {@code login} when known, and
+     * names the commits of the client and of Ignite the run tested, {@code clientSha} and {@code igniteSha}, and
+     * {@code rerunId}, the later run of the same commits that the verdict {@code r} counts too, 0 when none. {@code
+     * fromPage}: how the run was queued, null when the checker does not know.
+     */
+    public String pageCommentBody(String login, int pr, long buildId, long rerunId, String suiteName,
+        String clientSha, String igniteSha, AnalysisResult r, Boolean fromPage, String page) {
+        return ClientVerdict.pageMarkdown(tcBase, login, new ClientVerdict.Run(buildId, suiteName, github.repo(),
+            igniteSha, props.repo(), pr, clientSha, page), r,
+            rerunId == 0 ? null : ClientVerdict.Rerun.sameCommits(rerunId), fromPage);
     }
 
     /** The suite's name as TeamCity gives it with the build; its id when it gives none. */

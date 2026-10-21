@@ -45,7 +45,13 @@ class JournalInRussianTest {
             SettingsJournal.Entry.visa(true, 13575, "IGNITE-29049", 9001, "https://jira/c/1"),
             SettingsJournal.Entry.language(LAPTOP, Lang.EN),
             SettingsJournal.Entry.clientVisa("apache/ignite-python-thin-client", 69, "IGNITE-29117", 9424005,
-                "https://jira/c/2"));
+                "https://jira/c/2"),
+            SettingsJournal.Entry.pageComment(LAPTOP, false, null, 13575, 9001, "https://github.com/c/3"),
+            SettingsJournal.Entry.pageComment(LAPTOP, true, null, 13575, 9001, "https://github.com/c/3"),
+            SettingsJournal.Entry.pageComment(LAPTOP, false, "apache/ignite-python-thin-client", 69, 9424005,
+                "https://github.com/c/4"),
+            SettingsJournal.Entry.pageComment(LAPTOP, true, "apache/ignite-python-thin-client", 69, 9424005,
+                "https://github.com/c/4"));
 
         List<String> left = new ArrayList<>();
         for (SettingsJournal.Entry e : entries) {
@@ -59,6 +65,10 @@ class JournalInRussianTest {
             .isEqualTo("Включено: «Ставить визу моим прогонам в JIRA». Сохранён новый токен JIRA.");
         assertThat(SettingsJournal.text(entries.get(20), Lang.RU)).isEqualTo("Отправлена виза в IGNITE-29117 для PR"
             + " #69 в apache/ignite-python-thin-client, сборка 9424005.");
+        assertThat(SettingsJournal.text(entries.get(22), Lang.RU)).as("the words that link to the comment are there")
+            .isEqualTo("Обновлён комментарий с вердиктом RunAll 9001 в PR #13575 кнопкой «В PR» на странице PR.");
+        assertThat(SettingsJournal.text(entries.get(24), Lang.RU)).isEqualTo("Обновлён комментарий с вердиктом сборки"
+            + " 9424005 в PR #69 в apache/ignite-python-thin-client кнопкой «В PR» на странице PR.");
         assertThat(SettingsJournal.text(entries.get(8), Lang.RU)).isEqualTo("Аккаунт GitHub @alice-gh отвязан. "
             + "Выключено: «Команды в PR», «Чинить checkstyle перед моими прогонами по команде» и «Добавлять в сьюты тесты "
             + "моего PR, которые не запускает ни одна сьюта». Чекер удалил и твой токен GitHub для коммитов.");

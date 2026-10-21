@@ -207,7 +207,9 @@ class ServerTextsInRussianTest {
             "The PR title now names IGNITE-29117, not IGNITE-29049. Reload the page, then post the visa.",
             "JIRA refused the comment (HTTP 403). Check that your JIRA account can comment on IGNITE-29049.",
             "JIRA has no ticket IGNITE-29049, or your JIRA account cannot see it (HTTP 404).",
-            "JIRA did not take the visa (HTTP 500). Try again later."));
+            "JIRA did not take the visa (HTTP 500). Try again later.",
+            "GitHub did not let the checker's account comment on PR #13709 (HTTP 403).",
+            "GitHub did not take the comment (HTTP 500). Try again later."));
 
         for (int[] counts : new int[][] {{2, 0, 1, 0}, {0, 1, 0, 0}, {0, 0, 3, 0}, {0, 0, 0, 1}, {1, 1, 1, 1}, {3, 0, 0, 0}})
             out.add(privateText(StandingVisas.class, "suitesLabel", counts[0], counts[1], counts[2], counts[3]));

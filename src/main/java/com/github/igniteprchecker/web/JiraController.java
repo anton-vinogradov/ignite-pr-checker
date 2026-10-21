@@ -170,7 +170,7 @@ public class JiraController {
     }
 
     /**
-     * The visa row of the PR's run {@code build} in the verdict's heading: where its visa stands, and what Post visa
+     * The visa row of the PR's run {@code build} in the verdict's heading: where its visa stands, and what Post to JIRA
      * can do for the viewer; see {@link PostVisaController}.
      */
     @GetMapping("/visa")
@@ -194,7 +194,7 @@ public class JiraController {
      * What TeamCity says of the run. A finished run, and one TeamCity no longer has, are asked about once; a run still
      * going at most every {@link #RUN_GOING_ASKED_EVERY_MS}.
      */
-    private StandingVisas.Run run(String tcToken, long build) {
+    StandingVisas.Run run(String tcToken, long build) {
         long now = clock.getAsLong();
         AskedRun known = runs.get(build);
         if (known != null && (known.done() || now - known.at() < RUN_GOING_ASKED_EVERY_MS))

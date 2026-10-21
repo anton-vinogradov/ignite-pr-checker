@@ -151,9 +151,23 @@ public class SettingsJournal implements SnapshotCache {
             : here && e.browser().equals(browser) ? Texts.t(lang, "from this browser")
             : here ? Texts.t(lang, "{0}, in the login of this browser", fromBrowser(lang, e.browser()))
             : fromBrowser(lang, e.browser());
-        boolean linked = e.url() != null && e.issue() != null;
+        String linkText = linkText(e);
 
-        return new View(e.at(), text(e, lang), from, linked ? e.issue() : null, linked ? e.url() : null);
+        return new View(e.at(), text(e, lang), from, linkText, linkText == null ? null : e.url());
+    }
+
+    /**
+     * The words of the entry's text that link to its comment: a visa's ticket, or the PR of a verdict comment; null
+     * when the entry links nowhere.
+     */
+    private static String linkText(Entry e) {
+        if (e.url() == null)
+            return null;
+        if (e.issue() != null)
+            return e.issue();
+
+        return Entry.PAGE_COMMENT.equals(e.kind()) || Entry.PAGE_COMMENT_EDITED.equals(e.kind()) ? "PR #" + e.pr()
+            : null;
     }
 
     /** What the entry says happened, in a sentence or two, in English. */
@@ -197,15 +211,25 @@ public class SettingsJournal implements SnapshotCache {
             case Entry.VISA_EDITED -> Texts.t(lang, "Edited the visa in {0} for PR #{1}, RunAll {2}.", e.issue(),
                 e.pr(), e.build());
             case Entry.PAGE_VISA -> e.repo() != null
-                ? Texts.t(lang, "Posted a visa to {0} for PR #{1} of {2}, build {3}, with Post visa on the PR page.",
-                    e.issue(), e.pr(), e.repo(), e.build())
-                : Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}, with Post visa on the PR page.",
+                ? Texts.t(lang, "Posted a visa to {0} for PR #{1} of {2}, build {3}, with Post to JIRA on the PR"
+                    + " page.", e.issue(), e.pr(), e.repo(), e.build())
+                : Texts.t(lang, "Posted a visa to {0} for PR #{1}, RunAll {2}, with Post to JIRA on the PR page.",
                     e.issue(), e.pr(), e.build());
             case Entry.PAGE_VISA_EDITED -> e.repo() != null
-                ? Texts.t(lang, "Updated your visa in {0} for PR #{1} of {2}, build {3}, with Post visa on the PR"
+                ? Texts.t(lang, "Updated your visa in {0} for PR #{1} of {2}, build {3}, with Post to JIRA on the PR"
                     + " page.", e.issue(), e.pr(), e.repo(), e.build())
-                : Texts.t(lang, "Updated your visa in {0} for PR #{1}, RunAll {2}, with Post visa on the PR page.",
+                : Texts.t(lang, "Updated your visa in {0} for PR #{1}, RunAll {2}, with Post to JIRA on the PR page.",
                     e.issue(), e.pr(), e.build());
+            case Entry.PAGE_COMMENT -> e.repo() != null
+                ? Texts.t(lang, "Posted the verdict of build {2} to PR #{0} of {1} with Post to PR on the PR page.",
+                    e.pr(), e.repo(), e.build())
+                : Texts.t(lang, "Posted the verdict of RunAll {1} to PR #{0} with Post to PR on the PR page.", e.pr(),
+                    e.build());
+            case Entry.PAGE_COMMENT_EDITED -> e.repo() != null
+                ? Texts.t(lang, "Updated the verdict comment of build {2} in PR #{0} of {1} with Post to PR on the PR"
+                    + " page.", e.pr(), e.repo(), e.build())
+                : Texts.t(lang, "Updated the verdict comment of RunAll {1} in PR #{0} with Post to PR on the PR page.",
+                    e.pr(), e.build());
             case Entry.LANGUAGE -> Lang.of(e.lang()) == Lang.RU ? Texts.t(lang, "Switched the language to Russian.")
                 : Texts.t(lang, "Switched the language to English.");
             default -> Texts.t(lang, "A change this version of the checker cannot describe.");
@@ -336,7 +360,8 @@ public class SettingsJournal implements SnapshotCache {
 
     /**
      * An entry as ⚙ shows it: when, what happened, and from which browser or by the checker. {@code linkText}, the
-     * ticket of a visa, links to {@code url}, the visa's comment in JIRA; both null when the entry links nowhere.
+     * ticket of a visa or the PR of a verdict comment, links to {@code url}, the comment in JIRA or on GitHub; both
+     * null when the entry links nowhere.
      */
     public record View(long at, String text, String from, String linkText, String url) {
     }
@@ -357,12 +382,13 @@ public class SettingsJournal implements SnapshotCache {
 
     /**
      * One entry: when ({@code at}), what happened ({@code kind}), and who did it, the {@code login} and its {@code
-     * browser}, both null for the checker. The options, the tokens by service, the GitHub {@code account}, the visa's
-     * {@code pr}, {@code issue}, {@code build} and the {@code url} of its comment are there for the kinds that name
-     * them. {@code why}: why the checker could not read a token, {@link #KEY_CHANGED} or {@link #DAMAGED}; {@link
-     * #ALL_OFF} for an account unlinked with the last option. {@code lang}: the code of the language the user chose
-     * for the pages. {@code repo}: the repo of a visa's PR when it is not the one the checker lists, such as the Python
-     * thin client's, whose PR numbers are Ignite's too; its {@code build} is a run of one suite.
+     * browser}, both null for the checker. The options, the tokens by service, the GitHub {@code account}, the {@code
+     * pr}, {@code issue} and {@code build} of a visa and the {@code url} of its comment, and the {@code pr}, {@code
+     * build} and {@code url} of a verdict comment in a PR, are there for the kinds that name them. {@code why}: why the
+     * checker could not read a token, {@link #KEY_CHANGED} or {@link #DAMAGED}; {@link #ALL_OFF} for an account
+     * unlinked with the last option. {@code lang}: the code of the language the user chose for the pages. {@code
+     * repo}: the repo of the PR when it is not the one the checker lists, such as the Python thin client's, whose PR
+     * numbers are Ignite's too; its {@code build} is a run of one suite.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -401,11 +427,17 @@ public class SettingsJournal implements SnapshotCache {
         /** A visa edited in place. */
         static final String VISA_EDITED = "visa-edited";
 
-        /** A visa the user posted with Post visa on the PR page. */
+        /** A visa the user posted with Post to JIRA on the PR page. */
         static final String PAGE_VISA = "page-visa";
 
-        /** The user's visa of a run edited in place with Post visa on the PR page. */
+        /** The user's visa of a run edited in place with Post to JIRA on the PR page. */
         static final String PAGE_VISA_EDITED = "page-visa-edited";
+
+        /** The verdict of a run the user posted to its PR with Post to PR on the PR page. */
+        static final String PAGE_COMMENT = "page-comment";
+
+        /** The verdict comment of a run in its PR edited in place with Post to PR on the PR page. */
+        static final String PAGE_COMMENT_EDITED = "page-comment-edited";
 
         /** The language of the pages chosen. */
         static final String LANGUAGE = "lang";
@@ -476,13 +508,24 @@ public class SettingsJournal implements SnapshotCache {
         }
 
         /**
-         * A visa the user posted, or {@code edited} in place, with Post visa on the PR page, from the browser of
+         * A visa the user posted, or {@code edited} in place, with Post to JIRA on the PR page, from the browser of
          * {@code by}: for PR {@code pr} of {@code repo}, the Python thin client's, by its run {@code build}; for a
          * RunAll of an Ignite PR with {@code repo} null.
          */
         static Entry pageVisa(By by, boolean edited, String repo, int pr, String issue, long build, String url) {
             return new Entry(0, edited ? PAGE_VISA_EDITED : PAGE_VISA, by.login(), by.browser(), null, null, null,
                 null, pr, issue, build, url, null, repo);
+        }
+
+        /**
+         * The verdict of a run the user posted to its PR, or {@code edited} the run's verdict comment there, with Post
+         * to PR on the PR page, from the browser of {@code by}: for PR {@code pr} of {@code repo}, the Python thin
+         * client's, by its run {@code build}; for a RunAll of an Ignite PR with {@code repo} null. {@code url}: the
+         * comment on GitHub.
+         */
+        static Entry pageComment(By by, boolean edited, String repo, int pr, long build, String url) {
+            return new Entry(0, edited ? PAGE_COMMENT_EDITED : PAGE_COMMENT, by.login(), by.browser(), null, null,
+                null, null, pr, null, build, url, null, repo);
         }
 
         /** The user chose the language of the pages in ⚙. */

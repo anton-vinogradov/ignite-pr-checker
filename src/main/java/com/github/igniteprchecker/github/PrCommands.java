@@ -1553,10 +1553,14 @@ public class PrCommands implements SnapshotCache {
             stopNarrating(run);
     }
 
-    /** Posts the verdict of a run of the Python thin client's suite: its comment's id, 0 when it did not go in now. */
+    /**
+     * Posts the verdict of a run of the Python thin client's suite, in place of the comment Post to PR put in for the
+     * run when there is one: its comment's id, 0 when it did not go in now.
+     */
     private long postVerdict(CommandRun run, String body) {
         try {
-            GithubClient.PostedComment c = comment(run.of(), run.username(), body);
+            GithubClient.PostedComment c = standing.clientVerdictComment(run.repo(), run.pr(), run.buildId(),
+                run.username(), body, run.onPage());
 
             return c == null ? 0 : c.id();
         }
