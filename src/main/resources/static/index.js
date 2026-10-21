@@ -3594,8 +3594,8 @@ function paintVisaPost(res, v) {
     $('visaPost').title = why ? ''
         : v.yoursIn === lastIssueKey ? T('Updates your visa of this run in {0} with the verdict on this page. It uses '
             + 'the JIRA token you saved in ⚙.', lastIssueKey)
-        : T('Posts the verdict on this page to {0} as your comment in JIRA, with the JIRA token you saved in ⚙. A '
-            + 'second press for this run updates that comment.', lastIssueKey);
+        : T('Posts the verdict on this page to {0} as your visa of this run: a comment in JIRA, with the JIRA token '
+            + 'you saved in ⚙. A second press for this run updates that visa.', lastIssueKey);
     $('visaPostWhy').classList.toggle('hidden', !why);
     $('visaPostWhy').title = !why ? '' : T(VISA_POST_OFF[why]) + (why === 'token' ? ' ' + T('A click opens ⚙.') : '');
     clearTimeout(visaRetryTimer);
@@ -4476,8 +4476,9 @@ function renderJournal() {
 function journalRow(e) {
     let text = esc(e.text);
     if (e.url && e.linkText) {
-        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="${T('Opens the visa in JIRA.')}">`
-            + `${esc(e.linkText)}</a>`;
+        const where = e.url.startsWith('https://github.com/') ? T('Opens the comment on GitHub.')
+            : T('Opens the visa in JIRA.');
+        const link = `<a href="${esc(e.url)}" target="_self" rel="noopener" title="${where}">${esc(e.linkText)}</a>`;
         text = text.replace(esc(e.linkText), () => link);
     }
     return `<li>${esc(fmtDay(e.at))} — ${text} <span class="muted">${esc(e.from)}</span></li>`;

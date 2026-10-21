@@ -1559,7 +1559,7 @@ public class PrCommands implements SnapshotCache {
      */
     private long postVerdict(CommandRun run, String body) {
         try {
-            GithubClient.PostedComment c = standing.clientVerdictComment(run.repo(), run.pr(), run.buildId(),
+            GithubClient.PostedComment c = standing.clientVerdictComment(run.repo(), run.pr(), run.verdictBuildId(),
                 run.username(), body, run.onPage());
 
             return c == null ? 0 : c.id();
@@ -2009,6 +2009,14 @@ public class PrCommands implements SnapshotCache {
         /** Whether the run was queued on the checker's page: see {@link #queuedOnPage}. */
         boolean onPage() {
             return commentId < 0;
+        }
+
+        /**
+         * The build the checker's page shows the run's verdict by: its auto re-run when that stands in for the run
+         * TeamCity cancelled, since the page lists no cancelled run.
+         */
+        long verdictBuildId() {
+            return rerunStandsIn ? rerunId : buildId;
         }
 
         CommandRun ofPr(int number) {

@@ -29,6 +29,7 @@ import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
+import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -565,6 +566,29 @@ class ClientRerunTest {
                 + " checker ran the suite again on the same commits. This verdict comes from that re-run."
                 + "\n\n");
         verify(tc, times(2)).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    /**
+     * The checker's page lists no cancelled run, so it shows the verdict by the re-run that stood in for build 9424005.
+     * A reviewer's Post to PR there updates the verdict comment the story posted, and the run keeps one.
+     */
+    @Test
+    void postToPrUpdatesTheVerdictCommentOfTheRerunThatStoodIn() {
+        clientComment(1L, "/run-all");
+        cancelled(new TcModel.CanceledInfo("Agent was disconnected", null), null);
+        commands.updateEtas();
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "FAILURE"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(true));
+        commands.updateEtas();
+
+        Optional<String> shown = standing.runCommentUrl(CLIENT_REPO, PR, RERUN, 0);
+        StandingVisas.CommentPost pressed = standing.postClientCommentFromPage("reviewer",
+            SettingsJournal.By.of("laptop", "Firefox on Linux"), CLIENT_REPO, PR, RERUN, 0, fromPage -> "the verdict");
+
+        assertThat(shown).as("the page offers to update the story's comment").isPresent();
+        assertThat(pressed.outcome()).isEqualTo(StandingVisas.CommentPost.EDITED);
+        verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("reviewer"), eq(89L), startsWith("the verdict"));
+        verify(github, times(2)).appComment(eq(CLIENT_REPO), eq(PR), any(), anyString());
     }
 
     /**

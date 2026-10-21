@@ -88,8 +88,8 @@ class PostVisaPageTest {
         assertThat(out.at("/before/off").asBoolean()).isFalse();
         assertThat(out.at("/before/why").isNull()).isTrue();
         assertThat(out.at("/before/title").asText()).isEqualTo("Posts the verdict on this page to IGNITE-29049 as your"
-            + " comment in JIRA, with the JIRA token you saved in ⚙. A second press for this run updates that"
-            + " comment.");
+            + " visa of this run: a comment in JIRA, with the JIRA token you saved in ⚙. A second press for this run"
+            + " updates that visa.");
         assertThat(out.get("asked").get(0).asText()).isEqualTo("Post the visa of RunAll 9001 to IGNITE-29049? It goes"
             + " in as your comment in JIRA, with the verdict on this page.");
         assertThat(out.get("posts").get(0).asText()).isEqualTo("/api/visa?pr=13575&build=9001&issue=IGNITE-29049");
@@ -342,10 +342,16 @@ class PostVisaPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + russian() + ROW + """
             await page.load('?pr=13575');
             await page.settle();
+            const title = page.el('visaPost').title;
             await page.el('visaPost').onclick();
             await page.settle();
-            report({ status: page.el('status').textContent, line: page.el('visaLine').textContent, asked });
+            report({ title, status: page.el('status').textContent, line: page.el('visaLine').textContent, asked });
             """);
+
+        assertThat(out.get("title").asText()).as("the button's name lost the visa, and its tooltip keeps it")
+            .isEqualTo("Отправляет вердикт с этой страницы в IGNITE-29049 твоей визой этого прогона — комментарием в"
+                + " JIRA, с токеном JIRA, который ты сохранил в ⚙. Повторное нажатие для этого прогона правит ту же"
+                + " визу.");
 
         assertThat(out.get("status").asText()).isEqualTo("Виза отправлена в IGNITE-29049.");
         assertThat(out.get("line").asText()).isEqualTo("Виза: отправлена в IGNITE-29049");

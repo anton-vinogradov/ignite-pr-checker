@@ -261,6 +261,15 @@ class PostToPrControllerTest {
             .andExpect(jsonPath("$.bot").value("none"));
     }
 
+    /** The PR had 5 presses in the last hour: the answer says that the checker takes no more for now. */
+    @Test
+    void aPressPastTheCapOfThePrIsRefused() throws Exception {
+        answers(new StandingVisas.CommentPost(StandingVisas.CommentPost.CAPPED, null, 0))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(jsonPath("$.error").value("The checker took 5 presses of Post to PR on this PR in the last hour,"
+                + " the most it allows. Try again later."));
+    }
+
     /**
      * PR #69's verdict counts the auto re-run 9424210 of its run, which bob started. The comment has the words of the
      * client's verdict comment: it mentions bob, names both runs and links the checker's page. Its first words say how

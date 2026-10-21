@@ -147,9 +147,10 @@ public class StandingVisas implements SnapshotCache {
     private final Object visaPosts = new Object();
 
     /**
-     * The verdict comment of each run that Post to PR on the PR page put in, or that the story of a run of the Python
-     * thin client's suite posted, by build, for the newest {@link #RUN_VISAS_KEPT} builds. The comment Post my runs'
-     * verdicts in the PR posts for a RunAll is its starter's {@link GhThread}. Persisted.
+     * The verdict comment of each run, by build, for the newest {@link #RUN_VISAS_KEPT} builds: the one Post to PR on
+     * the PR page, Post my runs' verdicts in the PR, or the story of a run of the Python thin client's suite last put
+     * in. The comment of a RunAll's option is also its starter's {@link GhThread}, which goes when the starter switches
+     * every option off; this one stays, so Post to PR still updates that comment. Persisted.
      */
     private final ConcurrentSkipListMap<Long, RunComment> runComments = new ConcurrentSkipListMap<>();
 
@@ -158,6 +159,19 @@ public class StandingVisas implements SnapshotCache {
      * option make one comment of the run, and two presses too. Not {@link #settleLock}, as for {@link #visaPosts}.
      */
     private final Object commentPosts = new Object();
+
+    /**
+     * How many presses of Post to PR the checker takes for one PR in an hour. Anyone logged in may press it on any PR,
+     * and each press writes to the PR with the checker's account, which may write there 40 times an hour. Without
+     * this cap, presses alone could use up those writes, and the PR would get no story and no verdict comment for an
+     * hour.
+     */
+    public static final int PRESSES_PER_PR_HOUR = 5;
+
+    private static final long HOUR_MS = 3_600_000;
+
+    /** When Post to PR was taken for each PR in the last hour, by "repo#number". Under {@link #commentPosts}. */
+    private final Map<String, List<Long>> presses = new HashMap<>();
 
     /** How often the sweep goes through the open PRs. */
     private static final long SWEEP_MS = 600_000;
@@ -1752,11 +1766,19 @@ public class StandingVisas implements SnapshotCache {
      * posted by an option or by Post to PR, gets the new text in place, and its last line says who updated it. A
      * failed edit posts a new comment. The comment of a RunAll is also the verdict comment of the run of its {@code
      * starter}: their option edits it, and marks it superseded once a newer run's verdict comes. An entry of the
-     * journal of {@code username}, from the browser of {@code by}.
+     * journal of {@code username}, from the browser of {@code by}. Nothing goes to GitHub once the PR had {@link
+     * #PRESSES_PER_PR_HOUR} presses in the last hour.
      */
     private CommentPost commentFromPage(String username, SettingsJournal.By by, String repo, int pr, long buildId,
         long rerunId, String starter, Function<Boolean, String> body) {
         synchronized (commentPosts) {
+            if (!pressTaken(repo, pr, System.currentTimeMillis())) {
+                log.info("verdict of build {} to PR {} from the page for {} not taken: {} presses in the last hour",
+                    buildId, pr, username, PRESSES_PER_PR_HOUR);
+
+                return CommentPost.of(CommentPost.CAPPED);
+            }
+
             FoundComment found = foundComment(repo, pr, buildId, rerunId);
             String text = body.apply(found == null ? null : found.fromPage());
             String presser = presser(username, enrolled.get(username));
@@ -1807,6 +1829,26 @@ public class StandingVisas implements SnapshotCache {
 
             return new CommentPost(edited ? CommentPost.EDITED : CommentPost.POSTED, url, 0);
         }
+    }
+
+    /**
+     * Counts a press of Post to PR on PR {@code pr} of {@code repo} at {@code now}. False, and counts nothing, when the
+     * PR had {@link #PRESSES_PER_PR_HOUR} presses in the last hour.
+     */
+    private boolean pressTaken(String repo, int pr, long now) {
+        presses.values().removeIf(times -> {
+            times.removeIf(at -> at <= now - HOUR_MS);
+
+            return times.isEmpty();
+        });
+        List<Long> times = presses.computeIfAbsent((repo == null ? github.repo() : repo) + "#" + pr,
+            k -> new ArrayList<>());
+        if (times.size() >= PRESSES_PER_PR_HOUR)
+            return false;
+
+        times.add(now);
+
+        return true;
     }
 
     /**
@@ -1867,24 +1909,38 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The verdict comment the checker knows of the run {@code buildId} of PR {@code pr} of {@code repo}, or of {@code
-     * rerunId}, the later run of the same commits a client's verdict counts too, 0 when none: one Post to PR or the
-     * story of a client's run put in, else, for a RunAll, the comment of an option of the checker's account. Null when
-     * it knows none.
+     * rerunId}, the later run of the same commits a client's verdict counts too, 0 when none: the one {@link
+     * #runComments} keeps, else, for a RunAll, the comment of an option of the checker's account that a version
+     * without {@link #runComments} posted. Null when it knows none.
      */
     private FoundComment foundComment(String repo, int pr, long buildId, long rerunId) {
         for (long build : rerunId == 0 ? List.of(buildId) : List.of(buildId, rerunId)) {
             RunComment c = runComment(repo, pr, build);
-            if (c != null)
-                return new FoundComment(build, c.commentId(), c.url(), c.fromPage(), null);
+            if (c != null) {
+                Map.Entry<String, GhThread> option = repo == null ? optionComment(pr, build) : null;
+
+                return new FoundComment(build, c.commentId(), c.url(), c.fromPage(),
+                    option == null ? null : option.getKey());
+            }
         }
-        if (repo != null)
+        Map.Entry<String, GhThread> option = repo == null ? optionComment(pr, buildId) : null;
+        if (option == null)
             return null;
 
+        long commentId = option.getValue().commentId();
+
+        return new FoundComment(buildId, commentId, github.commentUrl(pr, commentId), null, option.getKey());
+    }
+
+    /**
+     * The user whose option posted the verdict comment of the RunAll {@code buildId} in PR {@code pr} with the
+     * checker's account, and that comment; null when no enrolled user's option did.
+     */
+    private Map.Entry<String, GhThread> optionComment(int pr, long buildId) {
         for (Map.Entry<String, Enrollment> en : enrolled.entrySet()) {
             GhThread t = en.getValue().handled().ghThreads().get(pr);
             if (t != null && t.buildId() == buildId && t.app())
-                return new FoundComment(buildId, t.commentId(), github.commentUrl(pr, t.commentId()), null,
-                    en.getKey());
+                return Map.entry(en.getKey(), t);
         }
 
         return null;
@@ -1924,8 +1980,9 @@ public class StandingVisas implements SnapshotCache {
     /**
      * What Post to PR did: {@link #POSTED} a new verdict comment at {@code url}, or {@link #EDITED} the run's comment
      * there; found no GITHUB_TOKEN ({@link #NO_BOT}); the writes of the checker's account wait ({@link #DEFERRED}):
-     * GitHub asked them to, or the writes to the PR, or for the user, in the last hour reached their cap; or GitHub did
-     * not take the comment ({@link #FAILED}), with the HTTP {@code status} it answered, 0 when it did not answer.
+     * GitHub asked them to, or the writes to the PR, or for the user, in the last hour reached their cap; the PR had
+     * {@link #PRESSES_PER_PR_HOUR} presses in the last hour ({@link #CAPPED}); or GitHub did not take the comment
+     * ({@link #FAILED}), with the HTTP {@code status} it answered, 0 when it did not answer.
      */
     public record CommentPost(String outcome, String url, int status) {
         public static final String POSTED = "posted";
@@ -1935,6 +1992,8 @@ public class StandingVisas implements SnapshotCache {
         public static final String NO_BOT = "no-bot";
 
         public static final String DEFERRED = "deferred";
+
+        public static final String CAPPED = "capped";
 
         public static final String FAILED = "failed";
 
@@ -3408,10 +3467,11 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The run's verdict in ONE PR comment of the checker's account, edited in place when it is posted again for the
-     * same build, or in place of the comment Post to PR put in for the build. A failure never breaks the sweep (the
-     * JIRA visa may already be out), and a failed edit falls back to a fresh comment rather than losing the verdict.
-     * False when the comment is not in: GitHub failed, or asked the checker to wait, and it is tried again at the next
-     * settle. What the checker's account is refused never touches the user's own token.
+     * same build, or in place of the comment Post to PR put in for the build. The comment is the run's in {@link
+     * #runComments} too. A failure never breaks the sweep (the JIRA visa may already be out), and a failed edit falls
+     * back to a fresh comment rather than losing the verdict. False when the comment is not in: GitHub failed, or
+     * asked the checker to wait, and it is tried again at the next settle. What the checker's account is refused never
+     * touches the user's own token.
      */
     private boolean upsertGhComment(String who, Enrollment e, int pr, long buildId, String md) {
         try {
@@ -3423,6 +3483,8 @@ public class StandingVisas implements SnapshotCache {
                 try {
                     if (github.appEdit(pr, who, commentId, md)) {
                         e.handled().ghThreads().put(pr, GhThread.posted(buildId, commentId, unmarked));
+                        keepRunComment(buildId, new RunComment(null, pr, commentId, github.commentUrl(pr, commentId),
+                            null));
                         log.info("standing GitHub comment updated for PR {} (build {})", pr, buildId);
 
                         return true;
@@ -3441,6 +3503,7 @@ public class StandingVisas implements SnapshotCache {
                 return false;
 
             e.handled().ghThreads().put(pr, GhThread.posted(buildId, posted.id(), unmarkedAfter(e, pr, t, buildId)));
+            keepRunComment(buildId, new RunComment(null, pr, posted.id(), posted.htmlUrl(), null));
             log.info("standing GitHub comment posted for PR {} (build {}) -> {}", pr, buildId, posted.htmlUrl());
 
             return true;

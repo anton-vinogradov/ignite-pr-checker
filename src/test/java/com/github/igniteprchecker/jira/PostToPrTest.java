@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -36,12 +37,15 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * The owner looked at the verdict of a run on the PR page and asked for a button that puts it into the PR, next to the
@@ -69,6 +73,8 @@ class PostToPrTest {
 
     private static final String PRESS_URL = "https://github.com/apache/ignite/pull/13335#issuecomment-777";
 
+    private static final String TESTED = "c577b18d9a1e2f3b4c5d6e7f8091a2b3c4d5e6f7";
+
     private static final SettingsJournal.By LAPTOP = SettingsJournal.By.of("laptop", "Firefox on Linux");
 
     private final TcClient tc = mock(TcClient.class);
@@ -76,6 +82,8 @@ class PostToPrTest {
     private final GithubClient github = AppWriting.github();
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
+
+    private final PendingCommits pending = mock(PendingCommits.class);
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
@@ -121,6 +129,195 @@ class PostToPrTest {
             .extracting(SettingsJournal.View::text, SettingsJournal.View::linkText, SettingsJournal.View::url)
             .containsExactly("Updated the verdict comment of RunAll 9389046 in PR #13335 with Post to PR on the PR"
                 + " page.", "PR #13335", OPTION_URL);
+    }
+
+    /**
+     * The run tested c577b18, and the PR's head moved on to 9b02561 since. The press says what the author's option
+     * said in the verdict comment of the run: the commit the run tested and where the PR's head is now.
+     */
+    @Test
+    void aPressSaysWhatTheOptionsCommentSaysOfTheTestedCommitAndThePrsHead() {
+        commentOn();
+        when(tc.buildRevision(anyString(), eq(RUN))).thenReturn(Optional.of(TESTED));
+        when(pending.since(anyString(), eq(PR), eq(RUN)))
+            .thenReturn(new PendingCommits.Ahead(3, "c577b18", "9b02561", TESTED, false));
+        when(github.appComment(eq(PR), eq(AUTHOR), anyString()))
+            .thenReturn(new GithubClient.PostedComment(555L, OPTION_URL));
+        standing.sweep();
+        ArgumentCaptor<String> option = ArgumentCaptor.forClass(String.class);
+        verify(github).appComment(eq(PR), eq(AUTHOR), option.capture());
+
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR);
+
+        assertThat(option.getValue()).contains(TESTED)
+            .contains("_Tested commit `c577b18`; the PR is now at `9b02561`._");
+        verify(github).appEdit(PR, REVIEWER, 555L, option.getValue() + "\n\n_Updated by ci2 user reviewer from the"
+            + " checker's page._");
+    }
+
+    /**
+     * The author's option posted the verdict of the run, then the author switched it off, and with it their last
+     * option: the checker forgot their options. A reviewer's press still updates that comment.
+     */
+    @Test
+    void aPressUpdatesTheOptionsCommentAfterTheAuthorSwitchedTheOptionOff() {
+        commentOn();
+        when(github.appComment(eq(PR), anyString(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(555L, OPTION_URL));
+        standing.sweep();
+        standing.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(null, null, false, null, null));
+
+        StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
+            AUTHOR);
+
+        assertThat(posted).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, OPTION_URL, 0));
+        verify(github).appEdit(eq(PR), eq(REVIEWER), eq(555L), anyString());
+        verify(github, times(1)).appComment(eq(PR), anyString(), anyString());
+    }
+
+    /**
+     * A maintainer deleted the comment the author's option posted, and TeamCity did not say who started the run when
+     * a reviewer pressed. The press posts the verdict anew, and that comment becomes the author's verdict comment of
+     * the run, the one their option updates.
+     */
+    @Test
+    void aPressInPlaceOfADeletedOptionCommentBecomesTheAuthorsComment() {
+        commentOn();
+        when(github.appComment(eq(PR), eq(AUTHOR), anyString()))
+            .thenReturn(new GithubClient.PostedComment(555L, OPTION_URL));
+        standing.sweep();
+        when(github.appEdit(eq(PR), anyString(), eq(555L), anyString()))
+            .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
+        when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
+            .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
+
+        StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
+            null);
+
+        assertThat(posted).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, PRESS_URL, 0));
+        assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(777L);
+    }
+
+    /**
+     * A version before Post to PR kept the verdict comment 555 of the author's run only among the author's options.
+     * After a restart, the option puts the run's verdict into comment 555 once more, and the author then switches
+     * every option off. A reviewer's press still updates comment 555.
+     */
+    @Test
+    void aPressUpdatesTheCommentOfAnEarlierVersionOnceTheOptionUpdatedIt(@TempDir Path dir) throws Exception {
+        commentOn();
+        Path file = dir.resolve("standing-visas.json");
+        standing.saveTo(file);
+        ObjectNode snap = (ObjectNode)mapper.readTree(file.toFile());
+        ((ObjectNode)snap.get("enrollments").get(0)).putObject("ghThreads").putObject(String.valueOf(PR))
+            .put("buildId", RUN).put("commentId", 555L).put("done", false).put("app", true);
+        snap.remove("runComments");
+        mapper.writeValue(file.toFile(), snap);
+        StandingVisas restarted = standing();
+        restarted.loadFrom(file);
+        restarted.sweep();
+        restarted.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(null, null, false, null, null));
+
+        StandingVisas.CommentPost posted = restarted.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
+            AUTHOR);
+
+        verify(github).appEdit(eq(PR), eq(AUTHOR), eq(555L), anyString());
+        assertThat(posted).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, OPTION_URL, 0));
+        verify(github, never()).appComment(eq(PR), anyString(), anyString());
+    }
+
+    /**
+     * A press posted the verdict while GitHub made the author's option wait, and a maintainer deleted that comment.
+     * The option then posts the verdict anew, and the next press updates the option's comment: the PR has one verdict
+     * comment of the run, the one a newer run's verdict marks superseded.
+     */
+    @Test
+    void aPressUpdatesTheCommentTheOptionPostedInPlaceOfADeletedOne() {
+        commentOn();
+        when(github.canWrite()).thenReturn(false);
+        when(github.appComment(eq(PR), eq(AUTHOR), anyString())).thenThrow(new GithubClient.WriteDeferred("wait"));
+        when(tc.prsWithChainsFinishedAfter(anyString(), anyLong())).thenReturn(Optional.of(Map.of()));
+        standing.sweep();
+        when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
+            .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR);
+        when(github.appEdit(eq(PR), anyString(), eq(777L), anyString()))
+            .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
+        doReturn(new GithubClient.PostedComment(555L, OPTION_URL)).when(github).appComment(eq(PR), eq(AUTHOR),
+            anyString());
+        when(github.canWrite()).thenReturn(true);
+        standing.sweep();
+
+        StandingVisas.CommentPost again = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
+            AUTHOR);
+
+        assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(555L);
+        assertThat(again).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, OPTION_URL, 0));
+        verify(github).appEdit(eq(PR), eq(REVIEWER), eq(555L), anyString());
+        verify(github, times(1)).appComment(eq(PR), eq(REVIEWER), anyString());
+    }
+
+    /**
+     * Anyone logged in may press Post to PR, and each press writes to the PR with the checker's account. After 5
+     * presses on PR #13335 in an hour, the checker takes no more there, and mallory's press writes nothing. The
+     * writes the account has left for the PR stay for its stories and verdict comments. Another PR still takes a
+     * press.
+     */
+    @Test
+    void aPrTakesFivePressesAnHour() {
+        when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
+            .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
+        when(github.appComment(eq(PR + 1), anyString(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(888L, PRESS_URL + "8"));
+        for (int i = 0; i < StandingVisas.PRESSES_PER_PR_HOUR; i++)
+            standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null);
+
+        StandingVisas.CommentPost capped = standing.postCommentFromPage("mallory", LAPTOP, "tc", PR, RUN, clean(),
+            null);
+        StandingVisas.CommentPost other = standing.postCommentFromPage("mallory", LAPTOP, "tc", PR + 1, RUN + 1,
+            clean(), null);
+
+        assertThat(capped).isEqualTo(StandingVisas.CommentPost.of(StandingVisas.CommentPost.CAPPED));
+        assertThat(other.outcome()).isEqualTo(StandingVisas.CommentPost.POSTED);
+        verify(github, times(1)).appComment(eq(PR), anyString(), anyString());
+        verify(github, times(StandingVisas.PRESSES_PER_PR_HOUR - 1)).appEdit(eq(PR), anyString(), anyLong(),
+            anyString());
+        assertThat(journal.views("mallory", "laptop", "Firefox on Linux")).hasSize(1);
+    }
+
+    /**
+     * The story of the client's run posts its verdict while a reviewer presses Post to PR on the page: the press waits
+     * for the story's comment, then updates it, and the run has one verdict comment.
+     */
+    @Test
+    void aPressWhileTheClientsStoryPostsTheVerdictWaitsAndUpdatesIt() throws Exception {
+        String url = "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-88";
+        CountDownLatch posting = new CountDownLatch(1);
+        CountDownLatch posted = new CountDownLatch(1);
+        when(github.appComment(eq(CLIENT_REPO), eq(CLIENT_PR), eq(AUTHOR), anyString())).thenAnswer(inv -> {
+            posting.countDown();
+            assertThat(posted.await(10, TimeUnit.SECONDS)).isTrue();
+
+            return new GithubClient.PostedComment(88L, url);
+        });
+        AtomicReference<GithubClient.PostedComment> story = new AtomicReference<>();
+        Thread storyThread = new Thread(() -> story.set(standing.clientVerdictComment(CLIENT_REPO, CLIENT_PR,
+            CLIENT_RUN, AUTHOR, "the story's verdict", false)));
+        storyThread.start();
+        assertThat(posting.await(10, TimeUnit.SECONDS)).isTrue();
+
+        CompletableFuture<StandingVisas.CommentPost> press = CompletableFuture.supplyAsync(() ->
+            standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0,
+                fromPage -> "the verdict from the page"));
+        Thread.sleep(300);
+        posted.countDown();
+        storyThread.join(10_000);
+
+        assertThat(story.get()).isEqualTo(new GithubClient.PostedComment(88L, url));
+        assertThat(press.get(10, TimeUnit.SECONDS))
+            .isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, url, 0));
+        verify(github).appEdit(eq(CLIENT_REPO), eq(CLIENT_PR), eq(REVIEWER), eq(88L), anyString());
+        verify(github, never()).appComment(eq(CLIENT_REPO), eq(CLIENT_PR), eq(REVIEWER), anyString());
     }
 
     /** Nobody's option posted the verdict: the first press posts it, the second updates that comment. */
@@ -355,7 +552,7 @@ class PostToPrTest {
 
     private StandingVisas standing() {
         return new StandingVisas(mapper, codec, tc, github, analyzer, mock(JiraClient.class), visas,
-            mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class), journal);
+            mock(RerunTracker.class), mock(Warmer.class), pending, journal);
     }
 
     private void commentOn() {

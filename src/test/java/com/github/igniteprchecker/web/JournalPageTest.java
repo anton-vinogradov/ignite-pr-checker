@@ -56,6 +56,25 @@ class JournalPageTest {
         assertThat(out.get("more").asBoolean()).as("no more entries to show").isTrue();
     }
 
+    /**
+     * An entry of Post to PR links the verdict comment on GitHub, and its tooltip says so: it said that it opens the
+     * visa in JIRA.
+     */
+    @Test
+    void theLinkOfAVerdictCommentSaysItOpensGithub() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/journal', { body: { entries: [{ at: page.now(), text: 'Posted the verdict of RunAll 9001'
+                + ' to PR #13575 with Post to PR on the PR page.', from: 'from this browser', linkText: 'PR #13575',
+                url: 'https://github.com/apache/ignite/pull/13575#issuecomment-4100' }], full: false } });
+            """ + OPEN + """
+            report({ html: page.el('journalList').innerHTML });
+            """);
+
+        assertThat(out.get("html").asText()).contains("<a href=\"https://github.com/apache/ignite/pull/13575#"
+            + "issuecomment-4100\" target=\"_self\" rel=\"noopener\" title=\"Opens the comment on GitHub.\">PR"
+            + " #13575</a> with Post to PR").doesNotContain("JIRA");
+    }
+
     @Test
     void tenEntriesShowUntilAliceAsksForAll() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """

@@ -528,8 +528,9 @@ log in from. The journal lists each change. A page that opens without a login is
 - **Post to PR**, next to **Post to JIRA**, does the same in the PR: the checker's account posts the verdict of the
   run on the page as a comment. A run has one verdict comment in the PR. The press updates the checker's verdict
   comment of the run, or posts one when there is none. The last line of the comment names who posted or updated it.
-  The press counts among the app account's writes: at most 40 an hour to one PR and 60 for one user. Past that, the
-  page says so; press again later.
+  The press counts among the app account's writes: at most 40 an hour to one PR and 60 for one user. The checker
+  takes at most 5 presses on one PR in an hour. The rest of those 40 writes stay for the stories of the PR's runs and
+  their verdict comments. When a limit is reached, the page says so; press again later.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
 - The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the

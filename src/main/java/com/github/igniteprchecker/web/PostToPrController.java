@@ -81,8 +81,9 @@ public class PostToPrController {
     /**
      * Puts the verdict of the RunAll {@code build} of PR {@code pr} into the PR. 409 when the checker's account cannot
      * write ({@code bot}), the verdict is not final ({@code going}) or is not of the run the page shows ({@code
-     * stale}); 503 when its writes wait; 502 when GitHub did not take the comment. Answers with what Post to PR can do
-     * now, the comment's address, and whether the press edited the run's comment.
+     * stale}); 503 when its writes wait; 429 when the PR had {@link StandingVisas#PRESSES_PER_PR_HOUR} presses in the
+     * last hour; 502 when GitHub did not take the comment. Answers with what Post to PR can do now, the comment's
+     * address, and whether the press edited the run's comment.
      */
     @PostMapping("/pr-comment")
     public ResponseEntity<?> post(@RequestParam int pr, @RequestParam long build,
@@ -163,6 +164,9 @@ public class PostToPrController {
             case StandingVisas.CommentPost.DEFERRED -> ResponseEntity.status(503).body(Map.of("error", "The checker's"
                 + " GitHub account cannot write to this PR now: it reached an hourly limit of writes, or GitHub asked it"
                 + " to wait. Try again later."));
+            case StandingVisas.CommentPost.CAPPED -> ResponseEntity.status(429).body(Map.of("error", "The checker took "
+                + StandingVisas.PRESSES_PER_PR_HOUR + " presses of Post to PR on this PR in the last hour, the most it"
+                + " allows. Try again later."));
             default -> notTaken(posted.status(), pr);
         };
     }
