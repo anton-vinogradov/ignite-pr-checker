@@ -240,7 +240,7 @@ class PostToPrControllerTest {
         answers(new StandingVisas.CommentPost(StandingVisas.CommentPost.DEFERRED, null, 0))
             .andExpect(status().isServiceUnavailable())
             .andExpect(jsonPath("$.error").value("The checker's GitHub account cannot write to this PR now: it reached"
-                + " its limit of writes for an hour, or GitHub asked it to wait. Try again later."));
+                + " an hourly limit of writes, or GitHub asked it to wait. Try again later."));
         answers(new StandingVisas.CommentPost(StandingVisas.CommentPost.FAILED, null, 403))
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.error").value("GitHub did not let the checker's account comment on PR #13709 (HTTP"

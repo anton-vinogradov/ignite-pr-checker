@@ -161,8 +161,8 @@ public class PostToPrController {
                 PrPost.READY, posted.url(), StandingVisas.CommentPost.EDITED.equals(posted.outcome())));
             case StandingVisas.CommentPost.NO_BOT -> noBot(PrPost.NONE);
             case StandingVisas.CommentPost.DEFERRED -> ResponseEntity.status(503).body(Map.of("error", "The checker's"
-                + " GitHub account cannot write to this PR now: it reached its limit of writes for an hour, or GitHub"
-                + " asked it to wait. Try again later."));
+                + " GitHub account cannot write to this PR now: it reached an hourly limit of writes, or GitHub asked it"
+                + " to wait. Try again later."));
             default -> notTaken(posted.status(), pr);
         };
     }

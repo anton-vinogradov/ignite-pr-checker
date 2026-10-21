@@ -1279,7 +1279,7 @@
     "The checker has a newer verdict of this PR than the page shows. Reload the page, then post the visa.": "У чекера есть вердикт этого PR новее того, что на странице. Обнови страницу, затем поставь визу.",
     "The checker could not get the PR's title from GitHub, so it does not know the ticket. Try again in a minute.": "Чекер не смог получить заголовок PR от GitHub, поэтому не знает тикет. Попробуй через минуту.",
     "The checker has a newer verdict of this PR than the page shows. Reload the page, then post the verdict.": "У чекера есть вердикт этого PR новее того, что на странице. Обнови страницу, затем отправь вердикт.",
-    "The checker's GitHub account cannot write to this PR now: it reached its limit of writes for an hour, or GitHub asked it to wait. Try again later.": "Аккаунт GitHub чекера сейчас не может писать в этот PR: он исчерпал лимит записей за час, или GitHub попросил его подождать. Попробуй позже.",
+    "The checker's GitHub account cannot write to this PR now: it reached an hourly limit of writes, or GitHub asked it to wait. Try again later.": "Аккаунт GitHub чекера сейчас не может писать в этот PR: он исчерпал лимит записей за час, или GitHub попросил его подождать. Попробуй позже.",
     "GitHub refused the token the checker writes with (GITHUB_TOKEN), so the comment did not go in.": "GitHub отверг токен, которым пишет чекер (GITHUB_TOKEN), поэтому комментарий не встал.",
     "GitHub did not let the checker's account comment on PR #{0:n} (HTTP {1:n}).": "GitHub не дал аккаунту чекера комментировать PR #{0} (HTTP {1}).",
     "GitHub did not take the comment (HTTP {0:n}). Try again later.": "GitHub не принял комментарий (HTTP {0}). Попробуй позже."
