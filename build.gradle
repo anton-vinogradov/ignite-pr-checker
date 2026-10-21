@@ -64,7 +64,7 @@ dependencies {
     }
     constraints {
         // Checkstyle brings plexus-utils 3.3.0 in through doxia; it has CVE-2025-67030, fixed in 3.6.1.
-        implementation 'org.codehaus.plexus:plexus-utils:3.6.1'
+        implementation 'org.codehaus.plexus:plexus-utils:4.1.0'
     }
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     // TestRestTemplate, which ContextStartsTest calls the started service with, and the RestTemplateBuilder it needs.
