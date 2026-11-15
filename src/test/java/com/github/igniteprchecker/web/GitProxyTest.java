@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import com.github.igniteprchecker.config.GitProxyProperties;
+import jakarta.servlet.ServletInputStream;
 import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,13 +19,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -46,6 +50,8 @@ class GitProxyTest {
     private static final Map<String, String> PR = new java.util.LinkedHashMap<>();
     @LocalServerPort
     private int port;
+    @Autowired
+    private GitHttpController controller;
 
     /** Creates six real repositories with different master and PR 42 contents; the proxy receives no seed or sync. */
     @BeforeAll
@@ -243,15 +249,49 @@ class GitProxyTest {
         assertThat(SOURCE.calls).isEmpty();
     }
 
-    /** Given two incomplete requests, when a third arrives, then it is rejected before reading another body. */
+    /**
+     * Given two requests holding capacity, when another arrives, then it waits without reading its body
+     * and returns current refs after capacity is released, instead of failing a parallel TeamCity fetch.
+     */
     @Test
-    void boundsConcurrentBodiesAndReportsActivity() throws Exception {
+    void waitsForCapacityBeforeReadingAnotherBody() throws Exception {
+        AtomicBoolean bodyRead = new AtomicBoolean();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/git/ignite.git/git-upload-pack") {
+            @Override public ServletInputStream getInputStream() {
+                bodyRead.set(true);
+                return super.getInputStream();
+            }
+        };
+        request.setContentType("application/x-git-upload-pack-request");
+        request.addHeader("Git-Protocol", "version=2");
+        request.setContent((packet("command=ls-refs\n") + "0001" + packet("symrefs\n") + "0000")
+            .getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FutureTask<Void> third = new FutureTask<>(() -> {
+            controller.upload("ignite", request, response);
+            return null;
+        });
+        Thread waiter = new Thread(third, "git-capacity-waiter");
         try (Socket first = pendingUpload(1); Socket second = pendingUpload(1)) {
             await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
                 assertThat(activeRequests()).isEqualTo(2));
+            waiter.start();
+            await().atMost(Duration.ofSeconds(30)).until(() ->
+                third.isDone() || waiter.getState() == Thread.State.TIMED_WAITING);
 
-            assertThat(get("/git/ignite.git/info/refs?service=git-upload-pack").statusCode()).isEqualTo(503);
+            assertThat(third.isDone()).isFalse();
+            assertThat(bodyRead).isFalse();
             assertThat(SOURCE.calls).isEmpty();
+
+            first.close();
+            third.get(30, TimeUnit.SECONDS);
+            assertThat(bodyRead).isTrue();
+            assertThat(response.getStatus()).isEqualTo(200);
+            assertThat(response.getContentAsString()).contains(PR.get("ignite") + " refs/pull/42/head");
+        }
+        finally {
+            waiter.interrupt();
+            waiter.join(30_000);
         }
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
             assertThat(activeRequests()).isZero());

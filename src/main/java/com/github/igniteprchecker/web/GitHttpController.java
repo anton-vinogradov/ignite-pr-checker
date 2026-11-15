@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +33,7 @@ public class GitHttpController {
     private static final int MAX_REQUESTS = 2;
     private final boolean enabled;
     private final RestClient github;
-    private final Semaphore requests = new Semaphore(MAX_REQUESTS);
+    private final Semaphore requests = new Semaphore(MAX_REQUESTS, true);
     private final Map<String, Repository> repositories = new LinkedHashMap<>();
 
     @Autowired
@@ -101,7 +102,15 @@ public class GitHttpController {
             response.sendError(404);
             return;
         }
-        if (!requests.tryAcquire()) {
+        boolean acquired = false;
+        try {
+            acquired = requests.tryAcquire(OutboundHttp.READ_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (!acquired) {
+            repository.lastRequestFailed = true;
             response.setHeader("Retry-After", "10");
             response.sendError(503, "Git proxy is busy; retry shortly");
             return;

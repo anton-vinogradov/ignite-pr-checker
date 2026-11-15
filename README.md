@@ -339,8 +339,9 @@ The existing HTTPS proxy forwards `/git/` to the same Java service, without anot
 
 The proxy stores no repositories or saved refs. It forwards only Git Smart HTTP reads: `GET info/refs` and
 `POST git-upload-pack`. It sends no caller credentials or cookies to GitHub and follows no upstream redirects.
-It accepts request bodies up to 8 MiB and two active Git requests at a time; a busy proxy returns `503` for retry.
-The upstream read timeout is 60 seconds. TeamCity may still use its own VCS cache.
+It accepts request bodies up to 8 MiB and two active Git requests at a time. Further requests wait for capacity
+before their bodies are read, for up to the upstream read timeout of 60 seconds. If that wait expires, the proxy
+returns `503` for retry. TeamCity may still use its own VCS cache.
 
 Checker launches and re-runs stay pinned to their selected exact SHA. The proxy cannot retain a commit after
 GitHub stops serving it, for example after a force-push. If that SHA is unavailable, checkout fails; another
