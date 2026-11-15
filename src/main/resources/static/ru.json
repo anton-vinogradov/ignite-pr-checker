@@ -1364,16 +1364,14 @@
     "Git proxy": "Git-прокси",
     "On": "ВКЛ",
     "Off": "ВЫКЛ",
-    "{0} active Git request{1}": "{0} {0|активный Git-запрос|активных Git-запроса|активных Git-запросов}",
-    "Last success {0}": "Последний успешный Git-запрос — {0}",
-    "No successful Git request yet": "Успешных Git-запросов ещё не было",
-    "Last Git request failed": "Последний Git-запрос завершился ошибкой",
+    "Read-only": "Только чтение",
     "Ignite release": "Релизы Ignite",
     "Ignite extensions": "Расширения Ignite",
     "unavailable": "недоступно",
     "Could not read Git proxy status": "Не удалось прочитать состояние Git-прокси",
     "Git requests read refs and code from GitHub. The proxy stores no repositories and runs no background sync.": "По запросу Git прокси читает refs и код из GitHub. Он не хранит репозитории и не синхронизирует их в фоне.",
-    "To turn the proxy off, first restore the six TeamCity VCS root URLs, then set": "Чтобы выключить прокси, сначала верни исходные URL шести VCS-корней в TeamCity, затем задай",
+    "On means the Git routes are configured. Live Git request statistics are not available on this page.": "ВКЛ означает, что Git-маршруты настроены. На этой странице нет статистики текущих Git-запросов.",
+    "To turn the proxy off, first restore GitHub fetch URLs in the six TeamCity VCS roots, then disable the Git route in Caddy, set": "Чтобы выключить прокси, сначала верни fetch URL GitHub в шести VCS-корнях TeamCity, затем выключи Git-маршрут в Caddy, задай",
     "and restart this service. No code change is needed.": "и перезапусти этот сервис. Менять код не нужно."
   }
 }

@@ -323,7 +323,7 @@ own tests, and what was not blamed on the PR.
 ### When TeamCity uses the Git proxy
 
 An operator can enable the checker's [public Git proxy](../README.md#git-proxy-for-teamcity) when TeamCity cannot
-reach GitHub. Keep using the PR page and `/run-all` comments. The proxy forwards fetches to the matching public
+reach GitHub. Keep using the PR page and `/run-all` comments. Caddy forwards fetches to the matching public
 GitHub repository without storing code or refs. No extra account, token or branch publication is needed.
 
 A new PR launch selects the fresh GitHub head. Each launch or re-run stays pinned to the commit chosen for that
@@ -699,9 +699,9 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
 
 ![The status page: version and commit, CPU, heap, process memory, snapshots, requests per endpoint](img/status-page.jpg)
 
-![Git proxy status with successful requests for all six repositories](img/git-proxy-status.jpg)
+![Caddy Git proxy status with six configured public repositories](img/git-proxy-status.jpg)
 
-*Local development instance: the Git proxy after real GitHub reads for all six repositories.*
+*The Git proxy block shows Caddy's configured read routes for six public repositories.*
 
 - Anyone can see the version and its commit, uptime, CPU and load, the heap with its old-generation peak, the
   process's memory, the snapshots, the latency of each endpoint, the cache warmer, the build watcher, and the
@@ -712,10 +712,11 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
   that the service rejects as the caller's mistake are listed in grey and never colour the dot.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
-- **Git proxy** shows its on/off state and active Git request count. Each repository shows its active requests,
-  last successful request and whether its last request failed. These states reflect `GIT_PROXY_ENABLED`; change that
-  setting and restart to enable or disable the proxy. TeamCity's VCS root URL determines whether it fetches through
-  this proxy. The proxy keeps no repository cache.
+- **Git proxy** shows whether Caddy's Git route is enabled and lists its configured public repositories.
+  It reports no live request statistics or GitHub availability. Caddy controls HTTP routing;
+  `GIT_PROXY_ENABLED` controls whether Ignite PR launches stay pinned to the chosen exact SHA.
+  TeamCity's VCS root fetch URL determines whether it uses this proxy. The proxy keeps no repository cache
+  and runs no background sync.
 - The **Out of memory** card is there while a heap dump is on disk: it says when the JVM ran out of memory and when
   the dump is deleted. The server deletes a dump 2 days after the JVM wrote it, since it holds decrypted tokens.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,

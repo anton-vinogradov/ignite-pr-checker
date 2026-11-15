@@ -223,7 +223,7 @@ settings by hand.
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | none | The client ID and a client secret of the checker's GitHub OAuth App, for **Link GitHub** in ⚙. See [Quick start](#quick-start). Without them users link a GitHub account only with a GitHub token for commits. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Operators](#operators). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
-| `GIT_PROXY_ENABLED` | `false` | Forward public Git reads to GitHub without storing repositories. See [Git proxy for TeamCity](#git-proxy-for-teamcity). |
+| `GIT_PROXY_ENABLED` | `false` | Pin the selected GitHub SHA when TeamCity uses the Git proxy. Install the Caddy route separately; see [Git proxy for TeamCity](#git-proxy-for-teamcity). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
 | `GITHUB_REPO` | `apache/ignite` | Whose PRs are listed and checked. |
@@ -335,13 +335,14 @@ The proxy serves these six fetch URLs:
 Replace `prc.example.org` with this instance's host. Each URL forwards to the matching
 `https://github.com/apache/<repository>.git`, including release and extensions branches and tags.
 Only these public repositories are available. Fetching needs no account or new token; pushes are rejected.
-The existing HTTPS proxy forwards `/git/` to the same Java service, without another route or service.
+Caddy serves `/git/` directly from GitHub, independently of the Java service. The checked configuration is
+[ops/git-proxy.caddy](ops/git-proxy.caddy), tested with Caddy 2.11.9. No Git server or extra service is needed.
 
 The proxy stores no repositories or saved refs. It forwards only Git Smart HTTP reads: `GET info/refs` and
 `POST git-upload-pack`. It sends no caller credentials or cookies to GitHub and follows no upstream redirects.
-It accepts request bodies up to 8 MiB and two active Git requests at a time. Further requests wait for capacity
-before their bodies are read, for up to the upstream read timeout of 60 seconds. If that wait expires, the proxy
-returns `503` for retry. TeamCity may still use its own VCS cache.
+Caddy streams requests and responses. Request bodies are limited to 8 MiB; an unknown-length oversized body may
+already have been partly sent upstream when its limit is reached. Only the read-only `git-upload-pack` endpoint
+is available. Upstream response headers and reads have a 60-second timeout. TeamCity may use its own VCS cache.
 
 Checker launches and re-runs stay pinned to their selected exact SHA. The proxy cannot retain a commit after
 GitHub stops serving it, for example after a force-push. If that SHA is unavailable, checkout fails; another
@@ -353,10 +354,19 @@ URL is not a push destination. Native `git push origin` needs a separately confi
 explicit clone or push URL in a script keeps its own destination. Artifact provenance that reads a VCS root's URL
 will record the proxy address. Verify these paths for the jobs you use before switching their roots.
 
-1. Set `GIT_PROXY_ENABLED=true` in `/etc/ignite-pr-checker/env`. No Git installation or repository directory is needed.
-2. Keep Java on loopback (`SERVER_ADDRESS=127.0.0.1`) so clients cannot bypass the HTTPS proxy. Limit the whole time
-   allowed to receive a request body. For Caddy, save a copy of `/etc/caddy/Caddyfile`, then add this inside its global
-   options block, the `{ ... }` block at the top. Create that block if it has none:
+1. Set `GIT_PROXY_ENABLED=true` in `/etc/ignite-pr-checker/env` and restart the checker. This keeps checker launches
+   pinned to their selected GitHub SHA; it does not install an HTTP route. No Git installation or repository directory
+   is needed. Keep Java on loopback (`SERVER_ADDRESS=127.0.0.1`).
+2. Save a copy of `/etc/caddy/Caddyfile`. Install the checked snippet:
+
+   ```bash
+   sudo install -o root -g root -m 644 ops/git-proxy.caddy /etc/caddy/ignite-git-proxy.caddy
+   ```
+
+   Add `import /etc/caddy/ignite-git-proxy.caddy` at the top level, outside site and global blocks. Add
+   `import ignite_git_proxy` inside the checker's existing site block, keeping its existing reverse proxy to Java.
+   Limit the whole request-body receive time by adding this inside the global options `{ ... }` block at the top.
+   Create that block if it has none:
 
    ```caddyfile
    servers {
@@ -376,9 +386,10 @@ will record the proxy address. Verify these paths for the jobs you use before sw
 
    If validation fails, restore the saved Caddyfile and keep the running configuration. Validate the restored file
    before any reload.
-3. Restart: `sudo systemctl restart ignite-pr-checker`. Check `/api/git-proxy/status` for `enabled: true`.
-   It reports `activeGitRequests` and a `repositories` array. Each entry has `slug`, `activeGitRequests`,
-   `lastSuccessAt` and `lastRequestFailed`. Failure details are in the server logs.
+3. Check the public `/api/git-proxy/status` for `enabled: true` and `engine: caddy`. This response comes from the
+   active Caddy route. The status page shows the configured repositories, with no background synchronization or
+   repository storage. Live request counts and request outcomes are not collected. This status does not prove
+   GitHub is reachable; perform the Git checks below. Without the Caddy route, Java reports the proxy as Off.
 4. From a machine on TeamCity's network, compare a branch's full SHA through both URLs:
 
    ```bash
@@ -396,10 +407,12 @@ will record the proxy address. Verify these paths for the jobs you use before sw
 
 If setup checks fail, leave TeamCity on its recorded URLs until they pass. To return to GitHub, restore the six
 source VCS roots to their matching `https://github.com/apache/<repository>.git` URLs first. Confirm that remaining
-jobs no longer request the proxy, then set `GIT_PROXY_ENABLED=false` and restart the checker. Existing TeamCity
+jobs no longer request the proxy, then remove `import ignite_git_proxy` from the site block, validate and reload
+Caddy, and set `GIT_PROXY_ENABLED=false` and restart the checker. Existing TeamCity
 promotions may still hold the proxy fetch URL, so keep the endpoint available until those jobs stop using it.
 Disabled Git endpoints return `404`; they do not redirect to GitHub.
-No JSON state or TeamCity cache reset is needed. `install.sh` and `deploy.sh` do not change TeamCity's VCS roots.
+No JSON state or TeamCity cache reset is needed. `install.sh` and `deploy.sh` do not install the Caddy snippet
+or change TeamCity's VCS roots. To undo a Caddy configuration change, restore its saved file, validate and reload it.
 
 ### Service and logs
 

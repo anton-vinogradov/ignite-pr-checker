@@ -1,0 +1,63 @@
+(ignite_git_transport) {
+	rewrite /apache/{re.git.1}.git/{re.git.2}
+	header_up -*
+	header_up Host github.com
+	header_up User-Agent Ignite-PR-Checker
+	header_up Git-Protocol {header.Git-Protocol}
+	header_down -Set-Cookie
+	header_down -WWW-Authenticate
+	@redirect status 3xx
+	handle_response @redirect {
+		respond "Git upstream redirected the request" 502
+	}
+	transport http {
+		dial_timeout 10s
+		response_header_timeout 60s
+		read_timeout 60s
+	}
+}
+
+(ignite_git_proxy) {
+	@proxy_status {
+		method GET
+		path /api/git-proxy/status
+	}
+	handle @proxy_status {
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{ "enabled": true, "engine": "caddy", "repositories": [{"slug":"ignite"},{"slug":"ignite-python-thin-client"},{"slug":"ignite-php-thin-client"},{"slug":"ignite-nodejs-thin-client"},{"slug":"ignite-release"},{"slug":"ignite-extensions"}] }` 200
+	}
+	@repository path_regexp git ^/git/(ignite|ignite-python-thin-client|ignite-php-thin-client|ignite-nodejs-thin-client|ignite-release|ignite-extensions)\.git/(info/refs|git-upload-pack)$
+	handle @repository {
+		@read expression `({method} == 'GET' && {re.git.2} == 'info/refs' && {query} == 'service=git-upload-pack') || ({method} == 'POST' && {re.git.2} == 'git-upload-pack' && {query} == '' && {header.Content-Type} == 'application/x-git-upload-pack-request' && ({header.Content-Encoding} == '' || {header.Content-Encoding}.lowerAscii() == 'gzip'))`
+		handle @read {
+			request_body {
+				max_size 8388608
+			}
+			@gzip expression `{method} == 'POST' && {header.Content-Encoding}.lowerAscii() == 'gzip'`
+			handle @gzip {
+				reverse_proxy https://github.com {
+					import ignite_git_transport
+					header_up Content-Type application/x-git-upload-pack-request
+					header_up Content-Encoding gzip
+				}
+			}
+			@post method POST
+			handle @post {
+				reverse_proxy https://github.com {
+					import ignite_git_transport
+					header_up Content-Type application/x-git-upload-pack-request
+				}
+			}
+			handle {
+				reverse_proxy https://github.com {
+					import ignite_git_transport
+				}
+			}
+		}
+		respond "Only Git upload-pack reads are available" 403
+	}
+	handle /git/* {
+		respond 404
+	}
+}

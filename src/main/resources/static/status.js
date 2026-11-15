@@ -267,20 +267,15 @@ function prCommandsCard(w) {
 }
 
 function renderGitProxy(proxy) {
+    const engine = proxy.engine === 'caddy' ? 'Caddy' : esc(proxy.engine);
     $('proxyCards').innerHTML = card(T('Git proxy'), proxy.enabled ? T('On') : T('Off'),
-        T`${proxy.activeGitRequests} active Git request${proxy.activeGitRequests === 1 ? '' : 's'}`,
+        proxy.enabled ? engine + ' · ' + T('Read-only') : '',
         proxy.enabled ? 'ok' : '');
     const names = { ignite: 'Ignite', 'ignite-python-thin-client': 'Python', 'ignite-php-thin-client': 'PHP',
         'ignite-nodejs-thin-client': 'Node.js', 'ignite-release': T('Ignite release'),
         'ignite-extensions': T('Ignite extensions') };
-    $('proxyRepos').innerHTML = proxy.repositories.map(repo => {
-        const active = T`${repo.activeGitRequests} active Git request${repo.activeGitRequests === 1 ? '' : 's'}`;
-        const success = repo.lastSuccessAt
-            ? T`Last success ${agoShort(new Date(repo.lastSuccessAt).getTime())}` : T('No successful Git request yet');
-        return `<div class="proxy-repo"><strong>${esc(names[repo.slug] || repo.slug)}</strong>`
-            + `<span>${active}</span><span class="muted">${success}</span>`
-            + (repo.lastRequestFailed ? `<span class="bad">${T('Last Git request failed')}</span>` : '') + '</div>';
-    }).join('');
+    $('proxyRepos').innerHTML = proxy.repositories.map(repo =>
+        `<div class="proxy-repo"><strong>${esc(names[repo.slug] || repo.slug)}</strong></div>`).join('');
 }
 
 async function tickGitProxy() {
