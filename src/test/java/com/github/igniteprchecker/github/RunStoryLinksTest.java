@@ -118,7 +118,7 @@ class RunStoryLinksTest {
         ArgumentCaptor<String> story = ArgumentCaptor.forClass(String.class);
         verify(github).appEdit(eq(PR), any(), eq(77L), story.capture());
         assertThat(story.getValue()).contains("Auto re-run **#1** — 3 suites that failed mid-run — "
-            + "[details](https://checker.example/?pr=" + PR + ")").doesNotContain("#issuecomment-555");
+            + "[details](https://checker.example/ignite?pr=" + PR + ")").doesNotContain("#issuecomment-555");
     }
 
     @Test

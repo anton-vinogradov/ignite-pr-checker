@@ -10,12 +10,44 @@ let myUsername = ''; // logged-in TeamCity username, to flag PRs whose RunAll yo
 let canAdmin = false; // an operator: may update the service
 let allPrs = []; // the PRs the list shows now, those of the chosen tab, for the list filter
 let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
-// The open PR is a PR of the Python thin client when this is CLIENT_REPO, the name the address gives its repo
-// (?repo=python&pr=69), and of Ignite when null: the two repos' PR numbers overlap.
-const CLIENT_REPO = 'python';
-let selectedRepo = null;
-let clientGithubRepo = 'apache/ignite-python-thin-client'; // from /api/config
-let clientSuite = 'Thin client: Python'; // the client's suite as ci2 names it, from /api/config
+// Each project has its own page. Project tabs use full navigation, so its list and requests share one identity.
+const CLIENT_PROJECTS = ['python', 'php', 'nodejs'];
+let clientModes = {};
+let selectedRepo = repoFromUrl();
+let configReady;
+
+function clientMode(repo = selectedRepo) { return Object.hasOwn(clientModes, repo) ? clientModes[repo] : null; }
+function clientSuiteFor(repo = selectedRepo) { return clientMode(repo)?.suite || ''; }
+function clientLanguage(repo = selectedRepo) { return clientMode(repo)?.label || repo; }
+function projectAvailable(repo) { return repo === null || !!clientMode(repo); }
+function projectPath(repo = selectedRepo) { return '/' + (repo === null ? 'ignite' : repo); }
+
+function paintProjects() {
+    const path = projectAvailable(selectedRepo) ? projectPath() : '/ignite';
+    $('brand').href = $('navPrs').href = path;
+    for (const key of ['ignite', ...CLIENT_PROJECTS]) {
+        const link = $('project' + key);
+        const repo = key === 'ignite' ? null : key;
+        const chosen = repo === repoFromUrl();
+        link.classList.toggle('on', chosen);
+        link.classList.toggle('hidden', key !== 'ignite' && !clientMode(key));
+        if (chosen) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+    }
+}
+
+function projectError(repo) {
+    return T('This project is not available on this checker: {0}. Choose a project above.', repo || location.pathname);
+}
+
+function showProjectError(repo) {
+    selectedPr = null;
+    selectedRepo = repo;
+    stopRunsPoll();
+    $('prTitle').textContent = projectError(repo);
+    for (const id of ['actions', 'results', 'runsRow', 'pendingRow', 'settlingRow']) $(id).classList.add('hidden');
+    sayStatus(projectError(repo), { err: true });
+}
 
 async function api(path, opts = {}) {
     return fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -71,10 +103,24 @@ function show(view) {
 function paintLoginPr() {
     const pr = prFromUrl();
     const repo = repoFromUrl();
-    $('loginPr').classList.toggle('hidden', !pr);
+    $('loginIntro').classList.toggle('hidden', !projectAvailable(repo));
+    if (projectAvailable(repo)) {
+        $('loginIntro').textContent = repo
+            ? T('See which tests your {0} client PR actually broke, not the ones already failing or flaky on master. '
+                + 'Start or re-run “{1}” for the PR, right from here.', clientLanguage(repo), clientSuiteFor(repo))
+            : T('See which tests your Apache Ignite PR actually broke, not the ones already failing or flaky on master. '
+                + 'Start a RunAll or re-run just the blockers, right from here.');
+    }
+    $('loginPr').classList.toggle('hidden', !pr && projectAvailable(repo));
+    if (!projectAvailable(repo)) {
+        $('loginPrHead').textContent = projectError(repo);
+        $('loginPrNote').textContent = '';
+        return;
+    }
     if (!pr) return;
     $('loginPrHead').textContent = repo
-        ? T`Log in to see Python client PR #${pr}: which test failures are its own, and how its runs are going.`
+        ? T('Log in to see {0} client PR #{1}: which test failures are its own, and how its runs are going.',
+            clientLanguage(repo), pr)
         : T`Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
     const open = `<a href="${esc(prUrlOf(pr, repo))}" target="_self" rel="noopener">${T`open #${esc(pr)} on GitHub`}</a>`;
     $('loginPrNote').innerHTML = T('No ci2 account? The verdict may also be posted as a comment on the pull request — '
@@ -90,6 +136,10 @@ async function loggedOut(r) {
         await api('/api/logout', { method: 'POST' }).catch(() => {});
     if (body.tokenRejected || body.sessionEnded)
         loginMsg(tr(body.error), body.tokenRejected);
+    if (repoFromUrl() !== null) {
+        await useLanguage(null);
+        await configReady;
+    }
     signedOut();
 }
 
@@ -115,15 +165,21 @@ function signedOut() {
 
 function prUrl(number) { return 'https://github.com/' + githubRepo + '/pull/' + number; }
 function prUrlOf(number, repo) {
-    return repo ? 'https://github.com/' + clientGithubRepo + '/pull/' + number : prUrl(number);
+    return repo === null ? prUrl(number) : clientMode(repo) ? 'https://github.com/' + clientMode(repo).repo + '/pull/' + number : '';
 }
 
 // The page's address of a PR, and the server's path of what the page asks about it.
-function prAddress(number, repo) { return (repo ? '?repo=' + repo + '&pr=' : '?pr=') + number; }
-function prApi(path, number, repo = selectedRepo) { return (repo ? '/api/client/' : '/api/') + path + '?pr=' + number; }
+function prAddress(number, repo) { return projectPath(repo) + (number ? '?pr=' + number : ''); }
+function prApi(path, number, repo = selectedRepo) {
+    if (!projectAvailable(repo)) throw new Error(projectError(repo));
+    const query = number ? 'pr=' + number : '';
+    return (repo === null ? '/api/' : '/api/client/') + path
+        + (query || repo !== null ? '?' + query : '')
+        + (repo === null ? '' : (query ? '&' : '') + 'repo=' + encodeURIComponent(repo));
+}
 
 // Whether the PR a request was made for is still the one open: an answer for Ignite's #69 is not the client's #69.
-function isOpen(number, repo) { return number === selectedPr && (repo || null) === selectedRepo; }
+function isOpen(number, repo) { return number === selectedPr && (repo ?? null) === selectedRepo; }
 
 // "#13575", or "python#69" for a PR of the Python thin client, as the filter takes it.
 function prTag(number, repo) { return (repo ? repo : '') + '#' + number; }
@@ -183,7 +239,7 @@ function setPrTitle(number, title, url, closing = null) {
         const key = m.toUpperCase();
         return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="${T`Open ${key} in JIRA`}">${m}</a>`;
     }) : '';
-    $('prTitle').innerHTML = (selectedRepo ? `<span class="tag">${T('Python client')}</span> ` : '')
+    $('prTitle').innerHTML = (selectedRepo ? `<span class="tag">${esc(T('{0} client', clientLanguage()))}</span> ` : '')
         + `<a href="${esc(href)}" target="_self" rel="noopener" title="${T`Open PR #${esc(number)} on GitHub`}">#${esc(number)}</a>`
         + (shownPrState ? ' ' + shownPrState : '') + (linked ? ' ' + linked : '');
 }
@@ -228,8 +284,9 @@ async function loadConfig() {
         await languageReady;
         if (cfg.githubRepo) githubRepo = cfg.githubRepo;
         if (cfg.jiraUrl) jiraBase = cfg.jiraUrl.replace(/\/+$/, '');
-        if (cfg.clientRepo) clientGithubRepo = cfg.clientRepo;
-        if (cfg.clientSuite) clientSuite = cfg.clientSuite;
+        clientModes = Object.fromEntries((cfg.clients || []).filter(mode => CLIENT_PROJECTS.includes(mode.key))
+            .map(mode => [mode.key, mode]));
+        paintProjects();
         if (shownTitle && shownTitle[0] === selectedPr) setPrTitle(...shownTitle);
         if (cfg.refreshAfterSeconds >= 0) refreshAfterMs = cfg.refreshAfterSeconds * 1000;
         if (cfg.runAllSuites > 0) runAllSuites = cfg.runAllSuites;
@@ -244,7 +301,7 @@ async function loadConfig() {
     } catch { /* ignore */ }
 }
 
-// The run row names what Run queues: RunAll for a PR of Ignite, the client's suite for a PR of the Python thin client.
+// The run row names what Run queues: RunAll for Ignite, or the selected client's suite.
 const RUN_ROW = {
     ignite: { run: phrase('Queue the whole RunAll chain for this PR'),
         top: phrase('Queue the whole RunAll chain for this PR, at the top of the queue'), again: phrase('Run RunAll'),
@@ -258,7 +315,7 @@ const RUN_ROW = {
 
 function paintRunRow() {
     const row = RUN_ROW[selectedRepo ? 'client' : 'ignite'];
-    $('runAllLabel').textContent = selectedRepo ? T`“${clientSuite}”:`
+    $('runAllLabel').textContent = selectedRepo ? T`“${clientSuiteFor()}”:`
         : runAllSuites ? T`RunAll (~${runAllSuites} suites):` : T('RunAll:');
     for (const b of document.querySelectorAll('#actions .act[data-act]'))
         b.title = T(b.dataset.top === 'true' ? row.top : row.run);
@@ -267,7 +324,7 @@ function paintRunRow() {
 }
 
 async function loadPrs() {
-    const r = await api('/api/prs');
+    const r = await api(prApi('prs'));
     if (!r.ok) return;
     const prs = await r.json();
     if (!prs.length && tabPrs.all && tabPrs.all.length) return; // keep the current list on an empty response
@@ -276,7 +333,7 @@ async function loadPrs() {
 }
 
 // The tabs over the list. All: the open PRs GitHub lists. Mine and Involved: those of the user's linked GitHub
-// account, from /api/your-prs, which needs the link. A tab's PRs are null until they come.
+// account in the selected project. A tab's PRs are null until they come.
 const PR_TABS = { all: 'prTabAll', mine: 'prTabMine', involved: 'prTabInvolved' };
 const tabPrs = { all: null, mine: null, involved: null };
 let prTab = 'all';
@@ -331,7 +388,6 @@ function showPrTab(tab) {
     prTab = tab;
     paintPrTabs();
     if (tab !== 'all' && !yourPrsAsking && Date.now() - yourPrsAt >= YOUR_PRS_KEEP_MS) loadYourPrs();
-    if (tab !== 'all' && !clientPrsAsking && Date.now() - clientPrsAt >= YOUR_PRS_KEEP_MS) loadClientYourPrs();
     renderPrList();
 }
 
@@ -352,9 +408,8 @@ function renderPrList() {
     allPrs = prs;
     for (const p of prs) delete p.shown; // a row drawn anew shows the badge the server gave
     $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
-    $('prList').innerHTML = prs.map(p => prRow(p)).join('');
+    $('prList').innerHTML = prs.map(p => prRow(p, selectedRepo)).join('');
     for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
-    renderClientList();
     markMine();
     paintPrTabNote();
     applyPrFilter();
@@ -364,7 +419,7 @@ function renderPrList() {
 // What Mine or Involved says when it lists no PR: that they are coming, why they did not, or that there are none.
 function paintPrTabNote() {
     const prs = tabPrs[prTab];
-    const note = prTab === 'all' || prs && prs.length || (clientTabPrs[prTab] || []).length ? ''
+    const note = prTab === 'all' || prs && prs.length ? ''
         : prs ? T(PR_TAB_EMPTY[prTab])
         : yourPrsProblem ? T(YOUR_PRS_PROBLEMS[yourPrsProblem]) : T('Loading the PRs…');
     $('prTabNote').textContent = note;
@@ -380,7 +435,7 @@ async function loadYourPrs() {
     let r = null;
     let answer = null;
     try {
-        r = await api('/api/your-prs');
+        r = await api(prApi('your-prs'));
         if (r.ok) answer = await r.json();
     } catch (e) {
         /* the tab says the PRs did not load */
@@ -419,14 +474,10 @@ function resetPrTabs(linked) {
     yourPrsAt = 0;
     yourPrsProblem = null;
     prTabNoteSaid = null;
-    clientTabPrs.mine = clientTabPrs.involved = null;
-    clientPrsAt = 0;
-    clientPrsAsking = false;
     prTab = startTab();
     paintPrTabs();
     if (prTab !== 'all') {
         loadYourPrs();
-        loadClientYourPrs();
     }
     renderPrList();
 }
@@ -435,72 +486,6 @@ function resetPrTabs(linked) {
 function followGithubLink(login) {
     if (!!login === githubLinked) return;
     resetPrTabs(!!login);
-}
-
-// The open PRs of the Python thin client stand in a group of their own under Ignite's, by the same tabs: All from
-// /api/client/prs, Mine and Involved from /api/client/your-prs. A tab's PRs are null until they come.
-const clientTabPrs = { all: null, mine: null, involved: null };
-let clientPrs = []; // the client's PRs the group shows now, for the list filter
-let clientPrsAt = 0; // when the client's Mine and Involved came; 0: they are due
-let clientPrsAsking = false;
-
-async function loadClientPrs() {
-    try {
-        const r = await api('/api/client/prs');
-        if (!r.ok) return;
-        clientTabPrs.all = await r.json();
-    } catch (e) {
-        return; // the group stays as it was; the next opening of the page asks again
-    }
-    if (prTab === 'all') renderPrList();
-}
-
-// A failed search leaves the group as it was: the note of the tab already says why Ignite's PRs did not come.
-async function loadClientYourPrs() {
-    const round = yourPrsRound;
-    clientPrsAsking = true;
-    let answer = null;
-    try {
-        const r = await api('/api/client/your-prs');
-        if (r.ok) answer = await r.json();
-    } catch (e) {
-        /* as for a failed answer */
-    }
-    if (round !== yourPrsRound) return;
-    clientPrsAsking = false;
-    if (answer && answer.login && !answer.problem) {
-        clientTabPrs.mine = answer.mine;
-        clientTabPrs.involved = answer.involved;
-        clientPrsAt = Date.now();
-    }
-    if (prTab !== 'all') renderPrList();
-}
-
-// The group shows only while the chosen tab has PRs of the client in it.
-function renderClientList() {
-    const prs = clientTabPrs[prTab] || [];
-    clientPrs = prs;
-    $('clientCount').textContent = prs.length ? '(' + prs.length + ')' : '';
-    $('clientList').innerHTML = prs.map(p => prRow(p, CLIENT_REPO)).join('');
-    $('clientGroup').classList.toggle('hidden', !prs.length);
-    for (const li of $('clientList').children) li.classList.toggle('sel', !!selectedRepo && +li.dataset.num === selectedPr);
-}
-
-function findClientLi(number) {
-    return [...$('clientList').children].find(li => +li.dataset.num === number);
-}
-
-// What the filter keeps of the client's PRs, and the client's PR to open that the group does not hold. "python#69"
-// (or "python 69") names the client's PR #69 and keeps no PR of Ignite. "python" alone keeps the whole group, and
-// filters Ignite's PRs by their titles. Any other text filters both lists alike, and a bare number opens Ignite's PR.
-function clientMatches(prs, query) {
-    const named = /^\s*python\s*#?\s*(\d*)\s*$/i.exec(query);
-    if (!named) return { ...prMatches(prs, query), open: null, only: false };
-    const n = named[1];
-    const nums = prs.filter(p => !n || String(p.number).includes(n)).map(p => p.number);
-    const exact = nums.find(x => String(x) === n);
-    const open = n && exact === undefined ? +n : null;
-    return { nums, open, first: exact ?? open ?? nums[0] ?? null, only: !!n };
 }
 
 // The ticket key a PR title starts with, and what follows it.
@@ -512,7 +497,7 @@ const CLIENT_MY_RUN_TITLE = phrase('You started its latest run of the suite. The
 
 // A row of the list: the number, the ticket key, the badge and your tag on the first line, the title without the key
 // under them. The link's title and data-title keep the whole title: the head and the visa take the key from there.
-// A row of the Python thin client's group names its `repo`.
+// A client project's row keeps its repository in the link and dataset.
 function prRow(p, repo = null) {
     const title = p.title || '';
     const key = title.match(TITLE_KEY);
@@ -530,7 +515,10 @@ function prRow(p, repo = null) {
 // What the list filter keeps — by number or title — and the number to open when it is not among
 // the open PRs (the analysis works for any PR). `first` is what Enter opens.
 function prMatches(prs, query) {
-    const q = query.trim().toLowerCase().replace(/^#/, '');
+    const named = /^\s*(ignite|python|php|nodejs|node\.js)\s*#?\s*(\d+)\s*$/i.exec(query);
+    if (named && named[1].toLowerCase().replace('node.js', 'nodejs') !== (selectedRepo || 'ignite'))
+        return { nums: [], open: null, first: null };
+    const q = (named ? named[2] : query).trim().toLowerCase().replace(/^#/, '');
     if (!q) return { nums: null, open: null, first: null };
     const nums = prs.filter(p => String(p.number).includes(q) || (p.title || '').toLowerCase().includes(q))
         .map(p => p.number);
@@ -540,37 +528,25 @@ function prMatches(prs, query) {
 }
 
 function applyPrFilter() {
-    const query = $('prFilter').value;
-    const client = clientMatches(clientPrs, query);
-    const { nums, open } = client.only ? { nums: [], open: null } : prMatches(allPrs, query);
+    const { nums, open } = prMatches(allPrs, $('prFilter').value);
     for (const li of $('prList').children)
         li.classList.toggle('hidden', !!nums && !nums.includes(+li.dataset.num));
-    for (const li of $('clientList').children)
-        li.classList.toggle('hidden', !!client.nums && !client.nums.includes(+li.dataset.num));
-    $('clientGroup').classList.toggle('hidden', !clientPrs.length || !!client.nums && !client.nums.length);
     const any = $('prOpenAny');
-    const opens = open ?? client.open;
-    any.classList.toggle('hidden', opens == null);
+    any.classList.toggle('hidden', open == null);
     if (open != null) {
-        any.href = '?pr=' + open;
+        any.href = prAddress(open, selectedRepo);
         any.dataset.num = open;
-        delete any.dataset.repo;
-        any.textContent = T`Open PR #${open} →`;
-    } else if (client.open != null) {
-        any.href = prAddress(client.open, CLIENT_REPO);
-        any.dataset.num = client.open;
-        any.dataset.repo = CLIENT_REPO;
-        any.textContent = T`Open Python client PR #${client.open} →`;
+        if (selectedRepo) any.dataset.repo = selectedRepo;
+        else delete any.dataset.repo;
+        any.textContent = selectedRepo ? T('Open {0} client PR #{1} →', clientLanguage(), open) : T`Open PR #${open} →`;
     }
-    $('prNone').classList.toggle('hidden', !nums && !client.only || nums && nums.length > 0 || opens != null
-        || client.nums && client.nums.length > 0 || !$('prTabNote').classList.contains('hidden'));
+    $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null
+        || !$('prTabNote').classList.contains('hidden'));
 }
 
-// Flag PRs whose latest RunAll, or latest run of the Python client's suite, you triggered (matched by TeamCity
-// username).
 function markMine() {
     const me = (myUsername || '').trim().toLowerCase();
-    for (const li of [...$('prList').children, ...$('clientList').children])
+    for (const li of $('prList').children)
         li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
 }
 
@@ -621,18 +597,17 @@ function findLi(number) {
     return [...$('prList').children].find(li => +li.dataset.num === number);
 }
 
-// Select a PR: highlight it, show its title, pin it in the URL (when pushed), and analyse it. `repo` is CLIENT_REPO
-// for a PR of the Python thin client.
-function openPr(number, push, repo = null) {
+// Select a PR within the project's page and keep that project in its address and every request.
+function openPr(number, push, repo = repoFromUrl()) {
+    if (!projectAvailable(repo)) { showProjectError(repo); return; }
     selectedPr = number;
-    selectedRepo = repo || null;
+    selectedRepo = repo;
     narrowListOpen = false;
     syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
-    for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number && !selectedRepo);
-    for (const el of $('clientList').children) el.classList.toggle('sel', +el.dataset.num === number && !!selectedRepo);
+    for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
     paintRunRow();
     $('results').classList.toggle('client', !!selectedRepo);
-    const li = selectedRepo ? findClientLi(number) : findLi(number);
+    const li = findLi(number);
     setPrTitle(number, li ? li.dataset.title : null, li ? li.dataset.url : null);
     if (!li) loadPrTitle(number);
     $('actions').classList.remove('hidden');
@@ -647,6 +622,7 @@ function openPr(number, push, repo = null) {
     noRunNote = '';
     lastLiveFetch = Date.now(); // the analysis below is this PR's first look
     lastResult = null;
+    phaseNow = null;
     syncListBadge();
     detailsCache.clear();
     resetStaleLook();
@@ -912,6 +888,7 @@ async function loadRuns(number) {
     if (r && r.status === 401) { await loggedOut(r); return false; }
     if (!r || !r.ok) { schedulePoll(); return false; }
     const runs = await r.json();
+    if (!isOpen(number, repo)) return false;
     runsNow = runs;
     // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
     // so suite chips light up individually while the chain grinds through them. The tracker knows Ignite's PRs only.
@@ -1111,7 +1088,7 @@ async function toggleNotify() {
     paintTab();
 }
 
-// A verdict of the Python client's PR counts a re-run on the same commits, `rerunId`, with the run it names.
+// A client PR verdict counts a re-run on the same commits, `rerunId`, with the run it names.
 function newestBuildOf(res) {
     return Math.max(res.buildId, res.rerunId || 0);
 }
@@ -1128,7 +1105,7 @@ function notifyIfFinal(st) {
         : T('no blockers found, not proven clean. Open the page to see why.');
     notifyFor = null;
     try {
-        const title = selectedRepo ? T`Python client PR #${selectedPr}: ${head}` : `PR #${selectedPr}: ${head}`;
+        const title = selectedRepo ? T('{0} client PR #{1}: {2}', clientLanguage(), selectedPr, head) : `PR #${selectedPr}: ${head}`;
         const note = new Notification(title, {
             body: selectedRepo ? T`The verdict of build ${st.res.buildId} is final.`
                 : T`The verdict of RunAll ${st.res.buildId} is final.`,
@@ -1153,7 +1130,7 @@ function settlingText(phase) {
             phase.wave, phase.of, what);
 }
 
-// The same of a PR of the Python thin client, whose run is the client's suite.
+// The same for a client PR, whose run is the client's suite.
 function clientNoRun(run) {
     return !run ? T('No run of the suite tested this PR\'s code yet. Start one with Run above, or post /run-all in the PR.')
         : run.state === 'running' ? T('The suite is running for this PR. Its verdict shows up here when it finishes.')
@@ -1179,12 +1156,21 @@ function prFromUrl() {
     return v && /^\d+$/.test(v) ? +v : null;
 }
 
-// CLIENT_REPO when the address names the Python thin client's repo, else null: Ignite's PR.
+// Project identity comes only from its canonical path. Unknown paths never select another repository.
 function repoFromUrl() {
-    return new URLSearchParams(location.search).get('repo') === CLIENT_REPO ? CLIENT_REPO : null;
+    const key = location.pathname.slice(1);
+    return key === 'ignite' ? null : key;
 }
 
 async function enterApp(username, linked) {
+    if (repoFromUrl() !== null) await configReady;
+    selectedRepo = repoFromUrl();
+    paintProjects();
+    if (!projectAvailable(selectedRepo)) {
+        show('analyze');
+        showProjectError(selectedRepo);
+        return;
+    }
     myUsername = username || '';
     resetPrTabs(linked);
     $('username').textContent = username;
@@ -1192,7 +1178,7 @@ async function enterApp(username, linked) {
     show('analyze');
     $('actions').classList.add('hidden');
     $('runsRow').classList.add('hidden');
-    await Promise.all([loadPrs(), loadClientPrs()]);
+    await loadPrs();
     const pr = prFromUrl();
     if (pr) openPr(pr, false, repoFromUrl());
     else goHome(false);
@@ -1201,7 +1187,8 @@ async function enterApp(username, linked) {
 
 function goHome(push) {
     selectedPr = null;
-    selectedRepo = null;
+    selectedRepo = repoFromUrl();
+    if (!projectAvailable(selectedRepo)) { showProjectError(selectedRepo); return; }
     lastResult = null;
     syncListBadge();
     runsNow = [];
@@ -1210,8 +1197,8 @@ function goHome(push) {
     phaseNow = null;
     paintTab();
     stopRunsPoll();
-    if (push) history.pushState({}, '', location.pathname);
-    for (const li of [...$('prList').children, ...$('clientList').children]) li.classList.remove('sel');
+    if (push) history.pushState({}, '', projectPath());
+    for (const li of $('prList').children) li.classList.remove('sel');
     $('prTitle').classList.add('muted');
     $('prTitle').textContent = T('Pick a PR on the left, or type its number in the filter.');
     $('actions').classList.add('hidden');
@@ -1636,7 +1623,7 @@ function deltaText(d) {
 
 // Is the verdict on screen the one `res` was asked for? A PR opened or a run finished while the answer was on its way.
 function stillShown(res) {
-    return lastResult && lastResult.prNumber === res.prNumber && lastResult.buildId === res.buildId;
+    return lastResult && resKey(lastResult) === resKey(res) && lastResult.buildId === res.buildId;
 }
 
 function clearDelta() {
@@ -1886,18 +1873,18 @@ function renderFreshness(res) {
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
 
-// The run of the Python thin client's suite: its build, the later run of the same commits the verdict counts too, and
+// The run of the selected client's suite: its build, the later run of the same commits the verdict counts too, and
 // the commits of the client and of Ignite it tested.
 function clientRunLabel(res) {
     const link = (text, href, title) => href
         ? `<a class="nowrap" href="${esc(href)}" target="_self" rel="noopener" title="${title}">${text}</a>` : text;
     const build = id => tcBase ? tcBase + 'build/' + id : '';
-    const run = link(T`${esc(res.suiteName || clientSuite)} build ${esc(res.buildId)}`, build(res.buildId),
+    const run = link(T`${esc(res.suiteName || clientSuiteFor(res.repo))} build ${esc(res.buildId)}`, build(res.buildId),
         T('Open this build in TeamCity'));
     const rerun = res.rerunId ? ' · ' + link(T`re-run build ${esc(res.rerunId)}`, build(res.rerunId),
         T('Opens the later run of the same commits in TeamCity. The verdict counts its failed tests too.')) : '';
     const commit = (sha, href) => link(esc(shortSha(sha)), href, T('Opens this commit on GitHub.'));
-    const client = `https://github.com/${res.clientRepo || clientGithubRepo}/pull/${res.prNumber}/commits/`;
+    const client = `https://github.com/${res.clientRepo || clientMode(res.repo).repo}/pull/${res.prNumber}/commits/`;
     const ignite = `https://github.com/${res.igniteRepo || githubRepo}/commit/`;
     const tested = res.clientSha && res.igniteSha ? ' · ' + T('tested the PR at {0} against Ignite master at {1}',
         commit(res.clientSha, client + res.clientSha), commit(res.igniteSha, ignite + res.igniteSha)) : '';
@@ -2071,7 +2058,7 @@ function caveatsOf(res, standing) {
 }
 
 // The suites whose newest run in the verdict tested another commit than the RunAll (otherCodeRuns on the server): such
-// a verdict is a mixed run. The Python client's runs are one suite each.
+// a verdict is a mixed run. Client runs are one suite each.
 function mixedRuns(res) {
     return !res.repo && res.otherCodeRuns ? res.otherCodeRuns : [];
 }
@@ -2247,7 +2234,7 @@ function syncListBadge() {
     const page = res ? standingOf(res) : 'CHECKING';
     for (const listed of allPrs) {
         if (!HEAD_STANDINGS.includes(listed.standing)) continue;
-        const open = listed.number === selectedPr && !selectedRepo;
+        const open = listed.number === selectedPr;
         if (open && HEAD_STANDINGS.includes(page)) listed.known = page;
         const known = listed.known || listed.standing;
         showListBadge(listed, open && page === 'CHECKING' && known === 'CLEAN' ? 'CHECKING' : known);
@@ -2311,12 +2298,12 @@ function dropPreviousPrTests() {
     if (lastPrTests && lastPrTests.previous) $('prTestsCard').classList.add('hidden');
 }
 
-// The open PR's verdict by its PR: a number for Ignite's, "python#69" for the Python thin client's.
+// The open PR's verdict by its project and PR number, such as "php#69".
 function resKey(res) {
     return res.repo ? prTag(res.prNumber, res.repo) : res.prNumber;
 }
 
-// A PR of the Python thin client has no "This PR's tests": its tests are not Java classes. The cards it would stand
+// A client PR has no "This PR's tests": its tests are not Java classes. The cards it would stand
 // over show at once.
 function noPrTests(res) {
     $('prTestsCard').classList.add('hidden');
@@ -2834,12 +2821,13 @@ function offerForce(pr, top) {
     $('statusForce').classList.remove('hidden');
 }
 
-// What Run asks on a PR of the Python thin client: it queues the client's suite with the PR's head and Ignite master.
+// What Run asks on a client PR: it queues the client's suite with the PR's head and Ignite master.
 function clientRunQuestion(pr, top, mine) {
     const going = b => runState(b.state) + chipEta(b);
     const theirs = runsNow.filter(b => b.runAll && !b.mine);
-    return (top ? T`Queue “${clientSuite}” for Python client PR #${pr} at the top of the ci2 queue, ahead of everyone else's builds?`
-        : T`Queue “${clientSuite}” for Python client PR #${pr}?`)
+    return (top ? T('Queue “{0}” for {1} client PR #{2} at the top of the ci2 queue, ahead of everyone else\'s builds?',
+        clientSuiteFor(), clientLanguage(), pr)
+        : T('Queue “{0}” for {1} client PR #{2}?', clientSuiteFor(), clientLanguage(), pr))
         + ' ' + T('It tests the PR\'s head against Ignite master as it is now.')
         + (mine.length === 1 ? '\n\n' + T`Your run for this PR is still ${going(mine[0])}. OK cancels it and queues the new one.`
             : mine.length > 1 ? '\n\n' + T`Your ${mine.length} runs for this PR are still going. OK cancels them and queues the new one.`
@@ -2894,7 +2882,7 @@ async function cancelMine() {
 
 function cancelQuestion(pr, mine) {
     const theirs = runsNow.length - mine.length;
-    return (selectedRepo ? T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of Python client PR #${pr}?`
+    return (selectedRepo ? T('Cancel your {0} run{1} of {2} client PR #{3}?', mine.length, mine.length === 1 ? '' : 's', clientLanguage(), pr)
         : T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?`) + '\n'
         + mine.map(b => `\n• ${b.name || T('build')}: ${runState(b.state)}${chipEta(b)}`).join('')
         + (theirs ? '\n\n' + T`Runs started by other people (${theirs}) keep going.` : '');
@@ -3606,7 +3594,7 @@ function paintVisaPost(res, v) {
 // the run there or goes in next to someone else's. A client's run has questions of its own, so that a language can put
 // the build and the suite where it needs them.
 function visaQuestion(res, key, v) {
-    const suite = res.suiteName || clientSuite, run = 'RunAll ' + res.buildId;
+    const suite = res.suiteName || clientSuiteFor(res.repo), run = 'RunAll ' + res.buildId;
     if (v.yoursIn === key) {
         return res.repo ? T`Update your visa of ${suite} build ${res.buildId} in ${key} with the verdict on this page?`
             : T`Update your visa of ${run} in ${key} with the verdict on this page?`;
@@ -3730,7 +3718,7 @@ function paintPrPost(res) {
 // What Post to PR asks before it posts: the run, the PR, and whether the press updates the run's verdict comment. A
 // client's run has questions of its own, as for Post to JIRA.
 function prPostQuestion(res, c) {
-    const suite = res.suiteName || clientSuite, run = 'RunAll ' + res.buildId, pr = '#' + res.prNumber;
+    const suite = res.suiteName || clientSuiteFor(res.repo), run = 'RunAll ' + res.buildId, pr = '#' + res.prNumber;
     if (c.url) {
         return res.repo
             ? T`Update the verdict comment of ${suite} build ${res.buildId} in PR ${pr} with the verdict on this page?`
@@ -4285,7 +4273,7 @@ $('ghLink').onclick = async () => {
     const m = $('ghLinkMsg');
     let url = '/api/github/link' + zoneParam('?');
     if (selectedPr) url += (url.includes('?') ? '&' : '?') + 'pr=' + selectedPr;
-    if (selectedPr && selectedRepo) url += '&repo=' + selectedRepo;
+    if (selectedRepo) url += (url.includes('?') ? '&' : '?') + 'repo=' + selectedRepo;
     m.textContent = T('opening GitHub…');
     try {
         const r = await api(url, { method: 'POST' });
@@ -4339,7 +4327,7 @@ async function showLinkOutcome() {
     if (!outcome || !Object.prototype.hasOwnProperty.call(LINK_OUTCOMES, outcome)) return;
     const pr = prFromUrl();
     const repo = repoFromUrl();
-    history.replaceState(!pr ? {} : repo ? { pr, repo } : { pr }, '', pr ? prAddress(pr, repo) : location.pathname);
+    history.replaceState(!pr ? { repo } : { pr, repo }, '', prAddress(pr, repo));
     $('settingsPanel').classList.remove('hidden');
     loadLogins();
     loadJournal();
@@ -4543,7 +4531,7 @@ setInterval(() => {
     if (!document.hidden && lastResult && lastResult.prNumber === selectedPr) renderFreshness(lastResult);
 }, 30000);
 setInterval(checkUpdate, 5 * 60 * 1000); // re-check for updates every 5 min
-loadConfig();
+configReady = loadConfig();
 loadMe();
 checkUpdate();
 
@@ -4634,7 +4622,7 @@ document.querySelector('.pr-pane').addEventListener('click', e => {
 });
 // The brand and the PRs item of the menu both lead to the start page; signed in, that needs no reload.
 for (const id of ['brand', 'navPrs']) $(id).addEventListener('click', e => {
-    if ($('analyzeView').classList.contains('hidden') || !plainClick(e)) return;
+    if (!projectAvailable(selectedRepo) || $('analyzeView').classList.contains('hidden') || !plainClick(e)) return;
     e.preventDefault();
     if (selectedPr) goHome(true);
 });
@@ -4647,13 +4635,11 @@ $('prFilter').addEventListener('keydown', e => {
         return;
     }
     if (e.key !== 'Enter') return;
-    const client = clientMatches(clientPrs, $('prFilter').value);
-    const ignite = client.only ? null : prMatches(allPrs, $('prFilter').value).first;
-    const first = ignite ?? client.first;
+    const first = prMatches(allPrs, $('prFilter').value).first;
     if (first == null) return;
     $('prFilter').value = '';
     applyPrFilter();
-    openPr(first, true, ignite == null ? CLIENT_REPO : null);
+    openPr(first, true, selectedRepo);
 });
 document.addEventListener('keydown', e => {
     if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || $('analyzeView').classList.contains('hidden')) return;

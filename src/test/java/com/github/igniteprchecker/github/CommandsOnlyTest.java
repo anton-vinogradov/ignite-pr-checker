@@ -73,7 +73,7 @@ class CommandsOnlyTest {
         commands.updateEtas();
 
         verify(github).appComment(PR, "newcomer", "@Newcomer the verdict of your `/run-all` is ready: RunAll"
-            + " [9400000](https://ci2.example/build/9400000) — [see the verdict](https://checker.example/?pr=13800).");
+            + " [9400000](https://ci2.example/build/9400000) — [see the verdict](https://checker.example/ignite?pr=13800).");
         verify(github).appDelete(PR, "newcomer", 77L);
         verify(github, times(2)).appComment(eq(PR), any(), anyString());
     }

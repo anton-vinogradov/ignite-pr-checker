@@ -52,20 +52,6 @@ env=/etc/ignite-pr-checker/env
 addr="$(sed -n 's/^SERVER_ADDRESS=//p' "$env" | tail -n 1)"
 case "$addr" in ''|0.0.0.0|::) addr=127.0.0.1 ;; esac
 port="$(sed -n 's/^SERVER_PORT=//p' "$env" | tail -n 1)"
-# Existing installs keep the mirror off. Check an opted-in install before replacing the working jar.
-if [ "$(sed -n 's/^GIT_MIRROR_ENABLED=//p' "$env" | tail -n 1)" = true ]; then
-    command -v git >/dev/null 2>&1 && [ -x "$(git --exec-path)/git-http-backend" ] || {
-        echo "ERROR: Git mirror needs git and git-http-backend; run install.sh to install them." >&2
-        exit 1
-    }
-    mirror_dir="$(sed -n 's/^GIT_MIRROR_DIR=//p' "$env" | tail -n 1)"
-    mirror_dir="${mirror_dir:-/opt/ignite-pr-checker/git-mirrors}"
-    if [ ! -d "$mirror_dir" ] || [ -L "$mirror_dir" ] \
-        || [ "$(stat -c '%U:%a' "$mirror_dir")" != prc:700 ]; then
-        echo "ERROR: Git mirror directory must exist, belong to prc and have mode 0700 (no symbolic link): $mirror_dir" >&2
-        exit 1
-    fi
-fi
 answering() {
     curl -fsS -m 5 "http://$addr:${port:-8080}/api/status" 2>/dev/null | sed -n 's/^{"version":"\([^"]*\)".*/\1/p'
 }

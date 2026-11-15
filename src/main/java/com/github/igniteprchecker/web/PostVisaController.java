@@ -6,8 +6,10 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.ClientVerdicts;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.PrCommands;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
  * run's automatic visa has, and a last line that says who posted it. A second press for the same run edits that
  * comment. The visa goes only for a final verdict: no run of the PR is going, no auto re-run settles it, TeamCity
  * errors left no part of it to check again, and a merged PR's verdict is not waiting for runs that went at the merge.
- * It goes only to the ticket the viewer confirmed, which the PR title names. A PR of the Python thin client gets the
+ * It goes only to the ticket the viewer confirmed, which the PR title names. A PR of a thin client gets the
  * visa of its newest run of the client's suite. See {@link StandingVisas#postVisaFromPage}.
  */
 @RestController
@@ -45,14 +47,16 @@ public class PostVisaController {
 
     private final ClientVerdicts clients;
 
-    private final PythonClientRuns python;
+    private final ClientRuns clientRuns;
+
+    private final ThinClients projects;
 
     private final PrCommands commands;
 
     private final ClientPrsController clientPrs;
 
     public PostVisaController(StandingVisas standing, BlockerAnalyzer analyzer, MergedVerdicts merged, TcClient tc,
-        PrTitleController titles, ClientVerdicts clients, PythonClientRuns python, PrCommands commands,
+        PrTitleController titles, ClientVerdicts clients, ClientRuns clientRuns, ThinClients projects, PrCommands commands,
         ClientPrsController clientPrs) {
         this.standing = standing;
         this.analyzer = analyzer;
@@ -60,7 +64,8 @@ public class PostVisaController {
         this.tc = tc;
         this.titles = titles;
         this.clients = clients;
-        this.python = python;
+        this.clientRuns = clientRuns;
+        this.projects = projects;
         this.commands = commands;
         this.clientPrs = clientPrs;
     }
@@ -93,33 +98,35 @@ public class PostVisaController {
     }
 
     /**
-     * Posts the visa of the run {@code build} of the client's suite for PR {@code pr} of the Python thin client to
+     * Posts the visa of the run {@code build} of the selected client's suite for PR {@code pr} to
      * {@code issue}, as {@link #post} posts a RunAll's. The run is the PR's newest run that tested its own commit, as
      * the page shows it.
      */
     @PostMapping("/client/visa")
-    public ResponseEntity<?> postClient(@RequestParam int pr, @RequestParam long build, @RequestParam String issue,
+    public ResponseEntity<?> postClient(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
+        @RequestParam String issue,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username, HttpServletRequest req) {
-        if (!standing.visaButton(username, python.repo(), pr, build).jiraReady())
+        ClientSpec spec = projects.require(repo);
+        if (!standing.visaButton(username, spec.repo(), pr, build).jiraReady())
             return noToken();
 
-        Final verdict = clientVerdict(tcToken, pr, build);
+        Final verdict = clientVerdict(tcToken, spec, pr, build);
         if (verdict.refused() != null)
             return refused(verdict.refused(), ClientPrsController.NO_RUN);
 
-        Optional<ResponseEntity<?>> wrongTicket = wrongTicket(() -> clientPrs.titleNow(pr), issue);
+        Optional<ResponseEntity<?>> wrongTicket = wrongTicket(() -> clientPrs.titleNow(spec, pr), issue);
         if (wrongTicket.isPresent())
             return wrongTicket.get();
 
         AnalysisResult res = verdict.res();
         ClientVerdicts.Run run = verdict.run();
-        String body = python.pageVisaBody(pr, run.buildId(), run.rerunId(), run.suiteName(), run.clientSha(),
+        String body = clientRuns.pageVisaBody(spec, pr, run.buildId(), run.rerunId(), run.suiteName(), run.clientSha(),
             run.igniteSha(), res);
         StandingVisas.PagePost posted = standing.postClientVisaFromPage(username, AuthInterceptor.by(req),
-            python.repo(), pr, build, issue, res, body);
+            spec.repo(), pr, build, issue, res, body);
 
-        return answer(posted, username, python.repo(), pr, build, issue);
+        return answer(posted, username, spec.repo(), pr, build, issue);
     }
 
     /**
@@ -145,20 +152,20 @@ public class PostVisaController {
     }
 
     /**
-     * The verdict of the run {@code build} of the client's suite for PR {@code pr} of the Python thin client the page
+     * The verdict of the run {@code build} of the selected client's suite for PR {@code pr} the page
      * shows, as {@link #igniteVerdict} has a RunAll's: the PR's newest run that tested its own commit. It is final
      * when its story settled it and no run of the suite on the PR's branch is going.
      */
-    Final clientVerdict(String tcToken, int pr, long build) {
-        Optional<ClientVerdicts.Verdict> verdict = clients.verdict(tcToken, pr);
+    Final clientVerdict(String tcToken, ClientSpec spec, int pr, long build) {
+        Optional<ClientVerdicts.Verdict> verdict = clients.verdict(tcToken, spec, pr);
         if (verdict.isEmpty())
             return Final.refused(Final.NONE);
         if (verdict.get().result().buildId() != build)
             return Final.refused(Final.STALE);
 
-        boolean going = !StandingVisas.Phase.FINAL.equals(commands.clientPhase(pr, build).phase())
-            || tc.currentUserBuilds(tcToken, PythonClientRuns.branch(pr)).stream()
-                .anyMatch(b -> python.suite().equals(b.buildTypeId()));
+        boolean going = !StandingVisas.Phase.FINAL.equals(commands.clientPhase(spec, pr, build).phase())
+            || tc.currentUserBuilds(tcToken, spec.branch(pr)).stream()
+                .anyMatch(b -> spec.suite().equals(b.buildTypeId()));
 
         return finalOrNot(verdict.get().result(), verdict.get().run(), going);
     }

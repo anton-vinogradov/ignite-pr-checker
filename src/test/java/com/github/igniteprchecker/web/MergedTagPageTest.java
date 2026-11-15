@@ -190,13 +190,12 @@ class MergedTagPageTest {
     void aMergedPythonClientPrIsTaggedToo() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + TAG + """
             page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
-                starCount: 1, refreshAfterSeconds: 120, clientRepo: 'apache/ignite-python-thin-client',
-                clientSuite: 'Thin client: Python' } });
+                starCount: 1, refreshAfterSeconds: 120, clients: [{ key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' }] } });
             page.route('/api/client/prs', { body: [] });
             page.route('/api/client/runs', { body: [] });
             page.route('/api/client/pr-title', { body: { title: 'IGNITE-29001 Support Python 3.13', state: 'merged',
                 closedAt: MERGED_AT, head: 'a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4' } });
-            await page.load('?repo=python&pr=68');
+            await page.load('/python?pr=68');
             report(Object.assign(head(), { asked: page.fetches('/api/pr-title').length }));
             """);
 

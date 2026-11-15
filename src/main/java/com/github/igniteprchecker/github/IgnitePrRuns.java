@@ -1,7 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.mirror.GitMirror;
+import com.github.igniteprchecker.config.GitProxyProperties;
 import com.github.igniteprchecker.tc.PinnedRun;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -22,22 +22,22 @@ public class IgnitePrRuns {
 
     private final TcClient tc;
 
-    private final GitMirror mirror;
+    private final GitProxyProperties proxy;
 
     private final String runAll;
 
     @Autowired
-    public IgnitePrRuns(GithubClient github, TcClient tc, GitMirror mirror, AnalysisProperties analysis) {
+    public IgnitePrRuns(GithubClient github, TcClient tc, GitProxyProperties proxy, AnalysisProperties analysis) {
         this.github = github;
         this.tc = tc;
-        this.mirror = mirror;
+        this.proxy = proxy;
         this.runAll = analysis.runAllBuildType();
     }
 
     private IgnitePrRuns(TcClient tc) {
         this.github = null;
         this.tc = tc;
-        this.mirror = null;
+        this.proxy = null;
         this.runAll = null;
     }
 
@@ -46,14 +46,14 @@ public class IgnitePrRuns {
     }
 
     public boolean enabled() {
-        return mirror != null && mirror.enabled();
+        return proxy != null && proxy.enabled();
     }
 
     public Prepared prepareRunAll(int pr) {
         return prepare(pr, runAll == null ? List.of() : List.of(runAll));
     }
 
-    /** Fetches the fresh head once and prepares every suite on that commit; failures leave existing runs alone. */
+    /** Reads the fresh head once and prepares every suite on that commit; failures leave existing runs alone. */
     public Prepared prepare(int pr, List<String> suites) {
         if (!enabled())
             return new Prepared(pr, Map.of());
@@ -62,7 +62,6 @@ public class IgnitePrRuns {
         if (sha == null || !sha.matches("[0-9a-f]{40}"))
             throw new IllegalStateException("GitHub did not name a full head commit for PR " + pr);
 
-        mirror.ensurePr("ignite", pr, sha);
         Map<String, PinnedRun> runs = new LinkedHashMap<>();
         for (String suite : suites) {
             runs.put(suite, new PinnedRun(suite, "pull/" + pr + "/head",

@@ -44,7 +44,7 @@ class ClientVerdictTest {
     @Test
     void theCommentLinksThePrsPageOnTheChecker() {
         ClientVerdict.Run run = new ClientVerdict.Run(9424005L, "Thin client: Python", "apache/ignite", "1f2e3d4c5b6a",
-            "apache/ignite-python-thin-client", 69, "a1b2c3d4e5f6", "https://checker.example/?repo=python&pr=69");
+            "apache/ignite-python-thin-client", 69, "a1b2c3d4e5f6", "https://checker.example/python?pr=69");
         TestVerdict shared = new TestVerdict(501L, "test_cache_config.test_get", SUITE, 9424005L, "Thin client: Python",
             "o1", false, false, "pre-existing: fails 3/100 on master", "F", 0);
 
@@ -55,9 +55,9 @@ class ClientVerdictTest {
 
         assertThat(clean).contains("against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite/commit/"
             + "1f2e3d4c5b6a). The checker's page shows this verdict and the PR's runs: [Ignite PR Checker]"
-            + "(https://checker.example/?repo=python&pr=69).\n\n✅ **No blockers**");
+            + "(https://checker.example/python?pr=69).\n\n✅ **No blockers**");
         assertThat(failed).contains(". The checker's page shows each failed test with its failure message: [Ignite PR"
-            + " Checker](https://checker.example/?repo=python&pr=69).\n\n");
+            + " Checker](https://checker.example/python?pr=69).\n\n");
         assertThat(ClientVerdict.wiki("https://ci2.example/", run, result(List.of(), List.of(shared), List.of()), null))
             .doesNotContain("checker.example");
     }
@@ -111,7 +111,7 @@ class ClientVerdictTest {
     @Test
     void theCommentCountsTheFailuresNotBlamedAndThePageListsThem() {
         ClientVerdict.Run run = new ClientVerdict.Run(9424794L, "Thin client: Python", "apache/ignite", "1f2e3d4c5b6a",
-            "apache/ignite-python-thin-client", 69, "a1b2c3d4e5f6", "https://checker.example/?repo=python&pr=69");
+            "apache/ignite-python-thin-client", 69, "a1b2c3d4e5f6", "https://checker.example/python?pr=69");
         List<TestVerdict> blockers = IntStream.range(0, 3).mapToObj(i -> new TestVerdict(700L + i,
             "tests/test_examples.py::test_example_" + i, SUITE, 9424794L, "Thin client: Python", "b" + i, true, false,
             "not seen failing in 100 master runs; failed the only run on this branch", "F", 1)).toList();
@@ -126,7 +126,7 @@ class ClientVerdictTest {
                 + " 100 master runs; failed the only run on this branch")
             .contains("\n- `tests/test_examples.py::test_example_2` —")
             .contains("**29 failing tests are not blamed on this PR.** [The checker's page]"
-                + "(https://checker.example/?repo=python&pr=69) lists them with their reasons.\n\n")
+                + "(https://checker.example/python?pr=69) lists them with their reasons.\n\n")
             .doesNotContain("tests/test_sql.py");
         assertThat(ClientVerdict.wiki("https://ci2.example/", run, r, null))
             .contains("*29 failing tests are not blamed on this PR:*\n- {{tests/test_sql.py::test_0}} — pre-existing:")

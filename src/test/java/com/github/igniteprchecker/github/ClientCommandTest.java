@@ -24,7 +24,6 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -77,8 +76,8 @@ class ClientCommandTest {
 
     private static final String CLIENT = "a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4";
 
-    /** The checker's page of the client's PR #69: Ignite's PR #69 has the page {@code ?pr=69}. */
-    private static final String PAGE = "https://checker.example/?repo=python&pr=69";
+    /** The checker's page of the client's PR #69: Ignite's PR #69 has the page {@code /ignite?pr=69}. */
+    private static final String PAGE = "https://checker.example/python?pr=69";
 
     private final GithubClient github = AppWriting.github();
 
@@ -117,8 +116,8 @@ class ClientCommandTest {
         clientComment(1L, "/run-all", "Author");
 
         verify(tc).queuePinned("tc", new PinnedRun(SUITE, "pull/69", List.of(
-            new PinnedRun.Pin("335", "refs/heads/master", IGNITE),
-            new PinnedRun.Pin("314", "refs/pull/69/head", CLIENT)), Map.of("OVERRIDDEN_BRANCH", CLIENT)), false,
+            PinnedRun.Pin.forRoot("GitHubApacheIgnite", "refs/heads/master", IGNITE),
+            PinnedRun.Pin.forRoot("GitHubApacheIgnitePythonThinClient", "refs/pull/69/head", CLIENT)), Map.of("OVERRIDDEN_BRANCH", CLIENT)), false,
             "Ignite PR Checker: /run-all by @Author in https://github.com/apache/ignite-python-thin-client/pull/69");
         verify(github).appReact(CLIENT_REPO, PR, "author", 1L, "rocket");
         verify(github).appComment(CLIENT_REPO, PR, "author", "@Author 🚀 **Thin client: Python queued** — [build"
@@ -305,8 +304,8 @@ class ClientCommandTest {
         assertThat(client.get("buildId").asLong()).isEqualTo(RUN);
         assertThat(client.get("pinned").get("properties").get("OVERRIDDEN_BRANCH").asString()).isEqualTo(CLIENT);
         assertThat(client.get("pinned").get("revisions").findValuesAsString("version")).containsExactly(IGNITE, CLIENT);
-        assertThat(client.get("pinned").get("revisions").findValuesAsString("vcsRootInstance"))
-            .containsExactly("335", "314");
+        assertThat(client.get("pinned").get("revisions").findValuesAsString("vcsRootId"))
+            .containsExactly("GitHubApacheIgnite", "GitHubApacheIgnitePythonThinClient");
 
         PrCommands restarted = commands();
         restarted.loadFrom(file);
@@ -443,7 +442,7 @@ class ClientCommandTest {
     private PrCommands commands() {
         return new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
-            new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc, analyzer,
+            new ClientRuns(github, tc, analyzer,
                 new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
                 new TeamcityProperties("https://ci2.example/")));
     }

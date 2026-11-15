@@ -254,16 +254,47 @@ function suiteFixCard(f) {
             + 'is missing, or they switched the option on after the sweep.') : '');
 }
 
-// The repos whose PRs' comments are read for commands: Ignite's, and the Python thin client's, where /run-all runs the
-// client's one suite.
+// The repos whose PR comments are read for commands; each client runs its configured suite.
 function prCommandsCard(w) {
-    const repo = esc(w.prCommandsRepo || ''), client = esc(w.prCommandsClientRepo || '');
-    const where = repo && client ? T`in ${repo} and ${client}` : repo ? T`in ${repo}` : '';
+    const clients = w.prCommandsClients || [];
+    const repos = [w.prCommandsRepo, ...clients.map(client => client.repo)].filter(Boolean).map(esc);
+    const where = repos.length ? T`in ${repos.join(', ')}` : '';
+    const title = clients.map(client => T('In {0}, /run-all runs “{1}” instead of RunAll.', client.repo, client.suite)).join(' ');
     return countedCard(T('PR commands'), T`${w.prCommands ?? 0} /run-all handled`,
         ' · ' + passText(phrase('poll'), w.prCommandsLastPollAt, w.prCommandsFirstPollAt)
             + (where ? ' · ' + where : ''),
-        '', client ? T('In {0}, /run-all runs the Python thin client suite instead of RunAll.', w.prCommandsClientRepo)
-            : '');
+        '', title);
+}
+
+function renderGitProxy(proxy) {
+    $('proxyCards').innerHTML = card(T('Git proxy'), proxy.enabled ? T('On') : T('Off'),
+        T`${proxy.activeGitRequests} active Git request${proxy.activeGitRequests === 1 ? '' : 's'}`,
+        proxy.enabled ? 'ok' : '');
+    const names = { ignite: 'Ignite', 'ignite-python-thin-client': 'Python', 'ignite-php-thin-client': 'PHP',
+        'ignite-nodejs-thin-client': 'Node.js', 'ignite-release': T('Ignite release'),
+        'ignite-extensions': T('Ignite extensions') };
+    $('proxyRepos').innerHTML = proxy.repositories.map(repo => {
+        const active = T`${repo.activeGitRequests} active Git request${repo.activeGitRequests === 1 ? '' : 's'}`;
+        const success = repo.lastSuccessAt
+            ? T`Last success ${agoShort(new Date(repo.lastSuccessAt).getTime())}` : T('No successful Git request yet');
+        return `<div class="proxy-repo"><strong>${esc(names[repo.slug] || repo.slug)}</strong>`
+            + `<span>${active}</span><span class="muted">${success}</span>`
+            + (repo.lastRequestFailed ? `<span class="bad">${T('Last Git request failed')}</span>` : '') + '</div>';
+    }).join('');
+}
+
+async function tickGitProxy() {
+    try {
+        const response = await fetch('/api/git-proxy/status', { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const proxy = await response.json();
+        await languageLearned;
+        renderGitProxy(proxy);
+    } catch (e) {
+        await languageLearned;
+        $('proxyCards').innerHTML = card(T('Git proxy'), T('unavailable'), T('Could not read Git proxy status'), 'warn');
+        $('proxyRepos').innerHTML = '';
+    }
 }
 
 function lastCycleCard(a) {
@@ -572,6 +603,7 @@ function drawStacked(canvas, legendEl, byCat) {
 
 let last = null;
 async function tick() {
+    tickGitProxy();
     try {
         const r = await fetch('/api/status', { cache: 'no-store' });
         if (!r.ok) throw new Error('HTTP ' + r.status);

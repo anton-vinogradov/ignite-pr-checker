@@ -150,7 +150,7 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The verdict comment of each run, by build, for the newest {@link #RUN_VISAS_KEPT} builds: the one Post to PR on
-     * the PR page, Post my runs' verdicts in the PR, or the story of a run of the Python thin client's suite last put
+     * the PR page, Post my runs' verdicts in the PR, or the story of a run of a thin client's suite last put
      * in. The comment of a RunAll's option is also its starter's {@link GhThread}, which goes when the starter switches
      * every option off; this one stays, so Post to PR still updates that comment. Persisted.
      */
@@ -1454,7 +1454,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Where the visa of a run of the Python thin client's suite stands, for the line on the checker's page of PR {@code
+     * Where the visa of a run of a thin client's suite stands, for the line on the checker's page of PR {@code
      * pr} of {@code repo}: the viewer's own visa of the run {@code buildId} from Post to JIRA, else the visa of the run
      * itself, else the newest visa of the PR of the same commits, {@code revision}, as an auto re-run that stood in for
      * a cancelled run has. A run with none has state null, and the page says nothing.
@@ -1556,7 +1556,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Posts the visa of the run {@code buildId} of the Python thin client's suite for PR {@code pr} of {@code repo} to
+     * Posts the visa of the run {@code buildId} of a thin client's suite for PR {@code pr} of {@code repo} to
      * {@code issue} for Post to JIRA on the PR page: {@code body}, the text of the run's automatic visa for the verdict
      * {@code res}, and a last line that names {@code username} as the one who posted it. See {@link #postFromPage}.
      */
@@ -1761,7 +1761,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Posts the verdict of the run {@code buildId} of the Python thin client's suite for PR {@code pr} of {@code repo}
+     * Posts the verdict of the run {@code buildId} of a thin client's suite for PR {@code pr} of {@code repo}
      * to the PR for Post to PR on the PR page: the text of the run's verdict comment, which {@code body} writes by how
      * the run was queued, as far as the checker knows it (see {@link RunComment}). {@code rerunId}: the later run of
      * the same commits the verdict counts too, 0 when none. See {@link #commentFromPage}.
@@ -1878,7 +1878,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Posts {@code body}, the verdict of the run {@code buildId} of the Python thin client's suite that the story of
+     * Posts {@code body}, the verdict of the run {@code buildId} of a thin client's suite that the story of
      * {@code user}'s run tells, to PR {@code pr} of {@code repo}: in place of the comment Post to PR put in for the
      * run, else as a new comment, which Post to PR then edits. {@code fromPage}: the run was queued on the checker's
      * page, not by a {@code /run-all}. Null without GITHUB_TOKEN; throws what GitHub answered, or {@link
@@ -2322,7 +2322,7 @@ public class StandingVisas implements SnapshotCache {
     }
 
     /**
-     * Posts the visa of a run of the Python thin client's suite, {@code buildId}, that {@code username} started with
+     * Posts the visa of a run of a thin client's suite, {@code buildId}, that {@code username} started with
      * a {@code /run-all} in PR {@code pr} of {@code repo}, or on the checker's page of the PR: their "Visa my runs in
      * JIRA" posts {@code body} to the IGNITE ticket the PR title names, as for a RunAll. The option acts on a run that
      * finished after it went on ({@code finishedMs}). {@code pull} asks GitHub for the PR's title. A closed PR gets no
@@ -4069,7 +4069,7 @@ public class StandingVisas implements SnapshotCache {
      * commentId} under the option of {@code by}, or {@code by} posted it there with Post to JIRA on the PR page, or the
      * settle posted none, as the PR title named no IGNITE ticket ({@code commentId} null). Kept apart from the options,
      * so the PR page still tells of a posted visa after {@code by} switched every option off. Visas of v1.20.11 and
-     * before do not name their {@code issue}. {@code repo}: the Python thin client's for a run of its suite, null for a
+     * before do not name their {@code issue}. {@code repo}: the thin client's for a run of its suite, null for a
      * RunAll; such a visa keeps the commits it is of, {@code sha}, and what its verdict says, {@code verdict} ({@link
      * #verdictKey}), so the next one does not repeat it.
      */
@@ -4083,7 +4083,7 @@ public class StandingVisas implements SnapshotCache {
 
     /**
      * The verdict comment of a run in PR {@code pr} of {@code repo}, null for the repo the checker lists: its id and
-     * its {@code url} on GitHub. {@code fromPage}: how the run of the Python thin client's suite was queued, which the
+     * its {@code url} on GitHub. {@code fromPage}: how the run of a thin client's suite was queued, which the
      * comment's first words say: true on the checker's page, false by a {@code /run-all}; null when the checker does
      * not know, as for a run whose first verdict comment came from Post to PR.
      */

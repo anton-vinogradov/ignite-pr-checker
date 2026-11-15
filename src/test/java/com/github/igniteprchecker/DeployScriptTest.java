@@ -160,68 +160,21 @@ class DeployScriptTest {
         assertThat(deploy().exit()).isZero();
     }
 
-    /** Enabling the mirror on a host without the backend must leave the working jar and service alone. */
+    /** Given an enabled proxy and no server Git, deployment replaces the jar and restarts the service. */
     @Test
-    void missingGitBackendStopsAnOptedInDeployBeforeJarReplacement() throws Exception {
-        Files.writeString(server.resolve("env"), "GIT_MIRROR_ENABLED=true\n");
-        stub("git", "if [ \"$1\" = --exec-path ]; then echo '" + server.resolve("missing-git-exec")
-            + "'; else exec /usr/bin/git \"$@\"; fi");
+    void enabledProxyDoesNotRequireServerGit() throws Exception {
+        Files.writeString(server.resolve("env"), "GIT_PROXY_ENABLED=true\n");
+        stub("ssh", "sed -e 's|/opt/ignite-pr-checker|" + server + "|g'"
+            + " -e 's|/etc/ignite-pr-checker/env|" + server + "/env|g'"
+            + " | bash -c 'git() { echo unexpected-server-git >&2; exit 99; }; export -f git; bash -s -- \"$@\"'"
+            + " -- \"${@:5}\"");
 
         Result r = deploy();
 
-        assertThat(r.exit()).isNotZero();
-        assertThat(r.out()).contains("Git mirror needs git and git-http-backend");
-        assertThat(server.resolve("app.jar")).hasContent("old jar");
-        assertThat(server.resolve("restarted")).doesNotExist();
-    }
-
-    /** A host with the mirror disabled can still deploy when Git has no HTTP backend. */
-    @Test
-    void disabledMirrorDoesNotRequireTheHttpBackend() throws Exception {
-        Files.writeString(server.resolve("env"), "GIT_MIRROR_ENABLED=false\n");
-        stub("git", "if [ \"$1\" = --exec-path ]; then echo '" + server.resolve("missing-git-exec")
-            + "'; else exec /usr/bin/git \"$@\"; fi");
-
-        assertThat(deploy().exit()).isZero();
-    }
-
-    /** An opted-in deploy accepts a private directory prepared for prc; stat stands in for the Linux service owner. */
-    @Test
-    void enabledMirrorUsesItsPreparedDirectory() throws Exception {
-        Path gitExec = Files.createDirectory(server.resolve("git-exec"));
-        Path backend = gitExec.resolve("git-http-backend");
-        Files.writeString(backend, "#!/bin/sh\nexit 0\n");
-        backend.toFile().setExecutable(true);
-        stub("git", "if [ \"$1\" = --exec-path ]; then echo '" + gitExec
-            + "'; else exec /usr/bin/git \"$@\"; fi");
-        Path mirrors = Files.createDirectory(server.resolve("mirrors with spaces"));
-        stub("stat", "echo prc:700");
-        Files.writeString(server.resolve("env"), "GIT_MIRROR_ENABLED=true\nGIT_MIRROR_DIR=" + mirrors + "\n");
-
-        assertThat(deploy().exit()).isZero();
-
-        assertThat(mirrors).isDirectory();
-    }
-
-    /** An invalid mirror path must not be created or chowned by deploy, or replace the working jar. */
-    @Test
-    void missingMirrorDirectoryStopsDeployBeforeJarReplacement() throws Exception {
-        Path gitExec = Files.createDirectory(server.resolve("git-exec"));
-        Path backend = gitExec.resolve("git-http-backend");
-        Files.writeString(backend, "#!/bin/sh\nexit 0\n");
-        backend.toFile().setExecutable(true);
-        stub("git", "if [ \"$1\" = --exec-path ]; then echo '" + gitExec
-            + "'; else exec /usr/bin/git \"$@\"; fi");
-        Path mirrors = server.resolve("not-created");
-        Files.writeString(server.resolve("env"), "GIT_MIRROR_ENABLED=true\nGIT_MIRROR_DIR=" + mirrors + "\n");
-
-        Result r = deploy();
-
-        assertThat(r.exit()).isNotZero();
-        assertThat(r.out()).contains("Git mirror directory must exist");
-        assertThat(mirrors).doesNotExist();
-        assertThat(server.resolve("app.jar")).hasContent("old jar");
-        assertThat(server.resolve("restarted")).doesNotExist();
+        assertThat(r.exit()).as(r.out()).isZero();
+        assertThat(r.out()).doesNotContain("unexpected-server-git");
+        assertThat(server.resolve("app.jar")).hasContent("new jar");
+        assertThat(server.resolve("systemctl")).hasContent("restart ignite-pr-checker");
     }
 
     @Test

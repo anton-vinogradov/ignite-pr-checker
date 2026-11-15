@@ -2,8 +2,10 @@ package com.github.igniteprchecker.web;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.github.igniteprchecker.analysis.ClientVerdicts;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.StandingVisas;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
@@ -24,8 +26,8 @@ import org.springframework.web.bind.annotation.RestController;
  * verdict comment, and a last line that names who pressed. A run has one verdict comment: a press edits the one the
  * checker knows of the run, posted by Post my runs' verdicts in the PR or by an earlier press, and a new comment goes
  * in only when there is none. The verdict goes only when it is final, as for Post to JIRA ({@link
- * PostVisaController#igniteVerdict}), and only while the checker's account can write to GitHub. A PR of the Python
- * thin client gets the verdict of its newest run of the client's suite. See {@link
+ * PostVisaController#igniteVerdict}), and only while the checker's account can write to GitHub. A thin client's PR
+ * gets the verdict of its newest run of that client's suite. See {@link
  * StandingVisas#postCommentFromPage}.
  */
 @RestController
@@ -41,20 +43,23 @@ public class PostToPrController {
 
     private final JiraController runs;
 
-    private final PythonClientRuns python;
+    private final ClientRuns clientRuns;
+
+    private final ThinClients projects;
 
     private final ClientVerdicts clients;
 
     private final String publicUrl;
 
     public PostToPrController(StandingVisas standing, GithubClient github, PostVisaController verdicts,
-        JiraController runs, PythonClientRuns python, ClientVerdicts clients,
+        JiraController runs, ClientRuns clientRuns, ClientVerdicts clients, ThinClients projects,
         @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl) {
         this.standing = standing;
         this.github = github;
         this.verdicts = verdicts;
         this.runs = runs;
-        this.python = python;
+        this.clientRuns = clientRuns;
+        this.projects = projects;
         this.clients = clients;
         this.publicUrl = publicUrl;
     }
@@ -66,16 +71,17 @@ public class PostToPrController {
     }
 
     /**
-     * What Post to PR can do on the run {@code build} of the client's suite for PR {@code pr} of the Python thin
-     * client. The verdict kept for the PR names the later run of the same commits it counts too, whose story may have
+     * What Post to PR can do on the run {@code build} of the selected client's suite for PR {@code pr}.
+     * The verdict kept for the PR names the later run of the same commits it counts too, whose story may have
      * posted the comment.
      */
     @GetMapping("/client/pr-comment")
-    public PrPost clientRow(@RequestParam int pr, @RequestParam long build) {
-        long rerunId = clients.kept(pr).filter(v -> v.run().buildId() == build).map(v -> v.run().rerunId())
+    public PrPost clientRow(@RequestParam String repo, @RequestParam int pr, @RequestParam long build) {
+        ClientSpec spec = projects.require(repo);
+        long rerunId = clients.kept(spec, pr).filter(v -> v.run().buildId() == build).map(v -> v.run().rerunId())
             .orElse(0L);
 
-        return new PrPost(bot(), standing.runCommentUrl(python.repo(), pr, build, rerunId).orElse(null), null);
+        return new PrPost(bot(), standing.runCommentUrl(spec.repo(), pr, build, rerunId).orElse(null), null);
     }
 
     /**
@@ -104,28 +110,29 @@ public class PostToPrController {
     }
 
     /**
-     * Puts the verdict of the run {@code build} of the client's suite for PR {@code pr} of the Python thin client into
+     * Puts the verdict of the run {@code build} of the selected client's suite for PR {@code pr} into
      * the PR, as {@link #post} puts a RunAll's. The comment mentions who started the newest run of the verdict, as the
      * run's own verdict comment does.
      */
     @PostMapping("/client/pr-comment")
-    public ResponseEntity<?> postClient(@RequestParam int pr, @RequestParam long build,
+    public ResponseEntity<?> postClient(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username, HttpServletRequest req) {
+        ClientSpec spec = projects.require(repo);
         String bot = bot();
         if (!PrPost.READY.equals(bot))
             return noBot(bot);
 
-        PostVisaController.Final verdict = verdicts.clientVerdict(tcToken, pr, build);
+        PostVisaController.Final verdict = verdicts.clientVerdict(tcToken, spec, pr, build);
         if (verdict.refused() != null)
             return refused(verdict.refused(), ClientPrsController.NO_RUN);
 
         ClientVerdicts.Run run = verdict.run();
         String login = run.starter() == null ? null : standing.provenGhLogin(run.starter());
         StandingVisas.CommentPost posted = standing.postClientCommentFromPage(username, AuthInterceptor.by(req),
-            python.repo(), pr, build, run.rerunId(), fromPage -> python.pageCommentBody(login, pr, run.buildId(),
+            spec.repo(), pr, build, run.rerunId(), fromPage -> clientRuns.pageCommentBody(spec, login, pr, run.buildId(),
                 run.rerunId(), run.suiteName(), run.clientSha(), run.igniteSha(), verdict.res(), fromPage,
-                PythonClientRuns.pageUrl(publicUrl, pr)));
+                ClientRuns.pageUrl(publicUrl, spec, pr)));
 
         return answer(posted, pr);
     }

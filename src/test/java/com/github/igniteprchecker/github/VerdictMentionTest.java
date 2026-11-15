@@ -47,7 +47,7 @@ class VerdictMentionTest {
     private static final long CHAIN = 9400000L;
 
     private static final String MENTION = "@Newcomer the verdict of your `/run-all` is ready: RunAll [9400000]"
-        + "(https://ci2.example/build/9400000) — [see the verdict](https://checker.example/?pr=13800).";
+        + "(https://ci2.example/build/9400000) — [see the verdict](https://checker.example/ignite?pr=13800).";
 
     private final GithubClient github = AppWriting.github();
 

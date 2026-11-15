@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -23,7 +22,7 @@ import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.mirror.GitMirror;
+import com.github.igniteprchecker.config.GitProxyProperties;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.PinnedRun;
@@ -39,7 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import tools.jackson.databind.ObjectMapper;
 
-class MirroredPrCommandTest {
+class PinnedPrCommandTest {
     private static final int PR = 13800;
 
     private static final String HEAD = "a".repeat(40);
@@ -47,8 +46,6 @@ class MirroredPrCommandTest {
     private final GithubClient github = AppWriting.github();
 
     private final TcClient tc = mock(TcClient.class);
-
-    private final GitMirror mirror = mock(GitMirror.class);
 
     private final StyleFixService style = mock(StyleFixService.class);
 
@@ -59,10 +56,14 @@ class MirroredPrCommandTest {
         mock(BlockerAnalyzer.class), mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class),
         mock(Warmer.class), mock(PendingCommits.class));
 
-    private final PrCommands commands = new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class),
-        style, mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
-        null, new IgnitePrRuns(github, tc, mirror,
-            new AnalysisProperties(null, "RunAll", null, null, null, null, null)));
+    private PrCommands commands = commands(false);
+
+    private PrCommands commands(boolean proxyEnabled) {
+        return new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), style,
+            mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
+            null, new IgnitePrRuns(github, tc, new GitProxyProperties(proxyEnabled),
+                new AnalysisProperties(null, "RunAll", null, null, null, null, null)));
+    }
 
     @BeforeEach
     void aCommandWithStyleFixEnabled() {
@@ -81,29 +82,27 @@ class MirroredPrCommandTest {
         when(tc.triggerRunAll("tc", PR, false)).thenReturn(build);
     }
 
-    /** A style fix may push a commit: read and mirror the resulting head before replacing the previous chain. */
+    /** A style fix may push a commit: read and pin the resulting head before replacing the previous chain. */
     @Test
-    void styleFixAndMirrorFinishBeforeReplacement() {
-        when(mirror.enabled()).thenReturn(true);
+    void styleFixAndHeadReadFinishBeforeReplacement() {
+        commands = commands(true);
 
         commands.poll();
 
-        InOrder order = inOrder(style, github, mirror, tc);
+        InOrder order = inOrder(style, github, tc);
         order.verify(style).fixForCommand(eq(PR), any(), eq("Author"));
         order.verify(github).prHeadSha(PR);
-        order.verify(mirror).ensurePr("ignite", PR, HEAD);
         order.verify(tc).cancelOwnRunAllChains("tc", PR, "author");
         order.verify(tc).queuePinned("tc", new PinnedRun("RunAll", "pull/13800/head",
             List.of(PinnedRun.Pin.forRoot("GitHubApacheIgnite", "refs/pull/13800/head", HEAD)), Map.of()), false,
             "Triggered by Ignite PR Checker");
     }
 
-    /** If fetching the fixed head fails, the command leaves the previous chain and its reruns running. */
+    /** If reading the fixed head fails, the command leaves the previous chain and its reruns running. */
     @Test
-    void failedMirrorPreparationDoesNotReplaceThePreviousRun() {
-        when(mirror.enabled()).thenReturn(true);
-        doThrow(new GitMirror.NotReadyException("PR head changed while fetching"))
-            .when(mirror).ensurePr("ignite", PR, HEAD);
+    void failedHeadReadDoesNotReplaceThePreviousRun() {
+        commands = commands(true);
+        when(github.prHeadSha(PR)).thenThrow(new IllegalStateException("head unavailable"));
 
         commands.poll();
 
@@ -112,9 +111,9 @@ class MirroredPrCommandTest {
         verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
     }
 
-    /** Disabled mirrors keep the established replacement, style-fix and branch-based RunAll order. */
+    /** A disabled proxy keeps the established replacement, style-fix and branch-based RunAll order. */
     @Test
-    void disabledMirrorPreservesTheCommandOrder() {
+    void disabledProxyPreservesTheCommandOrder() {
         commands.poll();
 
         InOrder order = inOrder(style, tc);

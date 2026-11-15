@@ -19,9 +19,12 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -53,6 +56,9 @@ import tools.jackson.databind.ObjectMapper;
  * TeamCity account.
  */
 class RevokedTokenActionsTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final String USER = "alice";
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
@@ -88,7 +94,7 @@ class RevokedTokenActionsTest {
         admin, standing);
 
     private final MockMvc mvc = guardedAsTheServiceGuards(MockMvcBuilders.standaloneSetup(
-            new GithubLinkController(github, standing, auth),
+            new GithubLinkController(github, standing, auth, PROJECTS),
             new JiraController(jira, tc, standing, mock(MergedVerdicts.class), users),
             new CacheController(cache, warmer, admin),
             new UpdateController(update, admin),

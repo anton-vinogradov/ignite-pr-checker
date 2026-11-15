@@ -9,10 +9,13 @@ import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
@@ -37,6 +40,9 @@ import tools.jackson.databind.ObjectMapper;
  * it stay whatever names it: Link GitHub, or a GitHub token saved for commits.
  */
 class GithubLoginTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private final GithubClient github = AppWriting.github();
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
@@ -49,7 +55,7 @@ class GithubLoginTest {
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
         new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
-            new Logins(mapper, mock(UserDirectory.class)), standing));
+            new Logins(mapper, mock(UserDirectory.class)), standing), PROJECTS);
 
     @BeforeEach
     void enrolled() {
@@ -192,7 +198,7 @@ class GithubLoginTest {
     void withoutAnOAuthAppThereIsNoLinkGithub() {
         when(github.linksAccounts()).thenReturn(false);
 
-        assertThat(links.link(null, null, "tc-1", "nsamelchev").getStatusCode().value()).isEqualTo(409);
+        assertThat(links.link(null, null, "ignite", "tc-1", "nsamelchev").getStatusCode().value()).isEqualTo(409);
         assertThat(standing.settings("nsamelchev").githubLinkable()).isFalse();
     }
 
@@ -200,7 +206,7 @@ class GithubLoginTest {
     void withoutTheCheckersAccountNothingIsLinked() {
         when(github.writes()).thenReturn(false);
 
-        ResponseEntity<?> res = links.link(null, null, "tc-1", "nsamelchev");
+        ResponseEntity<?> res = links.link(null, null, "ignite", "tc-1", "nsamelchev");
 
         assertThat(res.getStatusCode().value()).isEqualTo(409);
         assertThat(String.valueOf(res.getBody())).contains("no GitHub account to write with");
@@ -257,7 +263,7 @@ class GithubLoginTest {
 
     /** The outcome the callback sends the browser back with, after a link GitHub confirmed as {@code account}. */
     private String link(String username, String tcToken, GithubClient.GhUser account) {
-        URI authorize = URI.create(String.valueOf(((Map<?, ?>)links.link(null, null, tcToken, username).getBody())
+        URI authorize = URI.create(String.valueOf(((Map<?, ?>)links.link(null, null, "ignite", tcToken, username).getBody())
             .get("url")));
         String state = UriComponentsBuilder.fromUri(authorize).build().getQueryParams().getFirst("state");
         String code = "code-of-" + username;

@@ -26,7 +26,8 @@ each label means and what to do about it.
 - **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
-- **Your PRs.** Three tabs over the PR list choose which PRs it shows. **All** lists the 50 most recently updated
+- **Your PRs.** Choose **Ignite**, **Python**, **PHP** or **Node.js** first: `/ignite`, `/python`, `/php`, `/nodejs`.
+  The filters apply to the selected project. **All** lists the 50 most recently updated
   open PRs. **Mine** lists your open PRs, also those outside the 50. **Involved** lists other people's open PRs where
   someone asked you to review, you reviewed or you commented. Mine and Involved need your GitHub account linked in ⚙.
   See [Finding your PR](docs/features.md#finding-your-pr).
@@ -39,7 +40,7 @@ each label means and what to do about it.
   the IGNITE ticket the PR title names. The visa is your comment in JIRA, posted with the JIRA token you saved in ⚙.
   **Post to PR** next to it puts the verdict of the run into the PR as a comment of the checker's GitHub account. When
   the PR has the checker's verdict comment of the run, the press updates that comment. Both buttons work once the
-  verdict is final, also on a merged PR and on a PR of the Python thin client. See
+  verdict is final, also on a merged PR and on a thin client PR. See
   [Visas and PR comments](docs/features.md#visas-and-pr-comments).
 - **In Russian.** Choose Русский under **Language** in ⚙ and press **Save**: every page of the checker then shows in
   Russian in every browser you log in from. PR comments and visas stay in English. See
@@ -48,12 +49,12 @@ each label means and what to do about it.
   comment on any pull request queues RunAll under your TeamCity account. The checker's GitHub account answers: a
   comment of its own tells how the run goes, and a new one mentions you when the verdict is ready. On a PR with merge
   conflicts, `/run-all` queues RunAll only with `force`, as in `/run-all force`. See
-  [Working from the PR](docs/features.md#working-from-the-pr-commands). In the PRs of the Python thin client,
+  [Working from the PR](docs/features.md#working-from-the-pr-commands). In Python, PHP and Node.js thin client PRs,
   `/run-all` runs the client's suite against Ignite master. There, too, `/run-all` on a PR with merge conflicts
-  needs `force`. The auto re-run and the JIRA visa work there as well. The client's open PRs have a group of their own
-  in the PR list, and each has a page with its verdict, `?repo=python&pr=69`. **Run** on that page queues the same run
+  needs `force`. The auto re-run and the JIRA visa work there as well. Each project has its own PR list and pages,
+  for example `/python?pr=69`, `/php?pr=42`, `/nodejs?pr=42`. **Run** on that page queues the same run
   as `/run-all`, and your options act on it the same way. See
-  [PRs of the Python thin client](docs/features.md#prs-of-the-python-thin-client).
+  [Thin client PRs](docs/features.md#thin-client-prs).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
@@ -222,16 +223,19 @@ settings by hand.
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | none | The client ID and a client secret of the checker's GitHub OAuth App, for **Link GitHub** in ⚙. See [Quick start](#quick-start). Without them users link a GitHub account only with a GitHub token for commits. |
 | `PRC_ADMINS` | none | TeamCity usernames of the operators, comma-separated. See [Operators](#operators). |
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
-| `GIT_MIRROR_ENABLED` | `false` | Serve the optional public Git mirror. See [Git mirror for TeamCity](#git-mirror-for-teamcity). |
-| `GIT_MIRROR_DIR` | `/opt/ignite-pr-checker/git-mirrors` | Bare repositories, separate from the JSON cache and its backups. |
-| `GIT_MIRROR_SYNC_INTERVAL_SECONDS` | `60` | How often to refresh GitBox branches and tags in active mirrors. |
-| `GIT_MIRROR_TIMEOUT_SECONDS` | `600` | Maximum time for a Git command. |
+| `GIT_PROXY_ENABLED` | `false` | Forward public Git reads to GitHub without storing repositories. See [Git proxy for TeamCity](#git-proxy-for-teamcity). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
 | `GITHUB_REPO` | `apache/ignite` | Whose PRs are listed and checked. |
-| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | The Python thin client's repo: a `/run-all` in its PRs runs the suite that `PYTHON_CLIENT_SUITE` names. Its open PRs are the group **Python client** of the PR list. |
+| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | The Python project's repo: `/run-all` runs `PYTHON_CLIENT_SUITE`; its PR list is `/python`. |
 | `PYTHON_CLIENT_SUITE` | `IgniteTests24Java8_WiPThinClientPython` | The build type of the suite that tests the client against Ignite. |
 | `PYTHON_CLIENT_IGNITE_VCS_ROOT`, `PYTHON_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePythonThinClient` | The VCS root ids of the `PYTHON_CLIENT_SUITE` suite: Ignite's and the client's. When the checker queues a `/run-all` run, it names a commit for each of them. |
+| `PHP_CLIENT_REPO` | `apache/ignite-php-thin-client` | The PHP project's repo: `/run-all` runs `PHP_CLIENT_SUITE`; its PR list is `/php`. |
+| `PHP_CLIENT_SUITE` | `IgniteTests24Java8_ThinClientPhp` | The build type that tests the PHP client against Ignite. |
+| `PHP_CLIENT_IGNITE_VCS_ROOT`, `PHP_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePhpThinClient` | The Ignite and client VCS root ids for the two commits of a PHP run. |
+| `NODEJS_CLIENT_REPO` | `apache/ignite-nodejs-thin-client` | The Node.js project's repo: `/run-all` runs `NODEJS_CLIENT_SUITE`; its PR list is `/nodejs`. |
+| `NODEJS_CLIENT_SUITE` | `IgniteTests24Java8_ThinClientNodeJs` | The build type that tests the Node.js client against Ignite. |
+| `NODEJS_CLIENT_IGNITE_VCS_ROOT`, `NODEJS_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgniteNodejsThinClient` | The Ignite and client VCS root ids for the two commits of a Node.js run. |
 | `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Where visas go and IGNITE ticket links point. |
 | `MASTER_HISTORY_DEPTH` | `100` | Master runs of a test looked at, per suite. |
 | `BLOCKER_FAIL_STREAK` | `3` | Failed branch runs in a row for a blocker. |
@@ -263,9 +267,8 @@ settings by hand.
 new versions of the scripts and the systemd unit, not only of the jar. It:
 
 - uses the `java` on the PATH if it is 17 or newer, and installs OpenJDK 17 otherwise;
-- installs Git if Git or its `git-http-backend` executable is missing;
 - creates the `prc` service user. `/opt/ignite-pr-checker` with the jar and the scripts belongs to root, so the service
-  cannot change the code it runs; it writes only to `cache/`, `update/`, `dumps/`, `logs/` and `git-mirrors/` there;
+  cannot change the code it runs; it writes only to `cache/`, `update/`, `dumps/` and `logs/` there;
 - writes `/etc/ignite-pr-checker/env` from the template, with a generated `SESSION_SECRET`, if the file is not there;
 - writes `/etc/tmpfiles.d/ignite-pr-checker.conf`: while the service is stopped, systemd-tmpfiles deletes a heap dump
   older than 2 days at its daily clean;
@@ -315,46 +318,44 @@ release wrote, stop the service, copy that file over the state file, and start t
 holds no tokens. A jar of v1.38.0 or older started on such a copy switches off the visa and the options that commit, as
 if JIRA or GitHub had rejected the token. Each user switches them on again with their token.
 
-### Git mirror for TeamCity
+### Git proxy for TeamCity
 
-Enable this when TeamCity cannot reach GitHub but the checker can. TeamCity fetches public source code from the
-checker's HTTPS address. The checker still needs outbound HTTPS access to both GitBox and GitHub.
+Enable this when TeamCity cannot reach GitHub but the checker can. TeamCity fetches public source code through the
+checker's HTTPS address. The checker needs outbound HTTPS access to GitHub.
 
-The background sync takes ordinary branches and tags from Apache GitBox. PR heads are fetched from GitHub only
-when the checker prepares a launch. For a new PR run, it reads the fresh GitHub head and verifies that exact commit
-in the mirror before queueing. The PR page, PR commands, manual suite re-runs and automatic re-runs prepare the
-commits they need through the same launch checks. Commits named by queued runs are retained.
-
-The mirror does not preload every open or historical PR. It fetches a PR ref during launch preparation.
-Starting a PR directly in TeamCity does not ask the checker to fetch it.
-
-The fetch URLs are:
+The proxy serves these six fetch URLs:
 
 - `https://prc.example.org/git/ignite.git`
 - `https://prc.example.org/git/ignite-python-thin-client.git`
+- `https://prc.example.org/git/ignite-php-thin-client.git`
+- `https://prc.example.org/git/ignite-nodejs-thin-client.git`
+- `https://prc.example.org/git/ignite-release.git`
+- `https://prc.example.org/git/ignite-extensions.git`
 
-Replace `prc.example.org` with this instance's host. These URLs serve only the two public Apache repositories.
-Fetching needs no account or new token. Pushes are rejected. The existing HTTPS proxy forwards `/git/` to the same
-Java service; no extra proxy route or service is needed.
+Replace `prc.example.org` with this instance's host. Each URL forwards to the matching
+`https://github.com/apache/<repository>.git`, including release and extensions branches and tags.
+Only these public repositories are available. Fetching needs no account or new token; pushes are rejected.
+The existing HTTPS proxy forwards `/git/` to the same Java service, without another route or service.
 
-1. Check space on the filesystem that will hold the mirror: `df -h /opt/ignite-pr-checker`. The first sync downloads
-   the repository's history. Measure its size before using a small production disk, and leave room for later fetches.
-   Mirrors live outside `cache/` and are not included in its ZIP backups.
-2. Re-run `install.sh` to install Git and its HTTP backend and create `git-mirrors/` for `prc`, with mode `0700`.
-   On an existing install the env file stays unchanged. Set these values in `/etc/ignite-pr-checker/env`:
+The proxy stores no repositories or saved refs. It forwards only Git Smart HTTP reads: `GET info/refs` and
+`POST git-upload-pack`. It sends no caller credentials or cookies to GitHub and follows no upstream redirects.
+It accepts request bodies up to 8 MiB and two active Git requests at a time; a busy proxy returns `503` for retry.
+The upstream read timeout is 60 seconds. TeamCity may still use its own VCS cache.
 
-   ```ini
-   GIT_MIRROR_ENABLED=true
-   GIT_MIRROR_DIR=/opt/ignite-pr-checker/git-mirrors
-   GIT_MIRROR_SYNC_INTERVAL_SECONDS=60
-   GIT_MIRROR_TIMEOUT_SECONDS=600
-   ```
+Checker launches and re-runs stay pinned to their selected exact SHA. The proxy cannot retain a commit after
+GitHub stops serving it, for example after a force-push. If that SHA is unavailable, checkout fails; another
+commit is never substituted. Keep the branch, tag or fixed commit selected by a release job.
+TeamCity configuration synchronization is outside this proxy's scope.
 
-   For a different directory, create it with `sudo install -d -o prc -g prc -m 700 /path/to/git-mirrors` first.
-   Keep it outside `PRC_CACHE_DIR` so cache backups do not copy repository history.
-3. Keep Java on loopback (`SERVER_ADDRESS=127.0.0.1`) so clients cannot bypass the HTTPS proxy. The proxy must limit
-   the total time to receive a request body. In Caddy, save a copy of `/etc/caddy/Caddyfile`, then add this inside its
-   global options block, the `{ ... }` block at the top. Create that block if it has none:
+Before changing shared VCS roots, check release steps that push or record their repository URL. A read-only fetch
+URL is not a push destination. Native `git push origin` needs a separately configured writable upstream; an
+explicit clone or push URL in a script keeps its own destination. Artifact provenance that reads a VCS root's URL
+will record the proxy address. Verify these paths for the jobs you use before switching their roots.
+
+1. Set `GIT_PROXY_ENABLED=true` in `/etc/ignite-pr-checker/env`. No Git installation or repository directory is needed.
+2. Keep Java on loopback (`SERVER_ADDRESS=127.0.0.1`) so clients cannot bypass the HTTPS proxy. Limit the whole time
+   allowed to receive a request body. For Caddy, save a copy of `/etc/caddy/Caddyfile`, then add this inside its global
+   options block, the `{ ... }` block at the top. Create that block if it has none:
 
    ```caddyfile
    servers {
@@ -364,8 +365,8 @@ Java service; no extra proxy route or service is needed.
    }
    ```
 
-   [Caddy's `read_body` setting](https://caddyserver.com/docs/caddyfile/options) bounds the whole upload,
-   including clients that keep sending small pieces. It does not limit the time to send the response's Git pack.
+   [Caddy's `read_body` setting](https://caddyserver.com/docs/caddyfile/options) caps the whole upload,
+   including clients that keep sending small pieces. It does not cap the time to send the response's Git pack.
    Validate before reloading:
 
    ```bash
@@ -374,39 +375,30 @@ Java service; no extra proxy route or service is needed.
 
    If validation fails, restore the saved Caddyfile and keep the running configuration. Validate the restored file
    before any reload.
-4. Restart: `sudo systemctl restart ignite-pr-checker`. Wait for `/api/git-mirror/status` to show `ready: true`
-   for the repository before changing TeamCity. It also shows whether a sync is running, its last successful time,
-   and whether the last sync failed. Failure details are in the server logs. Ignite syncs after the option is enabled.
-   The Python client starts syncing when the checker first uses its mirror. `ready` confirms the GitBox branches
-   and tags are available; it does not mean a PR that the checker has never launched is present.
-5. From a machine on TeamCity's network, check a normal branch:
+3. Restart: `sudo systemctl restart ignite-pr-checker`. Check `/api/git-proxy/status` for `enabled: true`.
+   It reports `activeGitRequests` and a `repositories` array. Each entry has `slug`, `activeGitRequests`,
+   `lastSuccessAt` and `lastRequestFailed`. Failure details are in the server logs.
+4. From a machine on TeamCity's network, compare a branch's full SHA through both URLs:
 
    ```bash
    git ls-remote https://prc.example.org/git/ignite.git refs/heads/master
-   git ls-remote https://gitbox.apache.org/repos/asf/ignite.git refs/heads/master
+   git ls-remote https://github.com/apache/ignite.git refs/heads/master
    ```
 
-   Compare its full SHA with GitBox's master.
-6. Save the current fetch URL of each TeamCity VCS root you will change. Set only its fetch URL to the matching
-   mirror URL. Keep anonymous authentication, the default branch, branch specification and checkout settings.
-   Run **Test connection** from TeamCity. Then launch a selected PR through the checker, with **Run** or `/run-all`.
-   The checker fetches and verifies its head before queueing. After the launch, its PR ref is available:
+   Repeat for the repositories and release refs you use. A moving branch can change between the two requests;
+   repeat the comparison if the SHAs differ.
+5. Save the current fetch URL of each TeamCity VCS root you will change. Set only its fetch URL to the matching
+   proxy URL. Keep anonymous authentication, the default branch, branch specification and checkout settings.
+   Run **Test connection** from TeamCity, then check an actual native TeamCity checkout. For a selected PR, launch
+   **Run** or `/run-all` through the checker and compare the build's checkout SHA with the commit selected for that run.
+   Check each thin client's separate VCS root and any release or extensions root you switch.
 
-   ```bash
-   git ls-remote https://prc.example.org/git/ignite.git refs/pull/13786/head
-   ```
-
-   Use the PR number you launched. Check the build's actual checkout SHA against the commit selected for that run.
-   A later launch may advance the PR ref; the queued run stays pinned to its selected commit.
-   Check the Python client's separate VCS root too if you use that workflow.
-
-If a sync or fetch fails, keep TeamCity on its recorded URL until the checks pass. To roll back, restore those VCS
-root URLs first. Their old hosts must be reachable and provide the needed refs. Then set `GIT_MIRROR_ENABLED=false`
-and restart the checker. Keep the mirror directory. Do not purge its objects or run garbage collection while builds
-may still need pinned commits. Disabling the mirror requires no JSON state or TeamCity cache reset.
-
-`deploy.sh` checks Git, its HTTP backend and the mirror directory before replacing the jar on an opted-in install.
-It does not enable the option or change TeamCity. An install without this option keeps its existing fetch URLs.
+If setup checks fail, leave TeamCity on its recorded URLs until they pass. To return to GitHub, restore the six
+source VCS roots to their matching `https://github.com/apache/<repository>.git` URLs first. Confirm that remaining
+jobs no longer request the proxy, then set `GIT_PROXY_ENABLED=false` and restart the checker. Existing TeamCity
+promotions may still hold the proxy fetch URL, so keep the endpoint available until those jobs stop using it.
+Disabled Git endpoints return `404`; they do not redirect to GitHub.
+No JSON state or TeamCity cache reset is needed. `install.sh` and `deploy.sh` do not change TeamCity's VCS roots.
 
 ### Service and logs
 

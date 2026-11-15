@@ -3,6 +3,8 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -14,17 +16,18 @@ class NavigationTest {
     @Test
     void listEntriesAreRealLinks() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('');
+            await page.load('/ignite');
             report({ list: page.el('prList').innerHTML });
             """);
 
-        assertThat(out.get("list").asText()).contains("<a class=\"pr-link\" href=\"?pr=13575\"", "href=\"?pr=13461\"");
+        assertThat(out.get("list").asText()).contains("<a class=\"pr-link\" href=\"/ignite?pr=13575\"",
+            "href=\"/ignite?pr=13461\"");
     }
 
     @Test
     void filterMatchesNumberOrTitleAndOpensAnyNumber() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('?pr=13461');
+            await page.load('/ignite?pr=13461');
             const match = q => page.run('prMatches')(page.run('allPrs'), q);
             page.el('prFilter').value = '#13999';
             page.el('prFilter').listeners.input[0]();
@@ -47,7 +50,7 @@ class NavigationTest {
     @Test
     void enterInTheFilterOpensThatPrWhilePrIsOpen() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('?pr=13575');
+            await page.load('/ignite?pr=13575');
             page.el('prFilter').value = '13999';
             page.el('prFilter').listeners.keydown[0]({ key: 'Enter' });
             await page.settle();
@@ -56,7 +59,7 @@ class NavigationTest {
             """);
 
         assertThat(out.get("selected").asInt()).isEqualTo(13999);
-        assertThat(out.get("pushed").toString()).isEqualTo("[\"?pr=13999\"]");
+        assertThat(out.get("pushed").toString()).isEqualTo("[\"/ignite?pr=13999\"]");
         assertThat(out.get("filter").asText()).isEmpty();
         assertThat(out.get("analysed").asInt()).isEqualTo(1);
     }
@@ -64,7 +67,7 @@ class NavigationTest {
     @Test
     void backToTheStartAddressShowsTheStartPage() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('?pr=13575');
+            await page.load('/ignite?pr=13575');
             page.location.search = '';
             await page.popstate();
             report({
@@ -83,18 +86,25 @@ class NavigationTest {
         assertThat(out.get("polls").asInt()).isZero();
     }
 
-    @Test
-    void titleLeadsBackToTheStartPage() throws Exception {
+    /** Given an open PR, clicking the brand returns to that project's home and clears the selected PR. */
+    @ParameterizedTest
+    @ValueSource(strings = {"/ignite", "/python", "/php", "/nodejs"})
+    void titleLeadsBackToTheStartPage(String project) throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('?pr=13575');
+            const project = '%s';
+            page.route('/api/client/prs', { body: [] });
+            page.route('/api/client/pr-title', { body: { title: 'Client change' } });
+            page.route('/api/client/analyze', { status: 404, body: { noRun: true } });
+            page.route('/api/client/runs', { body: [] });
+            await page.load(project + '?pr=' + (project === '/ignite' ? 13575 : 69));
             let prevented = false;
             page.el('brand').listeners.click[0]({ button: 0, preventDefault() { prevented = true; } });
             await page.settle();
             report({ selected: page.run('selectedPr'), pushed: page.pushed, prevented });
-            """);
+            """.formatted(project));
 
         assertThat(out.get("selected").isNull()).isTrue();
-        assertThat(out.get("pushed").toString()).isEqualTo("[\"/\"]");
+        assertThat(out.get("pushed").toString()).isEqualTo("[\"" + project + "\"]");
         assertThat(out.get("prevented").asBoolean()).isTrue();
     }
 
@@ -102,7 +112,7 @@ class NavigationTest {
     void slashJumpsToTheFilterAndOpensACollapsedList() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.run('localStorage').setItem('prPaneCollapsed', '1');
-            await page.load('?pr=13575');
+            await page.load('/ignite?pr=13575');
             const collapsed = page.el('analyzeView').classList.contains('collapsed');
             await page.keydown('/');
             report({ collapsed, focused: page.run('document').activeElement === page.el('prFilter'),

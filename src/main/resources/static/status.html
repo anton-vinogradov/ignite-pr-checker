@@ -37,6 +37,11 @@
         .card .v.bad { color: var(--bad); }
         .card .v small .late { color: var(--warn); }
         .card .v small .late[title] { cursor: help; }
+        .proxy-repos { display: grid; gap: 0.7rem; }
+        .proxy-repo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 1rem; font-size: 0.85rem; }
+        .proxy-repo strong { min-width: 5rem; }
+        .proxy-repo .bad { color: var(--bad); }
+        .proxy-note { margin: 0.8rem 0 0; font-size: 0.8rem; line-height: 1.5; }
 
         h2 { font-size: 1.05rem; margin: 1.8rem 0 0.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
         h2:first-of-type { margin-top: 0.6rem; }
@@ -108,9 +113,9 @@
 </head>
 <body class="awaits-status">
     <header class="topbar">
-        <a class="brand" href="/" title="Start page">Ignite PR Checker</a>
+        <a class="brand" href="/ignite" title="Start page">Ignite PR Checker</a>
         <nav class="menu" aria-label="Pages">
-            <a href="/" target="_self" title="Shows the open PRs and their verdicts.">PRs</a>
+            <a href="/ignite" target="_self" title="Shows the open PRs and their verdicts.">PRs</a>
             <a href="/flaky.html" target="_self" title="Shows the tests that fail on master.">Flaky tests</a>
             <a href="/status.html" target="_self" aria-current="page" title="Shows the service status and metrics.">Status<span id="healthDot" class="hdot" title="health"></span></a>
         </nav>
@@ -160,6 +165,14 @@
         <div class="cards" id="appCards"></div>
         <div class="subhead">Served requests by endpoint · own latency, last hour</div>
         <div class="section"><div id="httpCats" class="cats chart"></div></div>
+
+        <h2>Git proxy</h2>
+        <div class="cards" id="proxyCards"></div>
+        <div class="section">
+            <div id="proxyRepos" class="proxy-repos"></div>
+            <p class="proxy-note muted">Git requests read refs and code from GitHub. The proxy stores no repositories and runs no background sync.</p>
+            <p class="proxy-note muted">To turn the proxy off, first restore the six TeamCity VCS root URLs, then set <code>GIT_PROXY_ENABLED=false</code> and restart this service. No code change is needed.</p>
+        </div>
 
         <h2>Cache warmer
             <button id="flushBtn" class="mini-btn" type="button" hidden

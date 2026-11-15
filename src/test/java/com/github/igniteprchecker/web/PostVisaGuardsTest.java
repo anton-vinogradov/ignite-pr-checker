@@ -19,11 +19,14 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.ClientVerdicts;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.config.WarmProperties;
+import com.github.igniteprchecker.github.ClientRuns;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -49,10 +52,13 @@ import tools.jackson.databind.ObjectMapper;
  * only from the checker's own page. The visa line the page polls asks TeamCity nothing.
  */
 class PostVisaGuardsTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final String USER = "alice";
 
     private static final List<String> POSTS = List.of("/api/visa?pr=13709&build=9425992&issue=IGNITE-29100",
-        "/api/client/visa?pr=69&build=9424200&issue=IGNITE-29117");
+        "/api/client/visa?repo=python&pr=69&build=9424200&issue=IGNITE-29117");
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
@@ -79,7 +85,7 @@ class PostVisaGuardsTest {
 
     private final MockMvc mvc = guardedAsTheServiceGuards(MockMvcBuilders.standaloneSetup(
             new PostVisaController(standing, mock(BlockerAnalyzer.class), merged, tc,
-                new PrTitleController(github, merged), mock(ClientVerdicts.class), mock(PythonClientRuns.class),
+                new PrTitleController(github, merged), mock(ClientVerdicts.class), mock(ClientRuns.class), PROJECTS,
                 mock(PrCommands.class), mock(ClientPrsController.class)),
             new JiraController(mock(JiraClient.class), tc, standing, merged, users)))
         .addFilters(new SameOriginFilter())

@@ -26,8 +26,7 @@ class PostToPrPageTest {
     /** The client's PR #69, whose newest run of the suite has a final verdict. */
     private static final String CLIENT_PR = """
         page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
-            starCount: 1, refreshAfterSeconds: 120, clientRepo: 'apache/ignite-python-thin-client',
-            clientSuite: 'Thin client: Python' } });
+            starCount: 1, refreshAfterSeconds: 120, clients: [{ key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' }] } });
         page.route('/api/client/analyze', { body: Object.assign(verdict({ prNumber: 69, buildId: 9424794,
             branchName: 'pull/69', blockers: [] }), { repo: 'python', rerunId: 0, suiteName: 'Thin client: Python',
             standing: 'CLEAN', caveats: [], pushed: { pending: false, checked: true } }) });
@@ -274,7 +273,7 @@ class PostToPrPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + ROW + CLIENT_PR + """
             answer = { body: { bot: 'ready', url: 'https://github.com/apache/ignite-python-thin-client/pull/69'
                 + '#issuecomment-7', edited: false } };
-            await page.load('?repo=python&pr=69');
+            await page.load('/python?pr=69');
             await page.tick(100);
             await page.el('prPost').onclick();
             await page.settle();
@@ -283,7 +282,7 @@ class PostToPrPageTest {
 
         assertThat(out.get("asked").get(0).asText()).isEqualTo("Post the verdict of Thin client: Python build 9424794"
             + " to PR #69? It goes in as a comment of the checker's GitHub account, and its last line names you.");
-        assertThat(out.get("posts").get(0).asText()).isEqualTo("/api/client/pr-comment?pr=69&build=9424794");
+        assertThat(out.get("posts").get(0).asText()).isEqualTo("/api/client/pr-comment?pr=69&repo=python&build=9424794");
         assertThat(out.get("status").asText()).isEqualTo("Verdict posted to PR #69.");
     }
 

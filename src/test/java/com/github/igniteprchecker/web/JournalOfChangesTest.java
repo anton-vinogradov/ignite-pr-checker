@@ -12,10 +12,13 @@ import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.AdminProperties;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -48,6 +51,9 @@ import tools.jackson.databind.node.ObjectNode;
  * as the checker's.
  */
 class JournalOfChangesTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final String USER = "alice";
 
     private static final String FIREFOX_LINUX = "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101"
@@ -79,7 +85,7 @@ class JournalOfChangesTest {
     private final JiraController options = new JiraController(jira, tc, standing, mock(MergedVerdicts.class), users);
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
-        new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing));
+        new AuthInterceptor(codec, mock(Warmer.class), users, logins, standing), PROJECTS);
 
     private final JournalController journalApi = new JournalController(journal, users);
 
@@ -343,7 +349,7 @@ class JournalOfChangesTest {
 
     /** The outcome of a link GitHub confirmed as {@code account}, from a browser with the cookie of alice's laptop. */
     private String link(GithubClient.GhUser account, String userAgent) {
-        URI authorize = URI.create(String.valueOf(((Map<?, ?>)links.link(null, null, "tc", USER).getBody())
+        URI authorize = URI.create(String.valueOf(((Map<?, ?>)links.link(null, null, "ignite", "tc", USER).getBody())
             .get("url")));
         String state = UriComponentsBuilder.fromUri(authorize).build().getQueryParams().getFirst("state");
         when(github.oauthUser("code")).thenReturn(Optional.of(account));

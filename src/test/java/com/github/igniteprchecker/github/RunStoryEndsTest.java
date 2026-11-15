@@ -115,7 +115,7 @@ class RunStoryEndsTest {
 
         verify(github).appEdit(anyInt(), any(), eq(77L), contains("🏁 _Run finished — RunAll [" + (CHAIN + 5)
             + "](https://ci2.example/build/" + (CHAIN + 5) + ") replaced it before it settled; the newest verdict is on"
-            + " [the checker's page](https://checker.example/?pr=" + PR + ")._"));
+            + " [the checker's page](https://checker.example/ignite?pr=" + PR + ")._"));
     }
 
     @Test
@@ -132,7 +132,7 @@ class RunStoryEndsTest {
         commands.updateEtas();
 
         verify(github).appEdit(anyInt(), any(), eq(77L), contains("🏁 _Run finished — the PR was merged before the"
-            + " re-runs settled; the last known verdict is on [the checker's page](https://checker.example/?pr=" + PR
+            + " re-runs settled; the last known verdict is on [the checker's page](https://checker.example/ignite?pr=" + PR
             + ")._"));
     }
 

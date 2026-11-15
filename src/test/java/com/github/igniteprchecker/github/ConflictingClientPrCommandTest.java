@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -22,10 +21,10 @@ import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
-import com.github.igniteprchecker.mirror.GitMirror;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -172,51 +171,38 @@ class ConflictingClientPrCommandTest {
         verify(github).appReact(PR, "author", 1L, "rocket");
     }
 
-    /** A failed mirror fetch cannot cancel the user's existing Python client runs. */
+    /** A failed head read cannot cancel the user's existing Python client runs. */
     @Test
-    void mirrorFailurePreservesPreviousClientRuns() {
-        GitMirror mirror = mock(GitMirror.class);
-        when(mirror.enabled()).thenReturn(true);
-        doThrow(new GitMirror.NotReadyException("PR head changed while fetching"))
-            .when(mirror).ensurePr("ignite-python-thin-client", PR, CLIENT);
-        commands = commands(null, mirror);
+    void headReadFailurePreservesPreviousClientRuns() {
+        when(github.prHeadSha(CLIENT_REPO, PR)).thenThrow(new IllegalStateException("head unavailable"));
 
         clientComment(1L, "/run-all force");
 
-        verify(mirror).ensurePr("ignite-python-thin-client", PR, CLIENT);
         verify(tc, never()).cancelOwnBuilds(anyString(), anyString(), anyString(), any());
         verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
     }
 
-    /** The command prepares both mirrored revisions before cancelling earlier Python client runs. */
+    /** The command resolves both commits and VCS roots before cancelling earlier Python client runs. */
     @Test
-    void mirroredClientRunIsReadyBeforeReplacement() {
-        GitMirror mirror = mock(GitMirror.class);
-        when(mirror.enabled()).thenReturn(true);
-        commands = commands(null, mirror);
-
+    void clientCommitsAreResolvedBeforeReplacement() {
         clientComment(1L, "/run-all force");
 
-        InOrder order = inOrder(mirror, tc);
-        order.verify(mirror).ensurePr("ignite-python-thin-client", PR, CLIENT);
-        order.verify(mirror).ensureRevision("ignite", "refs/heads/master",
-            "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c");
+        InOrder order = inOrder(github, tc);
+        order.verify(github).prHeadSha(CLIENT_REPO, PR);
+        order.verify(github).branchHeadSha("apache/ignite", "master");
         order.verify(tc).vcsRootInstances("tc", SUITE);
         order.verify(tc).cancelOwnBuilds(eq("tc"), eq("pull/69"), eq("author"), any());
         order.verify(tc).queuePinned(eq("tc"), any(), eq(false), anyString());
     }
 
     private PrCommands commands(String suite) {
-        return commands(suite, null);
-    }
-
-    private PrCommands commands(String suite, GitMirror mirror) {
         return new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
-            new PythonClientRuns(new PythonClientProperties(null, suite, null, null), github, tc,
+            new ClientRuns(github, tc,
                 mock(BlockerAnalyzer.class),
                 new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
-                new TeamcityProperties("https://ci2.example/"), mirror));
+                new TeamcityProperties("https://ci2.example/")), IgnitePrRuns.unpinned(tc),
+            new ThinClients(new PythonClientProperties(null, suite, null, null), new ThinClientProperties(null, null)));
     }
 
     private void clientComment(long id, String body) {

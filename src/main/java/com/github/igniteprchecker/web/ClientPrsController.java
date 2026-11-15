@@ -7,7 +7,9 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.github.PrSummary;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
@@ -32,10 +34,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * What the checker's page shows and does for a PR of the Python thin client, whose numbers overlap Ignite's: the list
+ * What the checker's page shows and does for a PR of a thin client, whose numbers overlap other repositories: the list
  * of the client's open PRs, the verdict of a PR's newest run of the client's suite (see {@link ClientVerdicts}), its
  * runs on ci2, and the buttons that queue and cancel them. Run queues what {@code /run-all} in the PR queues: the
- * suite with the PR's head and Ignite's master (see {@link PythonClientRuns#queue}). The starter's options act on the
+ * suite with the PR's head and Ignite's master (see {@link ClientRuns#queue}). The starter's options act on the
  * run as on the run of a {@code /run-all}.
  */
 @RestController
@@ -59,7 +61,9 @@ public class ClientPrsController {
 
     private final ClientVerdicts clients;
 
-    private final PythonClientRuns python;
+    private final ClientRuns clientRuns;
+
+    private final ThinClients projects;
 
     private final TcClient tc;
 
@@ -77,22 +81,23 @@ public class ClientPrsController {
 
     private final LongSupplier clock;
 
-    private final Map<Integer, Title> titles = new ConcurrentHashMap<>();
+    private final Map<ClientPr, Title> titles = new ConcurrentHashMap<>();
 
     /** When GitHub was asked for a title, over the last hour. */
     private final Deque<Long> askedTitles = new ArrayDeque<>();
 
     @Autowired
-    public ClientPrsController(ClientVerdicts clients, PythonClientRuns python, TcClient tc, GithubClient github,
-        PrHeads heads, YourPrs yours, StandingVisas standing, PrCommands commands, AuthInterceptor auth) {
-        this(clients, python, tc, github, heads, yours, standing, commands, auth, System::currentTimeMillis);
+    public ClientPrsController(ClientVerdicts clients, ClientRuns clientRuns, TcClient tc, GithubClient github,
+        PrHeads heads, YourPrs yours, StandingVisas standing, PrCommands commands, AuthInterceptor auth, ThinClients projects) {
+        this(clients, clientRuns, tc, github, heads, yours, standing, commands, auth, projects, System::currentTimeMillis);
     }
 
-    ClientPrsController(ClientVerdicts clients, PythonClientRuns python, TcClient tc, GithubClient github,
-        PrHeads heads, YourPrs yours, StandingVisas standing, PrCommands commands, AuthInterceptor auth,
+    ClientPrsController(ClientVerdicts clients, ClientRuns clientRuns, TcClient tc, GithubClient github,
+        PrHeads heads, YourPrs yours, StandingVisas standing, PrCommands commands, AuthInterceptor auth, ThinClients projects,
         LongSupplier clock) {
         this.clients = clients;
-        this.python = python;
+        this.clientRuns = clientRuns;
+        this.projects = projects;
         this.tc = tc;
         this.github = github;
         this.heads = heads;
@@ -105,27 +110,29 @@ public class ClientPrsController {
 
     /** The client's open PRs, badged as {@code /api/prs} badges Ignite's; who started a run only to a signed-in user. */
     @GetMapping("/prs")
-    public List<PrSummary> prs(HttpServletRequest req) {
+    public List<PrSummary> prs(@RequestParam String repo, HttpServletRequest req) {
+        ClientSpec spec = projects.require(repo);
         boolean signedIn = auth.signedIn(req).isPresent();
 
-        return clients.openPrs().stream().map(p -> listed(p, signedIn)).toList();
+        return clients.openPrs(spec).stream().map(p -> listed(spec, p, signedIn)).toList();
     }
 
     /** The client's PRs of the tabs Mine and Involved. */
     @GetMapping("/your-prs")
-    public YourPrs.Lists yourPrs(@RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        YourPrs.Lists found = yours.of(username, clients.repo());
+    public YourPrs.Lists yourPrs(@RequestParam String repo, @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        ClientSpec spec = projects.require(repo);
+        YourPrs.Lists found = yours.of(username, spec.repo());
 
-        return new YourPrs.Lists(found.login(), badged(found.mine()), badged(found.involved()), found.problem());
+        return new YourPrs.Lists(found.login(), badged(spec, found.mine()), badged(spec, found.involved()), found.problem());
     }
 
-    private List<PrSummary> badged(List<PrSummary> prs) {
-        return prs == null ? null : prs.stream().map(p -> listed(p, true)).toList();
+    private List<PrSummary> badged(ClientSpec spec, List<PrSummary> prs) {
+        return prs == null ? null : prs.stream().map(p -> listed(spec, p, true)).toList();
     }
 
-    private PrSummary listed(PrSummary p, boolean signedIn) {
-        String starter = signedIn ? clients.starter(p.number()) : null;
-        Caveats.Glance g = clients.glance(p.number());
+    private PrSummary listed(ClientSpec spec, PrSummary p, boolean signedIn) {
+        String starter = signedIn ? clients.starter(spec, p.number()) : null;
+        Caveats.Glance g = clients.glance(spec, p.number());
         if (g == null)
             return new PrSummary(p.number(), p.title(), p.url(), starter, null, null, p.headSha(), null);
 
@@ -137,20 +144,22 @@ public class ClientPrsController {
 
     /** The verdict of the PR's newest run that tested its own commit; 404 with {@code noRun} when it has none. */
     @GetMapping("/analyze")
-    public ResponseEntity<?> analyze(@RequestParam int pr,
+    public ResponseEntity<?> analyze(@RequestParam String repo, @RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return served(pr, clients.verdict(token, pr));
+        ClientSpec spec = projects.require(repo);
+        return served(spec, pr, clients.verdict(token, spec, pr));
     }
 
     /** The same, with the newest run asked of TeamCity and the verdict computed now: the page's ↻. */
     @PostMapping("/refresh")
-    public ResponseEntity<?> refresh(@RequestParam int pr,
+    public ResponseEntity<?> refresh(@RequestParam String repo, @RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token) {
-        return served(pr, clients.fresh(token, pr));
+        ClientSpec spec = projects.require(repo);
+        return served(spec, pr, clients.fresh(token, spec, pr));
     }
 
-    private ResponseEntity<?> served(int pr, Optional<ClientVerdicts.Verdict> verdict) {
-        return verdict.<ResponseEntity<?>>map(v -> ResponseEntity.ok(Served.of(v, clients.head(pr), python.repo(),
+    private ResponseEntity<?> served(ClientSpec spec, int pr, Optional<ClientVerdicts.Verdict> verdict) {
+        return verdict.<ResponseEntity<?>>map(v -> ResponseEntity.ok(Served.of(v, clients.head(spec, pr), spec,
                 github.repo())))
             .orElseGet(() -> ResponseEntity.status(404).body(Map.of("error", NO_RUN, "noRun", true)));
     }
@@ -160,11 +169,12 @@ public class ClientPrsController {
      * ({@code by}) and whether that is the viewer ({@code mine}). Each is pinned to its commits when queued.
      */
     @GetMapping("/runs")
-    public List<Map<String, Object>> runs(@RequestParam int pr,
+    public List<Map<String, Object>> runs(@RequestParam String repo, @RequestParam int pr,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        return tc.currentUserBuilds(token, PythonClientRuns.branch(pr)).stream()
-            .filter(b -> python.suite().equals(b.buildTypeId()))
+        ClientSpec spec = projects.require(repo);
+        return tc.currentUserBuilds(token, spec.branch(pr)).stream()
+            .filter(b -> spec.suite().equals(b.buildTypeId()))
             .map(b -> {
                 Map<String, Object> m = TriggerController.brief(b);
                 String by = TcClient.starter(b);
@@ -184,29 +194,29 @@ public class ClientPrsController {
      * nothing is cancelled or queued, unless {@code force}. A run that cannot be put together gets 409 with why.
      */
     @PostMapping("/trigger")
-    public ResponseEntity<?> trigger(@RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
+    public ResponseEntity<?> trigger(@RequestParam String repo, @RequestParam int pr, @RequestParam(defaultValue = "false") boolean top,
         @RequestParam(defaultValue = "false") boolean replace, @RequestParam(defaultValue = "false") boolean force,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        if (!force && heads.spare() && github.reportsConflicts(python.repo(), pr))
+        ClientSpec spec = projects.require(repo);
+        if (!force && heads.spare() && github.reportsConflicts(spec.repo(), pr))
             return ResponseEntity.status(409).body(Map.of("error", CONFLICTS, "conflicts", true));
 
         int[] replaced = {0};
         boolean[] queuing = {false};
-        PythonClientRuns.Queued queued;
+        ClientRuns.Queued queued;
         try {
-            queued = commands.queueFromPage(username, pr, replace, () -> {
-                PinnedRun prepared = python.mirrorEnabled() ? python.prepare(token, pr) : null;
-                replaced[0] = replace ? python.cancelOwn(token, username, pr) : 0;
+            queued = commands.queueFromPage(username, spec, pr, replace, () -> {
+                PinnedRun prepared = clientRuns.prepare(token, spec, pr);
+                replaced[0] = replace ? clientRuns.cancelOwn(token, username, spec, pr) : 0;
                 queuing[0] = true;
 
                 String why = "Ignite PR Checker: Run on the checker's page for"
-                    + " https://github.com/" + python.repo() + "/pull/" + pr;
-                return prepared == null ? python.queue(token, pr, top, why)
-                    : python.queuePrepared(token, prepared, top, why);
+                    + " https://github.com/" + spec.repo() + "/pull/" + pr;
+                return clientRuns.queuePrepared(token, prepared, top, why);
             });
         }
-        catch (PythonClientRuns.NotQueued e) {
+        catch (ClientRuns.NotQueued e) {
             return ResponseEntity.status(409).body(replaced[0] == 0 ? Map.of("error", e.getMessage())
                 : Map.of("error", PREVIOUS_RUN_CANCELLED + ": " + e.getMessage(), "replaced", replaced[0]));
         }
@@ -233,17 +243,18 @@ public class ClientPrsController {
 
     /** Cancels the user's own runs of the suite on the PR, only those in {@code ids} when given. */
     @PostMapping("/cancel-all")
-    public ResponseEntity<?> cancelAll(@RequestParam int pr, @RequestParam(required = false) List<Long> ids,
+    public ResponseEntity<?> cancelAll(@RequestParam String repo, @RequestParam int pr, @RequestParam(required = false) List<Long> ids,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String token,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        return ResponseEntity.ok(Map.of("cancelled", tc.cancelOwnBuilds(token, PythonClientRuns.branch(pr), username,
-            b -> python.suite().equals(b.buildTypeId()) && (ids == null || ids.contains(b.id())))));
+        ClientSpec spec = projects.require(repo);
+        return ResponseEntity.ok(Map.of("cancelled", tc.cancelOwnBuilds(token, spec.branch(pr), username,
+            b -> spec.suite().equals(b.buildTypeId()) && (ids == null || ids.contains(b.id())))));
     }
 
     /** Whether the verdict of the run {@code build} is final, or the story of its {@code /run-all} still settles it. */
     @GetMapping("/settling")
-    public StandingVisas.Phase settling(@RequestParam int pr, @RequestParam long build) {
-        return commands.clientPhase(pr, build);
+    public StandingVisas.Phase settling(@RequestParam String repo, @RequestParam int pr, @RequestParam long build) {
+        return commands.clientPhase(projects.require(repo), pr, build);
     }
 
     /**
@@ -251,13 +262,14 @@ public class ClientPrsController {
      * verdict kept, and what Post to JIRA can do for the viewer; see {@link PostVisaController}.
      */
     @GetMapping("/visa")
-    public PostVisaController.VisaRow visaLine(@RequestParam int pr, @RequestParam long build,
+    public PostVisaController.VisaRow visaLine(@RequestParam String repo, @RequestParam int pr, @RequestParam long build,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
-        String revision = clients.kept(pr).map(ClientVerdicts.Verdict::result)
+        ClientSpec spec = projects.require(repo);
+        String revision = clients.kept(spec, pr).map(ClientVerdicts.Verdict::result)
             .filter(r -> r.buildId() == build).map(AnalysisResult::revision).orElse(null);
 
-        return PostVisaController.VisaRow.of(standing.clientVisaLine(username, python.repo(), pr, build, revision),
-            standing.visaButton(username, python.repo(), pr, build));
+        return PostVisaController.VisaRow.of(standing.clientVisaLine(username, spec.repo(), pr, build, revision),
+            standing.visaButton(username, spec.repo(), pr, build));
     }
 
     /**
@@ -267,8 +279,9 @@ public class ClientPrsController {
      * hour at most.
      */
     @GetMapping("/pr-title")
-    public ResponseEntity<?> title(@RequestParam int pr) {
-        return known(pr).filter(p -> p.title() != null)
+    public ResponseEntity<?> title(@RequestParam String repo, @RequestParam int pr) {
+        ClientSpec spec = projects.require(repo);
+        return known(spec, pr).filter(p -> p.title() != null)
             .<ResponseEntity<?>>map(p -> ResponseEntity.ok(PrTitleController.answer(p)))
             .orElseGet(() -> noTitle(pr));
     }
@@ -277,42 +290,43 @@ public class ClientPrsController {
      * The PR's title as it is now, for the visa that goes to the ticket it names: from the list of the client's open
      * PRs, which follows a renamed title, for an open PR, else as the page gets it.
      */
-    Optional<String> titleNow(int pr) {
-        Optional<String> listed = listed(pr);
+    Optional<String> titleNow(ClientSpec spec, int pr) {
+        Optional<String> listed = listed(spec, pr);
 
-        return listed.isPresent() ? listed : knownTitle(pr);
+        return listed.isPresent() ? listed : knownTitle(spec, pr);
     }
 
     /** The PR's title as the page gets it; empty when GitHub has no such PR or could not be asked. */
-    Optional<String> knownTitle(int pr) {
-        return known(pr).map(GithubClient.PullState::title);
+    Optional<String> knownTitle(ClientSpec spec, int pr) {
+        return known(spec, pr).map(GithubClient.PullState::title);
     }
 
     /** The PR as the page gets it; empty when GitHub has no such PR or could not be asked. */
-    private Optional<GithubClient.PullState> known(int pr) {
+    private Optional<GithubClient.PullState> known(ClientSpec spec, int pr) {
         long now = clock.getAsLong();
-        Title t = titles.get(pr);
+        ClientPr key = new ClientPr(spec.repo(), pr);
+        Title t = titles.get(key);
         if (t == null || now - t.at() >= TITLE_KEPT_MS) {
-            t = titleOf(pr, now);
+            t = titleOf(spec, pr, now);
             if (t == null)
                 return Optional.empty();
 
             titles.values().removeIf(old -> now - old.at() >= TITLE_KEPT_MS);
-            titles.put(pr, t);
+            titles.put(key, t);
         }
 
         return Optional.ofNullable(t.pull());
     }
 
-    private Title titleOf(int pr, long now) {
-        Optional<String> listed = listed(pr);
+    private Title titleOf(ClientSpec spec, int pr, long now) {
+        Optional<String> listed = listed(spec, pr);
         if (listed.isPresent())
             return new Title(new GithubClient.PullState(listed.get(), true, false), now);
         if (!mayAskGithub(now))
             return null;
 
         try {
-            return new Title(python.pullState(pr).orElse(null), now);
+            return new Title(clientRuns.pullState(spec, pr).orElse(null), now);
         }
         catch (RuntimeException e) {
             return null;
@@ -320,8 +334,8 @@ public class ClientPrsController {
     }
 
     /** The title of the PR in the list of the client's open PRs; empty when the list does not hold it. */
-    private Optional<String> listed(int pr) {
-        return clients.openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::title).filter(Objects::nonNull)
+    private Optional<String> listed(ClientSpec spec, int pr) {
+        return clients.openPrs(spec).stream().filter(p -> p.number() == pr).map(PrSummary::title).filter(Objects::nonNull)
             .findFirst();
     }
 
@@ -340,6 +354,9 @@ public class ClientPrsController {
         return ResponseEntity.status(404).body(Map.of("error", "no title known for PR " + pr));
     }
 
+    private record ClientPr(String repo, int pr) {
+    }
+
     /** A PR, null for one GitHub does not have, and when it was learned. */
     private record Title(GithubClient.PullState pull, long at) {
     }
@@ -354,13 +371,13 @@ public class ClientPrsController {
     public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats,
         Map<String, Object> pushed, String repo, long rerunId, String suiteName, String clientSha, String igniteSha,
         String clientRepo, String igniteRepo) {
-        static Served of(ClientVerdicts.Verdict v, String head, String clientRepo, String igniteRepo) {
+        static Served of(ClientVerdicts.Verdict v, String head, ClientSpec spec, String igniteRepo) {
             AnalysisResult r = v.result();
             ClientVerdicts.Run run = v.run();
 
             return new Served(r, Caveats.standing(r, null), Caveats.of(r, null), pushed(run.clientSha(), head),
-                PythonClientRuns.PAGE_REPO, run.rerunId(), run.suiteName(), run.clientSha(), run.igniteSha(),
-                clientRepo, igniteRepo);
+                spec.key(), run.rerunId(), run.suiteName(), run.clientSha(), run.igniteSha(),
+                spec.repo(), igniteRepo);
         }
 
         /**

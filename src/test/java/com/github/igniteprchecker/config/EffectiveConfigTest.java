@@ -3,6 +3,7 @@ package com.github.igniteprchecker.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.igniteprchecker.InstallScript;
+import com.github.igniteprchecker.github.ThinClients;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -56,7 +57,9 @@ class EffectiveConfigTest {
             binder.bindOrCreate("warm", WarmProperties.class),
             binder.bindOrCreate("update", UpdateProperties.class),
             binder.bindOrCreate("admin", AdminProperties.class),
-            binder.bindOrCreate("session", SessionProperties.class));
+            binder.bindOrCreate("session", SessionProperties.class),
+            new ThinClients(binder.bindOrCreate("python-client", PythonClientProperties.class),
+                binder.bindOrCreate("thin-clients", ThinClientProperties.class)));
     }
 
     @Test
@@ -81,6 +84,17 @@ class EffectiveConfigTest {
             .isEqualTo(new PersistProperties(null, null, null));
         assertThat(yml.bindOrCreate("github", GithubProperties.class))
             .isEqualTo(new GithubProperties(null, "", null));
+        assertThat(yml.bindOrCreate("git-proxy", GitProxyProperties.class).enabled()).isFalse();
+        assertThat(config(Map.of()).settings()).containsEntry("GIT_PROXY_ENABLED", "false");
+    }
+
+    /** Given the proxy flag in the env file, binding enables it and the settings report shows that value. */
+    @Test
+    void theProxyFlagIsBoundAndReported() throws IOException {
+        Map<String, Object> vars = Map.of("GIT_PROXY_ENABLED", "true");
+
+        assertThat(Binder.get(env(vars)).bindOrCreate("git-proxy", GitProxyProperties.class).enabled()).isTrue();
+        assertThat(config(vars).settings()).containsEntry("GIT_PROXY_ENABLED", "true");
     }
 
     /**
@@ -100,7 +114,8 @@ class EffectiveConfigTest {
             binder.bindOrCreate("update", UpdateProperties.class),
             binder.bindOrCreate("admin", AdminProperties.class),
             binder.bindOrCreate("session", SessionProperties.class),
-            binder.bindOrCreate("python-client", PythonClientProperties.class));
+            new ThinClients(binder.bindOrCreate("python-client", PythonClientProperties.class),
+                binder.bindOrCreate("thin-clients", ThinClientProperties.class)));
 
         assertThat(config.settings()).containsEntry("PYTHON_CLIENT_REPO", "apache/ignite-python-thin-client")
             .containsEntry("PYTHON_CLIENT_SUITE", "Py_Suite")
@@ -108,6 +123,31 @@ class EffectiveConfigTest {
             .containsEntry("PYTHON_CLIENT_VCS_ROOT", "GitHubApacheIgnitePythonThinClient");
         assertThat(Binder.get(env(Map.of())).bindOrCreate("python-client", PythonClientProperties.class))
             .isEqualTo(new PythonClientProperties(null, null, null, null));
+    }
+
+    /** Given configured PHP and Node.js suites, the effective settings show their values and default roots. */
+    @Test
+    void theOtherClientsSettingsUseTheirConfiguredValuesAndDefaults() throws IOException {
+        EffectiveConfig config = config(Map.of("PHP_CLIENT_REPO", "example/php", "PHP_CLIENT_SUITE", "Php_Suite",
+            "NODEJS_CLIENT_REPO", "example/node", "NODEJS_CLIENT_SUITE", "Node_Suite"));
+
+        assertThat(config.settings()).containsEntry("PHP_CLIENT_REPO", "example/php")
+            .containsEntry("PHP_CLIENT_SUITE", "Php_Suite")
+            .containsEntry("PHP_CLIENT_IGNITE_VCS_ROOT", "GitHubApacheIgnite")
+            .containsEntry("PHP_CLIENT_VCS_ROOT", "GitHubApacheIgnitePhpThinClient")
+            .containsEntry("NODEJS_CLIENT_REPO", "example/node")
+            .containsEntry("NODEJS_CLIENT_SUITE", "Node_Suite")
+            .containsEntry("NODEJS_CLIENT_IGNITE_VCS_ROOT", "GitHubApacheIgnite")
+            .containsEntry("NODEJS_CLIENT_VCS_ROOT", "GitHubApacheIgniteNodejsThinClient");
+    }
+
+    /** Given empty PHP and Node.js roots, the report names the defaults used by the registry. */
+    @Test
+    void emptyThinClientSettingsReportTheirEffectiveFallbacks() throws IOException {
+        EffectiveConfig config = config(Map.of("PHP_CLIENT_VCS_ROOT", " ", "NODEJS_CLIENT_IGNITE_VCS_ROOT", ""));
+
+        assertThat(config.problems()).contains("PHP_CLIENT_VCS_ROOT is empty; using GitHubApacheIgnitePhpThinClient",
+            "NODEJS_CLIENT_IGNITE_VCS_ROOT is empty; using GitHubApacheIgnite");
     }
 
     @Test
@@ -146,7 +186,7 @@ class EffectiveConfigTest {
             .containsEntry("SESSION_COOKIE_SECURE", "true").containsEntry("APP_PUBLIC_URL", "empty");
         assertThat(config.problems()).singleElement().asString().startsWith("APP_PUBLIC_URL is empty");
         assertThat(template).contains("#GITHUB_TOKEN=").contains("every comment, edit and reaction")
-            .contains("public_repo");
+            .contains("public_repo").contains("\nGIT_PROXY_ENABLED=false\n");
     }
 
     @Test

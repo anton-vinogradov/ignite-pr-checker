@@ -9,11 +9,14 @@ import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.metrics.Metrics;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 /**
  * An instance with its own jira.base-url posted visas there, while the PR page linked every IGNITE ticket to
@@ -30,22 +33,25 @@ class ConfiguredJiraTest {
         assertThat(config.config()).containsEntry("jiraUrl", "https://jira.example");
     }
 
-    /** The page of a Python thin client's PR links its PR and names its suite as the server is set up to. */
+    /** Given configured clients, the config lists each project with its repo and visible suite name. */
     @Test
-    void pageLearnsTheClientsRepoAndSuite() {
+    void pageLearnsEveryClientsRepoAndSuite() {
         ConfigController config = new ConfigController(new TeamcityProperties("https://ci2.example/"),
             new GithubProperties(null, null, null), mock(GithubClient.class),
             new AnalysisProperties(null, "RunAll", null, null, null, 300, null), mock(SuiteBaseline.class),
             new JiraClient("https://jira.example/", Duration.ofSeconds(5), new Metrics(Jackson2Defaults.mapper())),
-            new PythonClientProperties("example/python-client", "Python_Client_Suite", null, null));
+            new ThinClients(new PythonClientProperties("example/python-client", "Python_Client_Suite", null, null),
+                new ThinClientProperties(null, null)));
 
-        assertThat(config.config()).containsEntry("clientRepo", "example/python-client")
-            .containsEntry("clientSuite", "Python_Client_Suite");
-        assertThat(new ConfigController(new TeamcityProperties("https://ci2.example/"),
-            new GithubProperties(null, null, null), mock(GithubClient.class),
-            new AnalysisProperties(null, "RunAll", null, null, null, 300, null), mock(SuiteBaseline.class),
-            new JiraClient("https://jira.example/", Duration.ofSeconds(5), new Metrics(Jackson2Defaults.mapper())))
-            .config()).containsEntry("clientRepo", "apache/ignite-python-thin-client")
-            .containsEntry("clientSuite", "Thin client: Python");
+        JsonNode response = Jackson2Defaults.mapper().valueToTree(config.config());
+
+        assertThat(response.path("clients")).isEqualTo(Jackson2Defaults.mapper().readTree("""
+            [
+              {"key":"python","label":"Python","repo":"example/python-client","suite":"Python_Client_Suite"},
+              {"key":"php","label":"PHP","repo":"apache/ignite-php-thin-client","suite":"Thin client: PHP"},
+              {"key":"nodejs","label":"Node.js","repo":"apache/ignite-nodejs-thin-client","suite":"Thin client: Node.js"}
+            ]
+            """));
+        assertThat(config.config()).doesNotContainKeys("clientRepo", "clientSuite");
     }
 }

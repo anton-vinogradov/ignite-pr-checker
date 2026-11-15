@@ -25,8 +25,9 @@ class RussianStatusPageTest {
     private static final List<String> LOG = List.of("PR 13655 skipped: TeamCity rejected the token of nsamelchev",
         "TeamCity answered 502 for the history of a test", "Bad request: missing suite");
 
-    /** The names of GitHub scopes the checks of GITHUB_TOKEN list. */
-    private static final List<String> SCOPES = List.of("repo, workflow");
+    /** The GitHub scopes and TeamCity suite name in the status response keep their original names. */
+    private static final List<String> NAMES = List.of("repo, workflow", "Thin client: Python",
+        "apache/ignite-python-thin-client", "apache/ignite");
 
     /** The parts of the page a script writes, and the tooltips in them. */
     private static final String WRITTEN = """
@@ -84,7 +85,7 @@ class RussianStatusPageTest {
                     chainFinishes: 4, standingEnrolled: 3, standingPosted: 1, standingLastSweepAt: page.now() - 2 * MIN,
                     standingLastSweepMs: 3200, prCommands: 2, prCommandsLastPollAt: 0,
                     prCommandsFirstPollAt: page.now() - 5 * MIN, prCommandsRepo: 'apache/ignite',
-                    prCommandsClientRepo: 'apache/ignite-python-thin-client',
+                    prCommandsClients: [{ key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' }],
                     suiteFix: { users: 3, acting: 1, pushed: 1, lastSweepAt: page.now() - 2 * MIN },
                     waitingAfterKeyChange: 2 },
                 log: { errors: 1, warnings: 1, clientMistakes: 1, lastErrorAt: page.now() - 10 * MIN,
@@ -127,7 +128,7 @@ class RussianStatusPageTest {
         JsonNode cards = out.get("cards");
         assertThat(cards.get("watcherCards").asText()).contains(
             "Постоянные опции3 пользователя с включённой опцией · отправлено виз в JIRA: 1 · обход 2 мин назад (3,2 с)",
-            "Команды в PR2 команды /run-all обработаны · опрос — ни разу · в apache/ignite и"
+            "Команды в PR2 команды /run-all обработаны · опрос — ни разу · в apache/ignite,"
                 + " apache/ignite-python-thin-client",
             "Тесты, добавленные в сьюты1 коммит · 3 пользователя с включённой опцией · 2 на паузе · обход 2 мин назад",
             "Нужны новые токены2 пользователя, чьи опции ждут");
@@ -277,7 +278,7 @@ class RussianStatusPageTest {
     }
 
     private static List<String> untranslated(JsonNode out) {
-        return EnglishLeft.in(out.get("texts"), out.get("html").asText(), SCOPES,
+        return EnglishLeft.in(out.get("texts"), out.get("html").asText(), NAMES,
             Pattern.compile(String.join("|", LOG.stream().map(Pattern::quote).toList())));
     }
 }

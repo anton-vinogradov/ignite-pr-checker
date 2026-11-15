@@ -113,7 +113,7 @@ class ThreadEndingTest {
         String replaced = "Re-runs stopped: RunAll " + NEW + " replaced this run before they settled. The verdict"
             + " above is this run's last; the newest is on ";
         verify(jira).updateComment("jira-pat", ISSUE, VISA, IN_PROGRESS_JIRA.substring(0,
-            IN_PROGRESS_JIRA.indexOf("\r\n\r\n⏳")) + "\n\n_" + replaced + "[the checker's page|https://checker.example/?pr=13427]._");
+            IN_PROGRESS_JIRA.indexOf("\r\n\r\n⏳")) + "\n\n_" + replaced + "[the checker's page|https://checker.example/ignite?pr=13427]._");
         verify(github, never()).commentBody(COMMENT);
         verify(github, never()).appEdit(anyInt(), any(), eq(COMMENT), anyString());
         assertThat(standing.waveStatus(PR, OLD)).isEmpty();

@@ -21,12 +21,13 @@ import com.github.igniteprchecker.analysis.ClientVerdicts;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.github.PrSummary;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.PinnedRun;
 import com.github.igniteprchecker.tc.TcClient;
@@ -59,6 +60,10 @@ class ClientPrPageApiTest {
 
     private static final int PR = 69;
 
+    private static final ThinClients PROJECTS = ThinClients.defaults();
+
+    private static final ClientSpec PYTHON = PROJECTS.require("python");
+
     private static final String CLIENT = "a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4";
 
     private static final String IGNITE = "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c";
@@ -79,7 +84,6 @@ class ClientPrPageApiTest {
 
     @BeforeEach
     void setUp() {
-        when(clients.repo()).thenReturn(CLIENT_REPO);
         when(github.repo()).thenReturn("apache/ignite");
         when(github.reportsConflicts(CLIENT_REPO, PR)).thenReturn(true);
         when(github.prHeadSha(CLIENT_REPO, PR)).thenReturn(CLIENT);
@@ -88,25 +92,25 @@ class ClientPrPageApiTest {
             "GitHubApacheIgnitePythonThinClient", "314")));
         when(tc.queuePinned(eq("tok"), any(), anyBoolean(), anyString())).thenReturn(build(9424794L, "queued",
             "alice"));
-        when(commands.queueFromPage(anyString(), anyInt(), anyBoolean(), any())).thenAnswer(inv ->
-            inv.<Supplier<PythonClientRuns.Queued>>getArgument(3).get());
+        when(commands.queueFromPage(anyString(), eq(PYTHON), anyInt(), anyBoolean(), any())).thenAnswer(inv ->
+            inv.<Supplier<ClientRuns.Queued>>getArgument(4).get());
 
-        PythonClientRuns python = new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc,
+        ClientRuns python = new ClientRuns(github, tc,
             mock(BlockerAnalyzer.class), new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null,
                 null, null), new TeamcityProperties("https://ci2.example/"));
         mvc = MockMvcBuilders.standaloneSetup(new ClientPrsController(clients, python, tc, github,
                 new PrHeads(github, () -> 1_800_000_000_000L), new YourPrs(github, standing), standing, commands,
-                auth))
+                auth, PROJECTS))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
     }
 
     @Test
     void theVerdictNamesItsRepoAndTheCommitsItTested() throws Exception {
-        when(clients.verdict("tok", PR)).thenReturn(Optional.of(verdict(9424200L, 9424210L)));
-        when(clients.head(PR)).thenReturn(CLIENT);
+        when(clients.verdict("tok", PYTHON, PR)).thenReturn(Optional.of(verdict(9424200L, 9424210L)));
+        when(clients.head(PYTHON, PR)).thenReturn(CLIENT);
 
-        asAlice(get("/api/client/analyze"))
+        asAlice(get("/api/client/analyze").param("repo", "python"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.prNumber").value(PR))
             .andExpect(jsonPath("$.buildId").value(9424200L))
@@ -124,10 +128,10 @@ class ClientPrPageApiTest {
 
     @Test
     void aHeadPastTheTestedCommitMakesTheVerdictOneOfOlderCode() throws Exception {
-        when(clients.verdict("tok", PR)).thenReturn(Optional.of(verdict(9424200L, 0)));
-        when(clients.head(PR)).thenReturn("b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4e5");
+        when(clients.verdict("tok", PYTHON, PR)).thenReturn(Optional.of(verdict(9424200L, 0)));
+        when(clients.head(PYTHON, PR)).thenReturn("b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4e5");
 
-        asAlice(get("/api/client/analyze"))
+        asAlice(get("/api/client/analyze").param("repo", "python"))
             .andExpect(jsonPath("$.pushed.pending").value(true))
             .andExpect(jsonPath("$.pushed.builtSha").value("a1b2c3d"))
             .andExpect(jsonPath("$.pushed.headSha").value("b2c3d4e"))
@@ -136,26 +140,26 @@ class ClientPrPageApiTest {
 
     @Test
     void aClosedPrsHeadIsNotKnown() throws Exception {
-        when(clients.verdict("tok", PR)).thenReturn(Optional.of(verdict(9424200L, 0)));
+        when(clients.verdict("tok", PYTHON, PR)).thenReturn(Optional.of(verdict(9424200L, 0)));
 
-        asAlice(get("/api/client/analyze"))
+        asAlice(get("/api/client/analyze").param("repo", "python"))
             .andExpect(jsonPath("$.pushed.pending").value(false))
             .andExpect(jsonPath("$.pushed.checked").value(false));
     }
 
     @Test
     void aPrWithoutARunSaysSo() throws Exception {
-        asAlice(get("/api/client/analyze"))
+        asAlice(get("/api/client/analyze").param("repo", "python"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.noRun").value(true));
-        asAlice(post("/api/client/refresh"))
+        asAlice(post("/api/client/refresh").param("repo", "python"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.noRun").value(true));
     }
 
     @Test
     void runOnAPrWithConflictsQueuesNothingAndCancelsNothing() throws Exception {
-        asAlice(post("/api/client/trigger").param("replace", "true"))
+        asAlice(post("/api/client/trigger").param("repo", "python").param("replace", "true"))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.conflicts").value(true))
             .andExpect(jsonPath("$.error").value(ClientPrsController.CONFLICTS));
@@ -166,14 +170,14 @@ class ClientPrPageApiTest {
 
     @Test
     void runAnywayQueuesTheRunOfRunAllWithBothCommits() throws Exception {
-        asAlice(post("/api/client/trigger").param("force", "true"))
+        asAlice(post("/api/client/trigger").param("repo", "python").param("force", "true"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.triggered[0].buildId").value(9424794L))
             .andExpect(jsonPath("$.replaced").value(0));
 
         verify(tc).queuePinned("tok", new PinnedRun(SUITE, "pull/69", List.of(
-            new PinnedRun.Pin("335", "refs/heads/master", IGNITE),
-            new PinnedRun.Pin("314", "refs/pull/69/head", CLIENT)), Map.of("OVERRIDDEN_BRANCH", CLIENT)), false,
+            PinnedRun.Pin.forRoot("GitHubApacheIgnite", "refs/heads/master", IGNITE),
+            PinnedRun.Pin.forRoot("GitHubApacheIgnitePythonThinClient", "refs/pull/69/head", CLIENT)), Map.of("OVERRIDDEN_BRANCH", CLIENT)), false,
             "Ignite PR Checker: Run on the checker's page for https://github.com/" + CLIENT_REPO + "/pull/69");
         verify(github, never()).reportsConflicts(CLIENT_REPO, PR);
         verify(tc, never()).triggerRunAll(anyString(), anyInt(), anyBoolean());
@@ -184,14 +188,14 @@ class ClientPrPageApiTest {
         when(github.reportsConflicts(CLIENT_REPO, PR)).thenReturn(false);
         when(tc.cancelOwnBuilds(eq("tok"), eq("pull/69"), eq("alice"), any())).thenReturn(1);
 
-        asAlice(post("/api/client/trigger").param("top", "true").param("replace", "true"))
+        asAlice(post("/api/client/trigger").param("repo", "python").param("top", "true").param("replace", "true"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.replaced").value(1));
 
         InOrder order = inOrder(tc);
         order.verify(tc).cancelOwnBuilds(eq("tok"), eq("pull/69"), eq("alice"), any());
         order.verify(tc).queuePinned(eq("tok"), any(), eq(true), anyString());
-        verify(commands).queueFromPage(eq("alice"), eq(PR), eq(true), any());
+        verify(commands).queueFromPage(eq("alice"), eq(PYTHON), eq(PR), eq(true), any());
     }
 
     /** ci2 refused to cancel Alice's run: nothing is queued, and the answer is ci2's refusal, not one to queue. */
@@ -201,7 +205,7 @@ class ClientPrPageApiTest {
         when(tc.cancelOwnBuilds(eq("tok"), eq("pull/69"), eq("alice"), any())).thenThrow(new TcResponseException(
             HttpClientErrorException.create(HttpStatus.FORBIDDEN, "Forbidden", null, null, null)));
 
-        asAlice(post("/api/client/trigger").param("replace", "true"))
+        asAlice(post("/api/client/trigger").param("repo", "python").param("replace", "true"))
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.error").value(ApiExceptionHandler.FORBIDDEN));
 
@@ -213,7 +217,7 @@ class ClientPrPageApiTest {
         when(github.reportsConflicts(CLIENT_REPO, PR)).thenReturn(false);
         when(tc.vcsRootInstances("tok", SUITE)).thenReturn(Optional.empty());
 
-        asAlice(post("/api/client/trigger"))
+        asAlice(post("/api/client/trigger").param("repo", "python"))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.error").value("TeamCity has no suite " + SUITE));
     }
@@ -224,27 +228,27 @@ class ClientPrPageApiTest {
             new TcModel.Build(9424800L, null, "queued", "pull/69", "IgniteTests24Java8_Other", "", null, null, null,
                 null, null, null, null, null, null, null, null, null)));
 
-        asAlice(get("/api/client/runs"))
+        asAlice(get("/api/client/runs").param("repo", "python"))
             .andExpect(jsonPath("$.length()").value(1))
             .andExpect(jsonPath("$[0].buildId").value(9424794L))
             .andExpect(jsonPath("$[0].mine").value(true))
             .andExpect(jsonPath("$[0].runAll").value(true))
             .andExpect(jsonPath("$[0].pinned").value(true));
 
-        asAlice(post("/api/client/cancel-all").param("ids", "9424794"))
+        asAlice(post("/api/client/cancel-all").param("repo", "python").param("ids", "9424794"))
             .andExpect(jsonPath("$.cancelled").value(0));
         verify(tc).cancelOwnBuilds(eq("tok"), eq("pull/69"), eq("alice"), any());
     }
 
     @Test
     void theListBadgesTheClientsPrsAndTellsTheStarterToASignedInViewer() throws Exception {
-        when(clients.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
+        when(clients.openPrs(PYTHON)).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
             "https://github.com/" + CLIENT_REPO + "/pull/69", null, null, null, CLIENT, null)));
-        when(clients.glance(PR)).thenReturn(new Caveats.Glance(0, 0, true, CLIENT));
-        when(clients.starter(PR)).thenReturn("alice");
+        when(clients.glance(PYTHON, PR)).thenReturn(new Caveats.Glance(0, 0, true, CLIENT));
+        when(clients.starter(PYTHON, PR)).thenReturn("alice");
         when(auth.signedIn(any())).thenReturn(Optional.empty());
 
-        mvc.perform(get("/api/client/prs"))
+        mvc.perform(get("/api/client/prs").param("repo", "python"))
             .andExpect(jsonPath("$[0].number").value(PR))
             .andExpect(jsonPath("$[0].blockers").value(0))
             .andExpect(jsonPath("$[0].standing").value("CLEAN"))
@@ -259,7 +263,7 @@ class ClientPrPageApiTest {
             "IGNITE-29117 Fix test", "https://github.com/" + CLIENT_REPO + "/pull/69", null, null, null, CLIENT, null)),
             List.of()));
 
-        asAlice(get("/api/client/your-prs"))
+        asAlice(get("/api/client/your-prs").param("repo", "python"))
             .andExpect(jsonPath("$.login").value("Alice"))
             .andExpect(jsonPath("$.mine[0].number").value(PR));
 
@@ -268,10 +272,10 @@ class ClientPrPageApiTest {
 
     @Test
     void theStoryOfARunAllTellsWhetherTheVerdictIsFinal() throws Exception {
-        when(commands.clientPhase(PR, 9424200L)).thenReturn(new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1,
-            "Thin client: Python", null));
+        when(commands.clientPhase(PYTHON, PR, 9424200L)).thenReturn(new StandingVisas.Phase(
+            StandingVisas.Phase.SETTLING, 1, 1, "Thin client: Python", null));
 
-        asAlice(get("/api/client/settling").param("build", "9424200"))
+        asAlice(get("/api/client/settling").param("repo", "python").param("build", "9424200"))
             .andExpect(jsonPath("$.phase").value("settling"))
             .andExpect(jsonPath("$.wave").value(1));
     }
@@ -283,29 +287,30 @@ class ClientPrPageApiTest {
     @Test
     void theVisaLineLooksForTheVisaOfTheRunsCommits() throws Exception {
         ClientVerdicts.Verdict kept = verdict(9424200L, 0, IGNITE + "+" + CLIENT);
-        when(clients.kept(PR)).thenReturn(Optional.of(kept));
+        when(clients.kept(PYTHON, PR)).thenReturn(Optional.of(kept));
         when(standing.clientVisaLine("alice", CLIENT_REPO, PR, 9424200L, IGNITE + "+" + CLIENT)).thenReturn(
             new StandingVisas.VisaLine(StandingVisas.VisaLine.POSTED, "alice", true, "IGNITE-29117",
                 "https://jira.example/c/1", false));
 
-        asAlice(get("/api/client/visa").param("build", "9424200"))
+        asAlice(get("/api/client/visa").param("repo", "python").param("build", "9424200"))
             .andExpect(jsonPath("$.state").value("posted"))
             .andExpect(jsonPath("$.issue").value("IGNITE-29117"));
-        asAlice(get("/api/client/visa").param("build", "9424300"));
+        asAlice(get("/api/client/visa").param("repo", "python").param("build", "9424300"));
 
         verify(standing).clientVisaLine("alice", CLIENT_REPO, PR, 9424300L, null);
     }
 
     @Test
     void theTitleOfAListedPrComesFromTheListAndOfAnotherFromGithubOnce() throws Exception {
-        when(clients.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
+        when(clients.openPrs(PYTHON)).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
             "https://github.com/" + CLIENT_REPO + "/pull/69", null, null, null, CLIENT, null)));
         when(github.pullState(CLIENT_REPO, 68)).thenReturn(Optional.of(new GithubClient.PullState(
             "IGNITE-29001 Support Python 3.13", false, true)));
 
-        asAlice(get("/api/client/pr-title")).andExpect(jsonPath("$.title").value("IGNITE-29117 Fix test"));
+        asAlice(get("/api/client/pr-title").param("repo", "python"))
+            .andExpect(jsonPath("$.title").value("IGNITE-29117 Fix test"));
         for (int i = 0; i < 2; i++) {
-            mvc.perform(get("/api/client/pr-title").param("pr", "68"))
+            mvc.perform(get("/api/client/pr-title").param("repo", "python").param("pr", "68"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("IGNITE-29001 Support Python 3.13"));
         }
@@ -319,15 +324,15 @@ class ClientPrPageApiTest {
     void theTitleOfAMergedPrSaysWhenAndAtWhichCommit() throws Exception {
         when(github.pullState(CLIENT_REPO, 68)).thenReturn(Optional.of(new GithubClient.PullState(
             "IGNITE-29001 Support Python 3.13", false, true, 1_792_491_159L, CLIENT)));
-        when(clients.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
+        when(clients.openPrs(PYTHON)).thenReturn(List.of(new PrSummary(PR, "IGNITE-29117 Fix test",
             "https://github.com/" + CLIENT_REPO + "/pull/69", null, null, null, CLIENT, null)));
 
-        mvc.perform(get("/api/client/pr-title").param("pr", "68"))
+        mvc.perform(get("/api/client/pr-title").param("repo", "python").param("pr", "68"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.state").value("merged"))
             .andExpect(jsonPath("$.closedAt").value(1_792_491_159L))
             .andExpect(jsonPath("$.head").value(CLIENT));
-        asAlice(get("/api/client/pr-title")).andExpect(jsonPath("$.state").doesNotExist());
+        asAlice(get("/api/client/pr-title").param("repo", "python")).andExpect(jsonPath("$.state").doesNotExist());
     }
 
     /** A reader trying PR numbers one after another: GitHub is asked about 60 of them an hour, as for Ignite's PRs. */
@@ -337,8 +342,9 @@ class ClientPrPageApiTest {
             true, false)));
 
         for (int pr = 1; pr <= 60; pr++)
-            mvc.perform(get("/api/client/pr-title").param("pr", String.valueOf(pr))).andExpect(status().isOk());
-        mvc.perform(get("/api/client/pr-title").param("pr", "61")).andExpect(status().isNotFound());
+            mvc.perform(get("/api/client/pr-title").param("repo", "python").param("pr", String.valueOf(pr)))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/client/pr-title").param("repo", "python").param("pr", "61")).andExpect(status().isNotFound());
 
         verify(github, never()).pullState(CLIENT_REPO, 61);
     }

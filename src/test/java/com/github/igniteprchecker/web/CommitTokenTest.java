@@ -11,10 +11,13 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
@@ -42,6 +45,9 @@ import tools.jackson.databind.node.ObjectNode;
  * needs. A checker with no account of its own offers none of the options that write to GitHub.
  */
 class CommitTokenTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final String USER = "avinogradov";
 
     private final GithubClient github = AppWriting.github();
@@ -142,8 +148,8 @@ class CommitTokenTest {
         ResponseEntity<?> comment = controller.standingVisa(null, null, true, null, null, null, "tc", USER, null,
             null);
         ResponseEntity<?> rerun = controller.standingVisa(null, true, null, null, null, null, "tc", USER, null, null);
-        ResponseEntity<?> link = new GithubLinkController(github, standing, mock(AuthInterceptor.class))
-            .link(null, null, "tc", USER);
+        ResponseEntity<?> link = new GithubLinkController(github, standing, mock(AuthInterceptor.class), PROJECTS)
+            .link(null, null, "ignite", "tc", USER);
 
         assertThat(comment.getStatusCode().value()).isEqualTo(409);
         assertThat(((Map<?, ?>)comment.getBody()).get("error")).isEqualTo("not available: this checker has no GitHub"

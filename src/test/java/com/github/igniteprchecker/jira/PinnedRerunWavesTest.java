@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -23,7 +22,7 @@ import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.github.PrSummary;
-import com.github.igniteprchecker.mirror.GitMirror;
+import com.github.igniteprchecker.config.GitProxyProperties;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.PinnedRun;
 import com.github.igniteprchecker.tc.RerunTracker;
@@ -37,7 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.ObjectMapper;
 
-class MirroredRerunWavesTest {
+class PinnedRerunWavesTest {
     private static final int PR = 13335;
 
     private static final long RUN_ALL = 9389046L;
@@ -48,8 +47,6 @@ class MirroredRerunWavesTest {
 
     private final GithubClient github = mock(GithubClient.class);
 
-    private final GitMirror mirror = mock(GitMirror.class);
-
     private final TcClient tc = mock(TcClient.class);
 
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
@@ -58,7 +55,7 @@ class MirroredRerunWavesTest {
         new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, analyzer,
         mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
         mock(PendingCommits.class), mock(ExecutorService.class), mock(ExecutorService.class),
-        new SettingsJournal(mapper), new IgnitePrRuns(github, tc, mirror,
+        new SettingsJournal(mapper), new IgnitePrRuns(github, tc, new GitProxyProperties(true),
             new AnalysisProperties(null, "RunAll", null, null, null, null, null)));
 
     private final TestVerdict cache = blocker("Cache", 11L);
@@ -67,7 +64,6 @@ class MirroredRerunWavesTest {
 
     @BeforeEach
     void anEnrolledUsersFailedRun() {
-        when(mirror.enabled()).thenReturn(true);
         when(github.prHeadSha(PR)).thenReturn(HEAD);
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-28867 Example", null, null, null, null)));
         standing.change("author", "tc", null, null, new StandingVisas.OptionChange(false, true, false, false, null));
@@ -84,7 +80,7 @@ class MirroredRerunWavesTest {
                 null, null, null, null, null, null, null, null));
     }
 
-    /** A settled wave fetches the head once, so all its suites test the same commit even if the PR moves later. */
+    /** A settled wave reads the head once, so all its suites test the same commit even if the PR moves later. */
     @Test
     void settledWaveUsesOneFreshHeadForEverySuite() {
         standing.sweep();
@@ -95,7 +91,6 @@ class MirroredRerunWavesTest {
         assertThat(runs.getAllValues()).allSatisfy(run -> assertThat(run.revisions()).singleElement()
             .satisfies(pin -> assertThat(pin.version()).isEqualTo(HEAD)));
         verify(github).prHeadSha(PR);
-        verify(mirror).ensurePr("ignite", PR, HEAD);
     }
 
     /** Each early failure event is a separate launch action and reads the head again after a push. */
@@ -113,15 +108,13 @@ class MirroredRerunWavesTest {
             .containsExactly(HEAD, pushed);
     }
 
-    /** A failed mirror refresh starts no replacement and consumes no auto-rerun attempt. */
+    /** A failed head read starts no replacement and consumes no auto-rerun attempt. */
     @Test
     void failedPreparationLeavesTheWaveUnstarted() {
-        doThrow(new GitMirror.NotReadyException("PR head changed while fetching"))
-            .when(mirror).ensurePr("ignite", PR, HEAD);
+        when(github.prHeadSha(PR)).thenThrow(new IllegalStateException("head unavailable"));
 
         standing.sweep();
 
-        verify(mirror).ensurePr("ignite", PR, HEAD);
         verify(tc, never()).queuePinnedReplacingQueued(anyString(), any(), anyBoolean(), anyString());
         assertThat(standing.waveStatus(PR, RUN_ALL)).isEmpty();
     }

@@ -280,7 +280,7 @@ public class VisaService {
 
     /** The checker's page of the PR. */
     private String page(int pr) {
-        return publicUrl + "/?pr=" + pr;
+        return publicUrl + "/ignite?pr=" + pr;
     }
 
     /** The commit as GitHub shows it among the PR's commits. */

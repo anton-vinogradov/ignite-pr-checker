@@ -16,8 +16,11 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PythonClientProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.time.Duration;
@@ -44,6 +47,9 @@ class ClientVerdictsTest {
 
     private static final int PR = 69;
 
+    private static final ClientSpec PYTHON = new ThinClients(new PythonClientProperties(null, null, null, null),
+        new ThinClientProperties(null, null)).require("python");
+
     private static final String CLIENT = "a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4";
 
     private static final String NEWER_CLIENT = "b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4e5";
@@ -59,7 +65,6 @@ class ClientVerdictsTest {
     private final AtomicLong now = new AtomicLong(System.currentTimeMillis());
 
     private final ClientVerdicts clients = new ClientVerdicts(tc, analyzer, github,
-        new PythonClientProperties(null, null, null, null),
         new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null), now::get);
 
     @BeforeEach
@@ -74,7 +79,7 @@ class ClientVerdictsTest {
     void theVerdictIsOfTheNewestRunThatTestedThePrsOwnCommit() {
         runs(run(9424300L, "bob", CLIENT, IGNITE, "master"), run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
 
-        ClientVerdicts.Verdict v = clients.verdict("tc", PR).orElseThrow();
+        ClientVerdicts.Verdict v = clients.verdict("tc", PYTHON, PR).orElseThrow();
 
         assertThat(v.run()).isEqualTo(new ClientVerdicts.Run(9424200L, 0, "Thin client: Python", "alice", CLIENT,
             IGNITE));
@@ -86,7 +91,7 @@ class ClientVerdictsTest {
     void anAutoRerunOnTheSameCommitsCountsWithItsRun() {
         runs(run(9424210L, "alice", CLIENT, IGNITE, CLIENT), run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
 
-        ClientVerdicts.Verdict v = clients.verdict("tc", PR).orElseThrow();
+        ClientVerdicts.Verdict v = clients.verdict("tc", PYTHON, PR).orElseThrow();
 
         assertThat(v.run().buildId()).isEqualTo(9424200L);
         assertThat(v.run().rerunId()).isEqualTo(9424210L);
@@ -98,7 +103,7 @@ class ClientVerdictsTest {
         runs(run(9424210L, "alice", NEWER_CLIENT, IGNITE, NEWER_CLIENT), run(9424200L, "alice", CLIENT, IGNITE,
             CLIENT));
 
-        ClientVerdicts.Verdict v = clients.verdict("tc", PR).orElseThrow();
+        ClientVerdicts.Verdict v = clients.verdict("tc", PYTHON, PR).orElseThrow();
 
         assertThat(v.run().rerunId()).isZero();
         verify(analyzer).analyzeSuiteRun("tc", PR, "pull/69", 9424210L);
@@ -108,14 +113,14 @@ class ClientVerdictsTest {
     void aRunTeamCityNamesNoCheckoutOfIsTakenByItsCommits() {
         runs(run(9424200L, null, CLIENT, IGNITE, null));
 
-        assertThat(clients.verdict("tc", PR).orElseThrow().run().clientSha()).isEqualTo(CLIENT);
+        assertThat(clients.verdict("tc", PYTHON, PR).orElseThrow().run().clientSha()).isEqualTo(CLIENT);
     }
 
     @Test
     void aPrWithoutARunOfItsOwnCodeHasNoVerdict() {
         runs(run(9424300L, "bob", CLIENT, IGNITE, "master"));
 
-        assertThat(clients.verdict("tc", PR)).isEmpty();
+        assertThat(clients.verdict("tc", PYTHON, PR)).isEmpty();
         verify(analyzer, never()).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong());
     }
 
@@ -123,15 +128,15 @@ class ClientVerdictsTest {
     void anotherViewWithinTwoMinutesAsksTeamCityNothing() {
         runs(run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
 
-        clients.verdict("tc", PR);
+        clients.verdict("tc", PYTHON, PR);
         now.addAndGet(ClientVerdicts.LOOK_EVERY_MS - 1);
-        clients.verdict("tc", PR);
+        clients.verdict("tc", PYTHON, PR);
 
         verify(tc, times(1)).finishedRuns(anyString(), anyString(), anyString(), anyString());
         verify(analyzer, times(1)).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong());
 
         now.addAndGet(1);
-        clients.verdict("tc", PR);
+        clients.verdict("tc", PYTHON, PR);
 
         verify(tc, times(2)).finishedRuns(anyString(), anyString(), anyString(), anyString());
         verify(analyzer, times(1)).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong());
@@ -142,9 +147,9 @@ class ClientVerdictsTest {
     void theWarmCycleComputesANewRunOnlyOnce() {
         runs(run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
 
-        assertThat(clients.warm("tc", PR)).isTrue();
-        assertThat(clients.warm("tc", PR)).isFalse();
-        assertThat(clients.verdict("tc", PR)).isPresent();
+        assertThat(clients.warm("tc", PYTHON, PR)).isTrue();
+        assertThat(clients.warm("tc", PYTHON, PR)).isFalse();
+        assertThat(clients.verdict("tc", PYTHON, PR)).isPresent();
 
         verify(analyzer, times(1)).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong());
         verify(tc, times(2)).finishedRuns("tc", SUITE, "pull/69", "OVERRIDDEN_BRANCH");
@@ -156,22 +161,22 @@ class ClientVerdictsTest {
         when(analyzer.analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong()))
             .thenAnswer(inv -> verdict(9424200L, now.get()));
 
-        clients.warm("tc", PR);
+        clients.warm("tc", PYTHON, PR);
         now.addAndGet(ClientVerdicts.RETRY_WAIT_MS - 1);
-        assertThat(clients.warm("tc", PR)).isFalse();
+        assertThat(clients.warm("tc", PYTHON, PR)).isFalse();
         now.addAndGet(1);
-        assertThat(clients.warm("tc", PR)).isTrue();
+        assertThat(clients.warm("tc", PYTHON, PR)).isTrue();
     }
 
     @Test
     void theListBadgesTheRunAgainstThePrsHeadByTheClientsCommit() {
         runs(run(9424200L, "alice", CLIENT, IGNITE, CLIENT));
-        clients.warm("tc", PR);
+        clients.warm("tc", PYTHON, PR);
 
-        assertThat(clients.glance(PR).against(CLIENT)).isEqualTo(Caveats.Standing.CLEAN);
-        assertThat(clients.glance(PR).against(NEWER_CLIENT)).isEqualTo(Caveats.Standing.OLD_CODE);
-        assertThat(clients.starter(PR)).isEqualTo("alice");
-        assertThat(clients.glance(70)).isNull();
+        assertThat(clients.glance(PYTHON, PR).against(CLIENT)).isEqualTo(Caveats.Standing.CLEAN);
+        assertThat(clients.glance(PYTHON, PR).against(NEWER_CLIENT)).isEqualTo(Caveats.Standing.OLD_CODE);
+        assertThat(clients.starter(PYTHON, PR)).isEqualTo("alice");
+        assertThat(clients.glance(PYTHON, 70)).isNull();
     }
 
     @Test
@@ -180,8 +185,8 @@ class ClientVerdictsTest {
             new PrSummary(PR, "IGNITE-29117 Fix test", "https://github.com/apache/ignite-python-thin-client/pull/69",
                 null, null, null, NEWER_CLIENT, null)));
 
-        assertThat(clients.head(PR)).isEqualTo(NEWER_CLIENT);
-        assertThat(clients.head(70)).isNull();
+        assertThat(clients.head(PYTHON, PR)).isEqualTo(NEWER_CLIENT);
+        assertThat(clients.head(PYTHON, 70)).isNull();
     }
 
     /**
@@ -201,10 +206,10 @@ class ClientVerdictsTest {
             return verdict(9424200L, 0);
         });
 
-        Thread view = new Thread(() -> clients.verdict("tc-alice", PR));
+        Thread view = new Thread(() -> clients.verdict("tc-alice", PYTHON, PR));
         view.start();
         await().atMost(Duration.ofSeconds(10)).until(() -> computes.get() == 1);
-        Thread refresh = new Thread(() -> clients.fresh("tc-bob", PR));
+        Thread refresh = new Thread(() -> clients.fresh("tc-bob", PYTHON, PR));
         refresh.start();
         await().atMost(Duration.ofSeconds(10)).until(() -> refresh.getState() == Thread.State.WAITING
             || refresh.getState() == Thread.State.TIMED_WAITING);
@@ -216,7 +221,7 @@ class ClientVerdictsTest {
         assertThat(computes.get()).isEqualTo(1);
         assertThat(waiting).isTrue();
         assertThat(clients.userWaiting()).isFalse();
-        assertThat(clients.kept(PR)).isPresent();
+        assertThat(clients.kept(PYTHON, PR)).isPresent();
     }
 
     /**
@@ -236,7 +241,7 @@ class ClientVerdictsTest {
 
         Thread view = new Thread(() -> {
             try {
-                clients.verdict("tc-expired", PR);
+                clients.verdict("tc-expired", PYTHON, PR);
             }
             catch (RuntimeException expected) {
                 // the view's own 401
@@ -247,7 +252,7 @@ class ClientVerdictsTest {
         AtomicReference<Throwable> warmGot = new AtomicReference<>();
         Thread warm = new Thread(() -> {
             try {
-                clients.warm("tc-pool", PR);
+                clients.warm("tc-pool", PYTHON, PR);
             }
             catch (RuntimeException e) {
                 warmGot.set(e);
@@ -277,7 +282,7 @@ class ClientVerdictsTest {
             return verdict(9424200L, 0);
         });
 
-        clients.warm("tc", PR);
+        clients.warm("tc", PYTHON, PR);
 
         assertThat(waitingWhileWarm.get()).isZero();
     }

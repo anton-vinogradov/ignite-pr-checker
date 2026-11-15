@@ -2,8 +2,8 @@
 
 **English** · [Русский](features.ru.md)
 
-What Ignite PR Checker can do, screen by screen. The screenshots are of the production instance in the Dark theme; the
-selector in the top bar has four themes: Light, Dark, JetBrains and Terminal.
+What Ignite PR Checker can do, screen by screen. The screenshots use the Dark theme; the selector in the top bar
+has four themes: Light, Dark, JetBrains and Terminal.
 
 ## Verdict glossary
 
@@ -118,13 +118,13 @@ and the visa.
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
-| **my run** | You started its latest RunAll, or for a Python client PR, its latest run of the suite. The PR may be someone else's. | — |
+| **my run** | You started its latest RunAll, or for a thin client PR, its latest run of the suite. The PR may be someone else's. | — |
 
 ### Runs, buttons and visas
 
 | Label | What it means | What to do |
 |---|---|---|
-| `Merged`, `Closed` | The PR was merged, or closed without a merge. The tag stands next to the PR's number, and its tooltip says when and at which commit. The checker keeps a merged Ignite PR's verdict if it computed that verdict before the merge or within the hour after it. Then `Merged` has a **?** that opens this row. The checker does not compute a kept verdict again. After the merge, master's history holds the PR's own runs. So a new verdict would take the PR's failures for failures of master. New runs do not change it, so no button is filled and no line says that a re-run would change it. Runs queued before the merge that this verdict did not count are the one exception: they were still going at the merge, or ended after the verdict was computed. When the last of them ends, the checker computes the verdict once more. That verdict counts only the PR's runs queued before the merge, and runs of master and other PRs that finished before the merge. When some of the PR's runs tested a commit other than the RunAll's, the `⚠ Mixed run` line names them. The checker keeps no verdict of other merged PRs, of Python client PRs or of PRs closed without a merge: it computes their verdict as for an open PR. | — |
+| `Merged`, `Closed` | The PR was merged, or closed without a merge. The tag stands next to the PR's number, and its tooltip says when and at which commit. The checker keeps a merged Ignite PR's verdict if it computed that verdict before the merge or within the hour after it. Then `Merged` has a **?** that opens this row. The checker does not compute a kept verdict again. After the merge, master's history holds the PR's own runs. So a new verdict would take the PR's failures for failures of master. New runs do not change it, so no button is filled and no line says that a re-run would change it. Runs queued before the merge that this verdict did not count are the one exception: they were still going at the merge, or ended after the verdict was computed. When the last of them ends, the checker computes the verdict once more. That verdict counts only the PR's runs queued before the merge, and runs of master and other PRs that finished before the merge. When some of the PR's runs tested a commit other than the RunAll's, the `⚠ Mixed run` line names them. The checker keeps no verdict of other merged PRs, of thin client PRs or of PRs closed without a merge: it computes their verdict as for an open PR. | — |
 | `queued`, `running` | A build of this PR on ci2 now, under **On ci2 now**. The time next to it is how long it has waited or run so far; `~14m left` and `starts ~5m` are estimates from the queue and the suite's progress. | — |
 | `on latest commit` | The run tests the PR's latest commit. | — |
 | `⚠ old commit abc1234` | Commits were pushed after the run started: it tests older code. | Run RunAll again when it matters. |
@@ -180,10 +180,15 @@ and the visa.
 
 ## Finding your PR
 
-- The left pane lists open PRs of the repo, the most recently updated first. A row has the PR's number, its ticket key
+![The PHP login page with the Ignite, Python, PHP and Node.js project tabs](img/project-tabs.jpg)
+
+*Local development instance: the PHP login page and all four project tabs.*
+
+- The project tabs **Ignite**, **Python**, **PHP** and **Node.js** open `/ignite`, `/python`, `/php` and `/nodejs`.
+  The left pane lists open PRs of the selected project, the most recently updated first. A row has the PR's number, its ticket key
   and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges mean** under
   the filter explains the badges. It stays open until you pick a PR. **my run** marks the PRs whose latest RunAll you
-  started.
+  started, or the latest client-suite run you started.
 - Three tabs over the list choose which PRs it shows. **All** shows the 50 most recently updated open PRs. **Mine**
   shows your open PRs, also the ones that are not among those 50. **Involved** shows other people's open PRs where
   someone asked you to review, you reviewed or you commented. The checker finds Mine and Involved with GitHub's search,
@@ -194,12 +199,10 @@ and the visa.
 - The filter (**Filter, or a PR number**) narrows the list on the chosen tab by number or title. A number that is not in
   the list is offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/`
   jumps to it from anywhere on the page.
-- Each PR in the list is a link (`?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
+- Each PR in the list is a link (`/ignite?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
   address, also one that is not in the list.
-- The open PRs of the Python thin client stand in their own group, **Python client**, under Ignite's PRs, with the same
-  badges and tabs. Their PR numbers overlap Ignite's, so the address of such a PR names the repo:
-  `?repo=python&pr=69`. The filter takes `python#69` for the client's PR #69, and a number alone for an Ignite PR. See
-  [PRs of the Python thin client](#prs-of-the-python-thin-client).
+- A number in the filter belongs to the selected project. Client PR links include its path, for example `/php?pr=42`.
+  **All**, **Mine** and **Involved** stay within that project. See [Thin client PRs](#thin-client-prs).
 - Drag the divider to resize the pane, double-click it to reset, and fold the pane with `‹` / `›`. On a screen
   narrower than 768 px the list folds away when a PR opens.
 
@@ -317,20 +320,21 @@ own tests, and what was not blamed on the PR.
   `⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the PR's head; the rest of the RunAll ran on c577b18.`
 - When your chain or a re-run finishes, the page shows the new verdict without a reload.
 
-### When TeamCity uses the Git mirror
+### When TeamCity uses the Git proxy
 
-An operator can enable the checker's [public Git mirror](../README.md#git-mirror-for-teamcity) when TeamCity cannot
-reach GitHub. Keep using the PR page and `/run-all` comments. Only normal branches and tags sync in the background
-from GitBox. The checker fetches a PR from GitHub when it prepares its launch; other PRs are not preloaded.
-Before queueing a new PR run, it verifies the fresh head in the mirror. Manual and automatic re-runs also prepare
-the commits they need before queueing. If preparation fails, it reports the error and queues nothing. Suites queued
-by one action use the same selected commit. No extra account, token or branch publication is needed.
+An operator can enable the checker's [public Git proxy](../README.md#git-proxy-for-teamcity) when TeamCity cannot
+reach GitHub. Keep using the PR page and `/run-all` comments. The proxy forwards fetches to the matching public
+GitHub repository without storing code or refs. No extra account, token or branch publication is needed.
+
+A new PR launch selects the fresh GitHub head. Each launch or re-run stays pinned to the commit chosen for that
+action. Suites queued by one action use the same commit. If GitHub no longer serves the selected SHA, checkout fails.
+The proxy does not retain force-pushed commits or substitute another commit. TeamCity may use its own cached VCS state.
 
 ## Standing options
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
 `/run-all` comment, or in TeamCity. They act on the runs you start in a
-[PR of the Python thin client](#prs-of-the-python-thin-client) too. An option does not reach back: runs that finished
+[thin client PR](#thin-client-prs) too. An option does not reach back: runs that finished
 before it was switched on are left alone. ⚙ puts the options in four groups, by what they need, and each group starts
 with the state of that access. While any of them is on, the server stores your TeamCity token, encrypted, and each also
 stores the JIRA or GitHub token it needs while it is on.
@@ -499,7 +503,7 @@ journal.
 - What the checker changes itself is an entry by the checker: a token JIRA, GitHub or TeamCity refused, a token the
   checker could not read, your GitHub account that another ci2 user linked.
 - Each visa the checker posts or edits with your JIRA token is an entry: the PR, the ticket, the RunAll and when. The
-  ticket links to the comment in JIRA. The entry of a visa in a PR of the Python thin client names the client's repo,
+  ticket links to the comment in JIRA. The entry of a visa in a thin client PR names the client's repo,
   and the suite's build instead of the RunAll. A RunAll someone started in TeamCity with your ci2 token gets a visa from
   your **Visa my runs in JIRA** too, and the journal shows it. A visa you post or update with **Post to JIRA** is an
   entry from your browser and names the button.
@@ -608,12 +612,16 @@ from its own GitHub account, the app account.
 - When GitHub makes the app account wait, or its writes reach 40 an hour to one PR or 60 for one user, reactions,
   replies and story edits go later, not lost; a reaction or a reply that waited a day goes no more.
 
-### PRs of the Python thin client
+### Thin client PRs
 
-The commands also work in the pull requests of
-[apache/ignite-python-thin-client](https://github.com/apache/ignite-python-thin-client), under the same conditions:
-**PR commands** on and your GitHub account linked. There `/run-all` runs one suite instead of RunAll:
-**Thin client: Python**.
+The commands also work in the three thin client projects, under the same conditions: **PR commands** on and your
+GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
+
+| Project | Repository | PR page example | Suite |
+|---|---|---|---|
+| Python | [apache/ignite-python-thin-client](https://github.com/apache/ignite-python-thin-client) | `/python?pr=69` | **Thin client: Python** |
+| PHP | [apache/ignite-php-thin-client](https://github.com/apache/ignite-php-thin-client) | `/php?pr=42` | **Thin client: PHP** |
+| Node.js | [apache/ignite-nodejs-thin-client](https://github.com/apache/ignite-nodejs-thin-client) | `/nodejs?pr=42` | **Thin client: Node.js** |
 
 - `/run-all` queues the suite under your TeamCity account. The run tests the PR's head commit against the commit
   Ignite master has at the moment of the command. The checker gives TeamCity both commits when it queues the run, so
@@ -630,7 +638,7 @@ The commands also work in the pull requests of
   and brings the verdict: the two commits, the blockers and the tests that started failing, each with its reason and a
   link to TeamCity. The comment gives only the number of tests not blamed on the PR. The PR's page on the checker
   lists these tests. Both comments link that page.
-- The checker's page of such a PR is `?repo=python&pr=69`. It shows the verdict of the newest of the PR's runs that
+- The pages in the table show the verdict of the newest of the PR's runs that
   tested the PR's own commit. When the run before the newest one tested the same two commits, the verdict counts the
   failed tests of both runs. For example, an auto re-run tests the same two commits as the run it re-runs. The page
   names the suite's build and both commits above the verdict. It has the verdict's cards, but not **This PR's tests**:
@@ -667,7 +675,7 @@ The commands also work in the pull requests of
   `/run-all` again once the Ignite change is in master.
 - A new `/run-all` cancels your run of the suite in this PR that is queued or running, and its auto re-run. **Run**
   on the page does the same once you confirm. When TeamCity has no such suite or refuses the run, the reply says so.
-- The **PR commands** card on the status page names both repos.
+- The **PR commands** card on the status page names Ignite and all three client repositories.
 
 ## The flaky board (`/flaky.html`)
 
@@ -691,6 +699,10 @@ The commands also work in the pull requests of
 
 ![The status page: version and commit, CPU, heap, process memory, snapshots, requests per endpoint](img/status-page.jpg)
 
+![Git proxy status with successful requests for all six repositories](img/git-proxy-status.jpg)
+
+*Local development instance: the Git proxy after real GitHub reads for all six repositories.*
+
 - Anyone can see the version and its commit, uptime, CPU and load, the heap with its old-generation peak, the
   process's memory, the snapshots, the latency of each endpoint, the cache warmer, the build watcher, and the
   TeamCity, GitHub and JIRA calls by category over the last hour.
@@ -700,6 +712,10 @@ The commands also work in the pull requests of
   that the service rejects as the caller's mistake are listed in grey and never colour the dot.
 - The GitHub section shows the app account: whose `GITHUB_TOKEN` it is, or that GitHub refuses it, and then the health
   dot is red until a call under it works again. Calls under users' own tokens are counted apart from the app's.
+- **Git proxy** shows its on/off state and active Git request count. Each repository shows its active requests,
+  last successful request and whether its last request failed. These states reflect `GIT_PROXY_ENABLED`; change that
+  setting and restart to enable or disable the proxy. TeamCity's VCS root URL determines whether it fetches through
+  this proxy. The proxy keeps no repository cache.
 - The **Out of memory** card is there while a heap dump is on disk: it says when the JVM ran out of memory and when
   the dump is deleted. The server deletes a dump 2 days after the JVM wrote it, since it holds decrypted tokens.
 - The **App writes** card shows writes of the app account that GitHub makes wait, or that reached their hourly cap,

@@ -18,11 +18,15 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.ClientVerdicts;
 import com.github.igniteprchecker.analysis.MergedVerdicts;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.config.WarmProperties;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -49,10 +53,13 @@ import tools.jackson.databind.ObjectMapper;
  * the checker's own page. The row the page polls asks TeamCity nothing.
  */
 class PostToPrGuardsTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final String USER = "alice";
 
     private static final List<String> POSTS = List.of("/api/pr-comment?pr=13709&build=9425992",
-        "/api/client/pr-comment?pr=69&build=9424200");
+        "/api/client/pr-comment?repo=python&pr=69&build=9424200");
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
@@ -79,10 +86,10 @@ class PostToPrGuardsTest {
 
     private final MockMvc mvc = guardedAsTheServiceGuards(MockMvcBuilders.standaloneSetup(new PostToPrController(
             standing, github, new PostVisaController(standing, mock(BlockerAnalyzer.class), merged, tc,
-                new PrTitleController(github, merged), clients, mock(PythonClientRuns.class), mock(PrCommands.class),
+                new PrTitleController(github, merged), clients, mock(ClientRuns.class), PROJECTS, mock(PrCommands.class),
                 mock(ClientPrsController.class)),
-            new JiraController(mock(JiraClient.class), tc, standing, merged, users), mock(PythonClientRuns.class),
-            clients, "https://checker.example")))
+            new JiraController(mock(JiraClient.class), tc, standing, merged, users), mock(ClientRuns.class),
+            clients, PROJECTS, "https://checker.example")))
         .addFilters(new SameOriginFilter())
         .build();
 
@@ -121,10 +128,10 @@ class PostToPrGuardsTest {
         when(github.writes()).thenReturn(true);
         when(github.canWrite()).thenReturn(true);
         when(standing.runCommentUrl(any(), anyInt(), anyLong(), anyLong())).thenReturn(Optional.empty());
-        when(clients.kept(anyInt())).thenReturn(Optional.empty());
+        when(clients.kept(any(ClientSpec.class), anyInt())).thenReturn(Optional.empty());
 
         assertThat(send(get("/api/pr-comment?pr=13709&build=9425992"), "live-tc").getStatus()).isEqualTo(200);
-        assertThat(send(get("/api/client/pr-comment?pr=69&build=9424200"), "live-tc").getStatus()).isEqualTo(200);
+        assertThat(send(get("/api/client/pr-comment?repo=python&pr=69&build=9424200"), "live-tc").getStatus()).isEqualTo(200);
         assertThat(send(get("/api/pr-comment?pr=13709&build=9425992"), null).getStatus()).as("no login").isEqualTo(401);
 
         verify(tc, never()).tokenRejected(anyString());

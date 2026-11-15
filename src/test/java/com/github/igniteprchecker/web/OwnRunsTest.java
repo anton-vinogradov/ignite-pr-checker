@@ -3,7 +3,6 @@ package com.github.igniteprchecker.web;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -25,7 +24,7 @@ import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.metrics.Metrics;
-import com.github.igniteprchecker.mirror.GitMirror;
+import com.github.igniteprchecker.config.GitProxyProperties;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.sun.net.httpserver.HttpExchange;
@@ -42,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -62,8 +62,6 @@ class OwnRunsTest {
 
     private final GithubClient github = mock(GithubClient.class);
 
-    private final GitMirror mirror = mock(GitMirror.class);
-
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
     private final List<JsonNode> requests = new CopyOnWriteArrayList<>();
@@ -83,17 +81,24 @@ class OwnRunsTest {
 
     private IgnitePrRuns ignite;
 
+    private TcClient tc;
+
+    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
+
     @BeforeEach
     void startTeamCity() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", this::answer);
         server.start();
 
-        AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
-        TcClient tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
+        tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"), cfg, new Metrics(Jackson2Defaults.mapper()));
 
-        ignite = new IgnitePrRuns(github, tc, mirror, cfg);
+        configureProxy(false);
+    }
+
+    private void configureProxy(boolean enabled) {
+        ignite = new IgnitePrRuns(github, tc, new GitProxyProperties(enabled), cfg);
         mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, analyzer,
                 mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg,
                 ignite))
@@ -212,22 +217,21 @@ class OwnRunsTest {
             "POST /app/rest/buildQueue");
     }
 
-    /** With the mirror disabled, replacement retains branch-based requests and never asks GitHub for a head. */
+    /** With the proxy disabled, replacement retains branch-based requests and never asks GitHub for a head. */
     @Test
-    void disabledMirrorKeepsBranchBasedQueueing() throws Exception {
+    void disabledProxyKeepsBranchBasedQueueing() throws Exception {
         as("alice", post("/api/trigger").param("replace", "true"))
             .andExpect(status().isOk());
 
         assertThat(requests).singleElement().satisfies(request -> assertThat(request.has("revisions")).isFalse());
         verify(github, never()).prHeadSha(anyInt());
-        verify(mirror, never()).ensurePr("ignite", 13575, HEAD);
     }
 
     /** Each launch action pins every requested suite to one fresh head, including replacement reruns. */
     @ParameterizedTest
     @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites", "rerun-blockers"})
-    void mirroredLaunchesPinAllSuitesToTheFreshHead(String action) throws Exception {
-        mirrored();
+    void proxiedLaunchesPinAllSuitesToTheFreshHead(String action) throws Exception {
+        proxied();
 
         as("alice", post("/api/" + action).param("replace", "true").param("suite", "Cache")
             .param("suites", "Cache,Query")).andExpect(status().isOk());
@@ -243,27 +247,25 @@ class OwnRunsTest {
             assertThat(pin.get("vcs-root-instance").get("vcs-root-id").asString()).isEqualTo("GitHubApacheIgnite");
         }
         verify(github).prHeadSha(13575);
-        verify(mirror).ensurePr("ignite", 13575, HEAD);
     }
 
-    /** A mirror refresh failure preserves the runs that each action would otherwise replace. */
+    /** A GitHub head read failure preserves the runs that each action would otherwise replace. */
     @ParameterizedTest
     @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites", "rerun-blockers"})
-    void mirrorFailureCancelsAndQueuesNothing(String action) throws Exception {
-        mirrored();
-        doThrow(new GitMirror.NotReadyException("PR head changed while fetching"))
-            .when(mirror).ensurePr("ignite", 13575, HEAD);
+    void headReadFailureCancelsAndQueuesNothing(String action) throws Exception {
+        proxied();
+        when(github.prHeadSha(13575)).thenThrow(new ResourceAccessException("GitHub unavailable"));
 
         as("alice", post("/api/" + action).param("replace", "true").param("suite", "Cache")
-            .param("suites", "Cache,Query")).andExpect(status().isServiceUnavailable());
+            .param("suites", "Cache,Query")).andExpect(status().isBadGateway());
 
         assertThat(writes).isEmpty();
     }
 
     /** A pinned suite rerun still replaces only its starter's queued standalone run. */
     @Test
-    void mirroredRerunReplacesOnlyTheViewersOwnQueuedRun() throws Exception {
-        mirrored();
+    void pinnedRerunReplacesOnlyTheViewersOwnQueuedRun() throws Exception {
+        proxied();
 
         as("alice", post("/api/rerun-suite").param("suite", "Cache")).andExpect(status().isOk());
 
@@ -272,8 +274,8 @@ class OwnRunsTest {
 
     /** A pinned automatic rerun resolves the token's owner and preserves the other user's queued run. */
     @Test
-    void mirroredAutomationReplacesOnlyTheTokensOwnQueuedRun() {
-        mirrored();
+    void pinnedAutomationReplacesOnlyTheTokensOwnQueuedRun() {
+        proxied();
 
         ignite.queueReplacingQueued(TOKEN, ignite.prepare(13575, List.of("Cache")), "Cache", false, "Auto re-run");
 
@@ -283,7 +285,7 @@ class OwnRunsTest {
     /** A later manual rerun fetches the head again, so a new push is tested by the new action. */
     @Test
     void eachManualActionFetchesItsOwnHead() throws Exception {
-        mirrored();
+        proxied();
         String pushed = "b".repeat(40);
         when(github.prHeadSha(13575)).thenReturn(HEAD, pushed);
 
@@ -295,8 +297,8 @@ class OwnRunsTest {
         verify(github, times(2)).prHeadSha(13575);
     }
 
-    private void mirrored() {
-        when(mirror.enabled()).thenReturn(true);
+    private void proxied() {
+        configureProxy(true);
         when(github.prHeadSha(13575)).thenReturn(HEAD);
         TestVerdict cache = new TestVerdict(1L, "CacheTest.test", "Cache", 11L, "Cache", "o1", true, false,
             "not seen on master", "F", 1);

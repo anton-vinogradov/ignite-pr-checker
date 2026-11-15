@@ -22,7 +22,6 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -64,6 +63,8 @@ class ClientVisaTest {
     private static final String CLIENT_REPO = "apache/ignite-python-thin-client";
 
     private static final int PR = 69;
+
+    private static final ClientSpec PYTHON = ThinClients.defaults().require("python");
 
     private static final long RUN = 9424005L;
 
@@ -315,7 +316,7 @@ class ClientVisaTest {
         runFinished(1L, RUN);
 
         verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(PR), any(), anyString());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
     }
 
     /** JIRA kept failing for 10 minutes: the verdict goes without the visa, and says what failed. */
@@ -487,7 +488,7 @@ class ClientVisaTest {
     private PrCommands commands(StandingVisas visas) {
         PrCommands c = new PrCommands(mapper, github, visas, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
-            new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc, analyzer,
+            new ClientRuns(github, tc, analyzer,
                 new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
                 new TeamcityProperties("https://ci2.example/")));
         c.clock(clock::get);

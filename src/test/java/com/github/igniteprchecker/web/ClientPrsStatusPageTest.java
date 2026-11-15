@@ -5,11 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/**
- * The checker reads commands in the PRs of apache/ignite and of apache/ignite-python-thin-client, where a /run-all runs
- * the Python thin client suite instead of RunAll. The PR commands card of the status page names both repos and says
- * what a /run-all does in the client's. Runs the page's own script.
- */
+/** The PR command card names each configured repository and the suite that /run-all queues there. */
 class ClientPrsStatusPageTest {
     private static final String STATUS = """
         page.el('tcStack').getContext = () => new Proxy({}, { get: () => () => {} });
@@ -20,14 +16,18 @@ class ClientPrsStatusPageTest {
             jvm: { heapUsedMb: 120, heapMaxMb: 512, threads: 40, cpus: 2 }, app: { openPrs: 3, pooledTokens: 1 },
             log: { errors: 0, warnings: 0, clientMistakes: 0, recent: [] },
             watcher: { prCommands: 4, prCommandsLastPollAt: page.now() - 20000, prCommandsRepo: 'apache/ignite',
-                prCommandsClientRepo: 'apache/ignite-python-thin-client' } };
+                prCommandsClients: [
+                    { key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' },
+                    { key: 'php', label: 'PHP', repo: 'apache/ignite-php-thin-client', suite: 'Thin client: PHP' },
+                    { key: 'nodejs', label: 'Node.js', repo: 'apache/ignite-nodejs-thin-client', suite: 'Thin client: Node.js' }] } };
         page.route('/api/status', { body: status });
         const card = () => page.el('watcherCards').innerHTML.split('<div class="card"')
             .find(c => c.includes('<div class="k">PR commands</div>'));
         """;
 
+    /** Given three client projects, their status card names all repos and explains each configured suite. */
     @Test
-    void theCardNamesBothReposAndWhatARunAllDoesInTheClients() throws Exception {
+    void theCardNamesAllReposAndTheirSuites() throws Exception {
         JsonNode out = PageScript.run("status.html", STATUS + """
             await page.load('');
             report({ text: card().replace(/<[^>]*>/g, '').replace(/^[^>]*>/, '').replace(/\\u00a0/g, ' '),
@@ -35,15 +35,18 @@ class ClientPrsStatusPageTest {
             """);
 
         assertThat(out.get("text").asText()).isEqualTo("PR commands4 /run-all handled · poll 20s ago · in apache/ignite"
-            + " and apache/ignite-python-thin-client");
-        assertThat(out.get("html").asText()).contains("title=\"In apache/ignite-python-thin-client, /run-all runs the"
-            + " Python thin client suite instead of RunAll.\"");
+            + ", apache/ignite-python-thin-client, apache/ignite-php-thin-client, apache/ignite-nodejs-thin-client");
+        assertThat(out.get("html").asText()).contains(
+            "In apache/ignite-python-thin-client, /run-all runs “Thin client: Python” instead of RunAll.",
+            "In apache/ignite-php-thin-client, /run-all runs “Thin client: PHP” instead of RunAll.",
+            "In apache/ignite-nodejs-thin-client, /run-all runs “Thin client: Node.js” instead of RunAll.");
     }
 
+    /** Given no client projects, the card names Ignite alone and has no client suite tooltip. */
     @Test
-    void aServerWithoutTheClientNamesOnlyItsRepo() throws Exception {
+    void aServerWithoutClientsNamesOnlyItsRepo() throws Exception {
         JsonNode out = PageScript.run("status.html", STATUS + """
-            delete status.watcher.prCommandsClientRepo;
+            status.watcher.prCommandsClients = [];
             await page.load('');
             report({ text: card().replace(/<[^>]*>/g, '').replace(/^[^>]*>/, '').replace(/\\u00a0/g, ' '),
                 html: card() });

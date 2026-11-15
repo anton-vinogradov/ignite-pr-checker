@@ -25,7 +25,6 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.BrokenSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -72,6 +71,8 @@ class ClientRerunTest {
 
     private static final int PR = 69;
 
+    private static final ClientSpec PYTHON = ThinClients.defaults().require("python");
+
     private static final long RUN = 9424005L;
 
     private static final long RERUN = 9424010L;
@@ -91,7 +92,7 @@ class ClientRerunTest {
     private static final String CLIENT = "a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4";
 
     private static final PinnedRun PINNED = new PinnedRun(SUITE, "pull/69", List.of(
-        new PinnedRun.Pin("335", "refs/heads/master", IGNITE), new PinnedRun.Pin("314", "refs/pull/69/head", CLIENT)),
+        PinnedRun.Pin.forRoot("GitHubApacheIgnite", "refs/heads/master", IGNITE), PinnedRun.Pin.forRoot("GitHubApacheIgnitePythonThinClient", "refs/pull/69/head", CLIENT)),
         Map.of("OVERRIDDEN_BRANCH", CLIENT));
 
     private static final String AUTO_RERUN = "Ignite PR Checker: auto re-run of build 9424005 for"
@@ -162,7 +163,7 @@ class ClientRerunTest {
                 + " Python** [build 9424005](https://ci2.example/build/9424005)")
             .contains("against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite/commit/" + IGNITE + ")")
             .contains("✅ **No blockers** — nothing in this run looks caused by this PR.\n\n**2 failing tests are not"
-                + " blamed on this PR.** [The checker's page](https://checker.example/?repo=python&pr=69) lists them"
+                + " blamed on this PR.** [The checker's page](https://checker.example/python?pr=69) lists them"
                 + " with their reasons.\n\n")
             .doesNotContain("❌").doesNotContain("test_sql.test_sql_fields_query")
             .contains("\n\n♻️ Settled after one auto re-run: [build 9424010](https://ci2.example/build/9424010) ran"
@@ -181,9 +182,9 @@ class ClientRerunTest {
         finished(RUN, "FAILURE");
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));
 
-        StandingVisas.Phase deciding = commands.clientPhase(PR, RUN);
+        StandingVisas.Phase deciding = commands.clientPhase(PYTHON, PR, RUN);
         commands.updateEtas();
-        StandingVisas.Phase rerunning = commands.clientPhase(PR, RUN);
+        StandingVisas.Phase rerunning = commands.clientPhase(PYTHON, PR, RUN);
         when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(false));
         commands.updateEtas();
@@ -194,9 +195,9 @@ class ClientRerunTest {
         assertThat(rerunning.phase()).isEqualTo("settling");
         assertThat(rerunning.wave()).isEqualTo(1);
         assertThat(rerunning.what()).isEqualTo("Thin client: Python");
-        assertThat(commands.clientPhase(PR, RERUN).phase()).isEqualTo("final");
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
-        assertThat(commands.clientPhase(OTHER_PR, OTHER_RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RERUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, OTHER_PR, OTHER_RUN).phase()).isEqualTo("final");
     }
 
     /**
@@ -216,8 +217,8 @@ class ClientRerunTest {
         commands.updateEtas();
 
         verify(github, times(2)).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
-        assertThat(commands.clientPhase(PR, RERUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RERUN).phase()).isEqualTo("final");
     }
 
     /**
@@ -364,8 +365,8 @@ class ClientRerunTest {
     }
 
     /**
-     * pr-commands.json as the version before this one wrote it: its client's run has no re-run and no visa. The run is
-     * told on, and its re-run tests the commits the file keeps.
+     * Given an old Python story with instance-based pins, when it resumes and queues its rerun,
+     * then the commits stay unchanged and stable root selectors survive another save and restart.
      */
     @Test
     void aRunTheVersionBeforeKeptGoesOn(@TempDir Path dir) throws Exception {
@@ -387,6 +388,18 @@ class ClientRerunTest {
 
         verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
         verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), contains("♻️ _Auto re-run"));
+        commands.saveTo(file);
+        var saved = mapper.readTree(file).path("clientRuns").get(0);
+        assertThat(saved.path("rerunId").asLong()).isEqualTo(RERUN);
+        assertThat(saved.path("pinned").path("revisions").findValuesAsString("vcsRootId"))
+            .containsExactly("GitHubApacheIgnite", "GitHubApacheIgnitePythonThinClient");
+
+        PrCommands restarted = commands();
+        restarted.loadFrom(file);
+        Path rewritten = dir.resolve("restarted.json");
+        restarted.saveTo(rewritten);
+        assertThat(mapper.readTree(rewritten).path("clientRuns").get(0).path("pinned"))
+            .isEqualTo(saved.path("pinned"));
     }
 
     /**
@@ -604,7 +617,7 @@ class ClientRerunTest {
 
         commands.updateEtas();
 
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
     }
 
     /** A person cancelled the run: they meant it not to run, so it is not run again, as for a RunAll. */
@@ -690,7 +703,7 @@ class ClientRerunTest {
     private PrCommands commands() {
         return new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
-            new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc, analyzer,
+            new ClientRuns(github, tc, analyzer,
                 new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
                 new TeamcityProperties("https://ci2.example/")));
     }

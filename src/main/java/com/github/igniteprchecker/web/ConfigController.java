@@ -3,10 +3,9 @@ package com.github.igniteprchecker.web;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.GithubProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.GithubClient;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,32 +23,32 @@ public class ConfigController {
     private final AnalysisProperties analysis;
     private final SuiteBaseline baseline;
     private final JiraClient jira;
-    private final PythonClientProperties client;
+    private final ThinClients clients;
 
     @Autowired
     public ConfigController(TeamcityProperties teamcity, GithubProperties github, GithubClient githubClient,
-        AnalysisProperties analysis, SuiteBaseline baseline, JiraClient jira, PythonClientProperties client) {
+        AnalysisProperties analysis, SuiteBaseline baseline, JiraClient jira, ThinClients clients) {
         this.teamcity = teamcity;
         this.github = github;
         this.githubClient = githubClient;
         this.analysis = analysis;
         this.baseline = baseline;
         this.jira = jira;
-        this.client = client;
+        this.clients = clients;
     }
 
-    /** The config of a checker that serves the Python thin client's PRs with the defaults. */
+    /** The config of a checker that serves thin clients' PRs with the defaults. */
     public ConfigController(TeamcityProperties teamcity, GithubProperties github, GithubClient githubClient,
         AnalysisProperties analysis, SuiteBaseline baseline, JiraClient jira) {
-        this(teamcity, github, githubClient, analysis, baseline, jira, new PythonClientProperties(null, null, null,
-            null));
+        this(teamcity, github, githubClient, analysis, baseline, jira,
+            ThinClients.defaults());
     }
 
     /**
      * {@code refreshAfterSeconds}: how old a verdict may get before a view refreshes it in the background.
      * {@code runAllSuites}: how many suites master's latest RunAll chain had (0 until known).
      * {@code jiraUrl}: the JIRA the visas go to, for the page's ticket links.
-     * {@code clientRepo} and {@code clientSuite}: the Python thin client's repo, and its suite's name for the page.
+     * {@code clients}: each thin client's project key, name, repo and suite name for the page.
      */
     @GetMapping("/config")
     public Map<String, Object> config() {
@@ -60,7 +59,6 @@ public class ConfigController {
             "refreshAfterSeconds", analysis.refreshAfterSeconds(),
             "runAllSuites", baseline.chainSuites(),
             "jiraUrl", jira.baseUrl(),
-            "clientRepo", client.repo(),
-            "clientSuite", PythonClientRuns.suiteLabel(client));
+            "clients", clients.catalog());
     }
 }
