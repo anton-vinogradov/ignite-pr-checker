@@ -282,6 +282,24 @@ class ClientVerdictTest {
         return md.substring(md.indexOf("📝"), md.indexOf("\n\n<sub>"));
     }
 
+    /** Given an Extensions chain, when its visa is rendered, then its scope and re-run name the whole chain. */
+    @Test
+    void extensionsVerdictNamesItsChainAndDependentSuite() {
+        ClientVerdict.Run run = new ClientVerdict.Run(9492239, "Extensions: All Tests", "apache/ignite", "1f2e3d4",
+            "apache/ignite-extensions", 370, "d3b836f", "https://checker.example/extensions?pr=370", true);
+        BrokenSuite broken = new BrokenSuite("IgniteExtensions_Tests_Aop", 9492213, "AOP",
+            List.of("compilation error"), 0, 100);
+        AnalysisResult verdict = result(List.of(broken), List.of(), List.of());
+        String wiki = ClientVerdict.wiki("https://ci2.example/", run, verdict, ClientVerdict.Rerun.counted(9493000));
+        String markdown = ClientVerdict.markdown("https://ci2.example/", "Author", run, verdict);
+
+        assertThat(wiki).contains("Extensions build chain", "The verdict covers its dependent suites.",
+            "AOP — compilation error", "ran the build chain again on the same commits")
+            .doesNotContain("one suite only", "No other suite ran");
+        assertThat(markdown).contains("apache/ignite-extensions/pull/370", "extensions?pr=370", "AOP — compilation error")
+            .doesNotContain("one suite only", "No other suite ran");
+    }
+
     private static AnalysisResult result(List<BrokenSuite> broken, List<TestVerdict> filtered,
         List<TestVerdict> blockers) {
         return new AnalysisResult(69, 9424005L, "pull/69", 0, blockers, List.of(), filtered, broken, List.of(), 1, 0,

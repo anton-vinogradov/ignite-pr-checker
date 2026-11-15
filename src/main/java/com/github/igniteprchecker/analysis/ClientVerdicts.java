@@ -26,8 +26,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * The verdicts the checker's page shows for the PRs of the thin clients. A PR's verdict is that of the newest
- * finished run of the client's suite on the PR's branch that tested the PR's own commit: a run someone started on the
+ * The verdicts the checker's page shows for PRs of the client and Extensions projects. A PR's verdict is that of the newest
+ * finished run of the project's suite or chain on the PR's branch that tested the PR's own commit: a run started on the
  * branch without a commit tested the client's master. When the run before the newest one tested the same commits of the
  * client and of Ignite, the verdict counts the failed tests of both, as the verdict comment of a {@code /run-all} does.
  * For example, an auto re-run tests the same commits as the run it re-runs. The verdict is judged as
@@ -192,7 +192,10 @@ public class ClientVerdicts {
     }
 
     private Looked lookUp(String token, ClientSpec spec, int pr) {
-        List<Run> runs = tc.finishedRuns(token, spec.suite(), spec.branch(pr), TcModel.OVERRIDDEN_BRANCH)
+        List<TcModel.BranchRun> finished = spec.composite()
+            ? tc.finishedRuns(token, spec.suite(), spec.branch(pr), TcModel.OVERRIDDEN_BRANCH, true)
+            : tc.finishedRuns(token, spec.suite(), spec.branch(pr), TcModel.OVERRIDDEN_BRANCH);
+        List<Run> runs = finished
             .stream().map(b -> ofItsCommit(spec, b)).filter(Objects::nonNull).limit(2).toList();
         Run run = runs.isEmpty() ? null : runs.size() == 2 && sameCommits(runs.get(0), runs.get(1))
             ? runs.get(0).after(runs.get(1)) : runs.get(0);
@@ -213,27 +216,33 @@ public class ClientVerdicts {
      * OVERRIDDEN_BRANCH of is taken by its commits.
      */
     private Run ofItsCommit(ClientSpec spec, TcModel.BranchRun b) {
-        List<TcModel.RootedRevision> revisions = b.revisions() == null || b.revisions().revision() == null ? List.of()
-            : b.revisions().revision();
+        List<TcModel.RootedRevision> revisions = b.allRevisions();
         List<TcModel.Property> params = b.resultingProperties() == null || b.resultingProperties().property() == null
             ? List.of() : b.resultingProperties().property();
-        String checkout = params.stream().filter(p -> TcModel.OVERRIDDEN_BRANCH.equals(p.name()))
+        String checkout = spec.composite() ? null : params.stream().filter(p -> TcModel.OVERRIDDEN_BRANCH.equals(p.name()))
             .map(TcModel.Property::value).findFirst().orElse(null);
         if (checkout != null && revisions.stream().noneMatch(r -> checkout.equals(r.version())))
             return null;
 
-        String client = checkout != null ? checkout : commitOf(revisions, spec.clientVcsRoot());
+        String client = checkout != null ? checkout : commitOf(revisions, spec.clientVcsRoot(), spec.composite());
+        String ignite = commitOf(revisions, spec.igniteVcsRoot(), spec.composite());
+        if (spec.composite() && (client == null || !client.matches("[0-9a-f]{40}")
+            || ignite == null || !ignite.matches("[0-9a-f]{40}")))
+            return null;
         String name = b.buildType() == null || b.buildType().name() == null ? spec.suiteLabel() : b.buildType().name();
         String starter = b.triggered() == null || b.triggered().user() == null ? null
             : b.triggered().user().username();
 
-        return new Run(b.id(), 0, name, starter, client, commitOf(revisions, spec.igniteVcsRoot()));
+        return new Run(b.id(), 0, name, starter, client, ignite);
     }
 
-    private static String commitOf(List<TcModel.RootedRevision> revisions, String vcsRoot) {
-        return revisions.stream().filter(r -> r.vcsRootInstance() != null
+    private static String commitOf(List<TcModel.RootedRevision> revisions, String vcsRoot, boolean requireComplete) {
+        List<String> commits = revisions.stream().filter(r -> r.vcsRootInstance() != null
                 && vcsRoot.equals(r.vcsRootInstance().vcsRootId()))
-            .map(TcModel.RootedRevision::version).filter(Objects::nonNull).findFirst().orElse(null);
+            .map(TcModel.RootedRevision::version).distinct().toList();
+        if (!requireComplete)
+            commits = commits.stream().filter(Objects::nonNull).toList();
+        return commits.size() == 1 ? commits.get(0) : null;
     }
 
     private AnalysisResult computeForUser(String token, ClientSpec spec, int pr, Run run) {
@@ -256,8 +265,10 @@ public class ClientVerdicts {
 
         try {
             String branch = spec.branch(pr);
-            AnalysisResult r = run.rerunId() == 0 ? analyzer.analyzeSuiteRun(token, pr, branch, run.buildId())
-                : analyzer.analyzeSuiteRun(token, pr, branch, run.buildId(), run.rerunId());
+            AnalysisResult r = spec.composite() ? analyzer.analyzeCompositeRun(token, pr, spec, run.buildId(),
+                run.rerunId()) : run.rerunId() == 0
+                    ? analyzer.analyzeSuiteRun(token, pr, branch, run.buildId())
+                    : analyzer.analyzeSuiteRun(token, pr, branch, run.buildId(), run.rerunId());
             results.put(key, r);
             inFlight.remove(key, mine);
             mine.complete(r);

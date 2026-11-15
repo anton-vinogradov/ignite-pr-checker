@@ -71,8 +71,8 @@ class ClientWarmCycleTest {
             verify(clients, never()).warm("tok", client, 68);
         }
         verify(analyzer, never()).warm("tok", 65);
-        assertThat(warmer.lastWarmed()).isEqualTo(9);
-        assertThat(warmer.cycleTotal()).isEqualTo(10);
+        assertThat(warmer.lastWarmed()).isEqualTo(3 * registry.all().size());
+        assertThat(warmer.cycleTotal()).isEqualTo(1 + 3 * registry.all().size());
     }
 
     /** Someone waits on the page of a client's PR for its verdict: the cycle leaves ci2 to that compute. */

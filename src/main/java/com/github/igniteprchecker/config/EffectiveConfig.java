@@ -85,6 +85,8 @@ public class EffectiveConfig {
         show("GIT_PROXY_ENABLED", String.valueOf(env.getProperty("git-proxy.enabled", Boolean.class, false)));
 
         for (ClientSpec client : clients.all()) {
+            if (client.composite())
+                continue;
             String key = client.key().equals("python") ? "python-client" : "thin-clients." + client.key();
             String var = client.key().toUpperCase(Locale.ROOT) + "_CLIENT_";
             text(key + ".repo", var + "REPO", client.repo());

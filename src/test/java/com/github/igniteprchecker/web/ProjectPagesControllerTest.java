@@ -16,7 +16,7 @@ class ProjectPagesControllerTest {
 
     /** Each supported project has a direct page address. Spring forwards it to the shared page. */
     @ParameterizedTest
-    @ValueSource(strings = {"ignite", "python", "php", "nodejs"})
+    @ValueSource(strings = {"ignite", "python", "php", "nodejs", "extensions"})
     void servesProjectPage(String project) throws Exception {
         mvc.perform(get("/" + project).param("pr", "42"))
             .andExpect(status().isOk()).andExpect(forwardedUrl("/index.html"));

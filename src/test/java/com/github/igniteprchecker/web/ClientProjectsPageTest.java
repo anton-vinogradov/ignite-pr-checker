@@ -32,7 +32,7 @@ class ClientProjectsPageTest {
         page.run('window').confirm = question => { asked.push(question); return true; };
         """;
 
-    /** A project's home lists that project's PRs and exposes direct links to all four project homes. */
+    /** A project's home lists that project's PRs and exposes direct links to all project homes. */
     @ParameterizedTest
     @CsvSource({"python,Python", "php,PHP", "nodejs,Node.js"})
     void projectHomesAndPrLinksKeepTheirIdentity(String key, String language) throws Exception {
@@ -44,7 +44,7 @@ class ClientProjectsPageTest {
             report({ list, home: page.fetches('/api/client/prs').map(f => f.url),
                 title: page.text('prTitle'), label: page.text('runAllLabel'), pushed: page.pushed,
                 requests: page.fetches('/api/client/').map(f => f.url), ignite: page.fetches('/api/analyze').length,
-                tabs: ['ignite', 'python', 'php', 'nodejs'].map(k => page.el('project' + k).getAttribute('href')),
+                tabs: ['ignite', 'python', 'php', 'nodejs', 'extensions'].map(k => page.el('project' + k).getAttribute('href')),
                 homeLinks: ['brand', 'navPrs'].map(id => page.el(id).href),
                 selected: page.el('project' + key).getAttribute('aria-current') });
             """);
@@ -55,7 +55,7 @@ class ClientProjectsPageTest {
         assertThat(out.get("title").asText()).startsWith(language + " client #69");
         assertThat(out.get("label").asText()).isEqualTo("“Thin client: " + language + "”:");
         assertThat(out.get("ignite").asInt()).isZero();
-        assertThat(out.get("tabs").toString()).isEqualTo("[\"/ignite\",\"/python\",\"/php\",\"/nodejs\"]");
+        assertThat(out.get("tabs").toString()).isEqualTo("[\"/ignite\",\"/python\",\"/php\",\"/nodejs\",\"/extensions\"]");
         assertThat(out.get("homeLinks").toString()).isEqualTo("[\"/" + key + "\",\"/" + key + "\"]");
         assertThat(out.get("selected").asText()).isEqualTo("page");
         assertThat(out.get("requests")).allSatisfy(url -> assertThat(url.asText()).contains("repo=" + key));
@@ -215,7 +215,7 @@ class ClientProjectsPageTest {
 
     /** Unknown page paths never select Ignite or Python implicitly, even when the path names an object property. */
     @ParameterizedTest
-    @ValueSource(strings = {"/unknown", "/index.html", "/", "/php/", "/constructor", "/toString"})
+    @ValueSource(strings = {"/unknown", "/index.html", "/", "/php/", "/extensions/", "/constructor", "/toString"})
     void unknownPathsQueueAndReadNoPr(String path) throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('%s?pr=69');

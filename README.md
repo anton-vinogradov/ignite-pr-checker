@@ -26,7 +26,8 @@ each label means and what to do about it.
 - **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
   shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
-- **Your PRs.** Choose **Ignite**, **Python**, **PHP** or **Node.js** first: `/ignite`, `/python`, `/php`, `/nodejs`.
+- **Your PRs.** Choose **Ignite**, **Python**, **PHP**, **Node.js** or **Extensions** first:
+  `/ignite`, `/python`, `/php`, `/nodejs`, `/extensions`.
   The filters apply to the selected project. **All** lists the 50 most recently updated
   open PRs. **Mine** lists your open PRs, also those outside the 50. **Involved** lists other people's open PRs where
   someone asked you to review, you reviewed or you commented. Mine and Involved need your GitHub account linked in ⚙.
@@ -54,7 +55,10 @@ each label means and what to do about it.
   needs `force`. The auto re-run and the JIRA visa work there as well. Each project has its own PR list and pages,
   for example `/python?pr=69`, `/php?pr=42`, `/nodejs?pr=42`. **Run** on that page queues the same run
   as `/run-all`, and your options act on it the same way. See
-  [Thin client PRs](docs/features.md#thin-client-prs).
+  [Thin client PRs](docs/features.md#thin-client-prs). In **Extensions**, `/run-all` and **Run** queue the complete
+  **Extensions: All Tests** build chain for `apache/ignite-extensions`, with its PR head and Ignite master.
+  Open `/extensions?pr=42` for its suite results, whole-chain re-runs and final verdict comment. See
+  [Extensions PRs](docs/features.md#extensions-prs).
 - **The flaky board** at `/flaky.html`: tests that fail on master, flaky ones first, then the ones that broke. See
   [The flaky board](docs/features.md#the-flaky-board-flakyhtml).
 - **The status page**: health, memory, the warmer, TeamCity, GitHub and JIRA calls, the settings in effect. Live:
@@ -384,12 +388,15 @@ will record the proxy address. Verify these paths for the jobs you use before sw
    sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy
    ```
 
+   If the service uses a custom Caddy binary with additional modules, use that same binary for validation.
    If validation fails, restore the saved Caddyfile and keep the running configuration. Validate the restored file
    before any reload.
 3. Check the public `/api/git-proxy/status` for `enabled: true` and `engine: caddy`. This response comes from the
    active Caddy route. The status page shows the configured repositories, with no background synchronization or
    repository storage. Live request counts and request outcomes are not collected. This status does not prove
    GitHub is reachable; perform the Git checks below. Without the Caddy route, Java reports the proxy as Off.
+   An optional isolated check is `python3 ops/check-git-proxy.py` on a machine with Caddy, Git and Python 3.
+   It tests the checked snippet on loopback, including a temporary PR fetch, without reloading the installed proxy.
 4. From a machine on TeamCity's network, compare a branch's full SHA through both URLs:
 
    ```bash

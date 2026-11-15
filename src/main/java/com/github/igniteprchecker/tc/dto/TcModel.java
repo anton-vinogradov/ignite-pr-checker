@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Minimal DTOs for the slices of the TeamCity REST JSON we actually read.
@@ -90,7 +91,19 @@ public final class TcModel {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record RootedBuild(RootedRevisions revisions) {
+    public record RootedBuild(RootedRevisions revisions,
+        @JsonProperty("snapshot-dependencies") RootedBuilds snapshotDependencies) {
+        public RootedBuild(RootedRevisions revisions) {
+            this(revisions, null);
+        }
+
+        public List<RootedRevision> allRevisions() {
+            Stream<RootedRevision> own = revisions == null || revisions.revision() == null ? Stream.empty()
+                : revisions.revision().stream();
+            Stream<RootedRevision> dependencies = snapshotDependencies == null || snapshotDependencies.build() == null
+                ? Stream.empty() : snapshotDependencies.build().stream().flatMap(b -> b.allRevisions().stream());
+            return Stream.concat(own, dependencies).toList();
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -113,7 +126,15 @@ public final class TcModel {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BranchRun(long id, BuildType buildType, Triggered triggered, RootedRevisions revisions,
-        Properties resultingProperties) {
+        Properties resultingProperties, @JsonProperty("snapshot-dependencies") RootedBuilds snapshotDependencies) {
+        public BranchRun(long id, BuildType buildType, Triggered triggered, RootedRevisions revisions,
+            Properties resultingProperties) {
+            this(id, buildType, triggered, revisions, resultingProperties, null);
+        }
+
+        public List<RootedRevision> allRevisions() {
+            return new RootedBuild(revisions, snapshotDependencies).allRevisions();
+        }
     }
 
     /** VCS root instances, as TeamCity lists them. */
@@ -190,11 +211,27 @@ public final class TcModel {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildRef(long id, String branchName, String state, String status,
         String buildTypeId, BuildType buildType, Revisions revisions, Properties resultingProperties,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String finishDate) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String finishDate,
+        @JsonProperty("snapshot-dependencies") @JsonInclude(JsonInclude.Include.NON_NULL) RootedBuilds snapshotDependencies) {
+        public BuildRef(long id, String branchName, String state, String status, String buildTypeId,
+            BuildType buildType, Revisions revisions, Properties resultingProperties, String finishDate) {
+            this(id, branchName, state, status, buildTypeId, buildType, revisions, resultingProperties, finishDate, null);
+        }
+
         /** A build without its finish date, in the shape callers used before it was read. */
         public BuildRef(long id, String branchName, String state, String status, String buildTypeId,
             BuildType buildType, Revisions revisions, Properties resultingProperties) {
-            this(id, branchName, state, status, buildTypeId, buildType, revisions, resultingProperties, null);
+            this(id, branchName, state, status, buildTypeId, buildType, revisions, resultingProperties, null, null);
+        }
+
+        public Revisions allRevisions() {
+            if (snapshotDependencies == null || snapshotDependencies.build() == null)
+                return revisions;
+            Stream<String> own = revisions == null || revisions.revision() == null ? Stream.empty()
+                : revisions.revision().stream().map(Revision::version);
+            Stream<String> dependencies = snapshotDependencies.build().stream()
+                .flatMap(b -> b.allRevisions().stream()).map(RootedRevision::version);
+            return new Revisions(Stream.concat(own, dependencies).distinct().map(Revision::new).toList());
         }
     }
 

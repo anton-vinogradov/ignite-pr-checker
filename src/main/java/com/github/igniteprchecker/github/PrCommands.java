@@ -449,8 +449,8 @@ public class PrCommands implements SnapshotCache {
             boolean belowTop = queued.belowTop() != 0;
             String ack = "🚀 **" + Markup.text(suite) + " queued"
                 + (belowTop ? ", but not at the top" : cmd.top() ? " at the top of the queue" : "") + "** — " + link
-                + ": this PR's head `" + shortSha(clientSha(queued.pinned())) + "` against Ignite master at `"
-                + shortSha(igniteSha(queued.pinned())) + "`. The checker's page shows the run's live progress and its"
+                + ": this PR's head `" + shortSha(clientSha(queued.pinned(), spec)) + "` against Ignite master at `"
+                + shortSha(igniteSha(queued.pinned(), spec)) + "`. The checker's page shows the run's live progress and its"
                 + " verdict: [Ignite PR Checker](" + ClientRuns.pageUrl(publicUrl, client(pr.repo()), pr.number()) + ")."
                 + (belowTop ? " " + notMovedUp("it", queued.belowTop()) + "." : "")
                 + (cancelled == 0 ? ""
@@ -515,17 +515,17 @@ public class PrCommands implements SnapshotCache {
         return "https://github.com/" + pr.repo() + "/pull/" + pr.number();
     }
 
-    /** The client's commit a run of the thin client's suite was pinned to. */
-    private static String clientSha(PinnedRun run) {
-        return run.properties().get(TcModel.OVERRIDDEN_BRANCH);
+    private static String clientSha(PinnedRun run, ClientSpec spec) {
+        return run.revisions().stream().filter(p -> spec.clientVcsRoot().equals(p.vcsRootId()))
+            .map(PinnedRun.Pin::version).findFirst().orElse(run.properties().get(TcModel.OVERRIDDEN_BRANCH));
     }
 
-    /** Ignite's commit a run of the thin client's suite was pinned to: the commit of its other VCS root. */
-    private static String igniteSha(PinnedRun run) {
-        String client = clientSha(run);
+    private static String igniteSha(PinnedRun run, ClientSpec spec) {
+        String client = clientSha(run, spec);
 
-        return run.revisions().stream().map(PinnedRun.Pin::version).filter(v -> !v.equals(client)).findFirst()
-            .orElse("");
+        return run.revisions().stream().filter(p -> spec.igniteVcsRoot().equals(p.vcsRootId())
+                || p.vcsRootId() == null && !p.version().equals(client))
+            .map(PinnedRun.Pin::version).findFirst().orElse("");
     }
 
     private static String shortSha(String sha) {
@@ -544,7 +544,8 @@ public class PrCommands implements SnapshotCache {
     private void conflicts(PrRef pr, GithubClient.IssueComment c, String user, Cmd cmd) {
         String again = cmd.top() ? "/run-all top" : "/run-all";
         String typo = forceTypo(c.body());
-        String run = pr.ignite() ? "RunAll" : "the suite **" + Markup.text(client(pr.repo()).suiteLabel()) + "**";
+        String run = pr.ignite() ? "RunAll" : "the " + (client(pr.repo()).composite() ? "build chain" : "suite")
+            + " **" + Markup.text(client(pr.repo()).suiteLabel()) + "**";
         react(pr, user, c.id(), "confused");
         explain(pr, user, c, "🚀 _Nothing was queued: GitHub reports merge conflicts between this PR and its base"
             + " branch. Resolve them and post `" + again + "` again, or post `" + again + " force` to queue " + run
@@ -883,7 +884,9 @@ public class PrCommands implements SnapshotCache {
             default -> lacking(pr, c, stranger, cmd, UNLINKED, lead(cmd) + ": this GitHub account is not linked to a"
                 + " ci2 account in [Ignite PR Checker](" + publicUrl + "). Log in there with a [TeamCity access token]("
                 + tcBaseUrl + "/profile.html?item=accessTokens), " + linkSteps() + " After that, `/run-all` here"
-                + " queues " + (pr.ignite() ? "RunAll" : "the " + client(pr.repo()).label() + " thin client suite") + " under your ci2 account.");
+                + " queues " + (pr.ignite() ? "RunAll" : "the " + client(pr.repo()).label()
+                    + (client(pr.repo()).composite() ? " build chain" : " thin client suite"))
+                + " under your ci2 account.");
         }
     }
 
@@ -1371,7 +1374,8 @@ public class PrCommands implements SnapshotCache {
             : "[build " + rerun.id() + "](" + rerun.webUrl() + ")";
         if (worthEditing(run, stage, finishAt) && narrate(run, run.baseBody() + (run.rerunStandsIn()
             ? "\n🛑 _TeamCity cancelled the run by itself._" : "\n🏁 _Run finished._") + " ♻️ _Auto re-run "
-            + link + " of the suite on the same commits is " + (queued ? "queued" : "running")
+            + link + " of the " + (client(run.repo()).composite() ? "build chain" : "suite")
+            + " on the same commits is " + (queued ? "queued" : "running")
             + (finishAt < 0 ? ", with no finish estimate yet._" : ", expected to finish **≈ " + wallClock(finishAt, tz)
                 + "**._")))
             shown.put(run.commentId(), new Shown(run.buildId(), stage, finishAt));
@@ -1500,7 +1504,7 @@ public class PrCommands implements SnapshotCache {
             return Optional.empty();
         }
 
-        if (rerun == null && ClientRuns.worthRerunning(verdict.get())
+        if (rerun == null && ClientRuns.worthRerunning(verdict.get(), client(run.repo()))
             && standing.rerunActsOn(run.username(), verdict.get().finishedAt() * 1000)) {
             return queueRerun(run, actor, false).map(notQueued -> new Judged(verdict.get(), notQueued));
         }

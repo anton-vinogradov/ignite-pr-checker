@@ -324,7 +324,7 @@ class ClientPrPageTest {
         assertThat(out.get("shown").asBoolean()).isTrue();
     }
 
-    /** The legend said "my run" means the latest RunAll, which a PR of the client never has. */
+    /** Given a client page, the legend explains the latest RunAll, client suite and Extensions chain in both languages. */
     @Test
     void theLegendSaysWhatMyRunMeansForAClientsPr() throws Exception {
         String legend = "page.text('prLegend')";
@@ -340,9 +340,8 @@ class ClientPrPageTest {
             report({ legend: %s });
             """.formatted(legend));
 
-        assertThat(en.get("legend").asText()).contains("my run — you started its latest RunAll, or for a client"
-            + " PR, its latest run of the suite");
-        assertThat(ru.get("legend").asText()).contains("мой прогон — последний RunAll запустил ты, а у PR клиента — последний прогон сьюты");
+        assertThat(en.get("legend").asText()).contains("my run — you started its latest RunAll, client suite or Extensions build chain");
+        assertThat(ru.get("legend").asText()).contains("мой прогон — последний RunAll, сьют клиента или цепочку проекта «Расширения» запустил ты");
     }
 
     @Test

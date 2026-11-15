@@ -69,7 +69,7 @@ class ClientRunsProjectsTest {
      * then both exact revisions target stable root IDs rather than the older build's instances.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"python", "php", "nodejs"})
+    @ValueSource(strings = {"python", "php", "nodejs", "extensions"})
     void queuesSelectedProjectWithBothPins(String key) {
         ClientSpec spec = projects.require(key);
         String head = head(spec);
@@ -80,7 +80,7 @@ class ClientRunsProjectsTest {
 
         assertThat(queued).singleElement().satisfies(body -> {
             assertThat(body.path("buildType").path("id").asText()).isEqualTo(spec.suite());
-            assertThat(body.path("branchName").asText()).isEqualTo(key.equals("php") ? "pull/69/head" : "pull/69");
+            assertThat(body.path("branchName").asText()).isEqualTo(spec.branch(69));
             JsonNode revisions = body.path("revisions").path("revision");
             assertThat(revisions.size()).isEqualTo(2);
             assertThat(revisions.get(0).path("version").asText()).isEqualTo(IGNITE);
@@ -90,7 +90,10 @@ class ClientRunsProjectsTest {
             assertThat(revisions.get(1).path("vcsBranchName").asText()).isEqualTo("refs/pull/69/head");
             assertThat(revisions.get(1).path("vcs-root-instance").path("vcs-root-id").asText())
                 .isEqualTo(spec.clientVcsRoot());
-            assertThat(body.path("properties").path("property").get(0).path("value").asText()).isEqualTo(head);
+            if (spec.composite())
+                assertThat(body.path("properties").path("property")).isEmpty();
+            else
+                assertThat(body.path("properties").path("property").get(0).path("value").asText()).isEqualTo(head);
         });
     }
 
@@ -156,7 +159,7 @@ class ClientRunsProjectsTest {
      * then the TeamCity request repeats its original revisions and checkout property.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"python", "php", "nodejs"})
+    @ValueSource(strings = {"python", "php", "nodejs", "extensions"})
     void rerunsOriginalCommitsAfterHeadsMove(String key) {
         ClientSpec spec = projects.require(key);
         String head = head(spec);
@@ -198,11 +201,17 @@ class ClientRunsProjectsTest {
             if (query.contains("state:queued"))
                 body = "{\"build\":[]}";
             else {
-                ClientSpec spec = projects.all().stream().filter(c -> query.contains("id:" + c.suite()))
+                ClientSpec spec = projects.all().stream().filter(c -> query.contains("id:" + c.suite())
+                        || c.composite() && query.contains("id:" + c.igniteSuite()))
                     .findFirst().orElseThrow();
-                body = mapper.writeValueAsString(Map.of("build", List.of(Map.of("revisions", Map.of("revision", List.of(
-                    Map.of("vcs-root-instance", Map.of("id", "335", "vcs-root-id", spec.igniteVcsRoot())),
-                    Map.of("vcs-root-instance", Map.of("id", instance(spec), "vcs-root-id", spec.clientVcsRoot()))))))));
+                Map<String, Object> ignite = Map.of("vcs-root-instance",
+                    Map.of("id", "335", "vcs-root-id", spec.igniteVcsRoot()));
+                Map<String, Object> project = Map.of("vcs-root-instance",
+                    Map.of("id", instance(spec), "vcs-root-id", spec.clientVcsRoot()));
+                List<Map<String, Object>> roots = !spec.composite() ? List.of(ignite, project)
+                    : query.contains("id:" + spec.igniteSuite()) ? List.of(ignite) : List.of(project);
+                body = mapper.writeValueAsString(Map.of("build", List.of(Map.of("revisions",
+                    Map.of("revision", roots)))));
             }
         }
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -232,6 +241,7 @@ class ClientRunsProjectsTest {
     }
 
     private String head(ClientSpec spec) {
-        return String.valueOf((char) ('a' + projects.all().indexOf(spec))).repeat(40);
+        return spec.composite() ? "9".repeat(40)
+            : String.valueOf((char) ('a' + projects.all().indexOf(spec))).repeat(40);
     }
 }

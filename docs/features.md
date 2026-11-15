@@ -182,9 +182,10 @@ and the visa.
 
 ![The PHP login page with the Ignite, Python, PHP and Node.js project tabs](img/project-tabs.jpg)
 
-*Local development instance: the PHP login page and all four project tabs.*
+*Local development instance: the PHP login page and project tabs.*
 
-- The project tabs **Ignite**, **Python**, **PHP** and **Node.js** open `/ignite`, `/python`, `/php` and `/nodejs`.
+- The project tabs **Ignite**, **Python**, **PHP**, **Node.js** and **Extensions** open `/ignite`, `/python`, `/php`,
+  `/nodejs` and `/extensions`.
   The left pane lists open PRs of the selected project, the most recently updated first. A row has the PR's number, its ticket key
   and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges mean** under
   the filter explains the badges. It stays open until you pick a PR. **my run** marks the PRs whose latest RunAll you
@@ -333,8 +334,8 @@ The proxy does not retain force-pushed commits or substitute another commit. Tea
 ## Standing options
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
-`/run-all` comment, or in TeamCity. They act on the runs you start in a
-[thin client PR](#thin-client-prs) too. An option does not reach back: runs that finished
+`/run-all` comment, or in TeamCity. They act on the runs you start in
+[thin client PRs](#thin-client-prs) and [Extensions PRs](#extensions-prs) too. An option does not reach back: runs that finished
 before it was switched on are left alone. ⚙ puts the options in four groups, by what they need, and each group starts
 with the state of that access. While any of them is on, the server stores your TeamCity token, encrypted, and each also
 stores the JIRA or GitHub token it needs while it is on.
@@ -611,6 +612,20 @@ from its own GitHub account, the app account.
   comment.
 - When GitHub makes the app account wait, or its writes reach 40 an hour to one PR or 60 for one user, reactions,
   replies and story edits go later, not lost; a reaction or a reply that waited a day goes no more.
+
+### Extensions PRs
+
+The **Extensions** tab lists PRs of [apache/ignite-extensions](https://github.com/apache/ignite-extensions).
+Its home is `/extensions`, and a PR opens at `/extensions?pr=42`. The list and its filters stay in this repository.
+
+**Run** and `/run-all` queue the whole **Extensions: All Tests** build chain, which contains several suites.
+It tests the PR's selected head against the selected Ignite master commit. The page shows each suite's failures
+and links to its TeamCity results. **Run** starts a new whole chain; it does not launch an individual leaf suite.
+The command rules, including `top` and `force`, apply as in the other projects.
+
+The starter's standing options can re-run the whole chain on its original two commits and post the final verdict.
+The page also offers **Post to JIRA** and **Post to PR** for the run on screen. A PR number, navigation link or
+comment always keeps the Extensions repository; it never selects an Ignite or thin client PR with the same number.
 
 ### Thin client PRs
 

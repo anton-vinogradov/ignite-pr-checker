@@ -370,14 +370,14 @@ public class ClientPrsController {
      */
     public record Served(@JsonUnwrapped AnalysisResult result, Caveats.Standing standing, List<String> caveats,
         Map<String, Object> pushed, String repo, long rerunId, String suiteName, String clientSha, String igniteSha,
-        String clientRepo, String igniteRepo) {
+        String clientRepo, String igniteRepo, boolean composite) {
         static Served of(ClientVerdicts.Verdict v, String head, ClientSpec spec, String igniteRepo) {
             AnalysisResult r = v.result();
             ClientVerdicts.Run run = v.run();
 
             return new Served(r, Caveats.standing(r, null), Caveats.of(r, null), pushed(run.clientSha(), head),
                 spec.key(), run.rerunId(), run.suiteName(), run.clientSha(), run.igniteSha(),
-                spec.repo(), igniteRepo);
+                spec.repo(), igniteRepo, spec.composite());
         }
 
         /**

@@ -17,7 +17,9 @@ public class ThinClients {
                 python.clientVcsRoot()),
             spec("php", "PHP", others.php(), "IgniteTests24Java8_ThinClientPhp", "GitHubApacheIgnitePhpThinClient"),
             spec("nodejs", "Node.js", others.nodejs(), "IgniteTests24Java8_ThinClientNodeJs",
-                "GitHubApacheIgniteNodejsThinClient"));
+                "GitHubApacheIgniteNodejsThinClient"),
+            new ClientSpec("extensions", "Extensions", "apache/ignite-extensions", ClientSpec.EXTENSIONS_SUITE,
+                "GitHubApacheIgnite", "GitHubApacheIgniteExtensions"));
     }
 
     public List<ClientSpec> all() {
@@ -33,9 +35,9 @@ public class ThinClients {
         return clients.stream().map(Project::of).toList();
     }
 
-    public record Project(String key, String label, String repo, String suite) {
+    public record Project(String key, String label, String repo, String suite, boolean composite) {
         public static Project of(ClientSpec client) {
-            return new Project(client.key(), client.label(), client.repo(), client.suiteLabel());
+            return new Project(client.key(), client.label(), client.repo(), client.suiteLabel(), client.composite());
         }
     }
 

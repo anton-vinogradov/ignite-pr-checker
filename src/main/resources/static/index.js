@@ -11,7 +11,7 @@ let canAdmin = false; // an operator: may update the service
 let allPrs = []; // the PRs the list shows now, those of the chosen tab, for the list filter
 let runAllSuites = 0; // how many suites a RunAll queues, from /api/config; 0 until the server knows
 // Each project has its own page. Project tabs use full navigation, so its list and requests share one identity.
-const CLIENT_PROJECTS = ['python', 'php', 'nodejs'];
+const CLIENT_PROJECTS = ['python', 'php', 'nodejs', 'extensions'];
 let clientModes = {};
 let selectedRepo = repoFromUrl();
 let configReady;
@@ -19,6 +19,7 @@ let configReady;
 function clientMode(repo = selectedRepo) { return Object.hasOwn(clientModes, repo) ? clientModes[repo] : null; }
 function clientSuiteFor(repo = selectedRepo) { return clientMode(repo)?.suite || ''; }
 function clientLanguage(repo = selectedRepo) { return clientMode(repo)?.label || repo; }
+function compositeProject(repo = selectedRepo) { return !!clientMode(repo)?.composite; }
 function projectAvailable(repo) { return repo === null || !!clientMode(repo); }
 function projectPath(repo = selectedRepo) { return '/' + (repo === null ? 'ignite' : repo); }
 
@@ -105,7 +106,10 @@ function paintLoginPr() {
     const repo = repoFromUrl();
     $('loginIntro').classList.toggle('hidden', !projectAvailable(repo));
     if (projectAvailable(repo)) {
-        $('loginIntro').textContent = repo
+        $('loginIntro').textContent = compositeProject(repo)
+            ? T('See which tests your {0} PR actually broke, not the ones already failing or flaky on master. '
+                + 'Start or re-run the “{1}” build chain for the PR, right from here.', clientLanguage(repo), clientSuiteFor(repo))
+            : repo
             ? T('See which tests your {0} client PR actually broke, not the ones already failing or flaky on master. '
                 + 'Start or re-run “{1}” for the PR, right from here.', clientLanguage(repo), clientSuiteFor(repo))
             : T('See which tests your Apache Ignite PR actually broke, not the ones already failing or flaky on master. '
@@ -118,7 +122,10 @@ function paintLoginPr() {
         return;
     }
     if (!pr) return;
-    $('loginPrHead').textContent = repo
+    $('loginPrHead').textContent = compositeProject(repo)
+        ? T('Log in to see {0} PR #{1}: which test failures are its own, and how its build chain is going.',
+            clientLanguage(repo), pr)
+        : repo
         ? T('Log in to see {0} client PR #{1}: which test failures are its own, and how its runs are going.',
             clientLanguage(repo), pr)
         : T`Log in to see PR #${pr}: which test failures are its own, and how its runs are going.`;
@@ -239,7 +246,8 @@ function setPrTitle(number, title, url, closing = null) {
         const key = m.toUpperCase();
         return `<a href="${esc(jiraBase)}/browse/${key}" target="_self" rel="noopener" title="${T`Open ${key} in JIRA`}">${m}</a>`;
     }) : '';
-    $('prTitle').innerHTML = (selectedRepo ? `<span class="tag">${esc(T('{0} client', clientLanguage()))}</span> ` : '')
+    $('prTitle').innerHTML = (selectedRepo ? `<span class="tag">${esc(compositeProject()
+        ? T(clientLanguage()) : T('{0} client', clientLanguage()))}</span> ` : '')
         + `<a href="${esc(href)}" target="_self" rel="noopener" title="${T`Open PR #${esc(number)} on GitHub`}">#${esc(number)}</a>`
         + (shownPrState ? ' ' + shownPrState : '') + (linked ? ' ' + linked : '');
 }
@@ -311,11 +319,16 @@ const RUN_ROW = {
             + 'in the PR does.'),
         again: phrase('Run the suite'),
         force: phrase('Queues the suite although GitHub reports merge conflicts in this PR. Asks first.') },
+    composite: { run: phrase('Queues the whole build chain with this PR\'s head and Ignite master, as /run-all in the PR does.'),
+        top: phrase('Queues the whole build chain with this PR\'s head and Ignite master at the top of the ci2 queue.'),
+        again: phrase('Run the build chain'),
+        force: phrase('Queues the build chain although GitHub reports merge conflicts in this PR. Asks first.') },
 };
 
 function paintRunRow() {
-    const row = RUN_ROW[selectedRepo ? 'client' : 'ignite'];
-    $('runAllLabel').textContent = selectedRepo ? T`“${clientSuiteFor()}”:`
+    const row = RUN_ROW[compositeProject() ? 'composite' : selectedRepo ? 'client' : 'ignite'];
+    $('runAllLabel').textContent = compositeProject() ? T`“${clientSuiteFor()}” build chain:`
+        : selectedRepo ? T`“${clientSuiteFor()}”:`
         : runAllSuites ? T`RunAll (~${runAllSuites} suites):` : T('RunAll:');
     for (const b of document.querySelectorAll('#actions .act[data-act]'))
         b.title = T(b.dataset.top === 'true' ? row.top : row.run);
@@ -503,7 +516,7 @@ function prRow(p, repo = null) {
     const key = title.match(TITLE_KEY);
     const rest = key ? title.slice(key[0].length) : '';
     const of = repo ? ` data-repo="${repo}"` : '';
-    const mineTitle = T(repo ? CLIENT_MY_RUN_TITLE : MY_RUN_TITLE);
+    const mineTitle = T(repo && !compositeProject(repo) ? CLIENT_MY_RUN_TITLE : MY_RUN_TITLE);
     return `
         <li data-num="${esc(p.number)}"${of} data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
             <a class="pr-link" href="${prAddress(esc(p.number), repo)}" data-num="${esc(p.number)}"${of} title="${esc(title)}">
@@ -515,7 +528,7 @@ function prRow(p, repo = null) {
 // What the list filter keeps — by number or title — and the number to open when it is not among
 // the open PRs (the analysis works for any PR). `first` is what Enter opens.
 function prMatches(prs, query) {
-    const named = /^\s*(ignite|python|php|nodejs|node\.js)\s*#?\s*(\d+)\s*$/i.exec(query);
+    const named = /^\s*(ignite|python|php|nodejs|node\.js|extensions)\s*#?\s*(\d+)\s*$/i.exec(query);
     if (named && named[1].toLowerCase().replace('node.js', 'nodejs') !== (selectedRepo || 'ignite'))
         return { nums: [], open: null, first: null };
     const q = (named ? named[2] : query).trim().toLowerCase().replace(/^#/, '');
@@ -538,7 +551,8 @@ function applyPrFilter() {
         any.dataset.num = open;
         if (selectedRepo) any.dataset.repo = selectedRepo;
         else delete any.dataset.repo;
-        any.textContent = selectedRepo ? T('Open {0} client PR #{1} →', clientLanguage(), open) : T`Open PR #${open} →`;
+        any.textContent = compositeProject() ? T('Open {0} PR #{1} →', clientLanguage(), open)
+            : selectedRepo ? T('Open {0} client PR #{1} →', clientLanguage(), open) : T`Open PR #${open} →`;
     }
     $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null
         || !$('prTabNote').classList.contains('hidden'));
@@ -1105,7 +1119,8 @@ function notifyIfFinal(st) {
         : T('no blockers found, not proven clean. Open the page to see why.');
     notifyFor = null;
     try {
-        const title = selectedRepo ? T('{0} client PR #{1}: {2}', clientLanguage(), selectedPr, head) : `PR #${selectedPr}: ${head}`;
+        const title = compositeProject() ? T('{0} PR #{1}: {2}', clientLanguage(), selectedPr, head)
+            : selectedRepo ? T('{0} client PR #{1}: {2}', clientLanguage(), selectedPr, head) : `PR #${selectedPr}: ${head}`;
         const note = new Notification(title, {
             body: selectedRepo ? T`The verdict of build ${st.res.buildId} is final.`
                 : T`The verdict of RunAll ${st.res.buildId} is final.`,
@@ -1118,6 +1133,9 @@ function notifyIfFinal(st) {
 function settlingText(phase) {
     if (!phase || phase.phase !== 'settling') return '';
     if (selectedRepo) {
+        if (compositeProject()) return phase.wave
+            ? T('♻︎ Auto re-run of the build chain on the same commits: the verdict below may change when it finishes.')
+            : T('♻︎ Deciding whether to run the build chain again. The verdict below may still change.');
         return phase.wave ? T('♻︎ Auto re-run of the suite on the same commits: the verdict below may change when it '
             + 'finishes.') : T('♻︎ Deciding whether to run the suite again. The verdict below may still change.');
     }
@@ -1132,6 +1150,10 @@ function settlingText(phase) {
 
 // The same for a client PR, whose run is the client's suite.
 function clientNoRun(run) {
+    if (compositeProject()) return !run
+        ? T('No build chain tested this PR\'s code yet. Start one with Run above, or post /run-all in the PR.')
+        : run.state === 'running' ? T('The build chain is running for this PR. Results appear as its suites finish.')
+        : T('The build chain is queued for this PR. Its verdict shows up here once it starts.');
     return !run ? T('No run of the suite tested this PR\'s code yet. Start one with Run above, or post /run-all in the PR.')
         : run.state === 'running' ? T('The suite is running for this PR. Its verdict shows up here when it finishes.')
         : T('The suite is queued for this PR. Its verdict shows up here when it finishes.');
@@ -1329,7 +1351,8 @@ async function analyze(number, quiet) {
 // cold analysis of a fresh run takes a while, and a silent spinner reads as "broken". The first
 // viewer fills the cache for everyone.
 function startAnalyzing(number) {
-    sayStatus(selectedRepo ? T('Analyzing the latest run…') : T('Analyzing the latest RunAll…'), { busy: true });
+    sayStatus(compositeProject() ? T('Analyzing the latest build chain…')
+        : selectedRepo ? T('Analyzing the latest run…') : T('Analyzing the latest RunAll…'), { busy: true });
     clearFreshness();
     $('results').classList.add('hidden');
     $('pendingRow').classList.add('hidden');
@@ -1873,13 +1896,13 @@ function renderFreshness(res) {
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
 
-// The run of the selected client's suite: its build, the later run of the same commits the verdict counts too, and
-// the commits of the client and of Ignite it tested.
+// The selected project's run, any later run counted in its verdict, and both tested commits.
 function clientRunLabel(res) {
     const link = (text, href, title) => href
         ? `<a class="nowrap" href="${esc(href)}" target="_self" rel="noopener" title="${title}">${text}</a>` : text;
     const build = id => tcBase ? tcBase + 'build/' + id : '';
-    const run = link(T`${esc(res.suiteName || clientSuiteFor(res.repo))} build ${esc(res.buildId)}`, build(res.buildId),
+    const name = esc(res.suiteName || clientSuiteFor(res.repo));
+    const run = link(res.composite ? T`${name} chain ${esc(res.buildId)}` : T`${name} build ${esc(res.buildId)}`, build(res.buildId),
         T('Open this build in TeamCity'));
     const rerun = res.rerunId ? ' · ' + link(T`re-run build ${esc(res.rerunId)}`, build(res.rerunId),
         T('Opens the later run of the same commits in TeamCity. The verdict counts its failed tests too.')) : '';
@@ -2058,9 +2081,9 @@ function caveatsOf(res, standing) {
 }
 
 // The suites whose newest run in the verdict tested another commit than the RunAll (otherCodeRuns on the server): such
-// a verdict is a mixed run. Client runs are one suite each.
+// a verdict is a mixed run. A thin client run has only one suite.
 function mixedRuns(res) {
-    return !res.repo && res.otherCodeRuns ? res.otherCodeRuns : [];
+    return (!res.repo || res.composite) && res.otherCodeRuns ? res.otherCodeRuns : [];
 }
 
 // How the verdict stands (Caveats.Standing), as the server ranks it for the run: a clean run is CLEAN only once it
@@ -2303,8 +2326,7 @@ function resKey(res) {
     return res.repo ? prTag(res.prNumber, res.repo) : res.prNumber;
 }
 
-// A client PR has no "This PR's tests": its tests are not Java classes. The cards it would stand
-// over show at once.
+// The separate-project endpoint supplies no "This PR's tests" card. The cards below it show at once.
 function noPrTests(res) {
     $('prTestsCard').classList.add('hidden');
     lastPrTests = null;
@@ -2788,7 +2810,8 @@ async function doTrigger(act, top, btn, force = false) {
         const mine = runsNow.filter(b => b.runAll && b.mine);
         const conflicts = force ? T('GitHub reports merge conflicts in this PR.') + ' ' : '';
         if (!confirm(conflicts + (repo ? clientRunQuestion(pr, atTop, mine) : runAllQuestion(pr, atTop, mine)))) return;
-        sayStatus(repo ? (mine.length ? T('Replacing your run…') : T('Queuing the suite…'))
+        sayStatus(repo ? (mine.length ? T('Replacing your run…')
+            : compositeProject(repo) ? T('Queuing the build chain…') : T('Queuing the suite…'))
             : mine.length ? T('Replacing your RunAll…') : T('Queuing RunAll…'), { busy: true });
         const r = await api(prApi(act, pr, repo) + '&top=' + atTop + (mine.length ? '&replace=true' : '')
             + (force ? '&force=true' : ''), { method: 'POST' });
@@ -2821,11 +2844,15 @@ function offerForce(pr, top) {
     $('statusForce').classList.remove('hidden');
 }
 
-// What Run asks on a client PR: it queues the client's suite with the PR's head and Ignite master.
+// Run queues the selected project's suite or whole chain with the PR's head and Ignite master.
 function clientRunQuestion(pr, top, mine) {
     const going = b => runState(b.state) + chipEta(b);
     const theirs = runsNow.filter(b => b.runAll && !b.mine);
-    return (top ? T('Queue “{0}” for {1} client PR #{2} at the top of the ci2 queue, ahead of everyone else\'s builds?',
+    return (compositeProject() ? (top
+        ? T('Queue the “{0}” build chain for {1} PR #{2} at the top of the ci2 queue, ahead of everyone else\'s builds?',
+            clientSuiteFor(), clientLanguage(), pr)
+        : T('Queue the “{0}” build chain for {1} PR #{2}?', clientSuiteFor(), clientLanguage(), pr))
+        : top ? T('Queue “{0}” for {1} client PR #{2} at the top of the ci2 queue, ahead of everyone else\'s builds?',
         clientSuiteFor(), clientLanguage(), pr)
         : T('Queue “{0}” for {1} client PR #{2}?', clientSuiteFor(), clientLanguage(), pr))
         + ' ' + T('It tests the PR\'s head against Ignite master as it is now.')
@@ -2882,7 +2909,8 @@ async function cancelMine() {
 
 function cancelQuestion(pr, mine) {
     const theirs = runsNow.length - mine.length;
-    return (selectedRepo ? T('Cancel your {0} run{1} of {2} client PR #{3}?', mine.length, mine.length === 1 ? '' : 's', clientLanguage(), pr)
+    return (compositeProject() ? T('Cancel your runs of {0} PR #{1}?', clientLanguage(), pr)
+        : selectedRepo ? T('Cancel your {0} run{1} of {2} client PR #{3}?', mine.length, mine.length === 1 ? '' : 's', clientLanguage(), pr)
         : T`Cancel your ${mine.length} run${mine.length === 1 ? '' : 's'} of PR #${pr}?`) + '\n'
         + mine.map(b => `\n• ${b.name || T('build')}: ${runState(b.state)}${chipEta(b)}`).join('')
         + (theirs ? '\n\n' + T`Runs started by other people (${theirs}) keep going.` : '');
@@ -3594,15 +3622,17 @@ function paintVisaPost(res, v) {
 // the run there or goes in next to someone else's. A client's run has questions of its own, so that a language can put
 // the build and the suite where it needs them.
 function visaQuestion(res, key, v) {
-    const suite = res.suiteName || clientSuiteFor(res.repo), run = 'RunAll ' + res.buildId;
+    const suite = res.suiteName || clientSuiteFor(res.repo);
+    const singleSuite = res.repo && !res.composite;
+    const run = res.composite ? T`${suite} chain ${res.buildId}` : 'RunAll ' + res.buildId;
     if (v.yoursIn === key) {
-        return res.repo ? T`Update your visa of ${suite} build ${res.buildId} in ${key} with the verdict on this page?`
+        return singleSuite ? T`Update your visa of ${suite} build ${res.buildId} in ${key} with the verdict on this page?`
             : T`Update your visa of ${run} in ${key} with the verdict on this page?`;
     }
     const theirs = v.state === 'posted' && !v.mine && v.starter
         ? '\n\n' + T('{0}\'s visa of this run is in {1} already. Yours goes in as a comment of its own.', v.starter,
             v.issue || key) : '';
-    const post = res.repo ? T`Post the visa of ${suite} build ${res.buildId} to ${key}?`
+    const post = singleSuite ? T`Post the visa of ${suite} build ${res.buildId} to ${key}?`
         : T`Post the visa of ${run} to ${key}?`;
     return post + ' ' + T('It goes in as your comment in JIRA, with the verdict on this page.') + theirs;
 }
@@ -3718,13 +3748,15 @@ function paintPrPost(res) {
 // What Post to PR asks before it posts: the run, the PR, and whether the press updates the run's verdict comment. A
 // client's run has questions of its own, as for Post to JIRA.
 function prPostQuestion(res, c) {
-    const suite = res.suiteName || clientSuiteFor(res.repo), run = 'RunAll ' + res.buildId, pr = '#' + res.prNumber;
+    const suite = res.suiteName || clientSuiteFor(res.repo), pr = '#' + res.prNumber;
+    const singleSuite = res.repo && !res.composite;
+    const run = res.composite ? T`${suite} chain ${res.buildId}` : 'RunAll ' + res.buildId;
     if (c.url) {
-        return res.repo
+        return singleSuite
             ? T`Update the verdict comment of ${suite} build ${res.buildId} in PR ${pr} with the verdict on this page?`
             : T`Update the verdict comment of ${run} in PR ${pr} with the verdict on this page?`;
     }
-    const post = res.repo ? T`Post the verdict of ${suite} build ${res.buildId} to PR ${pr}?`
+    const post = singleSuite ? T`Post the verdict of ${suite} build ${res.buildId} to PR ${pr}?`
         : T`Post the verdict of ${run} to PR ${pr}?`;
     return post + ' ' + T('It goes in as a comment of the checker\'s GitHub account, and its last line names you.');
 }

@@ -29,15 +29,20 @@ record RunHistory(String results, String envOf, List<RunEnv> envs, List<Integer>
 
     /** Master runs, as TeamCity lists them newest first. */
     static RunHistory ofMaster(List<TcModel.TestOccurrence> newestFirst) {
-        return of(newestFirst, false);
+        return of(newestFirst, null);
     }
 
     /** Runs on PR branches, newest first; a run on any other branch is left out. */
     static RunHistory ofPrBranches(List<TcModel.TestOccurrence> newestFirst) {
-        return of(newestFirst, true);
+        return of(newestFirst, PR_BRANCH);
     }
 
-    private static RunHistory of(List<TcModel.TestOccurrence> runs, boolean onPrBranches) {
+    /** Runs filed under the project's logical PR branch format, newest first. */
+    static RunHistory ofPrBranches(List<TcModel.TestOccurrence> newestFirst, String suffix) {
+        return of(newestFirst, Pattern.compile("pull/(\\d+)" + Pattern.quote(suffix)));
+    }
+
+    private static RunHistory of(List<TcModel.TestOccurrence> runs, Pattern prBranches) {
         StringBuilder results = new StringBuilder();
         StringBuilder envOf = new StringBuilder();
         List<RunEnv> envs = new ArrayList<>();
@@ -48,8 +53,8 @@ record RunHistory(String results, String envOf, List<RunEnv> envs, List<Integer>
             if (!failed && !"SUCCESS".equals(o.status()))
                 continue;
 
-            int pr = onPrBranches ? prOf(o.build()) : 0;
-            if (onPrBranches && pr == 0)
+            int pr = prBranches == null ? 0 : prOf(o.build(), prBranches);
+            if (prBranches != null && pr == 0)
                 continue;
 
             RunEnv env = RunEnv.of(o.build());
@@ -58,18 +63,18 @@ record RunHistory(String results, String envOf, List<RunEnv> envs, List<Integer>
 
             results.append(failed ? 'F' : 'P');
             envOf.append((char) ('a' + envs.indexOf(env)));
-            if (onPrBranches)
+            if (prBranches != null)
                 prs.add(pr);
         }
 
         return new RunHistory(results.toString(), envOf.toString(), List.copyOf(envs), List.copyOf(prs));
     }
 
-    private static int prOf(TcModel.BuildRef build) {
+    private static int prOf(TcModel.BuildRef build, Pattern branches) {
         if (build == null || build.branchName() == null)
             return 0;
 
-        Matcher m = PR_BRANCH.matcher(build.branchName());
+        Matcher m = branches.matcher(build.branchName());
 
         return m.matches() ? Integer.parseInt(m.group(1)) : 0;
     }

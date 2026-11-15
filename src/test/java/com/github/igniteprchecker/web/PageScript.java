@@ -42,7 +42,8 @@ final class PageScript {
             starCount: 1, refreshAfterSeconds: 120, clients: [
                 { key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' },
                 { key: 'php', label: 'PHP', repo: 'apache/ignite-php-thin-client', suite: 'Thin client: PHP' },
-                { key: 'nodejs', label: 'Node.js', repo: 'apache/ignite-nodejs-thin-client', suite: 'Thin client: Node.js' }
+                { key: 'nodejs', label: 'Node.js', repo: 'apache/ignite-nodejs-thin-client', suite: 'Thin client: Node.js' },
+                { key: 'extensions', label: 'Extensions', repo: 'apache/ignite-extensions', suite: 'Extensions: All Tests', composite: true }
             ] } });
         page.route('/api/me', { body: { username: 'alice', jira: false, github: false } });
         page.route('/api/prs', { body: [

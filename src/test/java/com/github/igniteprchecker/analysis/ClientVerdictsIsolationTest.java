@@ -122,7 +122,8 @@ class ClientVerdictsIsolationTest {
             warmer.offerToken("alice", TOKEN);
 
             await().atMost(Duration.ofSeconds(10)).until(() -> warmer.cyclesCompleted() == 1);
-            assertThat(registry.all()).extracting(client -> clients.kept(client, PR).orElseThrow().result().buildId())
+            assertThat(registry.all().stream().filter(client -> !client.composite()).toList())
+                .extracting(client -> clients.kept(client, PR).orElseThrow().result().buildId())
                 .containsExactly(9424200L, 9424400L, 9424300L);
             assertThat(warmer.lastWarmed()).isEqualTo(3);
             assertThat(warmer.cycleTotal()).isEqualTo(3);

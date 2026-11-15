@@ -33,7 +33,7 @@ class ConfiguredJiraTest {
         assertThat(config.config()).containsEntry("jiraUrl", "https://jira.example");
     }
 
-    /** Given configured clients, the config lists each project with its repo and visible suite name. */
+    /** Given configured projects, the catalog lists their repos, visible build names and composite mode. */
     @Test
     void pageLearnsEveryClientsRepoAndSuite() {
         ConfigController config = new ConfigController(new TeamcityProperties("https://ci2.example/"),
@@ -47,9 +47,10 @@ class ConfiguredJiraTest {
 
         assertThat(response.path("clients")).isEqualTo(Jackson2Defaults.mapper().readTree("""
             [
-              {"key":"python","label":"Python","repo":"example/python-client","suite":"Python_Client_Suite"},
-              {"key":"php","label":"PHP","repo":"apache/ignite-php-thin-client","suite":"Thin client: PHP"},
-              {"key":"nodejs","label":"Node.js","repo":"apache/ignite-nodejs-thin-client","suite":"Thin client: Node.js"}
+              {"key":"python","label":"Python","repo":"example/python-client","suite":"Python_Client_Suite","composite":false},
+              {"key":"php","label":"PHP","repo":"apache/ignite-php-thin-client","suite":"Thin client: PHP","composite":false},
+              {"key":"nodejs","label":"Node.js","repo":"apache/ignite-nodejs-thin-client","suite":"Thin client: Node.js","composite":false},
+              {"key":"extensions","label":"Extensions","repo":"apache/ignite-extensions","suite":"Extensions: All Tests","composite":true}
             ]
             """));
         assertThat(config.config()).doesNotContainKeys("clientRepo", "clientSuite");

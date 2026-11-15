@@ -13,6 +13,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -20,8 +21,8 @@ import java.util.stream.Stream;
 import org.springframework.stereotype.Component;
 
 /**
- * Runs of a thin client's suite for PRs of its repository. A {@code /run-all} in such a PR queues that one suite,
- * with the client at the PR's head and Ignite at the head of master as of the command. Both commits are named in the
+ * Runs of a project's suite or composite chain for PRs of its repository. A {@code /run-all} queues that build type,
+ * with the project at the PR's head and Ignite at the head of master as of the command. Both commits are named in the
  * request, so the run tests exactly them however long it waits in the queue, and an auto re-run of it tests them
  * again. Its verdict is judged by the rules of a suite of a RunAll, and told in the PR and in the visa. The checker's
  * page of such a PR has an address of its own, {@link #pageUrl}: the PR numbers of the client overlap Ignite's.
@@ -88,8 +89,10 @@ public class ClientRuns {
 
         Map<String, String> roots = tc.vcsRootInstances(token, spec.suite())
             .orElseThrow(() -> new NotQueued("TeamCity has no suite " + spec.suite()));
-        List<String> missing = Stream.of(spec.igniteVcsRoot(), spec.clientVcsRoot())
-            .filter(root -> !roots.containsKey(root)).toList();
+        Map<String, String> igniteRoots = spec.composite() ? tc.vcsRootInstances(token, spec.igniteSuite())
+            .orElseThrow(() -> new NotQueued("TeamCity has no suite " + spec.igniteSuite())) : roots;
+        List<String> missing = Stream.of(roots.containsKey(spec.clientVcsRoot()) ? null : spec.clientVcsRoot(),
+            igniteRoots.containsKey(spec.igniteVcsRoot()) ? null : spec.igniteVcsRoot()).filter(Objects::nonNull).toList();
         if (!missing.isEmpty()) {
             throw new NotQueued("suite " + spec.suite() + " has no VCS root " + String.join(" or ", missing)
                 + " in TeamCity");
@@ -98,7 +101,7 @@ public class ClientRuns {
         return new PinnedRun(spec.suite(), spec.branch(pr), List.of(
             PinnedRun.Pin.forRoot(spec.igniteVcsRoot(), baseBranch, igniteSha),
             PinnedRun.Pin.forRoot(spec.clientVcsRoot(), "refs/pull/" + pr + "/head", clientSha)),
-            Map.of(TcModel.OVERRIDDEN_BRANCH, clientSha));
+            spec.composite() ? Map.of() : Map.of(TcModel.OVERRIDDEN_BRANCH, clientSha));
     }
 
     public Queued queuePrepared(String token, PinnedRun run, boolean top, String comment) {
@@ -136,8 +139,9 @@ public class ClientRuns {
         if (tried != null && now - tried.lastAt() < RETRY_WAIT_MS)
             return Optional.empty();
 
-        AnalysisResult r = rerunId == 0 ? analyzer.analyzeSuiteRun(token, pr, spec.branch(pr), buildId)
-            : analyzer.analyzeSuiteRun(token, pr, spec.branch(pr), buildId, rerunId);
+        AnalysisResult r = spec.composite() ? analyzer.analyzeCompositeRun(token, pr, spec, buildId, rerunId)
+            : rerunId == 0 ? analyzer.analyzeSuiteRun(token, pr, spec.branch(pr), buildId)
+                : analyzer.analyzeSuiteRun(token, pr, spec.branch(pr), buildId, rerunId);
         if (r.incompleteSince() == 0 || tried != null && now - tried.since() >= HOLD_INCOMPLETE_MS) {
             incomplete.remove(buildId);
 
@@ -180,6 +184,11 @@ public class ClientRuns {
             || r.brokenSuites().stream().anyMatch(s -> !s.compileError());
     }
 
+    public static boolean worthRerunning(AnalysisResult r, ClientSpec spec) {
+        return !spec.composite() ? worthRerunning(r) : !r.blockers().isEmpty() || !r.watch().isEmpty()
+            || r.brokenSuites().stream().anyMatch(s -> !s.compileError() && !s.keptFromRunning());
+    }
+
     /**
      * Whether the run TeamCity reports {@code cancelled} is worth an auto re-run on the same commits: TeamCity cancelled
      * it by itself, not a person, and no run it needed failed. A RunAll's wave re-runs such a suite too.
@@ -205,7 +214,7 @@ public class ClientRuns {
             fromPage);
     }
 
-    /** The visa of the run: its verdict in JIRA's wiki markup, which says that it is of one suite. */
+    /** The run's verdict in JIRA's wiki markup, scoped to the project's suite or composite chain. */
     public String visaBody(ClientSpec spec, int pr, long buildId, String suiteName, PinnedRun pinned, AnalysisResult r,
         ClientVerdict.Rerun rerun) {
         return ClientVerdict.wiki(tcBase, run(spec, pr, buildId, suiteName, pinned, null), r, rerun);
@@ -220,7 +229,8 @@ public class ClientRuns {
     public String pageVisaBody(ClientSpec spec, int pr, long buildId, long rerunId, String suiteName, String clientSha,
         String igniteSha, AnalysisResult r) {
         return ClientVerdict.wiki(tcBase, new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha,
-            spec.repo(), pr, clientSha), r, rerunId == 0 ? null : ClientVerdict.Rerun.sameCommits(rerunId));
+            spec.repo(), pr, clientSha, null, spec.composite()), r,
+            rerunId == 0 ? null : ClientVerdict.Rerun.sameCommits(rerunId));
     }
 
     /**
@@ -233,7 +243,7 @@ public class ClientRuns {
     public String pageCommentBody(ClientSpec spec, String login, int pr, long buildId, long rerunId, String suiteName,
         String clientSha, String igniteSha, AnalysisResult r, Boolean fromPage, String page) {
         return ClientVerdict.pageMarkdown(tcBase, login, new ClientVerdict.Run(buildId, suiteName, github.repo(),
-            igniteSha, spec.repo(), pr, clientSha, page), r,
+            igniteSha, spec.repo(), pr, clientSha, page, spec.composite()), r,
             rerunId == 0 ? null : ClientVerdict.Rerun.sameCommits(rerunId), fromPage);
     }
 
@@ -244,11 +254,14 @@ public class ClientRuns {
     }
 
     private ClientVerdict.Run run(ClientSpec spec, int pr, long buildId, String suiteName, PinnedRun pinned, String page) {
-        String clientSha = pinned.properties().get(TcModel.OVERRIDDEN_BRANCH);
-        String igniteSha = pinned.revisions().stream().map(PinnedRun.Pin::version)
-            .filter(v -> !v.equals(clientSha)).findFirst().orElse(null);
+        String clientSha = pinned.revisions().stream().filter(p -> spec.clientVcsRoot().equals(p.vcsRootId()))
+            .map(PinnedRun.Pin::version).findFirst().orElse(pinned.properties().get(TcModel.OVERRIDDEN_BRANCH));
+        String igniteSha = pinned.revisions().stream().filter(p -> spec.igniteVcsRoot().equals(p.vcsRootId())
+                || p.vcsRootId() == null && !p.version().equals(clientSha))
+            .map(PinnedRun.Pin::version).findFirst().orElse(null);
 
-        return new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha, spec.repo(), pr, clientSha, page);
+        return new ClientVerdict.Run(buildId, suiteName, github.repo(), igniteSha, spec.repo(), pr, clientSha, page,
+            spec.composite());
     }
 
     /**

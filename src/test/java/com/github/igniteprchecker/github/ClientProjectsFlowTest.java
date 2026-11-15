@@ -67,17 +67,17 @@ class ClientProjectsFlowTest {
     void followsSameNumberPrsInEveryProjectAcrossRestart() throws Exception {
         try (Fixture f = new Fixture()) {
             f.commands.poll();
-            assertThat(f.queued).hasSize(3);
+            assertThat(f.queued).hasSize(4);
             Path state = temp.resolve("pr-commands.json");
             f.commands.saveTo(state);
             JsonNode saved = f.mapper.readTree(state);
             assertThat(saved.path("clientRuns").size()).isEqualTo(1);
-            assertThat(saved.path("otherClientRuns").size()).isEqualTo(2);
+            assertThat(saved.path("otherClientRuns").size()).isEqualTo(3);
 
             PrCommands resumed = f.commands();
             resumed.loadFrom(state);
             resumed.updateEtas();
-            assertThat(f.queued).hasSize(6);
+            assertThat(f.queued).hasSize(8);
             resumed.updateEtas();
 
             for (ClientSpec spec : f.projects.all()) {
@@ -95,6 +95,55 @@ class ClientProjectsFlowTest {
                 });
                 assertThat(resumed.clientPhase(spec, 69, f.buildId(spec)).phase()).isEqualTo("final");
             }
+        }
+    }
+
+    /** Given an Extensions command, when it queues, then the acknowledgement names both distinct pinned commits. */
+    @Test
+    void acknowledgesBothCommitsOfTheExtensionsChain() {
+        try (Fixture f = new Fixture()) {
+            ClientSpec extensions = f.projects.require("extensions");
+            f.onlyExtensionsCommand("Author", "/run-all");
+
+            f.commands.poll();
+
+            assertThat(f.posted).singleElement().satisfies(p -> {
+                assertThat(p.repo()).isEqualTo(extensions.repo());
+                assertThat(p.body()).contains("this PR's head `eeeeeee` against Ignite master at `ddddddd`",
+                    "/extensions?pr=69");
+            });
+        }
+    }
+
+    /** Given an unlinked Extensions commenter, when they request a run, then setup help names the build chain. */
+    @Test
+    void explainsTheExtensionsChainToAnUnlinkedCommenter() {
+        try (Fixture f = new Fixture()) {
+            f.onlyExtensionsCommand("Stranger", "/run-all");
+
+            f.commands.poll();
+
+            assertThat(f.queued).isEmpty();
+            assertThat(f.posted).singleElement().satisfies(p -> assertThat(p.body())
+                .contains("queues the Extensions build chain under your ci2 account")
+                .doesNotContain("thin client suite"));
+        }
+    }
+
+    /** Given conflicts in an Extensions PR, when a run is requested, then force help names the whole chain. */
+    @Test
+    void explainsHowToForceTheExtensionsChainWithConflicts() {
+        try (Fixture f = new Fixture()) {
+            ClientSpec extensions = f.projects.require("extensions");
+            f.onlyExtensionsCommand("Author", "/run-all");
+            when(f.github.reportsConflicts(extensions.repo(), 69)).thenReturn(true);
+
+            f.commands.poll();
+
+            assertThat(f.queued).isEmpty();
+            assertThat(f.posted).singleElement().satisfies(p -> assertThat(p.body())
+                .contains("force` to queue the build chain **Extensions: All Tests**")
+                .doesNotContain("the suite"));
         }
     }
 
@@ -175,7 +224,7 @@ class ClientProjectsFlowTest {
     }
 
     /**
-     * Supplies enrolled command authors and three remote repositories. GitHub and TeamCity are external doubles;
+     * Supplies enrolled command authors and the project repositories. GitHub and TeamCity are external doubles;
      * the analyzer supplies failed and passed verdicts to exercise the story's rerun and completion stages.
      */
     private static final class Fixture implements AutoCloseable {
@@ -214,6 +263,16 @@ class ClientProjectsFlowTest {
                 when(github.prHeadSha(spec.repo(), 69)).thenReturn(head(spec));
                 when(tc.vcsRootInstances("tc", spec.suite())).thenReturn(Optional.of(Map.of(
                     spec.igniteVcsRoot(), "335", spec.clientVcsRoot(), String.valueOf(314 + comment))));
+                if (spec.composite()) {
+                    when(tc.vcsRootInstances("tc", spec.suite())).thenReturn(Optional.of(Map.of(
+                        spec.clientVcsRoot(), String.valueOf(314 + comment))));
+                    when(tc.vcsRootInstances("tc", spec.igniteSuite())).thenReturn(Optional.of(Map.of(
+                        spec.igniteVcsRoot(), "335")));
+                    when(analyzer.analyzeCompositeRun("tc", 69, spec, buildId(spec), 0))
+                        .thenReturn(verdict(spec, true));
+                    when(analyzer.analyzeCompositeRun("tc", 69, spec, buildId(spec), buildId(spec) + 100))
+                        .thenReturn(verdict(spec, false));
+                }
                 when(tc.getBuildState("tc", buildId(spec))).thenReturn(build(spec, buildId(spec), "FAILURE"));
                 when(tc.getBuildState("tc", buildId(spec) + 100)).thenReturn(build(spec, buildId(spec) + 100, "SUCCESS"));
                 when(analyzer.analyzeSuiteRun("tc", 69, spec.branch(69), buildId(spec)))
@@ -242,6 +301,15 @@ class ClientProjectsFlowTest {
                 mock(SuiteBaseline.class), "https://checker.example", teamcity, engine);
         }
 
+        /** Supplies one Extensions PR command and no commands from the other repositories. */
+        void onlyExtensionsCommand(String login, String body) {
+            for (ClientSpec spec : projects.all()) {
+                when(github.recentIssueComments(eq(spec.repo()), anyString())).thenReturn(spec.composite()
+                    ? List.of(new GithubClient.IssueComment(99, body, "https://github.com/" + spec.repo()
+                        + "/pull/69#issuecomment-99", Instant.now().toString(), GhUsers.of(login))) : List.of());
+            }
+        }
+
         ClientPrsController page() {
             return new ClientPrsController(new ClientVerdicts(tc, analyzer, github, analysis), engine, tc, github,
                 mock(PrHeads.class), new YourPrs(github, standing), standing, commands, mock(AuthInterceptor.class),
@@ -253,7 +321,8 @@ class ClientProjectsFlowTest {
         }
 
         String head(ClientSpec spec) {
-            return String.valueOf((char) ('a' + projects.all().indexOf(spec))).repeat(40);
+            return spec.composite() ? "e".repeat(40)
+                : String.valueOf((char) ('a' + projects.all().indexOf(spec))).repeat(40);
         }
 
         TcModel.Build build(ClientSpec spec, long id, String status) {

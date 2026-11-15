@@ -88,7 +88,7 @@ class NavigationTest {
 
     /** Given an open PR, clicking the brand returns to that project's home and clears the selected PR. */
     @ParameterizedTest
-    @ValueSource(strings = {"/ignite", "/python", "/php", "/nodejs"})
+    @ValueSource(strings = {"/ignite", "/python", "/php", "/nodejs", "/extensions"})
     void titleLeadsBackToTheStartPage(String project) throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             const project = '%s';
