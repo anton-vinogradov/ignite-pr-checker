@@ -317,6 +317,14 @@ own tests, and what was not blamed on the PR.
   `⚠ Mixed run: Control Utility 5 re-ran on 9b02561, the PR's head; the rest of the RunAll ran on c577b18.`
 - When your chain or a re-run finishes, the page shows the new verdict without a reload.
 
+### When TeamCity uses the Git mirror
+
+An operator can enable the checker's [public Git mirror](../README.md#git-mirror-for-teamcity) when TeamCity cannot
+reach GitHub. Keep using the PR page and `/run-all` comments. The mirror reads normal branches and tags from GitBox
+and PR heads from GitHub. Before queueing a new PR run, the checker verifies that its exact head is in the mirror.
+If that check fails, it reports the error and queues nothing. Suites queued by one action use that same head.
+No extra account, token or branch publication is needed.
+
 ## Standing options
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a

@@ -102,6 +102,13 @@ github:
   # Give up on a GitHub call that sends nothing for this long.
   read-timeout: 60s
 
+git-mirror:
+  enabled: ${GIT_MIRROR_ENABLED:false}
+  # Outside the JSON cache: Git objects are not included in cache backups.
+  directory: ${GIT_MIRROR_DIR:/opt/ignite-pr-checker/git-mirrors}
+  sync-interval-seconds: ${GIT_MIRROR_SYNC_INTERVAL_SECONDS:60}
+  timeout-seconds: ${GIT_MIRROR_TIMEOUT_SECONDS:600}
+
 python-client:
   # PRs of the Python thin client: a /run-all in a PR of this repo runs the suite below, with the PR's head of the client
   # and Ignite's master. Override with PYTHON_CLIENT_REPO.

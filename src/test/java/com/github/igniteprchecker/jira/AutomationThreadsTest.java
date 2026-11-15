@@ -16,6 +16,7 @@ import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GhUsers;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
@@ -62,6 +63,7 @@ class AutomationThreadsTest {
             context.registerBean(AnalysisProperties.class, () -> new AnalysisProperties(null, "RunAll", null, null,
                 null, null, null));
             context.registerBean(TcClient.class, () -> tc);
+            context.registerBean(IgnitePrRuns.class, () -> IgnitePrRuns.unpinned(tc));
             context.registerBean(GithubClient.class, () -> github);
             context.registerBean(BlockerAnalyzer.class, () -> analyzer);
             context.registerBean(Warmer.class, () -> warmer);

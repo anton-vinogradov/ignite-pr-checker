@@ -21,6 +21,7 @@ import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.github.AppWriting;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.SettingsJournal;
@@ -109,6 +110,7 @@ class SettleOnEventTest {
         context.registerBean(AnalysisProperties.class, () -> new AnalysisProperties(null, RUN_ALL, null, null, null,
             null, null));
         context.registerBean(TcClient.class, () -> tc);
+        context.registerBean(IgnitePrRuns.class, () -> IgnitePrRuns.unpinned(tc));
         context.registerBean(Warmer.class, () -> warmer);
         context.registerBean(BlockerAnalyzer.class, () -> analyzer);
         context.registerBean(GithubClient.class, () -> github);

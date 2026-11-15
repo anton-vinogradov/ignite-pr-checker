@@ -12,6 +12,7 @@ import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.Secrets;
 import com.github.igniteprchecker.github.CommitTokens;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.github.PrSummary;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
@@ -74,6 +75,7 @@ public class StandingVisas implements SnapshotCache {
     private final ObjectMapper mapper;
     private final SessionCodec codec;
     private final TcClient tc;
+    private final IgnitePrRuns ignite;
     private final GithubClient github;
     private final BlockerAnalyzer analyzer;
     private final JiraClient jira;
@@ -232,14 +234,23 @@ public class StandingVisas implements SnapshotCache {
     @Value("${automation.enabled:true}")
     private boolean automation = true;
 
-    @Autowired
     public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
         BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
         PendingCommits pending, @Qualifier("earlyRerunExecutor") ExecutorService earlyPool,
         @Qualifier("settleExecutor") ExecutorService settler, SettingsJournal journal) {
+        this(mapper, codec, tc, github, analyzer, jira, visas, rerunTracker, warmer, pending, earlyPool, settler,
+            journal, IgnitePrRuns.unpinned(tc));
+    }
+
+    @Autowired
+    public StandingVisas(ObjectMapper mapper, SessionCodec codec, TcClient tc, GithubClient github,
+        BlockerAnalyzer analyzer, JiraClient jira, VisaService visas, RerunTracker rerunTracker, Warmer warmer,
+        PendingCommits pending, @Qualifier("earlyRerunExecutor") ExecutorService earlyPool,
+        @Qualifier("settleExecutor") ExecutorService settler, SettingsJournal journal, IgnitePrRuns ignite) {
         this.mapper = mapper;
         this.codec = codec;
         this.tc = tc;
+        this.ignite = ignite;
         this.github = github;
         this.analyzer = analyzer;
         this.jira = jira;
@@ -2493,6 +2504,8 @@ public class StandingVisas implements SnapshotCache {
             return;
         }
 
+        IgnitePrRuns.Prepared prepared = ignite.prepare(ev.pr(), List.of(ev.suite()));
+
         // Created only now: a chain nobody re-runs for must not leave an empty memo behind.
         java.util.Set<String> done =
             earlyReruns.computeIfAbsent(ev.chainBuildId(), id -> ConcurrentHashMap.newKeySet());
@@ -2501,8 +2514,8 @@ public class StandingVisas implements SnapshotCache {
 
         TcModel.Build b;
         try {
-            b = asUser(who, () -> QueuedBelowTopException.queued(() -> tc.triggerBuildReplacingQueued(tcToken.get(),
-                ev.suite(), ev.pr(), true, "Early re-run by Ignite PR Checker: this suite failed while RunAll "
+            b = asUser(who, () -> QueuedBelowTopException.queued(() -> ignite.queueReplacingQueued(tcToken.get(), prepared,
+                ev.suite(), true, "Early re-run by Ignite PR Checker: this suite failed while RunAll "
                     + ev.chainBuildId() + " is still running, settling it now rather than after the chain")));
         }
         catch (RuntimeException ex) {
@@ -2992,6 +3005,8 @@ public class StandingVisas implements SnapshotCache {
         if (suites.isEmpty() || attempts >= MAX_RERUNS)
             return false;
 
+        IgnitePrRuns.Prepared prepared = ignite.prepare(pr, suites);
+
         // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
         // re-run doesn't shove everyone else's builds back.
         boolean top = suites.size() <= TOP_QUEUE_LIMIT;
@@ -3005,7 +3020,7 @@ public class StandingVisas implements SnapshotCache {
         for (String suite : suites) {
             try {
                 TcModel.Build b = QueuedBelowTopException.queued(
-                    () -> tc.triggerBuildReplacingQueued(tcToken, suite, pr, top, tcComment));
+                    () -> ignite.queueReplacingQueued(tcToken, prepared, suite, top, tcComment));
                 rerunTracker.record(pr, b);
                 queued.add(b.id());
             }

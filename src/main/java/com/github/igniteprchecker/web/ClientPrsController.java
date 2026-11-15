@@ -11,6 +11,7 @@ import com.github.igniteprchecker.github.PythonClientRuns;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
+import com.github.igniteprchecker.tc.PinnedRun;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -195,11 +196,14 @@ public class ClientPrsController {
         PythonClientRuns.Queued queued;
         try {
             queued = commands.queueFromPage(username, pr, replace, () -> {
+                PinnedRun prepared = python.mirrorEnabled() ? python.prepare(token, pr) : null;
                 replaced[0] = replace ? python.cancelOwn(token, username, pr) : 0;
                 queuing[0] = true;
 
-                return python.queue(token, pr, top, "Ignite PR Checker: Run on the checker's page for"
-                    + " https://github.com/" + python.repo() + "/pull/" + pr);
+                String why = "Ignite PR Checker: Run on the checker's page for"
+                    + " https://github.com/" + python.repo() + "/pull/" + pr;
+                return prepared == null ? python.queue(token, pr, top, why)
+                    : python.queuePrepared(token, prepared, top, why);
             });
         }
         catch (PythonClientRuns.NotQueued e) {

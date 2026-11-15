@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,6 +33,7 @@ public class TriggerController {
         + " and run RunAll again, or press Run anyway to queue RunAll on the PR as it is";
 
     private final TcClient tc;
+    private final IgnitePrRuns ignite;
     private final BlockerAnalyzer analyzer;
     private final RerunTracker reruns;
     private final PrHeads heads;
@@ -39,7 +42,14 @@ public class TriggerController {
 
     public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns, PrHeads heads,
         com.github.igniteprchecker.analysis.SuiteBaseline baseline, AnalysisProperties cfg) {
+        this(tc, analyzer, reruns, heads, baseline, cfg, IgnitePrRuns.unpinned(tc));
+    }
+
+    @Autowired
+    public TriggerController(TcClient tc, BlockerAnalyzer analyzer, RerunTracker reruns, PrHeads heads,
+        com.github.igniteprchecker.analysis.SuiteBaseline baseline, AnalysisProperties cfg, IgnitePrRuns ignite) {
         this.tc = tc;
+        this.ignite = ignite;
         this.analyzer = analyzer;
         this.reruns = reruns;
         this.heads = heads;
@@ -62,13 +72,14 @@ public class TriggerController {
         if (!force && heads.conflicts(pr))
             return ResponseEntity.status(409).body(Map.of("error", CONFLICTS, "conflicts", true));
 
+        IgnitePrRuns.Prepared prepared = ignite.prepareRunAll(pr);
         int replaced = replace
             ? tc.cancelOwnBuilds(token, pr, username, b -> runAllBuildType.equals(b.buildTypeId()))
             : 0;
 
         Map<String, Object> queued;
         try {
-            queued = queued(pr, () -> tc.triggerRunAll(token, pr, top));
+            queued = queued(pr, () -> ignite.queueRunAll(token, prepared, top));
         }
         catch (RuntimeException e) {
             if (replaced == 0)
@@ -97,8 +108,9 @@ public class TriggerController {
         if (suites.isEmpty())
             return ResponseEntity.badRequest().body(Map.of("error", "no blocker suites to re-run"));
 
+        IgnitePrRuns.Prepared prepared = ignite.prepare(pr, suites);
         List<Map<String, Object>> triggered = suites.stream()
-            .map(suite -> queued(pr, () -> tc.triggerBuild(token, suite, pr, top)))
+            .map(suite -> queued(pr, () -> ignite.queue(token, prepared, suite, top)))
             .toList();
 
         return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -115,8 +127,9 @@ public class TriggerController {
         if (ids.isEmpty())
             return ResponseEntity.badRequest().body(Map.of("error", "no suites to re-run"));
 
+        IgnitePrRuns.Prepared prepared = ignite.prepare(pr, ids);
         List<Map<String, Object>> triggered = ids.stream()
-            .map(suite -> queued(pr, () -> tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top)))
+            .map(suite -> queued(pr, () -> ignite.queueOwnReplacingQueued(token, username, prepared, suite, top)))
             .toList();
 
         return ResponseEntity.ok(Map.of("triggered", triggered));
@@ -131,8 +144,10 @@ public class TriggerController {
         if (suite.isBlank())
             return ResponseEntity.badRequest().body(Map.of("error", "missing suite"));
 
+        IgnitePrRuns.Prepared prepared = ignite.prepare(pr, List.of(suite));
+
         return ResponseEntity.ok(Map.of("triggered",
-            List.of(queued(pr, () -> tc.triggerOwnBuildReplacingQueued(token, username, suite, pr, top)))));
+            List.of(queued(pr, () -> ignite.queueOwnReplacingQueued(token, username, prepared, suite, top)))));
     }
 
     /** Tool-triggered builds that are still queued/running (public; feeds the live suite chips). */

@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.OutboundHttp;
+import com.github.igniteprchecker.mirror.GitMirror;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcResponseException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,6 +42,9 @@ public class ApiExceptionHandler {
 
     static final String BAD_PARAMETERS = "bad parameters";
 
+    static final String MIRROR_NOT_READY = "The Git mirror is not ready for this commit. Nothing was queued; retry"
+        + " in a moment";
+
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     private final TcClient tc;
@@ -50,6 +54,13 @@ public class ApiExceptionHandler {
     public ApiExceptionHandler(TcClient tc, Warmer warmer) {
         this.tc = tc;
         this.warmer = warmer;
+    }
+
+    @ExceptionHandler(GitMirror.NotReadyException.class)
+    public ResponseEntity<Map<String, Object>> mirrorNotReady(GitMirror.NotReadyException e) {
+        log.warn("Git mirror could not prepare a launch: {}", e.getMessage());
+
+        return ResponseEntity.status(503).body(Map.of("error", MIRROR_NOT_READY, "mirrorNotReady", true));
     }
 
     @ExceptionHandler(ResourceAccessException.class)

@@ -90,6 +90,7 @@ class InstallScriptTest {
         Files.createSymbolicLink(app.resolve("update.sh"), cache.resolve("u.sh"));
         Files.createSymbolicLink(app.resolve("run.sh"), cache.resolve("r.sh"));
         Files.createSymbolicLink(app.resolve("update"), elsewhere);
+        Files.createSymbolicLink(app.resolve("git-mirrors"), elsewhere);
         Files.writeString(app.resolve("app.jar.new"), "left by the old run.sh");
 
         Path bin = Files.createDirectories(dir.resolve("bin"));
@@ -112,6 +113,8 @@ class InstallScriptTest {
         assertThat(cache.resolve("r.sh")).hasContent("held by prc");
         assertThat(Files.isSymbolicLink(app.resolve("update"))).isFalse();
         assertThat(app.resolve("update")).isDirectory();
+        assertThat(Files.isSymbolicLink(app.resolve("git-mirrors"))).isFalse();
+        assertThat(app.resolve("git-mirrors")).isDirectory();
         assertThat(app.resolve("app.jar.new")).doesNotExist();
     }
 
@@ -119,6 +122,24 @@ class InstallScriptTest {
         Path f = bin.resolve(name);
         Files.writeString(f, "#!/usr/bin/env bash\n" + body + "\n");
         f.toFile().setExecutable(true);
+    }
+
+    /** A Git binary without the Smart HTTP backend cannot serve the optional mirror. */
+    @Test
+    void gitNeedsItsExecutableHttpBackend(@TempDir Path dir) throws Exception {
+        Path bin = Files.createDirectory(dir.resolve("bin"));
+        Path gitExec = Files.createDirectory(dir.resolve("git-exec"));
+        stub(bin, "git", "printf '%s\\n' '" + gitExec + "'");
+        String check = InstallScript.lines("git_ok() {", "if ! git_ok;") + "git_ok\n";
+        ProcessBuilder pb = new ProcessBuilder("bash", "-c", check);
+        pb.environment().put("PATH", bin + ":" + pb.environment().get("PATH"));
+
+        assertThat(pb.start().waitFor()).isNotZero();
+
+        Path backend = gitExec.resolve("git-http-backend");
+        Files.writeString(backend, "#!/bin/sh\nexit 0\n");
+        backend.toFile().setExecutable(true);
+        assertThat(pb.start().waitFor()).isZero();
     }
 
     @Test

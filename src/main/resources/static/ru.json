@@ -1238,6 +1238,7 @@
     "suite {0} has no VCS root {1} or {2} in TeamCity": "у сьюты {0} в TeamCity нет VCS-корней {1} и {2}",
     "{0} did not answer — try again in a moment": "{0:tr} не ответил — попробуй чуть позже",
     "JIRA did not answer — try again in a moment": "JIRA не ответила — попробуй чуть позже",
+    "The Git mirror is not ready for this commit. Nothing was queued; retry in a moment": "Git-зеркало ещё не готово выдать этот коммит. Сборка не поставлена в очередь; попробуй чуть позже",
     "A service this page needs": "Сервис, нужный этой странице,",
     "TeamCity answered {0:n} — try again in a moment": "TeamCity ответил {0} — попробуй чуть позже",
     "bad JSON": "неверный JSON",

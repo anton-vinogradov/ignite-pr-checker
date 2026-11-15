@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.tc;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import java.util.Map;
 
@@ -20,7 +21,15 @@ public record PinnedRun(String suite, String branch, List<Pin> revisions, Map<St
         properties = properties == null ? Map.of() : Map.copyOf(properties);
     }
 
-    /** The commit of one VCS root: the root's instance id in TeamCity, the git ref it is on, and the sha. */
-    public record Pin(String vcsRootInstance, String vcsBranch, String version) {
+    /** The commit of a VCS root, identified by its instance id or external root id. */
+    public record Pin(String vcsRootInstance, String vcsBranch, String version,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String vcsRootId) {
+        public Pin(String vcsRootInstance, String vcsBranch, String version) {
+            this(vcsRootInstance, vcsBranch, version, null);
+        }
+
+        public static Pin forRoot(String vcsRootId, String vcsBranch, String version) {
+            return new Pin(null, vcsBranch, version, vcsRootId);
+        }
     }
 }

@@ -106,6 +106,31 @@ class PinnedRunQueryTest {
         assertThat(sent.get("triggeringOptions").get("queueAtTop").asBoolean()).isFalse();
     }
 
+    /** An Ignite RunAll can name its external VCS root id without resolving an instance from an earlier build. */
+    @Test
+    void aPinnedRunCanIdentifyItsRootByExternalId() {
+        tc.queuePinned("tok", new PinnedRun("RunAll", "pull/69/head",
+            List.of(PinnedRun.Pin.forRoot("GitHubApacheIgnite", "refs/pull/69/head", IGNITE)), Map.of()), false,
+            "Triggered by Ignite PR Checker");
+
+        JsonNode pin = mapper.readTree(bodies.get(0)).get("revisions").get("revision").get(0);
+        assertThat(pin.get("vcs-root-instance").get("vcs-root-id").asString()).isEqualTo("GitHubApacheIgnite");
+        assertThat(pin.get("vcs-root-instance").has("id")).isFalse();
+        assertThat(pin.get("version").asString()).isEqualTo(IGNITE);
+    }
+
+    /** Existing snapshots retain their three-field pins when they are read and saved again. */
+    @Test
+    void oldSnapshotPinsKeepTheirJsonFormat() {
+        String old = "{\"vcsRootInstance\":\"335\",\"vcsBranch\":\"refs/heads/master\",\"version\":\""
+            + IGNITE + "\"}";
+
+        PinnedRun.Pin pin = mapper.readValue(old, PinnedRun.Pin.class);
+
+        assertThat(pin).isEqualTo(new PinnedRun.Pin("335", "refs/heads/master", IGNITE));
+        assertThat(mapper.readTree(mapper.writeValueAsString(pin))).isEqualTo(mapper.readTree(old));
+    }
+
     @Test
     void aRunAllTopAsksForTheTopOfTheQueue() {
         tc.queuePinned("tok", pinned(), true, "Ignite PR Checker: /run-all by @Author");

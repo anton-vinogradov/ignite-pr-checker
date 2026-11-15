@@ -173,6 +173,7 @@ class ServerTextsInRussianTest {
         }
         out.add(TokenFormat.NOT_A_TOKEN);
         out.add(ApiExceptionHandler.TOKEN_REJECTED);
+        out.add(ApiExceptionHandler.MIRROR_NOT_READY);
         out.add(ApiExceptionHandler.FORBIDDEN);
         out.add(ApiExceptionHandler.QUEUE_FORBIDDEN);
         out.add(ApiExceptionHandler.PREVIOUS_RUNALL_CANCELLED + " — try RunAll again");

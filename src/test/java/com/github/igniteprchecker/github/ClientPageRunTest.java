@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -11,6 +12,8 @@ import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -32,6 +35,7 @@ import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
+import com.github.igniteprchecker.mirror.GitMirror;
 import com.github.igniteprchecker.session.SessionCodec;
 import com.github.igniteprchecker.style.StyleFixService;
 import com.github.igniteprchecker.tc.PinnedRun;
@@ -103,6 +107,8 @@ class ClientPageRunTest {
 
     private final TcClient tc = mock(TcClient.class);
 
+    private final GitMirror mirror = mock(GitMirror.class);
+
     private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
 
     private final JiraClient jira = mock(JiraClient.class);
@@ -117,7 +123,7 @@ class ClientPageRunTest {
 
     private final PythonClientRuns python = new PythonClientRuns(new PythonClientProperties(null, null, null, null),
         github, tc, analyzer, new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
-        new TeamcityProperties("https://ci2.example/"));
+        new TeamcityProperties("https://ci2.example/"), mirror);
 
     private final PrCommands commands = commands();
 
@@ -144,6 +150,49 @@ class ClientPageRunTest {
         when(jira.addCommentWithId(eq("jira-pat"), eq(ISSUE), anyString()))
             .thenReturn(new JiraClient.PostedComment("18000001", "https://issues.example/c/18000001"));
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(RUN, true));
+    }
+
+    /** A mirror mismatch leaves the user's previous Python run in place and queues no replacement. */
+    @Test
+    void unavailableMirrorDoesNotCancelOrQueuePythonRun() {
+        when(mirror.enabled()).thenReturn(true);
+        doThrow(new GitMirror.NotReadyException("head changed"))
+            .when(mirror).ensurePr("ignite-python-thin-client", PR, CLIENT);
+
+        assertThatThrownBy(() -> page.trigger(PR, false, true, true, "tc", "author"))
+            .isInstanceOf(GitMirror.NotReadyException.class).hasMessage("head changed");
+
+        verify(tc, never()).cancelOwnBuilds(anyString(), anyString(), anyString(), any());
+        verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    /** Both pinned repositories are checked before replacement cancellation and the existing payload is retained. */
+    @Test
+    void checksBothMirrorsBeforeReplacingPythonRun() {
+        when(mirror.enabled()).thenReturn(true);
+
+        page.trigger(PR, false, true, true, "tc", "author");
+
+        var order = inOrder(mirror, tc);
+        order.verify(mirror).ensurePr("ignite-python-thin-client", PR, CLIENT);
+        order.verify(mirror).ensureRevision("ignite", "refs/heads/master", IGNITE);
+        order.verify(tc).vcsRootInstances("tc", SUITE);
+        order.verify(tc).cancelOwnBuilds(eq("tc"), eq("pull/69"), eq("author"), any());
+        order.verify(tc).queuePinned("tc", PINNED, false, PAGE_RUN);
+    }
+
+    /** Python auto re-runs reuse the original two commits without reading the now moving GitHub heads. */
+    @Test
+    void pythonAutoRerunChecksOriginalPinsWithoutChangingThem() {
+        when(mirror.enabled()).thenReturn(true);
+
+        python.rerun("tc", PR, RUN, PINNED);
+
+        verify(mirror).ensureCommit("ignite", IGNITE);
+        verify(mirror).ensureCommit("ignite-python-thin-client", CLIENT);
+        verify(github, never()).prHeadSha(anyString(), anyInt());
+        verify(github, never()).branchHeadSha(anyString(), anyString());
+        verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
     }
 
     @Test

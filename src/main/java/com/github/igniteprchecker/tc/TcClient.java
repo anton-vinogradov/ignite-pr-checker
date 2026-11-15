@@ -868,12 +868,17 @@ public class TcClient {
      * {@link QueuedBelowTopException}. {@code comment} tells on TeamCity who queued it and why.
      */
     public TcModel.Build queuePinned(String token, PinnedRun run, boolean top, String comment) {
+        return queuePinned(token, run, top, comment, top ? waitingIds(token, run.suite(), run.branch()) : null);
+    }
+
+    private TcModel.Build queuePinned(String token, PinnedRun run, boolean top, String comment, Set<Long> waiting) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("buildType", Map.of("id", run.suite()));
         payload.put("branchName", run.branch());
         payload.put("revisions", Map.of("revision", run.revisions().stream()
             .map(pin -> Map.of("version", pin.version(), "vcsBranchName", pin.vcsBranch(),
-                "vcs-root-instance", Map.of("id", pin.vcsRootInstance())))
+                "vcs-root-instance", pin.vcsRootId() == null ? Map.of("id", pin.vcsRootInstance())
+                    : Map.of("vcs-root-id", pin.vcsRootId())))
             .toList()));
         payload.put("properties", Map.of("property", run.properties().entrySet().stream()
             .map(p -> Map.of("name", p.getKey(), "value", p.getValue()))
@@ -881,8 +886,7 @@ public class TcClient {
         payload.put("triggeringOptions", Map.of("queueAtTop", top));
         payload.put("comment", Map.of("text", comment));
 
-        return queue(token, payload, run.suite(), run.branch(), run.branch(), top,
-            top ? waitingIds(token, run.suite(), run.branch()) : null);
+        return queue(token, payload, run.suite(), run.branch(), run.branch(), top, waiting);
     }
 
     /** Queues the build of {@code payload}; {@code of} names its PR in the log. See the method above. */
@@ -1066,7 +1070,30 @@ public class TcClient {
 
     private TcModel.Build triggerReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
         String comment, Supplier<String> owner) {
-        String branch = "pull/" + prNumber + "/head";
+        Set<Long> waiting = cancelOwnQueued(token, buildTypeId, prBranch(prNumber), owner);
+
+        return queue(token, buildTypeId, prNumber, top, comment, waiting);
+    }
+
+    /** Queues pinned revisions after replacing the user's own standalone queued runs of the suite. */
+    public TcModel.Build queuePinnedOwnReplacingQueued(String token, String username, PinnedRun run, boolean top,
+        String comment) {
+        return queuePinnedReplacingQueued(token, run, top, comment, () -> username);
+    }
+
+    /** The same for automation, resolving the token's owner only when a matching run waits. */
+    public TcModel.Build queuePinnedReplacingQueued(String token, PinnedRun run, boolean top, String comment) {
+        return queuePinnedReplacingQueued(token, run, top, comment, () -> tokenOwner(token));
+    }
+
+    private TcModel.Build queuePinnedReplacingQueued(String token, PinnedRun run, boolean top, String comment,
+        Supplier<String> owner) {
+        Set<Long> waiting = cancelOwnQueued(token, run.suite(), run.branch(), owner);
+
+        return queuePinned(token, run, top, comment, waiting);
+    }
+
+    private Set<Long> cancelOwnQueued(String token, String buildTypeId, String branch, Supplier<String> owner) {
         List<TcModel.Build> identical = queuedBuilds(token).stream()
             .filter(q -> q.triggered() != null && "user".equals(q.triggered().type())
                 && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName()))
@@ -1084,7 +1111,7 @@ public class TcClient {
             }
         }
 
-        return queue(token, buildTypeId, prNumber, top, comment, idsOf(identical, buildTypeId));
+        return idsOf(identical, buildTypeId);
     }
 
     /** Whose the token is; null when TeamCity does not say, and then no build is anyone's own. */

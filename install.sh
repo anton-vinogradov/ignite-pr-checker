@@ -43,6 +43,18 @@ if [ -z "$JAVA" ] || ! java_ok "$JAVA"; then
 fi
 log "using $JAVA (Java $(java_major "$JAVA"))"
 
+# The optional Git mirror serves fetches through Git's Smart HTTP backend.
+git_ok() {
+    command -v git >/dev/null 2>&1 && [ -x "$(git --exec-path)/git-http-backend" ]
+}
+if ! git_ok; then
+    log "installing Git and its HTTP backend ..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq
+    apt-get install -y -qq git >/dev/null
+    git_ok || die "Git or git-http-backend did not install"
+fi
+
 # 2. service user + directories. The directory with the jar and the scripts belongs to root, so the service account
 # cannot change the code it runs: a hole in the service does not outlive a restart.
 id prc >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin prc
@@ -51,11 +63,13 @@ install -d -o root -g root -m 755 "$APP_DIR"
 # where a directory goes would have install -d chown the link's target to prc, a link where a file goes would be
 # written through, and a file prc created stays writable through a descriptor it holds open. So the links go, and each
 # file root writes here is removed first.
-for dir in cache update dumps logs; do
+for dir in cache update dumps logs git-mirrors; do
     if [ -L "$APP_DIR/$dir" ]; then rm -f "$APP_DIR/$dir"; fi
 done
 rm -f "$APP_DIR/app.jar.new" "$APP_DIR/update-failed" "$APP_DIR/.update-requested"
 install -d -o prc  -g prc  -m 700 "$APP_DIR/cache"
+# Git objects stay outside the JSON snapshots and their backups.
+install -d -o prc  -g prc  -m 700 "$APP_DIR/git-mirrors"
 # Where the service asks for an update; update.sh reads it as root.
 install -d -o prc  -g prc  -m 700 "$APP_DIR/update"
 # Heap dumps hold whatever the JVM had in memory, decrypted tokens included: readable by the service only.
@@ -104,6 +118,12 @@ SESSION_COOKIE_SECURE=true
 # How many recent master runs of a test to look at, per suite (default 100). A failure there makes a PR's
 # failure pre-existing, but not always: the README says when it does not.
 #MASTER_HISTORY_DEPTH=100
+# Optional public Git mirror for TeamCity sites that cannot reach GitHub. Enabling it downloads Git repositories;
+# check disk space first and follow the README's Git mirror procedure before changing any TeamCity VCS root URL.
+GIT_MIRROR_ENABLED=false
+GIT_MIRROR_DIR=/opt/ignite-pr-checker/git-mirrors
+#GIT_MIRROR_SYNC_INTERVAL_SECONDS=60
+#GIT_MIRROR_TIMEOUT_SECONDS=600
 # Extra JVM flags, after the defaults (-Xmx512m -XX:+ExitOnOutOfMemoryError, heap dump on OOM), so a
 # repeated flag wins, e.g. -Xmx768m. The status page shows the heap and the process's peak memory.
 #JAVA_OPTS=

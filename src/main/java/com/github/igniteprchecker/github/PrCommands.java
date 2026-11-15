@@ -117,6 +117,7 @@ public class PrCommands implements SnapshotCache {
     private final GithubClient github;
     private final StandingVisas standing;
     private final TcClient tc;
+    private final IgnitePrRuns ignite;
     private final RerunTracker tracker;
     private final StyleFixService styleFix;
     private final com.github.igniteprchecker.analysis.SuiteBaseline baseline;
@@ -161,16 +162,25 @@ public class PrCommands implements SnapshotCache {
         this(mapper, github, standing, tc, tracker, styleFix, baseline, publicUrl, teamcity, null);
     }
 
+    public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
+        RerunTracker tracker, StyleFixService styleFix,
+        com.github.igniteprchecker.analysis.SuiteBaseline baseline,
+        String publicUrl, TeamcityProperties teamcity, PythonClientRuns python) {
+        this(mapper, github, standing, tc, tracker, styleFix, baseline, publicUrl, teamcity, python,
+            IgnitePrRuns.unpinned(tc));
+    }
+
     @Autowired
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
         RerunTracker tracker, StyleFixService styleFix,
         com.github.igniteprchecker.analysis.SuiteBaseline baseline,
         @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl,
-        TeamcityProperties teamcity, PythonClientRuns python) {
+        TeamcityProperties teamcity, PythonClientRuns python, IgnitePrRuns ignite) {
         this.mapper = mapper;
         this.github = github;
         this.standing = standing;
         this.tc = tc;
+        this.ignite = ignite;
         this.tracker = tracker;
         this.styleFix = styleFix;
         this.baseline = baseline;
@@ -327,11 +337,12 @@ public class PrCommands implements SnapshotCache {
         int number = pr.number();
         TcModel.Build build = null;
         try {
-            // A new commanded run supersedes the commander's previous chain on this PR: cancel it
-            // first (their OWN chains only) — on unchanged revisions the new chain reuses the
-            // finished suites, so nothing useful is lost, and the queue isn't paid twice.
-            int chains = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), number, user));
-            int reruns = standing.cancelWaves(user, actor.get().tcToken(), number);
+            // A new command supersedes only its starter's chains and reruns. With the mirror enabled,
+            // preparation must finish before these cancellations, so a failed fetch leaves the old runs going.
+            boolean pinned = ignite.enabled();
+            int chains = pinned ? 0
+                : standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), number, user));
+            int reruns = pinned ? 0 : standing.cancelWaves(user, actor.get().tcToken(), number);
 
             // Style first, trigger second: the fix commit must be the revision the chain builds. It is pushed with the
             // user's own token, the one thing the checker does with it.
@@ -339,9 +350,15 @@ public class PrCommands implements SnapshotCache {
                 ? styleFix.fixForCommand(number, actor.get(), c.user().login())
                 : standing.styleFixOn(user) ? styleFixWaits(user) : null;
 
+            IgnitePrRuns.Prepared prepared = ignite.prepareRunAll(number);
+            if (pinned) {
+                chains = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), number, user));
+                reruns = standing.cancelWaves(user, actor.get().tcToken(), number);
+            }
+
             QueuedBelowTopException belowTop = null;
             try {
-                build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), number, cmd.top()));
+                build = standing.asUser(user, () -> ignite.queueRunAll(actor.get().tcToken(), prepared, cmd.top()));
             }
             catch (QueuedBelowTopException e) {
                 build = e.build();
@@ -396,9 +413,13 @@ public class PrCommands implements SnapshotCache {
         try {
             int cancelled;
             synchronized (superseding) {
+                PinnedRun prepared = python.mirrorEnabled()
+                    ? standing.asUser(user, () -> python.prepare(actor.tcToken(), pr.number())) : null;
                 cancelled = standing.asUser(user, () -> python.cancelOwn(actor.tcToken(), user, pr.number()));
                 String why = "Ignite PR Checker: /run-all by @" + c.user().login() + " in " + pullUrl(pr);
-                queued = standing.asUser(user, () -> python.queue(actor.tcToken(), pr.number(), cmd.top(), why));
+                queued = standing.asUser(user, () -> prepared == null
+                    ? python.queue(actor.tcToken(), pr.number(), cmd.top(), why)
+                    : python.queuePrepared(actor.tcToken(), prepared, cmd.top(), why));
                 endStoriesOf(user, pr, "\n🛑 _Superseded by "
                     + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._");
             }

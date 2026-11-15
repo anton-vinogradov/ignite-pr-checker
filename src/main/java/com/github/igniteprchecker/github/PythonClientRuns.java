@@ -8,6 +8,7 @@ import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.ClientVerdict;
 import com.github.igniteprchecker.jira.ClientVisa;
+import com.github.igniteprchecker.mirror.GitMirror;
 import com.github.igniteprchecker.tc.PinnedRun;
 import com.github.igniteprchecker.tc.QueuedBelowTopException;
 import com.github.igniteprchecker.tc.TcClient;
@@ -19,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Stream;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * Runs of the Python thin client's suite for PRs of the client. A {@code /run-all} in such a PR queues that one suite,
@@ -46,6 +48,8 @@ public class PythonClientRuns {
 
     private final BlockerAnalyzer analyzer;
 
+    private final GitMirror mirror;
+
     /** Ignite's main branch as a git ref, such as {@code refs/heads/master}. */
     private final String baseBranch;
 
@@ -56,10 +60,17 @@ public class PythonClientRuns {
 
     public PythonClientRuns(PythonClientProperties props, GithubClient github, TcClient tc, BlockerAnalyzer analyzer,
         AnalysisProperties analysis, TeamcityProperties teamcity) {
+        this(props, github, tc, analyzer, analysis, teamcity, null);
+    }
+
+    @Autowired
+    public PythonClientRuns(PythonClientProperties props, GithubClient github, TcClient tc, BlockerAnalyzer analyzer,
+        AnalysisProperties analysis, TeamcityProperties teamcity, GitMirror mirror) {
         this.props = props;
         this.github = github;
         this.tc = tc;
         this.analyzer = analyzer;
+        this.mirror = mirror;
         this.baseBranch = analysis.baseBranch();
         String base = teamcity.baseUrl() == null ? "https://ci2.ignite.apache.org/" : teamcity.baseUrl();
         this.tcBase = base.endsWith("/") ? base : base + "/";
@@ -108,6 +119,15 @@ public class PythonClientRuns {
      * cannot be put together, and TeamCity's or GitHub's own error when they failed.
      */
     public Queued queue(String token, int pr, boolean top, String comment) {
+        return queuePrepared(token, prepare(token, pr), top, comment);
+    }
+
+    public boolean mirrorEnabled() {
+        return mirror != null && mirror.enabled();
+    }
+
+    /** Resolves both commits and verifies mirror availability before any replacement is cancelled. */
+    public PinnedRun prepare(String token, int pr) {
         String clientSha = github.prHeadSha(props.repo(), pr);
         if (clientSha == null)
             throw new NotQueued("GitHub returned no head commit for this PR");
@@ -116,6 +136,13 @@ public class PythonClientRuns {
         String igniteSha = github.branchHeadSha(github.repo(), master);
         if (igniteSha == null)
             throw new NotQueued("GitHub returned no head commit of " + master + " in " + github.repo());
+
+        if (mirrorEnabled()) {
+            if (!props.repo().equals("apache/ignite-python-thin-client"))
+                throw new NotQueued("Git mirror does not support the configured Python client repository");
+            mirror.ensurePr("ignite-python-thin-client", pr, clientSha);
+            mirror.ensureRevision("ignite", baseBranch, igniteSha);
+        }
 
         Map<String, String> roots = tc.vcsRootInstances(token, props.suite())
             .orElseThrow(() -> new NotQueued("TeamCity has no suite " + props.suite()));
@@ -126,10 +153,13 @@ public class PythonClientRuns {
                 + " in TeamCity");
         }
 
-        PinnedRun run = new PinnedRun(props.suite(), branch(pr), List.of(
+        return new PinnedRun(props.suite(), branch(pr), List.of(
             new PinnedRun.Pin(roots.get(props.igniteVcsRoot()), baseBranch, igniteSha),
             new PinnedRun.Pin(roots.get(props.clientVcsRoot()), "refs/pull/" + pr + "/head", clientSha)),
             Map.of(TcModel.OVERRIDDEN_BRANCH, clientSha));
+    }
+
+    public Queued queuePrepared(String token, PinnedRun run, boolean top, String comment) {
         try {
             return new Queued(tc.queuePinned(token, run, top, comment), run, 0);
         }
@@ -186,6 +216,14 @@ public class PythonClientRuns {
     public Queued rerun(String token, int pr, long buildId, PinnedRun pinned) {
         String comment = "Ignite PR Checker: auto re-run of build " + buildId + " for https://github.com/"
             + props.repo() + "/pull/" + pr + ", on the same commits";
+        if (mirrorEnabled()) {
+            if (!props.repo().equals("apache/ignite-python-thin-client"))
+                throw new NotQueued("Git mirror does not support the configured Python client repository");
+            for (PinnedRun.Pin pin : pinned.revisions()) {
+                String slug = pin.vcsBranch().startsWith("refs/pull/") ? "ignite-python-thin-client" : "ignite";
+                mirror.ensureCommit(slug, pin.version());
+            }
+        }
         try {
             return new Queued(tc.queuePinned(token, pinned, true, comment), pinned, 0);
         }
