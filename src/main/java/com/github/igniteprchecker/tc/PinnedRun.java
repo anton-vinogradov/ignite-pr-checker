@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A run of one suite pinned to exact commits: the branch TeamCity files it under, the commit of each of its VCS roots,
+ * A suite or build chain pinned to exact commits: its TeamCity branch, the commit of each selected VCS root,
  * and the build parameters it runs with. Queued again as it is, it runs the same code: a suite of a thin
  * client takes Ignite and the client from two VCS roots, and its first step checks out {@code OVERRIDDEN_BRANCH} of the
  * client over the commit TeamCity picked.
