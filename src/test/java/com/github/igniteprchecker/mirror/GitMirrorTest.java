@@ -2,7 +2,24 @@ package com.github.igniteprchecker.mirror;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.github.igniteprchecker.analysis.BlockerAnalyzer;
+import com.github.igniteprchecker.analysis.SuiteBaseline;
+import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.IgnitePrRuns;
+import com.github.igniteprchecker.tc.RerunTracker;
+import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.web.PrHeads;
+import com.github.igniteprchecker.web.TriggerController;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -41,9 +58,9 @@ class GitMirrorTest {
         git(work, "push", prs.toString(), "HEAD:refs/pull/13786/head");
     }
 
-    /** GitBox owns normal branches and tags; GitHub's PR head supplies code absent from GitBox. */
+    /** Bootstrap copies normal branches and tags; an unrequested GitHub PR remains absent. */
     @Test
-    void combinesOfficialBranchesWithGithubPrHeads() throws Exception {
+    void bootstrapCopiesOnlyOfficialBranchesAndTags() throws Exception {
         String prHead = commit("PR only");
         git(work, "push", prs.toString(), "HEAD:refs/pull/13786/head");
         GitMirror mirror = mirror(true);
@@ -53,13 +70,96 @@ class GitMirrorTest {
         Path repo = mirror.repository("ignite");
         assertThat(git(repo, "rev-parse", "refs/heads/master")).isEqualTo(first);
         assertThat(git(repo, "rev-parse", "refs/tags/release-1")).isEqualTo(first);
-        assertThat(git(repo, "rev-parse", "refs/pull/13786/head")).isEqualTo(prHead);
+        assertThat(git(repo, "for-each-ref", "--format=%(refname)", "refs/pull/")).isEmpty();
+        assertThat(gitResult(repo, "cat-file", "-e", prHead + "^{commit}").exit()).isNotZero();
         assertThat(mirror.status()).singleElement().satisfies(s -> {
             assertThat(s.ready()).isTrue();
             assertThat(s.syncing()).isFalse();
             assertThat(s.lastSuccessAt()).isNotNull();
             assertThat(s.error()).isNull();
         });
+    }
+
+    /** Selecting one PR fetches its commit and ref, leaving another PR's unique commit absent. */
+    @Test
+    void fetchesOnlyTheRequestedPr() throws Exception {
+        String selected = commit("selected PR");
+        git(work, "push", prs.toString(), "HEAD:refs/pull/13786/head");
+        String other = commit("unrequested PR");
+        git(work, "push", prs.toString(), "HEAD:refs/pull/13834/head");
+        GitMirror mirror = mirror(true);
+        mirror.sync();
+
+        mirror.ensurePr("ignite", 13786, selected);
+
+        Path repo = mirror.repository("ignite");
+        assertThat(git(repo, "for-each-ref", "--format=%(refname)", "refs/pull/"))
+            .isEqualTo("refs/pull/13786/head");
+        assertThat(git(repo, "rev-parse", "refs/keep/" + selected)).isEqualTo(selected);
+        assertThat(gitResult(repo, "cat-file", "-e", other + "^{commit}").exit()).isNotZero();
+    }
+
+    /** A closed PR ref retained by GitBox is outside the normal heads/tags bootstrap. */
+    @Test
+    void doesNotFetchAnUnrequestedPrRetainedByGitBox() throws Exception {
+        String closed = commit("closed PR retained by GitBox");
+        git(work, "push", heads.toString(), "HEAD:refs/pull/11503/head");
+        GitMirror mirror = mirror(true);
+
+        mirror.sync();
+
+        Path repo = mirror.repository("ignite");
+        assertThat(git(repo, "for-each-ref", "--format=%(refname)", "refs/pull/11503/head")).isEmpty();
+        assertThat(gitResult(repo, "cat-file", "-e", closed + "^{commit}").exit()).isNotZero();
+    }
+
+    /** Background updates leave a selected PR at its last requested head until another launch asks for it. */
+    @Test
+    void backgroundSyncDoesNotAdvancePreviouslyRequestedPr() throws Exception {
+        GitMirror mirror = mirror(true);
+        mirror.sync();
+        mirror.ensurePr("ignite", 13786, first);
+        String next = commit("PR changed without a launch");
+        git(work, "push", prs.toString(), "HEAD:refs/pull/13786/head");
+
+        mirror.sync();
+
+        Path repo = mirror.repository("ignite");
+        assertThat(git(repo, "rev-parse", "refs/pull/13786/head")).isEqualTo(first);
+        assertThat(gitResult(repo, "cat-file", "-e", next + "^{commit}").exit()).isNotZero();
+    }
+
+    /** GitHub availability cannot prevent normal TeamCity branch jobs from using the GitBox bootstrap. */
+    @Test
+    void bootstrapIsReadyWhileGithubIsOffline() throws Exception {
+        Files.move(prs, temp.resolve("offline-github.git"));
+        GitMirror mirror = mirror(true);
+
+        mirror.sync();
+
+        assertThat(git(mirror.repository("ignite"), "rev-parse", "refs/heads/master")).isEqualTo(first);
+        assertThat(mirror.status().get(0).ready()).isTrue();
+        assertThat(mirror.status().get(0).error()).isNull();
+    }
+
+    /** A requested PR fetch failure leaves the user's existing RunAll untouched and queues no replacement. */
+    @Test
+    void githubLaunchFailureDoesNotCancelOrQueueBuilds() throws Exception {
+        GitMirror mirror = mirror(true);
+        mirror.sync();
+        Files.move(prs, temp.resolve("offline-github.git"));
+        TcClient tc = mock(TcClient.class);
+        GithubClient github = mock(GithubClient.class);
+        when(github.prHeadSha(13786)).thenReturn(first);
+        AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
+        TriggerController launch = new TriggerController(tc, mock(BlockerAnalyzer.class), mock(RerunTracker.class),
+            mock(PrHeads.class), mock(SuiteBaseline.class), cfg, new IgnitePrRuns(github, tc, mirror, cfg));
+
+        assertThatThrownBy(() -> launch.trigger(13786, false, true, true, "token", "author"))
+            .isInstanceOf(GitMirror.NotReadyException.class).hasMessageContaining("command failed");
+
+        verify(tc, never()).cancelOwnBuilds(anyString(), anyInt(), anyString(), any());
+        verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
     }
 
     /** A force push and upstream deletion cannot make an already selected commit unreachable. */
@@ -107,7 +207,8 @@ class GitMirrorTest {
     void servesPreviousSyncWhenUpstreamIsUnavailable() throws Exception {
         GitMirror mirror = mirror(true);
         mirror.sync();
-        Files.move(prs, temp.resolve("offline.git"));
+        mirror.ensurePr("ignite", 13786, first);
+        Files.move(heads, temp.resolve("offline-gitbox.git"));
 
         mirror.sync();
 
@@ -263,6 +364,12 @@ class GitMirrorTest {
     }
 
     private static String git(Path directory, String... args) throws Exception {
+        GitResult result = gitResult(directory, args);
+        assertThat(result.exit()).as("%s: %s", List.of(args), result.output()).isZero();
+        return result.output();
+    }
+
+    private static GitResult gitResult(Path directory, String... args) throws Exception {
         var command = new java.util.ArrayList<>(List.of("git"));
         if (directory != null)
             command.addAll(List.of("-C", directory.toString()));
@@ -271,11 +378,13 @@ class GitMirrorTest {
         try {
             assertThat(process.waitFor(20, TimeUnit.SECONDS)).isTrue();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).strip();
-            assertThat(process.exitValue()).as("%s: %s", command, output).isZero();
-            return output;
+            return new GitResult(process.exitValue(), output);
         }
         finally {
             process.destroyForcibly();
         }
+    }
+
+    private record GitResult(int exit, String output) {
     }
 }

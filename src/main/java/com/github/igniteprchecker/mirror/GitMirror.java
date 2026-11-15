@@ -181,7 +181,6 @@ public class GitMirror {
         git(repo.path, "config", "pack.windowMemory", "32m");
         git(repo.path, "config", "pack.deltaCacheSize", "32m");
         fetch(repo, repo.sources.heads(), "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*");
-        fetch(repo, repo.sources.prs(), "+refs/pull/*/head:refs/pull/*/head");
         git(repo.path, "symbolic-ref", "HEAD", "refs/heads/master");
         repo.ready = true;
         succeeded(repo);

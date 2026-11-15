@@ -320,10 +320,11 @@ own tests, and what was not blamed on the PR.
 ### When TeamCity uses the Git mirror
 
 An operator can enable the checker's [public Git mirror](../README.md#git-mirror-for-teamcity) when TeamCity cannot
-reach GitHub. Keep using the PR page and `/run-all` comments. The mirror reads normal branches and tags from GitBox
-and PR heads from GitHub. Before queueing a new PR run, the checker verifies that its exact head is in the mirror.
-If that check fails, it reports the error and queues nothing. Suites queued by one action use that same head.
-No extra account, token or branch publication is needed.
+reach GitHub. Keep using the PR page and `/run-all` comments. Only normal branches and tags sync in the background
+from GitBox. The checker fetches a PR from GitHub when it prepares its launch; other PRs are not preloaded.
+Before queueing a new PR run, it verifies the fresh head in the mirror. Manual and automatic re-runs also prepare
+the commits they need before queueing. If preparation fails, it reports the error and queues nothing. Suites queued
+by one action use the same selected commit. No extra account, token or branch publication is needed.
 
 ## Standing options
 

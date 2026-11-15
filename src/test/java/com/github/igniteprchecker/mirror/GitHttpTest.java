@@ -58,6 +58,7 @@ class GitHttpTest {
     void sync() {
         mirror.sync();
         assertThat(mirror.status().get(0).ready()).isTrue();
+        mirror.ensurePr("ignite", 13786, sha);
     }
 
     /** A Git client can clone a mirrored PR and fetch its exact SHA through smart HTTP. */
@@ -96,7 +97,7 @@ class GitHttpTest {
             "-c", "commit.gpgsign=false", "commit-tree", tree, "-p", sha, "-m", "New PR head").output().strip();
         git(SOURCE, "update-ref", "refs/pull/13786/head", next);
         try {
-            mirror.sync();
+            mirror.ensurePr("ignite", 13786, next);
             assertThat(git(mirror.repository("ignite"), "gc", "--prune=now").exit()).isZero();
             assertThat(git(ROOT, "ls-remote", url("/git/ignite.git"), "refs/pull/13786/head").output())
                 .contains(next);
@@ -108,7 +109,7 @@ class GitHttpTest {
         }
         finally {
             git(SOURCE, "update-ref", "refs/pull/13786/head", sha);
-            mirror.sync();
+            mirror.ensurePr("ignite", 13786, sha);
         }
     }
 

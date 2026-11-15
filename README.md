@@ -224,7 +224,7 @@ settings by hand.
 | `JAVA_OPTS` | none | Extra JVM flags; `run.sh` puts them after its defaults, e.g. `-Xmx768m`. See [Memory](#memory). |
 | `GIT_MIRROR_ENABLED` | `false` | Serve the optional public Git mirror. See [Git mirror for TeamCity](#git-mirror-for-teamcity). |
 | `GIT_MIRROR_DIR` | `/opt/ignite-pr-checker/git-mirrors` | Bare repositories, separate from the JSON cache and its backups. |
-| `GIT_MIRROR_SYNC_INTERVAL_SECONDS` | `60` | How often to refresh active mirrors. |
+| `GIT_MIRROR_SYNC_INTERVAL_SECONDS` | `60` | How often to refresh GitBox branches and tags in active mirrors. |
 | `GIT_MIRROR_TIMEOUT_SECONDS` | `600` | Maximum time for a Git command. |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | The TeamCity to read, with a slash at the end. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | The build type of the RunAll chain. |
@@ -320,10 +320,13 @@ if JIRA or GitHub had rejected the token. Each user switches them on again with 
 Enable this when TeamCity cannot reach GitHub but the checker can. TeamCity fetches public source code from the
 checker's HTTPS address. The checker still needs outbound HTTPS access to both GitBox and GitHub.
 
-The mirror takes ordinary branches and tags from Apache GitBox, and `refs/pull/*/head` from GitHub. GitBox's PR refs
-can lag behind GitHub, so GitBox alone does not supply every current PR head. The checker refreshes PR refs in the
-background and verifies the exact PR head before it queues a run. It retains commits that a queued run names.
-The PR page, PR commands, suite re-runs and standing options use the same PR workflow.
+The background sync takes ordinary branches and tags from Apache GitBox. PR heads are fetched from GitHub only
+when the checker prepares a launch. For a new PR run, it reads the fresh GitHub head and verifies that exact commit
+in the mirror before queueing. The PR page, PR commands, manual suite re-runs and automatic re-runs prepare the
+commits they need through the same launch checks. Commits named by queued runs are retained.
+
+The mirror does not preload every open or historical PR. It fetches a PR ref during launch preparation.
+Starting a PR directly in TeamCity does not ask the checker to fetch it.
 
 The fetch URLs are:
 
@@ -338,7 +341,7 @@ Java service; no extra proxy route or service is needed.
    the repository's history. Measure its size before using a small production disk, and leave room for later fetches.
    Mirrors live outside `cache/` and are not included in its ZIP backups.
 2. Re-run `install.sh` to install Git and its HTTP backend and create `git-mirrors/` for `prc`, with mode `0700`.
-   On an existing install the env file stays unchanged. Add these lines to `/etc/ignite-pr-checker/env`:
+   On an existing install the env file stays unchanged. Set these values in `/etc/ignite-pr-checker/env`:
 
    ```ini
    GIT_MIRROR_ENABLED=true
@@ -374,17 +377,27 @@ Java service; no extra proxy route or service is needed.
 4. Restart: `sudo systemctl restart ignite-pr-checker`. Wait for `/api/git-mirror/status` to show `ready: true`
    for the repository before changing TeamCity. It also shows whether a sync is running, its last successful time,
    and whether the last sync failed. Failure details are in the server logs. Ignite syncs after the option is enabled.
-   The Python client starts syncing when the checker first uses its mirror.
-5. From a machine on TeamCity's network, check a normal branch and the PR you will build:
+   The Python client starts syncing when the checker first uses its mirror. `ready` confirms the GitBox branches
+   and tags are available; it does not mean a PR that the checker has never launched is present.
+5. From a machine on TeamCity's network, check a normal branch:
 
    ```bash
-   git ls-remote https://prc.example.org/git/ignite.git refs/heads/master refs/pull/13786/head
+   git ls-remote https://prc.example.org/git/ignite.git refs/heads/master
+   git ls-remote https://gitbox.apache.org/repos/asf/ignite.git refs/heads/master
    ```
 
-   Use an existing PR number. Compare its full SHA with the current head on GitHub.
+   Compare its full SHA with GitBox's master.
 6. Save the current fetch URL of each TeamCity VCS root you will change. Set only its fetch URL to the matching
    mirror URL. Keep anonymous authentication, the default branch, branch specification and checkout settings.
-   Run **Test connection** from TeamCity, then start a small PR build and check the SHA it actually checks out.
+   Run **Test connection** from TeamCity. Then launch a selected PR through the checker, with **Run** or `/run-all`.
+   The checker fetches and verifies its head before queueing. After the launch, its PR ref is available:
+
+   ```bash
+   git ls-remote https://prc.example.org/git/ignite.git refs/pull/13786/head
+   ```
+
+   Use the PR number you launched. Check the build's actual checkout SHA against the commit selected for that run.
+   A later launch may advance the PR ref; the queued run stays pinned to its selected commit.
    Check the Python client's separate VCS root too if you use that workflow.
 
 If a sync or fetch fails, keep TeamCity on its recorded URL until the checks pass. To roll back, restore those VCS
