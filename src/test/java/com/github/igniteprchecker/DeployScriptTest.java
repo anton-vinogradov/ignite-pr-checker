@@ -160,6 +160,23 @@ class DeployScriptTest {
         assertThat(deploy().exit()).isZero();
     }
 
+    /** Given an enabled proxy and no server Git, deployment replaces the jar and restarts the service. */
+    @Test
+    void enabledProxyDoesNotRequireServerGit() throws Exception {
+        Files.writeString(server.resolve("env"), "GIT_PROXY_ENABLED=true\n");
+        stub("ssh", "sed -e 's|/opt/ignite-pr-checker|" + server + "|g'"
+            + " -e 's|/etc/ignite-pr-checker/env|" + server + "/env|g'"
+            + " | bash -c 'git() { echo unexpected-server-git >&2; exit 99; }; export -f git; bash -s -- \"$@\"'"
+            + " -- \"${@:5}\"");
+
+        Result r = deploy();
+
+        assertThat(r.exit()).as(r.out()).isZero();
+        assertThat(r.out()).doesNotContain("unexpected-server-git");
+        assertThat(server.resolve("app.jar")).hasContent("new jar");
+        assertThat(server.resolve("systemctl")).hasContent("restart ignite-pr-checker");
+    }
+
     @Test
     void aVersionThatDoesNotComeUpIsReportedWithTheWayBack() throws Exception {
         answering = "";

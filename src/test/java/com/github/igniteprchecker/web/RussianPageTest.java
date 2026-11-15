@@ -36,7 +36,8 @@ class RussianPageTest {
     private static final List<String> NAMES = List.of("Apache Ignite", "Open Census",
         "Machine Learning", "Thin client: Node.js", "Thin client: PHP", "Thin client: Python", "Platform .NET",
         "Platform C++", "Chrome on Windows", "Move MDC to JUnit", "Check marshalled kind",
-        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Access Tokens");
+        "Bad Gateway", "Contents: Read and write", "public_repo", "fine-grained", "Access Tokens",
+        "Ignite", "Python", "PHP", "Node.js");
 
     private static String russian() throws IOException {
         return PageScript.SIGNED_IN + "const CATALOG = " + Files.readString(Path.of("src/main/resources/static/ru.json"),

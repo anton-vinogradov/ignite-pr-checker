@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.mock;
@@ -20,9 +21,12 @@ import com.github.igniteprchecker.analysis.PendingCommits;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.GithubProperties;
 import com.github.igniteprchecker.config.OutboundHttp;
+import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.StubbedGithub;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.jira.VisaService;
@@ -42,6 +46,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
@@ -51,6 +57,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.ObjectMapper;
 
@@ -62,6 +69,9 @@ import tools.jackson.databind.ObjectMapper;
  */
 @ExtendWith(OutputCaptureExtension.class)
 class GithubLinkTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final String CALLBACK = "https://prc.example.org/api/github/callback";
 
     private static final String ONCE = "gho_onceOnly0123456789";
@@ -87,7 +97,7 @@ class GithubLinkTest {
 
     private final GithubLinkController links = new GithubLinkController(github, standing,
         new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
-            new Logins(mapper, mock(UserDirectory.class)), standing), now::get);
+            new Logins(mapper, mock(UserDirectory.class)), standing), PROJECTS, now::get);
 
     @Test
     void theAccountGitHubNamesIsLinkedAndItsTokenRevoked(@TempDir Path dir, CapturedOutput output) throws Exception {
@@ -116,7 +126,7 @@ class GithubLinkTest {
         assertThat(asked).containsEntry("client_id", "Iv1.client").containsEntry("allow_signup", "false")
             .containsEntry("redirect_uri", CALLBACK).doesNotContainKey("scope");
         assertThat(back.getStatusCode().value()).isEqualTo(302);
-        assertThat(back.getHeaders().getLocation()).hasToString("/?pr=13575&github=linked");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?pr=13575&github=linked");
         assertThat(standing.ghLoginOf("alice")).isEqualTo("Alice-V");
         assertThat(standing.commandsOn("alice")).as("the link is how PR commands go on").isTrue();
         assertThat(standing.actorByGhUser(new GithubClient.GhUser("alice-v", 4242))).hasValueSatisfying(a -> {
@@ -157,10 +167,10 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-of-bob", bobs, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=expired");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
         assertThat(links.callback("code-of-bob", bobs, null, browserOf("bob", "tc-bob")).getHeaders().getLocation())
-            .as("the state is spent").hasToString("/?github=expired");
+            .as("the state is spent").hasToString("/ignite?github=expired");
         assertThat(standing.ghLoginOf("bob")).isNull();
     }
 
@@ -171,7 +181,7 @@ class GithubLinkTest {
 
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice-2"));
 
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=expired");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -183,7 +193,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=expired");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -197,7 +207,7 @@ class GithubLinkTest {
         ResponseEntity<Void> again = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(again.getHeaders().getLocation()).hasToString("/?github=expired");
+        assertThat(again.getHeaders().getLocation()).hasToString("/ignite?github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -208,7 +218,7 @@ class GithubLinkTest {
         start("alice", "tc-alice", null);
 
         assertThat(links.callback("code-1", first, null, browserOf("alice", "tc-alice")).getHeaders().getLocation())
-            .hasToString("/?github=expired");
+            .hasToString("/ignite?github=expired");
     }
 
     /** The browser came back logged out: the state proves nothing without the session it was made for. */
@@ -219,7 +229,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, new MockHttpServletRequest());
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=signin");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=signin");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -230,28 +240,46 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback(null, state, "access_denied", browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?pr=13575&github=denied");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?pr=13575&github=denied");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
-    /**
-     * A link begun on the Python client's PR #69 came back to Ignite's PR #69. The page comes back to the client's PR,
-     * and a repo the page does not know adds nothing to the address.
-     */
-    @Test
-    void theLinkComesBackToTheClientsPr() {
-        ResponseEntity<?> asked = links.link("Europe/Moscow", 69, "python", "tc-alice", "alice");
+    /** Linking GitHub returns to the selected project's PR. */
+    @ParameterizedTest
+    @ValueSource(strings = {"python", "php", "nodejs"})
+    void theLinkComesBackToTheClientsPr(String project) {
+        ResponseEntity<?> asked = links.link("Europe/Moscow", 69, project, "tc-alice", "alice");
         String state = state(URI.create(String.valueOf(((Map<?, ?>)asked.getBody()).get("url"))));
 
         ResponseEntity<Void> back = links.callback(null, state, "access_denied", browserOf("alice", "tc-alice"));
 
-        assertThat(back.getHeaders().getLocation()).hasToString("/?repo=python&pr=69&github=denied");
+        assertThat(back.getHeaders().getLocation()).hasToString("/" + project + "?pr=69&github=denied");
+    }
 
-        ResponseEntity<?> other = links.link("Europe/Moscow", 69, "evil.example/x", "tc-alice", "alice");
-        String otherState = state(URI.create(String.valueOf(((Map<?, ?>)other.getBody()).get("url"))));
+    /** Linking from a project's list returns to that list when no PR is open. */
+    @ParameterizedTest
+    @ValueSource(strings = {"ignite", "python", "php", "nodejs"})
+    void theLinkComesBackToTheProjectList(String project) {
+        ResponseEntity<?> asked = links.link(null, null, project, "tc-alice", "alice");
+        String state = state(URI.create(String.valueOf(((Map<?, ?>)asked.getBody()).get("url"))));
 
-        assertThat(links.callback(null, otherState, "access_denied", browserOf("alice", "tc-alice")).getHeaders()
-            .getLocation()).hasToString("/?pr=69&github=denied");
+        assertThat(links.callback(null, state, "access_denied", browserOf("alice", "tc-alice")).getHeaders()
+            .getLocation()).hasToString("/" + project + "?github=denied");
+    }
+
+    /** An unknown project is refused before it can replace a valid link already under way. */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "unknown", "../php", "evil.example/x"})
+    void anUnknownProjectCannotReplaceThePendingLink(String project) {
+        ResponseEntity<?> asked = links.link(null, 69, "php", "tc-alice", "alice");
+        String state = state(URI.create(String.valueOf(((Map<?, ?>)asked.getBody()).get("url"))));
+
+        assertThatThrownBy(() -> links.link(null, 69, project, "tc-alice", "alice"))
+            .isInstanceOfSatisfying(ResponseStatusException.class,
+                e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
+
+        assertThat(links.callback(null, state, "access_denied", browserOf("alice", "tc-alice")).getHeaders()
+            .getLocation()).hasToString("/php?pr=69&github=denied");
     }
 
     /** An expired or used code: GitHub answers 200 with an error and no token. */
@@ -265,7 +293,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=failed");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=failed");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -275,7 +303,7 @@ class GithubLinkTest {
         gh.expect(requestTo("https://github.com/login/oauth/access_token")).andRespond(withServerError());
 
         assertThat(links.callback("code-1", state, null, browserOf("alice", "tc-alice")).getHeaders().getLocation())
-            .hasToString("/?github=failed");
+            .hasToString("/ignite?github=failed");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -292,7 +320,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=linked");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=linked");
         assertThat(standing.ghLoginOf("alice")).isEqualTo("Alice-V");
         assertThat(output.getAll()).contains("GitHub did not revoke the token of a GitHub account link")
             .doesNotContain(ONCE);
@@ -312,7 +340,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/?github=failed");
+        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=failed");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -327,7 +355,7 @@ class GithubLinkTest {
             .andRespond(withStatus(HttpStatus.NO_CONTENT));
 
         assertThat(links.callback("code-1", state, null, browserOf("alice", "tc-alice")).getHeaders().getLocation())
-            .hasToString("/?github=failed");
+            .hasToString("/ignite?github=failed");
         gh.verify();
     }
 
@@ -337,9 +365,9 @@ class GithubLinkTest {
             "https://prc.example.org", http.build());
         GithubLinkController off = new GithubLinkController(plain, standing,
             new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
-            new Logins(mapper, mock(UserDirectory.class)), standing), now::get);
+            new Logins(mapper, mock(UserDirectory.class)), standing), PROJECTS, now::get);
 
-        ResponseEntity<?> res = off.link(null, null, "tc-alice", "alice");
+        ResponseEntity<?> res = off.link(null, null, "ignite", "tc-alice", "alice");
 
         assertThat(res.getStatusCode().value()).isEqualTo(409);
         assertThat(res.getBody()).isEqualTo(Map.of("error", "Link GitHub is not set up on this checker"));
@@ -360,9 +388,9 @@ class GithubLinkTest {
             mock(Warmer.class), mock(PendingCommits.class));
         GithubLinkController off = new GithubLinkController(nowhere, standingThere,
             new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
-            new Logins(mapper, mock(UserDirectory.class)), standingThere), now::get);
+            new Logins(mapper, mock(UserDirectory.class)), standingThere), PROJECTS, now::get);
 
-        ResponseEntity<?> res = off.link(null, null, "tc-alice", "alice");
+        ResponseEntity<?> res = off.link(null, null, "ignite", "tc-alice", "alice");
 
         assertThat(res.getStatusCode().value()).isEqualTo(409);
         assertThat(nowhere.linksAccounts()).isFalse();
@@ -371,7 +399,7 @@ class GithubLinkTest {
     }
 
     private URI start(String username, String tcToken, Integer pr) {
-        ResponseEntity<?> res = links.link("Europe/Moscow", pr, tcToken, username);
+        ResponseEntity<?> res = links.link("Europe/Moscow", pr, "ignite", tcToken, username);
         assertThat(res.getStatusCode().value()).isEqualTo(200);
 
         return URI.create(String.valueOf(((Map<?, ?>)res.getBody()).get("url")));

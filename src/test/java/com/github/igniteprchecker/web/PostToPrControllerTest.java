@@ -25,10 +25,13 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.github.PrSummary;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
@@ -38,6 +41,9 @@ import java.util.Optional;
 import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -52,6 +58,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
  * the Python thin client puts in the verdict of its run of the client's suite, in the words of its verdict comment.
  */
 class PostToPrControllerTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final int PR = 13709;
 
     private static final long RUN = 9425992L;
@@ -87,25 +96,25 @@ class PostToPrControllerTest {
         when(github.canWrite()).thenReturn(true);
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29100 Fix the control utility", null, null,
             null, null)));
-        when(clients.repo()).thenReturn(CLIENT_REPO);
+
         when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
-        when(commands.clientPhase(CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, false)));
         when(tc.buildEnd("tok", RUN)).thenReturn(Optional.of(started("bob")));
         when(standing.postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), any(), any()))
             .thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
 
-        PythonClientRuns python = new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc,
+        ClientRuns python = new ClientRuns(github, tc,
             analyzer, new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
             new TeamcityProperties("https://ci2.example/"));
         ClientPrsController clientPrs = new ClientPrsController(clients, python, tc, github,
             new PrHeads(github, () -> 1_800_000_000_000L), new YourPrs(github, standing), standing, commands,
-            mock(AuthInterceptor.class));
+            mock(AuthInterceptor.class), PROJECTS);
         PostVisaController visas = new PostVisaController(standing, analyzer, merged, tc,
-            new PrTitleController(github, merged), clients, python, commands, clientPrs);
+            new PrTitleController(github, merged), clients, python, PROJECTS, commands, clientPrs);
         JiraController runs = new JiraController(mock(JiraClient.class), tc, standing, merged,
             mock(UserDirectory.class));
-        mvc = MockMvcBuilders.standaloneSetup(new PostToPrController(standing, github, visas, runs, python, clients,
+        mvc = MockMvcBuilders.standaloneSetup(new PostToPrController(standing, github, visas, runs, python, clients, PROJECTS,
                 "https://checker.example"))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
@@ -277,14 +286,14 @@ class PostToPrControllerTest {
      */
     @Test
     void aClientRunsVerdictIsInTheWordsOfItsVerdictComment() throws Exception {
-        when(clients.verdict("tok", CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
             result(CLIENT_PR, CLIENT_RUN, false), new ClientVerdicts.Run(CLIENT_RUN, 9424210L, "Thin client: Python",
                 "bob", "a1b2c3d4e5f6", "1f2e3d4c5b6a"))));
         when(standing.provenGhLogin("bob")).thenReturn("bob-gh");
         when(standing.postClientCommentFromPage(eq("alice"), any(), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN),
             eq(9424210L), any())).thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
 
-        asAlice(post("/api/client/pr-comment"), CLIENT_PR, CLIENT_RUN).andExpect(status().isOk())
+        asAlice(post("/api/client/pr-comment").param("repo", "python"), CLIENT_PR, CLIENT_RUN).andExpect(status().isOk())
             .andExpect(jsonPath("$.url").value(URL));
 
         @SuppressWarnings("unchecked")
@@ -296,7 +305,7 @@ class PostToPrControllerTest {
                 + "(https://ci2.example/build/9424200) ran this PR's head [`a1b2c3d`](https://github.com/" + CLIENT_REPO
                 + "/pull/69/commits/a1b2c3d4e5f6) against Ignite master at [`1f2e3d4`](https://github.com/apache/ignite"
                 + "/commit/1f2e3d4c5b6a). The checker's page shows this verdict and the PR's runs: [Ignite PR Checker]"
-                + "(https://checker.example/?repo=python&pr=69).")
+                + "(https://checker.example/python?pr=69).")
             .contains("♻️ This verdict counts [build 9424210](https://ci2.example/build/9424210) too: a later run of"
                 + " the suite on the same commits.")
             .doesNotContain("📝");
@@ -305,17 +314,55 @@ class PostToPrControllerTest {
         assertThat(body.getValue().apply(false)).startsWith("@bob-gh the verdict of your `/run-all`: ");
     }
 
+    /** Given a final client run, when its comment is requested, then it uses that repository and project link. */
+    @ParameterizedTest
+    @ValueSource(strings = {"python", "php", "nodejs"})
+    void postsToTheSelectedClientProject(String project) throws Exception {
+        ClientSpec spec = PROJECTS.require(project);
+        AnalysisResult res = new AnalysisResult(CLIENT_PR, CLIENT_RUN, spec.branch(CLIENT_PR), 1, List.of(),
+            List.of(), List.of(), List.of(), List.of(), 1, 1, false, 0, false, 0, 0, 0, 1, 0);
+        when(clients.verdict("tok", spec, CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(res,
+            new ClientVerdicts.Run(CLIENT_RUN, 0, spec.suiteLabel(), "bob", "a".repeat(40), "b".repeat(40)))));
+        when(commands.clientPhase(spec, CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(standing.postClientCommentFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR), eq(CLIENT_RUN),
+            eq(0L), any())).thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
+
+        asAlice(post("/api/client/pr-comment").param("repo", project), CLIENT_PR, CLIENT_RUN)
+            .andExpect(status().isOk());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Function<Boolean, String>> body = ArgumentCaptor.forClass(Function.class);
+        verify(standing).postClientCommentFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR),
+            eq(CLIENT_RUN), eq(0L), body.capture());
+        assertThat(body.getValue().apply(true)).contains("https://github.com/" + spec.repo() + "/pull/69",
+            "https://checker.example/" + project + "?pr=69", spec.suiteLabel());
+    }
+
+    /** Given an invalid project, when a client comment is requested, then no other project's PR is used. */
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"unknown"})
+    void refusesClientCommentWithoutAKnownProject(String project) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/client/pr-comment");
+        if (project != null)
+            request.param("repo", project);
+
+        asAlice(request, CLIENT_PR, CLIENT_RUN).andExpect(status().isBadRequest());
+
+        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any());
+    }
+
     /** A run of the client's suite on the PR's branch is going: it may change the verdict, so nothing goes. */
     @Test
     void aClientRunOfTheSuiteGoingHoldsTheVerdict() throws Exception {
-        when(clients.verdict("tok", CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
             result(CLIENT_PR, CLIENT_RUN, false), new ClientVerdicts.Run(CLIENT_RUN, 0, "Thin client: Python", "bob",
                 null, null))));
         when(tc.currentUserBuilds("tok", "pull/69")).thenReturn(List.of(new TcModel.Build(9424300L, null, "queued",
             null, "IgniteTests24Java8_WiPThinClientPython", null, null, null, null, null, null, null, null, null, null,
             null, null, null)));
 
-        asAlice(post("/api/client/pr-comment"), CLIENT_PR, CLIENT_RUN)
+        asAlice(post("/api/client/pr-comment").param("repo", "python"), CLIENT_PR, CLIENT_RUN)
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.going").value(true));
         verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any());
@@ -325,7 +372,7 @@ class PostToPrControllerTest {
     @Test
     void theRowTellsWhatPostToPrCanDo() throws Exception {
         when(standing.runCommentUrl(null, PR, RUN, 0)).thenReturn(Optional.of(URL));
-        when(clients.kept(CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+        when(clients.kept(PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
             result(CLIENT_PR, CLIENT_RUN, false), new ClientVerdicts.Run(CLIENT_RUN, 9424210L, "Thin client: Python",
                 "bob", null, null))));
         when(standing.runCommentUrl(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 9424210L)).thenReturn(Optional.empty());
@@ -335,7 +382,7 @@ class PostToPrControllerTest {
             .andExpect(jsonPath("$.bot").value("ready"))
             .andExpect(jsonPath("$.url").value(URL))
             .andExpect(jsonPath("$.edited").doesNotExist());
-        asAlice(get("/api/client/pr-comment"), CLIENT_PR, CLIENT_RUN)
+        asAlice(get("/api/client/pr-comment").param("repo", "python"), CLIENT_PR, CLIENT_RUN)
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.url").doesNotExist());
 

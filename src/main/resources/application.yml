@@ -102,6 +102,9 @@ github:
   # Give up on a GitHub call that sends nothing for this long.
   read-timeout: 60s
 
+git-proxy:
+  enabled: ${GIT_PROXY_ENABLED:false}
+
 python-client:
   # PRs of the Python thin client: a /run-all in a PR of this repo runs the suite below, with the PR's head of the client
   # and Ignite's master. Override with PYTHON_CLIENT_REPO.
@@ -112,6 +115,18 @@ python-client:
   # Override with PYTHON_CLIENT_IGNITE_VCS_ROOT and PYTHON_CLIENT_VCS_ROOT.
   ignite-vcs-root: ${PYTHON_CLIENT_IGNITE_VCS_ROOT:GitHubApacheIgnite}
   client-vcs-root: ${PYTHON_CLIENT_VCS_ROOT:GitHubApacheIgnitePythonThinClient}
+
+thin-clients:
+  php:
+    repo: ${PHP_CLIENT_REPO:apache/ignite-php-thin-client}
+    suite: ${PHP_CLIENT_SUITE:IgniteTests24Java8_ThinClientPhp}
+    ignite-vcs-root: ${PHP_CLIENT_IGNITE_VCS_ROOT:GitHubApacheIgnite}
+    client-vcs-root: ${PHP_CLIENT_VCS_ROOT:GitHubApacheIgnitePhpThinClient}
+  nodejs:
+    repo: ${NODEJS_CLIENT_REPO:apache/ignite-nodejs-thin-client}
+    suite: ${NODEJS_CLIENT_SUITE:IgniteTests24Java8_ThinClientNodeJs}
+    ignite-vcs-root: ${NODEJS_CLIENT_IGNITE_VCS_ROOT:GitHubApacheIgnite}
+    client-vcs-root: ${NODEJS_CLIENT_VCS_ROOT:GitHubApacheIgniteNodejsThinClient}
 
 jira:
   # The JIRA that visas go to. Override with JIRA_BASE_URL.

@@ -23,10 +23,13 @@ import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
+import com.github.igniteprchecker.github.ClientRuns;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
 import com.github.igniteprchecker.github.PrSummary;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.JiraClient;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.tc.TcClient;
@@ -35,6 +38,9 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -49,6 +55,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
  * the visa of its run of the client's suite.
  */
 class PostVisaControllerTest {
+    private static final ThinClients PROJECTS = new ThinClients(
+        new PythonClientProperties(null, null, null, null), new ThinClientProperties(null, null));
+
     private static final int PR = 13709;
 
     private static final long RUN = 9425992L;
@@ -84,25 +93,25 @@ class PostVisaControllerTest {
         when(github.repo()).thenReturn("apache/ignite");
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, ISSUE + " Fix the control utility", null, null,
             null, null)));
-        when(clients.repo()).thenReturn(CLIENT_REPO);
-        when(clients.openPrs()).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29117 Fix test to forcefully use"
+
+        when(clients.openPrs(PROJECTS.require("python"))).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29117 Fix test to forcefully use"
             + " H2 engine", null, null, null, null)));
         when(standing.visaButton(eq("alice"), any(), anyInt(), anyLong())).thenReturn(
             new StandingVisas.VisaButton(true, null));
         when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
-        when(commands.clientPhase(CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, false)));
         when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, ISSUE, URL, 0));
 
-        PythonClientRuns python = new PythonClientRuns(new PythonClientProperties(null, null, null, null), github, tc,
+        ClientRuns python = new ClientRuns(github, tc,
             analyzer, new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
             new TeamcityProperties("https://ci2.example/"));
         ClientPrsController clientPrs = new ClientPrsController(clients, python, tc, github,
             new PrHeads(github, () -> 1_800_000_000_000L), new YourPrs(github, standing), standing, commands,
-            mock(AuthInterceptor.class));
+            mock(AuthInterceptor.class), PROJECTS);
         mvc = MockMvcBuilders.standaloneSetup(new PostVisaController(standing, analyzer, merged, tc,
-                new PrTitleController(github, merged), clients, python, commands, clientPrs),
+                new PrTitleController(github, merged), clients, python, PROJECTS, commands, clientPrs),
                 new JiraController(mock(JiraClient.class), tc, standing, merged, mock(UserDirectory.class)))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
@@ -146,7 +155,7 @@ class PostVisaControllerTest {
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isPreconditionFailed());
 
         verify(analyzer, never()).analyzeForAction(anyString(), anyInt());
-        verify(clients, never()).verdict(anyString(), anyInt());
+        verify(clients, never()).verdict(anyString(), any(ClientSpec.class), anyInt());
         verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
     }
 
@@ -214,7 +223,7 @@ class PostVisaControllerTest {
         when(standing.postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, "IGNITE-29117", URL, 0));
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isOk());
-        when(clients.openPrs()).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29118 Fix test to forcefully use"
+        when(clients.openPrs(PROJECTS.require("python"))).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29118 Fix test to forcefully use"
             + " H2 engine", null, null, null, null)));
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29118").andExpect(status().isOk());
     }
@@ -287,7 +296,7 @@ class PostVisaControllerTest {
     @Test
     void aClientRunsVisaIsOfItsSuiteRun() throws Exception {
         AnalysisResult res = result(CLIENT_PR, CLIENT_RUN, false);
-        when(clients.verdict("tok", CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(res,
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(res,
             new ClientVerdicts.Run(CLIENT_RUN, 9424210L, "Thin client: Python", "alice", "a1b2c3d4e5f6",
                 "1f2e3d4c5b6a"))));
         when(tc.currentUserBuilds("tok", "pull/69")).thenReturn(List.of(build("IgniteTests24Java8_Cache1")));
@@ -307,11 +316,50 @@ class PostVisaControllerTest {
                 + " suite on the same commits.");
     }
 
+    /** Given a final client run, when its project requests a visa, then the visa names that repository and suite. */
+    @ParameterizedTest
+    @ValueSource(strings = {"python", "php", "nodejs"})
+    void postsTheSelectedClientProjectsVisa(String project) throws Exception {
+        ClientSpec spec = PROJECTS.require(project);
+        AnalysisResult res = new AnalysisResult(CLIENT_PR, CLIENT_RUN, spec.branch(CLIENT_PR), 1, List.of(),
+            List.of(), List.of(), List.of(), List.of(), 1, 1, false, 0, false, 0, 0, 0, 1, 0);
+        when(clients.verdict("tok", spec, CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(res,
+            new ClientVerdicts.Run(CLIENT_RUN, 0, spec.suiteLabel(), "alice", "a".repeat(40), "b".repeat(40)))));
+        when(clients.openPrs(spec)).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29117 Example", null,
+            null, null, null)));
+        when(commands.clientPhase(spec, CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(standing.postClientVisaFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR), eq(CLIENT_RUN),
+            eq("IGNITE-29117"), eq(res), any())).thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED,
+                "IGNITE-29117", URL, 0));
+
+        asAlice(post("/api/client/visa").param("repo", project), CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
+            .andExpect(status().isOk());
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(standing).postClientVisaFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR), eq(CLIENT_RUN),
+            eq("IGNITE-29117"), eq(res), body.capture());
+        assertThat(body.getValue()).contains("https://github.com/" + spec.repo() + "/pull/69", spec.suiteLabel());
+    }
+
+    /** Given an invalid project, when a client visa is requested, then no verdict is posted. */
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"unknown"})
+    void refusesClientVisaWithoutAKnownProject(String project) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/client/visa");
+        if (project != null)
+            request.param("repo", project);
+
+        asAlice(request, CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isBadRequest());
+
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
     /** The client's run is still settling: its auto re-run can still change the verdict. */
     @Test
     void aClientRunStillSettlingWaits() throws Exception {
         clientVerdict(CLIENT_RUN);
-        when(commands.clientPhase(CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.SETTLING));
+        when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.SETTLING));
 
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
             .andExpect(status().isConflict())
@@ -333,7 +381,7 @@ class PostVisaControllerTest {
     @Test
     void aClientRunOfTheSuiteGoingHoldsTheVisa() throws Exception {
         AnalysisResult res = result(CLIENT_PR, CLIENT_RUN, false);
-        when(clients.verdict("tok", CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(res,
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(res,
             new ClientVerdicts.Run(CLIENT_RUN, 0, "Thin client: Python", "alice", null, null))));
         when(tc.currentUserBuilds("tok", "pull/69"))
             .thenReturn(List.of(build("IgniteTests24Java8_WiPThinClientPython")));
@@ -361,7 +409,7 @@ class PostVisaControllerTest {
     }
 
     private void clientVerdict(long build) {
-        when(clients.verdict("tok", CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
             result(CLIENT_PR, build, false), new ClientVerdicts.Run(build, 0, "Thin client: Python", "alice", null,
                 null))));
     }
@@ -384,7 +432,7 @@ class PostVisaControllerTest {
     }
 
     private ResultActions asAlice(String path, int pr, long build, String issue) throws Exception {
-        return asAlice(post(path), pr, build, issue);
+        return asAlice(post(path).param("repo", "python"), pr, build, issue);
     }
 
     private ResultActions asAlice(MockHttpServletRequestBuilder req, int pr, long build, String issue)

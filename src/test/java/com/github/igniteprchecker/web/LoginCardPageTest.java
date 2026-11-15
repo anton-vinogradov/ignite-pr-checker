@@ -22,7 +22,7 @@ class LoginCardPageTest {
     void theCardReadsIntroLineFieldFoldsFooter() throws IOException {
         String card = card();
 
-        assertThat(card.indexOf("<p class=\"login-intro\">")).isNotNegative()
+        assertThat(card.indexOf("<p id=\"loginIntro\" class=\"login-intro\">")).isNotNegative()
             .isLessThan(card.indexOf("<p id=\"loginTokenNote\""));
         assertThat(card.indexOf("<p id=\"loginTokenNote\"")).isLessThan(card.indexOf("<input id=\"token\""));
         assertThat(card.indexOf("<div id=\"loginErr\"")).isLessThan(card.indexOf("<details id=\"loginTokenMore\""));
@@ -35,7 +35,7 @@ class LoginCardPageTest {
 
     @Test
     void theIntroHasNoForcedBreaks() throws IOException {
-        String intro = textOf("<p class=\"login-intro\">");
+        String intro = textOf("<p id=\"loginIntro\" class=\"login-intro\">");
 
         assertThat(card()).doesNotContain("<br>");
         assertThat(intro).isEqualTo("See which tests your Apache Ignite PR actually broke, not the ones already failing "

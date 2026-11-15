@@ -28,8 +28,7 @@ class PostVisaPageTest {
     /** The client's PR #69, whose newest run of the suite has a final verdict. */
     private static final String CLIENT_PR = """
         page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
-            starCount: 1, refreshAfterSeconds: 120, clientRepo: 'apache/ignite-python-thin-client',
-            clientSuite: 'Thin client: Python' } });
+            starCount: 1, refreshAfterSeconds: 120, clients: [{ key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' }] } });
         page.route('/api/client/analyze', { body: Object.assign(verdict({ prNumber: 69, buildId: 9424794,
             branchName: 'pull/69', blockers: [] }), { repo: 'python', rerunId: 0, suiteName: 'Thin client: Python',
             standing: 'CLEAN', caveats: [], pushed: { pending: false, checked: true } }) });
@@ -299,7 +298,7 @@ class PostVisaPageTest {
             shown = { body: { state: null, starter: null, mine: false, jiraReady: true, yoursIn: null } };
             answer = { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29117', url: URL,
                 jiraReady: true, yoursIn: 'IGNITE-29117', edited: false } };
-            await page.load('?repo=python&pr=69');
+            await page.load('/python?pr=69');
             await page.tick(100);
             const line = page.el('visaLine').classList.contains('hidden') ? null : page.el('visaLine').textContent;
             await page.el('visaPost').onclick();
@@ -311,7 +310,7 @@ class PostVisaPageTest {
         assertThat(out.get("asked").get(0).asText()).isEqualTo("Post the visa of Thin client: Python build 9424794 to"
             + " IGNITE-29117? It goes in as your comment in JIRA, with the verdict on this page.");
         assertThat(out.get("posts").get(0).asText())
-            .isEqualTo("/api/client/visa?pr=69&build=9424794&issue=IGNITE-29117");
+            .isEqualTo("/api/client/visa?pr=69&repo=python&build=9424794&issue=IGNITE-29117");
         assertThat(out.get("status").asText()).isEqualTo("Visa posted to IGNITE-29117.");
     }
 
@@ -365,7 +364,7 @@ class PostVisaPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + russian() + ROW + CLIENT_PR + """
             shown = { body: { state: 'posted', starter: 'alice', mine: true, issue: 'IGNITE-29117', url: URL,
                 jiraReady: true, yoursIn: 'IGNITE-29117' } };
-            await page.load('?repo=python&pr=69');
+            await page.load('/python?pr=69');
             await page.tick(100);
             await page.el('visaPost').onclick();
             await page.settle();

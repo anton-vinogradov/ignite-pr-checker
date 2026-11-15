@@ -1,7 +1,7 @@
 package com.github.igniteprchecker.web;
 
 import com.github.igniteprchecker.github.GithubClient;
-import com.github.igniteprchecker.github.PythonClientRuns;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.jira.SettingsJournal;
 import com.github.igniteprchecker.jira.StandingVisas;
 import com.github.igniteprchecker.session.SessionCodec;
@@ -51,6 +51,8 @@ public class GithubLinkController {
 
     private final AuthInterceptor auth;
 
+    private final ThinClients projects;
+
     private final LongSupplier clock;
 
     /** The links under way by their state, at most one per session. */
@@ -59,35 +61,33 @@ public class GithubLinkController {
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
-    public GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth) {
-        this(github, standing, auth, System::currentTimeMillis);
+    public GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth,
+        ThinClients projects) {
+        this(github, standing, auth, projects, System::currentTimeMillis);
     }
 
-    GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth, LongSupplier clock) {
+    GithubLinkController(GithubClient github, StandingVisas standing, AuthInterceptor auth, ThinClients projects,
+        LongSupplier clock) {
         this.github = github;
         this.standing = standing;
         this.auth = auth;
+        this.projects = projects;
         this.clock = clock;
-    }
-
-    /** Starts a link on a PR of Ignite; see {@link #link(String, Integer, String, String, String)}. */
-    public ResponseEntity<?> link(String tz, Integer pr, String tcToken, String username) {
-        return link(tz, pr, null, tcToken, username);
     }
 
     /**
      * Starts a link: answers with the GitHub address the page sends the browser to. {@code tz}, the browser's time
-     * zone, and {@code pr}, the PR the page shows, come back with the user; {@code repo} is {@value
-     * PythonClientRuns#PAGE_REPO} when that PR is the Python thin client's, and any other value is dropped. A 409 when
+     * zone, project key {@code repo}, and {@code pr}, the PR the page shows, come back with the user. A 409 when
      * the checker has no GitHub account to answer commands from, or users cannot link accounts through it ({@link
      * GithubClient#linksAccounts}).
      */
     @PostMapping("/api/github/link")
     public ResponseEntity<?> link(@RequestParam(required = false) String tz,
         @RequestParam(required = false) Integer pr,
-        @RequestParam(required = false) String repo,
+        @RequestParam String repo,
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
+        String project = "ignite".equals(repo) ? "ignite" : projects.require(repo).key();
         if (!github.writes())
             return ResponseEntity.status(409).body(Map.of("error", "PR commands are "
                 + StandingVisas.Refusal.UNAVAILABLE.error()));
@@ -99,8 +99,7 @@ public class GithubLinkController {
         pending.values().removeIf(p -> p.session().equals(session) || p.expired(now));
         String state = newState();
         boolean shown = pr != null && pr > 0;
-        pending.put(state, new Pending(session, tz, shown ? pr : null,
-            shown && PythonClientRuns.PAGE_REPO.equals(repo) ? repo : null, now));
+        pending.put(state, new Pending(session, tz, shown ? pr : null, project, now));
 
         return ResponseEntity.ok(Map.of("url", github.authorizeUri(state).toString()));
     }
@@ -160,10 +159,11 @@ public class GithubLinkController {
 
     /** The page, told how the link went, on the PR it showed when the link began. */
     private static ResponseEntity<Void> back(String outcome, Pending asked) {
-        String pr = asked == null || asked.pr() == null ? ""
-            : (asked.repo() == null ? "" : "repo=" + asked.repo() + "&") + "pr=" + asked.pr() + "&";
+        String project = asked == null ? "ignite" : asked.project();
+        String pr = asked == null || asked.pr() == null ? "" : "pr=" + asked.pr() + "&";
 
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create("/?" + pr + "github=" + outcome)).build();
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .location(URI.create("/" + project + "?" + pr + "github=" + outcome)).build();
     }
 
     private String newState() {
@@ -189,10 +189,9 @@ public class GithubLinkController {
     }
 
     /**
-     * A link under way: whose session began it, the browser's time zone, the PR the page showed and its repo, null for
-     * Ignite's, and when.
+     * A link under way: whose session began it, the browser's time zone, the project and PR the page showed, and when.
      */
-    private record Pending(String session, String tz, Integer pr, String repo, long at) {
+    private record Pending(String session, String tz, Integer pr, String project, long at) {
         boolean expired(long now) {
             return now - at > STATE_TTL.toMillis();
         }

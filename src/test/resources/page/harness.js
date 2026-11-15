@@ -181,7 +181,12 @@ async function fakeFetch(url, opts = {}) {
 
 const storage = new Map();
 const sessionStore = new Map();
-const location = { search: '', pathname: '/', reload() {} };
+const location = { search: '', pathname: path.basename(pagePath) === 'index.html' ? '/ignite' : '/' + path.basename(pagePath), reload() {} };
+function navigate(url) {
+    const [pathname, search] = String(url).split('?', 2);
+    if (pathname) location.pathname = pathname;
+    location.search = search === undefined ? '' : '?' + search;
+}
 const pushed = [];
 const ctx = {
     document: doc,
@@ -190,10 +195,9 @@ const ctx = {
     history: {
         pushState(state, title, url) {
             pushed.push(url);
-            const q = String(url).indexOf('?');
-            location.search = q >= 0 ? String(url).slice(q) : '';
+            navigate(url);
         },
-        replaceState() {},
+        replaceState(state, title, url) { navigate(url); },
     },
     localStorage: {
         getItem: k => (storage.has(k) ? storage.get(k) : null),
@@ -248,7 +252,7 @@ const page = {
     timers: () => [...timers.values()].map(t => ({ ms: t.ms, repeat: t.repeat, in: t.at - clock })),
     now: () => clock,
     async load(search) {
-        location.search = search || '';
+        navigate(search || '');
         for (const s of scripts)
             vm.runInContext(s.code, ctx, { filename: s.file });
         await settle();

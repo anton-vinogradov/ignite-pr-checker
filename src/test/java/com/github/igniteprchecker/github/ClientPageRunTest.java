@@ -1,6 +1,7 @@
 package com.github.igniteprchecker.github;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -11,6 +12,7 @@ import static org.mockito.ArgumentMatchers.endsWith;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -25,7 +27,6 @@ import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.SessionProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.JiraClient;
@@ -71,6 +72,8 @@ class ClientPageRunTest {
 
     private static final int PR = 69;
 
+    private static final ClientSpec PYTHON = ThinClients.defaults().require("python");
+
     private static final long RUN = 9424794L;
 
     private static final long RERUN = 9424810L;
@@ -85,12 +88,12 @@ class ClientPageRunTest {
 
     private static final String CLIENT = "a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4";
 
-    private static final String PAGE = "https://checker.example/?repo=python&pr=69";
+    private static final String PAGE = "https://checker.example/python?pr=69";
 
     private static final String ISSUE = "IGNITE-29117";
 
     private static final PinnedRun PINNED = new PinnedRun(SUITE, "pull/69", List.of(
-        new PinnedRun.Pin("335", "refs/heads/master", IGNITE), new PinnedRun.Pin("314", "refs/pull/69/head", CLIENT)),
+        PinnedRun.Pin.forRoot("GitHubApacheIgnite", "refs/heads/master", IGNITE), PinnedRun.Pin.forRoot("GitHubApacheIgnitePythonThinClient", "refs/pull/69/head", CLIENT)),
         Map.of("OVERRIDDEN_BRANCH", CLIENT));
 
     private static final String PAGE_RUN = "Ignite PR Checker: Run on the checker's page for https://github.com/"
@@ -115,8 +118,8 @@ class ClientPageRunTest {
         jira, mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class), mock(PendingCommits.class),
         new SettingsJournal(mapper));
 
-    private final PythonClientRuns python = new PythonClientRuns(new PythonClientProperties(null, null, null, null),
-        github, tc, analyzer, new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
+    private final ClientRuns python = new ClientRuns(github, tc, analyzer,
+        new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),
         new TeamcityProperties("https://ci2.example/"));
 
     private final PrCommands commands = commands();
@@ -146,12 +149,37 @@ class ClientPageRunTest {
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(RUN, true));
     }
 
+    /** A failed head read leaves the user's previous Python run in place and queues no replacement. */
+    @Test
+    void unavailableHeadDoesNotCancelOrQueuePythonRun() {
+        when(github.prHeadSha(CLIENT_REPO, PR)).thenThrow(new IllegalStateException("head unavailable"));
+
+        assertThatThrownBy(() -> page.trigger("python", PR, false, true, true, "tc", "author"))
+            .isInstanceOf(IllegalStateException.class).hasMessage("head unavailable");
+
+        verify(tc, never()).cancelOwnBuilds(anyString(), anyString(), anyString(), any());
+        verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), anyString());
+    }
+
+    /** Both commits and the VCS roots are resolved before replacement cancellation. */
+    @Test
+    void resolvesBothCommitsBeforeReplacingPythonRun() {
+        page.trigger("python", PR, false, true, true, "tc", "author");
+
+        var order = inOrder(github, tc);
+        order.verify(github).prHeadSha(CLIENT_REPO, PR);
+        order.verify(github).branchHeadSha("apache/ignite", "master");
+        order.verify(tc).vcsRootInstances("tc", SUITE);
+        order.verify(tc).cancelOwnBuilds(eq("tc"), eq("pull/69"), eq("author"), any());
+        order.verify(tc).queuePinned("tc", PINNED, false, PAGE_RUN);
+    }
+
     @Test
     void theVerdictCommentOfTheOptionMentionsTheStarterAndNoCommentTellsTheRun() {
         linkGithub();
         options(null, null, true);
 
-        assertThat(page.trigger(PR, false, false, false, "tc", "author").getStatusCode().value()).isEqualTo(200);
+        assertThat(page.trigger("python", PR, false, false, false, "tc", "author").getStatusCode().value()).isEqualTo(200);
         when(tc.getBuildState("tc", RUN)).thenReturn(build(RUN, "running", null));
         commands.updateEtas();
 
@@ -184,7 +212,7 @@ class ClientPageRunTest {
     @Test
     void theVerdictCommentTakesThePlaceOfTheOnePostToPrPutIn() {
         options(null, null, true);
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("reviewer"), anyString())).thenReturn(
             new GithubClient.PostedComment(90L, "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-90"));
         standing.postClientCommentFromPage("reviewer", SettingsJournal.By.of("laptop", "Firefox on Linux"),
@@ -203,7 +231,7 @@ class ClientPageRunTest {
     void withoutALinkedGithubAccountTheCommentMentionsNobody() {
         options(null, null, true);
 
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(RUN, "FAILURE");
         commands.updateEtas();
 
@@ -235,7 +263,7 @@ class ClientPageRunTest {
         mapper.writeValue(file.toFile(), snapshot);
         standing.loadFrom(file);
 
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(RUN, "FAILURE");
         commands.updateEtas();
 
@@ -253,7 +281,7 @@ class ClientPageRunTest {
             .thenReturn(new GithubClient.PostedComment(89L, "https://github.com/" + CLIENT_REPO
                 + "/pull/69#issuecomment-89"));
 
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(RUN, "FAILURE");
         commands.updateEtas();
         commands.updateEtas();
@@ -274,14 +302,14 @@ class ClientPageRunTest {
         when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString()))
             .thenThrow(new GithubClient.WriteDeferred("GitHub asked to wait"));
 
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(RUN, "FAILURE");
         commands.updateEtas();
         options(null, null, false);
         commands.updateEtas();
 
         verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
     }
 
     /**
@@ -293,11 +321,11 @@ class ClientPageRunTest {
     void theAutoRerunAndTheVisaActOnTheRunAndNoCommentGoesToThePr() {
         options(true, true, null);
 
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(RUN, "FAILURE");
-        StandingVisas.Phase deciding = commands.clientPhase(PR, RUN);
+        StandingVisas.Phase deciding = commands.clientPhase(PYTHON, PR, RUN);
         commands.updateEtas();
-        StandingVisas.Phase rerunning = commands.clientPhase(PR, RUN);
+        StandingVisas.Phase rerunning = commands.clientPhase(PYTHON, PR, RUN);
 
         verify(tc).queuePinned("tc", PINNED, true, AUTO_RERUN);
         assertThat(deciding.phase()).isEqualTo("settling");
@@ -313,7 +341,7 @@ class ClientPageRunTest {
         assertThat(visa.getValue()).startsWith("Ignite PR Checker verdict for [PR 69 of " + CLIENT_REPO)
             .contains("♻️ Settled after one auto re-run: [build 9424810|https://ci2.example/build/9424810]");
         verify(github, never()).appComment(anyString(), anyInt(), any(), anyString());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
     }
 
     /**
@@ -323,13 +351,13 @@ class ClientPageRunTest {
      */
     @Test
     void optionsSwitchedOnWhileTheRunGoesActOnIt(@TempDir Path dir) throws Exception {
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         commands.updateEtas();
         Path file = dir.resolve("pr-commands.json");
         commands.saveTo(file);
 
         verify(tc, never()).getBuildState(anyString(), anyLong());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
 
         options(true, true, true);
         finished(RUN, "FAILURE");
@@ -354,7 +382,7 @@ class ClientPageRunTest {
      */
     @Test
     void optionsSwitchedOnAfterTheRunFinishedDoNotActOnIt() {
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(RUN, "FAILURE");
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN))
             .thenReturn(verdict(RUN, true, Instant.now().minusSeconds(3600)));
@@ -365,7 +393,7 @@ class ClientPageRunTest {
         verify(tc, never()).queuePinned("tc", PINNED, true, AUTO_RERUN);
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
         verify(github, never()).appComment(anyString(), anyInt(), any(), anyString());
-        assertThat(commands.clientPhase(PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
     }
 
     /**
@@ -376,7 +404,7 @@ class ClientPageRunTest {
     void aRunNoOptionWentOnForInAWeekIsNoLongerFollowed(@TempDir Path dir) throws Exception {
         long[] now = {System.currentTimeMillis()};
         commands.clock(() -> now[0]);
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         Path file = dir.resolve("pr-commands.json");
         now[0] += Duration.ofDays(7).toMillis() - 60_000;
         commands.updateEtas();
@@ -404,8 +432,8 @@ class ClientPageRunTest {
     void aRunNoOptionActsOnIsNotJudged() {
         linkGithub();
 
-        page.trigger(PR, false, false, false, "tc", "author");
-        StandingVisas.Phase queued = commands.clientPhase(PR, RUN);
+        page.trigger("python", PR, false, false, false, "tc", "author");
+        StandingVisas.Phase queued = commands.clientPhase(PYTHON, PR, RUN);
         finished(RUN, "FAILURE");
         commands.updateEtas();
         commands.updateEtas();
@@ -428,7 +456,7 @@ class ClientPageRunTest {
         clientComment(1L, "/run-all");
         when(tc.cancelOwnBuilds(eq("tc"), eq("pull/69"), eq("author"), any())).thenReturn(1);
 
-        page.trigger(PR, false, true, false, "tc", "author");
+        page.trigger("python", PR, false, true, false, "tc", "author");
         when(tc.getBuildState("tc", COMMAND_RUN)).thenReturn(build(COMMAND_RUN, "finished", "UNKNOWN"));
         finished(RUN, "FAILURE");
         commands.updateEtas();
@@ -450,7 +478,7 @@ class ClientPageRunTest {
         options(null, null, true);
         clientComment(1L, "/run-all");
 
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         finished(COMMAND_RUN, "FAILURE");
         when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", COMMAND_RUN)).thenReturn(verdict(COMMAND_RUN, true));
         commands.updateEtas();
@@ -465,7 +493,7 @@ class ClientPageRunTest {
     void topDoesNotMoveARunQueuedOnThePage() {
         linkGithub();
         options(null, null, true);
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         when(tc.getBuildState("tc", RUN)).thenReturn(build(RUN, "queued", null));
 
         clientComment(2L, "/top");
@@ -484,7 +512,7 @@ class ClientPageRunTest {
     void aRunIsFollowedAfterARestartAndKeptApartFromTheRunsOfCommands(@TempDir Path dir) throws Exception {
         linkGithub();
         options(null, null, true);
-        page.trigger(PR, false, false, false, "tc", "author");
+        page.trigger("python", PR, false, false, false, "tc", "author");
         Path file = dir.resolve("pr-commands.json");
         commands.saveTo(file);
 
@@ -537,7 +565,7 @@ class ClientPageRunTest {
         Thread run = new Thread(() -> {
             try {
                 if (rerunAsked.await(5, TimeUnit.SECONDS))
-                    page.trigger(PR, false, true, false, "tc", "author");
+                    page.trigger("python", PR, false, true, false, "tc", "author");
             }
             catch (Throwable e) {
                 failed.set(e);
@@ -561,7 +589,7 @@ class ClientPageRunTest {
 
     private ClientPrsController page(PrCommands c) {
         return new ClientPrsController(mock(ClientVerdicts.class), python, tc, github, new PrHeads(github),
-            new YourPrs(github, standing), standing, c, mock(AuthInterceptor.class));
+            new YourPrs(github, standing), standing, c, mock(AuthInterceptor.class), ThinClients.defaults());
     }
 
     /** The author links their GitHub account Author, which switches PR commands on. */

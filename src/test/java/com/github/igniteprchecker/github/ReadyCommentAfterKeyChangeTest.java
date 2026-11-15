@@ -95,7 +95,7 @@ class ReadyCommentAfterKeyChangeTest {
 
         verify(jira, never()).addCommentWithId(anyString(), anyString(), anyString());
         verify(github).appComment(PR, "author", "@Author the verdict of your `/run-all` is ready: RunAll [" + CHAIN
-            + "](https://ci2.example/build/" + CHAIN + ") — [see the verdict](https://checker.example/?pr=" + PR
+            + "](https://ci2.example/build/" + CHAIN + ") — [see the verdict](https://checker.example/ignite?pr=" + PR
             + "). No JIRA visa yet: the server key was changed, so the checker could no longer read the JIRA token it"
             + " stored. The visa goes out once whoever started the run saves a new token in ⚙.");
     }

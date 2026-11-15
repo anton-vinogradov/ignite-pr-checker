@@ -12,6 +12,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -267,6 +268,80 @@ public class ChainCollector {
         return new SuiteRun(r == null ? List.of() : r.tests(), broken,
             r == null ? null : r.unstable(),
             shrunkSuites(List.of(run), masterCounts, broken == null ? Set.of() : Set.of(run.id())));
+    }
+
+    /** Collects this project's composite and its same-commit re-run without looking at Ignite PR chains. */
+    public Chain collectForCompositeRun(String token, TcModel.Build run, TcModel.Build rerun,
+        Map<String, Integer> masterCounts, String masterBuildType, ExecutorService pool) {
+        List<TcModel.Build> first = projectDependencies(token, run);
+        List<TcModel.Build> again = rerun == null ? List.of() : projectDependencies(token, rerun);
+        Map<String, TcModel.Build> latest = new LinkedHashMap<>();
+        Stream.concat(first.stream(), again.stream()).forEach(b -> latest.put(b.buildTypeId(), b));
+        Set<Long> latestIds = latest.values().stream().map(TcModel.Build::id).collect(Collectors.toSet());
+        List<Callable<SuiteResult>> tasks = Stream.concat(first.stream(), again.stream())
+            .filter(b -> "FAILURE".equals(b.status()))
+            .<Callable<SuiteResult>>map(b -> () -> masterBuildType.equals(b.buildTypeId())
+                ? masterDependencyResult(b, masterCounts) : suiteResultOf(token, b, masterCounts)).toList();
+        List<FailedTest> failed = new ArrayList<>();
+        List<BrokenSuite> broken = new ArrayList<>();
+        List<BrokenSuite> unstable = new ArrayList<>();
+        Set<Candidate> seen = new HashSet<>();
+        for (SuiteResult result : Parallel.run(pool, tasks)) {
+            for (FailedTest test : result.tests()) {
+                if (seen.add(new Candidate(test.testId(), test.suite())))
+                    failed.add(test);
+            }
+            if (!latestIds.contains(result.run().id()))
+                continue;
+            if (result.broken() != null)
+                broken.add(result.broken());
+            if (result.unstable() != null)
+                unstable.add(result.unstable());
+        }
+        List<TcModel.Build> current = List.copyOf(latest.values());
+        Set<Long> brokenIds = broken.stream().map(BrokenSuite::suiteBuildId).collect(Collectors.toSet());
+        List<CancelledSuite> cancelled = current.stream()
+            .filter(b -> !"SUCCESS".equals(b.status()) && !"FAILURE".equals(b.status()))
+            .map(b -> cancelledSuite(b, masterCounts)).toList();
+        TcModel.Build newest = rerun == null ? run : rerun;
+        long queued = TcDates.epochSeconds(newest.queuedDate());
+        int ran = 0;
+        int reused = 0;
+        for (TcModel.Build build : current) {
+            long depQueued = TcDates.epochSeconds(build.queuedDate());
+            if (queued <= 0 || depQueued <= 0)
+                continue;
+            if (depQueued < queued - 60)
+                reused++;
+            else if (finishedWithResult(build) && !keptFromRunning(build))
+                ran++;
+        }
+        return new Chain(run.id(), run.branchName(), failed, broken,
+            shrunkSuites(current, masterCounts, brokenIds), ran, reused, !cancelled.isEmpty(), cancelled.size(),
+            false, 0, TcDates.epochSeconds(run.queuedDate()), TcDates.epochSeconds(run.startDate()),
+            TcDates.epochSeconds(run.finishDate()), unstable, cancelled, revisionOf(run), List.of());
+    }
+
+    private List<TcModel.Build> projectDependencies(String token, TcModel.Build run) {
+        List<TcModel.Build> suites = depBuilds(run);
+        if (suites.isEmpty())
+            throw new IllegalStateException("TeamCity did not return dependent suites for composite build " + run.id());
+        Map<Long, TcModel.Build> builds = new LinkedHashMap<>();
+        suites.forEach(b -> builds.put(b.id(), b));
+        suites.stream().flatMap(b -> depBuilds(b).stream())
+            .forEach(b -> builds.computeIfAbsent(b.id(), id -> "SUCCESS".equals(b.status()) ? b : tc.suiteRun(token, id)));
+        return builds.values().stream().filter(Objects::nonNull).toList();
+    }
+
+    private static SuiteResult masterDependencyResult(TcModel.Build build, Map<String, Integer> masterCounts) {
+        String name = build.buildType() == null ? build.buildTypeId() : build.buildType().name();
+        List<TcModel.ProblemOccurrence> problems = build.problemOccurrences() == null
+            || build.problemOccurrences().problemOccurrence() == null ? List.of()
+                : build.problemOccurrences().problemOccurrence();
+        if (problems.isEmpty())
+            problems = List.of(new TcModel.ProblemOccurrence(null, "Ignite master dependency failed"));
+
+        return new SuiteResult(build, List.of(), brokenSuite(build, name, problems, masterCounts), null);
     }
 
     /**

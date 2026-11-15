@@ -49,8 +49,8 @@ import tools.jackson.databind.ObjectMapper;
  * the whole RunAll chain is queued under their own TeamCity token. The checker answers from its own GitHub account,
  * the app account, whatever token the user saved: a 🚀 on the command, and a comment of its own that tells the run
  * until its verdict is in. The poll is ONE repo-wide comments request a minute (more pages only after a gap), so
- * working from the PR costs nothing extra per PR. In a PR of the Python thin client the same commands run the client's
- * one suite instead (see {@link PythonClientRuns}): its comments cost one more request a minute.
+ * working from the PR costs nothing extra per PR. In a PR of a thin client the same commands run the client's
+ * one suite instead (see {@link ClientRuns}): each client repository costs one more request a minute.
  */
 @Component
 public class PrCommands implements SnapshotCache {
@@ -117,17 +117,20 @@ public class PrCommands implements SnapshotCache {
     private final GithubClient github;
     private final StandingVisas standing;
     private final TcClient tc;
+    private final IgnitePrRuns ignite;
     private final RerunTracker tracker;
     private final StyleFixService styleFix;
     private final com.github.igniteprchecker.analysis.SuiteBaseline baseline;
 
-    /** The runs of the Python thin client's suite for its PRs; null when the client's PRs are not served. */
-    private final PythonClientRuns python;
+    /** The shared client run workflow; null when this instance serves only Ignite PR commands. */
+    private final ClientRuns clientRuns;
+
+    private final ThinClients clientProjects;
 
     private volatile long sinceMs = System.currentTimeMillis();
 
-    /** The same for the comments of the Python thin client's repo, which are read apart. */
-    private volatile long clientSinceMs = System.currentTimeMillis();
+    /** Each client repository's last successful comment poll. */
+    private final ConcurrentMap<String, Long> clientSinceMs = new ConcurrentHashMap<>();
     /** Handled comment ids -> when; survives restarts so a redeploy can't double-trigger. */
     private final ConcurrentMap<Long, Long> handled = new ConcurrentHashMap<>();
     /**
@@ -154,30 +157,51 @@ public class PrCommands implements SnapshotCache {
     private final String publicUrl;
     private final String tcBaseUrl;
 
-    /** Commands in the PRs of the repo the checker lists only. */
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
         RerunTracker tracker, StyleFixService styleFix,
         com.github.igniteprchecker.analysis.SuiteBaseline baseline, String publicUrl, TeamcityProperties teamcity) {
-        this(mapper, github, standing, tc, tracker, styleFix, baseline, publicUrl, teamcity, null);
+        this(mapper, github, standing, tc, tracker, styleFix, baseline, publicUrl, teamcity, null,
+            IgnitePrRuns.unpinned(tc), ThinClients.defaults());
+    }
+
+    public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
+        RerunTracker tracker, StyleFixService styleFix, com.github.igniteprchecker.analysis.SuiteBaseline baseline,
+        String publicUrl, TeamcityProperties teamcity, ClientRuns clients) {
+        this(mapper, github, standing, tc, tracker, styleFix, baseline, publicUrl, teamcity, clients,
+            IgnitePrRuns.unpinned(tc), ThinClients.defaults());
+    }
+
+    public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
+        RerunTracker tracker, StyleFixService styleFix, com.github.igniteprchecker.analysis.SuiteBaseline baseline,
+        String publicUrl, TeamcityProperties teamcity, ClientRuns clients, IgnitePrRuns ignite) {
+        this(mapper, github, standing, tc, tracker, styleFix, baseline, publicUrl, teamcity, clients, ignite,
+            ThinClients.defaults());
     }
 
     @Autowired
     public PrCommands(ObjectMapper mapper, GithubClient github, StandingVisas standing, TcClient tc,
-        RerunTracker tracker, StyleFixService styleFix,
-        com.github.igniteprchecker.analysis.SuiteBaseline baseline,
+        RerunTracker tracker, StyleFixService styleFix, com.github.igniteprchecker.analysis.SuiteBaseline baseline,
         @Value("${app.public-url:https://ignite-pr-checker.is-a.dev}") String publicUrl,
-        TeamcityProperties teamcity, PythonClientRuns python) {
+        TeamcityProperties teamcity, ClientRuns clients, IgnitePrRuns ignite, ThinClients projects) {
         this.mapper = mapper;
         this.github = github;
         this.standing = standing;
         this.tc = tc;
+        this.ignite = ignite;
         this.tracker = tracker;
         this.styleFix = styleFix;
         this.baseline = baseline;
-        this.python = python;
+        this.clientRuns = clients;
+        this.clientProjects = projects;
+        projects.all().forEach(c -> clientSinceMs.put(c.repo(), sinceMs));
         this.publicUrl = publicUrl;
         String base = teamcity.baseUrl() == null ? "https://ci2.ignite.apache.org" : teamcity.baseUrl();
         this.tcBaseUrl = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+    }
+
+    private ClientSpec client(String repo) {
+        return clientProjects.byRepo(repo)
+            .orElseThrow(() -> new IllegalStateException("Client repository is not configured"));
     }
 
     /**
@@ -199,7 +223,7 @@ public class PrCommands implements SnapshotCache {
             standing.ensureGhLogins();
         if (!commanded) {
             sinceMs = now; // nobody's comments are commands: they must not run once someone switches commands on
-            clientSinceMs = now;
+            clientProjects.all().forEach(c -> clientSinceMs.put(c.repo(), now));
 
             return;
         }
@@ -214,8 +238,9 @@ public class PrCommands implements SnapshotCache {
             log.warn("PR command poll failed, comments since {} are read again next time: {}", sinceIso,
                 e.toString());
         }
-        if (python != null)
-            pollClient(now);
+        if (clientRuns != null)
+            for (ClientSpec spec : clientProjects.all())
+                pollClient(spec, now);
 
         handled.values().removeIf(t -> t < now - HANDLED_MEMORY_MS);
         hinted.values().removeIf(t -> t < now - HANDLED_MEMORY_MS);
@@ -223,18 +248,18 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * Reads the comments of the Python thin client's repo as {@link #poll} reads the checker's: one more call, with a
+     * Reads one client's comments as {@link #poll} reads Ignite's, with a
      * window of its own, so a failure in one repo does not make the other read its window again.
      */
-    private void pollClient(long now) {
-        String sinceIso = window(clientSinceMs, now);
+    private void pollClient(ClientSpec spec, long now) {
+        String sinceIso = window(clientSinceMs.getOrDefault(spec.repo(), now), now);
         try {
-            for (GithubClient.IssueComment c : github.recentIssueComments(python.repo(), sinceIso))
-                handleOne(c, python.repo());
-            clientSinceMs = now;
+            for (GithubClient.IssueComment c : github.recentIssueComments(spec.repo(), sinceIso))
+                handleOne(c, spec.repo());
+            clientSinceMs.put(spec.repo(), now);
         }
         catch (Throwable e) {
-            log.warn("PR command poll of {} failed, comments since {} are read again next time: {}", python.repo(),
+            log.warn("PR command poll of {} failed, comments since {} are read again next time: {}", spec.repo(),
                 sinceIso, e.toString());
         }
     }
@@ -247,7 +272,7 @@ public class PrCommands implements SnapshotCache {
 
     /**
      * One comment's trouble stays with it: the rest of the window is still read, and the window moves on. {@code repo}
-     * is the Python thin client's for its comments, null for those of the repo the checker lists.
+     * identifies the client repository, or is null for Ignite.
      */
     private void handleOne(GithubClient.IssueComment c, String repo) {
         try {
@@ -327,11 +352,12 @@ public class PrCommands implements SnapshotCache {
         int number = pr.number();
         TcModel.Build build = null;
         try {
-            // A new commanded run supersedes the commander's previous chain on this PR: cancel it
-            // first (their OWN chains only) — on unchanged revisions the new chain reuses the
-            // finished suites, so nothing useful is lost, and the queue isn't paid twice.
-            int chains = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), number, user));
-            int reruns = standing.cancelWaves(user, actor.get().tcToken(), number);
+            // A new command supersedes only its starter's chains and reruns. With the proxy enabled,
+            // the fresh head must be known before these cancellations, so a failed read leaves the old runs going.
+            boolean pinned = ignite.enabled();
+            int chains = pinned ? 0
+                : standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), number, user));
+            int reruns = pinned ? 0 : standing.cancelWaves(user, actor.get().tcToken(), number);
 
             // Style first, trigger second: the fix commit must be the revision the chain builds. It is pushed with the
             // user's own token, the one thing the checker does with it.
@@ -339,9 +365,15 @@ public class PrCommands implements SnapshotCache {
                 ? styleFix.fixForCommand(number, actor.get(), c.user().login())
                 : standing.styleFixOn(user) ? styleFixWaits(user) : null;
 
+            IgnitePrRuns.Prepared prepared = ignite.prepareRunAll(number);
+            if (pinned) {
+                chains = standing.asUser(user, () -> tc.cancelOwnRunAllChains(actor.get().tcToken(), number, user));
+                reruns = standing.cancelWaves(user, actor.get().tcToken(), number);
+            }
+
             QueuedBelowTopException belowTop = null;
             try {
-                build = standing.asUser(user, () -> tc.triggerRunAll(actor.get().tcToken(), number, cmd.top()));
+                build = standing.asUser(user, () -> ignite.queueRunAll(actor.get().tcToken(), prepared, cmd.top()));
             }
             catch (QueuedBelowTopException e) {
                 build = e.build();
@@ -359,7 +391,7 @@ public class PrCommands implements SnapshotCache {
             String ack = (styleNote == null ? "" : styleNote + "\n\n")
                 + "🚀 **RunAll queued"
                 + (belowTop != null ? ", but not at the top" : cmd.top() ? " at the top of the queue" : "")
-                + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/?pr=" + number
+                + "** — " + link + " · live progress & verdict: [Ignite PR Checker](" + publicUrl + "/ignite?pr=" + number
                 + ")."
                 + (belowTop == null ? "" : " " + notMovedUp("it", belowTop.status()) + ".")
                 + superseded(chains, reruns)
@@ -385,20 +417,24 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * A {@code /run-all} in a PR of the Python thin client: the client's suite is queued under the commander's token,
+     * A {@code /run-all} in a PR of a thin client: the client's suite is queued under the commander's token,
      * with the PR's head and Ignite's master, and its story is told as a RunAll's is. The commander's own earlier runs
      * of the suite on the PR are cancelled first, as a new RunAll cancels the old. There is no checkstyle fix: the
      * client's code is not checked with checkstyle.
      */
     private void runClient(GithubClient.IssueComment c, StandingVisas.GhActor actor, PrRef pr, Cmd cmd) {
+        ClientSpec spec = client(pr.repo());
         String user = actor.username();
-        PythonClientRuns.Queued queued = null;
+        ClientRuns.Queued queued = null;
         try {
             int cancelled;
             synchronized (superseding) {
-                cancelled = standing.asUser(user, () -> python.cancelOwn(actor.tcToken(), user, pr.number()));
+                PinnedRun prepared = standing.asUser(user,
+                    () -> clientRuns.prepare(actor.tcToken(), spec, pr.number()));
+                cancelled = standing.asUser(user, () -> clientRuns.cancelOwn(actor.tcToken(), user, spec, pr.number()));
                 String why = "Ignite PR Checker: /run-all by @" + c.user().login() + " in " + pullUrl(pr);
-                queued = standing.asUser(user, () -> python.queue(actor.tcToken(), pr.number(), cmd.top(), why));
+                queued = standing.asUser(user,
+                    () -> clientRuns.queuePrepared(actor.tcToken(), prepared, cmd.top(), why));
                 endStoriesOf(user, pr, "\n🛑 _Superseded by "
                     + (c.htmlUrl() == null ? "a newer /run-all" : "[a newer /run-all](" + c.htmlUrl() + ")") + "._");
             }
@@ -413,9 +449,9 @@ public class PrCommands implements SnapshotCache {
             boolean belowTop = queued.belowTop() != 0;
             String ack = "🚀 **" + Markup.text(suite) + " queued"
                 + (belowTop ? ", but not at the top" : cmd.top() ? " at the top of the queue" : "") + "** — " + link
-                + ": this PR's head `" + shortSha(clientSha(queued.pinned())) + "` against Ignite master at `"
-                + shortSha(igniteSha(queued.pinned())) + "`. The checker's page shows the run's live progress and its"
-                + " verdict: [Ignite PR Checker](" + PythonClientRuns.pageUrl(publicUrl, pr.number()) + ")."
+                + ": this PR's head `" + shortSha(clientSha(queued.pinned(), spec)) + "` against Ignite master at `"
+                + shortSha(igniteSha(queued.pinned(), spec)) + "`. The checker's page shows the run's live progress and its"
+                + " verdict: [Ignite PR Checker](" + ClientRuns.pageUrl(publicUrl, client(pr.repo()), pr.number()) + ")."
                 + (belowTop ? " " + notMovedUp("it", queued.belowTop()) + "." : "")
                 + (cancelled == 0 ? ""
                     : cancelled == 1 ? " The checker cancelled your previous run. This run replaces it."
@@ -435,14 +471,14 @@ public class PrCommands implements SnapshotCache {
                 tcTokenRefused(pr, c, actor, cmd);
             else {
                 react(pr, user, c.id(), "confused");
-                explain(pr, user, c, "🚀 _Nothing was queued: " + (e instanceof PythonClientRuns.NotQueued
+                explain(pr, user, c, "🚀 _Nothing was queued: " + (e instanceof ClientRuns.NotQueued
                     ? e.getMessage() : queueFailure(e)) + "._");
             }
         }
     }
 
     /**
-     * Queues, with {@code queue}, a run of the Python thin client's suite that {@code user} starts on the checker's
+     * Queues, with {@code queue}, a run of the client's suite that {@code user} starts on the checker's
      * page of PR {@code pr}, and follows it as the story of a {@code /run-all} follows its run: the user's options give
      * it the auto re-run, the visa, and the verdict comment of "Post my runs' verdicts in the PR". As for a RunAll
      * queued on the page, no comment tells how the run goes. {@code replace}: {@code queue} first cancels the user's
@@ -451,18 +487,18 @@ public class PrCommands implements SnapshotCache {
      * of theirs to look at the run with, and the run waits for one: an option switched on before the run finishes acts
      * on it, as on a RunAll queued on the page.
      */
-    public PythonClientRuns.Queued queueFromPage(String user, int pr, boolean replace,
-        Supplier<PythonClientRuns.Queued> queue) {
-        if (python == null)
+    public ClientRuns.Queued queueFromPage(String user, ClientSpec spec, int pr, boolean replace,
+        Supplier<ClientRuns.Queued> queue) {
+        if (clientRuns == null)
             return queue.get();
 
-        PrRef ref = new PrRef(python.repo(), pr);
-        PythonClientRuns.Queued queued;
+        PrRef ref = new PrRef(spec.repo(), pr);
+        ClientRuns.Queued queued;
         synchronized (superseding) {
             queued = queue.get();
             if (replace) {
                 endStoriesOf(user, ref, "\n🛑 _Superseded by a newer run queued on [the checker's page]("
-                    + PythonClientRuns.pageUrl(publicUrl, pr) + ")._");
+                    + ClientRuns.pageUrl(publicUrl, spec, pr) + ")._");
             }
         }
         if (automation) {
@@ -479,17 +515,17 @@ public class PrCommands implements SnapshotCache {
         return "https://github.com/" + pr.repo() + "/pull/" + pr.number();
     }
 
-    /** The client's commit a run of the Python thin client's suite was pinned to. */
-    private static String clientSha(PinnedRun run) {
-        return run.properties().get(TcModel.OVERRIDDEN_BRANCH);
+    private static String clientSha(PinnedRun run, ClientSpec spec) {
+        return run.revisions().stream().filter(p -> spec.clientVcsRoot().equals(p.vcsRootId()))
+            .map(PinnedRun.Pin::version).findFirst().orElse(run.properties().get(TcModel.OVERRIDDEN_BRANCH));
     }
 
-    /** Ignite's commit a run of the Python thin client's suite was pinned to: the commit of its other VCS root. */
-    private static String igniteSha(PinnedRun run) {
-        String client = clientSha(run);
+    private static String igniteSha(PinnedRun run, ClientSpec spec) {
+        String client = clientSha(run, spec);
 
-        return run.revisions().stream().map(PinnedRun.Pin::version).filter(v -> !v.equals(client)).findFirst()
-            .orElse("");
+        return run.revisions().stream().filter(p -> spec.igniteVcsRoot().equals(p.vcsRootId())
+                || p.vcsRootId() == null && !p.version().equals(client))
+            .map(PinnedRun.Pin::version).findFirst().orElse("");
     }
 
     private static String shortSha(String sha) {
@@ -508,7 +544,8 @@ public class PrCommands implements SnapshotCache {
     private void conflicts(PrRef pr, GithubClient.IssueComment c, String user, Cmd cmd) {
         String again = cmd.top() ? "/run-all top" : "/run-all";
         String typo = forceTypo(c.body());
-        String run = pr.ignite() ? "RunAll" : "the suite **" + Markup.text(python.suiteLabel()) + "**";
+        String run = pr.ignite() ? "RunAll" : "the " + (client(pr.repo()).composite() ? "build chain" : "suite")
+            + " **" + Markup.text(client(pr.repo()).suiteLabel()) + "**";
         react(pr, user, c.id(), "confused");
         explain(pr, user, c, "🚀 _Nothing was queued: GitHub reports merge conflicts between this PR and its base"
             + " branch. Resolve them and post `" + again + "` again, or post `" + again + " force` to queue " + run
@@ -847,7 +884,9 @@ public class PrCommands implements SnapshotCache {
             default -> lacking(pr, c, stranger, cmd, UNLINKED, lead(cmd) + ": this GitHub account is not linked to a"
                 + " ci2 account in [Ignite PR Checker](" + publicUrl + "). Log in there with a [TeamCity access token]("
                 + tcBaseUrl + "/profile.html?item=accessTokens), " + linkSteps() + " After that, `/run-all` here"
-                + " queues " + (pr.ignite() ? "RunAll" : "the Python thin client suite") + " under your ci2 account.");
+                + " queues " + (pr.ignite() ? "RunAll" : "the " + client(pr.repo()).label()
+                    + (client(pr.repo()).composite() ? " build chain" : " thin client suite"))
+                + " under your ci2 account.");
         }
     }
 
@@ -1024,15 +1063,15 @@ public class PrCommands implements SnapshotCache {
     private static final String ANALYSING = "analysing";
 
     /**
-     * The verdicts of runs of the Python thin client's suite that GitHub did not take yet, by command comment: the
+     * The verdicts of runs of the thin client's suite that GitHub did not take yet, by command comment: the
      * next look posts the same text instead of judging the run again.
      */
     private final ConcurrentMap<Long, String> verdictBodies = new ConcurrentHashMap<>();
 
-    /** How long the visa of a run of the Python thin client's suite that JIRA or GitHub failed is tried again. */
+    /** How long the visa of a run of the thin client's suite that JIRA or GitHub failed is tried again. */
     private static final long VISA_TRIES_MS = ClientVerdict.VISA_TRIES_MINUTES * 60_000L;
 
-    /** Since when the visa of each run of the Python thin client's suite fails, by command comment. */
+    /** Since when the visa of each run of the thin client's suite fails, by command comment. */
     private final ConcurrentMap<Long, Long> visaTries = new ConcurrentHashMap<>();
 
     /**
@@ -1043,7 +1082,7 @@ public class PrCommands implements SnapshotCache {
     private static final long OPTION_WAIT_MS = 7 * 24 * 3600_000L;
 
     /**
-     * The verdicts of runs of the Python thin client's suite whose visa is tried again, by command comment, with what
+     * The verdicts of runs of the thin client's suite whose visa is tried again, by command comment, with what
      * became of the auto re-run: each try would judge the run again, with TeamCity requests, for the same verdict, and
      * could queue a re-run the held verdict does not count.
      */
@@ -1196,7 +1235,7 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * One look at a run of the Python thin client's suite: its stage and estimate while it waits and runs, then those
+     * One look at a run of the thin client's suite: its stage and estimate while it waits and runs, then those
      * of its auto re-run. Once the run finished, and its re-run if it has one, a new comment that mentions the
      * commander brings the verdict, and the story's comment goes, as a RunAll's does. A run TeamCity no longer has ends
      * the story; a re-run it no longer has leaves the verdict of the run alone.
@@ -1240,7 +1279,7 @@ public class PrCommands implements SnapshotCache {
         else if ("UNKNOWN".equalsIgnoreCase(b.status()))
             runCancelled(run, actor);
         else
-            finishClientRun(run, actor, PythonClientRuns.suiteName(b, run.pinned()), null);
+            finishClientRun(run, actor, ClientRuns.suiteName(b, run.pinned()), null);
     }
 
     /**
@@ -1250,7 +1289,7 @@ public class PrCommands implements SnapshotCache {
      */
     private void runCancelled(CommandRun run, StandingVisas.GhActor actor) {
         TcModel.Build b = standing.asUser(run.username(), () -> tc.suiteRun(actor.tcToken(), run.buildId()));
-        if (b == null || !PythonClientRuns.worthRerunning(b)
+        if (b == null || !ClientRuns.worthRerunning(b)
             || !standing.rerunActsOn(run.username(), TcDates.epochSeconds(b.finishDate()) * 1000)) {
             end(run, "\n🛑 _Run cancelled._");
 
@@ -1320,7 +1359,7 @@ public class PrCommands implements SnapshotCache {
         TcModel.Build named = b != null ? b
             : standing.asUser(run.username(), () -> tc.getBuildState(actor.tcToken(), run.buildId()));
         if (named != null)
-            finishClientRun(run, actor, PythonClientRuns.suiteName(named, run.pinned()), rerun);
+            finishClientRun(run, actor, ClientRuns.suiteName(named, run.pinned()), rerun);
     }
 
     /**
@@ -1335,7 +1374,8 @@ public class PrCommands implements SnapshotCache {
             : "[build " + rerun.id() + "](" + rerun.webUrl() + ")";
         if (worthEditing(run, stage, finishAt) && narrate(run, run.baseBody() + (run.rerunStandsIn()
             ? "\n🛑 _TeamCity cancelled the run by itself._" : "\n🏁 _Run finished._") + " ♻️ _Auto re-run "
-            + link + " of the suite on the same commits is " + (queued ? "queued" : "running")
+            + link + " of the " + (client(run.repo()).composite() ? "build chain" : "suite")
+            + " on the same commits is " + (queued ? "queued" : "running")
             + (finishAt < 0 ? ", with no finish estimate yet._" : ", expected to finish **≈ " + wallClock(finishAt, tz)
                 + "**._")))
             shown.put(run.commentId(), new Shown(run.buildId(), stage, finishAt));
@@ -1362,7 +1402,7 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * The verdict of a finished run of the Python thin client's suite goes to the PR in a new comment that mentions
+     * The verdict of a finished run of the thin client's suite goes to the PR in a new comment that mentions
      * the commander, and the story's comment goes. When the commander's auto re-run acts on the run and its verdict
      * blames something a re-run can settle, the suite is queued once more on the same commits first, and the verdict
      * waits for that re-run. Then the commander's "Visa my runs in JIRA" posts the visa, and the comment says what
@@ -1421,9 +1461,9 @@ public class PrCommands implements SnapshotCache {
                     return;
                 }
 
-                body = python.verdictComment(now.onPage() ? standing.provenGhLogin(now.username())
+                body = clientRuns.verdictComment(client(now.repo()), now.onPage() ? standing.provenGhLogin(now.username())
                     : standing.ghLoginOf(now.username()), now.pr(), now.buildId(), suiteName, now.pinned(), verdict,
-                    done, visa.get(), PythonClientRuns.pageUrl(publicUrl, now.pr()), now.onPage());
+                    done, visa.get(), ClientRuns.pageUrl(publicUrl, client(now.repo()), now.pr()), now.onPage());
                 if (readsAsCommand(body))
                     throw new IllegalStateException("the checker must never post a comment that reads as a command");
 
@@ -1455,7 +1495,7 @@ public class PrCommands implements SnapshotCache {
     private Optional<Judged> judge(CommandRun run, StandingVisas.GhActor actor, ClientVerdict.Rerun rerun) {
         long counted = rerun != null && rerun.counted() ? rerun.buildId() : 0;
         Optional<AnalysisResult> verdict = standing.asUser(run.username(),
-            () -> python.verdict(actor.tcToken(), run.pr(), run.buildId(), counted));
+            () -> clientRuns.verdict(actor.tcToken(), client(run.repo()), run.pr(), run.buildId(), counted));
         if (verdict.isEmpty()) {
             if (worthEditing(run, ANALYSING, -1) && narrate(run, run.baseBody() + "\n🏁 _Run finished —"
                 + " analysing; the verdict follows in a new comment._"))
@@ -1464,7 +1504,7 @@ public class PrCommands implements SnapshotCache {
             return Optional.empty();
         }
 
-        if (rerun == null && PythonClientRuns.worthRerunning(verdict.get())
+        if (rerun == null && ClientRuns.worthRerunning(verdict.get(), client(run.repo()))
             && standing.rerunActsOn(run.username(), verdict.get().finishedAt() * 1000)) {
             return queueRerun(run, actor, false).map(notQueued -> new Judged(verdict.get(), notQueued));
         }
@@ -1480,7 +1520,7 @@ public class PrCommands implements SnapshotCache {
      * again.
      */
     private Optional<ClientVerdict.Rerun> queueRerun(CommandRun run, StandingVisas.GhActor actor, boolean standsIn) {
-        PythonClientRuns.Queued queued;
+        ClientRuns.Queued queued;
         CommandRun rerunning;
         synchronized (superseding) {
             CommandRun live = watching.get(run.commentId());
@@ -1489,7 +1529,7 @@ public class PrCommands implements SnapshotCache {
 
             try {
                 queued = standing.asUser(run.username(),
-                    () -> python.rerun(actor.tcToken(), run.pr(), run.buildId(), run.pinned()));
+                    () -> clientRuns.rerun(actor.tcToken(), client(run.repo()), run.pr(), run.buildId(), run.pinned()));
             }
             catch (RuntimeException e) {
                 if (StandingVisas.tcRefused(e))
@@ -1500,7 +1540,8 @@ public class PrCommands implements SnapshotCache {
                 return Optional.of(ClientVerdict.Rerun.notQueued(e instanceof RestClientResponseException rest
                     ? "TeamCity answered HTTP " + rest.getStatusCode().value() : "an error stopped it"));
             }
-            rerunning = watching.computeIfPresent(run.commentId(), (k, r) -> r.rerunAs(queued.build().id(), standsIn));
+            rerunning = watching.computeIfPresent(run.commentId(),
+                (k, r) -> r.rerunAs(queued.build().id(), standsIn, queued.pinned()));
         }
         if (rerunning != null)
             tellRerun(rerunning, queued.build(), -1, actor.tz());
@@ -1518,8 +1559,8 @@ public class PrCommands implements SnapshotCache {
     private Optional<ClientVisa> decidedVisa(CommandRun run, String suiteName, AnalysisResult r,
         ClientVerdict.Rerun rerun) {
         ClientVisa visa = standing.clientVisa(run.username(), run.repo(), run.pr(), run.buildId(),
-            r.finishedAt() * 1000, r, python.visaBody(run.pr(), run.buildId(), suiteName, run.pinned(), r, rerun),
-            () -> python.pullState(run.pr()));
+            r.finishedAt() * 1000, r, clientRuns.visaBody(client(run.repo()), run.pr(), run.buildId(), suiteName, run.pinned(), r, rerun),
+            () -> clientRuns.pullState(client(run.repo()), run.pr()));
         long now = clock.getAsLong();
         if (visa.failed() && now - visaTries.computeIfAbsent(run.commentId(), k -> now) < VISA_TRIES_MS)
             return Optional.empty();
@@ -1554,7 +1595,7 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * Posts the verdict of a run of the Python thin client's suite, in place of the comment Post to PR put in for the
+     * Posts the verdict of a run of the thin client's suite, in place of the comment Post to PR put in for the
      * run when there is one: its comment's id, 0 when it did not go in now.
      */
     private long postVerdict(CommandRun run, String body) {
@@ -1752,7 +1793,7 @@ public class PrCommands implements SnapshotCache {
 
     /** The last line of a finished run that will not be settled: a newer RunAll replaced it, or the PR closed. */
     private String endLine(StandingVisas.RunEnd end, int pr) {
-        String page = "[the checker's page](" + publicUrl + "/?pr=" + pr + ")";
+        String page = "[the checker's page](" + publicUrl + "/ignite?pr=" + pr + ")";
         if (end.replacedBy() > 0)
             return "\n🏁 _Run finished — RunAll [" + end.replacedBy() + "](" + tcBaseUrl + "/build/" + end.replacedBy()
                 + ") replaced it before it settled; the newest verdict is on " + page + "._";
@@ -1780,7 +1821,7 @@ public class PrCommands implements SnapshotCache {
         java.util.OptionalLong comment = standing.verdictCommentId(run.username(), pr, run.buildId());
 
         return "[" + text + "](" + (comment.isPresent() ? github.commentUrl(pr, comment.getAsLong())
-            : publicUrl + "/?pr=" + pr) + ")";
+            : publicUrl + "/ignite?pr=" + pr) + ")";
     }
 
     private void stopNarrating(CommandRun run) {
@@ -1835,22 +1876,21 @@ public class PrCommands implements SnapshotCache {
         clock = time;
     }
 
-    /** The Python thin client's repo, whose PRs' commands run its suite; null when the client's PRs are not served. */
-    public String clientRepo() {
-        return python == null ? null : python.repo();
+    public List<ClientSpec> clientProjects() {
+        return clientRuns == null ? List.of() : clientProjects.all();
     }
 
     /**
-     * Whether the verdict of the run {@code buildId} of PR {@code pr} of the Python thin client is final, for the
+     * Whether the verdict of the run {@code buildId} of PR {@code pr} of the selected client is final, for the
      * checker's page. The story of a {@code /run-all} settles it after the run finishes: it decides on the one auto
      * re-run, waits for it, and posts the verdict. Until the story judged the run the verdict on the page may change;
      * a verdict held while its visa is tried again stands, and so does a posted one, or one of an ended story, whose
      * comment the story has yet to delete or end. A run queued on the page settles the same way while an option of
      * its starter acts on runs.
      */
-    public StandingVisas.Phase clientPhase(int pr, long buildId) {
-        CommandRun run = python == null ? null : watching.values().stream()
-            .filter(r -> python.repo().equals(r.repo()) && r.pr() == pr
+    public StandingVisas.Phase clientPhase(ClientSpec spec, int pr, long buildId) {
+        CommandRun run = clientRuns == null ? null : watching.values().stream()
+            .filter(r -> spec.repo().equals(r.repo()) && r.pr() == pr
                 && (r.buildId() == buildId || r.rerunId() == buildId))
             .findFirst().orElse(null);
         if (run == null || run.readyId() != 0 || run.ending() != null || heldVerdicts.containsKey(run.commentId())
@@ -1858,7 +1898,7 @@ public class PrCommands implements SnapshotCache {
             return new StandingVisas.Phase(StandingVisas.Phase.FINAL, 0, 1, null, null);
 
         return run.rerunId() == 0 ? new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 0, 1, null, null)
-            : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, python.suiteLabel(), null);
+            : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, spec.suiteLabel(), null);
     }
 
     public int handledCount() {
@@ -1881,15 +1921,21 @@ public class PrCommands implements SnapshotCache {
 
     @Override
     public void saveTo(Path file) throws IOException {
+        String pythonRepo = clientProjects.require("python").repo();
         List<CommandRun> runAlls = watching.values().stream().filter(r -> r.repo() == null).toList();
         Map<Integer, CommandRun> newestPerPr = new HashMap<>();
         runAlls.forEach(r -> newestPerPr.merge(r.pr(), r, (a, b) -> a.buildId() >= b.buildId() ? a : b));
         Snapshots.writeAtomic(mapper, file, new Persisted(sinceMs, new HashMap<>(handled), handledTotal.get(),
             newestPerPr, null, null, null, null, new HashMap<>(hinted), runAlls,
-            outbox.values().stream().filter(r -> r.repo() == null).toList(), new HashMap<>(explained), clientSinceMs,
-            watching.values().stream().filter(r -> r.repo() != null && !r.onPage()).toList(),
-            outbox.values().stream().filter(r -> r.repo() != null).toList(),
-            watching.values().stream().filter(CommandRun::onPage).toList()));
+            outbox.values().stream().filter(r -> r.repo() == null).toList(), new HashMap<>(explained),
+            clientSinceMs.getOrDefault(pythonRepo, sinceMs),
+            watching.values().stream().filter(r -> pythonRepo.equals(r.repo()) && !r.onPage()).toList(),
+            outbox.values().stream().filter(r -> pythonRepo.equals(r.repo())).toList(),
+            watching.values().stream().filter(r -> pythonRepo.equals(r.repo()) && r.onPage()).toList(),
+            new HashMap<>(clientSinceMs), watching.values().stream()
+                .filter(r -> r.repo() != null && !pythonRepo.equals(r.repo())).toList(),
+            outbox.values().stream()
+                .filter(r -> r.repo() != null && !pythonRepo.equals(r.repo())).toList()));
     }
 
     /**
@@ -1910,12 +1956,16 @@ public class PrCommands implements SnapshotCache {
             p.narrations().forEach(r -> watching.put(r.commentId(), r));
         if (p.watching() != null)
             p.watching().forEach((pr, r) -> watching.putIfAbsent(r.commentId(), r.ofPr(pr)));
-        if (p.clientRuns() != null && python != null)
+        if (p.clientRuns() != null && clientRuns != null)
             p.clientRuns().forEach(r -> watching.put(r.commentId(), r));
-        if (p.pageRuns() != null && python != null)
+        if (p.pageRuns() != null && clientRuns != null)
             p.pageRuns().forEach(r -> watching.put(r.commentId(), r));
         if (p.clientSinceMs() > 0)
-            clientSinceMs = p.clientSinceMs();
+            clientSinceMs.put(clientProjects.require("python").repo(), p.clientSinceMs());
+        if (p.clientSinceByRepo() != null)
+            clientSinceMs.putAll(p.clientSinceByRepo());
+        if (p.otherClientRuns() != null && clientRuns != null)
+            p.otherClientRuns().forEach(r -> watching.put(r.commentId(), r));
         watching.values().removeIf(r -> {
             if (r.app())
                 return false;
@@ -1932,8 +1982,10 @@ public class PrCommands implements SnapshotCache {
             hinted.putAll(p.hinted());
         if (p.outbox() != null)
             p.outbox().forEach(r -> outbox.put(r.key(), r));
-        if (p.clientOutbox() != null && python != null)
+        if (p.clientOutbox() != null && clientRuns != null)
             p.clientOutbox().forEach(r -> outbox.put(r.key(), r));
+        if (p.otherClientOutbox() != null && clientRuns != null)
+            p.otherClientOutbox().forEach(r -> outbox.put(r.key(), r));
     }
 
     /**
@@ -1963,13 +2015,15 @@ public class PrCommands implements SnapshotCache {
      * Records without a repo are of the repo the checker lists. {@code pageRuns}: the client's runs queued on the
      * checker's page, apart from {@code clientRuns}, which v1.47.0 reads: it would tell such a run in a story of its
      * own and post its verdict whatever the starter's options say. Rolled back, a version before them leaves these
-     * runs unfollowed.
+     * runs unfollowed. The per-repository poll windows and PHP/Node.js runs are kept separately, so an older version
+     * cannot follow them as Python runs.
      */
     private record Persisted(long sinceMs, Map<Long, Long> handled, int handledTotal,
         Map<Integer, CommandRun> watching, Map<String, Long> onboarded, Map<Integer, Long> onboardedPrs,
         Map<String, Long> strangerCommands, Map<String, Long> toldTcRefused, Map<Long, Long> hinted,
         List<CommandRun> narrations, List<Reply> outbox, Map<String, Long> explained, long clientSinceMs,
-        List<CommandRun> clientRuns, List<Reply> clientOutbox, List<CommandRun> pageRuns) {
+        List<CommandRun> clientRuns, List<Reply> clientOutbox, List<CommandRun> pageRuns,
+        Map<String, Long> clientSinceByRepo, List<CommandRun> otherClientRuns, List<Reply> otherClientOutbox) {
     }
 
     /**
@@ -1979,7 +2033,7 @@ public class PrCommands implements SnapshotCache {
      * {@code note}: the checkstyle autofix's note, which goes on into the comment that brings the verdict. {@code
      * ending}: the last line once the story is over, null while it goes. {@code readyId}: the comment that brought the
      * commander the verdict, the verdict comment or one saying it is ready; 0 until one did. The PR came from the key
-     * of v1.20.11's snapshot, which has it in no field. {@code repo}: the Python thin client's for a run of its suite,
+     * of v1.20.11's snapshot, which has it in no field. {@code repo}: the thin client's for a run of its suite,
      * null for a RunAll of the repo the checker lists; {@code pinned}: the commits and parameters the client's run was
      * queued with, null for a RunAll. {@code rerunId}: the client's run's auto re-run, 0 while none is queued; {@code
      * visa}: what became of the client's run's visa, null until it is decided; {@code rerunStandsIn}: TeamCity
@@ -1997,11 +2051,11 @@ public class PrCommands implements SnapshotCache {
         }
 
         /**
-         * A run of the Python thin client's suite that {@code user} queued on the checker's page of {@code pr} at
+         * A run of the thin client's suite that {@code user} queued on the checker's page of {@code pr} at
          * {@code at}, epoch ms. It has no command comment: its key is its build's id, negated, and no comment's id
          * is negative.
          */
-        static CommandRun queuedOnPage(String user, PrRef pr, PythonClientRuns.Queued queued, long at) {
+        static CommandRun queuedOnPage(String user, PrRef pr, ClientRuns.Queued queued, long at) {
             return new CommandRun(-queued.build().id(), "", queued.build().id(), user, 0, true, pr.number(), null,
                 null, 0, pr.repo(), queued.pinned(), 0, null, false, at);
         }
@@ -2044,9 +2098,9 @@ public class PrCommands implements SnapshotCache {
                 pinned, rerunId, visa, rerunStandsIn, queuedAt);
         }
 
-        CommandRun rerunAs(long id, boolean standsIn) {
+        CommandRun rerunAs(long id, boolean standsIn, PinnedRun stablePins) {
             return new CommandRun(commentId, baseBody, buildId, username, narrationId, app, pr, note, ending, readyId,
-                repo, pinned, id, visa, standsIn, queuedAt);
+                repo, stablePins, id, visa, standsIn, queuedAt);
         }
 
         CommandRun withVisa(ClientVisa decided) {
@@ -2063,7 +2117,7 @@ public class PrCommands implements SnapshotCache {
     /**
      * A reaction or reply of the checker's account to go to the PR: a {@code reaction} to comment {@code commentId},
      * or a comment with {@code body}; {@code user}, whose writes it counts among; {@code since}, when it was first
-     * tried; {@code repo}, the Python thin client's for its PRs, null for the repo the checker lists.
+     * tried; {@code repo}, the thin client's for its PRs, null for the repo the checker lists.
      */
     private record Reply(String key, int pr, String user, long commentId, String reaction, String body, long since,
         String repo) {
@@ -2074,7 +2128,7 @@ public class PrCommands implements SnapshotCache {
     }
 
     /**
-     * A PR by its repo and number: the PR numbers of the Python thin client's repo overlap those of Ignite (#69 is in
+     * A PR by its repo and number: the PR numbers of the thin client's repo overlap those of Ignite (#69 is in
      * both). {@code repo} is null for the repo the checker lists, as in the records of earlier versions; it reads as
      * the number alone, as it did before other repos came.
      */

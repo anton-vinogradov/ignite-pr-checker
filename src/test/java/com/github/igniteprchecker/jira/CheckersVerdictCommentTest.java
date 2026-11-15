@@ -88,7 +88,7 @@ class CheckersVerdictCommentTest {
         standing.sweep();
 
         verify(github).appComment(eq(PR), eq(AUTHOR), startsWith("@anton-vinogradov **[Ignite PR Checker]"
-            + "(https://checker.example/?pr=13335)** verdict · RunAll build [9389046]"));
+            + "(https://checker.example/ignite?pr=13335)** verdict · RunAll build [9389046]"));
     }
 
     @Test

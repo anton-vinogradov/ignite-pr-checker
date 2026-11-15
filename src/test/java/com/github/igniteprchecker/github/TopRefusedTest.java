@@ -89,7 +89,7 @@ class TopRefusedTest {
         verify(github, never()).appReact(anyInt(), any(), eq(1L), eq("confused"));
         verify(github).appComment(eq(PR), eq("author"), contains("🚀 **RunAll queued, but not at the top** —"
             + " [build 9400000](https://ci2.example/build/9400000) · live progress & verdict: [Ignite PR Checker]"
-            + "(https://checker.example/?pr=13800). TeamCity refused to move it up (HTTP 403): your ci2 account may"
+            + "(https://checker.example/ignite?pr=13800). TeamCity refused to move it up (HTTP 403): your ci2 account may"
             + " not have the permission to reorder the build queue."));
     }
 

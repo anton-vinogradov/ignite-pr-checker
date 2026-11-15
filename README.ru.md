@@ -25,7 +25,9 @@ Ignite PR Checker отвечает контрибьютору [Apache Ignite](ht
 - **Прогоны.** RunAll и перезапуск сьют — прямо со страницы, при спешке в начало очереди ci2. Строка прогонов
   показывает, что стоит в очереди и что идёт, с оценками времени; **Cancel my runs** останавливает твои. См.
   [Итерации над фиксом](docs/features.ru.md#итерации-над-фиксом).
-- **Твои PR.** Над списком PR три вкладки: ими ты выбираешь, какие PR в нём видны. «Все» (**All**) — 50 открытых PR,
+- **Твои PR.** Сначала выбери **Ignite**, **Python**, **PHP**, **Node.js** или «Расширения» (**Extensions**):
+  `/ignite`, `/python`, `/php`, `/nodejs`, `/extensions`.
+  Фильтры действуют в выбранном проекте. «Все» (**All**) — 50 открытых PR,
   которые обновлялись последними. «Мои» (**Mine**) — твои открытые PR, в том числе не попавшие в эти 50. «Участвую»
   (**Involved**) — чужие открытые PR, где тебя позвали на ревью, ты ревьюил или комментировал. Для вкладок «Мои» и
   «Участвую» нужен аккаунт GitHub, привязанный в ⚙. См. [Найти свой PR](docs/features.ru.md#найти-свой-pr).
@@ -38,7 +40,7 @@ Ignite PR Checker отвечает контрибьютору [Apache Ignite](ht
   прогона, который показывает страница. Виза уходит в тикет IGNITE из заголовка PR твоим комментарием в JIRA. Кнопка
   берёт токен JIRA, который ты сохранил в ⚙. Кнопка «В PR» (**Post to PR**) рядом отправляет вердикт прогона в PR
   комментарием аккаунта GitHub чекера. Если в PR уже есть комментарий чекера с вердиктом этого прогона, нажатие правит
-  его. Обе кнопки работают, когда вердикт окончательный, в том числе на смерженном PR и на PR тонкого клиента Python.
+  его. Обе кнопки работают, когда вердикт окончательный, в том числе на смерженном PR и на PR тонкого клиента.
   См. [Визы и комментарии в PR](docs/features.ru.md#визы-и-комментарии-в-pr).
 - **По-русски.** Выбери «Русский» в строке **Language** в ⚙ и нажми **Save**: все страницы чекера тогда показываются
   по-русски во всех браузерах, где ты входишь. Комментарии в PR и визы остаются на английском. См.
@@ -47,12 +49,15 @@ Ignite PR Checker отвечает контрибьютору [Apache Ignite](ht
   комментарий `/run-all` в любом pull request ставит RunAll под твоим аккаунтом TeamCity. Отвечает аккаунт GitHub
   самого чекера: его комментарий рассказывает, как идёт прогон, а новый упоминает тебя, когда вердикт готов. В PR с
   конфликтами слияния `/run-all` ставит RunAll только с `force`, например `/run-all force`. См.
-  [Работа из PR](docs/features.ru.md#работа-из-pr-команды). В PR тонкого клиента Python `/run-all` запускает сьют
+  [Работа из PR](docs/features.ru.md#работа-из-pr-команды). В PR тонких клиентов Python, PHP и Node.js `/run-all` запускает сьют
   клиента вместе с master Ignite. Там тоже `/run-all` в PR с конфликтами слияния требует `force`. Автоперезапуск
-  и виза в JIRA там тоже работают. У открытых PR клиента своя группа в списке PR, а у каждого — страница с его
-  вердиктом, `?repo=python&pr=69`. **Run** на этой странице ставит тот же прогон, что и `/run-all`, и твои опции
+  и виза в JIRA там тоже работают. У каждого проекта свой список PR и страницы,
+  например `/python?pr=69`, `/php?pr=42`, `/nodejs?pr=42`. **Run** на этой странице ставит тот же прогон, что и `/run-all`, и твои опции
   действуют на него так же. См.
-  [PR тонкого клиента Python](docs/features.ru.md#pr-тонкого-клиента-python).
+  [PR тонких клиентов](docs/features.ru.md#pr-тонких-клиентов). В **Extensions** `/run-all` и **Run** ставят целую
+  цепочку сборок **Extensions: All Tests** для `apache/ignite-extensions`, с головным коммитом PR и master Ignite.
+  Открой `/extensions?pr=42`: там результаты сьют, перезапуск всей цепочки и итоговый комментарий с вердиктом. См.
+  [PR Extensions](docs/features.ru.md#pr-extensions).
 - **Доска флаки** на `/flaky.html`: тесты, которые падают на master, сначала флакующие, потом сломанные. См.
   [Доска флаки](docs/features.ru.md#доска-флаки-flakyhtml).
 - **Страница статуса**: здоровье, память, прогрев, вызовы TeamCity, GitHub и JIRA, действующие настройки. Живая:
@@ -223,12 +228,19 @@ GitHub для коммитов.
 | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | нет | Client ID и client secret OAuth App чекера на GitHub — для **Link GitHub** в ⚙. См. [Быстрый старт](#быстрый-старт). Без них пользователь привязывает аккаунт GitHub только токеном GitHub для коммитов. |
 | `PRC_ADMINS` | нет | Имена операторов в TeamCity через запятую. См. [Операторы](#операторы). |
 | `JAVA_OPTS` | нет | Дополнительные флаги JVM; `run.sh` ставит их после своих, например `-Xmx768m`. См. [Память](#память). |
+| `GIT_PROXY_ENABLED` | `false` | Закреплять выбранный SHA из GitHub, когда TeamCity использует Git-прокси. Маршрут Caddy устанавливается отдельно; см. [Git-прокси для TeamCity](#git-прокси-для-teamcity). |
 | `TC_BASE_URL` | `https://ci2.ignite.apache.org/` | Какой TeamCity читать, со слешем в конце. |
 | `TC_RUN_ALL_BUILD_TYPE` | `IgniteTests24Java8_RunAll` | Тип сборки цепочки RunAll. |
 | `GITHUB_REPO` | `apache/ignite` | Чьи PR показываются и проверяются. |
-| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | Репозиторий тонкого клиента Python: `/run-all` в его PR запускает сьют, который задаёт `PYTHON_CLIENT_SUITE`. Его открытые PR — группа «Клиент Python» (**Python client**) в списке PR. |
+| `PYTHON_CLIENT_REPO` | `apache/ignite-python-thin-client` | Репозиторий проекта Python: `/run-all` запускает `PYTHON_CLIENT_SUITE`; список PR открывается по `/python`. |
 | `PYTHON_CLIENT_SUITE` | `IgniteTests24Java8_WiPThinClientPython` | Тип сборки сьюта, который проверяет клиент вместе с Ignite. |
 | `PYTHON_CLIENT_IGNITE_VCS_ROOT`, `PYTHON_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePythonThinClient` | Идентификаторы VCS-корней Ignite и клиента в сьюте `PYTHON_CLIENT_SUITE`. По ним `/run-all` задаёт прогону коммит Ignite и коммит клиента. |
+| `PHP_CLIENT_REPO` | `apache/ignite-php-thin-client` | Репозиторий проекта PHP: `/run-all` запускает `PHP_CLIENT_SUITE`; список PR открывается по `/php`. |
+| `PHP_CLIENT_SUITE` | `IgniteTests24Java8_ThinClientPhp` | Тип сборки, который проверяет клиент PHP вместе с Ignite. |
+| `PHP_CLIENT_IGNITE_VCS_ROOT`, `PHP_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgnitePhpThinClient` | Идентификаторы VCS-корней Ignite и клиента для двух коммитов прогона PHP. |
+| `NODEJS_CLIENT_REPO` | `apache/ignite-nodejs-thin-client` | Репозиторий проекта Node.js: `/run-all` запускает `NODEJS_CLIENT_SUITE`; список PR открывается по `/nodejs`. |
+| `NODEJS_CLIENT_SUITE` | `IgniteTests24Java8_ThinClientNodeJs` | Тип сборки, который проверяет клиент Node.js вместе с Ignite. |
+| `NODEJS_CLIENT_IGNITE_VCS_ROOT`, `NODEJS_CLIENT_VCS_ROOT` | `GitHubApacheIgnite`, `GitHubApacheIgniteNodejsThinClient` | Идентификаторы VCS-корней Ignite и клиента для двух коммитов прогона Node.js. |
 | `JIRA_BASE_URL` | `https://issues.apache.org/jira` | Куда уходят визы и куда ведут ссылки на тикеты IGNITE. |
 | `MASTER_HISTORY_DEPTH` | `100` | Сколько прогонов теста на master смотреть, на сьюту. |
 | `BLOCKER_FAIL_STREAK` | `3` | Сколько упавших прогонов ветки подряд нужно для блокера. |
@@ -310,6 +322,107 @@ Jar без группы **Your logins** в ⚙ не ведёт список вх
 что записал плохой релиз, останови сервис, скопируй этот файл поверх файла состояния и запусти старый jar. В копии
 старше 2 дней токенов нет. Jar версии v1.38.0 или более ранней, запущенный на такой копии, выключает визу и опции,
 которые коммитят, как будто JIRA или GitHub отвергли токен. Каждый пользователь включает их снова со своим токеном.
+
+### Git-прокси для TeamCity
+
+Включай прокси, когда TeamCity не может обратиться к GitHub, а чекер может. TeamCity получает публичный исходный
+код через HTTPS-адрес чекера. Самому чекеру нужен исходящий HTTPS-доступ к GitHub.
+
+Прокси отдаёт код по шести fetch URL:
+
+- `https://prc.example.org/git/ignite.git`
+- `https://prc.example.org/git/ignite-python-thin-client.git`
+- `https://prc.example.org/git/ignite-php-thin-client.git`
+- `https://prc.example.org/git/ignite-nodejs-thin-client.git`
+- `https://prc.example.org/git/ignite-release.git`
+- `https://prc.example.org/git/ignite-extensions.git`
+
+Замени `prc.example.org` на адрес своего инстанса. Каждый URL обращается к соответствующему
+`https://github.com/apache/<repository>.git`, включая ветки и теги release и extensions.
+Доступны только эти публичные репозитории. Для чтения не нужны аккаунт или новый токен; push запрещён.
+Caddy обслуживает `/git/` напрямую из GitHub, независимо от Java-сервиса. Проверенная конфигурация —
+[ops/git-proxy.caddy](ops/git-proxy.caddy), проверена с Caddy 2.11.9. Git-сервер или дополнительный сервис не нужны.
+
+Прокси не хранит репозитории или сохранённые refs. Он передаёт только запросы чтения Git Smart HTTP:
+`GET info/refs` и `POST git-upload-pack`. Он не передаёт GitHub учётные данные или cookie клиента и не следует
+перенаправлениям upstream. Caddy передаёт запросы и ответы потоком. Размер request body ограничен 8 MiB; часть
+слишком большого тела неизвестной длины может уйти upstream до достижения лимита. Доступен только endpoint
+`git-upload-pack` для чтения. Таймаут получения заголовков и чтения upstream — 60 секунд.
+TeamCity может использовать собственный кэш VCS.
+
+Запуски и перезапуски через чекер закреплены за выбранным точным SHA. Прокси не сохраняет коммит, который GitHub
+перестал отдавать, например после force-push. Если этот SHA недоступен, checkout завершается ошибкой; другой
+коммит не подставляется. Сохраняй выбранную релизной сборкой ветку, тег или фиксированный коммит.
+Синхронизация конфигурации TeamCity не входит в область этого прокси.
+
+Перед сменой общих VCS roots проверь релизные шаги, которые делают push или записывают URL репозитория.
+Fetch URL только для чтения не подходит для push. Для native `git push origin` нужен отдельно настроенный upstream
+с правом записи; явный URL clone или push в скрипте сохраняет свой адрес. Если сведения об исходниках артефакта
+берут URL из VCS root, там окажется адрес прокси. Проверь эти пути для используемых сборок до смены их roots.
+
+1. Задай `GIT_PROXY_ENABLED=true` в `/etc/ignite-pr-checker/env` и перезапусти чекер. Это закрепляет запуски чекера
+   за выбранным SHA из GitHub, но не устанавливает HTTP-маршрут. Установка Git и каталог репозиториев не нужны.
+   Оставь Java на loopback (`SERVER_ADDRESS=127.0.0.1`).
+2. Сохрани копию `/etc/caddy/Caddyfile`. Установи проверенный сниппет:
+
+   ```bash
+   sudo install -o root -g root -m 644 ops/git-proxy.caddy /etc/caddy/ignite-git-proxy.caddy
+   ```
+
+   Добавь `import /etc/caddy/ignite-git-proxy.caddy` на верхнем уровне, вне блоков сайта и глобальных опций.
+   Добавь `import ignite_git_proxy` внутрь существующего блока сайта чекера, сохранив его reverse proxy в Java.
+   Ограничь полное время получения request body: добавь это внутрь блока глобальных опций `{ ... }` в начале файла.
+   Если такого блока нет, создай его:
+
+   ```caddyfile
+   servers {
+       timeouts {
+           read_body 30s
+       }
+   }
+   ```
+
+   [Настройка Caddy `read_body`](https://caddyserver.com/docs/caddyfile/options) ограничивает всю загрузку,
+   даже если клиент продолжает присылать маленькие порции. Она не ограничивает время отправки Git pack в ответе.
+   Перед перезагрузкой конфигурации проверь её:
+
+   ```bash
+   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy
+   ```
+
+   Если сервис использует собственный бинарник Caddy с дополнительными модулями, проверяй конфигурацию тем же бинарником.
+   Если проверка не прошла, восстанови сохранённый Caddyfile и оставь действующую конфигурацию. Перед любой
+   перезагрузкой проверь восстановленный файл.
+3. Проверь `enabled: true` и `engine: caddy` в публичном `/api/git-proxy/status`. Этот ответ отдаёт действующий
+   маршрут Caddy. Страница статуса показывает настроенные репозитории, отсутствие фоновой синхронизации и
+   хранения репозиториев. Число активных запросов и их результаты не собираются. Этот статус не доказывает
+   доступность GitHub; выполни Git-проверки ниже. Без маршрута Caddy Java показывает прокси как выключенный.
+   Дополнительная изолированная проверка — `python3 ops/check-git-proxy.py` на машине с Caddy, Git и Python 3.
+   Она проверяет сниппет на loopback, включая временную загрузку PR, без перезагрузки установленного прокси.
+4. С машины в сети TeamCity сравни полный SHA ветки по двум адресам:
+
+   ```bash
+   git ls-remote https://prc.example.org/git/ignite.git refs/heads/master
+   git ls-remote https://github.com/apache/ignite.git refs/heads/master
+   ```
+
+   Повтори для используемых репозиториев и релизных refs. Ветка может сдвинуться между двумя запросами;
+   при разных SHA повтори сравнение.
+5. Сохрани текущий fetch URL каждого VCS root TeamCity, который будешь менять. Замени только fetch URL на URL
+   нужного прокси. Сохрани анонимную аутентификацию, default branch, branch specification и настройки checkout.
+   Выполни **Test connection** из TeamCity, затем проверь фактический native checkout TeamCity. Для выбранного PR
+   запусти **Run** или `/run-all` через чекер и сравни SHA checkout сборки с коммитом, выбранным для этого прогона.
+   Проверь отдельный VCS root каждого используемого тонкого клиента и переключаемые roots release и extensions.
+
+Если проверки настройки не прошли, оставь TeamCity на записанных URL до успешной проверки. Для возврата к GitHub
+сначала верни шести VCS roots исходников соответствующие URL `https://github.com/apache/<repository>.git`.
+Убедись, что оставшиеся задания больше не обращаются к прокси. Затем удали `import ignite_git_proxy` из блока сайта,
+проверь конфигурацию и перезагрузи Caddy, задай `GIT_PROXY_ENABLED=false` и перезапусти чекер.
+Существующие promotions TeamCity могут хранить fetch URL прокси, поэтому оставь endpoint доступным, пока эти
+задания его используют. Выключенные Git endpoints отвечают `404`; перенаправления в GitHub нет.
+Сброс JSON-состояния или кэшей TeamCity не нужен.
+`install.sh` и `deploy.sh` не устанавливают сниппет Caddy и не меняют VCS roots TeamCity. Для отката конфигурации Caddy
+восстанови сохранённый файл, проверь его и перезагрузи конфигурацию.
 
 ### Сервис и логи
 

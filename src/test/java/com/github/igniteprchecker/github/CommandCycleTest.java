@@ -86,7 +86,7 @@ class CommandCycleTest {
         verify(github).appReact(PR, "author", 1L, "rocket");
         verify(github).appComment(eq(PR), eq("author"), startsWith("@Author 🚀 **RunAll queued at the top of the"
             + " queue** — [build 9400000](https://ci2.example/build/9400000) · live progress & verdict:"
-            + " [Ignite PR Checker](https://checker.example/?pr=13800)."));
+            + " [Ignite PR Checker](https://checker.example/ignite?pr=13800)."));
     }
 
     @Test

@@ -58,7 +58,7 @@ class VerdictRevisionTest {
     private static final String TESTED = "ec2c458b1d6a4e0f9c3b2a1d0e9f8c7b6a5d4e3f";
 
     private static final String MARK = "\n\n🔁 _Superseded by the newer RunAll [" + SECOND + "](https://ci2.example/build/"
-        + SECOND + ") — its verdict is on [the checker's page](https://checker.example/?pr=" + PR + ")._";
+        + SECOND + ") — its verdict is on [the checker's page](https://checker.example/ignite?pr=" + PR + ")._";
 
     private final TcClient tc = mock(TcClient.class);
 

@@ -39,7 +39,12 @@ final class PageScript {
                 branchWatermarkAt: 0 }, over);
         }
         page.route('/api/config', { body: { teamcityUrl: 'https://ci2.example/', githubRepo: 'apache/ignite',
-            starCount: 1, refreshAfterSeconds: 120 } });
+            starCount: 1, refreshAfterSeconds: 120, clients: [
+                { key: 'python', label: 'Python', repo: 'apache/ignite-python-thin-client', suite: 'Thin client: Python' },
+                { key: 'php', label: 'PHP', repo: 'apache/ignite-php-thin-client', suite: 'Thin client: PHP' },
+                { key: 'nodejs', label: 'Node.js', repo: 'apache/ignite-nodejs-thin-client', suite: 'Thin client: Node.js' },
+                { key: 'extensions', label: 'Extensions', repo: 'apache/ignite-extensions', suite: 'Extensions: All Tests', composite: true }
+            ] } });
         page.route('/api/me', { body: { username: 'alice', jira: false, github: false } });
         page.route('/api/prs', { body: [
             { number: 13575, title: 'IGNITE-29049 Move MDC to JUnit', url: 'https://github.com/apache/ignite/pull/13575',

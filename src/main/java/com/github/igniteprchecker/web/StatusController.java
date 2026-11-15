@@ -4,6 +4,7 @@ import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.metrics.HeapDumps;
@@ -186,7 +187,7 @@ public class StatusController {
         watcher.put("prCommandsLastPollAt", commands.lastPollAt());
         watcher.put("prCommandsFirstPollAt", firstPassAt(com.github.igniteprchecker.github.PrCommands.FIRST_POLL_MS));
         watcher.put("prCommandsRepo", github.repo());
-        watcher.put("prCommandsClientRepo", commands.clientRepo());
+        watcher.put("prCommandsClients", commands.clientProjects().stream().map(ThinClients.Project::of).toList());
         if (suiteFix != null)
             watcher.put("suiteFix", suiteFixStats());
         if (operator)

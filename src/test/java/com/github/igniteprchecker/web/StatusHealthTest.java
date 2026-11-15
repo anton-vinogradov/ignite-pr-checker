@@ -10,8 +10,11 @@ import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.AnalysisCache;
 import com.github.igniteprchecker.analysis.Warmer;
 import com.github.igniteprchecker.config.EffectiveConfig;
+import com.github.igniteprchecker.config.PythonClientProperties;
+import com.github.igniteprchecker.config.ThinClientProperties;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrCommands;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.health.LogTracker;
 import com.github.igniteprchecker.health.ServiceHealth;
 import com.github.igniteprchecker.jira.StandingVisas;
@@ -71,6 +74,20 @@ class StatusHealthTest {
 
     private Object health() {
         return status.status(new MockHttpServletRequest()).get("health");
+    }
+
+    /** Given three watched client projects, status lists each with its visible suite name and repository. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void commandStatusListsEveryClientProject() {
+        ThinClients clients = new ThinClients(new PythonClientProperties(null, null, null, null),
+            new ThinClientProperties(null, null));
+        when(commands.clientProjects()).thenReturn(clients.all());
+
+        Map<String, Object> watcher = (Map<String, Object>)status.status(new MockHttpServletRequest()).get("watcher");
+
+        assertThat(watcher).containsEntry("prCommandsClients", clients.catalog())
+            .doesNotContainKey("prCommandsClientRepo");
     }
 
     @Test

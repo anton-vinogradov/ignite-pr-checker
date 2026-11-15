@@ -1,8 +1,10 @@
 package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.config.WarmProperties;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
+import com.github.igniteprchecker.github.ThinClients;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +29,7 @@ import org.springframework.web.client.RestClientResponseException;
  * options on re-donate theirs on every sweep — that durable half is what keeps warming (and every
  * other background job borrowing from this pool) alive while nobody is browsing. Each cycle spreads
  * its PRs round-robin across all pooled tokens, so no single user's token bears the whole load. The open PRs of the
- * Python thin client are warmed in the same cycle, after Ignite's, under the same limits (see {@link ClientVerdicts}).
+ * thin clients are warmed in the same cycle, after Ignite's, under the same limits (see {@link ClientVerdicts}).
  */
 @Component
 public class Warmer {
@@ -46,8 +48,10 @@ public class Warmer {
     /** Runs the warm cycles; one thread, so cycles never overlap. */
     private final ExecutorService worker;
 
-    /** The verdicts of the Python thin client's PRs; null when the cycle warms Ignite's PRs only. */
+    /** The verdicts of the thin clients' PRs; null when the cycle warms Ignite's PRs only. */
     private final ClientVerdicts clients;
+
+    private final ThinClients registry;
 
     private volatile int lastWarmed;
     private volatile int lastCached;
@@ -65,7 +69,7 @@ public class Warmer {
     public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props,
         @Qualifier("warmExecutor") ExecutorService warmPool,
         @Qualifier("recomputeExecutor") ExecutorService recompute,
-        @Qualifier("warmerThread") ExecutorService worker, ClientVerdicts clients) {
+        @Qualifier("warmerThread") ExecutorService worker, ClientVerdicts clients, ThinClients registry) {
         this.analyzer = analyzer;
         this.github = github;
         this.props = props;
@@ -73,13 +77,14 @@ public class Warmer {
         this.recompute = recompute;
         this.worker = worker;
         this.clients = clients;
+        this.registry = registry;
         this.tokens = new TokenPool(Duration.ofMinutes(props.tokenTtlMinutes()).toMillis());
     }
 
     /** A warmer of Ignite's PRs only. */
     public Warmer(BlockerAnalyzer analyzer, GithubClient github, WarmProperties props, ExecutorService warmPool,
         ExecutorService recompute, ExecutorService worker) {
-        this(analyzer, github, props, warmPool, recompute, worker, null);
+        this(analyzer, github, props, warmPool, recompute, worker, null, null);
     }
 
     /** A warmer that recomputes on {@code warmPool} too, and runs its cycles on a daemon thread of its own. */
@@ -201,9 +206,15 @@ public class Warmer {
     private void runCycle() {
         List<PrSummary> prs = github.openPrs();
         int count = Math.min(prs.size(), props.count());
-        List<PrSummary> clientPrs = clients == null ? List.of() : clients.openPrs();
-        int clientCount = Math.min(clientPrs.size(), props.count());
-        cycleTotal = count + clientCount;
+        List<Target> targets = new ArrayList<>();
+        prs.stream().limit(count).forEach(pr -> targets.add(new Target(null, pr.number())));
+        if (clients != null) {
+            for (ClientSpec spec : registry.all()) {
+                clients.openPrs(spec).stream().limit(props.count())
+                    .forEach(pr -> targets.add(new Target(spec, pr.number())));
+            }
+        }
+        cycleTotal = targets.size();
 
         AtomicInteger recomputed = new AtomicInteger();
         AtomicInteger cached = new AtomicInteger();
@@ -214,10 +225,10 @@ public class Warmer {
         // The per-PR warms fan out on the warm pool (cold recomputes dominate a cycle, and serially
         // they made the startup warm-up minutes long); each warm's own per-test fan-out stays on the
         // background pool, so the two levels can't deadlock each other.
-        List<Callable<Void>> tasks = new ArrayList<>(count + clientCount);
-        for (int i = 0; i < count + clientCount; i++) {
-            boolean client = i >= count;
-            int pr = client ? clientPrs.get(i - count).number() : prs.get(i).number();
+        List<Callable<Void>> tasks = new ArrayList<>(targets.size());
+        for (Target target : targets) {
+            ClientSpec client = target.client();
+            int pr = target.pr();
             tasks.add(() -> {
                 // A user blocked on a cold analysis gets the whole TeamCity/CPU budget: skip this PR
                 // for now (the next cycle, or the user's own compute, will cover it).
@@ -232,7 +243,7 @@ public class Warmer {
 
                 try {
                     // recomputes only if the latest build isn't already cached
-                    if (client ? clients.warm(token, pr) : analyzer.warm(token, pr))
+                    if (client != null ? clients.warm(token, client, pr) : analyzer.warm(token, pr))
                         recomputed.incrementAndGet();
                     else
                         cached.incrementAndGet();
@@ -249,7 +260,7 @@ public class Warmer {
                 }
                 catch (RuntimeException e) {
                     failed.incrementAndGet();
-                    log.debug("warm of PR {}{} failed: {}", client ? clients.repo() + "#" : "", pr, e.toString());
+                    log.debug("warm of PR {}{} failed: {}", client != null ? client.repo() + "#" : "", pr, e.toString());
                 }
                 finally {
                     cycleDone = done.incrementAndGet();
@@ -271,6 +282,9 @@ public class Warmer {
         lastFailed = failed.get();
         log.info("warm cycle: {} recomputed, {} already cached, {} failed, {} yielded to users, across {} token(s) in {}ms",
             recomputed.get(), cached.get(), failed.get(), skipped.get(), tokens.size(), System.currentTimeMillis() - cycleStartedAt);
+    }
+
+    private record Target(ClientSpec client, int pr) {
     }
 
     /** Number of PRs warmed in the last cycle (for the status page). */

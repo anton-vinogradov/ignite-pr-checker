@@ -109,7 +109,7 @@ class ReadableTestListTest {
 
         assertThat(md).contains("- Cache 49 · `Test49.testIt`").doesNotContain("Test50")
             .contains("- … and 10 more tests in 10 classes on [the checker's page]"
-                + "(https://checker.example/?pr=13583)\n\n</details>\n");
+                + "(https://checker.example/ignite?pr=13583)\n\n</details>\n");
     }
 
     /**
@@ -138,7 +138,7 @@ class ReadableTestListTest {
         assertThat(md.length()).isLessThan(60_000);
         assertThat(md).contains("❌ **239 blockers in 1 suite:**\n- Cache 3 · `GridCacheNearMultiNodeSelfTest0x0`"
             + " — 4 tests")
-            .contains("more tests in", "on [the checker's page](https://checker.example/?pr=13583)");
+            .contains("more tests in", "on [the checker's page](https://checker.example/ignite?pr=13583)");
     }
 
     @Test
@@ -149,7 +149,7 @@ class ReadableTestListTest {
 
         assertThat(visas.compose(PR, result(blockers), null)).contains("- Cache 9 · {{Test9.testIt}}")
             .doesNotContain("Test10")
-            .contains("… and 2 more tests in 2 classes on [the checker's page|https://checker.example/?pr=13583]");
+            .contains("… and 2 more tests in 2 classes on [the checker's page|https://checker.example/ignite?pr=13583]");
     }
 
     /** IGNITE-28877: "[sqlTxMode=NONE]" inside {{…}} was read as a link and shown as a red error. */

@@ -39,11 +39,16 @@ public final class ClientVerdict {
      * and the checker's page of the PR, null when the verdict does not link it.
      */
     public record Run(long buildId, String suiteName, String igniteRepo, String igniteSha, String clientRepo, int pr,
-        String clientSha, String page) {
+        String clientSha, String page, boolean composite) {
+        public Run(long buildId, String suiteName, String igniteRepo, String igniteSha, String clientRepo, int pr,
+            String clientSha, String page) {
+            this(buildId, suiteName, igniteRepo, igniteSha, clientRepo, pr, clientSha, page, false);
+        }
+
         /** A run whose verdict does not link the checker's page. */
         public Run(long buildId, String suiteName, String igniteRepo, String igniteSha, String clientRepo, int pr,
             String clientSha) {
-            this(buildId, suiteName, igniteRepo, igniteSha, clientRepo, pr, clientSha, null);
+            this(buildId, suiteName, igniteRepo, igniteSha, clientRepo, pr, clientSha, null, false);
         }
     }
 
@@ -142,7 +147,7 @@ public final class ClientVerdict {
             .append(" against Ignite master at ").append(igniteCommit(ink, run)).append('.');
         pageLine(ink, run, r, b);
         b.append("\n\n");
-        body(ink, tcBase, ran, r, run.page(), b);
+        body(ink, tcBase, ran, r, run.page(), run.composite(), b);
         rerunLine(ink, tcBase, run, rerun, b);
         visaLine(visa, b);
 
@@ -160,12 +165,14 @@ public final class ClientVerdict {
         StringBuilder b = new StringBuilder();
         b.append("Ignite PR Checker verdict for ")
             .append(ink.link("PR " + run.pr() + " of " + run.clientRepo(), pullUrl(run)))
-            .append(" · ").append(ink.bold("one suite only, not a RunAll")).append("\n\n")
+            .append(" · ").append(ink.bold(run.composite() ? "Extensions build chain" : "one suite only, not a RunAll"))
+            .append("\n\n")
             .append(ink.bold(ink.text(run.suiteName()))).append(' ')
             .append(ink.link("build " + ran, tcBase + "build/" + ran))
             .append(" tested the PR's head ").append(clientCommit(ink, run))
-            .append(" against Ignite master at ").append(igniteCommit(ink, run)).append(". No other suite ran.\n\n");
-        body(ink, tcBase, ran, r, null, b);
+            .append(" against Ignite master at ").append(igniteCommit(ink, run))
+            .append(run.composite() ? ". The verdict covers its dependent suites.\n\n" : ". No other suite ran.\n\n");
+        body(ink, tcBase, ran, r, null, run.composite(), b);
         rerunLine(ink, tcBase, run, rerun, b);
 
         return b.append('_').append(FOOTER).append(ink.link("verdict glossary", VisaService.GLOSSARY)).append("._")
@@ -198,16 +205,20 @@ public final class ClientVerdict {
      * tests a list shows, it links those of build {@code ran}. With the checker's {@code page} of the PR, the tests not
      * blamed are only counted, and the page lists them; without it, as in the visa, they are listed.
      */
-    private static void body(Ink ink, String tcBase, long ran, AnalysisResult r, String page, StringBuilder b) {
+    private static void body(Ink ink, String tcBase, long ran, AnalysisResult r, String page, boolean composite,
+        StringBuilder b) {
         r.brokenSuites().forEach(s -> b.append(ink.icon("⚠️", "(!)")).append(' ')
-            .append(ink.bold("The suite has no reliable result:")).append(' ').append(ink.text(problems(s)))
+            .append(ink.bold("The suite has no reliable result:")).append(' ')
+            .append(composite ? ink.text(s.suiteName()) + " — " : "").append(ink.text(problems(s)))
             .append(".\n\n"));
         r.unstableSuites().forEach(s -> b.append(ink.icon("ℹ️", "(i)")).append(' ')
             .append(ink.bold("Crashed near the end of the run:")).append(' ')
+            .append(composite ? ink.text(s.suiteName()) + " — " : "")
             .append(ink.text(String.join(" · ", s.problems())))
             .append(". It ran nearly all of master's tests, so its results are reliable.\n\n"));
         r.shrunkSuites().forEach(s -> b.append(ink.icon("🔍", "(?)")).append(' ')
-            .append(ink.bold("The suite ran fewer tests than on master:")).append(' ').append(ranOf(ink, s))
+            .append(ink.bold("The suite ran fewer tests than on master:")).append(' ')
+            .append(composite ? ink.text(s.suiteName()) + " — " : "").append(ranOf(ink, s))
             .append(". Tests that never ran can't fail.\n\n"));
 
         String tests = tcBase + "build/" + ran + "?buildTab=tests";
@@ -273,18 +284,19 @@ public final class ClientVerdict {
 
         String build = rerun.buildId() == 0 ? null
             : ink.link("build " + rerun.buildId(), tcBase + "build/" + rerun.buildId());
+        String subject = run.composite() ? "build chain" : "suite";
         b.append("♻️ ");
         if (rerun.standsIn()) {
             b.append("TeamCity cancelled ").append(ink.link("build " + run.buildId(), tcBase + "build/"
-                + run.buildId())).append(" by itself. The checker ran the suite again on the same commits. This"
-                + " verdict comes from that re-run.");
+                + run.buildId())).append(" by itself. The checker ran the ").append(subject)
+                .append(" again on the same commits. This verdict comes from that re-run.");
         }
         else if (rerun.counted() && !rerun.auto())
             b.append("This verdict counts ").append(build)
-                .append(" too: a later run of the suite on the same commits.");
+                .append(" too: a later run of the ").append(subject).append(" on the same commits.");
         else if (rerun.counted())
             b.append("Settled after one auto re-run: ").append(build)
-                .append(" ran the suite again on the same commits.");
+                .append(" ran the ").append(subject).append(" again on the same commits.");
         else if (build != null)
             b.append("The auto re-run ").append(build).append(' ').append(rerun.why())
                 .append(", so this verdict counts the first run only.");

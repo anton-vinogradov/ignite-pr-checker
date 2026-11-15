@@ -9,6 +9,7 @@ import com.github.igniteprchecker.analysis.model.ShrunkSuite;
 import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.analysis.model.TestVerdict.Doubt;
 import com.github.igniteprchecker.config.AnalysisProperties;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.TcDates;
 import com.github.igniteprchecker.tc.dto.TcModel;
@@ -723,6 +724,58 @@ public class BlockerAnalyzer {
             failedLookups.count() == 0 ? 0 : now, everyRevision(run.revisions()), 0);
     }
 
+    /** Judges all suites of the selected project's composite and compares only that project's branch runs. */
+    public AnalysisResult analyzeCompositeRun(String token, int prNumber, ClientSpec project, long buildId, long rerunId) {
+        String branch = project.branch(prNumber);
+        TcModel.Build run = tc.getBuildWithDeps(token, buildId);
+        TcModel.Build rerun = rerunId == 0 ? null : tc.getBuildWithDeps(token, rerunId);
+        if (run == null || rerunId != 0 && rerun == null)
+            throw new IllegalStateException("TeamCity sent no build " + (run == null ? buildId : rerunId));
+        Map<String, Integer> masterCounts = tc.masterSuiteStats(token, project.suite()).counts();
+        ChainCollector.Chain chain = chains.collectForCompositeRun(token, run, rerun, masterCounts,
+            project.igniteSuite(), bgPool);
+        Subject subject = new Subject(prNumber, test -> {
+            List<TcModel.TestOccurrence> runs = tc.branchRuns(token, branch, test.testId(), test.suite(), true);
+            boolean missingDependency = runs.stream().anyMatch(o -> {
+                TcModel.Revisions own = o.build().revisions();
+                List<String> ownCommits = own == null || own.revision() == null ? List.of()
+                    : own.revision().stream().map(TcModel.Revision::version).distinct().toList();
+                TcModel.RootedBuilds dependencies = o.build().snapshotDependencies();
+                List<String> commits = dependencies == null || dependencies.build() == null ? List.of()
+                    : dependencies.build().stream().flatMap(b -> b.allRevisions().stream())
+                        .filter(r -> r.vcsRootInstance() != null
+                            && project.igniteVcsRoot().equals(r.vcsRootInstance().vcsRootId()))
+                        .map(TcModel.RootedRevision::version).distinct().toList();
+                return ownCommits.size() != 1 || ownCommits.get(0) == null
+                    || !ownCommits.get(0).matches("[0-9a-f]{40}") || commits.size() != 1
+                    || commits.get(0) == null || !commits.get(0).matches("[0-9a-f]{40}");
+            });
+            if (missingDependency)
+                throw new IllegalStateException("TeamCity did not name both project commits for " + test.suite());
+            return runs;
+        }, true, "/");
+        FailedLookups failedLookups = new FailedLookups();
+        List<Classified> classified = Parallel.run(bgPool, chain.failedTests().stream()
+            .<Callable<Classified>>map(test -> () -> classify(token, subject, test, failedLookups)).toList());
+        List<TestVerdict> verdicts = classified.stream().filter(Classified::verified).map(Classified::verdict).toList();
+        List<TestVerdict> unverified = classified.stream().filter(c -> !c.verified()).map(Classified::verdict).toList();
+        List<TestVerdict> blockers = verdicts.stream().filter(TestVerdict::blocker).toList();
+        List<TestVerdict> watch = verdicts.stream().filter(v -> v.watch() && !v.blocker()).toList();
+        List<TestVerdict> filtered = verdicts.stream().filter(v -> !v.blocker() && !v.watch()).toList();
+        List<BrokenSuite> broken = new ArrayList<>(chain.brokenSuites());
+        List<BrokenSuite> unstable = new ArrayList<>();
+        for (BrokenSuite suite : chain.unstableSuites()) {
+            boolean blamed = Stream.of(blockers, watch, unverified).flatMap(List::stream)
+                .anyMatch(test -> suite.suite().equals(test.suite()));
+            (blamed ? broken : unstable).add(suite);
+        }
+        long now = System.currentTimeMillis();
+        return new AnalysisResult(prNumber, buildId, branch, now, blockers, watch, filtered, broken,
+            chain.shrunkSuites(), chain.suitesRan(), chain.suitesReused(), chain.interrupted(), chain.canceledSuites(),
+            false, 0, chain.queuedAt(), chain.startedAt(), chain.finishedAt(), 0, unstable,
+            chain.cancelledSuites(), unverified, failedLookups.count() == 0 ? 0 : now, chain.revision(), 0);
+    }
+
     /**
      * The runs of each failed test of {@code run} on its branch of the Python thin client, oldest first: only those
      * that tested the client at one of their own commits (see {@link #testedItsCommit}). One request lists the
@@ -1143,9 +1196,11 @@ public class BlockerAnalyzer {
         FailedLookups failedLookups, Footing footing) {
         try {
             RunHistory onPrs = subject.masterUntil() > 0
-                ? RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite(), subject.masterUntil()))
+                ? RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite(), subject.masterUntil()),
+                    subject.branchSuffix())
                 : cache.prBranchHistory(t.testId(), t.suite(),
-                    () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite())));
+                    () -> RunHistory.ofPrBranches(tc.otherBranchRuns(token, t.testId(), t.suite()),
+                        subject.branchSuffix()));
 
             return onPrs.otherPrsAs(env, subject.pr());
         }
@@ -1273,7 +1328,7 @@ public class BlockerAnalyzer {
         if (run == null || run.build() == null)
             return null;
         if (subject.everyRoot())
-            return everyRevision(run.build().revisions());
+            return everyRevision(run.build().allRevisions());
 
         String inline = firstRevision(run.build().revisions());
         if (inline != null)
@@ -1365,10 +1420,19 @@ public class BlockerAnalyzer {
      * keeps them all. {@code read} notes the newest run of each suite the verdict reads.
      */
     private record Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot,
-        long masterUntil, RunsRead read) {
+        long masterUntil, RunsRead read, String branchSuffix) {
         /** A subject judged against every master run, whose reads nobody looks at. */
         Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot) {
-            this(pr, runs, everyRoot, 0, new RunsRead());
+            this(pr, runs, everyRoot, 0, new RunsRead(), "/head");
+        }
+
+        Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot, String branchSuffix) {
+            this(pr, runs, everyRoot, 0, new RunsRead(), branchSuffix);
+        }
+
+        Subject(int pr, Function<FailedTest, List<TcModel.TestOccurrence>> runs, boolean everyRoot,
+            long masterUntil, RunsRead read) {
+            this(pr, runs, everyRoot, masterUntil, read, "/head");
         }
 
         /** An Ignite PR, whose RunAll takes the PR's code from one VCS root. */

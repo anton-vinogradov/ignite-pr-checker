@@ -167,15 +167,15 @@
         .act-note.err { color: var(--bad); }
         /* No run changes a merged PR's verdict, so its cards do not say that a re-run would change it. */
         #results.merged .rerun-advice { display: none; }
-        /* A PR of the Python thin client runs one suite, which Run queues again: the cards have no Rerun of their own,
-           and the AI prompts, written for Ignite's Java code, are left out. */
+        /* Separate projects re-run their whole suite or build chain with Run. Their cards have no leaf-suite
+           actions, and prompts written for Ignite's own code are left out. */
         #results.client .rerun-advice, #results.client .sect-act, #results.client .suite-runs,
         #results.client .group-rerun, #results.client .why.ai, #results.client .ai-suite, #results.client .ai-cause { display: none; }
-        .client-group { border-top: 1px solid var(--line); }
         #freshText .nowrap { white-space: nowrap; }
-        .client-group > summary { padding: 0.5rem 0.9rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
-        /* The head spans the PR pane, which scrolls and so cuts off a ring drawn outside it. */
-        .client-group > summary:focus-visible { outline-offset: -2px; }
+        .project-tabs { display: flex; flex: none; flex-wrap: wrap; gap: 0.35rem; padding: 0.55rem 0.9rem;
+            border-bottom: 1px solid var(--line); background: var(--pane-bg); }
+        .project-tabs .act { text-decoration: none; }
+        .project-tabs .tabs { margin-left: 0; }
         .filtered-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0; }
         .filtered-line .sect-act { margin-left: 0.3rem; }
         /* Run RunAll follows the text of the older-code line, not the far edge of the row. */
@@ -319,9 +319,9 @@
 </head>
 <body>
     <header class="topbar">
-        <a id="brand" class="brand" href="/" title="Start page">Ignite PR Checker <small>which tests your PR actually broke</small></a>
+        <a id="brand" class="brand" href="/ignite" title="Start page">Ignite PR Checker <small>which tests your PR actually broke</small></a>
         <nav class="menu" aria-label="Pages">
-            <a id="navPrs" href="/" target="_self" aria-current="page" title="Shows the open PRs and their verdicts.">PRs</a>
+            <a id="navPrs" href="/ignite" target="_self" aria-current="page" title="Shows the open PRs and their verdicts.">PRs</a>
             <a href="/flaky.html" target="_self" title="Shows the tests that fail on master.">Flaky tests</a>
             <a href="/status.html" target="_self" title="Shows the service status and metrics.">Status</a>
         </nav>
@@ -352,6 +352,16 @@
         </div>
     </header>
 
+    <nav id="projectTabs" class="project-tabs" aria-label="Project">
+        <span class="tabs">
+            <a id="projectignite" class="act" href="/ignite">Ignite</a>
+            <a id="projectpython" class="act hidden" href="/python">Python</a>
+            <a id="projectphp" class="act hidden" href="/php">PHP</a>
+            <a id="projectnodejs" class="act hidden" href="/nodejs">Node.js</a>
+            <a id="projectextensions" class="act hidden" href="/extensions">Extensions</a>
+        </span>
+    </nav>
+
     <div id="settingsPanel" class="card settings-panel hidden">
         <p id="tokensUnread" class="caveat hidden"></p>
         <section id="groupLanguage" class="settings-group">
@@ -374,13 +384,12 @@
                 <button id="tcRelogin" class="act" type="button">Log in again</button></p>
             <label class="settings-row">
                 <input id="autoRerunToggle" type="checkbox">
-                <span><b>Re-run failed suites of my runs</b> — re-runs the suites the verdict blames, in each RunAll
-                    and each Python client PR run you start.</span>
+                <span><b>Re-run failed suites of my runs</b> — re-runs the suites the verdict blames in your Ignite RunAll, or your whole run in Python, PHP, Node.js and Extensions.</span>
             </label>
             <label class="settings-row">
                 <input id="ghCommentToggle" type="checkbox">
                 <span><b>Post my runs' verdicts in the PR</b> — the checker's account<span id="ghCommentApp"></span>
-                    posts the verdict of each RunAll and each Python client PR run you start as a PR comment.</span>
+                    posts the verdicts of runs you start in any project as PR comments.</span>
             </label>
         </section>
         <section id="groupJira" class="settings-group">
@@ -404,8 +413,7 @@
             </div>
             <label class="settings-row">
                 <input id="standingVisaToggle" type="checkbox">
-                <span><b>Visa my runs in JIRA</b> — posts the verdict of each RunAll and each Python client PR run you
-                    start to the IGNITE ticket the PR title names.</span>
+                <span><b>Visa my runs in JIRA</b> — posts the verdicts of runs you start in any project to the IGNITE ticket named in the PR title.</span>
             </label>
         </section>
         <section id="settingsLogin" class="settings-group">
@@ -500,7 +508,7 @@
                 <p id="loginPrHead" class="login-pr-head"></p>
                 <p id="loginPrNote" class="muted"></p>
             </div>
-            <p class="login-intro">See which tests your Apache Ignite PR actually broke, not the ones already failing or
+            <p id="loginIntro" class="login-intro">See which tests your Apache Ignite PR actually broke, not the ones already failing or
                 flaky on master. Start a RunAll or re-run just the blockers, right from here.</p>
             <p id="loginTokenNote" class="login-note muted">Log in with your own TeamCity (ci2) access token. There is no
                 shared account: TeamCity records the runs you start or cancel here as yours. The server also uses your
@@ -566,19 +574,15 @@
                             <li><span class="pr-badge unproven" title="No blockers found, but the PR is not proven clean. The run can't prove it, commits were pushed after the run, or it is not known whether the run tested the PR's latest commit.">?</span><span>not proven clean — no blockers found, but the run can't prove the PR clean</span></li>
                             <li id="legendChecking" class="hidden"><span class="pr-badge checking" title="No blockers found. The page is checking that this run tested the PR's latest commit.">…</span><span>checking — only for the PR open on the page: checking that the run tested its latest commit</span></li>
                             <li><span class="pr-badge bad" title="2 blockers">2</span><span>blockers — tests the PR most likely broke</span></li>
-                            <li><span class="my-tag" title="You started its latest RunAll. The PR may be someone else's.">my run</span><span>my run — you started its latest RunAll, or for a Python client PR, its latest run of the suite</span></li>
+                            <li><span class="my-tag" title="You started its latest RunAll. The PR may be someone else's.">my run</span><span>my run — you started its latest RunAll, client suite or Extensions build chain</span></li>
                             <li><span></span><span>no badge — no verdict yet</span></li>
                         </ul>
                     </details>
                 </div>
-                <a id="prOpenAny" class="pr-link pr-open-any hidden" href="/"></a>
+                <a id="prOpenAny" class="pr-link pr-open-any hidden" href="/ignite"></a>
                 <ul id="prList" class="pr-list"></ul>
                 <p id="prNone" class="pr-none muted hidden">No open PR matches.</p>
                 <p id="prTabNote" class="pr-none muted hidden"></p>
-                <details id="clientGroup" class="client-group hidden" open>
-                    <summary title="The open PRs of the Python thin client. For such a PR, the Run button queues the client's suite with the PR's head and Ignite master.">Python client <span id="clientCount"></span></summary>
-                    <ul id="clientList" class="pr-list"></ul>
-                </details>
             </aside>
 
             <div class="resizer" id="paneResizer" title="Drag to resize · double-click to reset"></div>

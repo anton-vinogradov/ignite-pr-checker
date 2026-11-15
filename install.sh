@@ -104,6 +104,9 @@ SESSION_COOKIE_SECURE=true
 # How many recent master runs of a test to look at, per suite (default 100). A failure there makes a PR's
 # failure pre-existing, but not always: the README says when it does not.
 #MASTER_HISTORY_DEPTH=100
+# Optional public Git proxy for TeamCity sites that cannot reach GitHub. Follow the README's Git proxy procedure
+# before changing TeamCity VCS root URLs. The proxy forwards to GitHub without storing repositories.
+GIT_PROXY_ENABLED=false
 # Extra JVM flags, after the defaults (-Xmx512m -XX:+ExitOnOutOfMemoryError, heap dump on OOM), so a
 # repeated flag wins, e.g. -Xmx768m. The status page shows the heap and the process's peak memory.
 #JAVA_OPTS=

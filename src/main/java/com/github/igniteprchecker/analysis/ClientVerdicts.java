@@ -2,10 +2,9 @@ package com.github.igniteprchecker.analysis;
 
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
+import com.github.igniteprchecker.github.ClientSpec;
 import com.github.igniteprchecker.github.GithubClient;
 import com.github.igniteprchecker.github.PrSummary;
-import com.github.igniteprchecker.github.PythonClientRuns;
 import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.time.Duration;
@@ -27,8 +26,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * The verdicts the checker's page shows for the PRs of the Python thin client. A PR's verdict is that of the newest
- * finished run of the client's suite on the PR's branch that tested the PR's own commit: a run someone started on the
+ * The verdicts the checker's page shows for PRs of the client and Extensions projects. A PR's verdict is that of the newest
+ * finished run of the project's suite or chain on the PR's branch that tested the PR's own commit: a run started on the
  * branch without a commit tested the client's master. When the run before the newest one tested the same commits of the
  * client and of Ignite, the verdict counts the failed tests of both, as the verdict comment of a {@code /run-all} does.
  * For example, an auto re-run tests the same commits as the run it re-runs. The verdict is judged as
@@ -56,8 +55,6 @@ public class ClientVerdicts {
 
     private final GithubClient github;
 
-    private final PythonClientProperties props;
-
     private final LongSupplier clock;
 
     private final TtlCache<Long, AnalysisResult> results;
@@ -69,46 +66,39 @@ public class ClientVerdicts {
     private final AtomicInteger usersWaiting = new AtomicInteger();
 
     /** The newest run of each PR as TeamCity last named it, the least recently asked first. */
-    private final Map<Integer, Looked> newest = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
-        @Override protected boolean removeEldestEntry(Map.Entry<Integer, Looked> eldest) {
+    private final Map<Pr, Looked> newest = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Pr, Looked> eldest) {
             return size() > KEPT_PRS;
         }
     });
 
     @Autowired
-    public ClientVerdicts(TcClient tc, BlockerAnalyzer analyzer, GithubClient github, PythonClientProperties props,
-        AnalysisProperties analysis) {
-        this(tc, analyzer, github, props, analysis, System::currentTimeMillis);
+    public ClientVerdicts(TcClient tc, BlockerAnalyzer analyzer, GithubClient github, AnalysisProperties analysis) {
+        this(tc, analyzer, github, analysis, System::currentTimeMillis);
     }
 
-    ClientVerdicts(TcClient tc, BlockerAnalyzer analyzer, GithubClient github, PythonClientProperties props,
-        AnalysisProperties analysis, LongSupplier clock) {
+    ClientVerdicts(TcClient tc, BlockerAnalyzer analyzer, GithubClient github, AnalysisProperties analysis,
+        LongSupplier clock) {
         this.tc = tc;
         this.analyzer = analyzer;
         this.github = github;
-        this.props = props;
         this.clock = clock;
         this.results = new TtlCache<>(Duration.ofMinutes(analysis.cacheTtlMinutes()).toMillis(), clock);
     }
 
-    /** The client's repo. */
-    public String repo() {
-        return props.repo();
-    }
-
     /** The client's open PRs, as GitHub lists them. */
-    public List<PrSummary> openPrs() {
-        return github.openPrs(props.repo());
+    public List<PrSummary> openPrs(ClientSpec spec) {
+        return github.openPrs(spec.repo());
     }
 
     /**
      * The verdict of PR {@code pr} for the page: the one kept for its newest run, else computed now. Empty when the PR
      * has no run that tested its own commit.
      */
-    public Optional<Verdict> verdict(String token, int pr) {
-        Looked looked = newest.get(pr);
+    public Optional<Verdict> verdict(String token, ClientSpec spec, int pr) {
+        Looked looked = newest.get(new Pr(spec.repo(), pr));
         if (looked == null || clock.getAsLong() - looked.at() >= LOOK_EVERY_MS)
-            looked = lookUp(token, pr);
+            looked = lookUp(token, spec, pr);
         if (looked.run() == null)
             return Optional.empty();
 
@@ -119,12 +109,12 @@ public class ClientVerdicts {
             return Optional.of(new Verdict(kept.get(), looked.run()));
         }
 
-        return Optional.of(new Verdict(computeForUser(token, pr, looked.run()), looked.run()));
+        return Optional.of(new Verdict(computeForUser(token, spec, pr, looked.run()), looked.run()));
     }
 
     /** The verdict kept for the PR's newest run, without asking TeamCity; empty when none is kept. */
-    public Optional<Verdict> kept(int pr) {
-        Looked looked = newest.get(pr);
+    public Optional<Verdict> kept(ClientSpec spec, int pr) {
+        Looked looked = newest.get(new Pr(spec.repo(), pr));
         if (looked == null || looked.run() == null)
             return Optional.empty();
 
@@ -134,10 +124,10 @@ public class ClientVerdicts {
     }
 
     /** The verdict of the PR's newest run, asked of TeamCity and computed now: the page's ↻. */
-    public Optional<Verdict> fresh(String token, int pr) {
-        Run run = lookUp(token, pr).run();
+    public Optional<Verdict> fresh(String token, ClientSpec spec, int pr) {
+        Run run = lookUp(token, spec, pr).run();
 
-        return run == null ? Optional.empty() : Optional.of(new Verdict(computeForUser(token, pr, run), run));
+        return run == null ? Optional.empty() : Optional.of(new Verdict(computeForUser(token, spec, pr, run), run));
     }
 
     /** Whether a view or ↻ waits for a compute now: the warm cycle yields to it. */
@@ -149,8 +139,8 @@ public class ClientVerdicts {
      * Warms PR {@code pr} for the warm cycle: asks TeamCity for its newest run, and computes the verdict only when the
      * run is new or its verdict is incomplete and due for another try. Returns whether it computed.
      */
-    public boolean warm(String token, int pr) {
-        Run run = lookUp(token, pr).run();
+    public boolean warm(String token, ClientSpec spec, int pr) {
+        Run run = lookUp(token, spec, pr).run();
         if (run == null)
             return false;
 
@@ -161,7 +151,7 @@ public class ClientVerdicts {
             return false;
         }
 
-        compute(token, pr, run);
+        compute(token, spec, pr, run);
 
         return true;
     }
@@ -170,8 +160,8 @@ public class ClientVerdicts {
      * What the PR list badges of the PR's newest run: its blockers and how it stands against the PR's head. The code
      * it compares is the client's commit, not Ignite's. Null when the PR has no verdict kept.
      */
-    public Caveats.Glance glance(int pr) {
-        Looked looked = newest.get(pr);
+    public Caveats.Glance glance(ClientSpec spec, int pr) {
+        Looked looked = newest.get(new Pr(spec.repo(), pr));
         if (looked == null || looked.run() == null)
             return null;
 
@@ -183,15 +173,15 @@ public class ClientVerdicts {
     }
 
     /** The TeamCity user who started the PR's newest run, null when not known: the list's "my run". */
-    public String starter(int pr) {
-        Looked looked = newest.get(pr);
+    public String starter(ClientSpec spec, int pr) {
+        Looked looked = newest.get(new Pr(spec.repo(), pr));
 
         return looked == null || looked.run() == null ? null : looked.run().starter();
     }
 
     /** The PR's head as the list of the client's open PRs names it; null when the PR is not listed. */
-    public String head(int pr) {
-        return openPrs().stream().filter(p -> p.number() == pr).map(PrSummary::headSha).filter(Objects::nonNull)
+    public String head(ClientSpec spec, int pr) {
+        return openPrs(spec).stream().filter(p -> p.number() == pr).map(PrSummary::headSha).filter(Objects::nonNull)
             .findFirst().orElse(null);
     }
 
@@ -201,13 +191,16 @@ public class ClientVerdicts {
         results.evictExpired();
     }
 
-    private Looked lookUp(String token, int pr) {
-        List<Run> runs = tc.finishedRuns(token, props.suite(), PythonClientRuns.branch(pr), TcModel.OVERRIDDEN_BRANCH)
-            .stream().map(this::ofItsCommit).filter(Objects::nonNull).limit(2).toList();
+    private Looked lookUp(String token, ClientSpec spec, int pr) {
+        List<TcModel.BranchRun> finished = spec.composite()
+            ? tc.finishedRuns(token, spec.suite(), spec.branch(pr), TcModel.OVERRIDDEN_BRANCH, true)
+            : tc.finishedRuns(token, spec.suite(), spec.branch(pr), TcModel.OVERRIDDEN_BRANCH);
+        List<Run> runs = finished
+            .stream().map(b -> ofItsCommit(spec, b)).filter(Objects::nonNull).limit(2).toList();
         Run run = runs.isEmpty() ? null : runs.size() == 2 && sameCommits(runs.get(0), runs.get(1))
             ? runs.get(0).after(runs.get(1)) : runs.get(0);
         Looked looked = new Looked(run, clock.getAsLong());
-        newest.put(pr, looked);
+        newest.put(new Pr(spec.repo(), pr), looked);
 
         return looked;
     }
@@ -222,34 +215,40 @@ public class ClientVerdicts {
      * the client out at OVERRIDDEN_BRANCH, master unless the run was queued with a commit. A run TeamCity names no
      * OVERRIDDEN_BRANCH of is taken by its commits.
      */
-    private Run ofItsCommit(TcModel.BranchRun b) {
-        List<TcModel.RootedRevision> revisions = b.revisions() == null || b.revisions().revision() == null ? List.of()
-            : b.revisions().revision();
+    private Run ofItsCommit(ClientSpec spec, TcModel.BranchRun b) {
+        List<TcModel.RootedRevision> revisions = b.allRevisions();
         List<TcModel.Property> params = b.resultingProperties() == null || b.resultingProperties().property() == null
             ? List.of() : b.resultingProperties().property();
-        String checkout = params.stream().filter(p -> TcModel.OVERRIDDEN_BRANCH.equals(p.name()))
+        String checkout = spec.composite() ? null : params.stream().filter(p -> TcModel.OVERRIDDEN_BRANCH.equals(p.name()))
             .map(TcModel.Property::value).findFirst().orElse(null);
         if (checkout != null && revisions.stream().noneMatch(r -> checkout.equals(r.version())))
             return null;
 
-        String client = checkout != null ? checkout : commitOf(revisions, props.clientVcsRoot());
-        String name = b.buildType() == null || b.buildType().name() == null ? props.suite() : b.buildType().name();
+        String client = checkout != null ? checkout : commitOf(revisions, spec.clientVcsRoot(), spec.composite());
+        String ignite = commitOf(revisions, spec.igniteVcsRoot(), spec.composite());
+        if (spec.composite() && (client == null || !client.matches("[0-9a-f]{40}")
+            || ignite == null || !ignite.matches("[0-9a-f]{40}")))
+            return null;
+        String name = b.buildType() == null || b.buildType().name() == null ? spec.suiteLabel() : b.buildType().name();
         String starter = b.triggered() == null || b.triggered().user() == null ? null
             : b.triggered().user().username();
 
-        return new Run(b.id(), 0, name, starter, client, commitOf(revisions, props.igniteVcsRoot()));
+        return new Run(b.id(), 0, name, starter, client, ignite);
     }
 
-    private static String commitOf(List<TcModel.RootedRevision> revisions, String vcsRoot) {
-        return revisions.stream().filter(r -> r.vcsRootInstance() != null
+    private static String commitOf(List<TcModel.RootedRevision> revisions, String vcsRoot, boolean requireComplete) {
+        List<String> commits = revisions.stream().filter(r -> r.vcsRootInstance() != null
                 && vcsRoot.equals(r.vcsRootInstance().vcsRootId()))
-            .map(TcModel.RootedRevision::version).filter(Objects::nonNull).findFirst().orElse(null);
+            .map(TcModel.RootedRevision::version).distinct().toList();
+        if (!requireComplete)
+            commits = commits.stream().filter(Objects::nonNull).toList();
+        return commits.size() == 1 ? commits.get(0) : null;
     }
 
-    private AnalysisResult computeForUser(String token, int pr, Run run) {
+    private AnalysisResult computeForUser(String token, ClientSpec spec, int pr, Run run) {
         usersWaiting.incrementAndGet();
         try {
-            return compute(token, pr, run);
+            return compute(token, spec, pr, run);
         }
         finally {
             usersWaiting.decrementAndGet();
@@ -257,7 +256,7 @@ public class ClientVerdicts {
     }
 
     /** Computes the verdict of the run, or waits for the compute of it under way. */
-    private AnalysisResult compute(String token, int pr, Run run) {
+    private AnalysisResult compute(String token, ClientSpec spec, int pr, Run run) {
         long key = run.newestId();
         CompletableFuture<AnalysisResult> mine = new CompletableFuture<>();
         CompletableFuture<AnalysisResult> underWay = inFlight.putIfAbsent(key, mine);
@@ -265,9 +264,11 @@ public class ClientVerdicts {
             return joined(underWay, key);
 
         try {
-            String branch = PythonClientRuns.branch(pr);
-            AnalysisResult r = run.rerunId() == 0 ? analyzer.analyzeSuiteRun(token, pr, branch, run.buildId())
-                : analyzer.analyzeSuiteRun(token, pr, branch, run.buildId(), run.rerunId());
+            String branch = spec.branch(pr);
+            AnalysisResult r = spec.composite() ? analyzer.analyzeCompositeRun(token, pr, spec, run.buildId(),
+                run.rerunId()) : run.rerunId() == 0
+                    ? analyzer.analyzeSuiteRun(token, pr, branch, run.buildId())
+                    : analyzer.analyzeSuiteRun(token, pr, branch, run.buildId(), run.rerunId());
             results.put(key, r);
             inFlight.remove(key, mine);
             mine.complete(r);
@@ -322,6 +323,9 @@ public class ClientVerdicts {
 
     /** A PR's verdict and the run it is of. */
     public record Verdict(AnalysisResult result, Run run) {
+    }
+
+    private record Pr(String repo, int number) {
     }
 
     /** The newest run of a PR that tested its own commit, null when it has none, as TeamCity named it {@code at}. */

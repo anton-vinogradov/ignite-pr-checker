@@ -12,9 +12,9 @@ import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.model.AnalysisResult;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.PersistProperties;
-import com.github.igniteprchecker.config.PythonClientProperties;
 import com.github.igniteprchecker.config.WarmProperties;
 import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.ThinClients;
 import com.github.igniteprchecker.tc.TcClient;
 import java.time.Duration;
 import java.util.List;
@@ -168,8 +168,7 @@ class RecomputeThreadsTest {
             context.registerBean(TcClient.class, () -> tc);
             context.registerBean(SuiteBaseline.class, () -> mock(SuiteBaseline.class));
             context.registerBean(PersistProperties.class, () -> new PersistProperties(false, null, null));
-            context.registerBean(PythonClientProperties.class,
-                () -> new PythonClientProperties(null, null, null, null));
+            context.registerBean(ThinClients.class, ThinClients::defaults);
             context.register(AnalysisConfig.class, AnalysisCache.class, RunDeltaStore.class, ChainCollector.class,
                 MergedVerdicts.class, BlockerAnalyzer.class, ClientVerdicts.class, Warmer.class);
             context.refresh();

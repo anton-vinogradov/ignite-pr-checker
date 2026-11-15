@@ -1,9 +1,12 @@
 package com.github.igniteprchecker.config;
 
+import com.github.igniteprchecker.github.ClientSpec;
+import com.github.igniteprchecker.github.ThinClients;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -35,18 +38,18 @@ public class EffectiveConfig {
     /** How many TeamCity users {@code PRC_ADMINS} names. */
     private final int operators;
 
-    /** The settings of an instance whose Python thin client settings are the defaults. */
+    /** The settings of an instance whose thin client settings are the defaults. */
     public EffectiveConfig(Environment env, TeamcityProperties teamcity, GithubProperties github,
         AnalysisProperties analysis, PersistProperties persist, WarmProperties warm, UpdateProperties update,
         AdminProperties admin, SessionProperties session) {
         this(env, teamcity, github, analysis, persist, warm, update, admin, session,
-            new PythonClientProperties(null, null, null, null));
+            ThinClients.defaults());
     }
 
     @Autowired
     public EffectiveConfig(Environment env, TeamcityProperties teamcity, GithubProperties github,
         AnalysisProperties analysis, PersistProperties persist, WarmProperties warm, UpdateProperties update,
-        AdminProperties admin, SessionProperties session, PythonClientProperties python) {
+        AdminProperties admin, SessionProperties session, ThinClients clients) {
         this.env = env;
         this.operators = admin.logins().size();
 
@@ -79,10 +82,18 @@ public class EffectiveConfig {
         show("GITHUB_READ_TIMEOUT", duration(github.readTimeout()));
         text("github.api-url", "GITHUB_API_URL", github.apiUrl());
 
-        text("python-client.repo", "PYTHON_CLIENT_REPO", python.repo());
-        text("python-client.suite", "PYTHON_CLIENT_SUITE", python.suite());
-        text("python-client.ignite-vcs-root", "PYTHON_CLIENT_IGNITE_VCS_ROOT", python.igniteVcsRoot());
-        text("python-client.client-vcs-root", "PYTHON_CLIENT_VCS_ROOT", python.clientVcsRoot());
+        show("GIT_PROXY_ENABLED", String.valueOf(env.getProperty("git-proxy.enabled", Boolean.class, false)));
+
+        for (ClientSpec client : clients.all()) {
+            if (client.composite())
+                continue;
+            String key = client.key().equals("python") ? "python-client" : "thin-clients." + client.key();
+            String var = client.key().toUpperCase(Locale.ROOT) + "_CLIENT_";
+            text(key + ".repo", var + "REPO", client.repo());
+            text(key + ".suite", var + "SUITE", client.suite());
+            text(key + ".ignite-vcs-root", var + "IGNITE_VCS_ROOT", client.igniteVcsRoot());
+            text(key + ".client-vcs-root", var + "VCS_ROOT", client.clientVcsRoot());
+        }
 
         show("JIRA_BASE_URL", env.getProperty("jira.base-url", ""));
         show("JIRA_READ_TIMEOUT", env.getProperty("jira.read-timeout", ""));

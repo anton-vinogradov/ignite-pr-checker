@@ -2,7 +2,12 @@ package com.github.igniteprchecker.web;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,9 +17,14 @@ import com.github.igniteprchecker.Jackson2Defaults;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.SuiteBaseline;
 import com.github.igniteprchecker.analysis.Warmer;
+import com.github.igniteprchecker.analysis.model.AnalysisResult;
+import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.config.AnalysisProperties;
 import com.github.igniteprchecker.config.TeamcityProperties;
+import com.github.igniteprchecker.github.GithubClient;
+import com.github.igniteprchecker.github.IgnitePrRuns;
 import com.github.igniteprchecker.metrics.Metrics;
+import com.github.igniteprchecker.config.GitProxyProperties;
 import com.github.igniteprchecker.tc.RerunTracker;
 import com.github.igniteprchecker.tc.TcClient;
 import com.sun.net.httpserver.HttpExchange;
@@ -23,14 +33,19 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.JsonNode;
 
 /**
  * ci2 lets every signed-in user cancel any build, and "Cancel all" stopped every build queued by a person
@@ -42,6 +57,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
  */
 class OwnRunsTest {
     private static final String TOKEN = "tok";
+
+    private static final String HEAD = "a".repeat(40);
+
+    private final GithubClient github = mock(GithubClient.class);
+
+    private final BlockerAnalyzer analyzer = mock(BlockerAnalyzer.class);
+
+    private final List<JsonNode> requests = new CopyOnWriteArrayList<>();
 
     /** "METHOD /path" of every build cancellation or queueing TeamCity received, in order. */
     private final List<String> writes = new CopyOnWriteArrayList<>();
@@ -56,18 +79,29 @@ class OwnRunsTest {
 
     private MockMvc mvc;
 
+    private IgnitePrRuns ignite;
+
+    private TcClient tc;
+
+    private final AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
+
     @BeforeEach
     void startTeamCity() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", this::answer);
         server.start();
 
-        AnalysisProperties cfg = new AnalysisProperties(null, "RunAll", null, null, null, null, null);
-        TcClient tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
+        tc = new TcClient(new TeamcityProperties("http://" + server.getAddress().getHostString() + ":"
             + server.getAddress().getPort() + "/"), cfg, new Metrics(Jackson2Defaults.mapper()));
 
-        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, mock(BlockerAnalyzer.class),
-                mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg))
+        configureProxy(false);
+    }
+
+    private void configureProxy(boolean enabled) {
+        ignite = new IgnitePrRuns(github, tc, new GitProxyProperties(enabled), cfg);
+        mvc = MockMvcBuilders.standaloneSetup(new TriggerController(tc, analyzer,
+                mock(RerunTracker.class), mock(PrHeads.class), mock(SuiteBaseline.class), cfg,
+                ignite))
             .setControllerAdvice(new ApiExceptionHandler(tc, mock(Warmer.class)))
             .build();
     }
@@ -183,6 +217,98 @@ class OwnRunsTest {
             "POST /app/rest/buildQueue");
     }
 
+    /** With the proxy disabled, replacement retains branch-based requests and never asks GitHub for a head. */
+    @Test
+    void disabledProxyKeepsBranchBasedQueueing() throws Exception {
+        as("alice", post("/api/trigger").param("replace", "true"))
+            .andExpect(status().isOk());
+
+        assertThat(requests).singleElement().satisfies(request -> assertThat(request.has("revisions")).isFalse());
+        verify(github, never()).prHeadSha(anyInt());
+    }
+
+    /** Each launch action pins every requested suite to one fresh head, including replacement reruns. */
+    @ParameterizedTest
+    @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites", "rerun-blockers"})
+    void proxiedLaunchesPinAllSuitesToTheFreshHead(String action) throws Exception {
+        proxied();
+
+        as("alice", post("/api/" + action).param("replace", "true").param("suite", "Cache")
+            .param("suites", "Cache,Query")).andExpect(status().isOk());
+
+        assertThat(requests).hasSize(action.equals("rerun-suites") || action.equals("rerun-blockers") ? 2 : 1);
+        for (JsonNode request : requests) {
+            assertThat(request.get("branchName").asString()).isEqualTo("pull/13575/head");
+            JsonNode revisions = request.get("revisions").get("revision");
+            assertThat(revisions).hasSize(1);
+            JsonNode pin = revisions.get(0);
+            assertThat(pin.get("version").asString()).isEqualTo(HEAD);
+            assertThat(pin.get("vcsBranchName").asString()).isEqualTo("refs/pull/13575/head");
+            assertThat(pin.get("vcs-root-instance").get("vcs-root-id").asString()).isEqualTo("GitHubApacheIgnite");
+        }
+        verify(github).prHeadSha(13575);
+    }
+
+    /** A GitHub head read failure preserves the runs that each action would otherwise replace. */
+    @ParameterizedTest
+    @ValueSource(strings = {"trigger", "rerun-suite", "rerun-suites", "rerun-blockers"})
+    void headReadFailureCancelsAndQueuesNothing(String action) throws Exception {
+        proxied();
+        when(github.prHeadSha(13575)).thenThrow(new ResourceAccessException("GitHub unavailable"));
+
+        as("alice", post("/api/" + action).param("replace", "true").param("suite", "Cache")
+            .param("suites", "Cache,Query")).andExpect(status().isBadGateway());
+
+        assertThat(writes).isEmpty();
+    }
+
+    /** A pinned suite rerun still replaces only its starter's queued standalone run. */
+    @Test
+    void pinnedRerunReplacesOnlyTheViewersOwnQueuedRun() throws Exception {
+        proxied();
+
+        as("alice", post("/api/rerun-suite").param("suite", "Cache")).andExpect(status().isOk());
+
+        assertThat(writes).containsExactly("POST /app/rest/buildQueue/id:204", "POST /app/rest/buildQueue");
+    }
+
+    /** A pinned automatic rerun resolves the token's owner and preserves the other user's queued run. */
+    @Test
+    void pinnedAutomationReplacesOnlyTheTokensOwnQueuedRun() {
+        proxied();
+
+        ignite.queueReplacingQueued(TOKEN, ignite.prepare(13575, List.of("Cache")), "Cache", false, "Auto re-run");
+
+        assertThat(writes).containsExactly("POST /app/rest/buildQueue/id:204", "POST /app/rest/buildQueue");
+    }
+
+    /** A later manual rerun fetches the head again, so a new push is tested by the new action. */
+    @Test
+    void eachManualActionFetchesItsOwnHead() throws Exception {
+        proxied();
+        String pushed = "b".repeat(40);
+        when(github.prHeadSha(13575)).thenReturn(HEAD, pushed);
+
+        as("alice", post("/api/rerun-suite").param("suite", "Cache")).andExpect(status().isOk());
+        as("alice", post("/api/rerun-suite").param("suite", "Cache")).andExpect(status().isOk());
+
+        assertThat(requests).extracting(r -> r.get("revisions").get("revision").get(0).get("version").asString())
+            .containsExactly(HEAD, pushed);
+        verify(github, times(2)).prHeadSha(13575);
+    }
+
+    private void proxied() {
+        configureProxy(true);
+        when(github.prHeadSha(13575)).thenReturn(HEAD);
+        TestVerdict cache = new TestVerdict(1L, "CacheTest.test", "Cache", 11L, "Cache", "o1", true, false,
+            "not seen on master", "F", 1);
+        TestVerdict query = new TestVerdict(2L, "QueryTest.test", "Query", 12L, "Query", "o2", true, false,
+            "not seen on master", "F", 1);
+        when(analyzer.analyze(TOKEN, 13575)).thenReturn(Optional.of(new AnalysisResult(13575, 1L,
+            "pull/13575/head", 0, List.of(cache, query), List.of(), List.of(), List.of(), List.of(), 2, 1, false,
+            0, false, 0, 0, 0, 0, 0)));
+    }
+
     private ResultActions as(String user, MockHttpServletRequestBuilder req) throws Exception {
         return mvc.perform(req.param("pr", "13575")
             .requestAttr(AuthInterceptor.TOKEN_ATTR, TOKEN)
@@ -198,6 +324,8 @@ class OwnRunsTest {
         if ("POST".equals(ex.getRequestMethod())) {
             writes.add("POST " + path);
             boolean cancel = path.contains("/id:");
+            if (!cancel)
+                requests.add(Jackson2Defaults.mapper().readTree(ex.getRequestBody().readAllBytes()));
             code = cancel ? cancelStatus : queueStatus;
             body = cancel ? "{}" : queuedBody;
         }
@@ -210,6 +338,8 @@ class OwnRunsTest {
         else if (path.equals("/app/rest/builds") && query.contains("state:queued"))
             body = "{\"build\":[" + build(204, "queued", "Cache", "alice") + ","
                 + build(305, "queued", "Cache", "bob") + "]}";
+        else if (path.equals("/app/rest/users/current"))
+            body = "{\"username\":\"alice\"}";
         else
             body = "{}";
 

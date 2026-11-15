@@ -52,8 +52,8 @@ class TopBarPageTest {
                 current = href.group(1);
             }
         }
-        assertThat(items).containsExactly("/ PRs", "/flaky.html Flaky tests", "/status.html Status");
-        assertThat(current).isEqualTo(page.equals("index.html") ? "/" : "/" + page);
+        assertThat(items).containsExactly("/ignite PRs", "/flaky.html Flaky tests", "/status.html Status");
+        assertThat(current).isEqualTo(page.equals("index.html") ? "/ignite" : "/" + page);
         assertThat(html).doesNotContain("← App", "status-link", "class=\"pill");
         assertThat(html).contains("<button id=\"reloadPill\" class=\"update-btn hidden\"", "class=\"star-btn\"",
             "<select id=\"theme-toggle\" class=\"theme-sel\"");
@@ -105,7 +105,7 @@ class TopBarPageTest {
             """);
 
         assertThat(out.get("selected").isNull()).isTrue();
-        assertThat(out.get("pushed").toString()).isEqualTo("[\"/\"]");
+        assertThat(out.get("pushed").toString()).isEqualTo("[\"/ignite\"]");
         assertThat(out.get("prevented").asBoolean()).isTrue();
         assertThat(out.get("title").asText()).startsWith("Pick a PR");
         assertThat(out.get("username").asText()).isEqualTo("alice");

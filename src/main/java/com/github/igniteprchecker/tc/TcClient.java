@@ -464,7 +464,7 @@ public class TcClient {
     /** A build with its snapshot-dependency builds expanded (the individual suites of a chain). */
     public TcModel.Build getBuildWithDeps(String token, long buildId) {
         return get("deps", token, url("app/rest/builds/id:" + buildId, query(
-            "fields", "id,status,state,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
+            "fields", "id,status,state,buildTypeId,branchName,queuedDate,startDate,finishDate,buildType(id,name),"
                 + "revisions(revision(version)),snapshot-dependencies(build(" + SUITE_FIELDS + "))")),
             TcModel.Build.class);
     }
@@ -475,8 +475,13 @@ public class TcClient {
      * finished master chain, then its dependencies' test counts.
      */
     public MasterSuiteStats masterSuiteStats(String token) {
+        return masterSuiteStats(token, analysis.runAllBuildType());
+    }
+
+    /** Master test counts of the named composite, without mixing another project's baseline. */
+    public MasterSuiteStats masterSuiteStats(String token, String buildTypeId) {
         TcModel.BuildList chains = get("baseline", token, url("app/rest/builds", query(
-            "locator", "buildType:(id:" + analysis.runAllBuildType() + "),branch:(default:true),"
+            "locator", "buildType:(id:" + buildTypeId + "),branch:(default:true),"
                 + "state:finished,canceled:false,count:1",
             "fields", "build(id)")), TcModel.BuildList.class);
 
@@ -608,11 +613,18 @@ public class TcClient {
      * {@code pull/69}, a PR of Ignite on {@code pull/69/head}.
      */
     public List<TcModel.TestOccurrence> branchRuns(String token, String branch, long testId, String buildTypeId) {
+        return branchRuns(token, branch, testId, buildTypeId, false);
+    }
+
+    /** Includes the Ignite dependency's commit when comparing Extensions suite runs on the same code. */
+    public List<TcModel.TestOccurrence> branchRuns(String token, String branch, long testId, String buildTypeId,
+        boolean dependencies) {
         TcModel.TestOccurrences occ = occurrencesWithConditions("prRuns", token,
             "test:(id:" + testId + "),branch:(name:" + branch + "),buildType:(id:"
                 + buildTypeId + "),muted:false,count:100",
             "testOccurrence(id,status,build(id,state,status,buildTypeId,buildType(name),"
-                + "revisions(revision(version))," + CONDITIONS_SLOT + "))");
+                + "revisions(revision(version))," + CONDITIONS_SLOT
+                + (dependencies ? "," + DEPENDENCY_REVISIONS : "") + "))");
 
         if (occ == null || occ.testOccurrence() == null)
             return List.of();
@@ -654,12 +666,24 @@ public class TcClient {
      * started it, the commit of each of its VCS roots and its value of build parameter {@code name}. One request.
      */
     public List<TcModel.BranchRun> finishedRuns(String token, String buildTypeId, String branch, String name) {
+        return finishedRuns(token, buildTypeId, branch, name, false);
+    }
+
+    private static final String ROOTED_REVISIONS =
+        "revisions(revision(version,vcs-root-instance(id,vcs-root-id)))";
+    private static final String DEPENDENCY_REVISIONS = "snapshot-dependencies(build(" + ROOTED_REVISIONS
+        + ",snapshot-dependencies(build(" + ROOTED_REVISIONS + "))))";
+
+    /** Includes revisions of the composite's suites and their shared Build dependency. */
+    public List<TcModel.BranchRun> finishedRuns(String token, String buildTypeId, String branch, String name,
+        boolean dependencies) {
         TcModel.BranchRuns list = get("findBuild", token, url("app/rest/builds", query(
             "locator", "buildType:(id:" + buildTypeId + "),branch:(name:" + branch + "),state:finished,canceled:false,"
                 + "failedToStart:any,count:100",
             "fields", "build(id,buildType(name),triggered(type,user(username)),"
                 + "revisions(revision(version,vcs-root-instance(id,vcs-root-id))),"
-                + "resultingProperties($locator(name:" + name + "),property(name,value)))")),
+                + "resultingProperties($locator(name:" + name + "),property(name,value))"
+                + (dependencies ? "," + DEPENDENCY_REVISIONS : "") + ")")),
             TcModel.BranchRuns.class);
 
         return list == null || list.build() == null ? List.of() : list.build();
@@ -868,12 +892,17 @@ public class TcClient {
      * {@link QueuedBelowTopException}. {@code comment} tells on TeamCity who queued it and why.
      */
     public TcModel.Build queuePinned(String token, PinnedRun run, boolean top, String comment) {
+        return queuePinned(token, run, top, comment, top ? waitingIds(token, run.suite(), run.branch()) : null);
+    }
+
+    private TcModel.Build queuePinned(String token, PinnedRun run, boolean top, String comment, Set<Long> waiting) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("buildType", Map.of("id", run.suite()));
         payload.put("branchName", run.branch());
         payload.put("revisions", Map.of("revision", run.revisions().stream()
             .map(pin -> Map.of("version", pin.version(), "vcsBranchName", pin.vcsBranch(),
-                "vcs-root-instance", Map.of("id", pin.vcsRootInstance())))
+                "vcs-root-instance", pin.vcsRootId() == null ? Map.of("id", pin.vcsRootInstance())
+                    : Map.of("vcs-root-id", pin.vcsRootId())))
             .toList()));
         payload.put("properties", Map.of("property", run.properties().entrySet().stream()
             .map(p -> Map.of("name", p.getKey(), "value", p.getValue()))
@@ -881,8 +910,7 @@ public class TcClient {
         payload.put("triggeringOptions", Map.of("queueAtTop", top));
         payload.put("comment", Map.of("text", comment));
 
-        return queue(token, payload, run.suite(), run.branch(), run.branch(), top,
-            top ? waitingIds(token, run.suite(), run.branch()) : null);
+        return queue(token, payload, run.suite(), run.branch(), run.branch(), top, waiting);
     }
 
     /** Queues the build of {@code payload}; {@code of} names its PR in the log. See the method above. */
@@ -1066,7 +1094,30 @@ public class TcClient {
 
     private TcModel.Build triggerReplacingQueued(String token, String buildTypeId, int prNumber, boolean top,
         String comment, Supplier<String> owner) {
-        String branch = "pull/" + prNumber + "/head";
+        Set<Long> waiting = cancelOwnQueued(token, buildTypeId, prBranch(prNumber), owner);
+
+        return queue(token, buildTypeId, prNumber, top, comment, waiting);
+    }
+
+    /** Queues pinned revisions after replacing the user's own standalone queued runs of the suite. */
+    public TcModel.Build queuePinnedOwnReplacingQueued(String token, String username, PinnedRun run, boolean top,
+        String comment) {
+        return queuePinnedReplacingQueued(token, run, top, comment, () -> username);
+    }
+
+    /** The same for automation, resolving the token's owner only when a matching run waits. */
+    public TcModel.Build queuePinnedReplacingQueued(String token, PinnedRun run, boolean top, String comment) {
+        return queuePinnedReplacingQueued(token, run, top, comment, () -> tokenOwner(token));
+    }
+
+    private TcModel.Build queuePinnedReplacingQueued(String token, PinnedRun run, boolean top, String comment,
+        Supplier<String> owner) {
+        Set<Long> waiting = cancelOwnQueued(token, run.suite(), run.branch(), owner);
+
+        return queuePinned(token, run, top, comment, waiting);
+    }
+
+    private Set<Long> cancelOwnQueued(String token, String buildTypeId, String branch, Supplier<String> owner) {
         List<TcModel.Build> identical = queuedBuilds(token).stream()
             .filter(q -> q.triggered() != null && "user".equals(q.triggered().type())
                 && buildTypeId.equals(q.buildTypeId()) && branch.equals(q.branchName()))
@@ -1084,7 +1135,7 @@ public class TcClient {
             }
         }
 
-        return queue(token, buildTypeId, prNumber, top, comment, idsOf(identical, buildTypeId));
+        return idsOf(identical, buildTypeId);
     }
 
     /** Whose the token is; null when TeamCity does not say, and then no build is anyone's own. */
