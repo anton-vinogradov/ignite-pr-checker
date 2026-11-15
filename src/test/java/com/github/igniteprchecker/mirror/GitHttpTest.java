@@ -132,12 +132,23 @@ class GitHttpTest {
         assertThat(get("/git/ignite.git/info/refs?service=git-receive-pack").statusCode()).isEqualTo(403);
     }
 
-    /** Upload-pack requests cannot allocate a body larger than the configured request limit. */
+    /** A declared oversized body is refused before the client sends it. */
     @Test
     void refusesOversizedBody() throws Exception {
+        try (Socket request = pendingUpload(8 * 1024 * 1024 + 1)) {
+            String status = new java.io.BufferedReader(new java.io.InputStreamReader(request.getInputStream(),
+                java.nio.charset.StandardCharsets.US_ASCII)).readLine();
+            assertThat(status).contains("413");
+        }
+    }
+
+    /** The upload limit also applies to chunked bodies whose length is unknown until the client sends them. */
+    @Test
+    void refusesOversizedChunkedBody() throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url("/git/ignite.git/git-upload-pack")))
             .header("Content-Type", "application/x-git-upload-pack-request")
-            .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[8 * 1024 * 1024 + 1])).build();
+            .POST(HttpRequest.BodyPublishers.ofInputStream(() ->
+                new java.io.ByteArrayInputStream(new byte[8 * 1024 * 1024 + 1]))).build();
         assertThat(HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding()).statusCode())
             .isEqualTo(413);
     }
@@ -191,11 +202,15 @@ class GitHttpTest {
     }
 
     private Socket pendingUpload() throws Exception {
+        return pendingUpload(1);
+    }
+
+    private Socket pendingUpload(int length) throws Exception {
         Socket socket = new Socket("127.0.0.1", port);
         socket.setSoTimeout(30_000);
         socket.getOutputStream().write(("POST /git/ignite.git/git-upload-pack HTTP/1.1\r\n"
             + "Host: 127.0.0.1\r\nContent-Type: application/x-git-upload-pack-request\r\n"
-            + "Content-Length: 1\r\nConnection: close\r\n\r\n")
+            + "Content-Length: " + length + "\r\nConnection: close\r\n\r\n")
             .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
         socket.getOutputStream().flush();
         return socket;
