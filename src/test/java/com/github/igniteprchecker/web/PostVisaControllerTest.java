@@ -181,7 +181,7 @@ class PostVisaControllerTest {
     @Test
     void aPostChecksSettlementWithTeamCityMetadata() throws Exception {
         when(tc.buildEnd("tok", RUN)).thenReturn(Optional.of(new TcModel.Build(RUN, "FAILURE", "finished",
-            "pull/" + PR + "/head", null, null, null, "20261116T120000+0000", null, null, null, null,
+            "pull/" + PR + "/head", null, null, null, null, "20261116T120000+0000", null, null, null,
             new TcModel.Triggered("user", new TcModel.User("alice")), null, null, null, null, null)));
         when(standing.phase(eq(PR), eq(RUN), any())).thenAnswer(call -> {
             Supplier<StandingVisas.Run> metadata = call.getArgument(2);
