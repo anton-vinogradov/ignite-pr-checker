@@ -61,7 +61,7 @@ class ClientProjectsPageTest {
         assertThat(out.get("requests")).allSatisfy(url -> assertThat(url.asText()).contains("repo=" + key));
     }
 
-    /** A signed-out PR link names the selected client and links to that client's GitHub PR. */
+    /** Given a signed-out client PR link, its context replaces the general introduction and keeps the token notice. */
     @ParameterizedTest
     @CsvSource({"python,Python", "php,PHP", "nodejs,Node.js"})
     void theLoginFormKeepsTheProject(String key, String language) throws Exception {
@@ -69,11 +69,15 @@ class ClientProjectsPageTest {
             page.route('/api/me', { status: 401, body: {} });
             await page.load('/' + key + '?pr=69');
             report({ head: page.text('loginPrHead'), link: page.el('loginPrNote').innerHTML,
+                introHidden: page.el('loginIntro').classList.contains('hidden'),
+                tokenNoteHidden: page.el('loginTokenNote').classList.contains('hidden'),
                 read: page.fetches('/api/client/').length });
             """);
 
         assertThat(out.get("head").asText()).startsWith("Log in to see " + language + " client PR #69");
         assertThat(out.get("link").asText()).contains("https://github.com/apache/ignite-" + key + "-thin-client/pull/69");
+        assertThat(out.get("introHidden").asBoolean()).isTrue();
+        assertThat(out.get("tokenNoteHidden").asBoolean()).isFalse();
         assertThat(out.get("read").asInt()).isZero();
     }
 

@@ -11,38 +11,50 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/**
- * The PR list as the audit found it: a legend of two or three lines stood open in the sticky head on every screen;
- * "#13335 ? My?" put two question marks in a row, both red, and six red "?" among the first fifteen PRs made the
- * list look broken when one PR had blockers; the ticket key took a third of each row and left two or three words of
- * the title. The legend is a fold, open until a PR is picked and folded then; "?" is amber; the tag reads "my run"
- * with the same tooltip in the row and the legend; the key stands by the number and the title starts with its own
- * words.
- */
+/** The PR list keeps its glossary optional and gives each badge, title and ownership tag a clear meaning. */
 class PrListPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
+    /** Given a fresh page, opening a PR and returning home never opens the glossary without the reader asking. */
     @Test
-    void theLegendFoldsWhenAPrOpensAndShowsTheCheckingBadgeOnlyThen() throws Exception {
+    void theLegendStartsClosedOnTheHomeAndPrPages() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            const legend = () => ({ open: page.el('prLegend').open,
-                checking: !page.el('legendChecking').classList.contains('hidden') });
             await page.load('');
-            const home = legend();
+            const home = page.el('prLegend').open;
             page.run('openPr')(13575, true);
             await page.settle();
-            const opened = legend();
+            const opened = page.el('prLegend').open;
             page.run('goHome')(true);
             await page.settle();
-            report({ home, opened, back: legend() });
+            report({ home, opened, back: page.el('prLegend').open });
             """);
 
-        assertThat(out.get("home").toString()).isEqualTo("{\"open\":true,\"checking\":false}");
-        assertThat(out.get("opened").toString()).isEqualTo("{\"open\":false,\"checking\":true}");
-        assertThat(out.get("back").toString()).isEqualTo("{\"open\":true,\"checking\":false}");
-        assertThat(Files.readString(PAGE, UTF_8)).contains("<details id=\"prLegend\" class=\"pr-legend\" open>\n"
+        assertThat(out.get("home").asBoolean()).isFalse();
+        assertThat(out.get("opened").asBoolean()).isFalse();
+        assertThat(out.get("back").asBoolean()).isFalse();
+        assertThat(Files.readString(PAGE, UTF_8)).contains("<details id=\"prLegend\" class=\"pr-legend\">\n"
             + "                        <summary>What the badges mean</summary>")
             .contains("<li><span></span><span>no badge — no verdict yet</span></li>");
+    }
+
+    /** Given the home page, selecting and leaving a PR shows the checking key only while a PR is selected. */
+    @Test
+    void theCheckingKeyIsShownOnlyWhenAPrIsOpen() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            const shown = () => !page.el('legendChecking').classList.contains('hidden');
+            await page.load('');
+            const home = shown();
+            page.run('openPr')(13575, true);
+            await page.settle();
+            const opened = shown();
+            page.run('goHome')(true);
+            await page.settle();
+            report({ home, opened, back: shown() });
+            """);
+
+        assertThat(out.get("home").asBoolean()).isFalse();
+        assertThat(out.get("opened").asBoolean()).isTrue();
+        assertThat(out.get("back").asBoolean()).isFalse();
     }
 
     /**
@@ -89,34 +101,30 @@ class PrListPageTest {
             .doesNotContain("My?", "blocker(s)", "<span class=\"pr-ttl\">, IGNITE");
     }
 
-    /**
-     * The fold follows a PR opening and closing, and nothing else: the legend you opened by hand while a PR was open
-     * stays open when the list pane hides and shows again, and the one you folded on the start screen stays folded
-     * when the phone turns and the 768 px breakpoint fires.
-     */
+    /** Given a glossary the reader opened or closed, navigation and pane changes preserve that choice. */
     @Test
-    void theFoldYouChoseStaysWhileThePaneCollapsesOrTheScreenTurns() throws Exception {
+    void theFoldYouChoseStaysWhenAPrOpensOrThePaneChanges() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('');
             const legend = page.el('prLegend');
+            legend.open = true;
             page.run('openPr')(13575, true);
             await page.settle();
-            const folded = legend.open;
-            legend.open = true;
+            const keptForPr = legend.open;
             page.run('setPaneCollapsed')(true);
             page.run('setPaneCollapsed')(false);
             const keptOpen = legend.open;
             page.run('goHome')(true);
             await page.settle();
-            const unfolded = legend.open;
+            const keptAtHome = legend.open;
             legend.open = false;
             page.run('syncPane')();
-            report({ folded, keptOpen, unfolded, keptFolded: legend.open });
+            report({ keptForPr, keptOpen, keptAtHome, keptFolded: legend.open });
             """);
 
-        assertThat(out.get("folded").asBoolean()).isFalse();
+        assertThat(out.get("keptForPr").asBoolean()).isTrue();
         assertThat(out.get("keptOpen").asBoolean()).isTrue();
-        assertThat(out.get("unfolded").asBoolean()).isTrue();
+        assertThat(out.get("keptAtHome").asBoolean()).isTrue();
         assertThat(out.get("keptFolded").asBoolean()).isFalse();
     }
 

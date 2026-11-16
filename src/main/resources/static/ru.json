@@ -610,6 +610,10 @@
     "({0} suite{1}, {2} test{3})": "({0} {0|сьюта|сьюты|сьют}, {2} {2|тест|теста|тестов})"
   },
   "settings": {
+    "Details": "Подробнее",
+    "You can read verdicts and start runs without these options. Enabled options work for your account while this page is closed.": "Читать вердикты и запускать прогоны можно без этих опций. Включённые опции работают для твоего аккаунта, даже когда страница закрыта.",
+    "These options push commits to your own Ignite PRs.": "Эти опции пушат коммиты в твои PR проекта Ignite.",
+    "— needs PR commands": "— нужны команды в PR",
     "Language": "Язык",
     "Saves the language for your account. The page then opens again in it.": "Сохраняет язык для твоего аккаунта. Потом страница открывается заново на этом языке.",
     "All pages of the checker use it in every browser you log in from. PR comments and visas stay in English.": "Все страницы чекера будут на этом языке во всех браузерах, где ты входишь. Комментарии в PR и визы остаются на английском.",
@@ -662,10 +666,6 @@
     "), so the options that write to GitHub are off: its operator can add one.": "), поэтому опции, которые пишут в GitHub, выключены: аккаунт может добавить оператор чекера.",
     "The server stores these tokens encrypted, and only while an option that needs them is on.": "Сервер хранит эти токены зашифрованными и только пока включена опция, которой они нужны.",
     "How these work": "Как это работает",
-    "Start RunAll from a pull request: switch on": "Запускай RunAll прямо из PR: включи",
-    "in ⚙ and comment": "в ⚙ и напиши комментарий",
-    "Open ⚙": "Открыть ⚙",
-    "Dismiss": "Закрыть",
     "Loading your settings…": "Загружаю твои настройки…",
     "Could not load your settings — close ⚙ and open it again.": "Не удалось загрузить настройки — закрой ⚙ и открой снова.",
     "Could not reach the service — close ⚙ and open it again.": "Сервис не отвечает — закрой ⚙ и открой снова.",

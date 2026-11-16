@@ -140,7 +140,7 @@ class JournalPageTest {
     @Test
     void theNoteSaysWhereTheNameOfABrowserComesFrom() throws Exception {
         String page = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
-        Matcher note = Pattern.compile("<section id=\"groupJournal\"[^>]*>.*?<p class=\"muted\">(.*?)</p>",
+        Matcher note = Pattern.compile("<details id=\"groupJournal\"[^>]*>.*?<p class=\"muted\">(.*?)</p>",
             Pattern.DOTALL).matcher(page);
 
         assertThat(note.find()).isTrue();

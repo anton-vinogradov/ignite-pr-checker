@@ -14,18 +14,14 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/**
- * ⚙ listed six switches in a row, each with a paragraph that mixed what it does with the token it needs and how that
- * token is kept, and the token forms sat at the bottom, apart from their options. The options now stand in four groups
- * by what they need, each group opening with the state of that access and the button that changes it.
- */
+/** Account options show their access state and keep detailed explanations available on demand. */
 class SettingsGroupsTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
     private static final Pattern TOGGLE = Pattern.compile("id=\"(\\w+Toggle)\"");
 
-    private static final Pattern OPTION =
-        Pattern.compile("<label class=\"settings-row\">(.*?)</label>", Pattern.DOTALL);
+    private static final Pattern OPTION_HELP =
+        Pattern.compile("<p class=\"option-help\">(.*?)</p>", Pattern.DOTALL);
 
     private static final String SETTINGS = """
         const SETTINGS = { visa: false, rerun: false, gh: false, style: false, commands: false, login: null,
@@ -57,7 +53,7 @@ class SettingsGroupsTest {
         Map<String, String> heads = Map.of("groupTc", "TeamCity login", "groupJira", "JIRA token", "settingsLogin",
             "GitHub account", "groupGhToken", "GitHub token for commits");
 
-        String panel = between(read(), "<div id=\"settingsPanel\"", "<div id=\"cmdHint\"");
+        String panel = between(read(), "<div id=\"settingsPanel\"", "<div class=\"content\"");
         int last = -1;
         for (Map.Entry<String, List<String>> g : groups.entrySet()) {
             String group = group(g.getKey());
@@ -78,20 +74,39 @@ class SettingsGroupsTest {
             "id=\"ghTokenGone\"", "id=\"ghTokenNote\"");
     }
 
-    /** What each option does is one short sentence: how it does it is in the tour, behind How these work. */
+    /** Given the settings page, detailed option explanations remain available in initially closed help sections. */
     @Test
-    void eachOptionIsOneShortSentence() throws IOException {
-        Matcher option = OPTION.matcher(between(read(), "<div id=\"settingsPanel\"", "<div id=\"cmdHint\""));
+    void eachOptionHasAShortExplanationBehindDetails() throws IOException {
+        String panel = between(read(), "<div id=\"settingsPanel\"", "<div class=\"content\"");
+        Matcher helpers = Pattern.compile("<details class=\"settings-help\"([^>]*)>(.*?)</details>", Pattern.DOTALL)
+            .matcher(panel);
         int options = 0;
-        while (option.find()) {
-            options++;
-            String text = option.group(1).replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").strip();
-            String does = text.substring(text.indexOf(" — ") + 3);
-            assertThat(does.split("\\. ")).as(text).hasSize(1);
-            assertThat(does.split(" ")).as(text).hasSizeLessThanOrEqualTo(25);
+        while (helpers.find()) {
+            assertThat(helpers.group(1)).doesNotContain("open");
+            Matcher option = OPTION_HELP.matcher(helpers.group(2));
+            while (option.find()) {
+                options++;
+                String text = option.group(1).replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").strip();
+                String does = text.substring(text.indexOf(" — ") + 3);
+                assertThat(does.split("\\. ")).as(text).hasSize(1);
+                assertThat(does.split(" ")).as(text).hasSizeLessThanOrEqualTo(25);
+            }
         }
         assertThat(options).isEqualTo(6);
         assertThat(read()).contains(">How these work</a>");
+    }
+
+    /** Given closed help, users still see that enabling an autofix can push a commit to their Ignite PR. */
+    @Test
+    void commitConsequencesAreVisibleBeforeTheOptions() throws IOException {
+        String group = group("groupGhToken");
+        String visible = group.replaceAll("(?s)<details\\b.*?</details>", "");
+        String notice = "These options push commits to your own Ignite PRs.";
+
+        assertThat(visible).contains(notice);
+        int before = visible.indexOf(notice);
+        assertThat(visible.indexOf("id=\"styleFixToggle\"")).isGreaterThan(before);
+        assertThat(visible.indexOf("id=\"suiteFixToggle\"")).isGreaterThan(before);
     }
 
     @Test
