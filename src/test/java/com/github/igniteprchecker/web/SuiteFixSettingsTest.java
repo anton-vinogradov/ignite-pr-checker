@@ -159,13 +159,17 @@ class SuiteFixSettingsTest {
         assertThat(page.get("msg").asText()).isEqualTo("On: checkstyle autofix · tests to suites.");
     }
 
+    /**
+     * The commit options explain how a suite is chosen. Given the settings group and feature tour, when their
+     * descriptions are read, both name the nearest class in the module without naming an external service.
+     */
     @Test
-    void theSwitchSaysHowTheSuiteIsPicked() throws IOException {
+    void theCommitOptionsExplainHowTheSuiteIsPicked() throws IOException {
         String html = Files.readString(Path.of("src/main/resources/static/index.html"), StandardCharsets.UTF_8);
-        String label = html.substring(html.indexOf("id=\"suiteFixToggle\""), html.indexOf("</label>",
-            html.indexOf("id=\"suiteFixToggle\""))).replaceAll("\\s+", " ");
+        int start = html.indexOf("id=\"groupGhToken\"");
+        String group = html.substring(start, html.indexOf("</section>", start)).replaceAll("\\s+", " ");
 
-        assertThat(label).contains("into the suite of the nearest class in its module").doesNotContain("Claude",
+        assertThat(group).contains("into the suite of the nearest class in its module").doesNotContain("Claude",
             "Anthropic");
         assertThat(Files.readString(Path.of("docs/features.md"), StandardCharsets.UTF_8).replaceAll("\\s+", " "))
             .contains("each goes next to the class of its module nearest to it: a class of the same package first")

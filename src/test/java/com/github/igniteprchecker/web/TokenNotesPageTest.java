@@ -57,12 +57,12 @@ class TokenNotesPageTest {
     void theSettingsPanelsSayTheOptionsStoreTheirTokens() throws IOException {
         assertThat(Files.readString(PAGE, UTF_8).replaceAll("\\s+", " ")).contains("The server stores these tokens "
             + "encrypted, and only while an option that needs them is on.").doesNotContain("never stored server-side");
-        assertThat(collapsed("docs/features.md")).contains("Save switches on **Visa my runs in JIRA** below with the "
-            + "token. The server stores the token encrypted while the option is on. No cookie keeps it.")
+        assertThat(collapsed("docs/features.md")).contains("**Save** switches on the option with this token. "
+            + "The server stores the token encrypted while the option is on. No cookie keeps it.")
             .contains("The page sends the token with the switch, and no cookie keeps it.")
             .doesNotContain("It goes into your session cookie");
-        assertThat(collapsed("docs/features.ru.md")).contains("Save включает опцию **Visa my runs in JIRA** ниже с "
-            + "этим токеном, а сервер хранит токен зашифрованным, пока опция включена. Ни одна cookie его не хранит.")
+        assertThat(collapsed("docs/features.ru.md")).contains("«Сохранить» включает опцию с этим токеном, а сервер "
+            + "хранит токен зашифрованным, пока опция включена. Ни одна cookie его не хранит.")
             .contains("Страница отправляет токен вместе с переключателем, и ни одна cookie его не хранит.")
             .doesNotContain("Он ложится в cookie твоей сессии");
     }
