@@ -188,7 +188,7 @@ and the visa.
   `/nodejs` and `/extensions`.
   The left pane lists open PRs of the selected project, the most recently updated first. A row has the PR's number, its ticket key
   and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges mean** under
-  the filter explains the badges. It stays open until you pick a PR. **my run** marks the PRs whose latest RunAll you
+  the filter explains the badges. It starts closed; opening a PR preserves your choice to show or hide it. **my run** marks the PRs whose latest RunAll you
   started, or the latest client-suite run you started.
 - Three tabs over the list choose which PRs it shows. **All** shows the 50 most recently updated open PRs. **Mine**
   shows your open PRs, also the ones that are not among those 50. **Involved** shows other people's open PRs where
@@ -334,14 +334,15 @@ The proxy does not retain force-pushed commits or substitute another commit. Tea
 ## Standing options
 
 The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
-`/run-all` comment, or in TeamCity. They act on the runs you start in
-[thin client PRs](#thin-client-prs) and [Extensions PRs](#extensions-prs) too. An option does not reach back: runs that finished
+`/run-all` comment, or in TeamCity. Automatic re-runs, PR comments and JIRA visas act on the runs you start in
+[thin client PRs](#thin-client-prs) and [Extensions PRs](#extensions-prs) too. Options that push commits apply to your own Ignite PRs. An option does not reach back: runs that finished
 before it was switched on are left alone. ⚙ puts the options in four groups, by what they need, and each group starts
 with the state of that access. While any of them is on, the server stores your TeamCity token, encrypted, and each also
 stores the JIRA or GitHub token it needs while it is on.
 
-When you switch on an option without what it needs, ⚙ says what is missing in one sentence and opens the form or
-shows the button that gives it.
+Detailed explanations are under **Details** in each group. Reading verdicts and starting runs on the page need no
+standing options. When you choose an option without what it needs, ⚙ opens the relevant token form or shows
+**Link GitHub**. Saved tokens keep their **Replace** action; missing or rejected tokens keep their recovery action.
 
 The state line of each token also says how long the token has left: `expires in 43 days`, `never expires` or
 `expiry unknown`. The TeamCity line is about the token you logged in with. From `expires in 14 days` on, the line turns
@@ -388,9 +389,9 @@ token: the options resume on it. Nobody else's options stop.
 
 ### JIRA token
 
-The state reads not saved, saved or rejected. Create the token in your ASF JIRA profile. It acts with all the rights
-of your JIRA account (ASF JIRA has no token scopes), so give it an expiry, say 90 days. Save switches on **Visa my
-runs in JIRA** below with the token. The server stores the token encrypted while the option is on. No cookie keeps it.
+The state reads not saved, saved or rejected. Choose **Visa my runs in JIRA** to open the token form. Create the token
+in your ASF JIRA profile. It acts with all the rights of your JIRA account (ASF JIRA has no token scopes), so give it an
+expiry, say 90 days. **Save** switches on the option with this token. The server stores the token encrypted while the option is on. No cookie keeps it.
 A visa comes from this option, or from **Post to JIRA** on the PR page, which uses the same token.
 
 - **Visa my runs in JIRA** posts the verdict to the IGNITE ticket the PR title names, once per run, after the
@@ -430,7 +431,7 @@ runs no command, and verdict comments do not mention it, until you link the acco
 ### GitHub token for commits
 
 The state reads not saved, saved with the token's kind (fine-grained or classic), or rejected; a classic token also
-gets a note on what it can push to.
+gets a note on what it can push to. Choose an option below to open its token form.
 
 - **The token** only commits, to the branch of your own PR: it writes no comments, and it commits to
   `apache/ignite` only for a PR from a branch there. Best is a fine-grained token for your fork alone, with Contents:
@@ -462,7 +463,7 @@ saved token stays in use.
 
 ### Your logins
 
-Below the options, ⚙ has **Your logins**: each browser you are logged in from, this browser first. Each line names the
+Below the options, expand **Your logins** to see each browser you are logged in from, this browser first. Each line names the
 browser and its system, as the browser's User-Agent names them. It also says when the browser logged in. The line of
 another browser adds when the checker last saw it. That time can be up to 5 minutes old. A login that began before the
 checker kept this list says so instead of a date. The server keeps the list without tokens and without IP addresses.
@@ -491,7 +492,7 @@ login ends, background warming stops using its TeamCity token, unless a standing
 
 ### Journal
 
-⚙ ends with **Journal**: what happened to your settings, the newest first. It shows 10 entries, and **Show all** shows
+Expand **Journal** at the end of ⚙ to see what happened to your settings, the newest first. It shows 10 entries, and **Show all** shows
 the rest. The checker keeps your last 100 switches of options, your last 100 saved tokens and your last 100 other
 entries, such as links and visas. So switching options many times in a row does not push a link or a visa out of the
 journal.

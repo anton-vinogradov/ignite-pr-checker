@@ -77,18 +77,19 @@ class ExtensionsPageTest {
         assertThat(out.get("failures").asText()).contains("Kafka extension", "Spring extension", "8901", "8902");
     }
 
-    /** Given a signed-out Extensions PR, the introduction describes the whole chain and links to its own GitHub PR. */
+    /** Given a signed-out Extensions PR, its context names the chain and replaces the general introduction. */
     @Test
     void theLoginFormNamesTheCompositeProject() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + EXTENSIONS + """
             page.route('/api/me', { status: 401, body: {} });
             await page.load('/extensions?pr=42');
-            report({ intro: page.text('loginIntro'), head: page.text('loginPrHead'),
+            report({ introHidden: page.el('loginIntro').classList.contains('hidden'), head: page.text('loginPrHead'),
+                tokenNoteHidden: page.el('loginTokenNote').classList.contains('hidden'),
                 link: page.el('loginPrNote').innerHTML, reads: page.fetches('/api/client/').length });
             """);
 
-        assertThat(out.get("intro").asText()).contains("Extensions PR", "build chain")
-            .doesNotContain("client PR", "single suite");
+        assertThat(out.get("introHidden").asBoolean()).isTrue();
+        assertThat(out.get("tokenNoteHidden").asBoolean()).isFalse();
         assertThat(out.get("head").asText()).contains("Extensions PR #42", "build chain");
         assertThat(out.get("link").asText()).contains("https://github.com/apache/ignite-extensions/pull/42");
         assertThat(out.get("reads").asInt()).isZero();

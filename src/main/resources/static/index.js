@@ -104,7 +104,7 @@ function show(view) {
 function paintLoginPr() {
     const pr = prFromUrl();
     const repo = repoFromUrl();
-    $('loginIntro').classList.toggle('hidden', !projectAvailable(repo));
+    $('loginIntro').classList.toggle('hidden', !!pr || !projectAvailable(repo));
     if (projectAvailable(repo)) {
         $('loginIntro').textContent = compositeProject(repo)
             ? T('See which tests your {0} PR actually broke, not the ones already failing or flaky on master. '
@@ -166,7 +166,6 @@ function signedOut() {
     canAdmin = false;
     $('updateBtn').classList.add('hidden');
     showUpdateNotes(null);
-    $('cmdHint').classList.add('hidden');
     show('login');
 }
 
@@ -1241,7 +1240,6 @@ async function loadMe() {
         await useLanguage(lang);
         checkUpdate();
         await enterApp(username, linked);
-        if (askedToOfferCommands()) offerCommands();
     } else {
         await loggedOut(r);
     }
@@ -1258,7 +1256,6 @@ async function login() {
             const { username, admin, jiraInCookie, lang, githubLinked: linked } = await r.json();
             $('token').value = '';
             if (speaksOtherThan(lang)) {
-                offerCommandsOnReopening();
                 reopenIn(lang);
                 return;
             }
@@ -1267,7 +1264,6 @@ async function login() {
             await useLanguage(lang);
             checkUpdate();
             await enterApp(username, linked);
-            offerCommands();
         } else {
             const { error } = await r.json().catch(() => ({ error: 'login failed' }));
             loginMsg(tr(error) || T('login failed'), true);
@@ -3826,9 +3822,6 @@ $('settingsBtn').onclick = () => {
     const p = $('settingsPanel');
     p.classList.toggle('hidden');
     if (p.classList.contains('hidden')) return;
-    $('langSelect').value = LANG;
-    $('langSave').disabled = true;
-    $('langMsg').textContent = '';
     loadSettings();
     loadLogins();
     loadJournal();
@@ -3865,6 +3858,9 @@ function lockSettings(message) {
 }
 
 async function loadSettings() {
+    $('langSelect').value = LANG;
+    $('langSave').disabled = true;
+    $('langMsg').textContent = '';
     lockSettings(T('Loading your settings…'));
     try {
         const r = await api('/api/auto-visa-all');
@@ -3886,6 +3882,9 @@ function renderSettings(st) {
         $(id).disabled = false;
     }
     renderAccess(st);
+    $('styleNeedsCommands').classList.toggle('hidden', !!st.commands);
+    $('jiraTokenBtn').classList.toggle('hidden', !st.jiraStored && !st.visa && !st.jiraTokenRejected
+        && !(st.tokensUnread || []).includes('jira') && !(st.tokensRemoved || []).includes('jira'));
     renderLogin(st);
     followGithubLink(st.login);
     showTokenNotes(st);
@@ -4051,7 +4050,9 @@ function renderGithubAccount(st) {
         if (githubLocked(name, st)) $(OPTION_TOGGLES[name]).disabled = true;
     }
     $('githubOff').classList.toggle('hidden', !off);
-    $('ghTokenBtn').classList.toggle('hidden', off && !st.ghStored);
+    const needsToken = COMMIT_OPTIONS.some(name => st[name]) || st.ghTokenRejected
+        || (st.tokensUnread || []).includes('github') || (st.tokensRemoved || []).includes('github');
+    $('ghTokenBtn').classList.toggle('hidden', !st.ghStored && (off || !needsToken));
     $('ghTokenNote').classList.toggle('hidden', !st.ghTokenNote);
     $('ghTokenNote').textContent = tr(st.ghTokenNote) || '';
 }
@@ -4367,35 +4368,6 @@ async function showLinkOutcome() {
     $('settingsMsg').textContent = LINK_OUTCOMES[outcome](standingSettings || {});
 }
 
-// Right after a login, point at PR commands once if they are off: few people open ⚙ on their own.
-async function offerCommands() {
-    try {
-        const r = await api('/api/auto-visa-all');
-        if (r.ok && !(await r.json()).commands) $('cmdHint').classList.remove('hidden');
-    } catch (e) { /* only a hint */ }
-}
-
-// A login in another language opens the page again: the hint waits for the page in that language.
-function offerCommandsOnReopening() {
-    try { sessionStorage.setItem('offerCommands', '1'); } catch (e) { /* private mode */ }
-}
-
-function askedToOfferCommands() {
-    try {
-        const asked = sessionStorage.getItem('offerCommands') === '1';
-        sessionStorage.removeItem('offerCommands');
-        return asked;
-    } catch (e) {
-        return false;
-    }
-}
-
-$('cmdHintOpen').onclick = () => {
-    $('cmdHint').classList.add('hidden');
-    if ($('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
-};
-$('cmdHintClose').onclick = () => $('cmdHint').classList.add('hidden');
-
 // ⚙ lists the browsers the user is logged in from, this one first. Ending a login logs that browser out at its next
 // request. The options are the account's, so no login ending changes them.
 const loginsPicked = new Set(); // the ids of the logins ticked for Log out selected
@@ -4611,9 +4583,6 @@ wireThemeToggle();
 // persists; on a narrow one the list covers the result, so it folds away whenever a PR opens.
 const narrowScreen = matchMedia('(max-width: 768px)');
 let narrowListOpen = false;
-// Whether the legend was last folded for an open PR: the fold follows a PR opening and closing, not the pane's
-// collapse or the screen's width, so what you open or fold by hand stays.
-let legendFoldedForPr = null;
 
 function syncPane() {
     const split = $('analyzeView');
@@ -4623,11 +4592,6 @@ function syncPane() {
     split.classList.toggle('collapsed', hasPr && (narrowScreen.matches ? !narrowListOpen : saved));
     split.classList.toggle('home', !hasPr);
     $('paneCollapse').classList.toggle('hidden', !hasPr);
-    // The legend is open where a PR is picked and folded once one is; the "…" badge exists only for the open PR.
-    if (hasPr !== legendFoldedForPr) {
-        $('prLegend').open = !hasPr;
-        legendFoldedForPr = hasPr;
-    }
     $('legendChecking').classList.toggle('hidden', !hasPr);
 }
 function setPaneCollapsed(collapsed) {

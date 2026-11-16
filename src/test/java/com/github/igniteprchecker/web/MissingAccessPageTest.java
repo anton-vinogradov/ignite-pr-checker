@@ -76,7 +76,8 @@ class MissingAccessPageTest {
                 error: 'JIRA rejected the token — paste a new one' } }, 'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
-            await page.el('jiraTokenBtn').onclick();
+            page.el('standingVisaToggle').checked = true;
+            await page.el('standingVisaToggle').onchange();
             page.el('settingsJiraToken').value = 'jira-pat-dead';
             await page.el('settingsJiraSave').onclick();
             await page.settle();
@@ -92,16 +93,22 @@ class MissingAccessPageTest {
         assertThat(out.get("on").asBoolean()).isFalse();
     }
 
-    /** She pasted the token first and switched the option on after: the token goes with the switch. */
+    /**
+     * Given a token form opened for an option, when she cancels that choice, pastes a token and selects it again,
+     * then the token goes with the selected option.
+     */
     @Test
     void aTokenPastedBeforeTheSwitchGoesWithIt() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { suites: true, ghStored: true }) },
-                'POST');
+            page.route('/api/auto-visa-all', url => ({ body: url.includes('suites=false') ? SETTINGS
+                : Object.assign({}, SETTINGS, { suites: true, ghStored: true }) }), 'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
-            await page.el('ghTokenBtn').onclick();
+            page.el('suiteFixToggle').checked = true;
+            await page.el('suiteFixToggle').onchange();
+            page.el('suiteFixToggle').checked = false;
+            await page.el('suiteFixToggle').onchange();
             page.el('settingsGhToken').value = 'github_pat_fork';
             await page.el('settingsGhSave').onclick();
             const told = page.el('settingsGhMsg').textContent;
@@ -114,20 +121,25 @@ class MissingAccessPageTest {
 
         assertThat(out.get("told").asText())
             .isEqualTo("switch on the option below that should use it: the token goes with that switch");
-        assertThat(out.get("posts").toString()).isEqualTo("[{\"url\":\"/api/auto-visa-all?suites=true&tz=UTC\","
+        assertThat(out.get("posts").toString()).isEqualTo("[{\"url\":\"/api/auto-visa-all?suites=false&tz=UTC\","
+            + "\"body\":null},{\"url\":\"/api/auto-visa-all?suites=true&tz=UTC\","
             + "\"body\":\"{\\\"githubToken\\\":\\\"github_pat_fork\\\"}\"}]");
         assertThat(out.get("field").asText()).isEmpty();
         assertThat(out.get("state").asText()).isEqualTo("saved");
     }
 
-    /** She pasted the token, then switched on the autofix before PR commands: nothing went, so the token stays. */
+    /**
+     * Given the token form opened for adding tests to suites, when she pastes a token and selects autofix without
+     * PR commands, then the refused switch leaves the token in the form.
+     */
     @Test
     void aPastedTokenSurvivesTheRefusedAutofixSwitch() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             await page.load('?pr=13575');
             """ + OPEN + """
-            await page.el('ghTokenBtn').onclick();
+            page.el('suiteFixToggle').checked = true;
+            await page.el('suiteFixToggle').onchange();
             page.el('settingsGhToken').value = 'github_pat_fork';
             page.el('styleFixToggle').checked = true;
             await page.el('styleFixToggle').onchange();
@@ -299,7 +311,7 @@ class MissingAccessPageTest {
         assertThat(out.get("on").asBoolean()).isTrue();
     }
 
-    /** Visas come from the option alone: Save in the JIRA group switches it on with the token. */
+    /** Given no saved JIRA token, when she selects visas and saves its token, then the visa is switched on with it. */
     @Test
     void aSavedJiraTokenSwitchesTheVisaOnWithIt() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
@@ -308,7 +320,8 @@ class MissingAccessPageTest {
                 'POST');
             await page.load('?pr=13575');
             """ + OPEN + """
-            await page.el('jiraTokenBtn').onclick();
+            page.el('standingVisaToggle').checked = true;
+            await page.el('standingVisaToggle').onchange();
             page.el('settingsJiraToken').value = 'jira-pat';
             await page.el('settingsJiraSave').onclick();
             await page.settle();

@@ -47,6 +47,22 @@ class RussianPageTest {
             """;
     }
 
+    /** Given a Russian account returning from OAuth, opening settings shows its language without a pending edit. */
+    @Test
+    void settingsOpenedAfterGithubLinkUseTheAccountsLanguage() throws Exception {
+        JsonNode out = PageScript.run("index.html", russian() + """
+            page.route('/api/auto-visa-all', { body: { login: 'alice-v', commands: true,
+                githubAvailable: true, githubLinkable: true } }, 'GET');
+            await page.load('/ignite?github=linked');
+            report({ open: !page.el('settingsPanel').classList.contains('hidden'),
+                language: page.el('langSelect').value, saveDisabled: page.el('langSave').disabled });
+            """);
+
+        assertThat(out.get("open").asBoolean()).isTrue();
+        assertThat(out.get("language").asText()).isEqualTo("ru");
+        assertThat(out.get("saveDisabled").asBoolean()).isTrue();
+    }
+
     @Test
     void theVerdictAndItsCardsSpeakRussian() throws Exception {
         String served = JSON.writeValueAsString(AnalyzeController.Served.of(BrokenRuns.artifactsGlitch()));
@@ -274,7 +290,7 @@ class RussianPageTest {
     /**
      * A new browser shows the login form in English. The page drew its RunAll line before it knew the language, and a
      * translation in place would leave that line English: a login of a user who chose Russian opens the page again,
-     * which then waits for Russian. The hint at PR commands, which a login brings, waits for the page opened again.
+     * which then waits for Russian.
      */
     @Test
     void aLoginInRussianOpensAnEnglishPageAgain() throws Exception {
@@ -285,8 +301,7 @@ class RussianPageTest {
             page.route('/api/login', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } },
                 'POST');
             await page.load('?pr=13575');
-            page.run('location.reload = () => { window.reopened = { lang: localStorage.getItem("lang"), '
-                + 'offer: sessionStorage.getItem("offerCommands") }; }');
+            page.run('location.reload = () => { window.reopened = { lang: localStorage.getItem("lang") }; }');
             page.el('token').value = 'a-token';
             await page.el('loginBtn').onclick();
             await page.settle();
@@ -294,7 +309,6 @@ class RussianPageTest {
             """);
 
         assertThat(out.get("reopened").get("lang").asText()).isEqualTo("ru");
-        assertThat(out.get("reopened").get("offer").asText()).isEqualTo("1");
         assertThat(out.get("verdicts").asInt()).as("nothing drawn on the page that goes").isZero();
     }
 
@@ -325,25 +339,6 @@ class RussianPageTest {
         assertThat(alice.get("lang").asText()).isEqualTo("ru");
         assertThat(alice.get("stored").asText()).isEqualTo("ru");
         assertThat(alice.get("user").asText()).isEqualTo("alice");
-    }
-
-    /** The page opened again for a login points at PR commands, as the login would have; a plain opening does not. */
-    @Test
-    void thePageOpenedAgainForALoginOffersPrCommands() throws Exception {
-        String scenario = russian() + """
-            page.route('/api/auto-visa-all', { body: { commands: false } });
-            ASK
-            await page.load('?pr=13575');
-            report({ hint: !page.el('cmdHint').classList.contains('hidden'),
-                left: page.run('sessionStorage.getItem("offerCommands")') });
-            """;
-        JsonNode asked = PageScript.run("index.html",
-            scenario.replace("ASK", "page.run('sessionStorage.setItem(\"offerCommands\", \"1\")');"));
-        JsonNode plain = PageScript.run("index.html", scenario.replace("ASK", ""));
-
-        assertThat(asked.get("hint").asBoolean()).isTrue();
-        assertThat(asked.get("left").isNull()).as("once").isTrue();
-        assertThat(plain.get("hint").asBoolean()).isFalse();
     }
 
     /**
