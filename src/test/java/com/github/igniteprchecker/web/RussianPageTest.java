@@ -407,7 +407,7 @@ class RussianPageTest {
             const label = text('\\n                Re-run failed suites of my runs ');
             const code = text('/run-all');
             const help = el('A', { href: 'https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/'
-                + 'features.md#cards-on-the-pr-page', title: 'The heading summarizes this run. The notes below explain its limits and the next action.' }, []);
+                + 'features.md#standing-options', title: 'The heading summarizes this run. The notes below explain its limits and the next action.' }, []);
             const root = el('DIV', {}, [el('B', {}, [label]), el('CODE', {}, [code]), help,
                 el('INPUT', { placeholder: 'Filter, or a PR number' }, []), text('   ')]);
             page.run('translateDom')(root);
@@ -417,7 +417,7 @@ class RussianPageTest {
 
         assertThat(out.get("label").asText()).isEqualTo("\n                Перезапускать упавшие сьюты моих прогонов ");
         assertThat(out.get("code").asText()).isEqualTo("/run-all");
-        assertThat(out.get("href").asText()).endsWith("/docs/features.ru.md#карточки-на-странице-pr");
+        assertThat(out.get("href").asText()).endsWith("/docs/features.ru.md#постоянные-опции");
         assertThat(out.get("title").asText()).isEqualTo("Заголовок подводит итог прогона. Пояснения ниже описывают ограничения и следующий шаг.");
         assertThat(out.get("placeholder").asText()).isEqualTo("Фильтр или номер PR");
     }
