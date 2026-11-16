@@ -645,6 +645,7 @@ function openPr(number, push, repo = repoFromUrl()) {
     $('runsRow').classList.add('hidden'); // until this PR's runs are loaded
     runsWere = 0;
     runsNow = [];
+    runsKnown = false;
     verdictDue = false;
     noRunNote = '';
     lastLiveFetch = Date.now(); // the analysis below is this PR's first look
@@ -866,6 +867,7 @@ let runsWere = 0;
 let lastLiveFetch = 0;
 let lastRuns = []; // current queued/running builds of the selected PR, for the live suite chips
 let runsNow = []; // the PR's runs as /api/runs lists them, with who started each
+let runsKnown = false; // whether the latest attempt to read that list succeeded for the selected PR
 let verdictDue = false; // the PR's runs just finished and the verdict of what they ran has not come yet
 let noRunNote = ''; // the status line's "no run to analyse" text while it is shown, so new runs can update it
 
@@ -913,10 +915,22 @@ async function loadRuns(number) {
     }
     if (!isOpen(number, repo)) return false;
     if (r && r.status === 401) { await loggedOut(r); return false; }
-    if (!r || !r.ok) { schedulePoll(); return false; }
-    const runs = await r.json();
+    let runs = null;
+    if (r && r.ok) {
+        try { runs = await r.json(); }
+        catch (e) { /* an unreadable response leaves the current runs unconfirmed */ }
+    }
     if (!isOpen(number, repo)) return false;
+    if (!Array.isArray(runs)) {
+        runsKnown = false;
+        paintRunActivity();
+        paintTab();
+        paintVisaLine();
+        schedulePoll();
+        return false;
+    }
     runsNow = runs;
+    runsKnown = true;
     // Merge in the tracked reruns: a running RunAll chain expands to per-suite states there,
     // so suite chips light up individually while the chain grinds through them. The tracker knows Ignite's PRs only.
     const rr = repo ? []
@@ -1020,22 +1034,26 @@ const TAB_COLORS = {
 
 function tabState() {
     if (!selectedPr || $('analyzeView').classList.contains('hidden')) return null;
+    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    if (res && verdictFinal(res)) {
+        const verdict = res.blockers.length > 0 ? 'blockers'
+            : { CLEAN: 'clean', WATCH: 'watch' }[standingOf(res)] || 'other';
+        return { kind: 'final', verdict, res };
+    }
+    if (res?.mergedAt) return { kind: 'running', analysing: true };
+    if (!runsKnown) return res ? { kind: 'unknown' } : null;
     const chain = runsNow.find(b => b.runAll);
-    const phase = phaseNow && phaseNow.pr === selectedPr ? phaseNow : null;
+    const phase = phaseNow && phaseNow.pr === selectedPr && res && phaseNow.build === res.buildId ? phaseNow : null;
     if (chain)
         return { kind: 'running', queued: chain.state === 'queued', leftSec: chain.leftSec };
     if (phase && phase.phase === 'running') return { kind: 'running' };
     if (phase && phase.phase === 'settling') return { kind: 'settling', phase };
     if (verdictDue) return { kind: 'running', analysing: true };
-    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    const other = runsNow[0];
+    if (other) return { kind: 'running', queued: other.state === 'queued', leftSec: other.leftSec };
     if (!res) return null;
     if (res.live) return { kind: 'running' };
-    if (retryLeftMs(res) > 0) return { kind: 'unknown' };
-    if (standingOf(res) === 'CHECKING') return { kind: 'unknown' };
-    // Final only when /api/settling says so of this very run: without its answer, re-runs may still follow.
-    if (!phase || phase.phase !== 'final' || phase.build !== res.buildId) return { kind: 'unknown' };
-    const verdict = res.blockers.length > 0 ? 'blockers' : { CLEAN: 'clean', WATCH: 'watch' }[standingOf(res)] || 'other';
-    return { kind: 'final', verdict, res };
+    return { kind: 'unknown' };
 }
 
 // Re-runs or a RunAll still decide the open PR's verdict, or whether they do is not known yet.
@@ -1172,6 +1190,39 @@ function autoRerunText(phase) {
 
 function runActivityText(res, phase) {
     const parts = [];
+    if (verdictFinal(res)) {
+        const completed = phase?.phase === 'final' ? phase.completedWaves : null;
+        parts.push(completed > 0
+            ? completed === 1 ? T('Final verdict. Automatic re-runs are complete: 1 wave.')
+                : T('Final verdict. Automatic re-runs are complete: {0} waves.', completed)
+            : completed === 0 ? T('Final verdict. No automatic re-runs were started.')
+                : T('Final verdict. The number of completed automatic re-run waves is unknown.'));
+        const reason = {
+            closed: T('This PR is closed.'),
+            replaced: T('A newer run replaced this one.'),
+            cancelled: T('The run was cancelled; this verdict uses only the available results.'),
+            gone: T('TeamCity no longer has the automatic re-run, so its completion could not be confirmed.'),
+            'not-queued': T('The checker could not queue the automatic re-run.'),
+            off: T('Automatic re-runs are off for this run.'),
+            'before-option': T('Automatic re-runs were not enabled when this run finished.'),
+            'too-many-suites': T('Too many suites needed an automatic re-run, so the checker skipped it.')
+        }[phase?.reason];
+        if (reason) parts.push(reason);
+        if (!res.mergedAt && !['closed', 'replaced'].includes(phase?.reason)
+            && (res.blockers.length || res.watch?.length || res.brokenSuites?.length || res.cancelledSuites?.length
+                || res.shrunkSuites?.length || res.unverified?.length))
+            parts.push(T('Review the remaining failures; fix their cause or re-run manually.'));
+        return parts.join(' ');
+    }
+    parts.push(T('Preliminary verdict — wait for the updated result.'));
+    if (res.mergedAt) {
+        parts.push(T('Waiting for runs queued before the PR was merged. Their results may still update this verdict.'));
+        return parts.join(' ');
+    }
+    if (!runsKnown) {
+        parts.push(T('Current runs could not be confirmed. The checker will try again.'));
+        return parts.join(' ');
+    }
     const current = runsNow.find(b => b.buildId === res.buildId);
     if (current)
         parts.push(T('Run {0} is {1} on TeamCity. Wait for its results.', res.buildId, runState(current.state)));
@@ -1181,30 +1232,25 @@ function runActivityText(res, phase) {
         parts.push(T('Other runs of this PR: {0} running, {1} queued. The verdict below is for run {2}.',
             others.filter(b => b.state === 'running').length, others.filter(b => b.state === 'queued').length,
             res.buildId));
-    if (!phase) {
-        parts.push(T('Auto re-run status is unknown: the checker did not confirm it. Keep this page open or refresh it.'));
-    } else if (retryLeftMs(res) > 0) {
-        if (phase.wave > 0) parts.push(autoRerunText(phase));
+    if (phase?.wave > 0) parts.push(autoRerunText(phase));
+    if (retryLeftMs(res) > 0) {
         parts.push(T('TeamCity errors left part of the analysis unchecked. The checker is retrying it; wait up to {0} before acting.',
             fmtLeft(retryLeftMs(res) / 1000)));
-    } else if (res.mergedAt && res.runsAtMergeDue) {
-        parts.push(T('Waiting for runs queued before the PR was merged. Their results may still update this verdict.'));
-    } else if (phase.phase === 'running' || res.live) {
-        if (!current && !others.length)
+    } else if (phase?.phase === 'settling' && !phase.wave) {
+        if (phase.reason === 'too-many-suites') {
+            parts.push(T('Too many suites needed an automatic re-run, so the checker skipped it.'));
+            parts.push(T('The runs finished. The checker is updating the verdict.'));
+        } else
+            parts.push(T('The checker is processing the results and deciding whether to re-run failed suites. Wait for its decision.'));
+    } else if (verdictDue) {
+        parts.push(T('The runs finished. The checker is updating the verdict.'));
+    } else if (phase?.phase === 'running' || res.live || runsNow.length) {
+        if (!current && !others.length && !phase?.wave)
             parts.push(T('A run of this PR is still in progress. Wait for its results.'));
-        if (phase.wave > 0) parts.push(autoRerunText(phase));
-    } else if (phase.phase === 'settling') {
-        parts.push(phase.wave > 0 ? autoRerunText(phase)
-            : T('The checker is processing the results and deciding whether to re-run failed suites. Wait for its decision.'));
-    } else {
-        if (phase.reason === 'closed') parts.push(T('This PR is closed.'));
-        if (phase.reason === 'replaced') parts.push(T('A newer run replaced this one.'));
-        parts.push(T('Auto re-runs of this run are no longer expected.'));
-        if (!res.mergedAt && !phase.reason && !current && !others.length
-            && (res.blockers.length || res.watch?.length || res.brokenSuites?.length || res.cancelledSuites?.length
-                || res.shrunkSuites?.length || res.unverified?.length))
-            parts.push(T('Review the remaining failures; fix their cause or re-run manually.'));
-    }
+    } else if (standingOf(res) === 'CHECKING')
+        parts.push(T('Wait while the checker verifies that this run tested the PR\'s latest commit.'));
+    if (!phase)
+        parts.push(T('Auto re-run status is unknown: the checker did not confirm it. Keep this page open or refresh it.'));
     return parts.join(' ');
 }
 
@@ -1285,6 +1331,7 @@ function goHome(push) {
     lastResult = null;
     syncListBadge();
     runsNow = [];
+    runsKnown = false;
     verdictDue = false;
     noRunNote = '';
     phaseNow = null;
@@ -3694,8 +3741,8 @@ function visaPostReason(res, v) {
     if (lastIssueKey === '') return 'ticket';
     if (!res || !lastIssueKey || !v) return null;
     if (!v.jiraReady) return 'token';
-    if (!verdictFinal(res)) return 'wait';
-    return retryLeftMs(res) > 0 ? 'retry' : '';
+    if (retryLeftMs(res) > 0) return 'retry';
+    return verdictFinal(res) ? '' : 'wait';
 }
 
 // How long the server still takes no visa of the verdict: TeamCity errors left part of it unchecked, and the checker
@@ -3710,7 +3757,9 @@ function retryLeftMs(res) {
 function verdictFinal(res) {
     if (res.mergedAt) return !res.runsAtMergeDue;
     const phase = phaseNow && phaseNow.pr === res.prNumber && phaseNow.build === res.buildId ? phaseNow : null;
-    return !res.live && !verdictDue && !runsNow.length && !!phase && phase.phase === 'final';
+    return runsKnown && !res.live && !verdictDue && !runsNow.length && retryLeftMs(res) === 0
+        && standingOf(res) !== 'CHECKING'
+        && !!phase && phase.phase === 'final';
 }
 
 function paintVisaPost(res, v) {
@@ -3836,8 +3885,8 @@ async function loadPrPost(number) {
 function prPostReason(res, c) {
     if (!res || !c) return null;
     if (c.bot !== 'ready') return PR_POST_OFF[c.bot] ? c.bot : 'refused';
-    if (!verdictFinal(res)) return 'wait';
-    return retryLeftMs(res) > 0 ? 'retry' : '';
+    if (retryLeftMs(res) > 0) return 'retry';
+    return verdictFinal(res) ? '' : 'wait';
 }
 
 function paintPrPost(res) {

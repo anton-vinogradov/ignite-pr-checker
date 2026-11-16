@@ -144,7 +144,7 @@ class ExtensionsPageTest {
         assertThat(out.get("title").asText()).startsWith("Расширения #42");
         assertThat(out.get("label").asText()).contains("Цепочка сборок");
         assertThat(out.get("question").asText()).contains("цепочку сборок", "проекта Расширения");
-        assertThat(out.get("settling").asText()).isEqualTo("♻︎ Автоповтор 1/1: выполняется — 0, в очереди — 1."
+        assertThat(out.get("settling").asText()).isEqualTo("Предварительный вердикт — дождись обновлённого результата. ♻︎ Автоповтор 1/1: выполняется — 0, в очереди — 1."
             + " Дождись обновлённого вердикта.");
     }
 }

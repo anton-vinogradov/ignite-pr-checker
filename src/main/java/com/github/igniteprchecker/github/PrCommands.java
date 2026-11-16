@@ -1279,7 +1279,7 @@ public class PrCommands implements SnapshotCache {
         else if ("UNKNOWN".equalsIgnoreCase(b.status()))
             runCancelled(run, actor);
         else
-            finishClientRun(run, actor, ClientRuns.suiteName(b, run.pinned()), null);
+            finishClientRun(run, actor, ClientRuns.suiteName(b, run.pinned()), null, null);
     }
 
     /**
@@ -1349,7 +1349,10 @@ public class PrCommands implements SnapshotCache {
      * place of a run TeamCity cancelled gives no verdict when it does not count, and the story ends.
      */
     private void settleRerun(CommandRun run, StandingVisas.GhActor actor, TcModel.Build b, ClientVerdict.Rerun rerun) {
+        String reason = rerun.counted() ? null : b == null ? "gone" : "cancelled";
         if (run.rerunStandsIn() && !rerun.counted()) {
+            standing.clientHandled(run.username(), run.repo(), run.pr(), run.buildId(), rerun.buildId(),
+                b == null ? null : 1, reason);
             end(run, "\n🛑 _TeamCity cancelled the run by itself. Its auto re-run [build " + rerun.buildId() + "]("
                 + tcBaseUrl + "/build/" + rerun.buildId() + ") " + rerun.why() + ", so there is no verdict._");
 
@@ -1359,7 +1362,7 @@ public class PrCommands implements SnapshotCache {
         TcModel.Build named = b != null ? b
             : standing.asUser(run.username(), () -> tc.getBuildState(actor.tcToken(), run.buildId()));
         if (named != null)
-            finishClientRun(run, actor, ClientRuns.suiteName(named, run.pinned()), rerun);
+            finishClientRun(run, actor, ClientRuns.suiteName(named, run.pinned()), rerun, reason);
     }
 
     /**
@@ -1409,12 +1412,13 @@ public class PrCommands implements SnapshotCache {
      * became of it. While a verdict that TeamCity errors left incomplete is computed again, the story says the run is
      * being analysed, and while a failed visa is tried again, it says so. A verdict GitHub did not take now goes at a
      * later look. {@code suiteName}: the suite's name in TeamCity; {@code rerun}: what became of the run's auto re-run,
-     * null while none was queued. A run queued on the checker's page is judged only while an option of its starter
+     * null while none was queued; {@code rerunReason}: "cancelled" or "gone" when that ended the re-run. A run queued
+     * on the checker's page is judged only while an option of its starter
      * acts on runs, and gets the comment only from "Post my runs' verdicts in the PR", as a RunAll queued there does: a
      * comment GitHub did not take goes later only while that option is still on.
      */
     private void finishClientRun(CommandRun run, StandingVisas.GhActor actor, String suiteName,
-        ClientVerdict.Rerun rerun) {
+        ClientVerdict.Rerun rerun, String rerunReason) {
         CommandRun now = current(run);
         if (now.readyId() == 0) {
             String body = verdictBodies.get(now.commentId());
@@ -1442,6 +1446,12 @@ public class PrCommands implements SnapshotCache {
 
                 AnalysisResult verdict = judged.get().verdict();
                 ClientVerdict.Rerun done = judged.get().rerun();
+                if (held == null) {
+                    boolean notQueued = done != null && done.buildId() == 0;
+                    Integer completed = "gone".equals(rerunReason) ? null : done == null || notQueued ? 0 : 1;
+                    standing.clientHandled(now.username(), now.repo(), now.pr(), now.buildId(),
+                        done == null ? 0 : done.buildId(), completed, notQueued ? "not-queued" : rerunReason);
+                }
                 Optional<ClientVisa> visa = now.visa() != null ? Optional.of(now.visa())
                     : decidedVisa(now, suiteName, verdict, done);
                 if (visa.isEmpty()) {
@@ -1889,17 +1899,24 @@ public class PrCommands implements SnapshotCache {
      * its starter acts on runs.
      */
     public StandingVisas.Phase clientPhase(ClientSpec spec, int pr, long buildId) {
+        Optional<StandingVisas.Phase> completed = standing.completedPhase(spec.repo(), pr, buildId);
+        if (completed.isPresent())
+            return completed.get();
+
         CommandRun run = clientRuns == null ? null : watching.values().stream()
             .filter(r -> spec.repo().equals(r.repo()) && r.pr() == pr
                 && (r.buildId() == buildId || r.rerunId() == buildId))
             .findFirst().orElse(null);
-        if (run == null || run.readyId() != 0 || run.ending() != null || heldVerdicts.containsKey(run.commentId())
-            || run.onPage() && !standing.settlesRuns(run.username()))
-            return new StandingVisas.Phase(StandingVisas.Phase.FINAL, 0, 1, null, null);
+        if (run != null && run.readyId() == 0 && run.ending() == null
+            && !heldVerdicts.containsKey(run.commentId())
+            && !verdictBodies.containsKey(run.commentId())
+            && (!run.onPage() || standing.settlesRuns(run.username())))
+            return run.rerunId() == 0 ? new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 0, 1, null, null)
+                : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, spec.suiteLabel(), null,
+                    List.of(run.rerunId()), null);
 
-        return run.rerunId() == 0 ? new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 0, 1, null, null)
-            : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, spec.suiteLabel(), null,
-                List.of(run.rerunId()), null);
+        return new StandingVisas.Phase(StandingVisas.Phase.FINAL, 0, 1, null, null,
+            List.of(), "not-followed");
     }
 
     public int handledCount() {

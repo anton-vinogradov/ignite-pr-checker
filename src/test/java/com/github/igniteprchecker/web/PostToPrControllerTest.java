@@ -97,7 +97,7 @@ class PostToPrControllerTest {
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29100 Fix the control utility", null, null,
             null, null)));
 
-        when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, false)));
         when(tc.buildEnd("tok", RUN)).thenReturn(Optional.of(started("bob")));
@@ -191,7 +191,7 @@ class PostToPrControllerTest {
     /** An auto re-run settles the run, then a suite re-run of the PR goes: either may still change the verdict. */
     @Test
     void aVerdictRunsCanStillChangeWaits() throws Exception {
-        when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.SETTLING));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.SETTLING));
 
         asAlice(post("/api/pr-comment"))
             .andExpect(status().isConflict())
@@ -199,7 +199,7 @@ class PostToPrControllerTest {
             .andExpect(jsonPath("$.error").value("Post to PR waits for the final verdict: runs of this PR can still"
                 + " change it."));
 
-        when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(tc.currentUserBuilds("tok", PR)).thenReturn(List.of(new TcModel.Build(9426316L, null, "running", null,
             "IgniteTests24Java8_ControlUtility5", null, null, null, null, null, null, null, null, null, null, null,
             null, null)));

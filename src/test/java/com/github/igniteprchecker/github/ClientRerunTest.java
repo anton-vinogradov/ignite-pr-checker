@@ -106,10 +106,7 @@ class ClientRerunTest {
 
     private final ObjectMapper mapper = Jackson2Defaults.mapper();
 
-    private final StandingVisas standing = new StandingVisas(mapper,
-        new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, mock(BlockerAnalyzer.class),
-        mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
-        mock(PendingCommits.class));
+    private final StandingVisas standing = standing();
 
     private final PrCommands commands = commands();
 
@@ -192,14 +189,49 @@ class ClientRerunTest {
 
         assertThat(deciding.phase()).isEqualTo("settling");
         assertThat(deciding.wave()).isZero();
+        assertThat(deciding.completedWaves()).isNull();
         assertThat(rerunning.phase()).isEqualTo("settling");
         assertThat(rerunning.wave()).isEqualTo(1);
         assertThat(rerunning.what()).isEqualTo("Thin client: Python");
         assertThat(rerunning.rerunBuildIds()).containsExactly(RERUN);
+        assertThat(rerunning.completedWaves()).isNull();
         assertThat(commands.clientPhase(PYTHON, PR, RERUN).phase()).isEqualTo("final");
         assertThat(commands.clientPhase(PYTHON, PR, RERUN).rerunBuildIds()).isEmpty();
+        assertThat(commands.clientPhase(PYTHON, PR, RERUN).completedWaves()).isEqualTo(1);
         assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isEqualTo(1);
         assertThat(commands.clientPhase(PYTHON, OTHER_PR, OTHER_RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, OTHER_PR, OTHER_RUN).completedWaves()).isNull();
+    }
+
+    /**
+     * Given a completed auto re-run whose story was deleted, when the service reloads its saved state, then either
+     * build identifies the one completed wave, without treating another repository or PR as that run.
+     */
+    @Test
+    void theCompletedRerunIsKnownAfterItsStoryIsGoneAndTheServiceRestarts(@TempDir Path dir) throws Exception {
+        clientComment(1L, "/run-all");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(true));
+        commands.updateEtas();
+        when(tc.getBuildState("tc", RERUN)).thenReturn(build(RERUN, "finished", "SUCCESS"));
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN, RERUN)).thenReturn(verdict(false));
+        commands.updateEtas();
+        Path stories = dir.resolve("pr-commands.json");
+        commands.saveTo(stories);
+        assertThat(mapper.readTree(stories).path("clientRuns")).isEmpty();
+        Path saved = dir.resolve("standing-visas.json");
+        standing.saveTo(saved);
+
+        StandingVisas restored = standing();
+        restored.loadFrom(saved);
+        PrCommands restarted = commands(restored);
+
+        assertThat(restarted.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
+        assertThat(restarted.clientPhase(PYTHON, PR, RUN).completedWaves()).isEqualTo(1);
+        assertThat(restarted.clientPhase(PYTHON, PR, RERUN).completedWaves()).isEqualTo(1);
+        assertThat(restarted.clientPhase(PYTHON, OTHER_PR, RUN).completedWaves()).isNull();
+        assertThat(restarted.clientPhase(ThinClients.defaults().require("php"), PR, RUN).completedWaves()).isNull();
     }
 
     /**
@@ -221,6 +253,37 @@ class ClientRerunTest {
         verify(github, times(2)).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), anyString());
         assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
         assertThat(commands.clientPhase(PYTHON, PR, RERUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isEqualTo(1);
+        assertThat(commands.clientPhase(PYTHON, PR, RERUN).completedWaves()).isEqualTo(1);
+    }
+
+    /**
+     * Given a finished run that needs no auto re-run, when GitHub defers its verdict comment, then the page shows
+     * the decided verdict with zero completed waves while delivery waits.
+     */
+    @Test
+    void aJudgedVerdictIsFinalWhileGithubDefersItsDelivery(@TempDir Path dir) throws Exception {
+        when(github.appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("the verdict of")))
+            .thenThrow(new GithubClient.WriteDeferred("app busy"));
+        clientComment(1L, "/run-all");
+        finished(RUN, "FAILURE");
+        when(analyzer.analyzeSuiteRun("tc", PR, "pull/69", RUN)).thenReturn(verdict(false));
+
+        commands.updateEtas();
+
+        verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("the verdict of"));
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isZero();
+        Path standingFile = dir.resolve("standing-visas.json"), commandsFile = dir.resolve("pr-commands.json");
+        standing.saveTo(standingFile);
+        commands.saveTo(commandsFile);
+        StandingVisas restored = standing();
+        restored.loadFrom(standingFile);
+        PrCommands restarted = commands(restored);
+        restarted.loadFrom(commandsFile);
+
+        assertThat(restarted.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
+        assertThat(restarted.clientPhase(PYTHON, PR, RUN).completedWaves()).isZero();
     }
 
     /**
@@ -253,6 +316,7 @@ class ClientRerunTest {
         verify(tc, never()).queuePinned(anyString(), any(), anyBoolean(), startsWith("Ignite PR Checker: auto"));
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("the verdict of your"));
         verify(github, never()).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("♻️"));
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isZero();
     }
 
     /** The author switched the option on after the run finished: as for a RunAll, it does not act on that run. */
@@ -297,6 +361,8 @@ class ClientRerunTest {
         verify(analyzer, never()).analyzeSuiteRun(anyString(), anyInt(), anyString(), anyLong(), anyLong());
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("♻️ The auto re-run [build 9424010]"
             + "(https://ci2.example/build/9424010) was cancelled, so this verdict counts the first run only."));
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isEqualTo(1);
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).reason()).isEqualTo("cancelled");
     }
 
     /** TeamCity failed the request of the re-run: the verdict of the first run comes at once and says so. */
@@ -312,6 +378,8 @@ class ClientRerunTest {
 
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("♻️ The checker could not queue the"
             + " auto re-run: TeamCity answered HTTP 500. This verdict counts the first run only."));
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isZero();
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).reason()).isEqualTo("not-queued");
     }
 
     /**
@@ -422,6 +490,8 @@ class ClientRerunTest {
             + " `/run-all`: **Thin client: Python** [build 9424005]"));
         verify(github).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("♻️ The auto re-run [build 9424010]"
             + "(https://ci2.example/build/9424010) is gone from TeamCity, so this verdict counts the first run only."));
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).completedWaves()).isNull();
+        assertThat(commands.clientPhase(PYTHON, PR, RUN).reason()).isEqualTo("gone");
     }
 
     /**
@@ -671,6 +741,8 @@ class ClientRerunTest {
             + " run by itself. Its auto re-run [build 9424010](https://ci2.example/build/9424010) was cancelled, so there"
             + " is no verdict._"));
         verify(github, never()).appComment(eq(CLIENT_REPO), eq(PR), eq("author"), contains("the verdict of"));
+        assertThat(restarted.clientPhase(PYTHON, PR, RERUN).completedWaves()).isEqualTo(1);
+        assertThat(restarted.clientPhase(PYTHON, PR, RERUN).reason()).isEqualTo("cancelled");
     }
 
     /** TeamCity cancelled the run by itself and then failed the request of its re-run: the story says both. */
@@ -702,8 +774,19 @@ class ClientRerunTest {
         verify(github).appEdit(eq(CLIENT_REPO), eq(PR), eq("author"), eq(88L), endsWith("\n🛑 _Run cancelled._"));
     }
 
+    private StandingVisas standing() {
+        return new StandingVisas(mapper,
+            new SessionCodec(new SessionProperties(false, "test-secret"), mapper), tc, github, mock(BlockerAnalyzer.class),
+            mock(JiraClient.class), mock(VisaService.class), mock(RerunTracker.class), mock(Warmer.class),
+            mock(PendingCommits.class));
+    }
+
     private PrCommands commands() {
-        return new PrCommands(mapper, github, standing, tc, mock(RerunTracker.class), mock(StyleFixService.class),
+        return commands(standing);
+    }
+
+    private PrCommands commands(StandingVisas owner) {
+        return new PrCommands(mapper, github, owner, tc, mock(RerunTracker.class), mock(StyleFixService.class),
             mock(SuiteBaseline.class), "https://checker.example", new TeamcityProperties("https://ci2.example/"),
             new ClientRuns(github, tc, analyzer,
                 new AnalysisProperties(null, "IgniteTests24Java8_RunAll", null, null, null, null, null),

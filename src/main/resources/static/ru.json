@@ -618,8 +618,20 @@
     "The checker is processing the results and deciding whether to re-run failed suites. Wait for its decision.": "Чекер обрабатывает результаты и решает, повторять ли упавшие сьюты. Дождись решения.",
     "This PR is closed.": "Этот PR закрыт.",
     "A newer run replaced this one.": "Этот прогон заменён более новым.",
-    "Auto re-runs of this run are no longer expected.": "Автоповторы для этого прогона больше не ожидаются.",
-    "Review the remaining failures; fix their cause or re-run manually.": "Разбери оставшиеся падения: исправь причину или запусти повтор вручную."
+    "Review the remaining failures; fix their cause or re-run manually.": "Разбери оставшиеся падения: исправь причину или запусти повтор вручную.",
+    "Automatic re-runs are off for this run.": "Автоповторы для этого запуска выключены.",
+    "Automatic re-runs were not enabled when this run finished.": "На момент завершения этого запуска автоповторы не были включены.",
+    "Final verdict. Automatic re-runs are complete: 1 wave.": "Окончательный вердикт. Завершена 1 волна автоповторов.",
+    "Final verdict. Automatic re-runs are complete: {0} waves.": "Окончательный вердикт. Автоповторы завершены: {0} {0|волна|волны|волн}.",
+    "Final verdict. No automatic re-runs were started.": "Окончательный вердикт. Автоповторы не запускались.",
+    "Final verdict. The number of completed automatic re-run waves is unknown.": "Окончательный вердикт. Число завершённых волн автоповторов неизвестно.",
+    "Preliminary verdict — wait for the updated result.": "Предварительный вердикт — дождись обновлённого результата.",
+    "TeamCity no longer has the automatic re-run, so its completion could not be confirmed.": "В TeamCity больше нет автоповтора, поэтому подтвердить его завершение не удалось.",
+    "The checker could not queue the automatic re-run.": "Чекер не смог поставить автоповтор в очередь.",
+    "The run was cancelled; this verdict uses only the available results.": "Запуск отменён; вердикт учитывает только доступные результаты.",
+    "The runs finished. The checker is updating the verdict.": "Запуски завершились. Чекер обновляет вердикт.",
+    "Too many suites needed an automatic re-run, so the checker skipped it.": "Автоповтор нужен слишком многим сьютам, поэтому чекер его пропустил.",
+    "Current runs could not be confirmed. The checker will try again.": "Текущие прогоны пока не подтверждены. Чекер проверит их ещё раз."
   },
   "settings": {
     "Details": "Подробнее",

@@ -145,7 +145,8 @@ public class PostVisaController {
 
         boolean going = atMerge.isPresent() ? analyzer.runsAtMergeDue(pr)
             : res.get().live() || res.get().finishedAt() == 0
-                || !StandingVisas.Phase.FINAL.equals(standing.phase(pr, build).phase())
+                || !StandingVisas.Phase.FINAL.equals(standing.phase(pr, build,
+                    () -> tc.buildEnd(tcToken, build).map(JiraController::runOf).orElse(StandingVisas.Run.UNKNOWN)).phase())
                 || !tc.currentUserBuilds(tcToken, pr).isEmpty();
 
         return finalOrNot(res.get(), null, going);

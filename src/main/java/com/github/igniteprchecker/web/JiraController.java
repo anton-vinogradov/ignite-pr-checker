@@ -165,8 +165,9 @@ public class JiraController {
      * page shows the waves, which only the PR comment and the visa told before.
      */
     @GetMapping("/settling")
-    public StandingVisas.Phase settling(@RequestParam int pr, @RequestParam long build) {
-        return standing.phase(pr, build);
+    public StandingVisas.Phase settling(@RequestParam int pr, @RequestParam long build,
+        @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken) {
+        return standing.phase(pr, build, () -> run(tcToken, build));
     }
 
     /**
@@ -216,9 +217,9 @@ public class JiraController {
         return asked.run();
     }
 
-    private static StandingVisas.Run runOf(TcModel.Build b) {
+    static StandingVisas.Run runOf(TcModel.Build b) {
         return new StandingVisas.Run(TcClient.starter(b), b.canceledInfo() != null,
-            TcDates.epochSeconds(b.finishDate()) * 1000);
+            TcDates.epochSeconds(b.finishDate()) * 1000, "finished".equalsIgnoreCase(b.state()));
     }
 
     /** TeamCity's answer about a run, asked {@code at}; {@code done}: it no longer changes. */
