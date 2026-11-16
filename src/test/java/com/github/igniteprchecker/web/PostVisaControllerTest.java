@@ -36,6 +36,7 @@ import com.github.igniteprchecker.tc.TcClient;
 import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -98,7 +99,7 @@ class PostVisaControllerTest {
             + " H2 engine", null, null, null, null)));
         when(standing.visaButton(eq("alice"), any(), anyInt(), anyLong())).thenReturn(
             new StandingVisas.VisaButton(true, null));
-        when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, false)));
         when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), any()))
@@ -162,10 +163,10 @@ class PostVisaControllerTest {
     /** An auto re-run settles the run, a run of the PR goes, or the RunAll still goes: the verdict can change. */
     @Test
     void aVerdictRunsCanStillChangeWaits() throws Exception {
-        when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.SETTLING));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.SETTLING));
         refusedAs("going");
 
-        when(standing.phase(PR, RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(tc.currentUserBuilds("tok", PR)).thenReturn(List.of(build("IgniteTests24Java8_ControlUtility5")));
         refusedAs("going");
 
@@ -173,6 +174,27 @@ class PostVisaControllerTest {
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, true)));
         refusedAs("going");
 
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+    }
+
+    /** Given an unconfirmed settlement, posting supplies the real run metadata and waits for its decision. */
+    @Test
+    void aPostChecksSettlementWithTeamCityMetadata() throws Exception {
+        when(tc.buildEnd("tok", RUN)).thenReturn(Optional.of(new TcModel.Build(RUN, "FAILURE", "finished",
+            "pull/" + PR + "/head", null, null, null, null, "20261116T120000+0000", null, null, null,
+            new TcModel.Triggered("user", new TcModel.User("alice")), null, null, null, null, null)));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenAnswer(call -> {
+            Supplier<StandingVisas.Run> metadata = call.getArgument(2);
+            StandingVisas.Run run = metadata.get();
+            assertThat(run.starter()).isEqualTo("alice");
+            assertThat(run.finished()).isTrue();
+            assertThat(run.finishedMs()).isEqualTo(java.time.Instant.parse("2026-11-16T12:00:00Z").toEpochMilli());
+            return phase(StandingVisas.Phase.SETTLING);
+        });
+
+        refusedAs("going");
+
+        verify(tc).buildEnd("tok", RUN);
         verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
     }
 

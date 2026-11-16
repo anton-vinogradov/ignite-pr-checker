@@ -1304,26 +1304,85 @@ public class StandingVisas implements SnapshotCache {
     /**
      * Where the verdict of the PR's run {@code buildId} stands, for the page: "running" while a RunAll of the
      * PR is under way, "settling" while auto re-runs settle that run or the decision on them is being made,
-     * "final" when nothing will change it any more.
+     * "final" when no active decision is recorded. The overload with TeamCity metadata confirms whether an
+     * unrecorded run still needs a decision; a missing wave alone does not prove that it was settled.
      */
     public Phase phase(int pr, long buildId) {
         Retry r = waves.get(buildId);
         if (r != null && r.pr() != pr)
             r = null;
         List<Long> rerunBuildIds = r == null || r.queued() == null ? List.of() : r.queued();
+        boolean skipped = r != null && "too-many-suites".equals(r.reason())
+            && r.history() != null && r.history().isEmpty() && rerunBuildIds.isEmpty();
+        int wave = r == null || skipped ? 0 : r.wave();
         if (rerunTracker.newestChainUnderWay(pr) > 0)
-            return new Phase(Phase.RUNNING, r == null ? 0 : r.wave(), MAX_RERUNS,
-                r == null ? null : inPresentWords(r.what()), null, rerunBuildIds, null);
+            return new Phase(Phase.RUNNING, wave, MAX_RERUNS,
+                r == null ? null : inPresentWords(r.what()), null, rerunBuildIds, skipped ? r.reason() : null);
 
         if (r != null)
-            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, inPresentWords(r.what()), activeEtaEpoch(pr),
-                rerunBuildIds, null);
+            return new Phase(Phase.SETTLING, wave, MAX_RERUNS, inPresentWords(r.what()), activeEtaEpoch(pr),
+                rerunBuildIds, skipped ? r.reason() : null);
         if (Long.valueOf(buildId).equals(deciding.get(pr)))
             return new Phase(Phase.SETTLING, 0, MAX_RERUNS, null, null);
 
         String reason = runEnd(pr, buildId).map(end -> end.replacedBy() > 0 ? "replaced" : "closed").orElse(null);
+        Optional<Phase> completed = completedPhase(null, pr, buildId);
+        if (reason != null)
+            return finalPhase(MAX_RERUNS, completed.map(Phase::completedWaves).orElse(null), reason);
 
-        return new Phase(Phase.FINAL, 0, MAX_RERUNS, null, null, List.of(), reason);
+        return completed.orElseGet(() ->
+            new Phase(Phase.FINAL, 0, MAX_RERUNS, null, null));
+    }
+
+    /** Uses the page's cached TeamCity metadata when no saved settlement confirms the run's result yet. */
+    public Phase phase(int pr, long buildId, Supplier<Run> run) {
+        Phase known = phase(pr, buildId);
+        if (!Phase.FINAL.equals(known.phase()) || known.reason() != null
+            || completedPhase(null, pr, buildId).isPresent())
+            return known;
+        if (!automation)
+            return finalPhase(MAX_RERUNS, null, "off");
+
+        Run observed = run.get();
+        if (observed.starter() == null)
+            return new Phase(Phase.UNKNOWN, 0, MAX_RERUNS, null, null);
+        if (observed.cancelled())
+            return finalPhase(MAX_RERUNS, null, "cancelled");
+        if (!observed.finished())
+            return new Phase(Phase.RUNNING, 0, MAX_RERUNS, null, null);
+
+        Enrollment e = enrolled.get(observed.starter());
+        if (e == null || !e.options().autoRerun())
+            return finalPhase(MAX_RERUNS, null, "off");
+        if (observed.finishedMs() <= 0)
+            return new Phase(Phase.UNKNOWN, 0, MAX_RERUNS, null, null);
+        if (!e.actingOn(observed.finishedMs()).autoRerun())
+            return finalPhase(MAX_RERUNS, null, "before-option");
+
+        settleRequested(pr);
+        return new Phase(Phase.SETTLING, 0, MAX_RERUNS, null, null);
+    }
+
+    /** The terminal result kept by the same owner that prevents a run from being handled twice. */
+    public Optional<Phase> completedPhase(String repo, int pr, long buildId) {
+        return enrolled.values().stream().map(e -> e.handled().posted().get(runKey(repo, pr)))
+            .filter(Objects::nonNull).filter(r -> r.matches(buildId)).findFirst()
+            .map(r -> finalPhase(repo == null ? MAX_RERUNS : 1, r.completedWaves(),
+                r.reason() == null && r.completedWaves() == null ? "legacy" : r.reason()));
+    }
+
+    /** Records a client's decided auto re-run result before its command story is removed. */
+    public void clientHandled(String username, String repo, int pr, long buildId, long rerunId,
+        Integer completedWaves, String reason) {
+        Enrollment e = enrolled.get(username);
+        if (e != null)
+            e.handled().posted().merge(runKey(Objects.requireNonNull(repo), pr),
+                new HandledRun(repo, pr, buildId, rerunId, completedWaves, reason),
+                (before, next) -> before.buildId() > next.buildId() ? before : next);
+    }
+
+    private static Phase finalPhase(int of, Integer completedWaves, String reason) {
+        return new Phase(Phase.FINAL, 0, of, null, null, List.of(), reason, completedWaves);
     }
 
     /**
@@ -1331,16 +1390,24 @@ public class StandingVisas implements SnapshotCache {
      * {@code what} it re-runs and {@code etaEpochSec} when it should settle, null when not known.
      * {@code rerunBuildIds} identifies the run's own auto re-runs, including finished builds while their results
      * are being processed. {@code reason} is "closed" or "replaced" when the checker knows why the run is left alone.
+     * {@code completedWaves} is the saved number of queued waves after a terminal decision, including a known zero;
+     * null means the history is unavailable, even when a policy says no new re-runs will follow.
      */
     public record Phase(String phase, int wave, int of, String what, Long etaEpochSec,
         @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Long> rerunBuildIds,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String reason) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String reason,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer completedWaves) {
         public Phase {
             rerunBuildIds = rerunBuildIds == null ? List.of() : List.copyOf(rerunBuildIds);
         }
 
         public Phase(String phase, int wave, int of, String what, Long etaEpochSec) {
-            this(phase, wave, of, what, etaEpochSec, List.of(), null);
+            this(phase, wave, of, what, etaEpochSec, List.of(), null, null);
+        }
+
+        public Phase(String phase, int wave, int of, String what, Long etaEpochSec,
+            List<Long> rerunBuildIds, String reason) {
+            this(phase, wave, of, what, etaEpochSec, rerunBuildIds, reason, null);
         }
 
         static final String RUNNING = "running";
@@ -1348,6 +1415,8 @@ public class StandingVisas implements SnapshotCache {
         public static final String SETTLING = "settling";
 
         public static final String FINAL = "final";
+
+        public static final String UNKNOWN = "unknown";
     }
 
     /**
@@ -1457,7 +1526,7 @@ public class StandingVisas implements SnapshotCache {
         if (!mine)
             return VisaLine.of(VisaLine.ON, r.starter(), false);
 
-        boolean settled = Long.valueOf(buildId).equals(e.handled().posted().get(pr));
+        boolean settled = handledBuild(e, pr, buildId);
         Owed owed = e.handled().owed().get(pr);
         boolean late = settled ? owed == null || owed.buildId() != buildId || !owed.visa()
             : r.finishedMs() > 0 && e.since(Option.VISA) > r.finishedMs();
@@ -2042,7 +2111,11 @@ public class StandingVisas implements SnapshotCache {
      * What TeamCity says of a run: who started it ({@code starter}, null when it names nobody), whether it was
      * {@code cancelled}, and when it finished ({@code finishedMs}, 0 while it goes).
      */
-    public record Run(String starter, boolean cancelled, long finishedMs) {
+    public record Run(String starter, boolean cancelled, long finishedMs, boolean finished) {
+        public Run(String starter, boolean cancelled, long finishedMs) {
+            this(starter, cancelled, finishedMs, finishedMs > 0);
+        }
+
         /** A run TeamCity tells nothing of. */
         public static final Run UNKNOWN = new Run(null, false, 0);
     }
@@ -2122,7 +2195,7 @@ public class StandingVisas implements SnapshotCache {
     public boolean buildHandled(String username, int pr, long buildId) {
         Enrollment e = enrolled.get(username);
 
-        return e != null && Long.valueOf(buildId).equals(e.handled().posted().get(pr));
+        return e != null && handledBuild(e, pr, buildId);
     }
 
     /** One settling wave as seen from outside: its number, what it re-runs, and the settle estimate. */
@@ -2870,8 +2943,7 @@ public class StandingVisas implements SnapshotCache {
                 if (e.tc().rejected() || e.tc().waits())
                     return 0; // a refused, removed or unread token pauses its owner's options until a working one comes
 
-                Long last = e.handled().posted().get(pr.number());
-                if (last != null && last == buildId) {
+                if (handledBuild(e, pr.number(), buildId)) {
                     // v1.20.11 marked runs handled without dropping their waves, which then read as settling for good.
                     settled(e, pr.number(), buildId);
                     rests = true;
@@ -2888,7 +2960,8 @@ public class StandingVisas implements SnapshotCache {
                 if (!acting.settlesRuns()) {
                     endThreads(who, e, pr, b -> b == buildId,
                         e.options().settlesRuns() ? visas.notFollowedAfterChange() : visas.notFollowed());
-                    settled(e, pr.number(), buildId);
+                    settled(e, pr.number(), buildId, null,
+                        e.options().autoRerun() ? "before-option" : "off");
                     rests = true;
                     return 0; // nothing to post or re-run: a verdict computed now would go nowhere
                 }
@@ -3018,7 +3091,7 @@ public class StandingVisas implements SnapshotCache {
             // Systemic breakage: re-running dozens of suites would only hammer the shared CI.
             waves.put(buildId, new Retry(pr, buildId, MAX_RERUNS, what, List.of(),
                 "(i) Auto re-run skipped: " + suites.size() + " suites is too many — "
-                    + "this looks systemic; fix the cause and re-trigger RunAll.", who, List.of()));
+                    + "this looks systemic; fix the cause and re-trigger RunAll.", who, List.of(), "too-many-suites"));
 
             return false;
         }
@@ -3079,7 +3152,14 @@ public class StandingVisas implements SnapshotCache {
         // A JIRA token a restored copy of the state lacked, or one the checker could not read: the visa stays owed
         // until the user saves a new one.
         int posted = deliver(who, e, pr, due, due.visa() && jiraToken != null, due.comment(), res, tcToken, jiraToken);
-        settled(e, pr.number(), buildId);
+        Integer completed = null;
+        if (done != null && done.history() != null)
+            completed = done.history().size();
+        else if (done == null && acting.autoRerun())
+            completed = 0;
+        String reason = done != null && done.reason() != null ? done.reason()
+            : !acting.autoRerun() ? "off" : done == null ? "not-needed" : null;
+        settled(e, pr.number(), buildId, completed, reason);
 
         return posted;
     }
@@ -3283,7 +3363,13 @@ public class StandingVisas implements SnapshotCache {
 
     /** The run is handled: the sweep leaves it, and its waves and mid-run memo are spent. */
     private void settled(Enrollment e, int pr, long buildId) {
-        e.handled().posted().put(pr, buildId);
+        HandledRun kept = e.handled().posted().get(runKey(null, pr));
+        settled(e, pr, buildId, kept != null && kept.matches(buildId) ? kept.completedWaves() : null,
+            kept != null && kept.matches(buildId) ? kept.reason() : null);
+    }
+
+    private void settled(Enrollment e, int pr, long buildId, Integer completedWaves, String reason) {
+        e.handled().posted().put(runKey(null, pr), new HandledRun(null, pr, buildId, 0, completedWaves, reason));
         waves.remove(buildId);
         earlyReruns.remove(buildId);
         heldForNewer.remove(pr, buildId);
@@ -3448,7 +3534,7 @@ public class StandingVisas implements SnapshotCache {
     private static boolean open(Enrollment e, int pr, long buildId, boolean done) {
         Owed owed = e.handled().owed().get(pr);
 
-        return !done && (!Long.valueOf(buildId).equals(e.handled().posted().get(pr))
+        return !done && (!handledBuild(e, pr, buildId)
             || owed != null && owed.buildId() == buildId);
     }
 
@@ -4046,12 +4132,28 @@ public class StandingVisas implements SnapshotCache {
      * What was already done for the user's runs: the build handled per PR, its living comments, and what its verdict
      * still owes them.
      */
-    private record Handled(ConcurrentMap<Integer, Long> posted, ConcurrentMap<Integer, GhThread> ghThreads,
+    private record Handled(ConcurrentMap<String, HandledRun> posted, ConcurrentMap<Integer, GhThread> ghThreads,
         ConcurrentMap<Integer, JiraThread> jiraThreads, ConcurrentMap<Integer, Owed> owed) {
         static Handled empty() {
             return new Handled(new ConcurrentHashMap<>(), new ConcurrentHashMap<>(), new ConcurrentHashMap<>(),
                 new ConcurrentHashMap<>());
         }
+    }
+
+    /** A main or client run's terminal decision; missing count preserves uncertainty in older snapshots. */
+    private record HandledRun(String repo, int pr, long buildId, long rerunId, Integer completedWaves, String reason) {
+        boolean matches(long build) {
+            return buildId == build || rerunId > 0 && rerunId == build;
+        }
+    }
+
+    private static String runKey(String repo, int pr) {
+        return repo == null ? Integer.toString(pr) : repo + "#" + pr;
+    }
+
+    private static boolean handledBuild(Enrollment e, int pr, long buildId) {
+        HandledRun r = e.handled().posted().get(runKey(null, pr));
+        return r != null && r.buildId() == buildId;
     }
 
     /**
@@ -4155,14 +4257,19 @@ public class StandingVisas implements SnapshotCache {
      * Snapshots of v1.20.11 and before have neither the PR nor the last two.
      */
     private record Retry(int pr, long buildId, int attempts, String what, List<String> history, String note,
-        String by, List<Long> queued) {
+        String by, List<Long> queued, String reason) {
+        Retry(int pr, long buildId, int attempts, String what, List<String> history, String note,
+            String by, List<Long> queued) {
+            this(pr, buildId, attempts, what, history, note, by, queued, null);
+        }
+
         /** The number of the wave going: each wave so far counts, a skipped re-run counts as its attempts. */
         int wave() {
             return history != null && !history.isEmpty() ? history.size() : attempts;
         }
 
         Retry ofPr(int number) {
-            return new Retry(number, buildId, attempts, what, history, note, by, queued);
+            return new Retry(number, buildId, attempts, what, history, note, by, queued, reason);
         }
 
         /**
@@ -4180,7 +4287,7 @@ public class StandingVisas implements SnapshotCache {
             history.stream().filter(h -> !h.startsWith("early: ")).forEach(merged::add);
 
             return new Retry(pr, buildId, attempts, merged.size() == 1 ? merged.get(0) : what, merged, note, by,
-                queued);
+                queued, reason);
         }
     }
 
@@ -4430,7 +4537,7 @@ public class StandingVisas implements SnapshotCache {
         Boolean suiteFix, Map<Integer, Owed> owed, Long ghId, Boolean ghLoginProven, String ghTokenNote,
         String tcRefusedHash, Boolean tcTokenRemoved, Boolean jiraTokenRemoved, Boolean ghTokenRemoved,
         Long ghLinkedAt, String ghLinkedFrom, Boolean ghFirstCommandDue, String tcTokenUnread, String jiraTokenUnread,
-        String ghTokenUnread) {
+        String ghTokenUnread, List<HandledRun> handledResults) {
         static Persisted of(String username, Enrollment e) {
             Options o = e.options();
             Handled h = e.handled();
@@ -4438,15 +4545,19 @@ public class StandingVisas implements SnapshotCache {
             e.onSince().forEach((option, at) -> since.put(option.name(), at));
             GhAccount gh = e.ghAccount();
 
+            List<HandledRun> results = List.copyOf(h.posted().values());
+            Map<Integer, Long> posted = new HashMap<>();
+            results.stream().filter(r -> r.repo() == null)
+                .forEach(r -> posted.put(r.pr(), r.buildId()));
             return new Persisted(username, e.tc().token(), e.jira().token(), e.gh().token(), e.ghLogin(), e.tz(),
-                e.enabledAt(), new HashMap<>(h.posted()), new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
+                e.enabledAt(), posted, new HashMap<>(h.ghThreads()), new HashMap<>(h.jiraThreads()),
                 o.autoVisa(), o.autoRerun(), o.ghComment(), o.styleFix(), e.gh().rejectedAt(), e.jira().rejectedAt(),
                 e.tc().rejectedAt(), o.commands(), since, o.suiteFix(), new HashMap<>(h.owed()),
                 gh == null ? null : gh.id(), gh == null || gh.askToken() ? null : gh.proven(), e.gh().note(),
                 e.tc().hash(), e.tc().removed(), e.jira().removed(), e.gh().removed(),
                 gh == null ? null : gh.linkedAt(), gh == null ? null : gh.linkedFrom(),
                 gh != null && gh.firstCommandDue() ? Boolean.TRUE : null, e.tc().unread(), e.jira().unread(),
-                e.gh().unread());
+                e.gh().unread(), results);
         }
 
         /**
@@ -4464,7 +4575,10 @@ public class StandingVisas implements SnapshotCache {
         Enrollment enrollment() {
             Handled h = Handled.empty();
             if (posted != null)
-                h.posted().putAll(posted);
+                posted.forEach((pr, build) -> h.posted().put(runKey(null, pr),
+                    new HandledRun(null, pr, build, 0, null, null)));
+            if (handledResults != null)
+                handledResults.forEach(r -> h.posted().put(runKey(r.repo(), r.pr()), r));
             if (ghThreads != null) {
                 ghThreads.forEach((pr, t) -> {
                     if (t.app())

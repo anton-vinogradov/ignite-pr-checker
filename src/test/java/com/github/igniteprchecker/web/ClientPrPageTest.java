@@ -483,8 +483,7 @@ class ClientPrPageTest {
             + " forcefully use H2 engine"))).isEmpty();
         assertThat(texts.get("freshText").asText()).startsWith("Thin client: Python, сборка 9424794 · проверен PR на"
             + " коммите a1b2c3d с master проекта Ignite на коммите 1f2e3d4");
-        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоповтор 1/1: выполняется — 0, в очереди — 1."
-            + " Дождись обновлённого вердикта.");
+        assertThat(texts.get("settling").asText()).isEqualTo("Предварительный вердикт — дождись обновлённого результата. ♻︎ Автоповтор 1/1: выполняется — 0, в очереди — 1.");
         assertThat(texts.get("pendingRerun").asText()).isEqualTo("Запустить сьюту");
         assertThat(texts.get("runAllLabel").asText()).isEqualTo("«Thin client: Python»:");
         assertThat(out.get("question").asText()).startsWith("Поставить «Thin client: Python» для PR #69 клиента Python"

@@ -94,7 +94,8 @@ class TabSignalTest {
             """);
 
         assertThat(out.get("title").asText()).isEqualTo("♻️ deciding on re-run · #13575 — Ignite PR Checker");
-        assertThat(out.get("line").asText()).startsWith("The checker is processing the results and deciding whether to re-run");
+        assertThat(out.get("line").asText()).startsWith("Preliminary verdict — wait")
+            .contains("processing the results and deciding whether to re-run");
     }
 
     @Test
@@ -238,7 +239,7 @@ class TabSignalTest {
                 : { phase: 'final', wave: 0, of: 2 } }));
             page.route('/api/refresh', { body: verdict({ buildId: 9100 }) }, 'POST');
             await page.tick(90000);
-            const analysing = { title: page.run('document').title, icon: %s };
+            const analysing = { title: page.run('document').title, icon: %s, text: page.el('settling').textContent };
             release();
             await page.settle();
             report({ analysing, after: page.run('document').title });
@@ -246,6 +247,8 @@ class TabSignalTest {
 
         assertThat(out.get("analysing").get("title").asText()).isEqualTo("⌛ analysing · #13575 — Ignite PR Checker");
         assertThat(out.get("analysing").get("icon").asText()).contains("%231cb6ed");
+        assertThat(out.get("analysing").get("text").asText()).startsWith("Preliminary verdict — wait")
+            .contains("The runs finished. The checker is updating the verdict.").doesNotContain("Final verdict.");
         assertThat(out.get("after").asText()).isEqualTo("♻️ re-run 1/2 · #13575 — Ignite PR Checker");
     }
 
@@ -260,14 +263,16 @@ class TabSignalTest {
             page.route('/api/analyze', { status: 502, body: {} });
             page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2 } });
             await page.tick(30000);
-            const failed = page.run('document').title;
+            const failed = { title: page.run('document').title, text: page.el('settling').textContent };
             page.route('/api/analyze', { body: verdict({ buildId: 9100, blockers: [
                 blocker('ClientReconnectTest.testReconnect', 'occ-1'), blocker('CacheTest.testPut', 'occ-2')] }) });
             await page.tick(180000);
             report({ failed, title: page.run('document').title });
             """);
 
-        assertThat(out.get("failed").asText()).isEqualTo("⌛ analysing · #13575 — Ignite PR Checker");
+        assertThat(out.get("failed").get("title").asText()).isEqualTo("⌛ analysing · #13575 — Ignite PR Checker");
+        assertThat(out.get("failed").get("text").asText()).startsWith("Preliminary verdict — wait")
+            .contains("checker is updating the verdict").doesNotContain("Final verdict.");
         assertThat(out.get("title").asText()).isEqualTo("❌ 2 blockers · #13575 — Ignite PR Checker");
     }
 
@@ -331,5 +336,166 @@ class TabSignalTest {
 
         assertThat(out.get("title").asText()).isEqualTo("❌ 1 blocker · #13575 — Ignite PR Checker");
         assertThat(out.get("shown")).isEmpty();
+    }
+
+    /**
+     * Given a live leaf-suite re-run and an old final receipt, when the page polls and notifications are armed,
+     * then the tab and visible verdict wait for the suite instead of announcing a final result.
+     */
+    @Test
+    void aLiveLeafSuiteKeepsTheVerdictAndNotificationWaiting() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + NOTIFICATIONS + """
+            page.route('/api/runs', { body: [{ buildId: 9100, state: 'running', name: 'Cache', runAll: false,
+                webUrl: 'https://ci2.example/build/9100' }] });
+            page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2, completedWaves: 2 } });
+            await page.load('?pr=13575');
+            await page.el('notifyBtn').onclick();
+            await page.settle();
+            await page.tick(15000);
+            report({ title: page.run('document').title, text: page.el('settling').textContent, shown });
+            """);
+
+        assertThat(out.get("title").asText()).startsWith("▶ running");
+        assertThat(out.get("text").asText()).startsWith("Preliminary verdict — wait")
+            .contains("Other runs of this PR: 1 running, 0 queued.").doesNotContain("Final verdict.");
+        assertThat(out.get("shown")).isEmpty();
+    }
+
+    /**
+     * Given a final receipt but a retryable incomplete analysis, when the retry deadline passes, then only the
+     * updated final state may notify; the receipt cannot hide the earlier analysis wait.
+     */
+    @Test
+    void anIncompleteAnalysisKeepsTheFinalReceiptFromNotifyingEarly() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + NOTIFICATIONS + """
+            page.route('/api/analyze', { body: verdict({ incompleteSince: page.now() - 19 * 60000 }) });
+            page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2, completedWaves: 2 } });
+            await page.load('?pr=13575');
+            await page.el('notifyBtn').onclick();
+            await page.settle();
+            const pending = { shown: shown.length, title: page.run('document').title,
+                text: page.el('settling').textContent };
+            await page.tick(90000);
+            report({ pending, shown, after: page.el('settling').textContent });
+            """);
+
+        assertThat(out.get("pending").get("shown").asInt()).isZero();
+        assertThat(out.get("pending").get("text").asText()).startsWith("Preliminary verdict — wait")
+            .contains("TeamCity errors", "retrying");
+        assertThat(out.get("pending").get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
+        assertThat(out.get("shown")).hasSize(1);
+        assertThat(out.get("after").asText()).startsWith("Final verdict. Automatic re-runs are complete: 2 waves.");
+    }
+
+    /**
+     * Given a clean-looking result whose head check is still pending, when a final receipt arrives first,
+     * then the page waits for that check before declaring or notifying the final verdict.
+     */
+    @Test
+    void theHeadCheckMustFinishBeforeAFinalCleanNotification() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + NOTIFICATIONS
+            + HELD.formatted("pending") + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'CLEAN' }) });
+            page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2, completedWaves: 0 } });
+            await page.load('?pr=13575');
+            await page.el('notifyBtn').onclick();
+            await page.settle();
+            const pending = { shown: shown.length, text: page.el('settling').textContent,
+                title: page.run('document').title };
+            release();
+            await page.settle();
+            await page.tick(90000);
+            report({ pending, shown, after: page.el('settling').textContent });
+            """);
+
+        assertThat(out.get("pending").get("shown").asInt()).isZero();
+        assertThat(out.get("pending").get("text").asText()).startsWith("Preliminary verdict — wait")
+            .contains("verifies that this run tested the PR's latest commit");
+        assertThat(out.get("pending").get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
+        assertThat(out.get("shown")).hasSize(1);
+        assertThat(out.get("after").asText()).startsWith("Final verdict. No automatic re-runs were started.");
+    }
+
+    /**
+     * Given a final verdict with a confirmed empty run list, when the next GET fails, then final notifications and
+     * manual posting wait for a successful read instead of trusting that stale empty list.
+     */
+    @Test
+    void aFailedRunReadRevokesFinalUntilTheListIsConfirmedAgain() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + NOTIFICATIONS + """
+            page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2, completedWaves: 2 } });
+            page.route('/api/pr-title', { body: { title: 'IGNITE-29049 Move MDC to JUnit' } });
+            page.route('/api/visa', { body: { state: 'due', starter: 'alice', mine: true, jiraReady: true } });
+            page.route('/api/pr-comment', { body: { bot: 'ready', url: null } });
+            await page.load('?pr=13575');
+            const state = () => ({ text: page.el('settling').textContent, title: page.run('document').title,
+                visaShown: !page.el('visaPostGroup').classList.contains('hidden'),
+                prShown: !page.el('prPostGroup').classList.contains('hidden'),
+                visaOff: page.el('visaPost').disabled, prOff: page.el('prPost').disabled, shown: shown.length });
+            const before = state();
+            page.route('/api/runs', { status: 502, body: {} });
+            await page.run('loadRuns')(13575);
+            await page.settle();
+            await page.el('notifyBtn').onclick();
+            await page.settle();
+            const failed = state();
+            await page.tick(90000);
+            const stillFailed = state();
+            page.route('/api/runs', { body: [] });
+            await page.run('loadRuns')(13575);
+            await page.settle();
+            report({ before, failed, stillFailed, recovered: state() });
+            """);
+
+        assertThat(out.at("/before/text").asText()).startsWith("Final verdict.");
+        assertThat(out.at("/before/visaShown").asBoolean()).isTrue();
+        assertThat(out.at("/before/prShown").asBoolean()).isTrue();
+        assertThat(out.at("/before/visaOff").asBoolean()).isFalse();
+        assertThat(out.at("/before/prOff").asBoolean()).isFalse();
+        for (String stage : new String[] { "failed", "stillFailed" }) {
+            assertThat(out.at("/" + stage + "/text").asText()).startsWith("Preliminary verdict — wait")
+                .contains("Current runs could not be confirmed").doesNotContain("Final verdict.");
+            assertThat(out.at("/" + stage + "/title").asText()).isEqualTo("#13575 — Ignite PR Checker");
+            assertThat(out.at("/" + stage + "/visaOff").asBoolean()).isTrue();
+            assertThat(out.at("/" + stage + "/prOff").asBoolean()).isTrue();
+            assertThat(out.at("/" + stage + "/shown").asInt()).isZero();
+        }
+        assertThat(out.at("/recovered/text").asText()).startsWith("Final verdict.");
+        assertThat(out.at("/recovered/visaOff").asBoolean()).isFalse();
+        assertThat(out.at("/recovered/prOff").asBoolean()).isFalse();
+        assertThat(out.at("/recovered/shown").asInt()).isEqualTo(1);
+    }
+
+    /**
+     * Given a positive final receipt but no successful run-list GET yet, when the PR opens, then a missing run list
+     * cannot be mistaken for a confirmed empty list or enable final notification and manual posting.
+     */
+    @Test
+    void theFirstRunReadMustSucceedBeforeTheVerdictIsFinal() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + NOTIFICATIONS + HELD.formatted("runs") + """
+            page.route('/api/runs', { status: 502, body: {} });
+            page.route('/api/settling', { body: { phase: 'final', wave: 0, of: 2, completedWaves: 0 } });
+            page.route('/api/pr-title', { body: { title: 'IGNITE-29049 Move MDC to JUnit' } });
+            page.route('/api/visa', { body: { state: 'due', starter: 'alice', mine: true, jiraReady: true } });
+            page.route('/api/pr-comment', { body: { bot: 'ready', url: null } });
+            await page.load('?pr=13575');
+            await page.el('notifyBtn').onclick();
+            await page.settle();
+            const state = () => ({ text: page.el('settling').textContent, title: page.run('document').title,
+                visaOff: page.el('visaPost').disabled, prOff: page.el('prPost').disabled, shown: shown.length });
+            const pending = state();
+            release();
+            await page.settle();
+            report({ pending, failed: state() });
+            """);
+
+        for (String stage : new String[] { "pending", "failed" }) {
+            assertThat(out.at("/" + stage + "/text").asText()).startsWith("Preliminary verdict — wait")
+                .contains("Current runs could not be confirmed").doesNotContain("Final verdict.");
+            assertThat(out.at("/" + stage + "/title").asText()).isEqualTo("#13575 — Ignite PR Checker");
+            assertThat(out.at("/" + stage + "/visaOff").asBoolean()).isTrue();
+            assertThat(out.at("/" + stage + "/prOff").asBoolean()).isTrue();
+            assertThat(out.at("/" + stage + "/shown").asInt()).isZero();
+        }
     }
 }

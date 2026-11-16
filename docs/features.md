@@ -225,10 +225,14 @@ own tests, and what was not blamed on the PR.
   finish time turns amber when the run is over a week old. The ↻ button computes the verdict again. When TeamCity
   reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
 - **Lines under the head** say when the verdict is for older code or a mixed run, what is on ci2 now, and whether
-  to wait. The auto re-run line shows its queued and running builds or that the checker is processing their results.
-  After it finishes, the line says auto re-runs of this run are no longer expected. Remaining failures then need a
-  fix or a manual re-run. Other runs of the PR are named separately. If TeamCity errors leave the analysis incomplete,
-  the line says how long the checker will keep retrying it. An unavailable status is shown as unknown.
+  to wait. A **preliminary verdict** explicitly asks you to wait while builds, automatic re-runs or analysis still
+  need time. This includes a newer RunAll while the page shows an earlier result. The auto re-run line shows queued
+  and running builds, a pending decision, or processing of their results. If TeamCity errors leave the analysis
+  incomplete, it says how long the checker will keep retrying it. An unconfirmed status is shown as unknown.
+- A **final verdict** means the checker expects no further automatic re-runs or analysis of this run. It says how
+  many automatic re-run waves completed when that is known. Zero means none started; unknown history is not treated
+  as zero. A final verdict may still have blockers or missing results: fix the failures or re-run manually. GitHub
+  comments and JIRA visas have their own delivery status. A merged PR keeps its retained verdict.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
