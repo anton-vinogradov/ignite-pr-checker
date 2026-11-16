@@ -4305,7 +4305,7 @@ $('ghLink').onclick = async () => {
     const m = $('ghLinkMsg');
     let url = '/api/github/link' + zoneParam('?');
     if (selectedPr) url += (url.includes('?') ? '&' : '?') + 'pr=' + selectedPr;
-    if (selectedRepo) url += (url.includes('?') ? '&' : '?') + 'repo=' + selectedRepo;
+    url += (url.includes('?') ? '&' : '?') + 'repo=' + (selectedRepo || 'ignite');
     m.textContent = T('opening GitHub…');
     try {
         const r = await api(url, { method: 'POST' });

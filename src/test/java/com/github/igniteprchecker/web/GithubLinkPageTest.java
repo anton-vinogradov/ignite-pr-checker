@@ -137,7 +137,7 @@ class GithubLinkPageTest {
             report({ asked: page.fetches('/api/github/link').map(f => f.url), went: page.location.href });
             """);
 
-        assertThat(out.get("asked").toString()).isEqualTo("[\"/api/github/link?tz=UTC&pr=13575\"]");
+        assertThat(out.get("asked").toString()).isEqualTo("[\"/api/github/link?tz=UTC&pr=13575&repo=ignite\"]");
         assertThat(out.get("went").asText()).isEqualTo("https://github.com/login/oauth/authorize?state=s1");
     }
 
