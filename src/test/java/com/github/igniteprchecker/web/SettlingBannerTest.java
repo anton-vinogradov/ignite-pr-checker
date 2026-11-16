@@ -31,7 +31,7 @@ class SettlingBannerTest {
 
         assertThat(out.get("settling").get("shown").asBoolean()).isTrue();
         assertThat(out.get("settling").get("text").asText()).isEqualTo("Preliminary verdict — wait for the updated result."
-            + " ♻︎ Auto re-run 2/2: 1 running, 1 queued. Wait for the updated verdict. Estimated time remaining: ~25m.");
+            + " ♻︎ Auto re-run 2/2: 1 running, 1 queued. Estimated time remaining: ~25m.");
         assertThat(out.get("settling").get("asked").asInt()).isPositive();
         assertThat(out.get("finalText").asText()).contains("Final verdict. Automatic re-runs are complete: 2 waves.")
             .doesNotContain("re-run 2/2");

@@ -1180,7 +1180,7 @@ function autoRerunText(phase) {
     const running = [...active.values()].filter(b => b.state === 'running').length;
     const queued = [...active.values()].filter(b => b.state === 'queued').length;
     const text = running || queued
-        ? T('♻︎ Auto re-run {0}/{1}: {2} running, {3} queued. Wait for the updated verdict.',
+        ? T('♻︎ Auto re-run {0}/{1}: {2} running, {3} queued.',
             phase.wave, phase.of, running, queued)
         : T('♻︎ Auto re-run {0}/{1}: waiting for its results and an updated verdict.', phase.wave, phase.of);
     const left = phase.etaEpochSec && phase.etaEpochSec > Date.now() / 1000
