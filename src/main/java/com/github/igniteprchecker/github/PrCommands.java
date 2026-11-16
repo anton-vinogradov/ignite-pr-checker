@@ -1898,7 +1898,8 @@ public class PrCommands implements SnapshotCache {
             return new StandingVisas.Phase(StandingVisas.Phase.FINAL, 0, 1, null, null);
 
         return run.rerunId() == 0 ? new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 0, 1, null, null)
-            : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, spec.suiteLabel(), null);
+            : new StandingVisas.Phase(StandingVisas.Phase.SETTLING, 1, 1, spec.suiteLabel(), null,
+                List.of(run.rerunId()), null);
     }
 
     public int handledCount() {

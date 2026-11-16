@@ -46,6 +46,17 @@
         .group-head { font-size: 1rem; margin: 0.2rem 0 0.1rem; }
         .group-sub { color: var(--muted); font-size: 0.82rem; margin: 0 0 0.4rem; }
         .group-row:not(:first-child) { margin-top: 1.2rem; }
+        .master-history { margin: 0.4rem 0 0.35rem 1.6rem; font-size: 0.75rem; min-width: 0; }
+        .history-note { color: var(--muted); margin: 0.2rem 0; }
+        .history-transition { margin: 0.25rem 0; }
+        .history-points { display: flex; flex-wrap: wrap; gap: 0.2rem; max-width: 100%; }
+        .history-run { display: inline-flex; justify-content: center; align-items: center; width: 1.35rem;
+            min-height: 1.35rem; margin: 0; border: 1px solid currentColor; border-radius: var(--radius-tag);
+            font-weight: 600; text-decoration: none; }
+        .history-run.pass { color: var(--ok); }
+        .history-run.fail { color: var(--bad); }
+        .history-all { margin-top: 0.25rem; }
+        .history-all summary { cursor: pointer; color: var(--muted); margin-bottom: 0.25rem; }
 
         html[data-theme="terminal"] {
             .live { padding: 0 0.15rem; }
@@ -58,6 +69,7 @@
             .lbcol-prs small { display: inline; }
             .lbcol-prs .prs-none { display: none; }
             .details { margin-left: 0; }
+            .master-history { margin-left: 0; }
             /* The Russian chip is longer, so it wraps, but between its words: it sits in the test's name, which
                breaks anywhere. */
             html[lang="ru"] .live { white-space: normal; word-break: normal; }

@@ -64,8 +64,7 @@ class TokenTextsTest {
                 tcTokenRejected: false, suites: false };
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { rerun: false }) }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             page.el('autoRerunToggle').checked = false;
             await page.el('autoRerunToggle').onchange();

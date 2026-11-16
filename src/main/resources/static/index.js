@@ -22,10 +22,29 @@ function clientLanguage(repo = selectedRepo) { return clientMode(repo)?.label ||
 function compositeProject(repo = selectedRepo) { return !!clientMode(repo)?.composite; }
 function projectAvailable(repo) { return repo === null || !!clientMode(repo); }
 function projectPath(repo = selectedRepo) { return '/' + (repo === null ? 'ignite' : repo); }
+function settingsPage() { return location.pathname === '/settings'; }
+function settingsAddress(section) {
+    const query = new URLSearchParams({ repo: selectedRepo ?? 'ignite' });
+    const pr = settingsPage() ? prFromUrl() : selectedPr;
+    if (pr) query.set('pr', pr);
+    if (section) query.set('section', section);
+    return '/settings?' + query;
+}
+function openSettings(section) { location.href = settingsAddress(section); }
 
 function paintProjects() {
-    const path = projectAvailable(selectedRepo) ? projectPath() : '/ignite';
+    const path = projectAvailable(selectedRepo)
+        ? settingsPage() ? prAddress(prFromUrl(), selectedRepo) : projectPath() : '/ignite';
     $('brand').href = $('navPrs').href = path;
+    $('settingsBtn').href = settingsAddress();
+    $('projectTabs').classList.toggle('hidden', settingsPage());
+    if (settingsPage()) {
+        $('navPrs').removeAttribute('aria-current');
+        $('settingsBtn').setAttribute('aria-current', 'page');
+        $('settingsBack').href = path;
+        $('settingsBack').textContent = T('Back to {0}', prFromUrl()
+            ? prTag(prFromUrl(), selectedRepo) : clientLanguage() || 'Ignite');
+    }
     for (const key of ['ignite', ...CLIENT_PROJECTS]) {
         const link = $('project' + key);
         const repo = key === 'ignite' ? null : key;
@@ -91,10 +110,10 @@ function sayAloud(text) {
 function show(view) {
     $('loginView').classList.toggle('hidden', view !== 'login');
     $('analyzeView').classList.toggle('hidden', view !== 'analyze');
-    $('session').classList.toggle('hidden', view !== 'analyze');
+    $('settingsPanel').classList.toggle('hidden', view !== 'settings');
+    $('session').classList.toggle('hidden', view === 'login');
     // The settings need a signed-in user: shown before login, the button could only answer "Unauthorized".
-    $('settingsBtn').classList.toggle('hidden', view !== 'analyze');
-    if (view !== 'analyze') $('settingsPanel').classList.add('hidden');
+    $('settingsBtn').classList.toggle('hidden', view === 'login');
     if (view === 'login') paintLoginPr();
     paintTab();
 }
@@ -102,6 +121,12 @@ function show(view) {
 // Someone arriving from a PR's "live progress & verdict" link must see which PR the form is for,
 // and where to read the verdict without an account.
 function paintLoginPr() {
+    if (settingsPage()) {
+        $('loginPr').classList.add('hidden');
+        $('loginIntro').classList.remove('hidden');
+        $('loginIntro').textContent = T('Log in to manage your account settings.');
+        return;
+    }
     const pr = prFromUrl();
     const repo = repoFromUrl();
     $('loginIntro').classList.toggle('hidden', !!pr || !projectAvailable(repo));
@@ -366,7 +391,7 @@ const PR_TAB_TITLES = {
     mine: phrase('Lists the open PRs your linked GitHub account created.'),
     involved: phrase('Lists other people\'s open PRs where someone asked you to review, you reviewed or you commented.'),
 };
-const PR_TAB_LOCKED = phrase('Link your GitHub account in ⚙ to use this tab. A click opens ⚙.');
+const PR_TAB_LOCKED = phrase('Link your GitHub account in Settings to use this tab. A click opens Settings.');
 const PR_TAB_EMPTY = {
     mine: phrase('You have no open PRs.'),
     involved: phrase('There are no open PRs by other people where someone asked for your review, you reviewed or you commented.'),
@@ -388,7 +413,7 @@ function startTab() {
 // A click on a tab. One that needs a linked GitHub account opens ⚙ instead, where the account is linked.
 function pickPrTab(tab) {
     if (tab !== 'all' && !githubLinked) {
-        if ($('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
+        openSettings('github');
         return;
     }
     try { localStorage.setItem('prTab', tab); } catch (e) { /* private mode */ }
@@ -419,7 +444,6 @@ function renderPrList() {
     const prs = tabPrs[prTab] || [];
     allPrs = prs;
     for (const p of prs) delete p.shown; // a row drawn anew shows the badge the server gave
-    $('prCount').textContent = prs.length ? '(' + prs.length + ')' : '';
     $('prList').innerHTML = prs.map(p => prRow(p, selectedRepo)).join('');
     for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
     markMine();
@@ -494,16 +518,10 @@ function resetPrTabs(linked) {
     renderPrList();
 }
 
-// The account linked or unlinked in ⚙: the tabs follow.
-function followGithubLink(login) {
-    if (!!login === githubLinked) return;
-    resetPrTabs(!!login);
-}
-
 // The ticket key a PR title starts with, and what follows it.
 const TITLE_KEY = /^\s*(IGNITE-\d+)[\s:.,\-–]*/;
 
-// The tag of a PR whose latest RunAll you started: the same words in the row and in the legend.
+// The tag of a PR whose latest RunAll you started, independently of who authored the PR.
 const MY_RUN_TITLE = phrase('You started its latest RunAll. The PR may be someone else\'s.');
 const CLIENT_MY_RUN_TITLE = phrase('You started its latest run of the suite. The PR may be someone else\'s.');
 
@@ -564,9 +582,8 @@ function markMine() {
 }
 
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
-// where the page says "No blockers" for the PR's current code, earns the check. The legend in index.html repeats the
-// "!" and "…" titles word for word; its one "?" stands for three of them and has UNPROVEN_LEGEND_TITLE. The fourth
-// item names the badge to a screen reader, which would read the bare mark.
+// where the page says "No blockers" for the PR's current code, earns the check. The fourth item names the badge to a
+// screen reader, which would read the bare mark.
 // WATCH comes before the check of the code, so a "!" may stand on a run of older code.
 const STANDING_BADGES = {
     WATCH: ['watch', '!', phrase('No blockers yet, but some tests started failing on the code the run tested. A re-run '
@@ -582,10 +599,6 @@ const STANDING_BADGES = {
         + 'commit.'), phrase('checking')],
 };
 const CLEAN_BADGE_TITLE = phrase('A clean run of the PR\'s current code.');
-
-// The legend has one "?" for the three standings that draw it, so its title names all three.
-const UNPROVEN_LEGEND_TITLE = phrase('No blockers found, but the PR is not proven clean. The run can\'t prove it, '
-    + 'commits were pushed after the run, or it is not known whether the run tested the PR\'s latest commit.');
 
 // Badge next to a PR number: red count if it has blockers, a check if a run proved its current code clean,
 // "!" for tests that started failing, a question mark when nothing was blamed but the run couldn't prove
@@ -615,6 +628,7 @@ function openPr(number, push, repo = repoFromUrl()) {
     if (!projectAvailable(repo)) { showProjectError(repo); return; }
     selectedPr = number;
     selectedRepo = repo;
+    $('settingsBtn').href = settingsAddress();
     narrowListOpen = false;
     syncPane(); // now a PR is selected: honour the saved collapsed state + reveal the collapse button
     for (const el of $('prList').children) el.classList.toggle('sel', +el.dataset.num === number);
@@ -960,14 +974,14 @@ async function loadRuns(number) {
         analyze(number, true);
     }
     paintTab();
+    paintRunActivity();
     loadSettling(number);
     loadVisaLine(number);
     schedulePoll();
     return true;
 }
 
-// Auto re-runs settle a finished run after the fact: until they do, the verdict on screen is not the
-// final one, and the page has to say so — only the /run-all comment used to.
+// The activity belongs to the build whose verdict is on screen; other runs of the PR are named separately.
 async function loadSettling(number) {
     const res = lastResult;
     if (!res || res.prNumber !== number) {
@@ -976,22 +990,19 @@ async function loadSettling(number) {
         paintTab();
         return;
     }
+    paintRunActivity();
     let phase;
     try {
         const r = await api(prApi('settling', number, res.repo) + '&build=' + res.buildId);
-        phase = r.ok ? await r.json() : undefined;
+        phase = r.ok ? await r.json() : null;
     }
     catch (e) {
-        phase = undefined;
+        phase = null;
     }
     if (!isOpen(number, res.repo) || lastResult !== res) return;
-    // A failed answer leaves the run where it was last known to be; the next poll asks again.
-    if (phase === undefined) phase = phaseNow && phaseNow.pr === number && phaseNow.build === res.buildId
-        ? phaseNow : null;
-    const text = settlingText(phase);
-    $('settlingRow').classList.toggle('hidden', !text);
-    $('settling').textContent = text;
-    phaseNow = phase ? { ...phase, pr: number, build: res.buildId } : null;
+    phaseNow = phase && ['running', 'settling', 'final'].includes(phase.phase)
+        ? { ...phase, pr: number, build: res.buildId } : null;
+    paintRunActivity();
     paintPrimary();
     paintTab();
     paintVisaLine();
@@ -1019,6 +1030,7 @@ function tabState() {
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
     if (!res) return null;
     if (res.live) return { kind: 'running' };
+    if (retryLeftMs(res) > 0) return { kind: 'unknown' };
     if (standingOf(res) === 'CHECKING') return { kind: 'unknown' };
     // Final only when /api/settling says so of this very run: without its answer, re-runs may still follow.
     if (!phase || phase.phase !== 'final' || phase.build !== res.buildId) return { kind: 'unknown' };
@@ -1034,6 +1046,10 @@ function waitingForFinal() {
 
 // The tab's title and icon say how the open PR's run stands, so a reader on another tab sees it finish.
 function paintTab() {
+    if (settingsPage()) {
+        document.title = T('Settings') + ' — Ignite PR Checker';
+        return;
+    }
     const st = tabState();
     const pr = selectedPr ? ' · ' + prTag(selectedPr, selectedRepo) + ' — Ignite PR Checker' : '';
     let title = T(BASE_TITLE), color = null;
@@ -1128,23 +1144,68 @@ function notifyIfFinal(st) {
     } catch (e) { /* a browser that refuses page notifications still has the tab title */ }
 }
 
-// What /api/settling says, in words; empty unless re-runs still settle the verdict.
-function settlingText(phase) {
-    if (!phase || phase.phase !== 'settling') return '';
-    if (selectedRepo) {
-        if (compositeProject()) return phase.wave
-            ? T('♻︎ Auto re-run of the build chain on the same commits: the verdict below may change when it finishes.')
-            : T('♻︎ Deciding whether to run the build chain again. The verdict below may still change.');
-        return phase.wave ? T('♻︎ Auto re-run of the suite on the same commits: the verdict below may change when it '
-            + 'finishes.') : T('♻︎ Deciding whether to run the suite again. The verdict below may still change.');
+function paintRunActivity() {
+    const res = lastResult;
+    if (!res || !isOpen(res.prNumber, res.repo)) {
+        $('settlingRow').classList.add('hidden');
+        return;
     }
-    if (!phase.wave) return T('♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.');
-    const left = phase.etaEpochSec ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
-    const what = tr(phase.what);
-    return left ? T('♻︎ Auto re-run #{0} of up to {1}: re-running {2}, done in {3}. The verdict below may change when '
-        + 'they finish.', phase.wave, phase.of, what, left)
-        : T('♻︎ Auto re-run #{0} of up to {1}: re-running {2}. The verdict below may change when they finish.',
-            phase.wave, phase.of, what);
+    const phase = phaseNow && phaseNow.pr === res.prNumber && phaseNow.build === res.buildId ? phaseNow : null;
+    const text = runActivityText(res, phase);
+    $('settlingRow').classList.remove('hidden');
+    if ($('settling').textContent !== text) $('settling').textContent = text;
+}
+
+function autoRerunText(phase) {
+    const ids = new Set(phase.rerunBuildIds || []);
+    const active = new Map(lastRuns.filter(b => ids.has(b.buildId)).map(b => [b.buildId, b]));
+    const running = [...active.values()].filter(b => b.state === 'running').length;
+    const queued = [...active.values()].filter(b => b.state === 'queued').length;
+    const text = running || queued
+        ? T('♻︎ Auto re-run {0}/{1}: {2} running, {3} queued. Wait for the updated verdict.',
+            phase.wave, phase.of, running, queued)
+        : T('♻︎ Auto re-run {0}/{1}: waiting for its results and an updated verdict.', phase.wave, phase.of);
+    const left = phase.etaEpochSec && phase.etaEpochSec > Date.now() / 1000
+        ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
+    return text + (left ? ' ' + T('Estimated time remaining: {0}.', left) : '');
+}
+
+function runActivityText(res, phase) {
+    const parts = [];
+    const current = runsNow.find(b => b.buildId === res.buildId);
+    if (current)
+        parts.push(T('Run {0} is {1} on TeamCity. Wait for its results.', res.buildId, runState(current.state)));
+    const reruns = new Set(phase?.rerunBuildIds || []);
+    const others = runsNow.filter(b => b.buildId !== res.buildId && !reruns.has(b.buildId));
+    if (others.length)
+        parts.push(T('Other runs of this PR: {0} running, {1} queued. The verdict below is for run {2}.',
+            others.filter(b => b.state === 'running').length, others.filter(b => b.state === 'queued').length,
+            res.buildId));
+    if (!phase) {
+        parts.push(T('Auto re-run status is unknown: the checker did not confirm it. Keep this page open or refresh it.'));
+    } else if (retryLeftMs(res) > 0) {
+        if (phase.wave > 0) parts.push(autoRerunText(phase));
+        parts.push(T('TeamCity errors left part of the analysis unchecked. The checker is retrying it; wait up to {0} before acting.',
+            fmtLeft(retryLeftMs(res) / 1000)));
+    } else if (res.mergedAt && res.runsAtMergeDue) {
+        parts.push(T('Waiting for runs queued before the PR was merged. Their results may still update this verdict.'));
+    } else if (phase.phase === 'running' || res.live) {
+        if (!current && !others.length)
+            parts.push(T('A run of this PR is still in progress. Wait for its results.'));
+        if (phase.wave > 0) parts.push(autoRerunText(phase));
+    } else if (phase.phase === 'settling') {
+        parts.push(phase.wave > 0 ? autoRerunText(phase)
+            : T('The checker is processing the results and deciding whether to re-run failed suites. Wait for its decision.'));
+    } else {
+        if (phase.reason === 'closed') parts.push(T('This PR is closed.'));
+        if (phase.reason === 'replaced') parts.push(T('A newer run replaced this one.'));
+        parts.push(T('Auto re-runs of this run are no longer expected.'));
+        if (!res.mergedAt && !phase.reason && !current && !others.length
+            && (res.blockers.length || res.watch?.length || res.brokenSuites?.length || res.cancelledSuites?.length
+                || res.shrunkSuites?.length || res.unverified?.length))
+            parts.push(T('Review the remaining failures; fix their cause or re-run manually.'));
+    }
+    return parts.join(' ');
 }
 
 // The same for a client PR, whose run is the client's suite.
@@ -1179,7 +1240,8 @@ function prFromUrl() {
 
 // Project identity comes only from its canonical path. Unknown paths never select another repository.
 function repoFromUrl() {
-    const key = location.pathname.slice(1);
+    const key = settingsPage() ? new URLSearchParams(location.search).get('repo') ?? 'ignite'
+        : location.pathname.slice(1);
     return key === 'ignite' ? null : key;
 }
 
@@ -1193,9 +1255,19 @@ async function enterApp(username, linked) {
         return;
     }
     myUsername = username || '';
-    resetPrTabs(linked);
     $('username').textContent = username;
     $('operatorMark').classList.toggle('hidden', !canAdmin);
+    if (settingsPage()) {
+        show('settings');
+        const loaded = await loadSettings();
+        if (!$('settingsPanel').classList.contains('hidden')) {
+            loadLogins();
+            loadJournal();
+            if (loaded && !showLinkOutcome()) focusSettingsSection();
+        }
+        return;
+    }
+    resetPrTabs(linked);
     show('analyze');
     $('actions').classList.add('hidden');
     $('runsRow').classList.add('hidden');
@@ -1203,12 +1275,12 @@ async function enterApp(username, linked) {
     const pr = prFromUrl();
     if (pr) openPr(pr, false, repoFromUrl());
     else goHome(false);
-    await showLinkOutcome();
 }
 
 function goHome(push) {
     selectedPr = null;
     selectedRepo = repoFromUrl();
+    $('settingsBtn').href = settingsAddress();
     if (!projectAvailable(selectedRepo)) { showProjectError(selectedRepo); return; }
     lastResult = null;
     syncListBadge();
@@ -1336,6 +1408,7 @@ async function analyze(number, quiet) {
         lastResult = res;
         renderFreshness(res);
         lookAgainIfStale(res);
+        paintRunActivity();
         paintTab();
         return;
     }
@@ -2042,6 +2115,7 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     paintPrimary();
     if (!res.repo && (!prev || prev.buildId !== res.buildId || prev.live !== res.live || force)) loadPending(res);
     if (!asksTests) repaintPrTests(res);
+    paintRunActivity();
     if (!prev || prev.buildId !== res.buildId || force) loadSettling(res.prNumber);
 }
 
@@ -2097,8 +2171,43 @@ function renderVerdictHead(res) {
         : standing === 'WATCH' ? 'watch' : 'unproven';
     for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven']) $('verdictCard').classList.toggle(k, k === kind);
     $('verdictText').textContent = verdictTitle(res, standing);
+    $('verdictHelp').title = verdictExplanation(res, standing);
     const busy = standing === 'CHECKING' ? ' class="busy"' : '';
     $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p${busy}>${esc(line)}</p>`).join('');
+}
+
+function verdictExplanation(res, standing) {
+    let meaning;
+    if (res.blockers.length)
+        meaning = T('These tests most likely failed because of this PR.');
+    else if (standing === 'CLEAN')
+        meaning = res.mergedAt ? T('This run found no failures blamed on the PR.')
+            : T('A run of the PR\'s current code found no failures blamed on it.');
+    else if (standing === 'WATCH')
+        meaning = T('Tests started failing on this run\'s code, but there are too few runs to tell a regression from a flake.');
+    else if (standing === 'CHECKING')
+        meaning = T('No blockers were found.');
+    else
+        meaning = T('No failures were blamed on the PR, but this run cannot prove it clean. The notes below say what is missing.');
+    if (res.mergedAt)
+        return meaning + ' ' + T('This PR is merged. This retained verdict describes the code this run tested; a new run does not change it.');
+    if (!res.blockers.length && standing === 'CLEAN')
+        return meaning + ' ' + T('No fixes or re-runs are needed for this verdict.');
+    if (!res.blockers.length && standing === 'CHECKING')
+        return meaning + ' ' + T('Wait while the checker verifies that this run tested the PR\'s latest commit.');
+    if (res.repo) {
+        const fix = res.blockers.length ? T('Open their failures and fix confirmed blockers.') : '';
+        if (fix && !res.blockers.some(oneRun)) return meaning + ' ' + fix;
+        return meaning + ' ' + (fix ? fix + ' ' : '') + (res.composite
+            ? T('Use Run above to start a new build chain.')
+            : T('Use Run above to start a new run of the suite.')) + ' '
+            + T('A new run shows whether these tests are blockers, if this PR\'s head and Ignite master are still at '
+                + 'the same commits.');
+    }
+    return meaning + ' ' + (res.blockers.length
+        ? T('Open their failures and fix confirmed blockers. Re-run its suite if a test failed only once.')
+        : standing === 'WATCH' ? T('Re-run the affected suites to check.')
+            : T('Re-run the affected suites or test the latest code.'));
 }
 
 function verdictTitle(res, standing) {
@@ -3445,6 +3554,13 @@ $('loginBtn').onclick = login;
 $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 $('logout').onclick = logout;
 $('updateBtn').onclick = e => { e.preventDefault(); doUpdate(); };
+document.addEventListener('click', e => {
+    const help = e.target.closest('button.meaning-help');
+    if (!help) return;
+    e.preventDefault();
+    e.stopPropagation();
+    sayStatus(help.title, { aloud: true });
+});
 // Only the top-bar action buttons: .act is also a styling class (e.g. on Top causes, which has
 // its own handler) — a bare '.act' selector used to steal their clicks for doTrigger.
 for (const b of document.querySelectorAll('#actions .act[data-act]'))
@@ -3609,7 +3725,7 @@ function paintVisaPost(res, v) {
         : T('Posts the verdict on this page to {0} as your visa of this run: a comment in JIRA, with the JIRA token '
             + 'you saved in ⚙. A second press for this run updates that visa.', lastIssueKey);
     $('visaPostWhy').classList.toggle('hidden', !why);
-    $('visaPostWhy').title = !why ? '' : T(VISA_POST_OFF[why]) + (why === 'token' ? ' ' + T('A click opens ⚙.') : '');
+    $('visaPostWhy').title = !why ? '' : T(VISA_POST_OFF[why]) + (why === 'token' ? ' ' + T('A click opens Settings.') : '');
     clearTimeout(visaRetryTimer);
     visaRetryTimer = why === 'retry' ? setTimeout(paintVisaLine, retryLeftMs(res) + 1000) : null;
 }
@@ -3674,7 +3790,7 @@ $('visaPost').onclick = postVisa;
 $('visaPostWhy').onclick = () => {
     if (!visaPostOff) return;
     sayStatus(T(VISA_POST_OFF[visaPostOff]), { aloud: true });
-    if (visaPostOff === 'token' && $('settingsPanel').classList.contains('hidden')) $('settingsBtn').onclick();
+    if (visaPostOff === 'token') openSettings('jira');
 };
 
 // Post to PR puts the verdict of the run on screen into the PR now, as a comment of the checker's GitHub account. A run
@@ -3818,14 +3934,14 @@ const COMMIT_OPTIONS = ['style', 'suites'];
 let standingSettings = null; // the server's last answer
 let pendingOption = null; // the switch that asked for a token; switched on once the token is saved
 
-$('settingsBtn').onclick = () => {
-    const p = $('settingsPanel');
-    p.classList.toggle('hidden');
-    if (p.classList.contains('hidden')) return;
-    loadSettings();
-    loadLogins();
-    loadJournal();
-};
+function focusSettingsSection() {
+    const groups = { jira: 'groupJira', github: 'settingsLogin', commits: 'groupGhToken', teamcity: 'groupTc' };
+    const section = new URLSearchParams(location.search).get('section');
+    if (!Object.hasOwn(groups, section || '')) return;
+    const group = $(groups[section]);
+    group.scrollIntoView({ block: 'start' });
+    group.focus();
+}
 
 // The language is the account's: Save sends it to the server, and the page opens again in it. Picking a language alone
 // changes nothing: the arrow keys pick one on a closed select.
@@ -3864,13 +3980,15 @@ async function loadSettings() {
     lockSettings(T('Loading your settings…'));
     try {
         const r = await api('/api/auto-visa-all');
-        if (r.status === 401) return loggedOut(r);
-        if (!r.ok) { lockSettings(T('Could not load your settings — close ⚙ and open it again.')); return; }
+        if (r.status === 401) { await loggedOut(r); return false; }
+        if (!r.ok) { lockSettings(T('Could not load your settings — reload this page.')); return false; }
         renderSettings(await r.json());
         $('settingsMsg').textContent = '';
         loadExpiries(standingSettings);
+        return true;
     } catch (e) {
-        lockSettings(T('Could not reach the service — close ⚙ and open it again.'));
+        lockSettings(T('Could not reach the service — reload this page.'));
+        return false;
     }
 }
 
@@ -3886,7 +4004,6 @@ function renderSettings(st) {
     $('jiraTokenBtn').classList.toggle('hidden', !st.jiraStored && !st.visa && !st.jiraTokenRejected
         && !(st.tokensUnread || []).includes('jira') && !(st.tokensRemoved || []).includes('jira'));
     renderLogin(st);
-    followGithubLink(st.login);
     showTokenNotes(st);
     showRemovedTokens(st);
     renderGithubAccount(st);
@@ -4305,7 +4422,8 @@ $('settingsJiraSave').onclick = async () => {
 $('ghLink').onclick = async () => {
     const m = $('ghLinkMsg');
     let url = '/api/github/link' + zoneParam('?');
-    if (selectedPr) url += (url.includes('?') ? '&' : '?') + 'pr=' + selectedPr;
+    const pr = settingsPage() ? prFromUrl() : selectedPr;
+    if (pr) url += (url.includes('?') ? '&' : '?') + 'pr=' + pr;
     url += (url.includes('?') ? '&' : '?') + 'repo=' + (selectedRepo || 'ignite');
     m.textContent = T('opening GitHub…');
     try {
@@ -4354,18 +4472,15 @@ const LINK_OUTCOMES = {
     unavailable: () => T('Nothing was linked: this checker has no GitHub account to answer PR commands.'),
 };
 
-// After a link, ⚙ opens and says how it went, and the address loses the outcome, so a reload does not say it again.
-async function showLinkOutcome() {
+// The address loses the outcome after settings says how the link went, so a reload does not repeat it.
+function showLinkOutcome() {
     const outcome = new URLSearchParams(location.search).get('github');
-    if (!outcome || !Object.prototype.hasOwnProperty.call(LINK_OUTCOMES, outcome)) return;
-    const pr = prFromUrl();
-    const repo = repoFromUrl();
-    history.replaceState(!pr ? { repo } : { pr, repo }, '', prAddress(pr, repo));
-    $('settingsPanel').classList.remove('hidden');
-    loadLogins();
-    loadJournal();
-    await loadSettings();
+    if (!outcome || !Object.prototype.hasOwnProperty.call(LINK_OUTCOMES, outcome)) return false;
+    const query = new URLSearchParams(location.search);
+    query.delete('github');
+    history.replaceState(null, '', '/settings' + (query.size ? '?' + query : ''));
     $('settingsMsg').textContent = LINK_OUTCOMES[outcome](standingSettings || {});
+    return true;
 }
 
 // ⚙ lists the browsers the user is logged in from, this one first. Ending a login logs that browser out at its next
@@ -4377,10 +4492,10 @@ async function loadLogins() {
     try {
         const r = await api('/api/logins');
         if (r.status === 401) return loggedOut(r);
-        if (!r.ok) { $('loginsMsg').textContent = T('Could not load your logins — close ⚙ and open it again.'); return; }
+        if (!r.ok) { $('loginsMsg').textContent = T('Could not load your logins — reload this page.'); return; }
         renderLogins(await r.json());
     } catch (e) {
-        $('loginsMsg').textContent = T('Could not reach the service — close ⚙ and open it again.');
+        $('loginsMsg').textContent = T('Could not reach the service — reload this page.');
     }
 }
 
@@ -4444,11 +4559,11 @@ async function loadJournal() {
     try {
         const r = await api('/api/journal');
         if (r.status === 401) return loggedOut(r);
-        if (!r.ok) { $('journalMsg').textContent = T('Could not load your journal — close ⚙ and open it again.'); return; }
+        if (!r.ok) { $('journalMsg').textContent = T('Could not load your journal — reload this page.'); return; }
         journal = await r.json();
         renderJournal();
     } catch (e) {
-        $('journalMsg').textContent = T('Could not reach the service — close ⚙ and open it again.');
+        $('journalMsg').textContent = T('Could not reach the service — reload this page.');
     }
 }
 
@@ -4514,6 +4629,7 @@ $('cancelMine').onclick = cancelMine;
 $('notifyBtn').onclick = toggleNotify;
 $('refreshBtn').onclick = refresh;
 window.addEventListener('popstate', () => {
+    if (settingsPage()) return;
     if ($('analyzeView').classList.contains('hidden')) {
         paintLoginPr();
         return;
@@ -4532,7 +4648,10 @@ document.addEventListener('visibilitychange', () => {
     if (lastResult && lastResult.prNumber === selectedPr) renderFreshness(lastResult);
 });
 setInterval(() => {
-    if (!document.hidden && lastResult && lastResult.prNumber === selectedPr) renderFreshness(lastResult);
+    if (!document.hidden && lastResult && lastResult.prNumber === selectedPr) {
+        renderFreshness(lastResult);
+        paintRunActivity();
+    }
 }, 30000);
 setInterval(checkUpdate, 5 * 60 * 1000); // re-check for updates every 5 min
 configReady = loadConfig();
@@ -4592,7 +4711,6 @@ function syncPane() {
     split.classList.toggle('collapsed', hasPr && (narrowScreen.matches ? !narrowListOpen : saved));
     split.classList.toggle('home', !hasPr);
     $('paneCollapse').classList.toggle('hidden', !hasPr);
-    $('legendChecking').classList.toggle('hidden', !hasPr);
 }
 function setPaneCollapsed(collapsed) {
     if (narrowScreen.matches)

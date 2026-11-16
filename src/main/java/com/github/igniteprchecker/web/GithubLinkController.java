@@ -157,13 +157,13 @@ public class GithubLinkController {
         return standing.settings(username);
     }
 
-    /** The page, told how the link went, on the PR it showed when the link began. */
+    /** The settings page, told how the link went, with the project and PR the user can return to. */
     private static ResponseEntity<Void> back(String outcome, Pending asked) {
         String project = asked == null ? "ignite" : asked.project();
         String pr = asked == null || asked.pr() == null ? "" : "pr=" + asked.pr() + "&";
 
         return ResponseEntity.status(HttpStatus.FOUND)
-            .location(URI.create("/" + project + "?" + pr + "github=" + outcome)).build();
+            .location(URI.create("/settings?repo=" + project + "&" + pr + "github=" + outcome)).build();
     }
 
     private String newState() {

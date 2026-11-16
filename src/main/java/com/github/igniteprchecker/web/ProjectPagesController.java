@@ -12,7 +12,7 @@ public class ProjectPagesController {
         return ResponseEntity.status(302).location(URI.create("/ignite")).build();
     }
 
-    @GetMapping({"/ignite", "/python", "/php", "/nodejs", "/extensions"})
+    @GetMapping({"/ignite", "/python", "/php", "/nodejs", "/extensions", "/settings"})
     public String project() {
         return "forward:/index.html";
     }

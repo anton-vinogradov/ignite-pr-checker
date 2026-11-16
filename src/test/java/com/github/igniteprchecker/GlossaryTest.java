@@ -65,6 +65,7 @@ class GlossaryTest {
     private static final Pattern HELP_LINK =
         Pattern.compile("<a class=\"help\" href=\"([^\"]+)\"[^>]*title=\"([^\"]+)\"");
 
+    /** Given a verdict card, its question mark provides a local explanation without navigating to documentation. */
     @Test
     void everyCardOfThePrPageHasItsQuestionMark() throws IOException {
         String results = read(PAGE).substring(read(PAGE).indexOf("<div id=\"results\""));
@@ -73,9 +74,10 @@ class GlossaryTest {
         int cards = 0;
         while (heads.find()) {
             cards++;
-            Matcher help = HELP_LINK.matcher(heads.group(2));
+            Matcher help = Pattern.compile("<button(?: id=\"[^\"]+\")? class=\"help meaning-help\" "
+                + "type=\"button\" title=\"([^\"]+)\"").matcher(heads.group(2));
             assertThat(help.find()).as(heads.group(2)).isTrue();
-            assertThat(help.group(1)).startsWith(TOUR_URL);
+            assertThat(help.group(1)).hasSizeGreaterThan(20);
         }
         assertThat(cards).as("cards of the PR page").isGreaterThanOrEqualTo(10);
     }
@@ -95,30 +97,14 @@ class GlossaryTest {
             assertThat(link).startsWith(TOUR_URL);
             assertThat(anchors).as(link).contains(link.substring(TOUR_URL.length()));
         }
-        assertThat(links).as("the cards, the PR list, the runs row, the flaky board and the PR comment")
-            .contains(TOUR_URL + "the-flaky-board-flakyhtml").hasSizeGreaterThanOrEqualTo(15);
+        assertThat(links).as("the flaky board and the PR comment keep their documentation links")
+            .contains(TOUR_URL + "the-flaky-board-flakyhtml", VisaService.GLOSSARY);
 
         for (Path tour : List.of(TOUR, TOUR_RU)) {
             Matcher local = LOCAL_LINK.matcher(read(tour));
             while (local.find())
                 assertThat(anchors(read(tour))).as(tour + ": #" + local.group(1)).contains(local.group(1));
         }
-    }
-
-    /** The legend under the PR list's filter shows each badge the list can show, as the list draws it. */
-    @Test
-    void thePrListLegendShowsEveryBadge() throws IOException {
-        String legend = between(read(PAGE), "<details id=\"prLegend\"", "</details>");
-        Map<String, String> badges = new LinkedHashMap<>(Map.of("ok", "✓", "bad", "2"));
-        Matcher standing = Pattern.compile("\\[\\s*'(\\w+)',\\s*'(.)',").matcher(between(read(PAGE_SCRIPT),
-            "const STANDING_BADGES", "};"));
-        while (standing.find())
-            badges.put(standing.group(1), standing.group(2));
-
-        assertThat(badges).containsKeys("watch", "unproven");
-        badges.forEach((cls, mark) -> assertThat(legend)
-            .containsPattern("<span class=\"pr-badge " + cls + "\"[^>]*>" + Pattern.quote(mark) + "</span>"));
-        assertThat(legend).contains("<span class=\"my-tag\"").contains("my run</span>");
     }
 
     @Test
@@ -151,8 +137,8 @@ class GlossaryTest {
         quoted(PAGE_SCRIPT, "On ci2 now", "✓ No blockers", "No proven blockers yet", "No blockers found — not proven clean",
             "No blockers found", "1 run", "new test / no master history", "unverified", "not in any suite", "flaky?",
             "on latest commit", "⚠ old commit", "takes latest commit at start", "● includes an unfinished run",
-            " reused from earlier runs", "The verdict is for older code", "♻︎ Auto re-run #",
-            "♻︎ Deciding whether to re-run", "Rerun at top", "Visa: posted to ", "when the run settles",
+            " reused from earlier runs", "The verdict is for older code", "♻︎ Auto re-run ",
+            "The checker is processing the results", "Rerun at top", "Visa: posted to ", "when the run settles",
             "JIRA did not take it, the checker tries again every 10 minutes", "is off in ⚙",
             "because JIRA rejected your token",
             "Visa: waits until you log in again", "Visa: waits until you save your JIRA token in ⚙ again",

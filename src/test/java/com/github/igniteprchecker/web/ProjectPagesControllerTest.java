@@ -14,9 +14,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class ProjectPagesControllerTest {
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new ProjectPagesController()).build();
 
-    /** Each supported project has a direct page address. Spring forwards it to the shared page. */
+    /** Each project and the settings screen have a direct address forwarded to the shared page. */
     @ParameterizedTest
-    @ValueSource(strings = {"ignite", "python", "php", "nodejs", "extensions"})
+    @ValueSource(strings = {"ignite", "python", "php", "nodejs", "extensions", "settings"})
     void servesProjectPage(String project) throws Exception {
         mvc.perform(get("/" + project).param("pr", "42"))
             .andExpect(status().isOk()).andExpect(forwardedUrl("/index.html"));

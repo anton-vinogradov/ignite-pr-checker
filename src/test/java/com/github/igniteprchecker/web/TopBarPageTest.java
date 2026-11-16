@@ -77,7 +77,7 @@ class TopBarPageTest {
     }
 
     @Test
-    void logOutIsALinkBesideTheNameAndTheGearIsLast() throws IOException {
+    void logOutIsBesideTheNameAndSettingsIsAPageLinkInTheMenu() throws IOException {
         String bar = read("index.html");
         bar = bar.substring(bar.indexOf("<div class=\"topbar-right\">"), bar.indexOf("</header>"));
 
@@ -87,7 +87,9 @@ class TopBarPageTest {
             + "status page shows you the service's log messages and users.\">operator</span> · <button id=\"logout\" "
             + "class=\"linklike\" type=\"button\" title=\"Logs you out of this browser only. Your logins in other "
             + "browsers and your options in ⚙ stay.\">Log out</button></span>");
-        assertThat(bar.substring(bar.lastIndexOf("<button"))).startsWith("<button id=\"settingsBtn\"");
+        String page = read("index.html");
+        String menu = page.substring(page.indexOf("<nav class=\"menu\""), page.indexOf("</nav>"));
+        assertThat(menu).contains("<a id=\"settingsBtn\" class=\"hidden\" href=\"/settings\"");
         assertThat(read("flaky.html")).doesNotContain("id=\"session\"", "settingsBtn");
         assertThat(read("status.html")).doesNotContain("id=\"session\"", "settingsBtn");
     }

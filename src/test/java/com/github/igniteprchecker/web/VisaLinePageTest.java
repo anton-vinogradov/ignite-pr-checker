@@ -207,8 +207,7 @@ class VisaLinePageTest {
             page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: true } });
             page.route('/api/auto-visa-all', { body: { visa: false, jiraStored: false } }, 'GET');
             page.route('/api/auto-visa-all', { body: { visa: true, jiraStored: true } }, 'POST');
-            await page.load('');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite');
             await page.settle();
             const off = !page.el('jiraInCookie').classList.contains('hidden');
             page.el('settingsJiraToken').value = 'FAKEjiraPAT0123456789abcdefghijklmnopqrstuv';
@@ -228,8 +227,7 @@ class VisaLinePageTest {
     void settingsSayNothingOfACookieWithoutAJiraToken() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/auto-visa-all', { body: { visa: false, jiraStored: false } }, 'GET');
-            await page.load('');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite');
             await page.settle();
             report({ shown: !page.el('jiraInCookie').classList.contains('hidden') });
             """);

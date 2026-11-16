@@ -142,8 +142,7 @@ class SuiteFixSettingsTest {
                 tcTokenRejected: false, suites: false };
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { suites: true }) }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             const disabled = page.el('suiteFixToggle').disabled;
             page.el('suiteFixToggle').checked = true;

@@ -730,9 +730,9 @@ public class TcClient {
     }
 
     /**
-     * The test's most recent master failures in one suite (occurrence + build, newest first, up to 5).
-     * Filtered client-side: a {@code status:FAILURE} locator only scans a shallow occurrence window, so it
-     * misses sparse flaky failures that the plain history query does see.
+     * Up to 50 recent master occurrences in one suite, with completed pass/fail results and their build finish dates.
+     * The board derives both its timeline and failure links from this window. A {@code status:FAILURE} locator only
+     * scans a shallow occurrence window, so it misses sparse failures that this unfiltered query does see.
      *
      * <p>Per suite, as {@link #getBaseBranchHistory}: the flaky board links them next to that suite's
      * fail rate, and a failure of the same test id on another platform is not a failure of this one.
@@ -740,27 +740,28 @@ public class TcClient {
      * <p>Whether the test is muted now comes in the same request: a test muted for years still fails every
      * master run, and someone already decided it is not to be fixed now.
      */
-    public MasterFailures masterFailures(String token, long testId, String buildTypeId) {
+    public MasterHistory masterTestHistory(String token, long testId, String buildTypeId) {
         TcModel.MasterOccurrences occ = get("masterFail", token, url("app/rest/testOccurrences", query(
             "locator", "test:(id:" + testId + "),branch:(default:true),buildType:(id:" + buildTypeId + "),count:50",
-            "fields", "testOccurrence(id,status,currentlyMuted,build(id,buildTypeId))")),
+            "fields", "testOccurrence(id,status,currentlyMuted,build(id,buildTypeId,state,status,finishDate))")),
             TcModel.MasterOccurrences.class);
 
         if (occ == null || occ.testOccurrence() == null)
-            return new MasterFailures(List.of(), false);
+            return new MasterHistory(List.of(), false);
 
-        List<TcModel.MasterOccurrence> failures = occ.testOccurrence().stream()
-            .filter(o -> "FAILURE".equals(o.status()) && o.build() != null)
-            .sorted(Comparator.comparingLong((TcModel.MasterOccurrence o) -> o.build().id()).reversed())
-            .limit(5)
+        List<TcModel.MasterOccurrence> runs = occ.testOccurrence().stream()
+            .filter(o -> ("SUCCESS".equals(o.status()) || "FAILURE".equals(o.status())) && o.build() != null
+                && buildTypeId.equals(o.build().buildTypeId()) && "finished".equals(o.build().state())
+                && ("SUCCESS".equals(o.build().status()) || "FAILURE".equals(o.build().status())))
+            .limit(50)
             .toList();
 
-        return new MasterFailures(failures,
+        return new MasterHistory(runs,
             occ.testOccurrence().stream().anyMatch(o -> Boolean.TRUE.equals(o.currentlyMuted())));
     }
 
-    /** A test's latest master failures in one suite, newest first, and whether TeamCity has the test muted now. */
-    public record MasterFailures(List<TcModel.MasterOccurrence> failures, boolean muted) {
+    /** Up to 50 completed, non-cancelled master runs in one suite, and whether the test is muted now. */
+    public record MasterHistory(List<TcModel.MasterOccurrence> runs, boolean muted) {
     }
 
     /**

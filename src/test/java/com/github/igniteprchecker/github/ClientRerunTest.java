@@ -195,7 +195,9 @@ class ClientRerunTest {
         assertThat(rerunning.phase()).isEqualTo("settling");
         assertThat(rerunning.wave()).isEqualTo(1);
         assertThat(rerunning.what()).isEqualTo("Thin client: Python");
+        assertThat(rerunning.rerunBuildIds()).containsExactly(RERUN);
         assertThat(commands.clientPhase(PYTHON, PR, RERUN).phase()).isEqualTo("final");
+        assertThat(commands.clientPhase(PYTHON, PR, RERUN).rerunBuildIds()).isEmpty();
         assertThat(commands.clientPhase(PYTHON, PR, RUN).phase()).isEqualTo("final");
         assertThat(commands.clientPhase(PYTHON, OTHER_PR, OTHER_RUN).phase()).isEqualTo("final");
     }

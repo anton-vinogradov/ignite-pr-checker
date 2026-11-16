@@ -14,8 +14,7 @@ class TokenOptionFirstPageTest {
     void emptyTokenSettingsOfferNoStandaloneSave() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/auto-visa-all', { body: { githubAvailable: true } }, 'GET');
-            await page.load('/ignite');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite');
             await page.settle();
             report({ jira: !page.el('jiraTokenBtn').classList.contains('hidden'),
                 github: !page.el('ghTokenBtn').classList.contains('hidden') });
@@ -32,8 +31,7 @@ class TokenOptionFirstPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/auto-visa-all', { body: { visa: true, suites: true, jiraStored: true, ghStored: true,
                 githubAvailable: %s } }, 'GET');
-            await page.load('/ignite');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite');
             await page.settle();
             report({ jira: !page.el('jiraTokenBtn').classList.contains('hidden'),
                 github: !page.el('ghTokenBtn').classList.contains('hidden') });
@@ -58,8 +56,7 @@ class TokenOptionFirstPageTest {
                 tokensUnreadWhy: 'key-changed' });
             if (reason === 'removed') SETTINGS.tokensRemoved = ['jira', 'github'];
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            await page.load('/ignite');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite');
             await page.settle();
             const actions = ['jiraTokenBtn', 'ghTokenBtn'].map(id => !page.el(id).classList.contains('hidden'));
             await page.el('jiraTokenBtn').onclick();

@@ -95,6 +95,8 @@ class SettlingPhaseTest {
         assertThat(phase.wave()).isEqualTo(1);
         assertThat(phase.of()).isEqualTo(2);
         assertThat(phase.what()).isEqualTo("1 suite with blockers");
+        assertThat(phase.rerunBuildIds()).containsExactly(9389100L);
+        assertThat(standing.phase(PR + 1, CHAIN).rerunBuildIds()).as("another PR cannot claim this wave").isEmpty();
         assertThat(phase.etaEpochSec()).isBetween(eta - 5, eta + 5);
     }
 
@@ -154,6 +156,7 @@ class SettlingPhaseTest {
         standing.sweep();
 
         assertThat(standing.phase(PR, CHAIN).phase()).isEqualTo("final");
+        assertThat(standing.phase(PR, CHAIN).reason()).isEqualTo("replaced");
     }
 
     /**

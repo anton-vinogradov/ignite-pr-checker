@@ -19,13 +19,16 @@ function render(list, sizes = {}) {
             + 'analyses PRs, and that needs an active login. Check back shortly.')}</div>`;
         return;
     }
-    const flaky = list.filter(b => !b.broken);
-    const broken = list.filter(b => b.broken);
+    const attention = list.filter(b => b.attention);
+    const flaky = list.filter(b => !b.attention && !b.broken);
+    const broken = list.filter(b => !b.attention && b.broken);
     const group = (title, sub, rows, size) => rows.length
         ? `<div class="group-row"><h2 class="group-head">${title} (${groupCount(rows.length, size)})</h2>${columnHeads()}</div>`
             + `<p class="group-sub">${sub}</p>` + rows.map((b, i) => flakyRow(b, i, list.indexOf(b))).join('')
         : '';
-    el.innerHTML = group(T('Flaky on master'), T('They fail some master runs and pass others. Make them stable.'), flaky,
+    el.innerHTML = group(T('Failing after a pass'), T('Candidates to inspect: at least two completed master runs '
+        + 'failed after an observed pass. This does not prove a new regression.'), attention, sizes.attention)
+        + group(T('Flaky on master'), T('They fail some master runs and pass others. Make them stable.'), flaky,
         sizes.flaky)
         + group(T('Broken on master'), T('They failed their last 10 master runs in a row, or every run if there were '
             + 'fewer. Find the commit that broke them.'), broken, sizes.broken);
@@ -43,21 +46,25 @@ function rowKey(b) {
 // The rows whose failure panel is open, and the button that has the focus: its row and its kind.
 function keptState(el) {
     const open = new Set();
+    const historyOpen = new Set();
     for (const row of el.querySelectorAll('.lbrow')) {
         const box = row.querySelector('.details');
         if (box && !box.classList.contains('hidden')) open.add(row.dataset.key);
+        if (row.querySelector('.history-all')?.open) historyOpen.add(row.dataset.key);
     }
     const active = document.activeElement;
     const row = active && el.contains(active) && active.closest ? active.closest('.lbrow') : null;
     const kind = row && ['toggle', 'ai', 'copy'].find(k => active.classList.contains(k));
-    return { open, focus: kind ? { key: row.dataset.key, kind } : null };
+    return { open, historyOpen, focus: kind ? { key: row.dataset.key, kind } : null };
 }
 
 // Opens again the panels that were open, from the answers already loaded, and gives the focus back.
-function restoreState(el, list, { open, focus }) {
+function restoreState(el, list, { open, historyOpen, focus }) {
     for (const row of el.querySelectorAll('.lbrow')) {
         const toggle = row.querySelector('.why.toggle');
         if (toggle && open.has(row.dataset.key)) toggleDetails(toggle, list[+toggle.dataset.i]);
+        const history = row.querySelector('.history-all');
+        if (history && historyOpen.has(row.dataset.key)) history.open = true;
         const target = focus && focus.key === row.dataset.key && row.querySelector('.why.' + focus.kind);
         if (target) target.focus();
     }
@@ -90,7 +97,8 @@ function flakyRow(b, rank, i) {
     const nameHtml = runUrl
         ? short + `<a class="ext" href="${esc(runUrl + '?buildTab=tests' + expanded + '#testNameId' + unsignedTestId(b.testId))}" target="_self" rel="noopener" title="${tcTitle}">TC</a>`
         : short;
-    const aiTitle = b.broken ? T('Copies a prompt that asks an AI coding assistant to find the commit that broke this '
+    const aiTitle = b.attention ? T('Copies a prompt that asks an AI coding assistant to investigate the observed '
+        + 'pass-to-failure change.') : b.broken ? T('Copies a prompt that asks an AI coding assistant to find the commit that broke this '
         + 'test.') : T('Copies a prompt that asks an AI coding assistant to make this flaky test stable.');
     const ai = `<button class="why ai" type="button" data-i="${i}" title="${aiTitle}">${T(AI_PROMPT)}</button>`;
     const panel = failurePanel(b, mf.slice(1), ai);
@@ -110,8 +118,51 @@ function flakyRow(b, rank, i) {
                 ${rateCell(b)}
                 <span class="lbcol lbcol-prs" title="${esc(prsTitle)}">${prsCell}</span>
             </div>
+            ${masterHistory(b)}
             ${panel}
         </div>`;
+}
+
+// The visible preview stays small; the full bounded window opens with the browser's native details control.
+function masterHistory(b) {
+    if (!b.historyCheckedAt)
+        return `<div class="master-history history-note">${T('Master history has not been checked yet.')}</div>`;
+    const runs = b.masterHistory || [];
+    const dated = runs.filter(r => r.finishedAt > 0);
+    const undated = runs.filter(r => !(r.finishedAt > 0));
+    const points = rows => rows.map(r => historyPoint(b, r)).join('');
+    const last = dated.slice(-12);
+    const transition = b.attention ? `<p class="history-transition">${T('Last observed pass: {0}; first observed '
+        + 'failure after it: {1}; {2} failed runs in a row.', historyPoint(b, b.attention.lastPass, true),
+        historyPoint(b, b.attention.firstFailure, true), b.attention.failedRuns)}</p>` : '';
+    return `<div class="master-history">${transition}`
+        + `<p class="history-note">${T('History checked {0}.', esc(historyDate(b.historyCheckedAt)))}</p>`
+        + (dated.length ? `<p class="history-note">${T('Dated completed master runs, oldest → newest (window up to 50).')}</p>`
+            + (dated.length > last.length ? `<p class="history-note">${T('Showing the latest {0} of {1} dated runs.', last.length, dated.length)}</p>` : '')
+            + `<div class="history-points">${points(last)}</div>`
+            + (dated.length > last.length ? `<details class="history-all"><summary>${T('Show all {0} dated runs', dated.length)}</summary>`
+                + `<div class="history-points">${points(dated)}</div></details>` : '')
+            : `<p class="history-note">${T('No dated completed master runs are available.')}</p>`)
+        + (undated.length ? `<p class="history-note">${T('Runs without a finish date: {0}; the transition is unknown.', undated.length)}</p>`
+            + `<div class="history-points">${points(undated)}</div>` : '')
+        + (dated.length && !undated.length && dated.every(r => r.status === 'F')
+            ? `<p class="history-note">${T('No earlier pass is visible in this window; the start of the failures is unknown.')}</p>` : '')
+        + '</div>';
+}
+
+function historyDate(epochMs) {
+    return new Date(epochMs).toLocaleString(LANG === 'ru' ? 'ru-RU' : 'en-GB',
+        { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function historyPoint(b, run, showDate = false) {
+    const failed = run.status === 'F';
+    const when = run.finishedAt > 0 ? historyDate(run.finishedAt * 1000) : T('finish date unavailable');
+    const label = T('{0}; build #{1}; {2}.', (failed ? T('Failed') : T('Passed')), run.buildId, when);
+    const text = showDate ? esc(when) : failed ? 'F' : 'P';
+    return `<a class="${showDate ? 'history-date' : 'history-run ' + (failed ? 'fail' : 'pass')}" `
+        + `href="${esc(masterRunUrl(b, run))}" title="${esc(label)}" aria-label="${esc(label)}" `
+        + `target="_self" rel="noopener">${text}</a>`;
 }
 
 // The "Master fail rate" column: a flaky test's rate in colour and its sample under it; a broken test's streak.
@@ -211,7 +262,9 @@ function flakyPrompt(b, details) {
     const mf = (b.masterFailures || []).map(f => `${tcBase}buildConfiguration/${encodeURIComponent(f.btId)}/${f.buildId}`);
     const language = LANGUAGE[platformOf(b.suite, b.name)];
     const head = [
-        b.broken
+        b.attention
+            ? `Investigate a possible regression on Apache Ignite master (${language}) — completed runs passed, then failed repeatedly.`
+            : b.broken
             ? `Find the commit that broke a test on Apache Ignite master (${language}) — it ${masterRunsLabel(b)}.`
             : `Stabilise a flaky test in Apache Ignite (${language}) — it fails on master with no code changes.`,
         '',
@@ -219,6 +272,7 @@ function flakyPrompt(b, details) {
         `- Repository: https://github.com/${githubRepo} (branch: master)`,
         `- Suite (TeamCity): ${b.suiteName || b.suite}`,
         `- Test: ${b.name}`,
+        b.attention ? `- Last observed pass: ${new Date(b.attention.lastPass.finishedAt * 1000).toISOString()}; first observed failure after it: ${new Date(b.attention.firstFailure.finishedAt * 1000).toISOString()}; ${b.attention.failedRuns} failures in a row. The bounded window does not prove the exact start or cause.` : null,
         b.broken
             ? `- Master runs: the newest ${b.failStreak} failed in a row; ${b.masterFails} of the latest ${b.masterRuns} failed in all`
             : `- Master fail rate: ${b.masterFails}/${b.masterRuns} recent runs (${pct}%)`,
@@ -230,7 +284,11 @@ function flakyPrompt(b, details) {
         '',
         'Task:',
         `1. Check out ${githubRepo} master and locate the test class.`,
-        ...(b.broken ? [
+        ...(b.attention ? [
+            '2. Compare the last observed pass with the first failure after it: inspect their revisions and run conditions. Decide whether this is intermittent flakiness or a code regression; the dates do not prove the exact start.',
+            '3. If a regression is confirmed, inspect the commits between those revisions or bisect. Otherwise investigate timing, resources and isolation without assuming a breaking commit.',
+            '4. Run the focused test to verify the fix and describe the evidence.',
+        ] : b.broken ? [
             '2. Find when it started failing: the test\'s master history in TeamCity (needs a ci2 login; if you cannot open it, ask for it) shows the last run it passed and the first it failed. List the commits between their revisions (git log <passed>..<failed>), or bisect with the test.',
             '3. If the test fails on purpose (an explicit fail("IGNITE-NNNN"), a feature not implemented yet), say so: it should be muted or ignored with that ticket, not fixed here.',
             '4. Otherwise fix what the breaking commit broke, or the test if that commit changed the behaviour on purpose, and run the test to show it passes.',
@@ -321,7 +379,7 @@ async function tick() {
         await languageLearned;
         renderIntro(data.muted || 0);
         $('err').textContent = '';
-        const sizes = { flaky: data.flakyCount, broken: data.brokenCount };
+        const sizes = { attention: data.attentionCount, flaky: data.flakyCount, broken: data.brokenCount };
         const json = JSON.stringify({ list, sizes, prDays });
         if (json !== lastJson) { render(list, sizes); lastJson = json; }
         paintLiveChips(reruns);

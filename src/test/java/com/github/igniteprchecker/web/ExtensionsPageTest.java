@@ -130,16 +130,21 @@ class ExtensionsPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + EXTENSIONS + "const CATALOG = " + catalog + ";\n" + """
             page.route('/api/me', { body: { username: 'alice', lang: 'ru' } });
             page.route('/ru.json', { body: CATALOG });
+            page.route('/api/client/runs', { body: [{ buildId: 9002, name: 'Extensions: All Tests', state: 'queued',
+                webUrl: 'https://ci2.example/build/9002', pct: -1, runAll: true }] });
+            page.route('/api/client/settling', { body: { phase: 'settling', wave: 1, of: 1,
+                rerunBuildIds: [9002] } });
             await page.load('/extensions?pr=42');
             await page.settle();
             report({ title: page.text('prTitle'), label: page.text('runAllLabel'),
                 question: page.run('clientRunQuestion')(42, false, []),
-                settling: page.run('settlingText')({ phase: 'settling', wave: 1 }) });
+                settling: page.text('settling') });
             """);
 
         assertThat(out.get("title").asText()).startsWith("Расширения #42");
         assertThat(out.get("label").asText()).contains("Цепочка сборок");
         assertThat(out.get("question").asText()).contains("цепочку сборок", "проекта Расширения");
-        assertThat(out.get("settling").asText()).contains("цепочки сборок").doesNotContain("сьюта");
+        assertThat(out.get("settling").asText()).isEqualTo("♻︎ Автоповтор 1/1: выполняется — 0, в очереди — 1."
+            + " Дождись обновлённого вердикта.");
     }
 }

@@ -94,7 +94,7 @@ class TabSignalTest {
             """);
 
         assertThat(out.get("title").asText()).isEqualTo("♻️ deciding on re-run · #13575 — Ignite PR Checker");
-        assertThat(out.get("line").asText()).startsWith("♻︎ Deciding whether to re-run the failed suites.");
+        assertThat(out.get("line").asText()).startsWith("The checker is processing the results and deciding whether to re-run");
     }
 
     @Test
@@ -169,9 +169,9 @@ class TabSignalTest {
         assertThat(out.get("hidden").asBoolean()).isTrue();
     }
 
-    /** One /api/settling answer failed while the service restarted: the hidden tab stopped asking for good. */
+    /** Given a failed status read, the page admits it is unknown and keeps asking until it confirms a final result. */
     @Test
-    void aFailedAnswerLeavesTheRunWhereItWas() throws Exception {
+    void aFailedAnswerKeepsPollingWithoutClaimingTheRunIsFinal() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + NOTIFICATIONS + """
             page.route('/api/analyze', { body: verdict({ buildId: 9100 }) });
             page.route('/api/settling', { body: %1$s });
@@ -182,7 +182,7 @@ class TabSignalTest {
             page.route('/api/settling', { status: 502, body: {} });
             await page.tick(90000);
             const atBlip = { title: page.run('document').title, shown: shown.length,
-                banner: !page.el('settlingRow').classList.contains('hidden') };
+                banner: !page.el('settlingRow').classList.contains('hidden'), text: page.el('settling').textContent };
             page.route('/api/settling', { body: %1$s });
             await page.tick(90000);
             const asked = page.fetches('/api/runs').length;
@@ -192,7 +192,8 @@ class TabSignalTest {
                 shown });
             """.formatted(SETTLING));
 
-        assertThat(out.get("atBlip").get("title").asText()).isEqualTo("♻️ re-run 1/2 · #13575 — Ignite PR Checker");
+        assertThat(out.get("atBlip").get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
+        assertThat(out.get("atBlip").get("text").asText()).contains("Auto re-run status is unknown");
         assertThat(out.get("atBlip").get("shown").asInt()).isZero();
         assertThat(out.get("atBlip").get("banner").asBoolean()).isTrue();
         assertThat(out.get("askedAfter").asInt()).isPositive();

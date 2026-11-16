@@ -6,30 +6,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/**
- * What a screen reader said on the PR page. The heading of Broken suites came out as a paragraph: "Broken suites (3)
- * Suites with no reliable result: a compilation error, timeout or crash, … Rerun 2 suites Rerun at top", because its
- * "?" link was named with the whole definition. A row of the PR list came out as "#13575IGNITE-29049 5 my run Move MDC
- * to JUnit": the number ran into the key, and the badge was a bare "5" or "?". The list of links read "What this
- * means" 13 times, and two of the "?" stand outside any heading that says what "this" is: the one by the PR list and
- * the one by the run chips. A "?" in a heading is named "What this means", the two others name what they explain, and
- * every "?" keeps the definition in its title; a space parts the number and the key; a badge is named in the legend's
- * words.
- */
+/** Help buttons have short accessible names; PR rows separate the number, ticket key and spoken badge meaning. */
 class ScreenReaderNamesPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
 
-    private static final Pattern HELP = Pattern.compile("<a class=\"help\" href=\"[^\"#]*(#[^\"]*)\"[^>]*>\\?</a>");
-
-    private static final Map<String, String> NAMES_OUTSIDE_HEADINGS = Map.of(
-        "#badges-in-the-pr-list", "What the badges mean",
-        "#runs-buttons-and-visas", "What the run chips and commit tags mean");
+    private static final Pattern HELP = Pattern.compile("<button(?: id=\"[^\"]+\")? class=\"help meaning-help\" "
+        + "type=\"button\" title=\"[^\"]+\" aria-label=\"([^\"]+)\">\\?</button>");
 
     @Test
     void everyQuestionMarkHasAShortNameAndKeepsItsDefinitionInItsTitle() throws IOException {
@@ -37,11 +24,11 @@ class ScreenReaderNamesPageTest {
         int links = 0;
         while (help.find()) {
             links++;
-            String name = NAMES_OUTSIDE_HEADINGS.getOrDefault(help.group(1), "What this means");
-            assertThat(help.group()).contains("aria-label=\"" + name + "\"")
+            assertThat(help.group(1)).isIn("What this means", "What the run chips and commit tags mean");
+            assertThat(help.group())
                 .containsPattern("title=\"[^\"]{20,}\"");
         }
-        assertThat(links).isEqualTo(13);
+        assertThat(links).isEqualTo(12);
     }
 
     @Test
@@ -73,8 +60,6 @@ class ScreenReaderNamesPageTest {
         assertThat(out.get("unproven").asText()).endsWith("role=\"img\" aria-label=\"not proven clean\">?</span>");
 
         String page = Files.readString(PAGE, UTF_8);
-        for (String words : new String[] {"clean", "started failing", "not proven clean", "checking", "blockers"})
-            assertThat(page).as("the legend's words").contains("<span>" + words + " — ");
         Matcher key = Pattern.compile("(?m)^\\s*\\.pr-key \\{([^}]*)}").matcher(page);
         assertThat(key.find()).isTrue();
         assertThat(key.group(1)).as("the space parts the number and the key").doesNotContain("margin-left");

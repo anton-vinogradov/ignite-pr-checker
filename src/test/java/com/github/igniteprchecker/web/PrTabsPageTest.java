@@ -52,12 +52,11 @@ class PrTabsPageTest {
     void aLinkedUserGetsTheirOwnPrsFirstOneOffTheListOfAllAmongThem() throws Exception {
         JsonNode out = PageScript.run("index.html", LINKED + """
             await page.load('');
-            report({ tabs: tabs(), rows: rows(), count: page.el('prCount').textContent,
+            report({ tabs: tabs(), rows: rows(),
                 asked: page.fetches('/api/your-prs').length, note: page.el('prTabNote').classList.contains('hidden') });
             """);
 
         assertThat(out.get("rows").toString()).isEqualTo("[12950,13575]");
-        assertThat(out.get("count").asText()).isEqualTo("(2)");
         assertThat(out.get("tabs").get(1).get("pressed").asText()).isEqualTo("true");
         assertThat(out.get("tabs").get(0).get("pressed").asText()).isEqualTo("false");
         assertThat(out.get("tabs").get(1).get("title").asText())
@@ -115,7 +114,7 @@ class PrTabsPageTest {
             const before = page.el('settingsPanel').classList.contains('hidden');
             page.el('prTabMine').listeners.click[0]();
             await page.settle();
-            report({ before, after: page.el('settingsPanel').classList.contains('hidden'),
+            report({ before, destination: page.location.href,
                 mine: { locked: page.el('prTabMine').getAttribute('aria-disabled'), title: page.el('prTabMine').title,
                     pressed: page.el('prTabMine').getAttribute('aria-pressed') },
                 involved: page.el('prTabInvolved').getAttribute('aria-disabled'),
@@ -125,11 +124,11 @@ class PrTabsPageTest {
             """);
 
         assertThat(out.get("before").asBoolean()).isTrue();
-        assertThat(out.get("after").asBoolean()).as("⚙ opened").isFalse();
+        assertThat(out.get("destination").asText()).isEqualTo("/settings?repo=ignite&section=github");
         assertThat(out.get("mine").get("locked").asText()).isEqualTo("true");
         assertThat(out.get("mine").get("pressed").asText()).isEqualTo("false");
         assertThat(out.get("mine").get("title").asText())
-            .isEqualTo("Link your GitHub account in ⚙ to use this tab. A click opens ⚙.");
+            .isEqualTo("Link your GitHub account in Settings to use this tab. A click opens Settings.");
         assertThat(out.get("involved").asText()).isEqualTo("true");
         assertThat(out.get("all").asText()).isEqualTo("true");
         assertThat(out.get("saved").asText()).as("a click on an off tab chooses nothing").isEqualTo("mine");
@@ -142,7 +141,7 @@ class PrTabsPageTest {
         JsonNode out = PageScript.run("index.html", LINKED + """
             page.route('/api/your-prs', { body: { login: 'alice-gh', problem: null, mine: [], involved: [] } });
             await page.load('');
-            const mine = { note: note(), count: page.el('prCount').textContent };
+            const mine = { note: note() };
             page.el('prTabInvolved').listeners.click[0]();
             await page.settle();
             const involved = note();
@@ -152,7 +151,6 @@ class PrTabsPageTest {
             """);
 
         assertThat(out.get("mine").get("note").asText()).isEqualTo("You have no open PRs.");
-        assertThat(out.get("mine").get("count").asText()).isEmpty();
         assertThat(out.get("involved").asText())
             .isEqualTo("There are no open PRs by other people where someone asked for your review, you reviewed or you commented.");
         assertThat(out.get("filtered").asBoolean()).as("one line says the tab is empty, not two").isTrue();
@@ -205,22 +203,6 @@ class PrTabsPageTest {
         assertThat(out.get("old").get("nums").toString()).isEqualTo("[12950]");
         assertThat(out.get("other").get("nums").toString()).isEqualTo("[]");
         assertThat(out.get("other").get("open").asInt()).isEqualTo(13461);
-    }
-
-    /** Unlinking in ⚙ turns the two tabs off and takes the list back to All. */
-    @Test
-    void anUnlinkInSettingsTakesTheListBackToAll() throws Exception {
-        JsonNode out = PageScript.run("index.html", LINKED + """
-            page.route('/api/auto-visa-all', { body: { login: null } });
-            await page.load('');
-            page.el('settingsBtn').onclick();
-            await page.settle();
-            report({ tabs: tabs(), rows: rows() });
-            """);
-
-        assertThat(out.get("tabs").get(0).get("pressed").asText()).isEqualTo("true");
-        assertThat(out.get("tabs").get(1).get("locked").asText()).isEqualTo("true");
-        assertThat(out.get("rows").toString()).isEqualTo("[13575,13461]");
     }
 
     /** GitHub may take seconds to search: until the PRs come, Mine says they are loading instead of standing empty. */
@@ -329,26 +311,6 @@ class PrTabsPageTest {
         assertThat(out.get("tabs").get(1).get("locked").asText()).isEqualTo("true");
         assertThat(out.get("rows").toString()).isEqualTo("[13575,13461]");
         assertThat(out.get("note").isNull()).isTrue();
-    }
-
-    /** A link made in ⚙ turns the two tabs on at once, with no reload of the page. */
-    @Test
-    void aLinkInSettingsTurnsTheTabsOn() throws Exception {
-        JsonNode out = PageScript.run("index.html", LINKED + """
-            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false,
-                githubLinked: false } });
-            page.route('/api/auto-visa-all', { body: { login: 'alice-gh' } });
-            await page.load('');
-            const before = tabs()[1].locked;
-            page.el('settingsBtn').onclick();
-            await page.settle();
-            report({ before, tabs: tabs(), rows: rows() });
-            """);
-
-        assertThat(out.get("before").asText()).isEqualTo("true");
-        assertThat(out.get("tabs").get(1).get("locked").isNull()).isTrue();
-        assertThat(out.get("tabs").get(1).get("pressed").asText()).isEqualTo("true");
-        assertThat(out.get("rows").toString()).isEqualTo("[12950,13575]");
     }
 
     @Test

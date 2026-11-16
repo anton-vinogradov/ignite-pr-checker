@@ -11,51 +11,9 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
-/** The PR list keeps its glossary optional and gives each badge, title and ownership tag a clear meaning. */
+/** The PR list explains each badge and distinguishes run ownership from PR authorship. */
 class PrListPageTest {
     private static final Path PAGE = Path.of("src/main/resources/static/index.html");
-
-    /** Given a fresh page, opening a PR and returning home never opens the glossary without the reader asking. */
-    @Test
-    void theLegendStartsClosedOnTheHomeAndPrPages() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('');
-            const home = page.el('prLegend').open;
-            page.run('openPr')(13575, true);
-            await page.settle();
-            const opened = page.el('prLegend').open;
-            page.run('goHome')(true);
-            await page.settle();
-            report({ home, opened, back: page.el('prLegend').open });
-            """);
-
-        assertThat(out.get("home").asBoolean()).isFalse();
-        assertThat(out.get("opened").asBoolean()).isFalse();
-        assertThat(out.get("back").asBoolean()).isFalse();
-        assertThat(Files.readString(PAGE, UTF_8)).contains("<details id=\"prLegend\" class=\"pr-legend\">\n"
-            + "                        <summary>What the badges mean</summary>")
-            .contains("<li><span></span><span>no badge — no verdict yet</span></li>");
-    }
-
-    /** Given the home page, selecting and leaving a PR shows the checking key only while a PR is selected. */
-    @Test
-    void theCheckingKeyIsShownOnlyWhenAPrIsOpen() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            const shown = () => !page.el('legendChecking').classList.contains('hidden');
-            await page.load('');
-            const home = shown();
-            page.run('openPr')(13575, true);
-            await page.settle();
-            const opened = shown();
-            page.run('goHome')(true);
-            await page.settle();
-            report({ home, opened, back: shown() });
-            """);
-
-        assertThat(out.get("home").asBoolean()).isFalse();
-        assertThat(out.get("opened").asBoolean()).isTrue();
-        assertThat(out.get("back").asBoolean()).isFalse();
-    }
 
     /**
      * The filter, the head and the visa read the title from data-title and the link's title, which keep the key. The
@@ -101,67 +59,20 @@ class PrListPageTest {
             .doesNotContain("My?", "blocker(s)", "<span class=\"pr-ttl\">, IGNITE");
     }
 
-    /** Given a glossary the reader opened or closed, navigation and pane changes preserve that choice. */
+    /** Given each verdict standing, when a badge is drawn, its tooltip explains that standing and the blocker count. */
     @Test
-    void theFoldYouChoseStaysWhenAPrOpensOrThePaneChanges() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
-            await page.load('');
-            const legend = page.el('prLegend');
-            legend.open = true;
-            page.run('openPr')(13575, true);
-            await page.settle();
-            const keptForPr = legend.open;
-            page.run('setPaneCollapsed')(true);
-            page.run('setPaneCollapsed')(false);
-            const keptOpen = legend.open;
-            page.run('goHome')(true);
-            await page.settle();
-            const keptAtHome = legend.open;
-            legend.open = false;
-            page.run('syncPane')();
-            report({ keptForPr, keptOpen, keptAtHome, keptFolded: legend.open });
-            """);
-
-        assertThat(out.get("keptForPr").asBoolean()).isTrue();
-        assertThat(out.get("keptOpen").asBoolean()).isTrue();
-        assertThat(out.get("keptAtHome").asBoolean()).isTrue();
-        assertThat(out.get("keptFolded").asBoolean()).isFalse();
-    }
-
-    /**
-     * The legend's badges carry the rows' own tooltips, word for word, and a count reads "1 blocker" or "33 blockers".
-     * Its one "?" stands for three standings, and on prod 7 of 8 "?" were runs of older code, so its tooltip names all
-     * three reasons; it listed only the run's gaps. A "!" stood on runs older than the PR's head, under a tooltip that
-     * said the tests failed on the PR's latest code.
-     */
-    @Test
-    void theLegendRepeatsTheRowsTooltips() throws Exception {
+    void theRowsExplainEveryBadge() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             await page.load('');
             const badges = page.run('STANDING_BADGES');
             report({ watch: badges.WATCH[2], unproven: badges.UNPROVEN[2], checking: badges.CHECKING[2],
-                anyUnproven: page.run('UNPROVEN_LEGEND_TITLE'),
                 clean: page.run('CLEAN_BADGE_TITLE'), mine: page.run('MY_RUN_TITLE'),
                 one: page.run('blockerBadge')(1, false, null), many: page.run('blockerBadge')(33, false, null),
                 old: page.run('blockerBadge')(0, false, 'OLD_CODE'), proven: page.run('blockerBadge')(0, true, null) });
             """);
 
-        String legend = Files.readString(PAGE, UTF_8);
-        int start = legend.indexOf("<details id=\"prLegend\"");
-        legend = legend.substring(start, legend.indexOf("</details>", start));
-        assertThat(legend).contains("<span class=\"pr-badge watch\" title=\"" + out.get("watch").asText() + "\">!</span>")
-            .contains("<span class=\"pr-badge unproven\" title=\"" + out.get("anyUnproven").asText() + "\">?</span>")
-            .contains("<span class=\"pr-badge checking\" title=\"" + out.get("checking").asText() + "\">…</span>")
-            .contains("<span class=\"pr-badge ok\" title=\"" + out.get("clean").asText() + "\">✓</span>")
-            .contains("<span class=\"pr-badge bad\" title=\"2 blockers\">2</span>")
-            .contains("<span class=\"my-tag\" title=\"" + out.get("mine").asText() + "\">my run</span>")
-            .contains("<span>started failing — no blockers yet, but tests started failing on the code the run tested; "
-                + "a re-run shows whether they are blockers</span>");
         assertThat(out.get("watch").asText()).isEqualTo("No blockers yet, but some tests started failing on the code "
             + "the run tested. A re-run shows whether they are blockers.");
-        assertThat(out.get("anyUnproven").asText()).isEqualTo("No blockers found, but the PR is not proven clean. The run "
-            + "can't prove it, commits were pushed after the run, or it is not known whether the run tested the PR's "
-            + "latest commit.");
         assertThat(out.get("unproven").asText()).isEqualTo("No blockers found, but the run can't prove the PR clean: "
             + "it was interrupted, suites broke or ran fewer tests than on master, failed tests could not be "
             + "checked, suites re-ran on other commits, or a newer run is still going.");
@@ -177,18 +88,7 @@ class PrListPageTest {
             .endsWith(">✓</span>");
     }
 
-    /** The "?" by the heading said what it explains but not that it leaves the page for the docs on GitHub. */
-    @Test
-    void theHelpLinkSaysItOpensTheGlossaryOnGitHub() throws IOException {
-        assertThat(Files.readString(PAGE, UTF_8)).contains("features.md#badges-in-the-pr-list\" target=\"_self\" "
-            + "rel=\"noopener\" title=\"Opens the verdict glossary on GitHub. It says what each badge means.\"");
-    }
-
-    /**
-     * "?" is amber, as every "wait or rerun" mark; red is only for a count. The tag is a plate, as the tags next to a
-     * test. Each row of the legend had a grid of its own, so the text after "my run" began 25 px right of the text
-     * after "✓": the rows share the list's columns.
-     */
+    /** Given the list styles, unproven badges stay amber and ownership tags remain readable plates. */
     @Test
     void theUnprovenBadgeIsAmberAndTheTagAPlate() throws IOException {
         String css = Files.readString(PAGE, UTF_8);
@@ -198,8 +98,6 @@ class PrListPageTest {
         assertThat(rule(css, ".my-tag")).contains("background: var(--fill)", "color: var(--muted)", "cursor: help")
             .doesNotContain("border:");
         assertThat(rule(css, ".pr-key")).contains("color: var(--muted)", "font-family: ui-monospace, monospace");
-        assertThat(rule(css, ".pr-legend ul")).contains("display: grid", "grid-template-columns: max-content 1fr");
-        assertThat(rule(css, ".pr-legend li")).contains("grid-column: 1 / -1", "grid-template-columns: subgrid");
         assertThat(css).doesNotContain(".my-tag::before");
     }
 

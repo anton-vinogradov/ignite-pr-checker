@@ -20,8 +20,7 @@ class AutofixNeedsCommandsPageTest {
     void theAutofixAsksForPrCommandsFirst() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             page.el('styleFixToggle').checked = true;
             await page.el('styleFixToggle').onchange();
@@ -43,8 +42,7 @@ class AutofixNeedsCommandsPageTest {
             const ON = Object.assign({}, SETTINGS, { style: true, commands: true });
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             page.el('commandsToggle').checked = false;
             await page.el('commandsToggle').onchange();
