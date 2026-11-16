@@ -117,7 +117,7 @@ class FlakyQueueTest {
         assertThat(top).hasSize(41);
         assertThat(top.subList(0, 40)).noneMatch(FlakyStats.TopFlaky::broken);
         assertThat(top.get(40).testId()).isEqualTo(NEAR_READER);
-        assertThat(flaky.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(41, 1));
+        assertThat(flaky.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(0, 41, 1));
     }
 
     /**
@@ -294,7 +294,8 @@ class FlakyQueueTest {
                 String mute = param(query, "fields").contains("currentlyMuted")
                     ? "\"currentlyMuted\":" + muted.contains(id) + "," : "";
                 byte[] body = ("{\"testOccurrence\":[{\"id\":\"build:(id:9380300),id:1\",\"status\":\"FAILURE\","
-                    + mute + "\"build\":{\"id\":9380300,\"buildTypeId\":\"" + CACHE + "\"}}]}").getBytes(UTF_8);
+                    + mute + "\"build\":{\"id\":9380300,\"buildTypeId\":\"" + CACHE
+                    + "\",\"state\":\"finished\",\"status\":\"FAILURE\"}}]}").getBytes(UTF_8);
                 ex.getResponseHeaders().add("Content-Type", "application/json");
                 ex.sendResponseHeaders(200, body.length);
                 ex.getResponseBody().write(body);

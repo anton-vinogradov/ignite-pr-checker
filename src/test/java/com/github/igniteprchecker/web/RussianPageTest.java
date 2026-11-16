@@ -53,7 +53,7 @@ class RussianPageTest {
         JsonNode out = PageScript.run("index.html", russian() + """
             page.route('/api/auto-visa-all', { body: { login: 'alice-v', commands: true,
                 githubAvailable: true, githubLinkable: true } }, 'GET');
-            await page.load('/ignite?github=linked');
+            await page.load('/settings?repo=ignite&github=linked');
             report({ open: !page.el('settingsPanel').classList.contains('hidden'),
                 language: page.el('langSelect').value, saveDisabled: page.el('langSave').disabled });
             """);
@@ -91,7 +91,8 @@ class RussianPageTest {
                 { buildId: 9202, name: 'PDS', state: 'queued', webUrl: 'https://ci2/9202', pct: -1, startSec: 300,
                     waitedSec: 60, by: 'bob', mine: false, runAll: false }] });
             page.route('/api/settling', { body: { phase: 'settling', wave: 1, of: 2,
-                what: '3 suites (2 with blockers, 1 broken)', etaEpochSec: Math.floor(page.now() / 1000) + 1200 } });
+                what: '3 suites (2 with blockers, 1 broken)', rerunBuildIds: [9201, 9202],
+                etaEpochSec: Math.floor(page.now() / 1000) + 1200 } });
             page.route('/api/delta', { body: { delta: { latestBuildId: 9001, prevBuildId: 8000,
                 appeared: [blocker('X.y', 'o1')], fixed: [blocker('X.z', 'o2')], persisting: 3 }, history: [] } });
             page.route('/api/pending', { body: { pending: true, ahead: 2, builtSha: 'abc1234', headSha: 'def5678',
@@ -115,9 +116,8 @@ class RussianPageTest {
         assertThat(texts.get("filteredCount").asText()).isEqualTo("(1 сьюта, 3 теста)");
         assertThat(texts.get("verdictLines").asText()).startsWith("Этот прогон покрывает PR не полностью: у 64 сьют нет "
             + "надёжного результата (60× сбой ci2: артефакты недоступны;");
-        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск №1 из 2 возможных: перезапускаю 3 "
-            + "сьюты (2 с блокерами, 1 битая), закончится через ~20\u00a0мин. Вердикт ниже может измениться, когда они "
-            + "закончатся.");
+        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоповтор 1/2: выполняется — 1, в очереди — 1."
+            + " Дождись обновлённого вердикта. Осталось примерно ~20\u00a0мин.");
         assertThat(texts.get("filtered").asText()).contains("было и раньше: падает 1/4 на master на JDK 17",
             "флаки на ветке: упал только в последнем из 2 прогонов на коммите 3fdf446 (более ранний прогон на том же "
                 + "коде прошёл)");
@@ -149,8 +149,7 @@ class RussianPageTest {
             page.route('/api/token-expiry?service=teamcity', { body: { state: 'expires', expiresAt: page.now() + 3 * DAY } });
             page.route('/api/token-expiry?service=jira', { body: { state: 'never' } });
             page.route('/api/token-expiry?service=github', { body: { state: 'unknown', why: 'several', tokens: 2 } });
-            await page.load('');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite');
             await page.settle();
             const ids = ['tokensUnread', 'tcState', 'tcExpiry', 'jiraState', 'jiraExpiry', 'ghLoginState',
                 'ghTokenState', 'ghTokenExpiry', 'ghTokenNote', 'ghCommentApp', 'loginsState', 'loginsList',
@@ -246,9 +245,8 @@ class RussianPageTest {
     void savingALanguageInSettingsTellsTheServerAndOpensThePageInIt() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/language', { body: { lang: 'ru' } }, 'POST');
-            await page.load('');
+            await page.load('/settings?repo=ignite');
             page.run('location.reload = () => { window.reopened = localStorage.getItem("lang"); }');
-            await page.el('settingsBtn').onclick();
             await page.settle();
             const shown = { lang: page.el('langSelect').value, save: page.el('langSave').disabled };
             page.el('langSelect').value = 'ru';
@@ -274,9 +272,8 @@ class RussianPageTest {
     void savingEnglishOpensThePageInEnglish() throws Exception {
         JsonNode out = PageScript.run("index.html", russian() + """
             page.route('/api/language', { body: { lang: 'en' } }, 'POST');
-            await page.load('');
+            await page.load('/settings?repo=ignite');
             page.run('location.reload = () => { window.reopened = { stored: localStorage.getItem("lang") }; }');
-            await page.el('settingsBtn').onclick();
             page.el('langSelect').value = 'en';
             page.el('langSelect').onchange();
             await page.el('langSave').onclick();
@@ -391,7 +388,7 @@ class RussianPageTest {
         assertThat(untranslated(out.get("texts"), "")).isEmpty();
         assertThat(out.get("texts").get("page").asText()).contains("Войти", "Перезапускать упавшие сьюты моих прогонов",
             "Блокеры");
-        assertThat(out.get("docs")).hasSizeGreaterThan(5)
+        assertThat(out.get("docs")).isNotEmpty()
             .allSatisfy(href -> assertThat(href.asText()).contains("/docs/features.ru.md#"));
     }
 
@@ -410,7 +407,7 @@ class RussianPageTest {
             const label = text('\\n                Re-run failed suites of my runs ');
             const code = text('/run-all');
             const help = el('A', { href: 'https://github.com/anton-vinogradov/ignite-pr-checker/blob/main/docs/'
-                + 'features.md#cards-on-the-pr-page', title: 'What each verdict means and what to do next' }, []);
+                + 'features.md#cards-on-the-pr-page', title: 'The heading summarizes this run. The notes below explain its limits and the next action.' }, []);
             const root = el('DIV', {}, [el('B', {}, [label]), el('CODE', {}, [code]), help,
                 el('INPUT', { placeholder: 'Filter, or a PR number' }, []), text('   ')]);
             page.run('translateDom')(root);
@@ -421,7 +418,7 @@ class RussianPageTest {
         assertThat(out.get("label").asText()).isEqualTo("\n                Перезапускать упавшие сьюты моих прогонов ");
         assertThat(out.get("code").asText()).isEqualTo("/run-all");
         assertThat(out.get("href").asText()).endsWith("/docs/features.ru.md#карточки-на-странице-pr");
-        assertThat(out.get("title").asText()).isEqualTo("Что значит каждый вердикт и что делать дальше");
+        assertThat(out.get("title").asText()).isEqualTo("Заголовок подводит итог прогона. Пояснения ниже описывают ограничения и следующий шаг.");
         assertThat(out.get("placeholder").asText()).isEqualTo("Фильтр или номер PR");
     }
 

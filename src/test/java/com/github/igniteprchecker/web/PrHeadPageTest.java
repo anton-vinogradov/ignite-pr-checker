@@ -204,8 +204,8 @@ class PrHeadPageTest {
             report({ text: page.el('settling').textContent });
             """);
 
-        assertThat(out.get("text").asText()).isEqualTo("♻︎ Auto re-run #1 of up to 2: re-running 2 blocker suites, done in "
-            + "~20m. The verdict below may change when they finish.");
+        assertThat(out.get("text").asText()).isEqualTo("♻︎ Auto re-run 1/2: waiting for its results and an updated verdict. "
+            + "Estimated time remaining: ~20m.");
     }
 
     /** The status line and the ↻ have their own places under the title; ↻ keeps its id for the merged-PR rule. */

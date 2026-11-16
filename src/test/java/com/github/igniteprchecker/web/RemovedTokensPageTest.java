@@ -20,8 +20,7 @@ class RemovedTokensPageTest {
             jiraStored: false, ghStored: false, jiraTokenRejected: false, ghTokenRejected: false,
             tcTokenRejected: false, suites: true, githubAvailable: true, tokensRemoved: %s };
         page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-        await page.load('?pr=13575');
-        await page.el('settingsBtn').onclick();
+        await page.load('/settings?repo=ignite&pr=13575');
         await page.settle();
         report({ jira: !page.el('jiraTokenRemoved').classList.contains('hidden'),
             gh: !page.el('ghTokenRemoved').classList.contains('hidden'),

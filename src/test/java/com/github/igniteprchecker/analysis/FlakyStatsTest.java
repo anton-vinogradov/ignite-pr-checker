@@ -159,7 +159,7 @@ class FlakyStatsTest {
         flaky.harvest();
 
         assertThat(flaky.top(40)).extracting(FlakyStats.TopFlaky::suite).containsExactly(LINUX);
-        assertThat(flaky.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(1, 0));
+        assertThat(flaky.groupSizes()).isEqualTo(new FlakyStats.GroupSizes(0, 1, 0));
     }
 
     private FlakyStats flaky() {
@@ -209,7 +209,7 @@ class FlakyStatsTest {
                 String occurrences = failures.stream()
                     .filter(f -> suite == null || suite.equals(f[0]))
                     .map(f -> "{\"id\":\"" + occurrenceId(Long.parseLong(f[1])) + "\",\"status\":\"FAILURE\","
-                        + "\"build\":{\"id\":" + f[1] + ",\"buildTypeId\":\"" + f[0] + "\"}}")
+                        + "\"build\":{\"id\":" + f[1] + ",\"buildTypeId\":\"" + f[0] + "\",\"state\":\"finished\",\"status\":\"FAILURE\"}}")
                     .collect(Collectors.joining(","));
                 byte[] body = ("{\"testOccurrence\":[" + occurrences + "]}").getBytes(UTF_8);
                 ex.getResponseHeaders().add("Content-Type", "application/json");

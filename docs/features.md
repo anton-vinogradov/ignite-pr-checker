@@ -7,8 +7,9 @@ has four themes: Light, Dark, JetBrains and Terminal.
 
 ## Verdict glossary
 
-Every label the checker puts on a PR, a suite or a test: what it means and what to do. The **?** marks on the
-page, the PR comment and the JIRA visa link here. The numbers are the defaults in the code; see
+Every label the checker puts on a PR, a suite or a test: what it means and what to do. The **?** buttons in verdict
+cards explain the result on the page. Hover for a tooltip, or press the button to read it above the verdict.
+The PR comment and the JIRA visa link here. The numbers are the defaults in the code; see
 [Thresholds](#thresholds).
 
 ### Cards on the PR page
@@ -135,7 +136,7 @@ and the visa.
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
 | `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `⚠ Mixed run` | The verdict counts runs of some suites on another commit than the rest of the RunAll. The line says which suites re-ran on which commit, which commit is the PR's head, and that only a RunAll of the PR's head can prove it clean. It stands in place of `⚠ The verdict is for older code`. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR it names the commit the PR was merged at, with no button. | **Run RunAll**. |
-| `♻︎ Auto re-run #1 of up to 2`, `♻︎ Deciding whether to re-run the failed suites` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
+| `♻︎ Auto re-run 1/2`, `The checker is processing the results` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
 | **Run anyway** | **Run**, **Run at top** and **Run RunAll** queue nothing on a PR that GitHub reports merge conflicts for. The status line says so, and this button appears next to it. It asks first, then queues that RunAll anyway. | Resolve the conflicts and run RunAll again. |
 | **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
@@ -187,9 +188,9 @@ and the visa.
 - The project tabs **Ignite**, **Python**, **PHP**, **Node.js** and **Extensions** open `/ignite`, `/python`, `/php`,
   `/nodejs` and `/extensions`.
   The left pane lists open PRs of the selected project, the most recently updated first. A row has the PR's number, its ticket key
-  and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). The fold **What the badges mean** under
-  the filter explains the badges. It starts closed; opening a PR preserves your choice to show or hide it. **my run** marks the PRs whose latest RunAll you
-  started, or the latest client-suite run you started.
+  and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). Each badge has a tooltip.
+  **my run** marks a PR whose latest RunAll, client-suite run or Extensions chain you started. It also appears in
+  **Mine**: another person can start a run of your PR.
 - Three tabs over the list choose which PRs it shows. **All** shows the 50 most recently updated open PRs. **Mine**
   shows your open PRs, also the ones that are not among those 50. **Involved** shows other people's open PRs where
   someone asked you to review, you reviewed or you commented. The checker finds Mine and Involved with GitHub's search,
@@ -223,8 +224,11 @@ own tests, and what was not blamed on the PR.
   the head names the RunAll build with its TeamCity link, when the run finished and when the verdict was computed. The
   finish time turns amber when the run is over a week old. The ↻ button computes the verdict again. When TeamCity
   reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
-- **Lines under the head** say when the verdict is for older code or a mixed run, when auto re-runs still settle it,
-  and what is on ci2 now.
+- **Lines under the head** say when the verdict is for older code or a mixed run, what is on ci2 now, and whether
+  to wait. The auto re-run line shows its queued and running builds or that the checker is processing their results.
+  After it finishes, the line says auto re-runs of this run are no longer expected. Remaining failures then need a
+  fix or a manual re-run. Other runs of the PR are named separately. If TeamCity errors leave the analysis incomplete,
+  the line says how long the checker will keep retrying it. An unavailable status is shown as unknown.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
@@ -333,7 +337,8 @@ The proxy does not retain force-pushed commits or substitute another commit. Tea
 
 ## Standing options
 
-The ⚙ panel holds options that act while the page is closed, on the RunAll chains you start: on the page, with a
+**⚙ Settings** opens `/settings`, a separate page with a link back to the project or PR you came from. Linking GitHub
+returns to Settings with that same context. These options act while the page is closed, on the RunAll chains you start: on the page, with a
 `/run-all` comment, or in TeamCity. Automatic re-runs, PR comments and JIRA visas act on the runs you start in
 [thin client PRs](#thin-client-prs) and [Extensions PRs](#extensions-prs) too. Options that push commits apply to your own Ignite PRs. An option does not reach back: runs that finished
 before it was switched on are left alone. ⚙ puts the options in four groups, by what they need, and each group starts
@@ -698,12 +703,22 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
 ![The flaky board: tests ranked by how often they fail on master](img/flaky-board.jpg)
 
 - Tests that fail on master: the checker does not blame them on any PR, yet they fail in PRs that did not break them.
-  **Flaky on master** comes first: tests that fail some master runs and pass others. **Broken on master** follows:
-  tests that failed each of their newest 10 master runs, or every run when there were fewer.
+  **Failing after a pass** comes first: the latest two or more completed, non-cancelled master runs in the
+  observed window failed consecutively, with a pass before that streak. These are candidates to investigate, not
+  proof of a regression. The other tests form **Flaky on master** (some runs fail,
+  others pass) and **Broken on master** (each of the newest 10 runs failed, or every run when there were fewer).
 - Each group is ranked by master fail rate, then by how many PRs the test failed in during the last 14 days, and shows
   40 rows at most. The two columns on the right show both: **Master fail rate** (for a broken test, how many runs in a
   row it failed) and **PRs, last 14 days**.
+- The board collects tests seen failing in cached PR analyses; it does not scan every test on master.
 - A test that runs in several suites gets a row per suite, with that suite's fail rate and its failed master runs.
+- Each row shows a mini history of completed master runs, oldest to newest. **P** and **F** link to the passed or
+  failed run; their tooltips give the finish dates. The preview shows the latest 12 dated runs; **Show all** opens
+  the available window of up to 50. The fail-rate column uses its own sample, which can be larger.
+- The attention group gives the last observed pass, the first failure after it and the current failure streak.
+  These dates bound the observed change; they do not establish when or why the test broke. Without an earlier pass
+  or readable finish dates, the page says the transition is unknown. History is checked at most once per 24 hours;
+  each row shows when. A history not yet checked gets a placeholder until the normal background cycle fills it.
 - Tests muted on TeamCity are left out, and the intro says how many.
 - The tally survives restarts; a test drops off 14 days after it was last seen failing.
 - Anyone can read the board. **failure ▸** opens a panel with the test's older failed master runs and the failure
@@ -762,7 +777,7 @@ GitHub account linked. There `/run-all` runs one client suite instead of RunAll:
 
 - **The top bar**: every page has the same menu with **PRs**, **Flaky tests** and **Status**. The page you are on is
   underlined. The theme selector is on every page too. Once you are logged in, the bar on the PR page also shows your
-  name with **Log out** beside it, and ⚙ in the corner. ⚙ opens the **Standing options** panel. An operator's name has
+  name with **Log out** beside it, and **⚙ Settings**, which opens the separate account settings page. An operator's name has
   **operator** next to it.
 - **Update**: when a newer release is out, operators see **Update to vX.Y.Z** in the top bar, and a **what's new** link
   to its notes. After a deploy, open tabs show **UI updated — reload**.

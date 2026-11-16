@@ -24,8 +24,7 @@ class CommitTokenPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { gh: true }) }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             page.el('ghCommentToggle').checked = true;
             await page.el('ghCommentToggle').onchange();
@@ -47,8 +46,7 @@ class CommitTokenPageTest {
             const ON = Object.assign({}, SETTINGS, { suites: true, ghStored: true });
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: ON }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             page.el('suiteFixToggle').checked = true;
             await page.el('suiteFixToggle').onchange();
@@ -80,8 +78,7 @@ class CommitTokenPageTest {
                 + ' repositories or change workflows, and the checker only commits.';
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { status: 412, body: { need: 'github', error: WHY } }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             page.el('suiteFixToggle').checked = true;
             await page.el('suiteFixToggle').onchange();
@@ -110,8 +107,7 @@ class CommitTokenPageTest {
             const NOTE = 'Your saved token is a classic one: it can push to every public repository you can push to.';
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { style: true, ghStored: true,
                 ghTokenNote: NOTE }) }, 'GET');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             report({ shown: !page.el('ghTokenNote').classList.contains('hidden'),
                 note: page.el('ghTokenNote').textContent });
@@ -127,8 +123,7 @@ class CommitTokenPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             const NONE = Object.assign({}, SETTINGS, { commands: true, githubAvailable: false, appLogin: null });
             page.route('/api/auto-visa-all', { body: NONE }, 'GET');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             report({ said: !page.el('githubOff').classList.contains('hidden'),
                 gh: page.el('ghCommentToggle').disabled, style: page.el('styleFixToggle').disabled,
@@ -152,8 +147,7 @@ class CommitTokenPageTest {
             const NONE = Object.assign({}, SETTINGS, { gh: true, githubAvailable: false, appLogin: null });
             page.route('/api/auto-visa-all', { body: NONE }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, NONE, { gh: false }) }, 'POST');
-            await page.load('?pr=13575');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             const before = page.el('ghCommentToggle').disabled;
             page.el('ghCommentToggle').checked = false;

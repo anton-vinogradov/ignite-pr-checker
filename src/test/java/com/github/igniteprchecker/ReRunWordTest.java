@@ -70,7 +70,7 @@ class ReRunWordTest {
 
         assertThat(literals).contains("Rerun at top", "the # suites of this group",
             "Its result joins the verdict when it finishes.",
-            "♻︎ Deciding whether to re-run the failed suites. The verdict below may still change.");
+            "The checker is processing the results and deciding whether to re-run failed suites. Wait for its decision.");
         assertThat(misused(List.of("Rerun their suites", "a rerun shows", "“Rerun” and “Rerun at top”",
             "Rerun 2 suites", "the reruns"))).containsExactly("Rerun their suites", "a rerun shows", "the reruns");
     }

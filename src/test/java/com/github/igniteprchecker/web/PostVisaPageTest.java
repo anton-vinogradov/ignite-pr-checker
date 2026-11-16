@@ -150,17 +150,17 @@ class PostVisaPageTest {
             page.el('visaPostWhy').onclick({ preventDefault() {} });
             await page.settle();
             report({ before, posts: posts().length, status: page.el('status').textContent,
-                settings: !page.el('settingsPanel').classList.contains('hidden'), tag: page.el('visaPostWhy').tagName,
+                settings: page.location.href, tag: page.el('visaPostWhy').tagName,
                 type: page.el('visaPostWhy').getAttribute('type') });
             """);
 
         assertThat(out.at("/before/shown").asBoolean()).isTrue();
         assertThat(out.at("/before/off").asBoolean()).isTrue();
-        assertThat(out.at("/before/why").asText()).isEqualTo(TOKEN_MISSING + " A click opens ⚙.");
+        assertThat(out.at("/before/why").asText()).isEqualTo(TOKEN_MISSING + " A click opens Settings.");
         assertThat(out.at("/before/title").asText()).isEmpty();
         assertThat(out.get("posts").asInt()).isZero();
         assertThat(out.get("status").asText()).isEqualTo(TOKEN_MISSING);
-        assertThat(out.get("settings").asBoolean()).isTrue();
+        assertThat(out.get("settings").asText()).isEqualTo("/settings?repo=ignite&pr=13575&section=jira");
         assertThat(out.get("tag").asText()).as("the ? acts on this page: a screen reader calls it a button")
             .isEqualTo("BUTTON");
         assertThat(out.get("type").asText()).isEqualTo("button");
@@ -331,7 +331,7 @@ class PostVisaPageTest {
         assertThat(out.get("button").asText()).isEqualTo("В JIRA");
         assertThat(out.get("why").asText()).isEqualTo("Кнопка «В JIRA» берёт токен JIRA, который ты сохраняешь"
             + " в ⚙, а там его нет. Когда ты сохранишь токен, заодно включится опция «Ставить визу моим прогонам в"
-            + " JIRA». Щелчок открывает ⚙.");
+            + " JIRA». Нажатие откроет настройки.");
         assertThat(out.get("label").asText()).isEqualTo("Почему кнопка «В JIRA» недоступна");
     }
 

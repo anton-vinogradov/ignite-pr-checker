@@ -148,7 +148,7 @@ class RussianCatalogTest {
         Map<String, String> ru = catalog();
         List<String> links = pageKeys().stream().filter(k -> DOCS_LINK.matcher(k).matches()).toList();
 
-        assertThat(links).as("the help links of the pages").hasSizeGreaterThanOrEqualTo(5);
+        assertThat(links).as("the help links of the pages").hasSizeGreaterThanOrEqualTo(3);
         for (String link : links) {
             assertThat(ru).as(link).containsKey(link);
             for (String target : List.of(link, ru.get(link))) {

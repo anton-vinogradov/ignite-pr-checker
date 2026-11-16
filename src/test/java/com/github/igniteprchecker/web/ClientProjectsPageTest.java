@@ -197,24 +197,29 @@ class ClientProjectsPageTest {
         assertThat(out.get("ignite").asInt()).isZero();
     }
 
-    /** OAuth returns to the same project both on its home and with an opened PR. */
+    /** OAuth stays on Settings and preserves the return project and PR for another link attempt. */
     @ParameterizedTest
     @ValueSource(strings = {"/python", "/php?pr=69", "/nodejs?pr=69"})
     void githubLinkReturnsToTheSameProject(String address) throws Exception {
         String key = address.substring(1).split("\\?")[0];
         String language = key.equals("nodejs") ? "Node.js" : key.equals("php") ? "PHP" : "Python";
+        String settingsAddress = "/settings?repo=" + key + (address.contains("?") ? "&pr=69" : "");
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT.formatted(key, language) + """
             const replaced = [];
             page.run('history').replaceState = (state, title, url) => replaced.push(url);
-            page.route('/api/auto-visa-all', { body: { commands: true, login: 'alice-gh', githubLinkable: true } });
+            page.route('/api/auto-visa-all', { body: { commands: false, login: null, githubLinkable: true } });
             page.route('/api/github/link', { body: { url: 'https://github.com/login/oauth/authorize?state=x' } }, 'POST');
-            await page.load('%s' + ('%s'.includes('?') ? '&' : '?') + 'github=linked');
+            await page.load('%s&github=denied');
             await page.el('ghLink').onclick();
-            report({ replaced, link: page.fetches('/api/github/link').map(f => f.url) });
-            """.formatted(address, address));
+            report({ replaced, back: page.el('settingsBack').href,
+                link: page.fetches('/api/github/link').map(f => f.url) });
+            """.formatted(settingsAddress));
 
-        assertThat(out.get("replaced").get(0).asText()).isEqualTo(address);
+        assertThat(out.get("replaced").get(0).asText()).isEqualTo(settingsAddress);
+        assertThat(out.get("back").asText()).isEqualTo(address);
         assertThat(out.get("link").get(0).asText()).contains("repo=" + key);
+        if (address.contains("?"))
+            assertThat(out.get("link").get(0).asText()).contains("pr=69");
     }
 
     /** Unknown page paths never select Ignite or Python implicitly, even when the path names an object property. */

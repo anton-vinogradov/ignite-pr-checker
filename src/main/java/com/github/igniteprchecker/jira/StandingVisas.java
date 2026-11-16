@@ -1,5 +1,6 @@
 package com.github.igniteprchecker.jira;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.github.igniteprchecker.analysis.BlockerAnalyzer;
 import com.github.igniteprchecker.analysis.Caveats;
 import com.github.igniteprchecker.analysis.PendingCommits;
@@ -1306,23 +1307,42 @@ public class StandingVisas implements SnapshotCache {
      * "final" when nothing will change it any more.
      */
     public Phase phase(int pr, long buildId) {
-        if (rerunTracker.newestChainUnderWay(pr) > 0)
-            return new Phase(Phase.RUNNING, 0, MAX_RERUNS, null, null);
-
         Retry r = waves.get(buildId);
-        if (r != null && r.pr() == pr)
-            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, inPresentWords(r.what()), activeEtaEpoch(pr));
+        if (r != null && r.pr() != pr)
+            r = null;
+        List<Long> rerunBuildIds = r == null || r.queued() == null ? List.of() : r.queued();
+        if (rerunTracker.newestChainUnderWay(pr) > 0)
+            return new Phase(Phase.RUNNING, r == null ? 0 : r.wave(), MAX_RERUNS,
+                r == null ? null : inPresentWords(r.what()), null, rerunBuildIds, null);
+
+        if (r != null)
+            return new Phase(Phase.SETTLING, r.wave(), MAX_RERUNS, inPresentWords(r.what()), activeEtaEpoch(pr),
+                rerunBuildIds, null);
         if (Long.valueOf(buildId).equals(deciding.get(pr)))
             return new Phase(Phase.SETTLING, 0, MAX_RERUNS, null, null);
 
-        return new Phase(Phase.FINAL, 0, MAX_RERUNS, null, null);
+        String reason = runEnd(pr, buildId).map(end -> end.replacedBy() > 0 ? "replaced" : "closed").orElse(null);
+
+        return new Phase(Phase.FINAL, 0, MAX_RERUNS, null, null, List.of(), reason);
     }
 
     /**
      * See {@link #phase}: {@code wave} of up to {@code of} is the one going, 0 while the decision is made;
      * {@code what} it re-runs and {@code etaEpochSec} when it should settle, null when not known.
+     * {@code rerunBuildIds} identifies the run's own auto re-runs, including finished builds while their results
+     * are being processed. {@code reason} is "closed" or "replaced" when the checker knows why the run is left alone.
      */
-    public record Phase(String phase, int wave, int of, String what, Long etaEpochSec) {
+    public record Phase(String phase, int wave, int of, String what, Long etaEpochSec,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<Long> rerunBuildIds,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String reason) {
+        public Phase {
+            rerunBuildIds = rerunBuildIds == null ? List.of() : List.copyOf(rerunBuildIds);
+        }
+
+        public Phase(String phase, int wave, int of, String what, Long etaEpochSec) {
+            this(phase, wave, of, what, etaEpochSec, List.of(), null);
+        }
+
         static final String RUNNING = "running";
 
         public static final String SETTLING = "settling";

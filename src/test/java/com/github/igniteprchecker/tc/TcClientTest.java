@@ -29,6 +29,8 @@ class TcClientTest {
 
     private final List<String> locators = new CopyOnWriteArrayList<>();
 
+    private final List<String> occurrenceFields = new CopyOnWriteArrayList<>();
+
     private final List<String> buildFields = new CopyOnWriteArrayList<>();
 
     private HttpServer server;
@@ -38,6 +40,7 @@ class TcClientTest {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/app/rest/testOccurrences", ex -> {
             locators.add(param(ex.getRequestURI().getRawQuery(), "locator"));
+            occurrenceFields.add(param(ex.getRequestURI().getRawQuery(), "fields"));
             byte[] body = "{\"count\":0,\"testOccurrence\":[]}".getBytes(UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
             ex.sendResponseHeaders(200, body.length);
@@ -87,12 +90,15 @@ class TcClientTest {
             .doesNotContain("pull/");
     }
 
+    /** Given a test in one suite, when its board history is fetched, then the request includes that suite and finish dates. */
     @Test
-    void masterFailuresAreAskedForTheFailingSuiteOnly() {
-        client().masterFailures("tok", RECONNECT, CLANG);
+    void masterBoardHistoryNamesTheSuiteAndFinishDates() {
+        client().masterTestHistory("tok", RECONNECT, CLANG);
 
         assertThat(locators).singleElement().asString()
-            .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")");
+            .contains("test:(id:" + RECONNECT + ")", "branch:(default:true)", "buildType:(id:" + CLANG + ")", "count:50");
+        assertThat(occurrenceFields).singleElement().asString()
+            .contains("currentlyMuted", "build(id,buildTypeId,state,status,finishDate)");
     }
 
     /**

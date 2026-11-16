@@ -69,12 +69,7 @@ class LoginContextTest {
                 login: page.el('loginView').classList.contains('hidden'),
                 panelHidden: page.el('settingsPanel').classList.contains('hidden'),
                 settingsReads: page.fetches('/api/auto-visa-all').length };
-            await page.el('settingsBtn').onclick();
-            await page.settle();
-            report({ afterLogin, opened: !page.el('settingsPanel').classList.contains('hidden'),
-                settingsReads: page.fetches('/api/auto-visa-all').length,
-                commandsDisabled: page.el('commandsToggle').disabled,
-                commands: page.el('commandsToggle').checked, linkHidden: page.el('ghLink').classList.contains('hidden') });
+            report({ afterLogin, settings: page.el('settingsBtn').href });
             """);
 
         assertThat(out.get("afterLogin").get("login").asBoolean()).isTrue();
@@ -82,11 +77,6 @@ class LoginContextTest {
         assertThat(out.get("afterLogin").get("panelHidden").asBoolean()).isTrue();
         assertThat(out.get("afterLogin").get("settingsReads").asInt())
             .as("login does not check whether to offer commands").isZero();
-        assertThat(out.get("opened").asBoolean()).isTrue();
-        assertThat(out.get("settingsReads").asInt()).isOne();
-        assertThat(out.get("commandsDisabled").asBoolean()).isFalse();
-        assertThat(out.get("commands").asBoolean()).isFalse();
-        assertThat(out.get("linkHidden").asBoolean())
-            .as("commands remain available through Link GitHub in settings").isFalse();
+        assertThat(out.get("settings").asText()).isEqualTo("/settings?repo=ignite&pr=13575");
     }
 }

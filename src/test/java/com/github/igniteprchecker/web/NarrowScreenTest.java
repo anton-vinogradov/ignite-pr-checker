@@ -177,7 +177,7 @@ class NarrowScreenTest {
         String html = Files.readString(Path.of("src/main/resources/static/index.html"));
 
         assertThat(html).containsPattern("<h2 id=\"verdictHead\"><span class=\"verdict-title\">"
-            + "<span id=\"verdictText\"></span>\\s*<a class=\"help\"[^>]*>\\?</a></span>");
+            + "<span id=\"verdictText\"></span>\\s*<button id=\"verdictHelp\" class=\"help meaning-help\"[^>]*>\\?</button></span>");
     }
 
     /**

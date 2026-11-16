@@ -115,7 +115,6 @@ button.quiet:not(:disabled):hover, button.quiet:focus-visible { color: var(--acc
 .theme-sel { font: inherit; font-size: 0.85rem; padding: 0.2rem 0.1rem; border: none; border-radius: var(--radius); background: var(--bg); color: var(--fg); cursor: pointer; }
 .theme-sel:hover, .theme-sel:focus-visible { color: var(--accent); }
 .session { font-size: 0.85rem; white-space: nowrap; }
-.settings-btn { font-size: 1.15rem; line-height: 1; padding: 0.14rem 0.45rem; }
 
 /* Terminal: a button is its name in [brackets]; a link stays a link, underlined on hover. */
 html[data-theme="terminal"] .act, html[data-theme="terminal"] .why, html[data-theme="terminal"] .suite-rerun, html[data-theme="terminal"] .cancel, html[data-theme="terminal"] .mini-btn { border: none; background: transparent; padding: 0 0.05rem; }

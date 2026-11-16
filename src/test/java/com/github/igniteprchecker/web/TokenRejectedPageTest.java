@@ -95,8 +95,7 @@ class TokenRejectedPageTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/auto-visa-all', { status: 401, body: { error: 'TeamCity rejected your token — log in again',
                 tokenRejected: true } });
-            await page.load('?pr=13575');
-            page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=ignite&pr=13575');
             await page.settle();
             report({
                 loginShown: !page.el('loginView').classList.contains('hidden'),

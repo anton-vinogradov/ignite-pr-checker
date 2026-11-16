@@ -62,7 +62,7 @@ function fakeElement(id, startClasses) {
         closest: () => null,
         contains: () => false,
         focus() { doc.activeElement = el; },
-        blur() {}, select() {}, remove() {}, appendChild() {},
+        blur() {}, select() {}, remove() {}, appendChild() {}, scrollIntoView() {},
         setAttribute(k, v) { this.attributes[k] = String(v); },
         removeAttribute(k) { delete this.attributes[k]; },
         getAttribute(k) { return k in this.attributes ? this.attributes[k] : null; },

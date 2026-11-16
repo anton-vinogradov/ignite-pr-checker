@@ -31,8 +31,7 @@ class JournalPageTest {
         """;
 
     private static final String OPEN = """
-        await page.load('?pr=13575');
-        await page.el('settingsBtn').onclick();
+        await page.load('/settings?repo=ignite&pr=13575');
         await page.settle();
         """;
 
@@ -120,20 +119,6 @@ class JournalPageTest {
     }
 
     /**
-     * The body is a column as tall as the window, and the PR page takes what ⚙ leaves. With the journal, ⚙ grew
-     * taller than a laptop's window and left the PR page no room at all. ⚙ now takes at most 60% of the window and
-     * scrolls inside.
-     */
-    @Test
-    void settingsLeaveRoomForThePrPage() throws Exception {
-        String page = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8);
-        Matcher rule = Pattern.compile("#settingsPanel \\{([^}]*)}").matcher(page);
-
-        assertThat(rule.find()).isTrue();
-        assertThat(rule.group(1)).contains("max-height: 60vh").contains("overflow-y: auto");
-    }
-
-    /**
      * The note over the journal said that a browser "is named as it names itself", and the reader could not tell
      * where that name comes from. The note says it comes from the browser's User-Agent.
      */
@@ -203,7 +188,7 @@ class JournalPageTest {
             report({ message: page.el('journalMsg').textContent });
             """);
 
-        assertThat(out.get("message").asText()).isEqualTo("Could not load your journal — close ⚙ and open it again.");
+        assertThat(out.get("message").asText()).isEqualTo("Could not load your journal — reload this page.");
     }
 
     @Test

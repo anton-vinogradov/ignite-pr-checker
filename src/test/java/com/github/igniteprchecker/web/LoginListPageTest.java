@@ -36,8 +36,7 @@ class LoginListPageTest {
         """;
 
     private static final String OPEN = """
-        await page.load('?pr=13575');
-        await page.el('settingsBtn').onclick();
+        await page.load('/settings?repo=ignite&pr=13575');
         await page.settle();
         """;
 

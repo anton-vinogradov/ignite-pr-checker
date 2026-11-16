@@ -48,6 +48,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
@@ -102,22 +103,23 @@ class GithubLinkTest {
             new Logins(mapper, mock(UserDirectory.class)), standing), PROJECTS, now::get);
 
     /**
-     * The Ignite home can start GitHub linking. Given a signed-in user with no linked account, when they press
-     * Link GitHub in settings, the page's request binds to the real controller and returns GitHub's authorization URL.
+     * Given settings opened from a project's home or PR, when its Link GitHub request reaches the real controller
+     * and GitHub returns, then settings retain the same project and PR.
      */
-    @Test
-    void theIgniteHomeSendsALinkRequestTheControllerAccepts() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"/settings?repo=ignite,/settings?repo=ignite&github=denied",
+        "/settings?repo=extensions&pr=370,/settings?repo=extensions&pr=370&github=denied"})
+    void theSettingsPageSendsALinkRequestTheControllerAccepts(String address, String back) throws Exception {
         var page = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/auto-visa-all', { body: { commands: false, githubAvailable: true,
                 githubLinkable: true } }, 'GET');
             page.route('/api/github/link', { body: {} }, 'POST');
-            await page.load('/ignite');
-            await page.el('settingsBtn').onclick();
+            await page.load('%s');
             await page.settle();
             const shown = !page.el('ghLink').classList.contains('hidden');
             await page.el('ghLink').onclick();
             report({ shown, request: page.fetches('/api/github/link')[0].url });
-            """);
+            """.formatted(address));
 
         assertThat(page.get("shown").asBoolean()).isTrue();
         var response = MockMvcBuilders.standaloneSetup(links).build()
@@ -127,8 +129,10 @@ class GithubLinkTest {
             .andReturn().getResponse();
 
         assertThat(response.getStatus()).isEqualTo(200);
-        assertThat(mapper.readTree(response.getContentAsString()).get("url").asText())
-            .startsWith("https://github.com/login/oauth/authorize?");
+        String authorize = mapper.readTree(response.getContentAsString()).get("url").asText();
+        assertThat(authorize).startsWith("https://github.com/login/oauth/authorize?");
+        assertThat(links.callback(null, state(URI.create(authorize)), "access_denied", browserOf("alice", "tc-alice"))
+            .getHeaders().getLocation()).hasToString(back);
     }
 
     @Test
@@ -158,7 +162,7 @@ class GithubLinkTest {
         assertThat(asked).containsEntry("client_id", "Iv1.client").containsEntry("allow_signup", "false")
             .containsEntry("redirect_uri", CALLBACK).doesNotContainKey("scope");
         assertThat(back.getStatusCode().value()).isEqualTo(302);
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?pr=13575&github=linked");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&pr=13575&github=linked");
         assertThat(standing.ghLoginOf("alice")).isEqualTo("Alice-V");
         assertThat(standing.commandsOn("alice")).as("the link is how PR commands go on").isTrue();
         assertThat(standing.actorByGhUser(new GithubClient.GhUser("alice-v", 4242))).hasValueSatisfying(a -> {
@@ -199,10 +203,10 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-of-bob", bobs, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=expired");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
         assertThat(links.callback("code-of-bob", bobs, null, browserOf("bob", "tc-bob")).getHeaders().getLocation())
-            .as("the state is spent").hasToString("/ignite?github=expired");
+            .as("the state is spent").hasToString("/settings?repo=ignite&github=expired");
         assertThat(standing.ghLoginOf("bob")).isNull();
     }
 
@@ -213,7 +217,7 @@ class GithubLinkTest {
 
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice-2"));
 
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=expired");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -225,7 +229,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=expired");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -239,7 +243,7 @@ class GithubLinkTest {
         ResponseEntity<Void> again = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(again.getHeaders().getLocation()).hasToString("/ignite?github=expired");
+        assertThat(again.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=expired");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -250,7 +254,7 @@ class GithubLinkTest {
         start("alice", "tc-alice", null);
 
         assertThat(links.callback("code-1", first, null, browserOf("alice", "tc-alice")).getHeaders().getLocation())
-            .hasToString("/ignite?github=expired");
+            .hasToString("/settings?repo=ignite&github=expired");
     }
 
     /** The browser came back logged out: the state proves nothing without the session it was made for. */
@@ -261,7 +265,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, new MockHttpServletRequest());
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=signin");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=signin");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -272,31 +276,31 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback(null, state, "access_denied", browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?pr=13575&github=denied");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&pr=13575&github=denied");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
-    /** Linking GitHub returns to the selected project's PR. */
+    /** Linking GitHub returns to settings with the selected project and PR. */
     @ParameterizedTest
-    @ValueSource(strings = {"python", "php", "nodejs"})
-    void theLinkComesBackToTheClientsPr(String project) {
+    @ValueSource(strings = {"ignite", "python", "php", "nodejs", "extensions"})
+    void theLinkComesBackToSettingsWithTheProjectPr(String project) {
         ResponseEntity<?> asked = links.link("Europe/Moscow", 69, project, "tc-alice", "alice");
         String state = state(URI.create(String.valueOf(((Map<?, ?>)asked.getBody()).get("url"))));
 
         ResponseEntity<Void> back = links.callback(null, state, "access_denied", browserOf("alice", "tc-alice"));
 
-        assertThat(back.getHeaders().getLocation()).hasToString("/" + project + "?pr=69&github=denied");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=" + project + "&pr=69&github=denied");
     }
 
-    /** Linking from a project's list returns to that list when no PR is open. */
+    /** Linking without an open PR returns to settings with the selected project. */
     @ParameterizedTest
-    @ValueSource(strings = {"ignite", "python", "php", "nodejs"})
-    void theLinkComesBackToTheProjectList(String project) {
+    @ValueSource(strings = {"ignite", "python", "php", "nodejs", "extensions"})
+    void theLinkComesBackToSettingsWithoutAPr(String project) {
         ResponseEntity<?> asked = links.link(null, null, project, "tc-alice", "alice");
         String state = state(URI.create(String.valueOf(((Map<?, ?>)asked.getBody()).get("url"))));
 
         assertThat(links.callback(null, state, "access_denied", browserOf("alice", "tc-alice")).getHeaders()
-            .getLocation()).hasToString("/" + project + "?github=denied");
+            .getLocation()).hasToString("/settings?repo=" + project + "&github=denied");
     }
 
     /** An unknown project is refused before it can replace a valid link already under way. */
@@ -311,7 +315,7 @@ class GithubLinkTest {
                 e -> assertThat(e.getStatusCode().value()).isEqualTo(400));
 
         assertThat(links.callback(null, state, "access_denied", browserOf("alice", "tc-alice")).getHeaders()
-            .getLocation()).hasToString("/php?pr=69&github=denied");
+            .getLocation()).hasToString("/settings?repo=php&pr=69&github=denied");
     }
 
     /** An expired or used code: GitHub answers 200 with an error and no token. */
@@ -325,7 +329,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=failed");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=failed");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -335,7 +339,7 @@ class GithubLinkTest {
         gh.expect(requestTo("https://github.com/login/oauth/access_token")).andRespond(withServerError());
 
         assertThat(links.callback("code-1", state, null, browserOf("alice", "tc-alice")).getHeaders().getLocation())
-            .hasToString("/ignite?github=failed");
+            .hasToString("/settings?repo=ignite&github=failed");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -352,7 +356,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=linked");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=linked");
         assertThat(standing.ghLoginOf("alice")).isEqualTo("Alice-V");
         assertThat(output.getAll()).contains("GitHub did not revoke the token of a GitHub account link")
             .doesNotContain(ONCE);
@@ -372,7 +376,7 @@ class GithubLinkTest {
         ResponseEntity<Void> back = links.callback("code-1", state, null, browserOf("alice", "tc-alice"));
 
         gh.verify();
-        assertThat(back.getHeaders().getLocation()).hasToString("/ignite?github=failed");
+        assertThat(back.getHeaders().getLocation()).hasToString("/settings?repo=ignite&github=failed");
         assertThat(standing.ghLoginOf("alice")).isNull();
     }
 
@@ -387,7 +391,7 @@ class GithubLinkTest {
             .andRespond(withStatus(HttpStatus.NO_CONTENT));
 
         assertThat(links.callback("code-1", state, null, browserOf("alice", "tc-alice")).getHeaders().getLocation())
-            .hasToString("/ignite?github=failed");
+            .hasToString("/settings?repo=ignite&github=failed");
         gh.verify();
     }
 

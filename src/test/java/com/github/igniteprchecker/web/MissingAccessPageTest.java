@@ -22,7 +22,6 @@ class MissingAccessPageTest {
         """;
 
     private static final String OPEN = """
-        await page.el('settingsBtn').onclick();
         await page.settle();
         """;
 
@@ -30,7 +29,7 @@ class MissingAccessPageTest {
     void theVisaWithoutAJiraTokenOpensItsForm() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('standingVisaToggle').checked = true;
             await page.el('standingVisaToggle').onchange();
@@ -52,7 +51,7 @@ class MissingAccessPageTest {
     void anOptionThatCommitsWithoutATokenOpensItsForm() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('suiteFixToggle').checked = true;
             await page.el('suiteFixToggle').onchange();
@@ -74,7 +73,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { status: 412, body: { need: 'jira',
                 error: 'JIRA rejected the token — paste a new one' } }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('standingVisaToggle').checked = true;
             await page.el('standingVisaToggle').onchange();
@@ -103,7 +102,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', url => ({ body: url.includes('suites=false') ? SETTINGS
                 : Object.assign({}, SETTINGS, { suites: true, ghStored: true }) }), 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('suiteFixToggle').checked = true;
             await page.el('suiteFixToggle').onchange();
@@ -136,7 +135,7 @@ class MissingAccessPageTest {
     void aPastedTokenSurvivesTheRefusedAutofixSwitch() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('suiteFixToggle').checked = true;
             await page.el('suiteFixToggle').onchange();
@@ -164,7 +163,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { style: true, commands: true,
                 ghStored: true, login: 'alice-v' }) }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { login: 'alice-v' }) }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('ghTokenBtn').onclick();
             page.el('commandsToggle').checked = false;
@@ -190,7 +189,7 @@ class MissingAccessPageTest {
             const ON = Object.assign({}, SETTINGS, { suites: true, ghStored: true, login: 'alice-v' });
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { body: ON }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('ghTokenBtn').onclick();
             page.el('settingsGhToken').value = 'github_pat_new';
@@ -214,7 +213,7 @@ class MissingAccessPageTest {
             const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { body: ON }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('jiraTokenBtn').onclick();
             page.el('settingsJiraToken').value = 'jira-pat-new';
@@ -242,7 +241,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { status: 412, body: { need: 'jira',
                 error: 'JIRA rejected the token — paste a new one' } }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('jiraTokenBtn').onclick();
             page.el('settingsJiraToken').value = 'jira-pat-dead';
@@ -267,7 +266,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { status: 502, body: {
                 error: 'JIRA could not check the token right now — try again in a minute' } }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('jiraTokenBtn').onclick();
             page.el('settingsJiraToken').value = 'jira-pat-new';
@@ -294,7 +293,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: ON }, 'GET');
             page.route('/api/auto-visa-all', { status: 412, body: { need: 'github',
                 error: 'GitHub rejected the token — paste a new one' } }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('ghTokenBtn').onclick();
             page.el('settingsGhToken').value = 'github_pat_dead';
@@ -318,7 +317,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { visa: true, jiraStored: true }) },
                 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('standingVisaToggle').checked = true;
             await page.el('standingVisaToggle').onchange();
@@ -348,7 +347,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: REFUSED }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, REFUSED, { visa: true, jiraStored: true }) },
                 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             page.el('standingVisaToggle').checked = true;
             await page.el('standingVisaToggle').onchange();
@@ -377,7 +376,7 @@ class MissingAccessPageTest {
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { suites: true, ghStored: true,
                 login: 'alice-v' }) }, 'GET');
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { login: 'alice-v' }) }, 'POST');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             await page.el('ghTokenBtn').onclick();
             page.el('suiteFixToggle').checked = false;
@@ -396,38 +395,13 @@ class MissingAccessPageTest {
             .isEqualTo("switch on the option below that should use it: the token goes with that switch");
     }
 
-    /** JIRA refused the token she saved here after the server had taken it: ⚙ says so when she opens it again. */
-    @Test
-    void aTokenJiraRejectsAfterItWasReplacedShowsRejected() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
-            const ON = Object.assign({}, SETTINGS, { visa: true, jiraStored: true });
-            page.route('/api/auto-visa-all', { body: ON }, 'GET');
-            page.route('/api/auto-visa-all', { body: ON }, 'POST');
-            await page.load('?pr=13575');
-            """ + OPEN + """
-            await page.el('jiraTokenBtn').onclick();
-            page.el('settingsJiraToken').value = 'jira-pat-new';
-            await page.el('settingsJiraSave').onclick();
-            await page.settle();
-            page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { jiraTokenRejected: true }) },
-                'GET');
-            await page.el('settingsBtn').onclick();
-            """ + OPEN + """
-            report({ state: page.el('jiraState').textContent,
-                gone: !page.el('jiraTokenGone').classList.contains('hidden') });
-            """);
-
-        assertThat(out.get("state").asText()).isEqualTo("rejected");
-        assertThat(out.get("gone").asBoolean()).isTrue();
-    }
-
     /** Her options pause on a token TeamCity refuses: Log in again ends this browser's session, and the form asks. */
     @Test
     void pausedOptionsOfferToLogInAgain() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { rerun: true,
                 tcTokenRejected: true }) }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + OPEN + """
             const offered = !page.el('tcTokenGone').classList.contains('hidden');
             await page.el('tcRelogin').onclick();

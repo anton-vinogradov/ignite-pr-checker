@@ -7,6 +7,7 @@ import com.github.igniteprchecker.analysis.model.TestVerdict;
 import com.github.igniteprchecker.persist.SnapshotCache;
 import com.github.igniteprchecker.persist.Snapshots;
 import com.github.igniteprchecker.tc.TcClient;
+import com.github.igniteprchecker.tc.TcDates;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +54,7 @@ public class FlakyStats implements SnapshotCache {
     /** A test failing this many of its newest master runs in a row, or all of fewer, is broken on master. */
     static final int BROKEN_STREAK = 10;
 
-    /** Master-failure anchors refresh this often; the page is a queue, not a live dashboard. */
+    /** Master history and failure anchors refresh this often; the page is a queue, not a live dashboard. */
     private static final long ANCHOR_TTL = Duration.ofHours(24).toMillis();
 
     private final AnalysisCache cache;
@@ -112,13 +113,17 @@ public class FlakyStats implements SnapshotCache {
             budget--;
             Entry e = me.getValue();
             try {
-                TcClient.MasterFailures found = tc.masterFailures(token, me.getKey().testId(), me.getKey().suite());
-                List<MasterRef> refs = found.failures().stream()
-                    .map(o -> new MasterRef(o.build().id(), o.build().buildTypeId(), o.id()))
+                TcClient.MasterHistory found = tc.masterTestHistory(token, me.getKey().testId(), me.getKey().suite());
+                List<MasterRun> history = found.runs().stream()
+                    .map(o -> {
+                        long finished = TcDates.epochSeconds(o.build().finishDate());
+                        return new MasterRun(o.build().id(), o.build().buildTypeId(), o.id(),
+                            "FAILURE".equals(o.status()) ? "F" : "P", finished > 0 ? finished : null);
+                    })
+                    .sorted(MASTER_ORDER)
                     .toList();
                 synchronized (e) {
-                    if (!refs.isEmpty())
-                        e.masterFailures = refs;
+                    e.masterHistory = history;
                     e.muted = found.muted();
                     e.masterAnchorAt = System.currentTimeMillis();
                 }
@@ -162,23 +167,25 @@ public class FlakyStats implements SnapshotCache {
     }
 
     /**
-     * Recently-seen flaky/broken-on-master tests TeamCity has not muted, a row per suite: up to {@code limit} flaky
-     * ones, then up to {@code limit} broken on master, each worst master fail-rate first. Each group is cut on its
-     * own: cut as one list, more than {@code limit} flaky ones would leave no broken one.
+     * Unmuted tests, once per suite: first those failing after a pass, then other flaky and broken tests. Each group
+     * is cut independently, so a large group does not hide the others.
      */
     public List<TopFlaky> top(int limit) {
         List<TopFlaky> board = board();
 
-        return Stream.concat(board.stream().filter(f -> !f.broken()).limit(limit),
-            board.stream().filter(TopFlaky::broken).limit(limit)).toList();
+        return Stream.of(board.stream().filter(f -> f.attention() != null),
+            board.stream().filter(f -> f.attention() == null && !f.broken()),
+            board.stream().filter(f -> f.attention() == null && f.broken()))
+            .flatMap(group -> group.limit(limit)).toList();
     }
 
     /** How many rows each group of the board has before {@link #top} cuts it. */
     public GroupSizes groupSizes() {
         List<TopFlaky> board = board();
-        int broken = (int) board.stream().filter(TopFlaky::broken).count();
+        int attention = (int) board.stream().filter(f -> f.attention() != null).count();
+        int broken = (int) board.stream().filter(f -> f.attention() == null && f.broken()).count();
 
-        return new GroupSizes(board.size() - broken, broken);
+        return new GroupSizes(attention, board.size() - attention - broken, broken);
     }
 
     /** Every row of the board in its order, stale entries and PRs pruned. */
@@ -193,7 +200,8 @@ public class FlakyStats implements SnapshotCache {
                 if (e.onTheBoard())
                     out.add(new TopFlaky(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
                         e.masterFails, e.masterRuns, e.failStreak, e.broken(), e.prSeen.size(),
-                        e.prSeen.keySet().stream().sorted().toList(), e.masterFailures));
+                        e.prSeen.keySet().stream().sorted().toList(), e.failureLinks(), e.masterHistory,
+                        e.masterAnchorAt, e.attention()));
             }
         });
 
@@ -228,7 +236,7 @@ public class FlakyStats implements SnapshotCache {
             synchronized (e) {
                 snap.add(new Persisted(k.testId(), e.name, k.suite(), e.suiteName, e.suiteBuildId, e.occurrenceId,
                     e.masterFails, e.masterRuns, e.failStreak, e.lastSeen, e.prSeen.keySet().stream().sorted().toList(),
-                    new HashMap<>(e.prSeen), e.masterFailures, e.masterAnchorAt, e.muted));
+                    new HashMap<>(e.prSeen), null, e.masterAnchorAt, e.muted, e.masterHistory));
             }
         });
         Snapshots.writeAtomic(mapper, file, snap);
@@ -260,12 +268,13 @@ public class FlakyStats implements SnapshotCache {
             e.failStreak = p.failStreak() == 0 && p.masterFails() == p.masterRuns() ? p.masterRuns() : p.failStreak();
             e.lastSeen = p.lastSeen();
             e.muted = p.muted();
-            List<MasterRef> stored = p.masterFailures() == null ? List.of() : p.masterFailures();
-            // Snapshots from before the tally was kept per suite hold failures looked up in every suite.
-            e.masterFailures = stored.stream().filter(f -> Objects.equals(f.btId(), p.suite())).toList();
-            // Nothing to link (a pre-list snapshot), other suites' failures dropped or no word on a mute:
-            // re-anchor now.
-            e.masterAnchorAt = !e.masterFailures.isEmpty() && e.masterFailures.size() == stored.size()
+            List<MasterRun> stored = p.masterHistory() != null ? p.masterHistory()
+                : p.masterFailures() == null ? List.of() : p.masterFailures().stream()
+                    .map(f -> new MasterRun(f.buildId(), f.btId(), f.occ(), "F", null)).toList();
+            e.masterHistory = stored.stream().filter(f -> Objects.equals(f.btId(), p.suite()))
+                .sorted(MASTER_ORDER).toList();
+            // Old failure-only anchors are links, not a dated history. Backfill in the normal bounded cycle.
+            e.masterAnchorAt = p.masterHistory() != null && e.masterHistory.size() == stored.size()
                 && p.muted() != null ? p.masterAnchorAt() : 0;
             if (p.prSeen() != null)
                 e.prSeen.putAll(p.prSeen());
@@ -285,7 +294,7 @@ public class FlakyStats implements SnapshotCache {
         int masterRuns;
         int failStreak;
         long lastSeen;
-        List<MasterRef> masterFailures = List.of();
+        List<MasterRun> masterHistory = List.of();
         long masterAnchorAt;
         /** Whether TeamCity has the test muted, as of the last anchor; null until it was asked. */
         Boolean muted;
@@ -308,12 +317,34 @@ public class FlakyStats implements SnapshotCache {
             return masterRuns >= 2 && failStreak >= Math.min(masterRuns, BROKEN_STREAK);
         }
 
+        List<MasterRef> failureLinks() {
+            return masterHistory.stream().filter(r -> "F".equals(r.status()))
+                .sorted(MASTER_ORDER.reversed()).limit(5)
+                .map(r -> new MasterRef(r.buildId(), r.btId(), r.occ())).toList();
+        }
+
+        Attention attention() {
+            if (masterAnchorAt == 0 || masterHistory.stream().anyMatch(r -> r.finishedAt() == null))
+                return null;
+            int first = masterHistory.size();
+            while (first > 0 && "F".equals(masterHistory.get(first - 1).status()))
+                first--;
+            int failed = masterHistory.size() - first;
+            if (failed < 2 || first == 0)
+                return null;
+            MasterRun passed = masterHistory.get(first - 1);
+            MasterRun failedFirst = masterHistory.get(first);
+            return "P".equals(passed.status()) && passed.finishedAt() < failedFirst.finishedAt()
+                ? new Attention(passed, failedFirst, failed) : null;
+        }
+
         /**
          * Flaky (failed some master runs, passed others) or broken on master. A test whose only master run failed
          * is neither: it topped the flaky group at "1/1 on master 100%" though nothing showed it passing.
          */
         boolean onTheBoard() {
-            return masterFails > 0 && !Boolean.TRUE.equals(muted) && (broken() || masterFails < masterRuns);
+            return masterFails > 0 && !Boolean.TRUE.equals(muted)
+                && (broken() || masterFails < masterRuns || attention() != null);
         }
     }
 
@@ -321,15 +352,28 @@ public class FlakyStats implements SnapshotCache {
     @JsonIgnoreProperties("branchRuns")
     private record Persisted(long testId, String name, String suite, String suiteName, long suiteBuildId,
         String occurrenceId, int masterFails, int masterRuns, int failStreak, long lastSeen, List<Integer> prs,
-        Map<Integer, Long> prSeen, List<MasterRef> masterFailures, long masterAnchorAt, Boolean muted) {
+        Map<Integer, Long> prSeen, List<MasterRef> masterFailures, long masterAnchorAt, Boolean muted,
+        List<MasterRun> masterHistory) {
     }
 
-    /** How many tests the board holds as flaky on master and as broken on master. */
-    public record GroupSizes(int flaky, int broken) {
+    /** The three disjoint groups before their display limits. */
+    public record GroupSizes(int attention, int flaky, int broken) {
     }
 
     /** One failed master run of the test: enough to deep-link the occurrence in TeamCity. */
     public record MasterRef(long buildId, String btId, String occ) {
+    }
+
+    private static final Comparator<MasterRun> MASTER_ORDER = Comparator
+        .comparing(MasterRun::finishedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
+        .thenComparingLong(MasterRun::buildId);
+
+    /** A completed master test run; null date means TeamCity did not supply a readable finish date. */
+    public record MasterRun(long buildId, String btId, String occ, String status, Long finishedAt) {
+    }
+
+    /** The observed pass before the current failure streak, not the time or cause of a regression. */
+    public record Attention(MasterRun lastPass, MasterRun firstFailure, int failedRuns) {
     }
 
     /**
@@ -343,6 +387,6 @@ public class FlakyStats implements SnapshotCache {
         String name, String suite, String suiteName, long suiteBuildId,
         String occurrenceId, int masterFails, int masterRuns, int failStreak, boolean broken,
         int prCount, List<Integer> prs,
-        List<MasterRef> masterFailures) {
+        List<MasterRef> masterFailures, List<MasterRun> masterHistory, long historyCheckedAt, Attention attention) {
     }
 }

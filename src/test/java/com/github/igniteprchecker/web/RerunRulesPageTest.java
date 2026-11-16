@@ -329,9 +329,9 @@ class RerunRulesPageTest {
                 + "failed only because of that.")
             .doesNotContain("Didn't complete a reliable run", "the passes above them", "How the test classes this PR adds or "
                 + "changes ran in this RunAll.</p>", "Filtered out", "mined for blockers", "hang cascade");
-        assertThat(page).containsPattern("<summary>Not blamed on this PR <span id=\"filteredCount\"></span> <a class=\"help\""
-            + "[^>]*>\\?</a></summary> <p class=\"muted filtered-line\">Nothing to do for this PR. Re-run only to double-check "
+        assertThat(page).containsPattern("<summary>Not blamed on this PR <span id=\"filteredCount\"></span> <button class=\"help meaning-help\""
+            + "[^>]*>\\?</button></summary> <p class=\"muted filtered-line\">Nothing to do for this PR. Re-run only to double-check "
             + "the flaky ones. <span class=\"sect-act hidden\" id=\"filteredActs\">");
-        assertThat(page).doesNotContainPattern("<a class=\"help\" [^>]*title=\"([^\"]+)\" aria-label=\"\\1\"");
+        assertThat(page).doesNotContainPattern("<button class=\"help meaning-help\" [^>]*title=\"([^\"]+)\" aria-label=\"\\1\"");
     }
 }

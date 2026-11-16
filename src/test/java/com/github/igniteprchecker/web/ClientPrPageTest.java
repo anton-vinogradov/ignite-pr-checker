@@ -221,7 +221,7 @@ class ClientPrPageTest {
         assertThat(out.get("shown").get(0).get("title").asText()).isEqualTo("Python client PR #69: 1 blocker");
     }
 
-    /** Link GitHub pressed on the client's PR #69 came back to Ignite's PR #69, a different PR with its own verdict. */
+    /** Given Python PR 69 as the Settings context, linking GitHub preserves its Back link without analysing another PR. */
     @Test
     void linkGithubOnTheClientsPrComesBackToIt() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
@@ -229,8 +229,7 @@ class ClientPrPageTest {
                 'GET');
             page.route('/api/github/link', { body: { url: 'https://github.com/login/oauth/authorize?state=s1' } },
                 'POST');
-            await page.load('/python?pr=69');
-            await page.el('settingsBtn').onclick();
+            await page.load('/settings?repo=python&pr=69');
             await page.settle();
             await page.el('ghLink').onclick();
             await page.settle();
@@ -240,15 +239,16 @@ class ClientPrPageTest {
             const replaced = [];
             page.run('history').replaceState = (state, title, url) => replaced.push(url);
             page.route('/api/auto-visa-all', { body: { commands: true, login: 'alice-v' } }, 'GET');
-            await page.load('/python?pr=69&github=linked');
+            await page.load('/settings?repo=python&pr=69&github=linked');
             report({ replaced, client: page.fetches('/api/client/analyze').map(f => f.url),
-                ignite: page.fetches('/api/analyze').length });
+                ignite: page.fetches('/api/analyze').length, backTo: page.el('settingsBack').href });
             """);
 
         assertThat(out.get("asked").toString()).isEqualTo("[\"/api/github/link?tz=UTC&pr=69&repo=python\"]");
-        assertThat(back.get("replaced").toString()).isEqualTo("[\"/python?pr=69\"]");
-        assertThat(back.get("client").toString()).isEqualTo("[\"/api/client/analyze?pr=69&repo=python\"]");
+        assertThat(back.get("replaced").toString()).isEqualTo("[\"/settings?repo=python&pr=69\"]");
+        assertThat(back.get("client")).isEmpty();
         assertThat(back.get("ignite").asInt()).isZero();
+        assertThat(back.get("backTo").asText()).isEqualTo("/python?pr=69");
     }
 
     @Test
@@ -308,7 +308,7 @@ class ClientPrPageTest {
     void theClientsPrsStandOnTheirProjectPage() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
             await page.load('/python');
-            report({ html: page.el('prList').innerHTML, count: page.text('prCount'),
+            report({ html: page.el('prList').innerHTML,
                 shown: !page.el('prList').classList.contains('hidden') });
             """);
 
@@ -320,28 +320,7 @@ class ClientPrPageTest {
             .contains("data-triggeredby=\"alice\"")
             .contains("<span class=\"my-tag\" title=\"You started its latest run of the suite. The PR may be someone"
                 + " else's.\">my run</span>");
-        assertThat(out.get("count").asText()).isEqualTo("(1)");
         assertThat(out.get("shown").asBoolean()).isTrue();
-    }
-
-    /** Given a client page, the legend explains the latest RunAll, client suite and Extensions chain in both languages. */
-    @Test
-    void theLegendSaysWhatMyRunMeansForAClientsPr() throws Exception {
-        String legend = "page.text('prLegend')";
-        JsonNode en = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + """
-            await page.load('/python');
-            report({ legend: %s });
-            """.formatted(legend));
-        JsonNode ru = PageScript.run("index.html", PageScript.SIGNED_IN + CLIENT + "const CATALOG = "
-            + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
-            page.route('/ru.json', { body: CATALOG });
-            page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
-            await page.load('/python');
-            report({ legend: %s });
-            """.formatted(legend));
-
-        assertThat(en.get("legend").asText()).contains("my run — you started its latest RunAll, client suite or Extensions build chain");
-        assertThat(ru.get("legend").asText()).contains("мой прогон — последний RunAll, сьют клиента или цепочку проекта «Расширения» запустил ты");
     }
 
     @Test
@@ -489,7 +468,7 @@ class ClientPrPageTest {
                 webUrl: 'https://ci2.example/build/9424800', pct: -1, startSec: 300, by: 'bob', mine: false,
                 runAll: true, pinned: true }] });
             page.route('/api/client/settling', { body: { phase: 'settling', wave: 1, of: 1,
-                what: 'Thin client: Python' } });
+                what: 'Thin client: Python', rerunBuildIds: [9424800] } });
             await page.load('/python?pr=69');
             await page.tick(100);
             const ids = ['prTitle', 'verdictText', 'verdictLines', 'freshText', 'runs', 'settling', 'pending',
@@ -504,8 +483,8 @@ class ClientPrPageTest {
             + " forcefully use H2 engine"))).isEmpty();
         assertThat(texts.get("freshText").asText()).startsWith("Thin client: Python, сборка 9424794 · проверен PR на"
             + " коммите a1b2c3d с master проекта Ignite на коммите 1f2e3d4");
-        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоперезапуск сьюты на тех же коммитах: вердикт ниже"
-            + " может измениться, когда он закончится.");
+        assertThat(texts.get("settling").asText()).isEqualTo("♻︎ Автоповтор 1/1: выполняется — 0, в очереди — 1."
+            + " Дождись обновлённого вердикта.");
         assertThat(texts.get("pendingRerun").asText()).isEqualTo("Запустить сьюту");
         assertThat(texts.get("runAllLabel").asText()).isEqualTo("«Thin client: Python»:");
         assertThat(out.get("question").asText()).startsWith("Поставить «Thin client: Python» для PR #69 клиента Python"

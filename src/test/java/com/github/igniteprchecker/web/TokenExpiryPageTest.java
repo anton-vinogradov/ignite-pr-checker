@@ -31,8 +31,7 @@ class TokenExpiryPageTest {
         """;
 
     private static final String OPEN = """
-        await page.load('?pr=13575');
-        await page.el('settingsBtn').onclick();
+        await page.load('/settings?repo=ignite&pr=13575');
         await page.settle();
         """;
 
@@ -71,12 +70,12 @@ class TokenExpiryPageTest {
             expires('jira', 15 * DAY);
             expires('github', 3600000);
             """ + OPEN + """
-            const tcAt14 = line('tcExpiry');
+            report({ tc: line('tcExpiry'), jira: line('jiraExpiry'), github: line('ghTokenExpiry') });
+            """);
+        JsonNode atFourteen = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             expires('teamcity', 14 * DAY);
-            await page.el('settingsBtn').onclick();
-            await page.el('settingsBtn').onclick();
-            await page.settle();
-            report({ tc: tcAt14, tc14: line('tcExpiry'), jira: line('jiraExpiry'), github: line('ghTokenExpiry') });
+            """ + OPEN + """
+            report({ tc: line('tcExpiry') });
             """);
 
         assertThat(out.at("/tc/text").asText()).isEqualTo(", token expires in 14 days: log in with a new one before"
@@ -84,8 +83,8 @@ class TokenExpiryPageTest {
         assertThat(out.at("/tc/title").asText()).isEqualTo("It expires on 21 Oct at 13:00. Then you have to log in"
             + " again, and your options pause until you do.");
         assertThat(out.at("/tc/amber").asBoolean()).isTrue();
-        assertThat(out.at("/tc14/text").asText()).isEqualTo(out.at("/tc/text").asText());
-        assertThat(out.at("/tc14/amber").asBoolean()).isTrue();
+        assertThat(atFourteen.at("/tc/text").asText()).isEqualTo(out.at("/tc/text").asText());
+        assertThat(atFourteen.at("/tc/amber").asBoolean()).isTrue();
         assertThat(out.at("/jira/text").asText()).isEqualTo(", expires in 15 days");
         assertThat(out.at("/jira/amber").asBoolean()).isFalse();
         assertThat(out.at("/github/text").asText()).isEqualTo(", expires in less than a day: replace it before then");
@@ -100,13 +99,13 @@ class TokenExpiryPageTest {
             page.route('/api/token-expiry?service=jira', { body: { state: 'unknown', why: 'unlisted' } });
             page.route('/api/token-expiry?service=github', { body: { state: 'refused' } });
             """ + OPEN + """
-            const first = { tc: line('tcExpiry'), jira: line('jiraExpiry'), github: line('ghTokenExpiry') };
+            report({ tc: line('tcExpiry'), jira: line('jiraExpiry'), github: line('ghTokenExpiry') });
+            """);
+        JsonNode reopened = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/token-expiry?service=teamcity', { body: { state: 'unknown', why: 'unreadable' } });
             page.route('/api/token-expiry?service=github', { body: { state: 'unknown', why: 'no-answer' } });
-            await page.el('settingsBtn').onclick();
-            await page.el('settingsBtn').onclick();
-            await page.settle();
-            report(Object.assign(first, { tc2: line('tcExpiry'), github2: line('ghTokenExpiry') }));
+            """ + OPEN + """
+            report({ tc2: line('tcExpiry'), github2: line('ghTokenExpiry') });
             """);
 
         assertThat(out.at("/tc/text").asText()).isEqualTo(", token expiry unknown: you have 3 tokens that expire at"
@@ -118,10 +117,10 @@ class TokenExpiryPageTest {
         assertThat(out.at("/github/text").asText()).isEqualTo(", GitHub refused it when the checker asked: replace"
             + " it");
         assertThat(out.at("/github/amber").asBoolean()).isTrue();
-        assertThat(out.at("/tc2/text").asText()).isEqualTo(", token expiry unknown: TeamCity wrote the date in a form"
+        assertThat(reopened.at("/tc2/text").asText()).isEqualTo(", token expiry unknown: TeamCity wrote the date in a form"
             + " the checker cannot read");
-        assertThat(out.at("/github2/text").asText()).isEqualTo(", expiry unknown: GitHub did not answer");
-        assertThat(out.at("/github2/amber").asBoolean()).isFalse();
+        assertThat(reopened.at("/github2/text").asText()).isEqualTo(", expiry unknown: GitHub did not answer");
+        assertThat(reopened.at("/github2/amber").asBoolean()).isFalse();
     }
 
     /**
@@ -173,29 +172,31 @@ class TokenExpiryPageTest {
      */
     @Test
     void theRussianExpiryLinesAgree() throws Exception {
-        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + "const CATALOG = "
+        String russian = "const CATALOG = "
             + Files.readString(Path.of("src/main/resources/static/ru.json"), UTF_8) + ";\n" + """
             page.route('/ru.json', { body: CATALOG });
             page.route('/api/me', { body: { username: 'alice', admin: false, jiraInCookie: false, lang: 'ru' } });
+            """;
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + russian + """
             page.route('/api/token-expiry?service=teamcity', { body: { state: 'unknown', why: 'several', tokens: 2 } });
             page.route('/api/token-expiry?service=jira', { body: { state: 'refused' } });
             page.route('/api/token-expiry?service=github', { body: { state: 'unknown', why: 'no-answer' } });
             """ + OPEN + """
-            const first = { tc: page.el('tcState').textContent + page.text('tcExpiry'), jira: page.text('jiraExpiry'),
-                github: page.text('ghTokenExpiry') };
+            report({ tc: page.el('tcState').textContent + page.text('tcExpiry'), jira: page.text('jiraExpiry'),
+                github: page.text('ghTokenExpiry') });
+            """);
+        JsonNode reopened = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + russian + """
             page.route('/api/token-expiry?service=teamcity', { body: { state: 'unknown', why: 'no-answer' } });
             page.route('/api/token-expiry?service=jira', { body: { state: 'unknown', why: 'no-answer' } });
-            await page.el('settingsBtn').onclick();
-            await page.el('settingsBtn').onclick();
-            await page.settle();
-            report(Object.assign(first, { tc2: page.text('tcExpiry'), jira2: page.text('jiraExpiry') }));
+            """ + OPEN + """
+            report({ tc2: page.text('tcExpiry'), jira2: page.text('jiraExpiry') });
             """);
 
         assertThat(out.get("tc").asText()).isEqualTo("alice, срок токена неизвестен: у тебя 2 токена, которые истекают"
             + " в разное время");
-        assertThat(out.get("tc2").asText()).isEqualTo(", срок токена неизвестен: TeamCity не ответил");
+        assertThat(reopened.get("tc2").asText()).isEqualTo(", срок токена неизвестен: TeamCity не ответил");
         assertThat(out.get("jira").asText()).isEqualTo(", JIRA отвергла его, когда чекер спросил: замени его");
-        assertThat(out.get("jira2").asText()).isEqualTo(", срок неизвестен: JIRA не ответила");
+        assertThat(reopened.get("jira2").asText()).isEqualTo(", срок неизвестен: JIRA не ответила");
         assertThat(out.get("github").asText()).isEqualTo(", срок неизвестен: GitHub не ответил");
     }
 

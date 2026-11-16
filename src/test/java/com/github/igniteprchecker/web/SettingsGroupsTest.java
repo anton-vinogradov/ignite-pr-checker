@@ -31,7 +31,6 @@ class SettingsGroupsTest {
         """;
 
     private static final String STATES = """
-        await page.el('settingsBtn').onclick();
         await page.settle();
         report({ tc: page.el('tcState').textContent, jira: page.el('jiraState').textContent,
             jiraBtn: page.el('jiraTokenBtn').textContent, account: page.el('ghLoginState').textContent,
@@ -113,7 +112,7 @@ class SettingsGroupsTest {
     void nothingSavedNorLinkedIsSaid() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: SETTINGS }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + STATES);
 
         assertThat(out.get("tc").asText()).isEqualTo("alice");
@@ -132,7 +131,7 @@ class SettingsGroupsTest {
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { visa: true, jiraStored: true,
                 commands: true, login: 'alice-v', suites: true, ghStored: true, ghTokenKind: 'classic',
                 ghTokenNote: 'Your saved token is a classic one: it can push to every public repository.' }) }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + STATES);
 
         assertThat(out.get("jira").asText()).isEqualTo("saved");
@@ -148,7 +147,7 @@ class SettingsGroupsTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { commands: true, login: 'alice-v',
                 suites: true, ghStored: true, ghTokenKind: 'fine-grained' }) }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + STATES);
 
         assertThat(out.get("token").asText()).isEqualTo("saved, fine-grained");
@@ -160,7 +159,7 @@ class SettingsGroupsTest {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + SETTINGS + """
             page.route('/api/auto-visa-all', { body: Object.assign({}, SETTINGS, { rerun: true,
                 jiraTokenRejected: true, ghTokenRejected: true, tcTokenRejected: true }) }, 'GET');
-            await page.load('?pr=13575');
+            await page.load('/settings?repo=ignite&pr=13575');
             """ + STATES);
 
         assertThat(out.get("jira").asText()).isEqualTo("rejected");
