@@ -12,6 +12,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import ch.qos.logback.classic.Level;
 import com.github.igniteprchecker.Jackson2Defaults;
@@ -56,6 +57,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -98,6 +100,36 @@ class GithubLinkTest {
     private final GithubLinkController links = new GithubLinkController(github, standing,
         new AuthInterceptor(codec, mock(Warmer.class), mock(UserDirectory.class),
             new Logins(mapper, mock(UserDirectory.class)), standing), PROJECTS, now::get);
+
+    /**
+     * The Ignite home can start GitHub linking. Given a signed-in user with no linked account, when they press
+     * Link GitHub in settings, the page's request binds to the real controller and returns GitHub's authorization URL.
+     */
+    @Test
+    void theIgniteHomeSendsALinkRequestTheControllerAccepts() throws Exception {
+        var page = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/auto-visa-all', { body: { commands: false, githubAvailable: true,
+                githubLinkable: true } }, 'GET');
+            page.route('/api/github/link', { body: {} }, 'POST');
+            await page.load('/ignite');
+            await page.el('settingsBtn').onclick();
+            await page.settle();
+            const shown = !page.el('ghLink').classList.contains('hidden');
+            await page.el('ghLink').onclick();
+            report({ shown, request: page.fetches('/api/github/link')[0].url });
+            """);
+
+        assertThat(page.get("shown").asBoolean()).isTrue();
+        var response = MockMvcBuilders.standaloneSetup(links).build()
+            .perform(post(URI.create(page.get("request").asText()))
+                .requestAttr(AuthInterceptor.TOKEN_ATTR, "tc-alice")
+                .requestAttr(AuthInterceptor.USER_ATTR, "alice"))
+            .andReturn().getResponse();
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(mapper.readTree(response.getContentAsString()).get("url").asText())
+            .startsWith("https://github.com/login/oauth/authorize?");
+    }
 
     @Test
     void theAccountGitHubNamesIsLinkedAndItsTokenRevoked(@TempDir Path dir, CapturedOutput output) throws Exception {

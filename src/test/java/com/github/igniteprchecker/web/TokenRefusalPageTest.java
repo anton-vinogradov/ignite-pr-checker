@@ -19,6 +19,6 @@ class TokenRefusalPageTest {
             report({ posts: page.fetches('/api/github/link').map(f => f.url) });
             """);
 
-        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/github/link?tz=UTC\"]");
+        assertThat(out.get("posts").toString()).isEqualTo("[\"/api/github/link?tz=UTC&repo=ignite\"]");
     }
 }
