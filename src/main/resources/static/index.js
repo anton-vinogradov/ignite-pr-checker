@@ -186,6 +186,7 @@ function loginMsg(text, isError) {
 // Nothing of the ended session may keep polling, or offer what only a signed-in user may do. The next opening of the
 // page is English, as for anyone not signed in; this one keeps its language.
 function signedOut() {
+    brokenMaster = null;
     useLanguage(null);
     stopRunsPoll();
     canAdmin = false;
@@ -650,6 +651,7 @@ function openPr(number, push, repo = repoFromUrl()) {
     noRunNote = '';
     lastLiveFetch = Date.now(); // the analysis below is this PR's first look
     lastResult = null;
+    brokenMaster = null;
     phaseNow = null;
     syncListBadge();
     detailsCache.clear();
@@ -1329,6 +1331,7 @@ function goHome(push) {
     $('settingsBtn').href = settingsAddress();
     if (!projectAvailable(selectedRepo)) { showProjectError(selectedRepo); return; }
     lastResult = null;
+    brokenMaster = null;
     syncListBadge();
     runsNow = [];
     runsKnown = false;
@@ -1522,7 +1525,61 @@ function brokenRow(s, rerun = true, above = []) {
     const short = ran && !(s.problems || []).includes(ran) ? ' — ' + T`ran ${s.tests} of master's ${s.baseline} tests` : '';
     return `<li><div class="suite-head"><span class="suite-name">${head}${suiteAiBtn(s, 'broken')}`
         + `<span class="suite-live" data-btid="${esc(s.suite || '')}"></span></span>${btns}</div>`
-        + `<div class="reason">${esc((s.problems || []).map(tr).join(' · '))}${esc(short)}</div></li>`;
+        + `<div class="reason">${esc((s.problems || []).map(tr).join(' · '))}${esc(short)}</div>`
+        + (brokenMaster?.suites.has(s.suite) ? `<div class="reason" id="master-suite-${esc(s.suite)}">${masterSuiteHtml(s)}</div>` : '')
+        + '</li>';
+}
+
+// The master lookups belong to this rendering of the verdict. A later PR or verdict discards their answers.
+let brokenMaster = null;
+
+function sameMasterProblems(s, master) {
+    const a = new Set(s.problemTypes || []), b = new Set(master?.problemTypes || []);
+    return master?.status === 'FAILURE' && a.size > 0 && a.size === b.size
+        && [...a].every(type => typeof type === 'string' && type.length > 0 && b.has(type));
+}
+
+function masterSuiteHtml(s) {
+    if (!brokenMaster.results.has(s.suite)) return T('Master: checking…');
+    const master = brokenMaster.results.get(s.suite);
+    if (!master) return T('Master: could not be checked');
+    if (!master.buildId) return T('Master: no completed run found');
+    const same = sameMasterProblems(s, master);
+    const label = same ? T('Master: same reported problems') : master.status === 'SUCCESS'
+        ? T('Master: passed') : master.status === 'FAILURE' ? T('Master: failed') : T('Master: result unknown');
+    const title = same
+        ? T('TeamCity reports the same problem types. This does not prove the cause is the same or verify the PR’s tests.')
+        : T('The latest completed run of this suite on master.');
+    const when = master.finishedAt ? ' · ' + esc(fmtDay(master.finishedAt * 1000)) : '';
+    const url = tcBase ? `${tcBase}buildConfiguration/${encodeURIComponent(s.suite)}/${master.buildId}` : '';
+    return `<span title="${esc(title)}">${esc(label)}</span>${when}`
+        + (url ? `<a class="ext" href="${esc(url)}" title="${esc(T('Open this master run in TeamCity'))}">TC</a>` : '');
+}
+
+function masterGroupText(g) {
+    const suites = g.suites || [];
+    const same = suites.filter(s => sameMasterProblems(s, brokenMaster.results.get(s.suite))).length;
+    return same ? T('Same reported problems on master: {0} of {1} suites.', same, suites.length) : '';
+}
+
+async function loadBrokenMaster(view, groups) {
+    // Sequential reads keep one open page from sending a burst for a large broken group.
+    for (const s of view.suites.values()) {
+        if (brokenMaster !== view || !isOpen(view.result.prNumber, view.result.repo)) return;
+        let master = null;
+        try {
+            const r = await api('/api/master-suite?suite=' + encodeURIComponent(s.suite));
+            if (r.status === 401) { if (brokenMaster === view) await loggedOut(r); return; }
+            if (r.ok) master = await r.json();
+        } catch (e) { /* the row names the unavailable comparison */ }
+        if (brokenMaster !== view || !isOpen(view.result.prNumber, view.result.repo)) return;
+        view.results.set(s.suite, master);
+        $('master-suite-' + s.suite).innerHTML = masterSuiteHtml(s);
+        groups.forEach((g, i) => {
+            if (g.kind !== 'UPSTREAM' && (g.suites || []).length > 1)
+                $('master-group-' + i).textContent = masterGroupText(g);
+        });
+    }
 }
 
 // The broken suites as the server groups them (BrokenGroup): a failed Build with the suites it kept from
@@ -1575,13 +1632,14 @@ function brokenGroupHtml(g, i, kept, sectionRerun) {
         ? `<div class="reason">${T('ci2 could not hand these suites the artifacts of a run they need, though that run passed: a re-run usually gets them.')}</div>`
         : '';
     return `<li class="broken-group"><div class="suite-head"><span class="suite-name">${esc(tr(g.title))}</span>${btns}</div>${why}`
+        + `<div class="reason" id="master-group-${i}">${esc(masterGroupText(g))}</div>`
         + fold(T`${suites.length} suites`, `<ul class="tests">${suites.map(s => brokenRow(s, rerun(s), above)).join('')}</ul>`) + '</li>';
 }
 
 // What the Broken suites card asks for. A suite that failed to compile (compileError from the server) has no Rerun.
 function brokenAdvice(groups) {
     const compile = groups.some(g => [g.root, ...(g.suites || [])].some(s => s && s.compileError));
-    return (rerunOfGroups(groups).length ? T('Re-run these first: the verdict above can\'t see their tests.')
+    return (rerunOfGroups(groups).length ? T('The verdict above can\'t see their tests. Check master before rerunning.')
         : T('The verdict above can\'t see their tests.'))
         + (compile ? ' ' + T('A suite that failed to compile has no “Rerun”: it needs a code fix.') : '');
 }
@@ -2118,10 +2176,14 @@ function renderResult(res, { quiet = false, force = false } = {}) {
     renderCancelled($('cancelledSuites'), interrupted ? cancelledOwn : [], res.buildId);
     // A failed Build that passed on a re-run since can leave no suite broken, only suites it kept from running.
     const groups = groupsOf(res);
+    brokenMaster = { result: res, suites: new Map(groups.flatMap(g => g.root ? [g.root] : g.suites || [])
+        .filter(s => s.suite && !(s.tests === 0 && (s.failedUpstream || (s.problems || []).includes('failed dependency'))))
+        .map(s => [s.suite, s])), results: new Map() };
     $('brokenCard').classList.toggle('hidden', groups.length === 0);
     $('brokenCount').textContent = broken.length ? `(${broken.length})` : '';
     renderBrokenGroups($('brokenSuites'), groups, res.buildId);
     $('brokenAdvice').textContent = brokenAdvice(groups);
+    loadBrokenMaster(brokenMaster, groups);
     const shrunk = res.shrunkSuites || [];
     $('shrunkCard').classList.toggle('hidden', shrunk.length === 0);
     $('shrunkCount').textContent = shrunk.length ? `(${shrunk.length})` : '';

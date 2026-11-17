@@ -34,7 +34,7 @@ class BrokenGroupsPageTest {
         assertThat(out.get("sectionRerunHidden").asBoolean()).isFalse();
         assertThat(out.get("caveat").asText()).isEqualTo("This run can't prove the PR is clean: Build failed — nothing "
             + "else ran.");
-        assertThat(out.get("advice").asText()).isEqualTo("Re-run these first: the verdict above can't see their tests.");
+        assertThat(out.get("advice").asText()).isEqualTo("The verdict above can't see their tests. Check master before rerunning.");
     }
 
     @Test
@@ -65,9 +65,8 @@ class BrokenGroupsPageTest {
         JsonNode both = PageScript.run("index.html", page(BrokenRuns.withBroken(BrokenRuns.artifactsGlitch(),
             List.of(census, build))));
 
-        assertThat(timeout.get("advice").asText()).isEqualTo("Re-run these first: the verdict above can't see their "
-            + "tests.");
-        assertThat(both.get("advice").asText()).isEqualTo("Re-run these first: the verdict above can't see their tests. "
+        assertThat(timeout.get("advice").asText()).isEqualTo("The verdict above can't see their tests. Check master before rerunning.");
+        assertThat(both.get("advice").asText()).isEqualTo("The verdict above can't see their tests. Check master before rerunning. "
             + "A suite that failed to compile has no “Rerun”: it needs a code fix.");
     }
 

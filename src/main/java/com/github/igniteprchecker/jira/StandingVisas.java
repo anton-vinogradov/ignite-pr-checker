@@ -223,8 +223,8 @@ public class StandingVisas implements SnapshotCache {
 
     /** How many times the blocker suites are re-run before the visa is posted as-is. */
     private static final int MAX_RERUNS = 2;
-    /** Up to this many blocker suites jump the queue; more go to the tail so others aren't pushed back. */
-    private static final int TOP_QUEUE_LIMIT = 10;
+    /** How many distinct suites a running chain may re-run before the settled pass. */
+    private static final int MAX_EARLY_RERUN_SUITES = 10;
     /** Above this many blocker suites, auto re-run is pointless (systemic breakage) — the visa posts as-is. */
     private static final int MAX_SUITES_PER_RERUN = 30;
     private final java.util.concurrent.atomic.AtomicInteger postedTotal = new java.util.concurrent.atomic.AtomicInteger();
@@ -2546,10 +2546,9 @@ public class StandingVisas implements SnapshotCache {
      * <p>Same bar as the settled pass: only the chain triggerer's own enrollment, only with auto
      * re-run on, and only suites the analysis calls a blocker, a watch item or broken — a suite that
      * failed on pre-existing/flaky tests is left alone. Each suite is re-run once per chain, and a
-     * chain that keeps producing them stops at {@link #TOP_QUEUE_LIMIT}: past that it is systemic and
-     * the settled pass will say so. Nor does any go while the verdict asks to re-run more than
-     * {@link #MAX_SUITES_PER_RERUN} suites, the settled pass's own bar: of the 60 suites one ci2 glitch broke on
-     * PR 13655, the first ten would go to the top of the queue.
+     * running chain gets at most {@link #MAX_EARLY_RERUN_SUITES} distinct suites re-run early; the settled pass
+     * considers the remaining eligible suites. Nor does any go while the verdict asks to re-run more than
+     * {@link #MAX_SUITES_PER_RERUN} suites, the settled pass's own bar.
      */
     @EventListener
     void onSuiteFailedMidRun(RerunTracker.SuiteFailedMidRun ev) {
@@ -2568,7 +2567,7 @@ public class StandingVisas implements SnapshotCache {
             return;
 
         java.util.Set<String> before = earlyReruns.getOrDefault(ev.chainBuildId(), java.util.Set.of());
-        if (before.size() >= TOP_QUEUE_LIMIT || before.contains(ev.suite()))
+        if (before.size() >= MAX_EARLY_RERUN_SUITES || before.contains(ev.suite()))
             return; // already settled this suite, or this chain is failing wholesale
 
         // Any enrolled token can read who started the chain; only that person's enrollment may act.
@@ -2602,7 +2601,7 @@ public class StandingVisas implements SnapshotCache {
         // Created only now: a chain nobody re-runs for must not leave an empty memo behind.
         java.util.Set<String> done =
             earlyReruns.computeIfAbsent(ev.chainBuildId(), id -> ConcurrentHashMap.newKeySet());
-        if (done.size() >= TOP_QUEUE_LIMIT || !done.add(ev.suite()))
+        if (done.size() >= MAX_EARLY_RERUN_SUITES || !done.add(ev.suite()))
             return; // a concurrent event beat us to it
 
         TcModel.Build b;
@@ -3100,9 +3099,6 @@ public class StandingVisas implements SnapshotCache {
 
         IgnitePrRuns.Prepared prepared = ignite.prepare(pr, suites);
 
-        // <= TOP_QUEUE_LIMIT suites jump the queue; more go in normally (tail) so the
-        // re-run doesn't shove everyone else's builds back.
-        boolean top = suites.size() <= TOP_QUEUE_LIMIT;
         List<String> history = new ArrayList<>(r != null && r.history() != null ? r.history() : List.of());
         history.add(what);
         String tcComment = "Auto re-run #" + history.size() + " of up to " + MAX_RERUNS
@@ -3113,7 +3109,7 @@ public class StandingVisas implements SnapshotCache {
         for (String suite : suites) {
             try {
                 TcModel.Build b = QueuedBelowTopException.queued(
-                    () -> ignite.queueReplacingQueued(tcToken, prepared, suite, top, tcComment));
+                    () -> ignite.queueReplacingQueued(tcToken, prepared, suite, true, tcComment));
                 rerunTracker.record(pr, b);
                 queued.add(b.id());
             }
@@ -3129,13 +3125,10 @@ public class StandingVisas implements SnapshotCache {
         if (queued.size() == before)
             throw failed;
 
-        String note = top ? (r != null ? r.note() : null)
-            : "(i) " + suites.size() + " suites were re-queued at the TAIL of the queue "
-                + "(too many to jump it without disturbing others) — this may need a real fix "
-                + "and a fresh RunAll rather than re-runs.";
-        waves.put(buildId, new Retry(pr, buildId, attempts + 1, what, history, note, who, queued));
-        log.info("auto-rerun {}/{} for PR {}: {} re-queued at {}", attempts + 1, MAX_RERUNS, pr, what,
-            top ? "top" : "tail");
+        waves.put(buildId, new Retry(pr, buildId, attempts + 1, what, history, r != null ? r.note() : null, who,
+            queued));
+        log.info("auto-rerun {}/{} for PR {}: {} re-queued, top of queue requested", attempts + 1, MAX_RERUNS, pr,
+            what);
 
         return true;
     }

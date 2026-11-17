@@ -15,7 +15,7 @@ class OptionsNameClientRunsTest {
         String page = Files.readString(Path.of("src/main/resources/static/index.html"), UTF_8).replaceAll("\\s+", " ");
 
         assertThat(page).doesNotContain("each RunAll you start.")
-            .contains("re-runs the suites the verdict blames in your Ignite RunAll, or your whole run in Python, PHP, Node.js and Extensions.")
+            .contains("re-runs failures in your Ignite, Python, PHP, Node.js or Extensions runs at the top; ci2 may refuse priority.")
             .contains("posts the verdicts of runs you start in any project as PR comments.")
             .contains("posts the verdicts of runs you start in any project to the IGNITE ticket named in the PR title.");
     }

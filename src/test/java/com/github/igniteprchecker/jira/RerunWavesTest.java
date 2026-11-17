@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,6 +30,8 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -149,6 +152,34 @@ class RerunWavesTest {
             assertThat(w.wave()).isEqualTo(1);
             assertThat(w.what()).isEqualTo("3 suites (2 with blockers, 1 broken)");
         });
+    }
+
+    /**
+     * Given eleven suites blamed on a finished run, when both automatic waves settle it, then every repeat requests
+     * the top of the queue and the final comment does not claim that the wave was sent to the tail.
+     */
+    @Test
+    void automaticWavesAboveTenSuitesStillRequestTheTop() {
+        options(true);
+        finished();
+        AnalysisResult many = verdict(IntStream.range(0, 11)
+            .mapToObj(i -> blocker("Cache" + i, 9389000L + i)).toArray(TestVerdict[]::new));
+        when(analyzer.analyze("tc", PR)).thenReturn(Optional.of(many));
+        when(analyzer.analyzeForAction("tc", PR)).thenReturn(Optional.of(many));
+        AtomicLong ids = new AtomicLong(9389100L);
+        when(tc.triggerBuildReplacingQueued(anyString(), anyString(), eq(PR), anyBoolean(), anyString()))
+            .thenAnswer(inv -> new TcModel.Build(ids.incrementAndGet(), null, "queued", null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, null));
+
+        standing.sweep();
+        standing.sweep();
+        standing.sweep();
+
+        verify(tc, times(22)).triggerBuildReplacingQueued(eq("tc"), anyString(), eq(PR), eq(true), anyString());
+        ArgumentCaptor<String> comment = ArgumentCaptor.forClass(String.class);
+        verify(github).appComment(eq(PR), any(), comment.capture());
+        assertThat(comment.getValue()).contains("Settled after 2 auto re-run waves")
+            .doesNotContain("TAIL", "too many to jump");
     }
 
     /** A chain was mid-run during the upgrade: its waves were kept one per suite. */
