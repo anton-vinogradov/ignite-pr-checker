@@ -55,12 +55,12 @@ class PrHeadPageTest {
             + "const RUN = { suitesRan: 23, suitesReused: 0, live: true, liveBuildId: 9001, finishedAt: 0 };" + scenario);
 
         assertThat(reused.get("text").asText())
-            .isEqualTo("RunAll build 9001 · finished 7 Oct 11:00 (1h ago) · verdict computed 30s ago");
+            .isEqualTo("RunAll build 9001 · finished 7 Oct 11:00 (1h ago) · updated 30s ago");
         assertThat(reused.get("html").asText())
             .contains("<a href=\"https://ci2.example/build/9001\" target=\"_self\" rel=\"noopener\" "
                 + "title=\"Open this RunAll build in TeamCity\">RunAll build 9001</a>")
             .contains("title=\"When the checker last computed this verdict from the run and master's history. ↻ computes "
-                + "it again.\">verdict computed 30s ago</span>");
+                + "it again.\">updated 30s ago</span>");
         assertThat(reused.get("more").asText()).isEqualTo(" · 135 suites ran, 12 reused from earlier runs");
         assertThat(reused.get("moreHtml").asText()).contains("title=\"TeamCity took the results of reused suites from "
             + "earlier runs of the same code instead of running them again.\"");
@@ -137,7 +137,7 @@ class PrHeadPageTest {
     }
 
     @Test
-    void theRunsRowNamesTheCommitEachRunTestsInWords() throws Exception {
+    void theBuildsOfAStepNameTheCommitEachRunTestsInWords() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             const run = (id, state, extra) => Object.assign({ buildId: id, state, name: 'Cache', btId: 'Cache',
                 webUrl: 'https://ci2.example/build/' + id, pct: -1, leftSec: -1, startSec: -1, waitedSec: -1,
@@ -145,10 +145,11 @@ class PrHeadPageTest {
             page.route('/api/runs', { body: [run(1, 'running', { onHead: true, rev: '5ae5733' }),
                 run(2, 'running', { onHead: false, rev: 'ac9f829' }), run(3, 'queued', {})] });
             await page.load('?pr=13575');
-            report({ text: page.el('runs').textContent, html: page.el('runs').innerHTML });
+            page.run('toggleStep')(3);
+            report({ text: page.el('stepPanel').textContent, html: page.el('stepPanel').innerHTML });
             """);
 
-        assertThat(out.get("text").asText()).startsWith("On ci2 now: ")
+        assertThat(out.get("text").asText()).startsWith("Final verdict on TeamCity:")
             .contains("on latest commit", "⚠ old commit ac9f829", "takes latest commit at start")
             .doesNotContain("rev ");
         assertThat(out.get("html").asText())
@@ -194,18 +195,19 @@ class PrHeadPageTest {
         assertThat(after.get("results").asBoolean()).isFalse();
     }
 
-    /** The settling line keeps the name TeamCity, the PR comment and ⚙ use, in plain words. */
+    /** The step of auto re-runs keeps the name TeamCity, the PR comment and ⚙ use, in plain words. */
     @Test
-    void theAutoReRunLineIsPlainWords() throws Exception {
+    void theAutoReRunStepIsPlainWords() throws Exception {
         JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
             page.route('/api/settling', { body: { phase: 'settling', wave: 1, of: 2, what: '2 blocker suites',
                 etaEpochSec: Math.floor(page.now() / 1000) + 20 * 60 } });
             await page.load('?pr=13575');
-            report({ text: page.el('settling').textContent });
+            report({ text: page.el('settling').textContent, steps: page.el('steps').innerHTML });
             """);
 
-        assertThat(out.get("text").asText()).isEqualTo("Preliminary verdict — wait for the updated result. ♻︎ Auto re-run"
-            + " 1/2: waiting for its results and an updated verdict. Estimated time remaining: ~20m.");
+        assertThat(out.get("text").asText()).isEqualTo("Preliminary verdict — wait for the updated result.");
+        assertThat(out.get("steps").asText()).contains("<span class=\"step-name\">Auto re-run</span>"
+            + "<span class=\"step-detail\">wave 1 of 2 · ~20m left</span>");
     }
 
     /** The status line and the ↻ have their own places under the title; ↻ keeps its id for the merged-PR rule. */

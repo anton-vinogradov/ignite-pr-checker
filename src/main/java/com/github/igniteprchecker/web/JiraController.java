@@ -179,7 +179,8 @@ public class JiraController {
         @RequestAttribute(AuthInterceptor.TOKEN_ATTR) String tcToken,
         @RequestAttribute(AuthInterceptor.USER_ATTR) String username) {
         return PostVisaController.VisaRow.of(visaLine(pr, build, tcToken, username),
-            standing.visaButton(username, null, pr, build));
+            standing.visaButton(username, null, pr, build),
+            standing.visaCurrent(username, null, pr, build, merged.verdict(pr)));
     }
 
     /**
@@ -189,6 +190,19 @@ public class JiraController {
      */
     public StandingVisas.VisaLine visaLine(int pr, long build, String tcToken, String username) {
         return standing.visaLine(username, pr, build, () -> run(tcToken, build), merged.verdict(pr).isPresent());
+    }
+
+    /**
+     * Whether the option of whoever started the PR's run {@code build} still puts its verdict into the PR, for the
+     * row in the verdict's heading; see {@link StandingVisas#commentLine}.
+     */
+    StandingVisas.CommentLine commentLine(int pr, long build, String tcToken, String username) {
+        return standing.commentLine(username, pr, build, () -> run(tcToken, build), merged.verdict(pr).isPresent());
+    }
+
+    /** Whether the verdict comment of the run {@code build} is current; see {@link StandingVisas#commentCurrent}. */
+    Boolean commentCurrent(int pr, long build) {
+        return standing.commentCurrent(null, pr, build, 0, merged.verdict(pr));
     }
 
     /**

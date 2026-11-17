@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -102,7 +103,7 @@ class PostVisaControllerTest {
         when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, false)));
-        when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), any()))
+        when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), any(), any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, ISSUE, URL, 0));
 
         ClientRuns python = new ClientRuns(github, tc,
@@ -130,13 +131,13 @@ class PostVisaControllerTest {
             .andExpect(jsonPath("$.jiraReady").value(true));
 
         verify(standing).postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE),
-            eq(result(PR, RUN, false)));
+            eq(result(PR, RUN, false)), any());
     }
 
     /** The second press edited the visa of the first: the answer says so, and the page says it in its words. */
     @Test
     void aSecondPressSaysItEditedTheVisa() throws Exception {
-        when(standing.postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any()))
+        when(standing.postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.EDITED, ISSUE, URL, 0));
 
         asAlice(post("/api/visa"), ISSUE).andExpect(status().isOk()).andExpect(jsonPath("$.edited").value(true));
@@ -157,7 +158,7 @@ class PostVisaControllerTest {
 
         verify(analyzer, never()).analyzeForAction(anyString(), anyInt());
         verify(clients, never()).verdict(anyString(), any(ClientSpec.class), anyInt());
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /** An auto re-run settles the run, a run of the PR goes, or the RunAll still goes: the verdict can change. */
@@ -174,7 +175,7 @@ class PostVisaControllerTest {
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, true)));
         refusedAs("going");
 
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /** Given an unconfirmed settlement, posting supplies the real run metadata and waits for its decision. */
@@ -195,7 +196,7 @@ class PostVisaControllerTest {
         refusedAs("going");
 
         verify(tc).buildEnd("tok", RUN);
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /** TeamCity errors left tests unchecked, and the checker tries them again within 20 minutes. */
@@ -224,7 +225,7 @@ class PostVisaControllerTest {
             .andExpect(jsonPath("$.error").value("The PR title now names IGNITE-29100, not IGNITE-29101. Reload the"
                 + " page, then post the visa."));
 
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /**
@@ -236,13 +237,14 @@ class PostVisaControllerTest {
         asAlice(post("/api/visa"), ISSUE).andExpect(status().isOk());
         when(github.openPrs()).thenReturn(List.of(new PrSummary(PR, "IGNITE-29101 Fix the control utility", null,
             null, null, null)));
-        when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq("IGNITE-29101"), any()))
+        when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq("IGNITE-29101"), any(),
+            any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, "IGNITE-29101", URL, 0));
 
         asAlice(post("/api/visa"), "IGNITE-29101").andExpect(status().isOk());
 
         clientVerdict(CLIENT_RUN);
-        when(standing.postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
+        when(standing.postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(), any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, "IGNITE-29117", URL, 0));
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isOk());
         when(clients.openPrs(PROJECTS.require("python"))).thenReturn(List.of(new PrSummary(CLIENT_PR, "IGNITE-29118 Fix test to forcefully use"
@@ -260,7 +262,7 @@ class PostVisaControllerTest {
             .andExpect(status().isBadGateway())
             .andExpect(jsonPath("$.error").value("The checker could not get the PR's title from GitHub, so it does not"
                 + " know the ticket. Try again in a minute."));
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     @Test
@@ -270,7 +272,7 @@ class PostVisaControllerTest {
 
         refusedAs("ticket").andExpect(jsonPath("$.error").value("The PR title names no IGNITE ticket, so there is no"
             + " ticket to post the visa to. Add the ticket key to the title."));
-        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /**
@@ -288,7 +290,8 @@ class PostVisaControllerTest {
         when(analyzer.runsAtMergeDue(PR)).thenReturn(false);
         asAlice(post("/api/visa"), ISSUE).andExpect(status().isOk());
 
-        verify(standing).postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), eq(atMerge));
+        verify(standing).postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), eq(atMerge),
+            any());
         verify(analyzer, never()).analyzeForAction(anyString(), anyInt());
         verify(tc, never()).currentUserBuilds(anyString(), anyInt());
     }
@@ -322,7 +325,7 @@ class PostVisaControllerTest {
             new ClientVerdicts.Run(CLIENT_RUN, 9424210L, "Thin client: Python", "alice", "a1b2c3d4e5f6",
                 "1f2e3d4c5b6a"))));
         when(tc.currentUserBuilds("tok", "pull/69")).thenReturn(List.of(build("IgniteTests24Java8_Cache1")));
-        when(standing.postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
+        when(standing.postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(), any()))
             .thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED, "IGNITE-29117", URL, 0));
 
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
@@ -331,7 +334,7 @@ class PostVisaControllerTest {
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(standing).postClientVisaFromPage(eq("alice"), any(), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN),
-            eq("IGNITE-29117"), eq(res), body.capture());
+            eq("IGNITE-29117"), eq(res), body.capture(), any());
         assertThat(body.getValue()).contains("*one suite only, not a RunAll*")
             .contains("[build 9424200|https://ci2.example/build/9424200] tested the PR's head")
             .contains("This verdict counts [build 9424210|https://ci2.example/build/9424210] too: a later run of the"
@@ -351,15 +354,15 @@ class PostVisaControllerTest {
             null, null, null)));
         when(commands.clientPhase(spec, CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(standing.postClientVisaFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR), eq(CLIENT_RUN),
-            eq("IGNITE-29117"), eq(res), any())).thenReturn(new StandingVisas.PagePost(StandingVisas.PagePost.POSTED,
-                "IGNITE-29117", URL, 0));
+            eq("IGNITE-29117"), eq(res), any(), any())).thenReturn(new StandingVisas.PagePost(
+                StandingVisas.PagePost.POSTED, "IGNITE-29117", URL, 0));
 
         asAlice(post("/api/client/visa").param("repo", project), CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
             .andExpect(status().isOk());
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(standing).postClientVisaFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR), eq(CLIENT_RUN),
-            eq("IGNITE-29117"), eq(res), body.capture());
+            eq("IGNITE-29117"), eq(res), body.capture(), any());
         assertThat(body.getValue()).contains("https://github.com/" + spec.repo() + "/pull/69", spec.suiteLabel());
     }
 
@@ -374,7 +377,8 @@ class PostVisaControllerTest {
 
         asAlice(request, CLIENT_PR, CLIENT_RUN, "IGNITE-29117").andExpect(status().isBadRequest());
 
-        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(),
+            any());
     }
 
     /** The client's run is still settling: its auto re-run can still change the verdict. */
@@ -386,7 +390,8 @@ class PostVisaControllerTest {
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.going").value(true));
-        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(),
+            any());
     }
 
     /** The page shows the client's run 9424200, and the checker's verdict is of a newer run of the suite. */
@@ -397,7 +402,8 @@ class PostVisaControllerTest {
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.stale").value(true));
-        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(),
+            any());
     }
 
     @Test
@@ -411,7 +417,8 @@ class PostVisaControllerTest {
         asAlice("/api/client/visa", CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.going").value(true));
-        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any(),
+            any());
     }
 
     /** The visa line the page polls tells it whether the reader has a JIRA token stored, and where their visa is. */
@@ -430,6 +437,130 @@ class PostVisaControllerTest {
             .andExpect(jsonPath("$.edited").doesNotExist());
     }
 
+    /**
+     * The row says whether alice's own visa of the run still says what the verdict says, so that the page offers
+     * Update only when it does not, and says nothing where the checker cannot tell. The verdict kept of a merged PR is
+     * the one compared with. A press just posted the verdict as it is now: its answer says the visa is current.
+     */
+    @Test
+    void theRowTellsWhetherTheViewersVisaIsStillCurrent() throws Exception {
+        when(standing.visaLine(eq("alice"), eq(PR), eq(RUN), any(), anyBoolean())).thenReturn(
+            new StandingVisas.VisaLine(StandingVisas.VisaLine.POSTED, "alice", true, ISSUE, URL, false));
+        when(standing.visaCurrent("alice", null, PR, RUN, Optional.empty())).thenReturn(null);
+        mvc.perform(row()).andExpect(jsonPath("$.state").value("posted"))
+            .andExpect(jsonPath("$.current").doesNotExist());
+
+        when(standing.visaCurrent("alice", null, PR, RUN, Optional.empty())).thenReturn(false);
+        mvc.perform(row()).andExpect(jsonPath("$.current").value(false));
+
+        AnalysisResult atMerge = result(PR, RUN, false);
+        when(merged.verdict(PR)).thenReturn(Optional.of(atMerge));
+        when(standing.visaCurrent("alice", null, PR, RUN, Optional.of(atMerge))).thenReturn(true);
+        mvc.perform(row()).andExpect(jsonPath("$.current").value(true));
+
+        when(merged.verdict(PR)).thenReturn(Optional.empty());
+        asAlice(post("/api/visa"), ISSUE).andExpect(status().isOk()).andExpect(jsonPath("$.current").value(true));
+    }
+
+    /** The visa row of RunAll 9425992 as alice's page polls for it. */
+    private static MockHttpServletRequestBuilder row() {
+        return get("/api/visa").param("pr", String.valueOf(PR)).param("build", String.valueOf(RUN))
+            .requestAttr(AuthInterceptor.TOKEN_ATTR, "tok").requestAttr(AuthInterceptor.USER_ATTR, "alice");
+    }
+
+    /**
+     * Before the press the page shows the visa as it would go: the preview composes the text the post sends, with the
+     * verdict as it is now, and posts nothing. It gives the key of that text, which the press sends back.
+     */
+    @Test
+    void thePreviewShowsTheVisaAndPostsNothing() throws Exception {
+        String visa = "the visa\n\nPosted by ci2 user alice from the checker's page.";
+        when(standing.visaPreview("alice", "tok", PR, RUN, result(PR, RUN, false))).thenReturn(Optional.of(visa));
+
+        asAlice(get("/api/visa/preview"), ISSUE)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.text").value(visa))
+            .andExpect(jsonPath("$.key").value(StandingVisas.textKey(visa)));
+
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    /**
+     * The press carries the key of the text the dialog showed, and the visa goes only as that text. When the visa is
+     * another text by then, nothing is posted, and the answer says to press again; the same for a client's run.
+     */
+    @Test
+    void aVisaThatIsNotTheTextThePageShowedIsRefused() throws Exception {
+        StandingVisas.PagePost changed = new StandingVisas.PagePost(StandingVisas.PagePost.CHANGED, null, null, 0);
+        when(standing.postVisaFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), eq(ISSUE), any(),
+            eq("key-of-the-old-text"))).thenReturn(changed);
+
+        asAlice(post("/api/visa").param("key", "key-of-the-old-text"), ISSUE)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.changed").value(true))
+            .andExpect(jsonPath("$.error").value("The text changed after the page showed it to you. Press the button"
+                + " again to read it as it is now."));
+
+        clientVerdict(CLIENT_RUN);
+        when(standing.postClientVisaFromPage(eq("alice"), any(), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN),
+            eq("IGNITE-29117"), any(), any(), eq("key-of-the-old-text"))).thenReturn(changed);
+
+        asAlice(post("/api/client/visa").param("repo", "python").param("key", "key-of-the-old-text"), CLIENT_PR,
+            CLIENT_RUN, "IGNITE-29117")
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.changed").value(true));
+    }
+
+    /** What keeps a visa from being posted keeps it from being shown, with the same answer. */
+    @Test
+    void thePreviewIsRefusedAsThePostIs() throws Exception {
+        when(standing.visaButton(eq("alice"), any(), anyInt(), anyLong())).thenReturn(
+            new StandingVisas.VisaButton(false, null));
+        asAlice(get("/api/visa/preview"), ISSUE).andExpect(status().isPreconditionFailed())
+            .andExpect(jsonPath("$.need").value("jira"));
+        asAlice(get("/api/client/visa/preview").param("repo", "python"), CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
+            .andExpect(status().isPreconditionFailed());
+        verify(analyzer, never()).analyzeForAction(anyString(), anyInt());
+
+        when(standing.visaButton(eq("alice"), any(), anyInt(), anyLong())).thenReturn(
+            new StandingVisas.VisaButton(true, null));
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.SETTLING));
+        asAlice(get("/api/visa/preview"), ISSUE).andExpect(status().isConflict())
+            .andExpect(jsonPath("$.going").value(true));
+
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
+        asAlice(get("/api/visa/preview"), PR, 9000000L, ISSUE).andExpect(status().isConflict())
+            .andExpect(jsonPath("$.stale").value(true));
+        asAlice(get("/api/visa/preview"), "IGNITE-1").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.ticket").value(true));
+
+        // The token went away between the check and the text: the answer is the one of a missing token.
+        when(standing.visaPreview(any(), any(), anyInt(), anyLong(), any())).thenReturn(Optional.empty());
+        asAlice(get("/api/visa/preview"), ISSUE).andExpect(status().isPreconditionFailed())
+            .andExpect(jsonPath("$.need").value("jira"));
+
+        verify(standing, never()).postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    /** The preview of a client's run is the body of its visa, as the post composes it. */
+    @Test
+    void theClientPreviewShowsTheVisaOfItsSuiteRun() throws Exception {
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+            result(CLIENT_PR, CLIENT_RUN, false), new ClientVerdicts.Run(CLIENT_RUN, 0, "Thin client: Python", "alice",
+                "a1b2c3d4e5f6", "1f2e3d4c5b6a"))));
+        when(standing.clientVisaPreview(eq("alice"), anyString())).thenAnswer(call ->
+            Optional.of(call.getArgument(1) + "\n\nPosted by ci2 user alice from the checker's page."));
+
+        asAlice(get("/api/client/visa/preview").param("repo", "python"), CLIENT_PR, CLIENT_RUN, "IGNITE-29117")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.text").value(org.hamcrest.Matchers.allOf(
+                org.hamcrest.Matchers.containsString("*one suite only, not a RunAll*"),
+                org.hamcrest.Matchers.endsWith("Posted by ci2 user alice from the checker's page."))));
+
+        verify(standing, never()).postClientVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(),
+            any(), any());
+    }
+
     private void clientVerdict(long build) {
         when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
             result(CLIENT_PR, build, false), new ClientVerdicts.Run(build, 0, "Thin client: Python", "alice", null,
@@ -437,7 +568,7 @@ class PostVisaControllerTest {
     }
 
     private ResultActions posting(String outcome, int status) throws Exception {
-        when(standing.postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any()))
+        when(standing.postVisaFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
             .thenReturn(new StandingVisas.PagePost(outcome, null, null, status));
 
         return asAlice(post("/api/visa"), ISSUE);

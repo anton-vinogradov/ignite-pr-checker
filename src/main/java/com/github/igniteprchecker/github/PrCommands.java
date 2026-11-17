@@ -1066,7 +1066,11 @@ public class PrCommands implements SnapshotCache {
      * The verdicts of runs of the thin client's suite that GitHub did not take yet, by command comment: the
      * next look posts the same text instead of judging the run again.
      */
-    private final ConcurrentMap<Long, String> verdictBodies = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, Told> verdictBodies = new ConcurrentHashMap<>();
+
+    /** The text of a verdict comment, and the verdict it tells. */
+    private record Told(String body, AnalysisResult verdict) {
+    }
 
     /** How long the visa of a run of the thin client's suite that JIRA or GitHub failed is tried again. */
     private static final long VISA_TRIES_MS = ClientVerdict.VISA_TRIES_MINUTES * 60_000L;
@@ -1421,8 +1425,8 @@ public class PrCommands implements SnapshotCache {
         ClientVerdict.Rerun rerun, String rerunReason) {
         CommandRun now = current(run);
         if (now.readyId() == 0) {
-            String body = verdictBodies.get(now.commentId());
-            if (body != null && now.onPage() && !commentStillDue(now)) {
+            Told text = verdictBodies.get(now.commentId());
+            if (text != null && now.onPage() && !commentStillDue(now)) {
                 log.info("the verdict of build {} on PR {}, queued on the page, that GitHub did not take goes in no"
                     + " comment: {} no longer posts their runs' verdicts in the PR", now.buildId(), now.of(),
                     now.username());
@@ -1430,7 +1434,7 @@ public class PrCommands implements SnapshotCache {
 
                 return;
             }
-            if (body == null) {
+            if (text == null) {
                 Judged held = heldVerdicts.get(now.commentId());
                 if (held == null && now.onPage() && !standing.settlesRuns(now.username())) {
                     log.info("build {} on PR {}, queued on the page, is no longer followed: no option of {} acts on"
@@ -1471,16 +1475,18 @@ public class PrCommands implements SnapshotCache {
                     return;
                 }
 
-                body = clientRuns.verdictComment(client(now.repo()), now.onPage() ? standing.provenGhLogin(now.username())
+                String body = clientRuns.verdictComment(client(now.repo()), now.onPage()
+                    ? standing.provenGhLogin(now.username())
                     : standing.ghLoginOf(now.username()), now.pr(), now.buildId(), suiteName, now.pinned(), verdict,
                     done, visa.get(), ClientRuns.pageUrl(publicUrl, client(now.repo()), now.pr()), now.onPage());
                 if (readsAsCommand(body))
                     throw new IllegalStateException("the checker must never post a comment that reads as a command");
 
-                verdictBodies.put(now.commentId(), body);
+                text = new Told(body, verdict);
+                verdictBodies.put(now.commentId(), text);
             }
 
-            long ready = postVerdict(now, body);
+            long ready = postVerdict(now, text);
             if (ready == 0)
                 return;
 
@@ -1608,10 +1614,10 @@ public class PrCommands implements SnapshotCache {
      * Posts the verdict of a run of the thin client's suite, in place of the comment Post to PR put in for the
      * run when there is one: its comment's id, 0 when it did not go in now.
      */
-    private long postVerdict(CommandRun run, String body) {
+    private long postVerdict(CommandRun run, Told told) {
         try {
             GithubClient.PostedComment c = standing.clientVerdictComment(run.repo(), run.pr(), run.verdictBuildId(),
-                run.username(), body, run.onPage());
+                run.username(), told.body(), run.onPage(), told.verdict());
 
             return c == null ? 0 : c.id();
         }

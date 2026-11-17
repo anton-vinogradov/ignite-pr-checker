@@ -281,8 +281,10 @@ class HeadCheckPageTest {
             + "caveats: ['a newer run is still going — its unfinished suites can still fail'] });" + scenario);
 
         assertThat(marks(old.get("before"))).as("no ✓ while the check runs").containsExactly("…");
-        assertThat(marks(old.get("after"))).containsExactly("…", "?");
-        assertThat(old.get("after").get(1).asText()).contains("pr-badge unproven", "commits were pushed after this run");
+        assertThat(marks(old.get("after"))).as("the ? comes with its reason in a word, as in the other rows")
+            .containsExactly("…", "?outdated");
+        assertThat(old.get("after").get(1).asText()).contains("pr-badge unproven", "commits were pushed after this run")
+            .endsWith("<span class=\"pr-short why\">outdated</span>");
         assertThat(marks(current.get("before"))).isEmpty();
         assertThat(marks(current.get("after"))).containsExactly("✓");
         assertThat(marks(live.get("after"))).containsExactly("…", "✓");

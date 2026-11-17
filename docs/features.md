@@ -125,14 +125,16 @@ missing history and a failed lookup are shown separately.
 | **✓** | A clean run of the PR's current code. | — |
 | **…** | Only for the PR open on the page: no blockers found, and the page is checking that the run tested the PR's latest commit. Once it knows, the badge turns into **✓** or **?**. | Wait. |
 | none | No verdict yet. | Open the PR to analyse it. |
-| **my run** | You started its latest RunAll, or for a thin client PR, its latest run of the suite. The PR may be someone else's. | — |
+| `2/4 · ~55m` after a small ring | A run of the PR is under way. The first number is the step the run is at, of the four the PR's page shows: `Queue`, `RunAll`, `Auto re-run` and `Final verdict`. The time is how long that step still takes by TeamCity's estimate; it is left out when there is no estimate. The tooltip names the step. The checker tells this from the builds it already follows and asks TeamCity nothing more for the list. So a run it has not seen yet shows nothing, and neither does a suite someone re-runs by hand. A thin client PR shows nothing either: its run is one suite. A **?** is left out while the run goes: the step already says that the PR is not proven clean yet. | Wait, or open the PR. |
+| `outdated` | Stands after **?** when commits were pushed after the run. While a run of the PR is under way, the row shows that run's step instead. | Open the PR and run RunAll again. |
+| `by me`, `by alice` | Who started the PR's latest RunAll, or for a thin client PR, its latest run of the suite. It stands at the right end of the row's first line, and only where the tab does not say it already. On **All** and **Involved**, `by me` marks a run you started, and a run someone else started is not marked. On **Mine**, the name marks a run someone else started, and your own run is not marked. The PR may be someone else's. | — |
 
 ### Runs, buttons and visas
 
 | Label | What it means | What to do |
 |---|---|---|
 | `Merged`, `Closed` | The PR was merged, or closed without a merge. The tag stands next to the PR's number, and its tooltip says when and at which commit. The checker keeps a merged Ignite PR's verdict if it computed that verdict before the merge or within the hour after it. Then `Merged` has a **?** that opens this row. The checker does not compute a kept verdict again. After the merge, master's history holds the PR's own runs. So a new verdict would take the PR's failures for failures of master. New runs do not change it, so no button is filled and no line says that a re-run would change it. Runs queued before the merge that this verdict did not count are the one exception: they were still going at the merge, or ended after the verdict was computed. When the last of them ends, the checker computes the verdict once more. That verdict counts only the PR's runs queued before the merge, and runs of master and other PRs that finished before the merge. When some of the PR's runs tested a commit other than the RunAll's, the `⚠ Mixed run` line names them. The checker keeps no verdict of other merged PRs, of thin client PRs or of PRs closed without a merge: it computes their verdict as for an open PR. | — |
-| `queued`, `running` | A build of this PR on ci2 now, under **On ci2 now**. The time next to it is how long it has waited or run so far; `~14m left` and `starts ~5m` are estimates from the queue and the suite's progress. | — |
+| `queued`, `running` | A build of this PR on TeamCity now: among the builds a step opens, or in the **On TeamCity** row of a PR that has no steps. The time next to it is how long it has waited or run so far; `~14m left` and `starts ~5m` are estimates from the queue and the suite's progress. | — |
 | `on latest commit` | The run tests the PR's latest commit. | — |
 | `⚠ old commit abc1234` | Commits were pushed after the run started: it tests older code. | Run RunAll again when it matters. |
 | `takes latest commit at start` | The run is still queued; TeamCity picks the PR's latest commit when it starts. | — |
@@ -142,20 +144,25 @@ missing history and a failed lookup are shown separately.
 | `Blockers since the previous RunAll: 2 new · 3 dropped out · 5 still blocking` | Blockers compared with the PR's previous RunAll, suite by suite. `dropped out`: no longer a blocker, because it passed, moved to another list or did not run. Zero new reads `no new`. A zero `dropped out` or `still blocking` is left out. With all three zero, there is no line. From three RunAlls on, a bar per run stands beside it. | — |
 | `⚠ The verdict is for older code` | The run tested an older commit than the PR's head; the line names both commits. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR the line only names the commit the run tested and the commit the PR was merged at, with no button. | **Run RunAll**. |
 | `⚠ Mixed run` | The verdict counts runs of some suites on another commit than the rest of the RunAll. The line says which suites re-ran on which commit, which commit is the PR's head, and that only a RunAll of the PR's head can prove it clean. It stands in place of `⚠ The verdict is for older code`. While a new RunAll is queued or running, it says so instead of offering the button. On a merged PR it names the commit the PR was merged at, with no button. | **Run RunAll**. |
-| `♻︎ Auto re-run 1/2`, `The checker is processing the results` | Auto re-runs are still settling this run: the verdict may change. | Wait. **🔔 Notify me** tells you when it is final. |
+| `Auto re-run`: `wave 1 of 2`, `deciding` | The step of auto re-runs is under way. Auto re-runs are still settling this run: the verdict may change. A client's PR has no steps, and its status line says `♻︎ Auto re-run 1/1` or `The checker is processing the results` instead. | Wait. **🔔 Notify me** tells you when it is final. |
 | **Run**, **Run at top** | Queue a new RunAll chain for the PR, at the end or at the top of the ci2 queue. Always asks first. | — |
 | **Run anyway** | **Run**, **Run at top** and **Run RunAll** queue nothing on a PR that GitHub reports merge conflicts for. The status line says so, and this button appears next to it. It asks first, then queues that RunAll anyway. | Resolve the conflicts and run RunAll again. |
-| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. One button is filled as the next step: **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
+| **Rerun**, **Rerun at top** | Re-run a suite, or every suite of a section: the section's button says how many suites, and a suite row has its own pair of small text buttons. A pair that would re-run the same suites as the pair above it is left out. A suite the checker is re-running right now, in a wave of auto re-runs, has no pair until the wave ends, and neither has a section while the checker re-runs all of its suites: a manual re-run would only replace the automatic one. One button is filled as the next step: **Run** for a PR with no run to analyse and none queued or running, **Run RunAll** for older code, else the broken or never-ran suites, else the blockers on one run. On a merged PR no button is filled. Five or more suites ask first. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top. | — |
 | **Cancel my runs** | Cancels the builds you started on this PR. | — |
-| `Visa: posted to IGNITE-12345` | The visa of this run is in the ticket. The key links to the comment. | — |
-| `Visa: will be posted to IGNITE-12345 when the run settles` | You started the run, and your **Visa my runs in JIRA** is on. The visa goes out once the run and its auto re-runs settle. | Wait. |
-| `Visa: JIRA did not take it, the checker tries again every 10 minutes` | You started the run. It settled, but JIRA did not take the visa. The checker keeps trying while Visa my runs in JIRA stays on and no newer RunAll replaces the run. | Wait, or press **Post to JIRA**. |
-| `Visa: bob, who started this run, has Visa my runs in JIRA on` | Only the option of whoever started a run posts its automatic visa, and bob's is on. The line says nothing more about another person's option. | — |
-| `Visa: Visa my runs in JIRA is off in ⚙` | You started this run, and your option is off. When the line ends with `because JIRA rejected your token`, JIRA refused your stored token, and that switched the option off. | Switch it on in ⚙ with your JIRA token. Then press **Post to JIRA** to post the visa of this run. |
+| `Verdict to JIRA:`, `to PR:` | Two groups at the end of the verdict card say where the verdict of this run stands: in the IGNITE ticket the PR title names, as the run's visa, and in the PR, as the checker's verdict comment. A group shows a state in a word, a button, or both: `✓ posted`, `posted, verdict changed`, `auto when final`, `retrying`, `waits`, **Post**, **Update**. The **?** of a group says the rest, as a tooltip. A click on the **?** puts that text into a line under the groups, where a keyboard and a phone reach it, and a second click takes the line away. Where the text names Settings, the word opens ⚙. The rows below that begin with `Visa:` quote what the **?** of the first group says. For a PR that is not in the left pane, the first group appears once the page gets the PR's title. | — |
+| `✓ posted` | The visa is in the ticket, or the verdict comment is in the PR, and it says what the verdict says now: the group has no button. The mark links to the comment when the checker knows where it is. Next to the mark stands **Post** when the visa in the ticket is someone else's, and a press adds yours. **Update** stands there when the checker cannot tell whether the comment is up to date: it kept the comment without what its verdict says, as v1.52.0 and before did, or it holds no verdict of the run at the moment. | — |
+| `posted, verdict changed` | The comment a press would edit is in, and the verdict of the run changed after it: it blames other tests, or has other caveats. The checker compares what the verdict blames and its caveats with what it kept of the comment. Commits pushed after the run do not make the group say so. | Press **Update** to put the verdict as it is now into the comment. |
+| `auto when final` | An option of whoever started the run posts it once the run and its auto re-runs settle: **Visa my runs in JIRA** for the ticket, **Post my runs' verdicts in the PR** for the PR. Until the verdict is final, the group has no button. The **?** says whose option it is. On a thin client's PR the groups never show this state: there the button waits for the final verdict. | Wait. |
+| `retrying`, `waits` | The visa of your run is still to come, and something holds it. `retrying`: JIRA did not take it. `waits`: it waits for your login or for your JIRA token. The **?** says which, in one of the `Visa:` texts below. | See the row of that text. |
+| `Visa: posted to IGNITE-12345` | The visa of this run is in the ticket, and the group says `✓ posted`. The key links to the comment. | — |
+| `Visa: will be posted to IGNITE-12345 when the run settles` | You started the run, and your **Visa my runs in JIRA** is on. The visa goes out once the run and its auto re-runs settle. Until the verdict is final, the group says `auto when final`. | Wait. |
+| `Visa: JIRA did not take it, the checker tries again every 10 minutes` | You started the run. It settled, but JIRA did not take the visa: the group says `retrying`. The checker keeps trying while Visa my runs in JIRA stays on and no newer RunAll replaces the run. | Wait, or press **Post to JIRA**. |
+| `Visa: bob, who started this run, has Visa my runs in JIRA on` | Only the option of whoever started a run posts its automatic visa, and bob's is on. The **?** says nothing more about another person's option. Until the verdict is final, the group says `auto when final`. | — |
+| `Visa: Visa my runs in JIRA is off in Settings` | You started this run, and your option is off. When the text ends with `because JIRA rejected your token`, JIRA refused your stored token, and that switched the option off. | Switch it on in ⚙ with your JIRA token. Then press **Post to JIRA** to post the visa of this run. |
 | `Visa: none, bob started this run and has Visa my runs in JIRA off` | Only the option of whoever started a run posts its automatic visa, and bob's is off. | Press **Post to JIRA** to post it yourself, or start a RunAll yourself with the option on. |
-| `Visa: waits until you log in again` | You started the run, and TeamCity refused the token your options use, so they pause. The visa goes out after a login with a fresh token, unless a newer RunAll replaced the run. | Log in again. |
-| `Visa: waits until you save your JIRA token in ⚙ again` | You started the run, and the checker's state was restored from a backup older than 2 days, which keeps no tokens. Your option stays on and waits for your JIRA token. The visa goes out once you save it, unless a newer RunAll replaced the run. | Save your JIRA token in ⚙. |
-| `Visa: waits for a new JIRA token in ⚙` | You started the run, and the checker could not read the JIRA token your Visa my runs in JIRA stored: the server key was changed, or the token got damaged. The option stays on. The visa goes out once you save a new token, unless a newer RunAll replaced the run. | Save a new JIRA token in ⚙. |
+| `Visa: waits until you log in again` | You started the run, and TeamCity refused the token your options use, so they pause. The group says `waits`. The visa goes out after a login with a fresh token, unless a newer RunAll replaced the run. | Log in again. |
+| `Visa: waits until you save your JIRA token in Settings again` | You started the run, and the checker's state was restored from a backup older than 2 days, which keeps no tokens. Your option stays on and waits for your JIRA token: the group says `waits`. The visa goes out once you save it, unless a newer RunAll replaced the run. | Save your JIRA token in ⚙. |
+| `Visa: waits for a new JIRA token in Settings` | You started the run, and the checker could not read the JIRA token your Visa my runs in JIRA stored: the server key was changed, or the token got damaged. The option stays on, and the group says `waits`. The visa goes out once you save a new token, unless a newer RunAll replaced the run. | Save a new JIRA token in ⚙. |
 | `Visa: none, this run finished before you switched on Visa my runs in JIRA` | The option acts only on runs that finish after it goes on. | Press **Post to JIRA**, or run RunAll again. |
 | `Visa: none, the PR title named no IGNITE ticket when the run settled` | Adding the key to the title after the run settled does not post this run's visa. | Press **Post to JIRA**, or run RunAll again. |
 | `Visa: none, this run was cancelled` | A cancelled run gets no visa. The page shows a cancelled run only when every finished run of the PR was cancelled. | Run RunAll again. |
@@ -163,9 +170,9 @@ missing history and a failed lookup are shown separately.
 | `Visa: none, the PR is merged` | The PR was merged before the visa of this run went out. | To post it now, press **Post to JIRA**. |
 | `Visa: none, the PR is closed` | The PR was closed without a merge before the visa of this run went out. | To post it now, press **Post to JIRA**. |
 | `Visa: unknown, TeamCity does not say who started this run` | Only the starter's option posts an automatic visa, and TeamCity named no starter. | To post it yourself, press **Post to JIRA**. |
-| `Visa: the PR title names no IGNITE ticket` | A visa goes to the IGNITE ticket the PR title names. The key may be in any case. For a PR that is not in the left pane, the line appears once the page gets the PR's title. | Put the key in the PR title. |
-| **Post to JIRA** | Posts the visa of the run on the page now, to the IGNITE ticket the PR title names, as your comment in JIRA. It uses the JIRA token you saved in ⚙ for Visa my runs in JIRA; the checker keeps your JIRA token nowhere else. It asks first and names the run and the ticket. The visa has the text of the run's automatic visa for the verdict as it is now, without the line about auto re-run waves. Its last line names you by your ci2 user name, and by your GitHub login when it is proven. Pressed again for the same run, it updates your comment instead of adding one. The button is grey until the verdict is final, the PR title names a ticket and you have a JIRA token saved. When TeamCity errors left part of the verdict unchecked, the button also waits up to 20 minutes while the checker checks that part again. The **?** next to it says why the button is grey; when the JIRA token is missing, a click on it opens ⚙. | — |
-| **Post to PR** | Posts the verdict of the run on the page to the PR now, as a comment of the checker's GitHub account. It asks first and names the run and the PR. The comment has the text of the run's automatic verdict comment, with the verdict as it is now. It leaves out the lines about the starter's visa and auto re-run waves. It mentions whoever started the run when their GitHub login is proven. Its last line names you by your ci2 user name, and by your GitHub login when it is proven. A run has one verdict comment. The checker's verdict comment of a run comes from **Post my runs' verdicts in the PR**, a `/run-all` or an earlier press. When the PR already has this comment for this run, the press updates it, and its last line says who updated it. Otherwise the press posts a new one. The button is grey until the verdict is final. It is also grey while the checker cannot write to GitHub: the checker has no `GITHUB_TOKEN`, GitHub refuses that token, or GitHub asked the checker to wait. When TeamCity errors left part of the verdict unchecked, the button also waits up to 20 minutes while the checker checks that part again. The **?** next to it says why the button is grey. | — |
+| `The PR title names no IGNITE ticket` | What the **?** of the first group says next to a grey **Post**. A visa goes to the IGNITE ticket the PR title names. The key may be in any case. | Put the key in the PR title. |
+| **Post to JIRA** | The button of the `Verdict to JIRA:` group: **Post**, or **Update** once the verdict changed after your visa of the run went into the ticket. It posts the visa of the run on the page now, to the IGNITE ticket the PR title names, as your comment in JIRA. It uses the JIRA token you saved in ⚙ for Visa my runs in JIRA; the checker keeps your JIRA token nowhere else. It asks first, in a dialog: the question names the run and the ticket, a line says whose comment the visa is, and under it stands the visa as it will be posted. **Cancel**, Esc and a click outside the dialog post nothing. The visa has the text of the run's automatic visa for the verdict as it is now, without the line about auto re-run waves. Its last line names you by your ci2 user name, and by your GitHub login when it is proven. Pressed again for the same run, it updates your comment instead of adding one. The button is grey until the verdict is final, the PR title names a ticket and you have a JIRA token saved. When TeamCity errors left part of the verdict unchecked, the button also waits up to 20 minutes while the checker checks that part again. A click on the grey button says why in the line under the groups, and the **?** of the group says it too. | — |
+| **Post to PR** | The button of the `to PR:` group: **Post**, or **Update** once the verdict changed after the checker's verdict comment of the run went into the PR. It posts the verdict of the run on the page to the PR now, as a comment of the checker's GitHub account. It asks first, in a dialog: the question names the run and the PR, a line says whose comment it is, and under it stands the comment as it will be posted. **Cancel**, Esc and a click outside the dialog post nothing. The comment has the text of the run's automatic verdict comment, with the verdict as it is now. It leaves out the lines about the starter's visa and auto re-run waves. It mentions whoever started the run when their GitHub login is proven. Its last line names you by your ci2 user name, and by your GitHub login when it is proven. A run has one verdict comment. The checker's verdict comment of a run comes from **Post my runs' verdicts in the PR**, a `/run-all` or an earlier press. When the PR already has this comment for this run, the press updates it, and its last line says who updated it. Otherwise the press posts a new one. The button is grey until the verdict is final. It is also grey while the checker cannot write to GitHub: the checker has no `GITHUB_TOKEN`, GitHub refuses that token, or GitHub asked the checker to wait. When TeamCity errors left part of the verdict unchecked, the button also waits up to 20 minutes while the checker checks that part again. A click on the grey button says why in the line under the groups, and the **?** of the group says it too. | — |
 | **Visa my runs in JIRA** (⚙) | When a RunAll you started finishes, its verdict goes to the IGNITE ticket the PR title names, once per run; with auto re-run on too, once the re-runs settle. The title needs an IGNITE-NNNN key: no key, no visa. No visa while a newer RunAll of the PR is going, and none that repeats the last one for the same commit. | — |
 
 ### Thresholds
@@ -195,8 +202,11 @@ missing history and a failed lookup are shown separately.
   `/nodejs` and `/extensions`.
   The left pane lists open PRs of the selected project, the most recently updated first. A row has the PR's number, its ticket key
   and a badge with its last known verdict ([badges](#badges-in-the-pr-list)). Each badge has a tooltip.
-  **my run** marks a PR whose latest RunAll, client-suite run or Extensions chain you started. It also appears in
-  **Mine**: another person can start a run of your PR.
+  A PR whose run is under way says how far it is next to the badge, for example `2/4 · ~55m`. The right end of the
+  line names who started the PR's latest RunAll, client-suite run or Extensions chain, where the tab does not say it:
+  `by me` on **All** and **Involved**, and a name such as `by alice` on **Mine**, where another person started a run
+  of your PR. The list is loaded when the page opens. While the page is visible, it asks the checker every minute how
+  far the runs under way are, and only the rows of those runs change.
 - Three tabs over the list choose which PRs it shows. **All** shows the 50 most recently updated open PRs. **Mine**
   shows your open PRs, also the ones that are not among those 50. **Involved** shows other people's open PRs where
   someone asked you to review, you reviewed or you commented. The checker finds Mine and Involved with GitHub's search,
@@ -207,6 +217,9 @@ missing history and a failed lookup are shown separately.
 - The filter (**Filter, or a PR number**) narrows the list on the chosen tab by number or title. A number that is not in
   the list is offered as **Open PR #N →**. `Enter` opens it or the first match, `Escape` clears the filter, and `/`
   jumps to it from anywhere on the page.
+- The **my runs** box next to the filter keeps only the PRs of the chosen tab whose latest run you started. It works
+  together with the filter. When the box leaves no PR on the tab, the list says `No runs by you here.` When the filter
+  matches none of the PRs the box keeps, the list says `No open PR matches.`
 - Each PR in the list is a link (`/ignite?pr=13655`), so a middle click opens it in a new tab. Any PR number works in the
   address, also one that is not in the list.
 - A number in the filter belongs to the selected project. Client PR links include its path, for example `/php?pr=42`.
@@ -216,7 +229,7 @@ missing history and a failed lookup are shown separately.
 
 ## Reading the verdict
 
-![The PR page of #13720 with the "⚠ Mixed run" line. The verdict card "1 blocker in 1 suite, all on 1 run" has the "Post to JIRA" and "Post to PR" buttons. Below it are the "Blockers" and "This PR's tests" cards.](img/pr-page.jpg)
+![The PR page of #13835 in the dark theme while auto re-runs settle its run. The verdict card says "3 blockers in 2 suites, all on 1 run" and shows the four steps with the builds of "Auto re-run" open. Below it are the "Blockers" and "This PR's tests" cards.](img/pr-page.jpg)
 
 The page answers one question: which tests did this PR break? The verdict card answers it first, in the words of the
 PR comment and the visa. The [cards](#cards-on-the-pr-page) under it go from what makes the run unreliable (suites that
@@ -230,15 +243,27 @@ own tests, and what was not blamed on the PR.
   the head names the RunAll build with its TeamCity link, when the run finished and when the verdict was computed. The
   finish time turns amber when the run is over a week old. The ↻ button computes the verdict again. When TeamCity
   reused suites, the line also says `135 suites ran, 12 reused from earlier runs`.
-- **Lines under the head** say when the verdict is for older code or a mixed run, what is on ci2 now, and whether
-  to wait. A **preliminary verdict** explicitly asks you to wait while builds, automatic re-runs or analysis still
-  need time. This includes a newer RunAll while the page shows an earlier result. The auto re-run line shows queued
-  and running builds, a pending decision, or processing of their results. If TeamCity errors leave the analysis
-  incomplete, it says how long the checker will keep retrying it. An unconfirmed status is shown as unknown.
-- A **final verdict** means the checker expects no further automatic re-runs or analysis of this run. It says how
-  many automatic re-run waves completed when that is known. Zero means none started; unknown history is not treated
-  as zero. A final verdict may still have blockers or missing results: fix the failures or re-run manually. GitHub
-  comments and JIRA visas have their own delivery status. A merged PR keeps its retained verdict.
+- **Lines under the head** say when the verdict is for older code or a mixed run.
+- **The status line** in the verdict card, under its heading, says whether to wait. A **preliminary verdict**
+  explicitly asks you to wait while builds, automatic re-runs or analysis still need time. This includes a newer
+  RunAll while the page shows an earlier result: the line counts the PR's other runs and names the run the verdict
+  is for. If TeamCity errors leave the analysis incomplete, it says how long the checker will keep retrying it. An
+  unconfirmed status is shown as unknown.
+- A **final verdict** means the checker expects no further automatic re-runs or analysis of this run. The line says
+  why there was no automatic re-run when the steps do not, for example that the run was cancelled. A final verdict
+  may still have blockers or missing results: fix the failures or re-run manually. GitHub comments and JIRA visas
+  have their own delivery status. A merged PR keeps its retained verdict.
+- **The steps** under the status line show how far the run is from its final verdict: `Queue`, `RunAll`,
+  `Auto re-run` and `Final verdict`. A done step has a tick. The step under way is highlighted and says what it waits
+  for: when the chain starts, how long RunAll still takes, or which wave of auto re-runs goes, with its running and
+  queued builds. A suite that fails while the chain runs is re-run at once, so `RunAll` and `Auto re-run` can be under
+  way together. A done `Auto re-run` says how many waves went: `2 waves`, or `none started`. It says nothing when
+  that is not known: unknown history is not treated as zero. A skipped step is dashed and says why, such as
+  `off for this run`. The last step of a final verdict says how it stands: `no blockers`, `1 blocker`,
+  `started failing` or `not proven clean`. A step that has builds of the PR on TeamCity now opens them: see
+  [Iterating on a fix](#iterating-on-a-fix). There are no steps for a merged PR, a client's PR, or while the page
+  could not read the PR's runs. There the status line says all of this in words, and the **On TeamCity** row under
+  the head lists the builds.
 - **Which run.** The checker analyses the PR's newest finished RunAll that was not cancelled; without one, the newest
   cancelled one; without that, the one still running. The finished suites of a running chain are real results, so a
   PR's first RunAll shows failures hours before it ends. While a newer RunAll goes, its finished suites are folded
@@ -319,15 +344,22 @@ own tests, and what was not blamed on the PR.
 - **Rerun** and **Rerun at top** re-run one suite, every suite of a section or a group of broken suites. Each suite
   row has its own pair of small text buttons. A section's button says how many suites it re-runs. A pair that would
   re-run what the pair above it re-runs is left out, and one button is filled as the next step, except on a merged
-  PR. From 5 suites on they
+  PR. On a PR with no run to analyse and none queued or running, that button is **Run**. While the checker re-runs a
+  suite in a wave of auto re-runs, the suite has no pair, and a section or a group has none while the checker re-runs
+  all of its suites: a manual re-run would only replace the automatic one. The pairs come back when the wave ends.
+  From 5 suites on they
   ask first. Your own identical re-run still in the queue is replaced; someone else's stays. At the top works as for
   Run. A line under the buttons says why, when the suites are not queued or are queued at the end, not at the top.
   The queued chip appears on the suite at once.
-- **On ci2 now** lists the PR's queued and running builds: how long each has waited or run, an estimate
-  (`~14m left`, `starts ~5m`), the commit it tests (`on latest commit`, `⚠ old commit abc1234`,
-  `takes latest commit at start`) and `by alice` for someone else's run. The same chips appear on the suites they
-  re-run.
-- **Cancel my runs** shows only while you have a run on the PR. It lists your runs, asks, and cancels only them.
+- **The builds of a step.** A step that has builds of the PR on TeamCity is a button. A click opens them under the
+  steps, one step at a time, and another click closes them. A queued RunAll stands under `Queue`, a running one under
+  `RunAll`, the re-runs of the wave under `Auto re-run`, and any other build, such as a re-run you started, under
+  `Final verdict`. Each build shows how long it has waited or run, an estimate (`~14m left`, `starts ~5m`), the
+  commit it tests (`on latest commit`, `⚠ old commit abc1234`, `takes latest commit at start`) and `by alice` for
+  someone else's run. The same chips appear on the suites they re-run. A PR without steps lists its builds in the
+  **On TeamCity** row.
+- **Cancel my runs** shows only while you have a run on the PR. It lists your runs, asks, and cancels only them. It
+  stands at the end of the status line, or of the **On TeamCity** row.
 - **Older code**: a line says
   `⚠ The verdict is for older code: this run tested 0013263, and the PR is now at b52666a, 7 commits later.` with
   **Run RunAll** right after it. After a rebase or force-push it says so instead of a count; while a new RunAll is
@@ -545,22 +577,30 @@ log in from. The journal lists each change. A page that opens without a login is
 
 ## Visas and PR comments
 
-- **The visa** of a run comes from **Visa my runs in JIRA** of whoever started it, or from **Post to JIRA**. A line
-  under the verdict says where it stands: posted, with a link to the comment; still to come once the run settles; or
-  why none comes. For someone else's run it names whose option it is and whether it is on, and nothing more about
-  their options. The [glossary](#runs-buttons-and-visas) lists every state.
-- **Post to JIRA**, next to that line, posts the visa of the run on the page now, with your own JIRA token from ⚙,
-  whoever started the run. Use it when no option posted the visa, or when the verdict changed after the visa went
-  out. For example, a suite with a blocker re-ran on a newer commit and passed: the run became a mixed run, and you
-  want the ticket to show that. The visa says what the run's automatic visa would say now, the mixed-run caveat
-  included. The last line of the visa names who posted it. A second press for the same run updates that comment. On a
-  merged PR's page it posts the verdict kept at the merge.
-- **Post to PR**, next to **Post to JIRA**, does the same in the PR: the checker's account posts the verdict of the run
-  on the page as a comment. A run has one verdict comment in the PR. The press updates the checker's verdict comment of
-  the run, or posts one when there is none. The last line of the comment names who posted or updated it. The press
-  counts among the writes of the checker's account: at most 40 an hour to one PR and 60 for one user. The checker takes
-  at most 5 presses on one PR in an hour. The rest of those 40 writes stay for the stories of the PR's runs and their
-  verdict comments. When a limit is reached, the page says so; press again later.
+- **The visa** of a run comes from **Visa my runs in JIRA** of whoever started it, or from **Post to JIRA**. The
+  group `Verdict to JIRA:` in the verdict card says where it stands: `✓ posted`, with a link to the comment;
+  `auto when final`, still to come once the run settles; or a button to post it yourself. The **?** of the group says
+  the rest: why no visa comes, or what the button waits for. For someone else's run it names whose option it is and
+  whether it is on, and nothing more about their options. The [glossary](#runs-buttons-and-visas) lists every state.
+- **Post to JIRA**, the button of that group, posts the visa of the run on the page now, with your own JIRA token
+  from ⚙, whoever started the run. Use it when no option posted the visa, or when the verdict changed after the visa
+  went out. For example, a suite with a blocker re-ran on a newer commit and passed: the run became a mixed run, and
+  you want the ticket to show that. The visa says what the run's automatic visa would say now, the mixed-run caveat
+  included. The last line of the visa names who posted it. Before anything is posted, a dialog shows the visa as it
+  will go: read it, then confirm or cancel. Only the text the dialog showed is posted: when the verdict changed while
+  you read it, nothing goes out, the page says so, and the next press shows the new text. Opening another PR closes
+  the dialog without posting. While your visa says what the verdict says, the group reads `✓ posted` and has no
+  button. Once the verdict changes, it reads `posted, verdict changed`, and **Update** puts the new verdict into that
+  comment. On a merged PR's page the button posts the verdict kept at the merge.
+- **Post to PR**, the button of the group `to PR:` next to it, does the same in the PR: the checker's account posts
+  the verdict of the run on the page as a comment, after the same dialog. A run has one verdict comment in the PR.
+  The group links it with `✓ posted`, and says `auto when final` while **Post my runs' verdicts in the PR** of whoever
+  started the run still posts it. Once the verdict changes after the comment, the group reads
+  `posted, verdict changed` and has **Update**. The press updates the checker's verdict comment of the run, or posts
+  one when there is none. The last line of the comment names who posted or updated it. The press counts among the writes of the
+  checker's account: at most 40 an hour to one PR and 60 for one user. The checker takes at most 5 presses on one PR
+  in an hour. The rest of those 40 writes stay for the stories of the PR's runs and their verdict comments. When a
+  limit is reached, the page says so; press again later.
 - A visa and a PR comment say the same. The head line names the RunAll build, the commit it tested, and how many
   suites ran and how many were reused. Broken suites come grouped by cause.
 - The lists of blockers, tests that recently started failing and unchecked tests are grouped by suite and class, the

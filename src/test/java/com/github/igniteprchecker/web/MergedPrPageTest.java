@@ -73,7 +73,7 @@ class MergedPrPageTest {
             .isEqualTo("This run tested ac9f829. The PR was merged at its commit 5ae5733, 2 commits later.");
         assertThat(out.get("button").asBoolean()).as("Run RunAll").isFalse();
         assertThat(out.get("fresh").asText()).contains("title=\"When the checker last computed this verdict from the run "
-            + "and master's history.\">verdict computed").doesNotContain("↻");
+            + "and master's history.\">updated").doesNotContain("↻");
         assertThat(out.get("merged").asBoolean()).isTrue();
         assertThat(Files.readString(PAGE, UTF_8)).contains("#results.merged .rerun-advice { display: none; }")
             .contains("each of these failed its only run on this branch. <span class=\"rerun-advice\">Re-run");

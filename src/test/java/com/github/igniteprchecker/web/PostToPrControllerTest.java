@@ -2,6 +2,7 @@ package com.github.igniteprchecker.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -9,6 +10,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -39,6 +41,7 @@ import com.github.igniteprchecker.tc.dto.TcModel;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -49,6 +52,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * Post to PR on the page of apache/ignite#13709: after the author re-ran the suite with the blocker on the PR's head,
@@ -101,7 +105,7 @@ class PostToPrControllerTest {
         when(commands.clientPhase(PROJECTS.require("python"), CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(analyzer.analyzeForAction("tok", PR)).thenReturn(Optional.of(result(PR, RUN, false)));
         when(tc.buildEnd("tok", RUN)).thenReturn(Optional.of(started("bob")));
-        when(standing.postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), any(), any()))
+        when(standing.postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), any(), any(), any()))
             .thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
 
         ClientRuns python = new ClientRuns(github, tc,
@@ -129,13 +133,13 @@ class PostToPrControllerTest {
             .andExpect(jsonPath("$.edited").value(false));
 
         verify(standing).postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN),
-            eq(result(PR, RUN, false)), eq("bob"));
+            eq(result(PR, RUN, false)), eq("bob"), any());
     }
 
     /** The press updated the run's verdict comment: the answer says so, and the page says it in its words. */
     @Test
     void anUpdateOfTheRunsCommentIsSaid() throws Exception {
-        when(standing.postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any()))
+        when(standing.postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
             .thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, URL, 0));
 
         asAlice(post("/api/pr-comment")).andExpect(status().isOk()).andExpect(jsonPath("$.edited").value(true));
@@ -148,7 +152,7 @@ class PostToPrControllerTest {
 
         asAlice(post("/api/pr-comment")).andExpect(status().isOk());
 
-        verify(standing).postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), any(), isNull());
+        verify(standing).postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), any(), isNull(), any());
     }
 
     /** A checker without GITHUB_TOKEN has no account to write with: nothing is looked up or posted. */
@@ -163,7 +167,7 @@ class PostToPrControllerTest {
                 + " it cannot post to the PR. Its operator can add one."));
 
         verifyNoInteractions(analyzer);
-        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /** GitHub refuses the checker's token, or asked it to wait: each is said apart, and nothing is posted. */
@@ -185,7 +189,7 @@ class PostToPrControllerTest {
             .andExpect(jsonPath("$.bot").value("paused"))
             .andExpect(jsonPath("$.error").value("GitHub asked the checker to wait before it writes again. Try again"
                 + " later."));
-        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     /** An auto re-run settles the run, then a suite re-run of the PR goes: either may still change the verdict. */
@@ -205,7 +209,7 @@ class PostToPrControllerTest {
             null, null)));
 
         asAlice(post("/api/pr-comment")).andExpect(status().isConflict()).andExpect(jsonPath("$.going").value(true));
-        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
     }
 
     @Test
@@ -291,7 +295,8 @@ class PostToPrControllerTest {
                 "bob", "a1b2c3d4e5f6", "1f2e3d4c5b6a"))));
         when(standing.provenGhLogin("bob")).thenReturn("bob-gh");
         when(standing.postClientCommentFromPage(eq("alice"), any(), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN),
-            eq(9424210L), any())).thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
+            eq(9424210L), any(), any(), any())).thenReturn(new StandingVisas.CommentPost(
+                StandingVisas.CommentPost.POSTED, URL, 0));
 
         asAlice(post("/api/client/pr-comment").param("repo", "python"), CLIENT_PR, CLIENT_RUN).andExpect(status().isOk())
             .andExpect(jsonPath("$.url").value(URL));
@@ -299,7 +304,7 @@ class PostToPrControllerTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Function<Boolean, String>> body = ArgumentCaptor.forClass(Function.class);
         verify(standing).postClientCommentFromPage(eq("alice"), any(), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN),
-            eq(9424210L), body.capture());
+            eq(9424210L), any(), body.capture(), any());
         assertThat(body.getValue().apply(null))
             .startsWith("@bob-gh the verdict of your run: **Thin client: Python** [build 9424200]"
                 + "(https://ci2.example/build/9424200) ran this PR's head [`a1b2c3d`](https://github.com/" + CLIENT_REPO
@@ -325,7 +330,7 @@ class PostToPrControllerTest {
             new ClientVerdicts.Run(CLIENT_RUN, 0, spec.suiteLabel(), "bob", "a".repeat(40), "b".repeat(40)))));
         when(commands.clientPhase(spec, CLIENT_PR, CLIENT_RUN)).thenReturn(phase(StandingVisas.Phase.FINAL));
         when(standing.postClientCommentFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR), eq(CLIENT_RUN),
-            eq(0L), any())).thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
+            eq(0L), any(), any(), any())).thenReturn(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, URL, 0));
 
         asAlice(post("/api/client/pr-comment").param("repo", project), CLIENT_PR, CLIENT_RUN)
             .andExpect(status().isOk());
@@ -333,7 +338,7 @@ class PostToPrControllerTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Function<Boolean, String>> body = ArgumentCaptor.forClass(Function.class);
         verify(standing).postClientCommentFromPage(eq("alice"), any(), eq(spec.repo()), eq(CLIENT_PR),
-            eq(CLIENT_RUN), eq(0L), body.capture());
+            eq(CLIENT_RUN), eq(0L), any(), body.capture(), any());
         assertThat(body.getValue().apply(true)).contains("https://github.com/" + spec.repo() + "/pull/69",
             "https://checker.example/" + project + "?pr=69", spec.suiteLabel());
     }
@@ -349,7 +354,8 @@ class PostToPrControllerTest {
 
         asAlice(request, CLIENT_PR, CLIENT_RUN).andExpect(status().isBadRequest());
 
-        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any());
+        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any(), any(),
+            any());
     }
 
     /** A run of the client's suite on the PR's branch is going: it may change the verdict, so nothing goes. */
@@ -365,7 +371,8 @@ class PostToPrControllerTest {
         asAlice(post("/api/client/pr-comment").param("repo", "python"), CLIENT_PR, CLIENT_RUN)
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.going").value(true));
-        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any());
+        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any(), any(),
+            any());
     }
 
     /** The row the page polls says whether the checker can write, and where the run's comment is. */
@@ -390,8 +397,175 @@ class PostToPrControllerTest {
         verifyNoInteractions(analyzer);
     }
 
+    /**
+     * The run has no verdict comment yet: the row says whose Post my runs' verdicts in the PR still posts it. With a
+     * comment in the PR, or no account to post from, nobody's option is looked up.
+     */
+    @Test
+    void theRowTellsWhoseOptionStillPostsTheComment() throws Exception {
+        when(standing.runCommentUrl(null, PR, RUN, 0)).thenReturn(Optional.empty());
+        when(standing.commentLine(eq("alice"), eq(PR), eq(RUN), any(), eq(false)))
+            .thenReturn(new StandingVisas.CommentLine("bob", false, true));
+
+        asAlice(get("/api/pr-comment"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.bot").value("ready"))
+            .andExpect(jsonPath("$.url").doesNotExist())
+            .andExpect(jsonPath("$.starter").value("bob"))
+            .andExpect(jsonPath("$.mine").value(false))
+            .andExpect(jsonPath("$.auto").value(true));
+
+        when(standing.runCommentUrl(null, PR, RUN, 0)).thenReturn(Optional.of(URL));
+        asAlice(get("/api/pr-comment")).andExpect(jsonPath("$.url").value(URL))
+            .andExpect(jsonPath("$.auto").doesNotExist());
+
+        when(standing.runCommentUrl(null, PR, RUN, 0)).thenReturn(Optional.empty());
+        when(github.writes()).thenReturn(false);
+        asAlice(get("/api/pr-comment")).andExpect(jsonPath("$.bot").value("none"))
+            .andExpect(jsonPath("$.auto").doesNotExist());
+
+        verify(standing, times(1)).commentLine(any(), anyInt(), anyLong(), any(), anyBoolean());
+    }
+
+    /**
+     * The run has a verdict comment: the row says whether it still says what the verdict says, so that the page offers
+     * Update only when it does not, and says nothing where the checker cannot tell. The verdict kept of a merged PR is
+     * the one compared with. A press just posted the verdict as it is now: its answer says the comment is current.
+     */
+    @Test
+    void theRowTellsWhetherTheRunsCommentIsStillCurrent() throws Exception {
+        when(standing.runCommentUrl(null, PR, RUN, 0)).thenReturn(Optional.of(URL));
+        when(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).thenReturn(null);
+        asAlice(get("/api/pr-comment")).andExpect(jsonPath("$.current").doesNotExist());
+
+        when(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).thenReturn(false);
+        asAlice(get("/api/pr-comment")).andExpect(jsonPath("$.url").value(URL))
+            .andExpect(jsonPath("$.current").value(false));
+
+        AnalysisResult atMerge = result(PR, RUN, false);
+        when(merged.verdict(PR)).thenReturn(Optional.of(atMerge));
+        when(standing.commentCurrent(null, PR, RUN, 0, Optional.of(atMerge))).thenReturn(true);
+        asAlice(get("/api/pr-comment")).andExpect(jsonPath("$.current").value(true));
+
+        when(merged.verdict(PR)).thenReturn(Optional.empty());
+        asAlice(post("/api/pr-comment")).andExpect(status().isOk()).andExpect(jsonPath("$.current").value(true));
+    }
+
+    /**
+     * TeamCity does not answer who started the run. The row still says that the checker can post and that the run has
+     * no comment yet, so Post to PR works; it says nothing of the starter's option.
+     */
+    @Test
+    void aStarterTeamCityDoesNotNameCostsTheRowOnlyTheOption() throws Exception {
+        when(standing.runCommentUrl(null, PR, RUN, 0)).thenReturn(Optional.empty());
+        when(tc.buildEnd("tok", RUN)).thenThrow(new ResourceAccessException("Connection reset"));
+        when(standing.commentLine(eq("alice"), eq(PR), eq(RUN), any(), eq(false))).thenAnswer(call -> {
+            StandingVisas.Run run = call.<Supplier<StandingVisas.Run>>getArgument(3).get();
+
+            return new StandingVisas.CommentLine(run.starter(), false, true);
+        });
+
+        asAlice(get("/api/pr-comment"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.bot").value("ready"))
+            .andExpect(jsonPath("$.url").doesNotExist())
+            .andExpect(jsonPath("$.starter").doesNotExist())
+            .andExpect(jsonPath("$.auto").doesNotExist());
+    }
+
+    /**
+     * Before the press the page shows the comment as it would go: the preview composes the text the post sends, for
+     * the verdict as it is now, mentioning bob, who started the run. Nothing is posted, and the press is not counted.
+     * It gives the key of that text, which the press sends back.
+     */
+    @Test
+    void thePreviewShowsTheCommentAndPostsNothing() throws Exception {
+        String comment = "@bob-gh the verdict\n\n_Posted by ci2 user alice from the checker's page._";
+        when(standing.commentPreview("alice", "tok", PR, RUN, result(PR, RUN, false), "bob")).thenReturn(comment);
+
+        asAlice(get("/api/pr-comment/preview"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.text").value(comment))
+            .andExpect(jsonPath("$.key").value(StandingVisas.textKey(comment)));
+
+        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+    }
+
+    /**
+     * The press carries the key of the text the dialog showed, and the comment goes only as that text. When the
+     * comment is another text by then, nothing is posted, and the answer says to press again; the same for a client's
+     * run.
+     */
+    @Test
+    void aCommentThatIsNotTheTextThePageShowedIsRefused() throws Exception {
+        StandingVisas.CommentPost changed = new StandingVisas.CommentPost(StandingVisas.CommentPost.CHANGED, null, 0);
+        when(standing.postCommentFromPage(eq("alice"), any(), eq("tok"), eq(PR), eq(RUN), any(), eq("bob"),
+            eq("key-of-the-old-text"))).thenReturn(changed);
+
+        asAlice(post("/api/pr-comment").param("key", "key-of-the-old-text"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.changed").value(true))
+            .andExpect(jsonPath("$.error").value("The text changed after the page showed it to you. Press the button"
+                + " again to read it as it is now."));
+
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(
+            new ClientVerdicts.Verdict(result(CLIENT_PR, CLIENT_RUN, false), new ClientVerdicts.Run(CLIENT_RUN, 0,
+                "Thin client: Python", "bob", "a1b2c3d4e5f6", "1f2e3d4c5b6a"))));
+        when(standing.postClientCommentFromPage(eq("alice"), any(), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN),
+            eq(0L), any(), any(), eq("key-of-the-old-text"))).thenReturn(changed);
+
+        asAlice(post("/api/client/pr-comment").param("repo", "python").param("key", "key-of-the-old-text"),
+            CLIENT_PR, CLIENT_RUN)
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.changed").value(true));
+    }
+
+    /** What keeps a verdict from being posted keeps it from being shown, with the same answer. */
+    @Test
+    void thePreviewIsRefusedAsThePostIs() throws Exception {
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.SETTLING));
+        asAlice(get("/api/pr-comment/preview")).andExpect(status().isConflict())
+            .andExpect(jsonPath("$.going").value(true));
+
+        when(standing.phase(eq(PR), eq(RUN), any())).thenReturn(phase(StandingVisas.Phase.FINAL));
+        asAlice(get("/api/pr-comment/preview"), PR, 9000000L).andExpect(status().isConflict())
+            .andExpect(jsonPath("$.stale").value(true));
+
+        when(github.canWrite()).thenReturn(false);
+        when(github.writeState()).thenReturn(new GithubClient.WriteState(0, null, 0, List.of()));
+        asAlice(get("/api/pr-comment/preview")).andExpect(status().isConflict())
+            .andExpect(jsonPath("$.bot").value("refused"));
+        asAlice(get("/api/client/pr-comment/preview").param("repo", "python"), CLIENT_PR, CLIENT_RUN)
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.bot").value("refused"));
+
+        verify(standing, never()).commentPreview(any(), any(), anyInt(), anyLong(), any(), any());
+        verify(standing, never()).clientCommentPreview(any(), any(), anyInt(), anyLong(), anyLong(), any());
+    }
+
+    /** The preview of a client's run is the body of its verdict comment, as the post composes it. */
+    @Test
+    void theClientPreviewShowsTheVerdictOfItsSuiteRun() throws Exception {
+        when(clients.verdict("tok", PROJECTS.require("python"), CLIENT_PR)).thenReturn(Optional.of(new ClientVerdicts.Verdict(
+            result(CLIENT_PR, CLIENT_RUN, false), new ClientVerdicts.Run(CLIENT_RUN, 9424210L, "Thin client: Python",
+                "bob", "a1b2c3d4e5f6", "1f2e3d4c5b6a"))));
+        when(standing.provenGhLogin("bob")).thenReturn("bob-gh");
+        when(standing.clientCommentPreview(eq("alice"), eq(CLIENT_REPO), eq(CLIENT_PR), eq(CLIENT_RUN), eq(9424210L),
+            any())).thenAnswer(call -> call.<Function<Boolean, String>>getArgument(5).apply(null) + "\n\n_Posted_");
+
+        asAlice(get("/api/client/pr-comment/preview").param("repo", "python"), CLIENT_PR, CLIENT_RUN)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.text").value(org.hamcrest.Matchers.allOf(
+                org.hamcrest.Matchers.containsString("@bob-gh"),
+                org.hamcrest.Matchers.containsString("https://checker.example/python?pr=69"),
+                org.hamcrest.Matchers.endsWith("_Posted_"))));
+
+        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any(), any(),
+            any());
+    }
+
     private ResultActions answers(StandingVisas.CommentPost posted) throws Exception {
-        when(standing.postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any())).thenReturn(posted);
+        when(standing.postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any()))
+            .thenReturn(posted);
 
         return asAlice(post("/api/pr-comment"));
     }

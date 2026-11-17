@@ -141,6 +141,8 @@ class RussianStatusPageTest {
         assertThat(cards.get("usersActive").asText())
             .isEqualTo("aliceпоследняя активность 60 с назад · вход выполнен 3 раза · первый визит 5 дней назад");
         assertThat(cards.get("restartLast").asText()).isEqualTo("последний перезапуск: avinogradov · 2 ч назад");
+        assertThat(cards.get("updated").asText()).as("a clock time, not the PR page's \"updated 5 minutes ago\"")
+            .isEqualTo("обновлено в 12:00:00");
         assertThat(out.get("html").asText()).contains("<span class=\"logmsg\" lang=\"en\">" + LOG.get(1) + "</span>",
             "<span class=\"loglogger\" lang=\"en\" title=\"TcClient\">TcClient</span>");
         assertThat(out.get("texts").get("tab").asText()).isEqualTo("Ignite PR Checker — Статус");
@@ -253,6 +255,7 @@ class RussianStatusPageTest {
             """);
 
         assertThat(out.get("cards").get("watcherCards").asText()).contains("Standing options3 users with an option on");
+        assertThat(out.get("cards").get("updated").asText()).startsWith("updated at 12:00:00");
         assertThat(out.get("texts").get("tab").asText()).isEqualTo("Ignite PR Checker — Status");
         assertThat(out.get("hint").isNull()).isTrue();
         assertThat(out.get("stored").isNull()).isTrue();

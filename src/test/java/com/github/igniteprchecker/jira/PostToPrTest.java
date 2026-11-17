@@ -119,7 +119,7 @@ class PostToPrTest {
         standing.sweep();
 
         StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            AUTHOR);
+            AUTHOR, null);
 
         verify(github).appEdit(PR, REVIEWER, 555L, "@anton-vinogradov " + visas.composeMarkdown(PR, clean(), null,
             null) + "\n\n_Updated by ci2 user reviewer from the checker's page._");
@@ -147,7 +147,7 @@ class PostToPrTest {
         ArgumentCaptor<String> option = ArgumentCaptor.forClass(String.class);
         verify(github).appComment(eq(PR), eq(AUTHOR), option.capture());
 
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR, null);
 
         assertThat(option.getValue()).contains(TESTED)
             .contains("_Tested commit `c577b18`; the PR is now at `9b02561`._");
@@ -168,7 +168,7 @@ class PostToPrTest {
         standing.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(null, null, false, null, null));
 
         StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            AUTHOR);
+            AUTHOR, null);
 
         assertThat(posted).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, OPTION_URL, 0));
         verify(github).appEdit(eq(PR), eq(REVIEWER), eq(555L), anyString());
@@ -192,7 +192,7 @@ class PostToPrTest {
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
 
         StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            null);
+            null, null);
 
         assertThat(posted).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, PRESS_URL, 0));
         assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(777L);
@@ -219,7 +219,7 @@ class PostToPrTest {
         restarted.change(AUTHOR, "tc", null, null, new StandingVisas.OptionChange(null, null, false, null, null));
 
         StandingVisas.CommentPost posted = restarted.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            AUTHOR);
+            AUTHOR, null);
 
         verify(github).appEdit(eq(PR), eq(AUTHOR), eq(555L), anyString());
         assertThat(posted).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, OPTION_URL, 0));
@@ -240,7 +240,7 @@ class PostToPrTest {
         standing.sweep();
         when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR, null);
         when(github.appEdit(eq(PR), anyString(), eq(777L), anyString()))
             .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
         doReturn(new GithubClient.PostedComment(555L, OPTION_URL)).when(github).appComment(eq(PR), eq(AUTHOR),
@@ -249,7 +249,7 @@ class PostToPrTest {
         standing.sweep();
 
         StandingVisas.CommentPost again = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            AUTHOR);
+            AUTHOR, null);
 
         assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).hasValue(555L);
         assertThat(again).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, OPTION_URL, 0));
@@ -270,12 +270,12 @@ class PostToPrTest {
         when(github.appComment(eq(PR + 1), anyString(), anyString()))
             .thenReturn(new GithubClient.PostedComment(888L, PRESS_URL + "8"));
         for (int i = 0; i < StandingVisas.PRESSES_PER_PR_HOUR; i++)
-            standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null);
+            standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null, null);
 
         StandingVisas.CommentPost capped = standing.postCommentFromPage("mallory", LAPTOP, "tc", PR, RUN, clean(),
-            null);
+            null, null);
         StandingVisas.CommentPost other = standing.postCommentFromPage("mallory", LAPTOP, "tc", PR + 1, RUN + 1,
-            clean(), null);
+            clean(), null, null);
 
         assertThat(capped).isEqualTo(StandingVisas.CommentPost.of(StandingVisas.CommentPost.CAPPED));
         assertThat(other.outcome()).isEqualTo(StandingVisas.CommentPost.POSTED);
@@ -302,13 +302,13 @@ class PostToPrTest {
         });
         AtomicReference<GithubClient.PostedComment> story = new AtomicReference<>();
         Thread storyThread = new Thread(() -> story.set(standing.clientVerdictComment(CLIENT_REPO, CLIENT_PR,
-            CLIENT_RUN, AUTHOR, "the story's verdict", false)));
+            CLIENT_RUN, AUTHOR, "the story's verdict", false, clientRun())));
         storyThread.start();
         assertThat(posting.await(10, TimeUnit.SECONDS)).isTrue();
 
         CompletableFuture<StandingVisas.CommentPost> press = CompletableFuture.supplyAsync(() ->
-            standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0,
-                fromPage -> "the verdict from the page"));
+            standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0, clientRun(),
+                fromPage -> "the verdict from the page", null));
         Thread.sleep(300);
         posted.countDown();
         storyThread.join(10_000);
@@ -327,9 +327,9 @@ class PostToPrTest {
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
 
         StandingVisas.CommentPost first = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(),
-            AUTHOR);
+            AUTHOR, null);
         StandingVisas.CommentPost second = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            AUTHOR);
+            AUTHOR, null);
 
         verify(github).appComment(PR, REVIEWER, visas.composeMarkdown(PR, withBlocker(), null, null)
             + "\n\n➡️ **Next:** fix the blockers, push, and run RunAll again — a `/run-all` comment here does it when PR"
@@ -360,7 +360,7 @@ class PostToPrTest {
         when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
 
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), AUTHOR, null);
         assertThat(standing.verdictCommentId(AUTHOR, PR, RUN)).as("the story of a /run-all links it").hasValue(777L);
         when(github.canWrite()).thenReturn(true);
         standing.sweep();
@@ -386,7 +386,7 @@ class PostToPrTest {
         when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
 
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), null);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), null, null);
         when(github.canWrite()).thenReturn(true);
         standing.sweep();
 
@@ -415,7 +415,7 @@ class PostToPrTest {
         assertThat(posting.await(10, TimeUnit.SECONDS)).isTrue();
 
         CompletableFuture<StandingVisas.CommentPost> press = CompletableFuture.supplyAsync(() ->
-            standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), AUTHOR));
+            standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), AUTHOR, null));
         Thread.sleep(300);
         posted.countDown();
         sweep.join(10_000);
@@ -433,7 +433,7 @@ class PostToPrTest {
         when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
 
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null, null);
 
         verify(github).appComment(PR, REVIEWER, visas.composeMarkdown(PR, clean(), null, null)
             + "\n\n_Posted by @⁠rev-gh (ci2 user reviewer) from the checker's page._");
@@ -452,16 +452,16 @@ class PostToPrTest {
             .thenThrow(new HttpClientErrorException(HttpStatus.FORBIDDEN));
         when(github.appEdit(eq(PR), eq(REVIEWER), eq(777L), anyString()))
             .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null, null);
 
         StandingVisas.CommentPost again = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            null);
+            null, null);
         when(github.appEdit(eq(PR), eq(REVIEWER), eq(778L), anyString()))
             .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND));
         StandingVisas.CommentPost deferred = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            null);
+            null, null);
         StandingVisas.CommentPost refused = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            null);
+            null, null);
 
         assertThat(again).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.POSTED, PRESS_URL + "8",
             0));
@@ -482,11 +482,11 @@ class PostToPrTest {
             .thenReturn(new GithubClient.PostedComment(88L, url));
 
         StandingVisas.CommentPost pressed = standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO,
-            CLIENT_PR, CLIENT_RUN, 0, fromPage -> "verdict, queued on the page: " + fromPage);
+            CLIENT_PR, CLIENT_RUN, 0, clientRun(), fromPage -> "verdict, queued on the page: " + fromPage, null);
         GithubClient.PostedComment story = standing.clientVerdictComment(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, AUTHOR,
-            "the story's verdict", true);
+            "the story's verdict", true, clientRun());
         StandingVisas.CommentPost again = standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO,
-            CLIENT_PR, CLIENT_RUN, 0, fromPage -> "verdict, queued on the page: " + fromPage);
+            CLIENT_PR, CLIENT_RUN, 0, clientRun(), fromPage -> "verdict, queued on the page: " + fromPage, null);
 
         verify(github).appComment(CLIENT_REPO, CLIENT_PR, REVIEWER, "verdict, queued on the page: null\n\n_Posted by"
             + " ci2 user reviewer from the checker's page._");
@@ -510,10 +510,12 @@ class PostToPrTest {
         String url = "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-89";
         when(github.appComment(eq(CLIENT_REPO), eq(CLIENT_PR), any(), anyString()))
             .thenReturn(new GithubClient.PostedComment(89L, url));
-        standing.clientVerdictComment(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, AUTHOR, "the story's verdict", false);
+        standing.clientVerdictComment(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, AUTHOR, "the story's verdict", false,
+            clientRun());
 
         StandingVisas.CommentPost pressed = standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO,
-            CLIENT_PR, CLIENT_RUN, CLIENT_RUN + 16, fromPage -> "queued on the page: " + fromPage);
+            CLIENT_PR, CLIENT_RUN, CLIENT_RUN + 16, clientRun(), fromPage -> "queued on the page: " + fromPage,
+            null);
 
         verify(github).appEdit(CLIENT_REPO, CLIENT_PR, REVIEWER, 89L, "queued on the page: false\n\n_Updated by ci2"
             + " user reviewer from the checker's page._");
@@ -536,18 +538,219 @@ class PostToPrTest {
         standing.loadFrom(old);
         when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
             .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
-        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), null);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(), null, null);
         Path file = dir.resolve("standing-visas.json");
         standing.saveTo(file);
 
         StandingVisas restarted = standing();
         restarted.loadFrom(file);
         StandingVisas.CommentPost again = restarted.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
-            null);
+            null, null);
 
         assertThat(again).isEqualTo(new StandingVisas.CommentPost(StandingVisas.CommentPost.EDITED, PRESS_URL, 0));
         verify(github, times(1)).appComment(eq(PR), anyString(), anyString());
         verify(github, never()).appComment(anyString(), eq(PR), any(), anyString());
+    }
+
+    /**
+     * Before a press the page shows the comment as it would go. The preview is the text the press then sends: its last
+     * line says "Posted" for the run's first verdict comment and "Updated" once the run has one. It writes nothing to
+     * GitHub, and it is no press: after more previews than a PR takes presses in an hour, the press still goes.
+     */
+    @Test
+    void thePreviewIsTheTextThePressSendsAndIsNoPress() {
+        standing.linkGhLogin(AUTHOR, "tc", GhUsers.of("anton-vinogradov"));
+        commentOn();
+        when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
+            .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
+
+        String first = null;
+        for (int i = 0; i <= StandingVisas.PRESSES_PER_PR_HOUR; i++)
+            first = standing.commentPreview(REVIEWER, "tc", PR, RUN, withBlocker(), AUTHOR);
+        verify(github, never()).appComment(eq(PR), anyString(), anyString());
+        assertThat(journal.views(REVIEWER, "laptop", "Firefox on Linux")).isEmpty();
+
+        StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, withBlocker(),
+            AUTHOR, null);
+        String second = standing.commentPreview(REVIEWER, "tc", PR, RUN, clean(), AUTHOR);
+        standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), AUTHOR, null);
+
+        assertThat(posted.outcome()).isEqualTo(StandingVisas.CommentPost.POSTED);
+        verify(github).appComment(PR, REVIEWER, first);
+        verify(github).appEdit(PR, REVIEWER, 777L, second);
+        assertThat(first).startsWith("@anton-vinogradov ")
+            .endsWith("\n\n_Posted by ci2 user reviewer from the checker's page._");
+        assertThat(second).endsWith("\n\n_Updated by ci2 user reviewer from the checker's page._");
+    }
+
+    /**
+     * The reviewer read the comment with the blocker in the dialog. Before they pressed, the suite passed on a re-run.
+     * The press carries the key of the text they read, and the comment is another text now: nothing goes to GitHub,
+     * and the press is not one of the five the PR takes in an hour. The same holds when the run got its verdict
+     * comment meanwhile, and the press would say "Updated" where the dialog said "Posted". The next press shows the
+     * new text, and its key posts it.
+     */
+    @Test
+    void aCommentThatIsNotTheTextThePageShowedDoesNotGo() {
+        when(github.appComment(eq(PR), eq(REVIEWER), anyString()))
+            .thenReturn(new GithubClient.PostedComment(777L, PRESS_URL));
+        String shown = StandingVisas.textKey(standing.commentPreview(REVIEWER, "tc", PR, RUN, withBlocker(), AUTHOR));
+
+        for (int i = 0; i <= StandingVisas.PRESSES_PER_PR_HOUR; i++) {
+            assertThat(standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), AUTHOR, shown))
+                .isEqualTo(StandingVisas.CommentPost.of(StandingVisas.CommentPost.CHANGED));
+        }
+        verify(github, never()).appComment(eq(PR), anyString(), anyString());
+        assertThat(journal.views(REVIEWER, "laptop", "Firefox on Linux")).isEmpty();
+
+        String now = standing.commentPreview(REVIEWER, "tc", PR, RUN, clean(), AUTHOR);
+        StandingVisas.CommentPost posted = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
+            AUTHOR, StandingVisas.textKey(now));
+        StandingVisas.CommentPost again = standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(),
+            AUTHOR, StandingVisas.textKey(now));
+
+        assertThat(posted.outcome()).isEqualTo(StandingVisas.CommentPost.POSTED);
+        verify(github).appComment(PR, REVIEWER, now);
+        assertThat(again).as("the run has a verdict comment now, and the press would update it")
+            .isEqualTo(StandingVisas.CommentPost.of(StandingVisas.CommentPost.CHANGED));
+        verify(github, never()).appEdit(eq(PR), anyString(), anyLong(), anyString());
+    }
+
+    /** A client's verdict comment goes only as the text the page showed too. */
+    @Test
+    void aClientRunsCommentThatIsNotTheTextThePageShowedDoesNotGo() {
+        when(github.appComment(eq(CLIENT_REPO), eq(CLIENT_PR), any(), anyString())).thenReturn(
+            new GithubClient.PostedComment(88L, "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-88"));
+        String shown = StandingVisas.textKey(standing.clientCommentPreview(REVIEWER, CLIENT_REPO, CLIENT_PR,
+            CLIENT_RUN, 0, fromPage -> "the verdict"));
+
+        StandingVisas.CommentPost changed = standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO,
+            CLIENT_PR, CLIENT_RUN, 0, clientRun(), fromPage -> "the verdict after a re-run", shown);
+        StandingVisas.CommentPost posted = standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO,
+            CLIENT_PR, CLIENT_RUN, 0, clientRun(), fromPage -> "the verdict", shown);
+
+        assertThat(changed).isEqualTo(StandingVisas.CommentPost.of(StandingVisas.CommentPost.CHANGED));
+        assertThat(posted.outcome()).isEqualTo(StandingVisas.CommentPost.POSTED);
+        verify(github).appComment(CLIENT_REPO, CLIENT_PR, REVIEWER, "the verdict\n\n_Posted by ci2 user reviewer from"
+            + " the checker's page._");
+        verify(github, times(1)).appComment(eq(CLIENT_REPO), eq(CLIENT_PR), any(), anyString());
+    }
+
+    /**
+     * The PR page offers Update only for a comment the verdict left behind. The author's option posted the verdict of
+     * the run with its blocker. While the checker holds that verdict the comment is current; once the suite passed on
+     * a re-run it is not, until a press updates it. What the comment says is kept with it over a restart. The checker
+     * tells from the verdict it holds, and cannot tell while it holds none; the verdict kept of a merged PR is the one
+     * to compare with.
+     */
+    @Test
+    void theCommentIsCurrentUntilTheVerdictChanges(@TempDir Path dir) throws Exception {
+        commentOn();
+        when(github.appComment(eq(PR), anyString(), anyString()))
+            .thenReturn(new GithubClient.PostedComment(555L, OPTION_URL));
+        when(github.appEdit(eq(PR), eq(REVIEWER), eq(555L), anyString())).thenReturn(true);
+        standing.sweep();
+
+        assertThat(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).as("no verdict held").isNull();
+        when(analyzer.held(RUN)).thenReturn(Optional.of(withBlocker()));
+        assertThat(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).isTrue();
+        assertThat(standing.commentCurrent(null, PR, RUN, 0, Optional.of(clean()))).as("merged with another verdict")
+            .isFalse();
+        assertThat(standing.commentCurrent(null, PR, RUN + 1, 0, Optional.empty())).as("a run with no comment")
+            .isNull();
+        when(analyzer.held(RUN)).thenReturn(Optional.of(clean()));
+        assertThat(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).isFalse();
+
+        Path file = dir.resolve("standing-visas.json");
+        standing.saveTo(file);
+        StandingVisas restarted = standing();
+        restarted.loadFrom(file);
+
+        assertThat(restarted.commentCurrent(null, PR, RUN, 0, Optional.empty())).isFalse();
+        restarted.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), AUTHOR, null);
+        assertThat(restarted.commentCurrent(null, PR, RUN, 0, Optional.empty())).isTrue();
+    }
+
+    /**
+     * A client's run: its story posted the verdict comment, and the verdict kept for the PR is the one to compare with.
+     * A press with the verdict after a re-run makes the comment current again.
+     */
+    @Test
+    void aClientRunsCommentIsCurrentUntilTheVerdictChanges() {
+        when(github.appComment(eq(CLIENT_REPO), eq(CLIENT_PR), any(), anyString())).thenReturn(
+            new GithubClient.PostedComment(88L, "https://github.com/" + CLIENT_REPO + "/pull/69#issuecomment-88"));
+        when(github.appEdit(eq(CLIENT_REPO), eq(CLIENT_PR), any(), eq(88L), anyString())).thenReturn(true);
+        TestVerdict blocker = new TestVerdict(9424795L, "tests.test_cache.test_put", "ThinClientPython", 9424795L,
+            "Thin client: Python", "o1", true, false, "not seen failing in 100 master runs", "FF", 2);
+        AnalysisResult blocked = new AnalysisResult(CLIENT_PR, CLIENT_RUN, "pull/69", 1_800_000_000_000L,
+            List.of(blocker), List.of(), List.of(), List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0, 1, 0);
+        standing.clientVerdictComment(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, AUTHOR, "the story's verdict", false,
+            blocked);
+
+        assertThat(standing.commentCurrent(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0, Optional.of(blocked))).isTrue();
+        assertThat(standing.commentCurrent(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0, Optional.of(clientRun()))).isFalse();
+        assertThat(standing.commentCurrent(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0, Optional.empty()))
+            .as("no verdict kept for the PR").isNull();
+
+        standing.postClientCommentFromPage(REVIEWER, LAPTOP, CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0, clientRun(),
+            fromPage -> "the verdict after a re-run", null);
+
+        assertThat(standing.commentCurrent(CLIENT_REPO, CLIENT_PR, CLIENT_RUN, 0, Optional.of(clientRun()))).isTrue();
+    }
+
+    /**
+     * A file of v1.52.0 keeps the run's comment without what its verdict says. It loads, the press still updates that
+     * comment, and until then the checker cannot tell whether the comment is current.
+     */
+    @Test
+    void aCommentKeptWithoutItsVerdictLoadsAndIsNotToldCurrent(@TempDir Path dir) throws Exception {
+        Path old = dir.resolve("old.json");
+        Files.writeString(old, """
+            {"enrollments": [], "retries": {}, "earlyReruns": {}, "waves": {}, "visas": {}, "pageVisas": {},
+             "runComments": {"%d": {"repo": null, "pr": %d, "commentId": 777, "url": "%s", "fromPage": null}}}
+            """.formatted(RUN, PR, PRESS_URL));
+        when(analyzer.held(RUN)).thenReturn(Optional.of(clean()));
+        when(github.appEdit(eq(PR), eq(REVIEWER), eq(777L), anyString())).thenReturn(true);
+
+        standing.loadFrom(old);
+
+        assertThat(standing.runCommentUrl(null, PR, RUN, 0)).hasValue(PRESS_URL);
+        assertThat(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).isNull();
+        assertThat(standing.postCommentFromPage(REVIEWER, LAPTOP, "tc", PR, RUN, clean(), null, null).outcome())
+            .isEqualTo(StandingVisas.CommentPost.EDITED);
+        assertThat(standing.commentCurrent(null, PR, RUN, 0, Optional.empty())).isTrue();
+    }
+
+    /**
+     * The row of the PR page says whether Post my runs' verdicts in the PR of whoever started the run still posts its
+     * verdict comment: the option is on and was on when the run finished. A cancelled run gets none, a merged PR's run
+     * and one TeamCity names no starter of say nothing of an option.
+     */
+    @Test
+    void theRowSaysWhoseOptionStillPostsTheComment() {
+        StandingVisas.Run going = new StandingVisas.Run(AUTHOR, false, 0);
+
+        assertThat(standing.commentLine(REVIEWER, PR, RUN, () -> going, false)).as("the author has no options")
+            .isEqualTo(new StandingVisas.CommentLine(AUTHOR, false, false));
+
+        commentOn();
+
+        assertThat(standing.commentLine(REVIEWER, PR, RUN, () -> going, false))
+            .isEqualTo(new StandingVisas.CommentLine(AUTHOR, false, true));
+        assertThat(standing.commentLine(AUTHOR, PR, RUN, () -> going, false))
+            .isEqualTo(new StandingVisas.CommentLine(AUTHOR, true, true));
+        assertThat(standing.commentLine(AUTHOR, PR, RUN, () -> new StandingVisas.Run(AUTHOR, false, 1_000L), false))
+            .as("the run finished before the option went on").isEqualTo(new StandingVisas.CommentLine(AUTHOR, true, false));
+        assertThat(standing.commentLine(AUTHOR, PR, RUN, () -> new StandingVisas.Run(AUTHOR, true, 0), false))
+            .as("a cancelled run").isEqualTo(new StandingVisas.CommentLine(AUTHOR, true, false));
+        assertThat(standing.commentLine(AUTHOR, PR, RUN, () -> going, true)).as("a merged PR")
+            .isEqualTo(new StandingVisas.CommentLine(null, false, false));
+        assertThat(standing.commentLine(AUTHOR, PR, RUN, () -> StandingVisas.Run.UNKNOWN, false))
+            .isEqualTo(new StandingVisas.CommentLine(null, false, false));
+
+        when(github.writes()).thenReturn(false);
+        assertThat(standing.commentLine(AUTHOR, PR, RUN, () -> going, false)).as("no account to post from")
+            .isEqualTo(new StandingVisas.CommentLine(AUTHOR, true, false));
     }
 
     private StandingVisas standing() {
@@ -570,6 +773,12 @@ class PostToPrTest {
 
         return new AnalysisResult(PR, RUN, "pull/13335/head", 1_800_000_000_000L, List.of(blocker), List.of(),
             List.of(), List.of(), List.of(), 140, 1, false, 0, false, 0, 0, 0, 1, 0);
+    }
+
+    /** The verdict of the client's run, with no blockers. */
+    private static AnalysisResult clientRun() {
+        return new AnalysisResult(CLIENT_PR, CLIENT_RUN, "pull/69", 1_800_000_000_000L, List.of(), List.of(), List.of(),
+            List.of(), List.of(), 1, 0, false, 0, false, 0, 0, 0, 1, 0);
     }
 
     private static AnalysisResult clean() {

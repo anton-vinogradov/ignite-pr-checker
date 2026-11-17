@@ -105,9 +105,9 @@ class PostToPrGuardsTest {
             assertThat(res.getContentAsString()).as(POSTS.get(i)).contains("\"tokenRejected\":true");
             assertThat(warmer.tokenRevoked(token)).as("the guard refuses the token's sessions from now on").isTrue();
         }
-        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any());
-        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(),
-            any());
+        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any(),
+            any(), any());
         verify(github, never()).writes();
     }
 
@@ -135,6 +135,26 @@ class PostToPrGuardsTest {
         assertThat(send(get("/api/pr-comment?pr=13709&build=9425992"), null).getStatus()).as("no login").isEqualTo(401);
 
         verify(tc, never()).tokenRejected(anyString());
+    }
+
+    /**
+     * The preview of a comment shows what Post to PR would post with alice named in it: it is for her login only. It
+     * is a read, so it asks TeamCity nothing of the token; it posts nothing and counts no press.
+     */
+    @Test
+    void thePreviewNeedsTheLoginAndPostsNothing() throws Exception {
+        List<String> previews = List.of("/api/pr-comment/preview?pr=13709&build=9425992",
+            "/api/client/pr-comment/preview?repo=python&pr=69&build=9424200");
+
+        for (String path : previews) {
+            assertThat(send(get(path), null).getStatus()).as(path + ", no login").isEqualTo(401);
+            assertThat(send(get(path), "live-tc").getStatus()).as(path + ", no account to write with").isEqualTo(409);
+        }
+
+        verify(tc, never()).tokenRejected(anyString());
+        verify(standing, never()).postCommentFromPage(any(), any(), any(), anyInt(), anyLong(), any(), any(), any());
+        verify(standing, never()).postClientCommentFromPage(any(), any(), any(), anyInt(), anyLong(), anyLong(), any(),
+            any(), any());
     }
 
     /** The login guard and the live token check on the paths and in the order the service registers them. */

@@ -437,7 +437,7 @@ function render(d) {
     renderAdmin(d);
 
     drawStacked($('tcStack'), $('stackLegend'), tc.perMinuteByCategory || {});
-    $('updated').textContent = T`updated ${timeOf(Date.now())}`;
+    $('updated').textContent = T`updated at ${timeOf(Date.now())}`;
 }
 
 // Problems outlive restarts, so older ones carry their day.

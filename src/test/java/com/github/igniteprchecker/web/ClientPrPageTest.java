@@ -76,7 +76,7 @@ class ClientPrPageTest {
             .contains("href=\"https://ci2.example/build/9424794\"")
             .contains("href=\"https://github.com/apache/ignite-python-thin-client/pull/69/commits/a1b2c3d4e5f60718")
             .contains("href=\"https://github.com/apache/ignite/commit/1f2e3d4c5b6a7988");
-        assertThat(out.get("visa").asText()).isEqualTo("Visa: posted to IGNITE-29117");
+        assertThat(out.get("visa").asText()).isEqualTo("✓ posted");
         assertThat(out.get("client").asBoolean()).isTrue();
         assertThat(out.get("prTests").asBoolean()).isTrue();
         assertThat(out.get("filtered").asBoolean()).isTrue();
@@ -177,7 +177,7 @@ class ClientPrPageTest {
                 status: page.text('status') });
             """);
 
-        assertThat(out.get("runs").asText()).isEqualTo("On ci2 now: Thin client: Pythonrunning · ~15m left");
+        assertThat(out.get("runs").asText()).isEqualTo("On TeamCity: Thin client: Pythonrunning · ~15m left");
         assertThat(out.get("asked").get(0).asText()).startsWith("Cancel your 1 run of Python client PR #69?");
         assertThat(out.get("posted").toString()).isEqualTo("[\"/api/client/cancel-all?pr=69&repo=python&ids=9424800\"]");
         assertThat(out.get("status").asText()).isEqualTo("Cancelled 1 run.");
@@ -317,9 +317,8 @@ class ClientPrPageTest {
             .contains("<a class=\"pr-link\" href=\"/python?pr=69\" data-num=\"69\" data-repo=\"python\"")
             .contains("<span class=\"pr-num\">#69</span> <span class=\"pr-key\">IGNITE-29117</span>"
                 + "<span class=\"pr-badge bad\" title=\"1 blocker\"")
-            .contains("data-triggeredby=\"alice\"")
-            .contains("<span class=\"my-tag\" title=\"You started its latest run of the suite. The PR may be someone"
-                + " else's.\">my run</span>");
+            .contains("<span class=\"pr-by me\" title=\"You started its latest run of the suite. The PR may be someone"
+                + " else&#39;s.\">by me</span>");
         assertThat(out.get("shown").asBoolean()).isTrue();
     }
 

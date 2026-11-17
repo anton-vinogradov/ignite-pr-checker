@@ -65,7 +65,7 @@ function showProjectError(repo) {
     selectedRepo = repo;
     stopRunsPoll();
     $('prTitle').textContent = projectError(repo);
-    for (const id of ['actions', 'results', 'runsRow', 'pendingRow', 'settlingRow']) $(id).classList.add('hidden');
+    for (const id of ['actions', 'results', 'runsRow', 'pendingRow', 'settlingRow', 'steps']) $(id).classList.add('hidden');
     sayStatus(projectError(repo), { err: true });
 }
 
@@ -186,6 +186,7 @@ function loginMsg(text, isError) {
 // Nothing of the ended session may keep polling, or offer what only a signed-in user may do. The next opening of the
 // page is English, as for anyone not signed in; this one keeps its language.
 function signedOut() {
+    closePostDialog();
     brokenMaster = null;
     useLanguage(null);
     stopRunsPoll();
@@ -370,6 +371,34 @@ async function loadPrs() {
     if (prTab === 'all') renderPrList();
 }
 
+// A row says how far the PR's run is, "2/4 · ~55m", and that is true only for a while: every minute while the page is
+// visible, the server tells the steps of the runs under way, which it has in memory, and the rows that say another
+// thing by then are drawn anew. The list itself is not asked for again: that would have the server ask GitHub.
+const RUN_STEPS_REFRESH_MS = 60000;
+
+async function loadRunSteps() {
+    let steps;
+    try {
+        const r = await api('/api/run-steps');
+        if (!r.ok) return;
+        steps = await r.json();
+    } catch (e) {
+        return; // the rows say what they said until the next minute
+    }
+    let drawn = false;
+    for (const p of Object.values(tabPrs).flatMap(prs => prs || [])) {
+        const was = runShort(p);
+        if (steps[p.number]) p.run = steps[p.number];
+        else delete p.run;
+        const line = runShort(p) !== was && allPrs.includes(p) && findLi(p.number)?.querySelector('.pr-line');
+        if (!line) continue;
+        line.innerHTML = prLine(p, selectedRepo);
+        delete p.shown; // a line drawn anew shows the badge the server gave
+        drawn = true;
+    }
+    if (drawn) syncListBadge();
+}
+
 // The tabs over the list. All: the open PRs GitHub lists. Mine and Involved: those of the user's linked GitHub
 // account in the selected project. A tab's PRs are null until they come.
 const PR_TABS = { all: 'prTabAll', mine: 'prTabMine', involved: 'prTabInvolved' };
@@ -383,6 +412,8 @@ let yourPrsProblem = null; // why Mine and Involved did not come: the server's r
 let yourPrsRound = 0;
 // The tab note last read out. Null until a tab is clicked: a note is read out as the answer to a click.
 let prTabNoteSaid = null;
+// "my runs" over the list: only the PRs whose latest run the viewer started are listed.
+let myRunsOnly = false;
 
 // The server keeps GitHub's answer for Mine and Involved a minute: the page asks again no sooner.
 const YOUR_PRS_KEEP_MS = 60000;
@@ -442,21 +473,25 @@ function paintPrTabs() {
 
 // Links, so a PR opens in a new tab or from the keyboard; a plain click stays in the page.
 function renderPrList() {
-    const prs = tabPrs[prTab] || [];
+    const prs = (tabPrs[prTab] || []).filter(p => !myRunsOnly || myRun(p));
     allPrs = prs;
     for (const p of prs) delete p.shown; // a row drawn anew shows the badge the server gave
+    // The links are drawn anew, so the one the keyboard was on takes the focus back.
+    const focused = $('prList').contains(document.activeElement) ? +document.activeElement.dataset.num : null;
     $('prList').innerHTML = prs.map(p => prRow(p, selectedRepo)).join('');
+    if (focused) findLi(focused)?.querySelector('.pr-link').focus();
     for (const li of $('prList').children) li.classList.toggle('sel', +li.dataset.num === selectedPr);
-    markMine();
     paintPrTabNote();
     applyPrFilter();
     syncListBadge();
 }
 
 // What Mine or Involved says when it lists no PR: that they are coming, why they did not, or that there are none.
+// A tab whose PRs "my runs" all leaves out says that.
 function paintPrTabNote() {
     const prs = tabPrs[prTab];
-    const note = prTab === 'all' || prs && prs.length ? ''
+    const note = prs && prs.length ? (allPrs.length ? '' : T('No runs by you here.'))
+        : prTab === 'all' ? ''
         : prs ? T(PR_TAB_EMPTY[prTab])
         : yourPrsProblem ? T(YOUR_PRS_PROBLEMS[yourPrsProblem]) : T('Loading the PRs…');
     $('prTabNote').textContent = note;
@@ -522,23 +557,68 @@ function resetPrTabs(linked) {
 // The ticket key a PR title starts with, and what follows it.
 const TITLE_KEY = /^\s*(IGNITE-\d+)[\s:.,\-–]*/;
 
-// The tag of a PR whose latest RunAll you started, independently of who authored the PR.
-const MY_RUN_TITLE = phrase('You started its latest RunAll. The PR may be someone else\'s.');
-const CLIENT_MY_RUN_TITLE = phrase('You started its latest run of the suite. The PR may be someone else\'s.');
+// Whether the viewer started the PR's latest run, independently of who authored the PR.
+function myRun(p) {
+    const me = (myUsername || '').trim().toLowerCase();
+    return !!me && (p.triggeredBy || '').toLowerCase() === me;
+}
 
-// A row of the list: the number, the ticket key, the badge and your tag on the first line, the title without the key
-// under them. The link's title and data-title keep the whole title: the head and the visa take the key from there.
-// A client project's row keeps its repository in the link and dataset.
+// Who started the PR's latest run, at the end of the row's first line, where the tab does not say it already: Mine
+// names someone else, All and Involved name the viewer.
+function runStarter(p, repo) {
+    if (!p.triggeredBy || myRun(p) === (prTab === 'mine')) return '';
+    const suite = repo && !compositeProject(repo);
+    if (myRun(p)) {
+        const title = suite ? T('You started its latest run of the suite. The PR may be someone else\'s.')
+            : T('You started its latest RunAll. The PR may be someone else\'s.');
+        return `<span class="pr-by me" title="${esc(title)}">${T('by me')}</span>`;
+    }
+    const who = esc(p.triggeredBy);
+    const title = suite ? T`${who} started its latest run of the suite.` : T`${who} started its latest RunAll.`;
+    return `<span class="pr-by" title="${title}">${T`by ${who}`}</span>`;
+}
+
+// What stands next to the badge of a PR whose run is under way: a progress mark, the step of the four the PR's page
+// shows and the time the step still takes, "2/4 · ~55m". The tooltip names the step, and a screen reader reads the
+// tooltip's words. Without such a run, a "?" for a run of older code says so in a word.
+function runShort(p) {
+    if (!p.run) return badgeWhy(p.standing);
+    const { step, leftSec } = p.run;
+    const left = fmtLeft(leftSec);
+    const name = [T('Queue'), T('RunAll'), T('Auto re-run'), T('Final verdict')][step - 1];
+    const title = T`Step ${step} of 4: ${name}`
+        + (!left ? '' : ' · ' + (step === 1 ? T`starts ${left}` : T`${left} left`));
+    return `<span class="pr-short" title="${esc(title)}" ${badgeName(title)}><i class="pr-now" aria-hidden="true"></i>${step}/4${left ? ' · ' + left : ''}</span>`;
+}
+
+// Why a "?" stands at a PR, in a word, where the list knows it: commits were pushed after the run. The badge's
+// tooltip says it in full.
+function badgeWhy(standing) {
+    return standing === 'OLD_CODE' ? `<span class="pr-short why">${T('outdated')}</span>` : '';
+}
+
+// The first line of a row: the number, the ticket key, the badge, how far a run under way is and who started the
+// latest run.
+function prLine(p, repo) {
+    const key = (p.title || '').match(TITLE_KEY);
+    // A "?" says the PR is not proven clean, which a run under way says already: the step stands in its place.
+    const drawn = blockerBadge(p.blockers, p.proven, p.standing);
+    const badge = p.run && drawn.includes('pr-badge unproven') ? '' : drawn;
+    return `<span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${badge}${runShort(p)}${runStarter(p, repo)}`;
+}
+
+// A row of the list: its first line, and the title without the key under it. The link's title and data-title keep the
+// whole title: the head and the visa take the key from there. A client project's row keeps its repository in the link
+// and dataset.
 function prRow(p, repo = null) {
     const title = p.title || '';
     const key = title.match(TITLE_KEY);
     const rest = key ? title.slice(key[0].length) : '';
     const of = repo ? ` data-repo="${repo}"` : '';
-    const mineTitle = T(repo && !compositeProject(repo) ? CLIENT_MY_RUN_TITLE : MY_RUN_TITLE);
     return `
-        <li data-num="${esc(p.number)}"${of} data-url="${esc(p.url)}" data-triggeredby="${esc(p.triggeredBy || '')}" data-title="${esc(title)}">
+        <li data-num="${esc(p.number)}"${of} data-url="${esc(p.url)}" data-title="${esc(title)}">
             <a class="pr-link" href="${prAddress(esc(p.number), repo)}" data-num="${esc(p.number)}"${of} title="${esc(title)}">
-            <span class="pr-num">#${esc(p.number)}</span>${key ? ` <span class="pr-key">${key[1]}</span>` : ''}${blockerBadge(p.blockers, p.proven, p.standing)}<span class="my-tag" title="${mineTitle}">${T('my run')}</span>
+            <span class="pr-line">${prLine(p, repo)}</span>
             <span class="pr-ttl">${esc(rest || title)}</span></a>
         </li>`;
 }
@@ -574,12 +654,6 @@ function applyPrFilter() {
     }
     $('prNone').classList.toggle('hidden', !nums || nums.length > 0 || open != null
         || !$('prTabNote').classList.contains('hidden'));
-}
-
-function markMine() {
-    const me = (myUsername || '').trim().toLowerCase();
-    for (const li of $('prList').children)
-        li.classList.toggle('mine', !!me && (li.dataset.triggeredby || '').toLowerCase() === me);
 }
 
 // How a verdict with no blockers stands (Caveats.Standing, and the page's own CHECKING for the open PR): only CLEAN,
@@ -626,6 +700,7 @@ function findLi(number) {
 
 // Select a PR within the project's page and keep that project in its address and every request.
 function openPr(number, push, repo = repoFromUrl()) {
+    closePostDialog();
     if (!projectAvailable(repo)) { showProjectError(repo); return; }
     selectedPr = number;
     selectedRepo = repo;
@@ -653,6 +728,8 @@ function openPr(number, push, repo = repoFromUrl()) {
     lastResult = null;
     brokenMaster = null;
     phaseNow = null;
+    openStep = null;
+    paintPrimary(); // the next step of the PR that was open is not this one's
     syncListBadge();
     detailsCache.clear();
     resetStaleLook();
@@ -664,7 +741,8 @@ function openPr(number, push, repo = repoFromUrl()) {
 }
 
 // A PR off the open list (merged, closed, or past the 50 the list holds) gets its title from the server: the head names
-// its ticket, and the visa line can say where the visa goes. An answer for a PR no longer open on the page is dropped.
+// its ticket, and the visa's group can say where the visa goes. An answer for a PR no longer open on the page is
+// dropped.
 async function loadPrTitle(number) {
     const repo = selectedRepo;
     try {
@@ -674,7 +752,7 @@ async function loadPrTitle(number) {
         if (!isOpen(number, repo) || typeof title !== 'string') return;
         setPrTitle(number, title, null, state ? { state, closedAt, head } : null);
         loadVisaLine(number);
-    } catch (e) { /* the head keeps the number alone, and the visa line stays hidden */ }
+    } catch (e) { /* the head keeps the number alone, and the visa's group stays hidden */ }
 }
 
 // The answers to Rerun under the buttons belong to the PR they were given on.
@@ -836,15 +914,17 @@ function suiteRowActs(suite, above) {
         + `<button class="suite-rerun quiet" type="button" data-suite="${esc(suite)}" data-top="true" title="${esc(rerunTitle(T('this suite'), true, true))}">${T('Rerun at top')}</button></span>`;
 }
 
-// The one filled button, the next step. None on a merged PR, whose verdict no run changes, and none while auto re-runs
-// go, a RunAll of the PR is queued or running, or the suites that step would re-run are already queued: then the next
-// step is to wait. Else Run RunAll when the verdict is for older code or a mixed run; else the pair of Broken suites
-// or of Suites that never ran; else the pair of the blockers on one run, or the card's own when they are all of its
-// blockers.
+// The one filled button, the next step. Run, when the PR has no run to analyse and none of its runs is queued or
+// running. None on a merged PR, whose verdict no run changes, and none while auto re-runs go, a RunAll of the PR is
+// queued or running, or the suites that step would re-run are already queued: then the next step is to wait. Else Run
+// RunAll when the verdict is for older code or a mixed run; else the pair of Broken suites or of Suites that never
+// ran; else the pair of the blockers on one run, or the card's own when they are all of its blockers.
 function paintPrimary() {
     const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    $('runBtn').classList.toggle('primary', !res && !!noRunNote && runsKnown && !runsNow.length);
     $('pendingRerun').classList.remove('primary');
     for (const s of sectActs.values()) if (s.rerun) s.rerun.classList.remove('primary');
+    paintRerunActs(); // what changed the next step may also start or end an automatic re-run of a pair's suites
     if (!res || res.mergedAt) return;
     const settling = phaseNow && phaseNow.pr === selectedPr && phaseNow.phase === 'settling';
     if (settling || runsNow.some(b => b.runAll)) return;
@@ -856,6 +936,28 @@ function paintPrimary() {
     const queued = new Set(lastRuns.map(b => b.btId));
     if (sect.suites.every(s => queued.has(s))) return;
     sect.rerun.classList.add('primary');
+}
+
+// The suites the checker is re-running right now: those of the builds of the auto re-run wave under way that are still
+// queued or running.
+function autoRerunSuites() {
+    const res = lastResult && lastResult.prNumber === selectedPr ? lastResult : null;
+    const phase = res && phaseNow && phaseNow.pr === selectedPr && phaseNow.build === res.buildId ? phaseNow : null;
+    const wave = new Set(phase && phase.rerunBuildIds || []);
+    return new Set(lastRuns.filter(b => wave.has(b.buildId)).map(b => b.btId));
+}
+
+// No manual Rerun next to an automatic one, which it would only replace: a suite's own pair is hidden while the
+// checker re-runs the suite, and the pair of a section or of a group of broken suites while it re-runs all of their
+// suites. The pairs come back when the wave ends.
+function paintRerunActs() {
+    const auto = autoRerunSuites();
+    const all = suites => suites.length > 0 && suites.every(s => auto.has(s));
+    for (const [id, s] of sectActs) $(id).classList.toggle('hidden', !s.suites.length || all(s.suites));
+    for (const b of document.querySelectorAll('.suite-rerun')) b.classList.toggle('hidden', auto.has(b.dataset.suite));
+    const groups = lastResult ? groupsOf(lastResult) : [];
+    for (const b of document.querySelectorAll('.group-rerun'))
+        b.classList.toggle('hidden', all((groups[+b.dataset.g] || {}).rerun || []));
 }
 
 // One poll loop for the open PR: often while its runs go, rarely when nothing runs. A hidden tab asks only
@@ -906,6 +1008,26 @@ function schedulePoll() {
             runsWere > 0 && !document.hidden ? POLL_RUNNING_MS : POLL_IDLE_MS);
 }
 
+// A build of the PR on TeamCity, as the row of runs and the panel of a step list it. Same visual language as the suite
+// rows: the name is a plain link, the state is a .live chip. A running build that started before the latest push tests
+// older code; a queued one has no commit yet (TeamCity picks it at the start).
+function runItem(b) {
+    const revTag = b => b.pinned ? ''
+        : b.onHead === true
+        ? `<span class="rev-ok" title="${T('This run tests the PR\'s latest commit.')}">${T('on latest commit')}</span>`
+        : b.onHead === false
+            ? `<span class="rev-stale" title="${T`Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.`}">${T`⚠ old commit ${esc(b.rev)}`}</span>`
+            : b.state === 'queued'
+                ? `<span class="rev-queued" title="${T('TeamCity picks the commit when the run starts: the PR\'s latest commit at that moment.')}">${T('takes latest commit at start')}</span>`
+                : '';
+    const byTag = b => {
+        if (b.mine) return '';
+        const who = esc(b.by || T('someone else'));
+        return `<span class="run-by" title="${T`Started by ${who} — Cancel my runs leaves it alone`}">${T`by ${who}`}</span>`;
+    };
+    return `<span class="run-item">${esc(b.name || T('build'))}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="${runTitle(T('Open this run on TeamCity'), b)}">${esc(runState(b.state))}${chipEta(b)}</a>${revTag(b)}</span>`;
+}
+
 async function loadRuns(number) {
     const repo = selectedRepo;
     let r;
@@ -948,25 +1070,8 @@ async function loadRuns(number) {
         const t = trackerById.get(b.buildId);
         if (t && t.leftSec != null && t.leftSec > (b.leftSec ?? -1)) b.leftSec = t.leftSec;
     }
-    // Same visual language as the suite rows: the name is a plain link, the state is a .live chip. A running build
-    // that started before the latest push tests older code; a queued one has no commit yet (TeamCity picks it at
-    // the start).
-    const revTag = b => b.pinned ? ''
-        : b.onHead === true
-        ? `<span class="rev-ok" title="${T('This run tests the PR\'s latest commit.')}">${T('on latest commit')}</span>`
-        : b.onHead === false
-            ? `<span class="rev-stale" title="${T`Started on ${esc(b.rev)}. Commits were pushed after, so this run tests older code.`}">${T`⚠ old commit ${esc(b.rev)}`}</span>`
-            : b.state === 'queued'
-                ? `<span class="rev-queued" title="${T('TeamCity picks the commit when the run starts: the PR\'s latest commit at that moment.')}">${T('takes latest commit at start')}</span>`
-                : '';
-    const byTag = b => {
-        if (b.mine) return '';
-        const who = esc(b.by || T('someone else'));
-        return `<span class="run-by" title="${T`Started by ${who} — Cancel my runs leaves it alone`}">${T`by ${who}`}</span>`;
-    };
-    const items = runs.map(b => `<span class="run-item">${esc(b.name || T('build'))}${byTag(b)}<a class="live ${b.state === 'running' ? 'running' : 'queued'}" href="${esc(b.webUrl)}" target="_self" rel="noopener" title="${runTitle(T('Open this run on TeamCity'), b)}">${esc(runState(b.state))}${chipEta(b)}</a>${revTag(b)}</span>`).join('');
-    $('runs').innerHTML = runs.length ? T`On ci2 now: ${items}` : '';
-    $('runsRow').classList.toggle('hidden', runs.length === 0);
+    $('runs').innerHTML = runs.length ? T`On TeamCity: ${runs.map(runItem).join('')}` : '';
+    $('runActs').classList.toggle('hidden', runs.length === 0);
     $('cancelMine').classList.toggle('hidden', !runs.some(b => b.mine));
     if (!$('pendingRow').classList.contains('hidden')) paintPending();
     paintPrimary();
@@ -1002,6 +1107,7 @@ async function loadSettling(number) {
     const res = lastResult;
     if (!res || res.prNumber !== number) {
         $('settlingRow').classList.add('hidden');
+        paintSteps(null);
         phaseNow = null;
         paintTab();
         return;
@@ -1168,12 +1274,131 @@ function paintRunActivity() {
     const res = lastResult;
     if (!res || !isOpen(res.prNumber, res.repo)) {
         $('settlingRow').classList.add('hidden');
+        paintSteps(null);
         return;
     }
     const phase = phaseNow && phaseNow.pr === res.prNumber && phaseNow.build === res.buildId ? phaseNow : null;
-    const text = runActivityText(res, phase);
+    const steps = runSteps(res, phase);
+    const text = runActivityText(res, phase, steps);
     $('settlingRow').classList.remove('hidden');
     if ($('settling').textContent !== text) $('settling').textContent = text;
+    paintSteps(steps, phase);
+}
+
+// The run on screen as four steps, so that the reader sees how far it is from the final verdict: the queue, RunAll,
+// auto re-runs, the final verdict. A step is done, now (under way), todo or off (skipped); the last one, once reached,
+// says how the verdict stands. Null where four steps would mislead: a client's run is one suite, no run changes a
+// merged PR's verdict, and runs the page could not read are not known to be under way.
+function runSteps(res, phase) {
+    if (res.repo || res.mergedAt || !runsKnown) return null;
+    const has = v => v != null && v >= 0;
+    const todo = name => ({ state: 'todo', name, detail: '' });
+    const done = (name, detail) => ({ state: 'done', name, detail: detail || '' });
+    const now = (name, detail) => ({ state: 'now', name, detail: detail || '' });
+    const queue = T('Queue'), runAll = T('RunAll'), auto = T('Auto re-run'), verdict = T('Final verdict');
+    const chain = runsNow.find(b => b.runAll);
+    // How long the run on screen waited for an agent. A newer chain's wait is not this run's.
+    const waited = (!chain || chain.buildId === res.buildId) && res.startedAt > res.queuedAt
+        ? T`waited ${fmtSpent(res.startedAt - res.queuedAt)}` : '';
+    if (verdictFinal(res)) return [done(queue, waited), done(runAll), autoStep(auto, phase), verdictStep(verdict, res)];
+    if (chain && chain.state === 'queued')
+        return [now(queue, has(chain.startSec) ? T`starts ${fmtLeft(chain.startSec)}` : ''), todo(runAll), todo(auto),
+            todo(verdict)];
+    // Suites that fail while the chain runs are re-run at once, so both steps may be under way.
+    const wave = phase && phase.wave > 0 ? waveText(phase) : '';
+    if (chain || res.live || phase && phase.phase === 'running')
+        return [done(queue, waited), now(runAll, chain && has(chain.leftSec) ? T`${fmtLeft(chain.leftSec)} left` : ''),
+            wave ? now(auto, wave) : todo(auto), todo(verdict)];
+    if (!phase) return [done(queue, waited), done(runAll), { state: 'todo', name: auto, detail: T('status unknown') },
+        todo(verdict)];
+    // While auto re-runs settle the run, a reason comes only with a re-run the checker skipped: no decision is pending.
+    if (phase.phase === 'settling' && (wave || !phase.reason))
+        return [done(queue, waited), done(runAll), now(auto, wave || T('deciding')), todo(verdict)];
+    return [done(queue, waited), done(runAll), autoStep(auto, phase), now(verdict, T('updating'))];
+}
+
+// "wave 1 of 2 · 1 running, 1 queued · ~25m left": the wave of auto re-runs under way, with its builds and its estimate.
+function waveText(phase) {
+    const ids = new Set(phase.rerunBuildIds || []);
+    const builds = [...new Map(lastRuns.filter(b => ids.has(b.buildId)).map(b => [b.buildId, b])).values()];
+    const running = builds.filter(b => b.state === 'running').length;
+    const queued = builds.filter(b => b.state === 'queued').length;
+    const left = phase.etaEpochSec && phase.etaEpochSec > Date.now() / 1000
+        ? fmtLeft(phase.etaEpochSec - Date.now() / 1000) : '';
+    return [T('wave {0} of {1}', phase.wave, phase.of), running || queued ? T`${running} running, ${queued} queued` : '',
+        left ? T`${left} left` : ''].filter(Boolean).join(' · ');
+}
+
+// The auto re-runs of a run that expects no more of them: how many waves went, or why none did.
+function autoStep(name, phase) {
+    const waves = phase ? phase.completedWaves : null;
+    if (waves > 0) return { state: 'done', name, detail: waves === 1 ? T('1 wave') : T`${waves} waves` };
+    const none = { off: T('off for this run'), 'before-option': T('off for this run'),
+        'too-many-suites': T('skipped: too many suites'), 'not-queued': T('could not be queued') }[phase && phase.reason];
+    return { state: none ? 'off' : 'done', name, detail: none || (waves === 0 ? T('none started') : '') };
+}
+
+// The last step of a final verdict, in the words of the tab's title.
+function verdictStep(name, res) {
+    const n = res.blockers.length, standing = standingOf(res);
+    if (n) return { state: 'bad', name, detail: T`${n} blocker${n === 1 ? '' : 's'}` };
+    if (standing === 'CLEAN') return { state: 'ok', name, detail: T('no blockers') };
+    return { state: 'warn', name, detail: standing === 'WATCH' ? T('started failing') : T('not proven clean') };
+}
+
+// The PR's builds on TeamCity by the step they hold up: a queued RunAll chain the first, a running one the second, the
+// builds of the auto re-run wave the third. Any other build is a re-run someone started by hand: it stands under the
+// last step under way, or the last one reached when none is, so that no step still to come opens builds.
+function stepBuilds(steps, phase) {
+    const wave = new Set(phase && phase.rerunBuildIds || []);
+    const states = steps.map(s => s.state);
+    const byHand = states.includes('now') ? states.lastIndexOf('now') : states.findLastIndex(s => s !== 'todo');
+    const builds = [[], [], [], []];
+    for (const b of runsNow)
+        builds[b.runAll ? (b.state === 'queued' ? 0 : 1) : wave.has(b.buildId) ? 2 : byHand].push(b);
+    return builds;
+}
+
+let stepsHtml = ''; // what the steps and the open panel show, so that a poll with nothing new leaves them alone
+let openStep = null; // the step whose builds are open in the panel under the steps
+
+function toggleStep(i) {
+    openStep = openStep === i ? null : i;
+    paintRunActivity();
+}
+
+// A step that has builds is a button that opens them in the panel. Where there are no steps, the row of runs names the
+// builds, so Cancel my runs and the chips' ? stand in whichever of the two is on screen.
+function paintSteps(steps, phase) {
+    $('steps').classList.toggle('hidden', !steps);
+    $('runsRow').classList.toggle('hidden', !!steps || runsNow.length === 0);
+    const row = $(steps ? 'settlingRow' : 'runsRow');
+    if ($('runActs').parentNode !== row) row.appendChild($('runActs'));
+    const builds = steps ? stepBuilds(steps, phase) : [];
+    if (openStep !== null && !(builds[openStep] || []).length) openStep = null;
+    $('stepPanel').classList.toggle('hidden', openStep === null);
+    if (!steps) return;
+    const mark = { done: '✓', ok: '✓', bad: '✕', warn: '?', off: '–' };
+    const html = steps.map((s, i) => {
+        const text = `<span class="step-name">${esc(s.name)}${builds[i].length ? '<i class="step-caret" aria-hidden="true"></i>' : ''}</span>`
+            + `<span class="step-detail">${esc(s.detail)}</span>`;
+        return `<li class="step ${s.state}"${s.state === 'now' ? ' aria-current="step"' : ''}>`
+            + `<span class="step-dot" aria-hidden="true">${mark[s.state] || i + 1}</span>`
+            + (builds[i].length ? `<button class="step-btn" type="button" data-step="${i}" aria-expanded="${openStep === i}" aria-controls="stepPanel" title="${T('Show its builds on TeamCity')}">${text}</button>` : text)
+            + '</li>';
+    }).join('');
+    const panel = openStep === null ? '' : `<span>${T`${esc(steps[openStep].name)} on TeamCity:`}</span>`
+        + `<ul class="runs">${builds[openStep].map(b => `<li>${runItem(b)}</li>`).join('')}</ul>`;
+    if (html + panel === stepsHtml) return;
+    stepsHtml = html + panel;
+    // The buttons are drawn anew, so the one the keyboard was on takes the focus back.
+    const focused = $('steps').contains(document.activeElement) ? document.activeElement.dataset.step : null;
+    $('steps').innerHTML = html;
+    $('stepPanel').innerHTML = panel;
+    for (const b of $('steps').querySelectorAll('.step-btn')) {
+        b.onclick = () => toggleStep(+b.dataset.step);
+        if (b.dataset.step === focused) b.focus();
+    }
 }
 
 function autoRerunText(phase) {
@@ -1190,11 +1415,12 @@ function autoRerunText(phase) {
     return text + (left ? ' ' + T('Estimated time remaining: {0}.', left) : '');
 }
 
-function runActivityText(res, phase) {
+// The status line says what the steps do not. `steps` is null where the page shows none: there the line says it all.
+function runActivityText(res, phase, steps) {
     const parts = [];
     if (verdictFinal(res)) {
         const completed = phase?.phase === 'final' ? phase.completedWaves : null;
-        parts.push(completed > 0
+        parts.push(steps ? T('Final verdict.') : completed > 0
             ? completed === 1 ? T('Final verdict. Automatic re-runs are complete: 1 wave.')
                 : T('Final verdict. Automatic re-runs are complete: {0} waves.', completed)
             : completed === 0 ? T('Final verdict. No automatic re-runs were started.')
@@ -1209,7 +1435,8 @@ function runActivityText(res, phase) {
             'before-option': T('Automatic re-runs were not enabled when this run finished.'),
             'too-many-suites': T('Too many suites needed an automatic re-run, so the checker skipped it.')
         }[phase?.reason];
-        if (reason) parts.push(reason);
+        // A skipped step says why itself.
+        if (reason && !(steps && steps[2].state === 'off')) parts.push(reason);
         if (!res.mergedAt && !['closed', 'replaced'].includes(phase?.reason)
             && (res.blockers.length || res.watch?.length || res.brokenSuites?.length || res.cancelledSuites?.length
                 || res.shrunkSuites?.length || res.unverified?.length))
@@ -1226,28 +1453,28 @@ function runActivityText(res, phase) {
         return parts.join(' ');
     }
     const current = runsNow.find(b => b.buildId === res.buildId);
-    if (current)
+    if (current && !steps)
         parts.push(T('Run {0} is {1} on TeamCity. Wait for its results.', res.buildId, runState(current.state)));
     const reruns = new Set(phase?.rerunBuildIds || []);
     const others = runsNow.filter(b => b.buildId !== res.buildId && !reruns.has(b.buildId));
     if (others.length)
-        parts.push(T('Other runs of this PR: {0} running, {1} queued. The verdict below is for run {2}.',
+        parts.push(T('Other runs of this PR: {0} running, {1} queued. This verdict is for run {2}.',
             others.filter(b => b.state === 'running').length, others.filter(b => b.state === 'queued').length,
             res.buildId));
-    if (phase?.wave > 0) parts.push(autoRerunText(phase));
+    if (phase?.wave > 0 && !steps) parts.push(autoRerunText(phase));
     if (retryLeftMs(res) > 0) {
         parts.push(T('TeamCity errors left part of the analysis unchecked. The checker is retrying it; wait up to {0} before acting.',
             fmtLeft(retryLeftMs(res) / 1000)));
     } else if (phase?.phase === 'settling' && !phase.wave) {
         if (phase.reason === 'too-many-suites') {
-            parts.push(T('Too many suites needed an automatic re-run, so the checker skipped it.'));
+            if (!steps) parts.push(T('Too many suites needed an automatic re-run, so the checker skipped it.'));
             parts.push(T('The runs finished. The checker is updating the verdict.'));
-        } else
+        } else if (!steps)
             parts.push(T('The checker is processing the results and deciding whether to re-run failed suites. Wait for its decision.'));
     } else if (verdictDue) {
         parts.push(T('The runs finished. The checker is updating the verdict.'));
     } else if (phase?.phase === 'running' || res.live || runsNow.length) {
-        if (!current && !others.length && !phase?.wave)
+        if (!steps && !current && !others.length && !phase?.wave)
             parts.push(T('A run of this PR is still in progress. Wait for its results.'));
     } else if (standingOf(res) === 'CHECKING')
         parts.push(T('Wait while the checker verifies that this run tested the PR\'s latest commit.'));
@@ -1279,6 +1506,7 @@ function showNoRun() {
                 ? T`RunAll is queued for this PR, starts ${fmtLeft(chain.startSec)} — the verdict shows up here once it starts.`
                 : T('RunAll is queued for this PR — the verdict shows up here once it starts.');
     sayStatus(noRunNote);
+    paintPrimary();
 }
 
 function prFromUrl() {
@@ -1326,6 +1554,7 @@ async function enterApp(username, linked) {
 }
 
 function goHome(push) {
+    closePostDialog();
     selectedPr = null;
     selectedRepo = repoFromUrl();
     $('settingsBtn').href = settingsAddress();
@@ -1347,7 +1576,7 @@ function goHome(push) {
     $('actions').classList.add('hidden');
     sayStatus('');
     clearFreshness();
-    for (const id of ['results', 'runsRow', 'pendingRow', 'settlingRow']) $(id).classList.add('hidden');
+    for (const id of ['results', 'runsRow', 'pendingRow', 'settlingRow', 'steps']) $(id).classList.add('hidden');
     paintPrimary();
     syncPane();
     $('prFilter').focus();
@@ -1996,6 +2225,7 @@ async function renderCausesView() {
     }
     wireRetryCauses(el);
     annotateSuiteChips();
+    paintRerunActs();
 }
 
 // Retry asks the server for the groups again: the ones with a message TeamCity did not answer for are not kept.
@@ -2051,8 +2281,8 @@ function suitesRanLabel(res) {
     return ` · <span class="hint" title="${T('TeamCity took the results of reused suites from earlier runs of the same code instead of running them again.')}">${ran}${reused}</span>`;
 }
 
-// Redrawn by itself every half minute, so "verdict computed …" and the run's age never freeze. ↻ stands between
-// "verdict computed" and the rest of the line.
+// Redrawn by itself every half minute, so "updated …" and the run's age never freeze. ↻ stands between
+// "updated …" and the rest of the line.
 function renderFreshness(res) {
     const build = T`RunAll build ${esc(res.buildId)}`;
     const buildLabel = res.repo ? clientRunLabel(res) : tcBase
@@ -2065,7 +2295,7 @@ function renderFreshness(res) {
     const computed = T('When the checker last computed this verdict from the run and master\'s history.')
         + (res.mergedAt ? '' : ' ' + T('↻ computes it again.'));
     $('freshText').innerHTML = buildLabel + runWhen(res) + ` · <span class="hint" title="${computed}">`
-        + T`verdict computed ${esc(ago(res.computedAt))}` + '</span>';
+        + T`updated ${esc(ago(res.computedAt))}` + '</span>';
     $('freshMore').innerHTML = suitesRanLabel(res) + liveTag;
     $('refreshBtn').classList.toggle('hidden', !!res.mergedAt);
 }
@@ -2483,7 +2713,8 @@ function showListBadge(listed, standing) {
     const li = findLi(listed.number);
     const badge = li && li.querySelector('.pr-badge');
     if (!badge) return;
-    badge.outerHTML = blockerBadge(0, standing === 'CLEAN', standing);
+    li.querySelector('.pr-short.why')?.remove();
+    badge.outerHTML = blockerBadge(0, standing === 'CLEAN', standing) + (listed.run ? '' : badgeWhy(standing));
     listed.shown = standing;
 }
 
@@ -3684,17 +3915,31 @@ $('statusForce').onclick = () => {
     if (forcedRun && isOpen(forcedRun.pr, forcedRun.repo)) doTrigger('trigger', forcedRun.top, $('statusForce'), true);
 };
 
-// The visa of a run comes only from Visa my runs in JIRA of whoever started it. The line in the verdict's heading says
-// where it stands, from /api/visa; a PR title with no IGNITE ticket gets no visa, which the title alone tells.
+// The verdict of a run goes to JIRA as its visa and to the PR as its verdict comment: from the options of whoever
+// started the run, or from Post to JIRA and Post to PR here. The verdict card has a group for each under its steps, "Verdict to
+// JIRA: …" and "to PR: …". A group says ✓ posted with a link to the comment, auto when final while the starter's
+// option still posts it, or has a button: Post, or Update for a comment the press edits, grey while it cannot post.
+// The server says whether the comment a press would edit still says what the verdict says (`current`): while it
+// does, ✓ posted stands alone; once it does not, the group says "posted, verdict changed" next to Update; where the
+// server cannot tell, as for a comment kept before it kept what comments say, ✓ posted has its Update as before.
+// Its ? says the rest. /api/visa and /api/pr-comment tell where each stands; a PR title with no IGNITE ticket gets
+// no visa, which the title alone tells.
 let lastIssueKey = null; // the open PR's ticket; '' when its title names none, null while the title is not known
 // /api/visa's last answer for each run, by "pr:build": null while the first answer is not in, false when it failed.
 const visaLines = new Map();
 const VISA_LINES_KEPT = 50;
-let visaLinePainted = null; // what the line shows, so a poll with the same answer leaves the line and its link alone
 let jiraInCookieUnused = false; // a JIRA token sat in the user's cookie, unused, and their visa option is off
+// The elements of each group, what it shows now (`model`, see paintPostGroup), and that as painted, so a poll with
+// the same answer leaves the group and its link alone.
+const VISA_GROUP = { group: 'visaPostGroup', line: 'visaLine', btn: 'visaPost', why: 'visaPostWhy', model: null,
+    painted: null };
+const PR_GROUP = { group: 'prPostGroup', line: 'prLine', btn: 'prPost', why: 'prPostWhy', model: null,
+    painted: null };
+// The group whose ? or grey button filled the line under the row, and with which of its texts: 'hint' or 'off'.
+let postHintOf = null;
 
 async function loadVisaLine(number) {
-    loadPrPost(number); // Post to PR shares the row, and it needs no ticket in the PR title
+    loadPrPost(number); // the PR's group shares the row, and it needs no ticket in the PR title
     const res = lastResult;
     if (!res || res.prNumber !== number || !lastIssueKey) {
         paintVisaLine();
@@ -3711,34 +3956,125 @@ async function loadVisaLine(number) {
     } catch (e) {
         line = undefined;
     }
-    // A failed answer leaves the line as it was for this run, or takes "Visa: …" away; the next poll asks again.
+    // A failed answer leaves the group as it was for this run, or takes its "…" away; the next poll asks again.
     if (line !== undefined) visaLines.set(key, line);
     else if (visaLines.get(key) === null) visaLines.set(key, false);
     if (!isOpen(number, res.repo) || lastResult !== res) return;
     paintVisaLine();
 }
 
-// The line keeps its place from the verdict's first paint, with "Visa: …" until the server answers, so the cards
+// The JIRA group keeps its place from the verdict's first paint, with "…" until the server answers, so the cards
 // below do not move when the answer comes.
 function paintVisaLine() {
-    const res = lastResult, el = $('visaLine');
+    const res = lastResult;
     const v = res ? visaLines.get(prTag(res.prNumber, res.repo) + ':' + res.buildId) : undefined;
-    const html = lastIssueKey === '' ? T('Visa: the PR title names no IGNITE ticket')
-        : !lastIssueKey || v === undefined || v === false ? null
-        : v === null ? T('Visa: …') : visaLineText(v, lastIssueKey);
-    paintVisaPost(res, v);
+    const why = res && isOpen(res.prNumber, res.repo) ? visaPostReason(res, v) : null;
+    clearTimeout(visaRetryTimer);
+    visaRetryTimer = why === 'retry' ? setTimeout(paintVisaLine, retryLeftMs(res) + 1000) : null;
+    paintPostGroup(VISA_GROUP, res && isOpen(res.prNumber, res.repo) ? visaGroup(res, v, why) : null);
     paintPrPost(res);
-    if (html === visaLinePainted) return;
-    visaLinePainted = html;
-    el.innerHTML = html || '';
-    el.classList.toggle('hidden', !html);
 }
 
-// What the line says in each state the server names. Of someone else's run the server tells only what became of the
-// run and its visa, whose option it is and whether it is on. The PR title names the ticket of a visa still to come; a
-// posted one, the ticket it went to.
+// What a group shows: `html`, its state in a word or a link, '' when a button says it all; `btn`, 'post' or 'update',
+// null without a button; `off`, why the button is grey, '' while it posts; `hint`, what the ? says.
+function paintPostGroup(g, model) {
+    const painted = JSON.stringify(model);
+    if (painted === g.painted) return;
+    g.painted = painted;
+    g.model = model;
+    $(g.group).classList.toggle('hidden', !model);
+    paintPostHint();
+    $(g.line).innerHTML = model ? model.html : '';
+    if (!model) return;
+    $(g.line).classList.toggle('hidden', !model.html);
+    const btn = $(g.btn);
+    btn.classList.toggle('hidden', !model.btn);
+    btn.textContent = model.btn === 'update' ? T('Update') : T('Post');
+    if (model.off) btn.setAttribute('aria-disabled', 'true');
+    else btn.removeAttribute('aria-disabled');
+    btn.title = plainText(model.off || model.does || '');
+    $(g.why).classList.toggle('hidden', !model.hint);
+    $(g.why).title = plainText(model.hint || '');
+}
+
+// A group's model from what the page knows of it: `say` where the comment stands, and `does`, what a press of the
+// button does. The ? says both, or why the button is grey in place of what it does.
+function postGroup(html, btn, off, say, does) {
+    return { html, btn, off: btn ? off : '', does: btn ? does : '',
+        hint: [say, btn ? off || does : ''].filter(Boolean).join('. ') };
+}
+
+// A text of the row as a tooltip takes it: without its links.
+function plainText(html) {
+    return html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+}
+
+// "✓ posted", or "posted, verdict changed" for a comment the verdict left behind: a link to the comment when the
+// server knows where it is.
+function postedMark(url, title, changed) {
+    const word = changed ? T('posted') : T('✓ posted');
+    const mark = url ? `<a href="${esc(url)}" target="_self" rel="noopener" title="${title}">${word}</a>` : word;
+    return changed ? T('{0}, verdict changed', mark) : mark;
+}
+
+// What the ? adds of a posted comment the press would edit, once the server told whether it is current.
+function postedNote(fresh, changed) {
+    return fresh ? T('It says what the verdict on this page says')
+        : changed ? T('The verdict changed after it was posted') : '';
+}
+
+// "Settings" as a link to a section of ⚙, for a text of the row that names an option or a token kept there.
+function settingsLink(section) {
+    return `<a href="${esc(settingsAddress(section))}">${T('Settings')}</a>`;
+}
+
+// A click on a ? puts what it says into the line under the row, where a keyboard and a phone reach it; a click on
+// a grey button, why it is grey. A second click takes the line away.
+function showPostHint(g, what) {
+    postHintOf = postHintOf && postHintOf.g === g && postHintOf.what === what ? null : { g, what };
+    paintPostHint();
+}
+
+// The line follows its group: it changes as the group does, and goes with the text it showed, as when another PR
+// opens and the group goes until that PR's answer comes.
+function paintPostHint() {
+    const html = postHintOf && postHintOf.g.model ? postHintOf.g.model[postHintOf.what] : '';
+    if (!html) postHintOf = null;
+    $('postHint').classList.toggle('hidden', !html);
+    if ($('postHint').innerHTML !== (html || '')) $('postHint').innerHTML = html || '';
+}
+
+// The states of a visa that are a word in the group; of the others the ? tells, next to the button.
+const VISA_WORDS = { retrying: phrase('retrying'), paused: phrase('waits'), 'jira-token-removed': phrase('waits'),
+    waits: phrase('waits') };
+
+// What the JIRA group shows for the run on screen; null while it shows nothing: the PR's ticket or the server's
+// answer for the run is not known. `why`: what keeps Post to JIRA off, see visaPostReason.
+function visaGroup(res, v, why) {
+    if (why === 'ticket') return postGroup('', 'post', T(VISA_POST_OFF.ticket), '', '');
+    if (!lastIssueKey || v === undefined || v === false) return null;
+    if (v === null) return postGroup('…', null, '', '', '');
+    const key = esc(lastIssueKey), update = v.yoursIn === lastIssueKey;
+    // The option of whoever started the run posts the visa once the run settles: no button until the verdict is final.
+    const auto = (v.state === 'due' || v.state === 'on') && !verdictFinal(res);
+    // Someone else's visa of the run is no visa of the viewer's: their press posts one, whatever that visa says.
+    const fresh = update && v.current === true, changed = update && v.current === false;
+    return postGroup(v.state === 'posted' ? postedMark(v.url, T('Opens the visa in JIRA.'), changed)
+            : auto ? T('auto when final') : VISA_WORDS[v.state] ? T(VISA_WORDS[v.state]) : '',
+        auto || fresh ? null : update ? 'update' : 'post', why ? T(VISA_POST_OFF[why], settingsLink('jira')) : '',
+        [visaLineText(v, lastIssueKey), postedNote(fresh, changed)].filter(Boolean).join('. '),
+        update ? T('Updates your visa of this run in {0} with the verdict on this page. It uses the JIRA token you '
+                + 'saved in {1}.', key, settingsLink('jira'))
+            : T('Posts the verdict on this page to {0} as your visa of this run: a comment in JIRA, with the JIRA '
+                + 'token you saved in {1}. A second press for this run updates that visa.', key, settingsLink('jira')));
+}
+
+// What the ? of the JIRA group says in each state the server names. Of someone else's run the server tells only what
+// became of the run and its visa, whose option it is and whether it is on. The PR title names the ticket of a visa
+// still to come; a posted one, the ticket it went to.
 function visaLineText(v, key) {
-    const who = esc(v.starter || '');
+    const who = esc(v.starter || ''), settings = settingsLink('jira');
     switch (v.state) {
         case 'posted': {
             const issue = v.url ? `<a href="${esc(v.url)}" target="_self" rel="noopener" `
@@ -3753,13 +4089,13 @@ function visaLineText(v, key) {
             return T`Visa: ${who}, who started this run, has Visa my runs in JIRA on`;
         case 'off':
             return v.mine
-                ? (v.jiraRefused ? T('Visa: Visa my runs in JIRA is off in ⚙, because JIRA rejected your token')
-                    : T('Visa: Visa my runs in JIRA is off in ⚙'))
+                ? (v.jiraRefused ? T`Visa: Visa my runs in JIRA is off in ${settings}, because JIRA rejected your token`
+                    : T`Visa: Visa my runs in JIRA is off in ${settings}`)
                 : T`Visa: none, ${who} started this run and has Visa my runs in JIRA off`;
         case 'paused':
             return T('Visa: waits until you log in again, because TeamCity refused the token your options use');
         case 'jira-token-removed':
-            return T('Visa: waits until you save your JIRA token in ⚙ again');
+            return T`Visa: waits until you save your JIRA token in ${settings} again`;
         case 'late':
             return T('Visa: none, this run finished before you switched on Visa my runs in JIRA');
         case 'no-ticket':
@@ -3774,8 +4110,8 @@ function visaLineText(v, key) {
             return T('Visa: unknown, TeamCity does not say who started this run');
         case 'waits':
             return v.unread === 'key-changed'
-                ? T('Visa: waits for a new JIRA token in ⚙, because the server key was changed')
-                : T('Visa: waits for a new JIRA token in ⚙, because the checker could not read the stored one');
+                ? T`Visa: waits for a new JIRA token in ${settings}, because the server key was changed`
+                : T`Visa: waits for a new JIRA token in ${settings}, because the checker could not read the stored one`;
         default:
             return null;
     }
@@ -3783,22 +4119,21 @@ function visaLineText(v, key) {
 
 // Post to JIRA puts the visa of the run on screen into the PR's ticket now: as the viewer's own comment in JIRA, with
 // the JIRA token they saved in ⚙, the only place the checker keeps it. It waits for a ticket in the PR title, that
-// token and the final verdict with no part left unchecked; the ? next to it says what keeps it off. A second press for
-// the same run updates that comment (PostVisaController on the server).
+// token and the final verdict with no part left unchecked; the ? of its group says what keeps it off. A second press
+// for the same run updates that comment (PostVisaController on the server).
 const VISA_POST_OFF = {
     ticket: phrase('The PR title names no IGNITE ticket, so there is no ticket to post the visa to. Add the ticket '
         + 'key to the title.'),
-    token: phrase('Post to JIRA uses the JIRA token you save in ⚙, and you have none there. Saving one also switches '
-        + 'on Visa my runs in JIRA.'),
+    token: phrase('Post to JIRA uses the JIRA token you save in {0}, and you have none there. Saving one also '
+        + 'switches on Visa my runs in JIRA.'),
     wait: phrase('Post to JIRA waits for the final verdict: runs of this PR can still change it.'),
     retry: phrase('TeamCity errors left part of this verdict unchecked. The checker checks that part again, and Post '
         + 'to JIRA waits up to 20 minutes for that.'),
 };
-let visaPostOff = ''; // the key of VISA_POST_OFF that keeps Post to JIRA off now, '' while it is on
-let visaRetryTimer = null; // paints Post to JIRA again when its wait for the verdict's TeamCity errors ends
+let visaRetryTimer = null; // paints the JIRA group again when its wait for the verdict's TeamCity errors ends
 
-// What keeps Post to JIRA off for the run on screen, '' when nothing does; null while the row has no button: the PR's
-// ticket or the server's answer for the run is not known yet.
+// What keeps Post to JIRA off for the run on screen, '' when nothing does; null while the group has no button: the
+// PR's ticket or the server's answer for the run is not known yet.
 function visaPostReason(res, v) {
     if (lastIssueKey === '') return 'ticket';
     if (!res || !lastIssueKey || !v) return null;
@@ -3824,90 +4159,129 @@ function verdictFinal(res) {
         && !!phase && phase.phase === 'final';
 }
 
-function paintVisaPost(res, v) {
-    const why = res && isOpen(res.prNumber, res.repo) ? visaPostReason(res, v) : null;
-    $('visaPostGroup').classList.toggle('hidden', why === null);
-    visaPostOff = why || '';
-    if (why === null) return;
-    $('visaPost').disabled = !!why;
-    $('visaPost').title = why ? ''
-        : v.yoursIn === lastIssueKey ? T('Updates your visa of this run in {0} with the verdict on this page. It uses '
-            + 'the JIRA token you saved in ⚙.', lastIssueKey)
-        : T('Posts the verdict on this page to {0} as your visa of this run: a comment in JIRA, with the JIRA token '
-            + 'you saved in ⚙. A second press for this run updates that visa.', lastIssueKey);
-    $('visaPostWhy').classList.toggle('hidden', !why);
-    $('visaPostWhy').title = !why ? '' : T(VISA_POST_OFF[why]) + (why === 'token' ? ' ' + T('A click opens Settings.') : '');
-    clearTimeout(visaRetryTimer);
-    visaRetryTimer = why === 'retry' ? setTimeout(paintVisaLine, retryLeftMs(res) + 1000) : null;
-}
-
-// What Post to JIRA asks before it posts: the run, the ticket, and whether the visa replaces the viewer's own visa of
-// the run there or goes in next to someone else's. A client's run has questions of its own, so that a language can put
-// the build and the suite where it needs them.
+// What Post to JIRA asks before it posts, and whose comment the visa is: the run, the ticket, and whether the visa
+// replaces the viewer's own visa of the run there or goes in next to someone else's. A client's run has questions of
+// its own, so that a language can put the build and the suite where it needs them.
 function visaQuestion(res, key, v) {
     const suite = res.suiteName || clientSuiteFor(res.repo);
     const singleSuite = res.repo && !res.composite;
     const run = res.composite ? T`${suite} chain ${res.buildId}` : 'RunAll ' + res.buildId;
     if (v.yoursIn === key) {
-        return singleSuite ? T`Update your visa of ${suite} build ${res.buildId} in ${key} with the verdict on this page?`
-            : T`Update your visa of ${run} in ${key} with the verdict on this page?`;
+        return [singleSuite ? T`Update your visa of ${suite} build ${res.buildId} in ${key} with the verdict on this page?`
+            : T`Update your visa of ${run} in ${key} with the verdict on this page?`,
+            T('The visa is your comment in JIRA.')];
     }
     const theirs = v.state === 'posted' && !v.mine && v.starter
-        ? '\n\n' + T('{0}\'s visa of this run is in {1} already. Yours goes in as a comment of its own.', v.starter,
+        ? ' ' + T('{0}\'s visa of this run is in {1} already. Yours goes in as a comment of its own.', v.starter,
             v.issue || key) : '';
-    const post = singleSuite ? T`Post the visa of ${suite} build ${res.buildId} to ${key}?`
-        : T`Post the visa of ${run} to ${key}?`;
-    return post + ' ' + T('It goes in as your comment in JIRA, with the verdict on this page.') + theirs;
+    return [singleSuite ? T`Post the visa of ${suite} build ${res.buildId} to ${key}?`
+        : T`Post the visa of ${run} to ${key}?`,
+        T('It goes in as your comment in JIRA, with the verdict on this page.') + theirs];
 }
 
+// Post and Update ask before they post, in a dialog: the question, whose comment it will be, and the text as the
+// server would post it now, which the preview request composes without posting. The dialog's button answers yes;
+// Cancel, Esc and a click outside it answer no. The focus goes to the dialog's button, and back to `opener` after.
+// The post carries the key the preview gave with the text: the server posts only that text, and when the verdict
+// changed meanwhile it says so in the status line, and the next press shows the new text.
+let postDialogDone = null; // answers the open dialog; null while none is open
+
+function askToPost(opener, [title, by], text, update) {
+    $('postDialogTitle').textContent = title;
+    $('postDialogBy').textContent = by;
+    $('postDialogText').textContent = text;
+    $('postDialogOk').textContent = update ? T('Update') : T('Post');
+    $('postDialog').classList.remove('hidden');
+    $('postDialogOk').focus();
+    return new Promise(answered => {
+        postDialogDone = yes => {
+            postDialogDone = null;
+            $('postDialog').classList.add('hidden');
+            opener.focus();
+            answered(yes);
+        };
+    });
+}
+
+// The dialog asks about the PR on screen: it is answered no when another PR opens, or none, or the login form.
+function closePostDialog() {
+    if (postDialogDone) postDialogDone(false);
+}
+
+$('postDialogOk').onclick = () => { if (postDialogDone) postDialogDone(true); };
+$('postDialogCancel').onclick = () => { if (postDialogDone) postDialogDone(false); };
+$('postDialog').onclick = e => { if (e.target === $('postDialog') && postDialogDone) postDialogDone(false); };
+document.addEventListener('keydown', e => {
+    if (!postDialogDone) return;
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        postDialogDone(false);
+        return;
+    }
+    if (e.key !== 'Tab') return;
+    // The page under the dialog is out of reach: Tab goes round the comment and the dialog's two buttons.
+    const stops = [$('postDialogText'), $('postDialogCancel'), $('postDialogOk')];
+    const at = stops.indexOf(document.activeElement);
+    e.preventDefault();
+    stops[(at < 0 ? stops.length - 1 : at + (e.shiftKey ? stops.length - 1 : 1)) % stops.length].focus();
+});
+
 async function postVisa() {
-    const res = lastResult;
-    if (!res || !isOpen(res.prNumber, res.repo) || visaPostOff) return;
+    const res = lastResult, group = VISA_GROUP.model;
+    if (!res || !isOpen(res.prNumber, res.repo) || !group || !group.btn) return;
+    if (group.off) return showPostHint(VISA_GROUP, 'off');
     const pr = res.prNumber, repo = res.repo || null, key = lastIssueKey;
     const row = prTag(pr, repo) + ':' + res.buildId;
     const v = visaLines.get(row);
-    if (!v || !confirm(visaQuestion(res, key, v))) return;
+    if (!v) return;
     const btn = $('visaPost');
-    const refocus = keepFocus(btn);
+    const run = '&build=' + res.buildId + '&issue=' + encodeURIComponent(key);
+    // The server's no to the preview or to the visa: why, and a JIRA token that is gone greys the button.
+    const refused = answer => {
+        sayStatus(notDone(T('Visa not posted'), answer.error), { err: true, aloud: true });
+        const was = visaLines.get(row);
+        if (answer.need === 'jira' && was) visaLines.set(row, { ...was, jiraReady: false });
+        loadRuns(pr); // the runs, the phase and the visa row as they are now
+    };
+    let refocus = keepFocus(btn);
     btn.disabled = true;
     try {
-        sayStatus(T('Posting the visa…'), { busy: true });
-        const r = await api(prApi('visa', pr, repo) + '&build=' + res.buildId + '&issue=' + encodeURIComponent(key),
-            { method: 'POST' });
+        sayStatus(T('Preparing the visa…'), { busy: true });
+        let r = await api(prApi('visa/preview', pr, repo) + run);
         if (r.status === 401) return loggedOut(r);
-        const answer = await r.json().catch(() => ({}));
+        let answer = await r.json().catch(() => ({}));
         if (!isOpen(pr, repo)) return;
-        if (!r.ok) {
-            sayStatus(notDone(T('Visa not posted'), answer.error), { err: true, aloud: true });
-            const was = visaLines.get(row);
-            if (answer.need === 'jira' && was) visaLines.set(row, { ...was, jiraReady: false });
-            loadRuns(pr); // the runs, the phase and the visa row as they are now
-            return;
-        }
+        if (!r.ok) return refused(answer);
+        sayStatus('');
+        btn.disabled = false;
+        if (!await askToPost(btn, visaQuestion(res, key, v), answer.text, v.yoursIn === key) || !isOpen(pr, repo)) return;
+        refocus = keepFocus(btn);
+        btn.disabled = true;
+        sayStatus(T('Posting the visa…'), { busy: true });
+        r = await api(prApi('visa', pr, repo) + run + '&key=' + answer.key, { method: 'POST' });
+        if (r.status === 401) return loggedOut(r);
+        answer = await r.json().catch(() => ({}));
+        if (!isOpen(pr, repo)) return;
+        if (!r.ok) return refused(answer);
         visaLines.set(row, answer);
         const link = `<a href="${esc(answer.url)}" target="_self" rel="noopener" `
             + `title="${T('Opens the visa in JIRA.')}">${esc(answer.issue)}</a>`;
         sayStatus(answer.edited ? T`Your visa in ${link} now has the verdict on this page.`
             : T`Visa posted to ${link}.`, { html: true, aloud: true });
     } finally {
+        btn.disabled = false;
         paintVisaLine();
         refocus();
     }
 }
 
 $('visaPost').onclick = postVisa;
-// The ? says what keeps Post to JIRA off in the status line too, which a keyboard and a phone reach; for a missing JIRA
-// token it opens ⚙, where the token is saved.
-$('visaPostWhy').onclick = () => {
-    if (!visaPostOff) return;
-    sayStatus(T(VISA_POST_OFF[visaPostOff]), { aloud: true });
-    if (visaPostOff === 'token') openSettings('jira');
-};
+$('visaPostWhy').onclick = () => showPostHint(VISA_GROUP, 'hint');
 
 // Post to PR puts the verdict of the run on screen into the PR now, as a comment of the checker's GitHub account. A run
 // has one verdict comment: a press updates the one the checker knows of the run, from Post my runs' verdicts in the PR
 // or from an earlier press (PostToPrController on the server). It waits for the final verdict, as Post to JIRA does,
-// and for a checker that can write to GitHub; the ? next to it says what keeps it off.
+// and for a checker that can write to GitHub; the ? of its group says what keeps it off.
 const PR_POST_OFF = {
     none: phrase('This checker has no GitHub account to write with (GITHUB_TOKEN), so it cannot post to the PR. Its '
         + 'operator can add one.'),
@@ -3920,8 +4294,7 @@ const PR_POST_OFF = {
 };
 // /api/pr-comment's last answer for each run, by "pr:build": null while the first answer is not in, false when it failed.
 const prPosts = new Map();
-let prPostOff = ''; // the key of PR_POST_OFF that keeps Post to PR off now, '' while it is on
-let prRetryTimer = null; // paints Post to PR again when its wait for the verdict's TeamCity errors ends
+let prRetryTimer = null; // paints the PR's group again when its wait for the verdict's TeamCity errors ends
 
 async function loadPrPost(number) {
     const res = lastResult;
@@ -3954,74 +4327,97 @@ function prPostReason(res, c) {
 function paintPrPost(res) {
     const c = res ? prPosts.get(prTag(res.prNumber, res.repo) + ':' + res.buildId) : undefined;
     const why = res && isOpen(res.prNumber, res.repo) ? prPostReason(res, c) : null;
-    $('prPostGroup').classList.toggle('hidden', why === null);
-    prPostOff = why || '';
-    if (why === null) return;
-    $('prPost').disabled = !!why;
-    $('prPost').title = why ? ''
-        : c.url ? T('Updates the verdict comment of this run in the PR with the verdict on this page.')
-        : T('Posts the verdict on this page to the PR as a comment of the checker\'s GitHub account. A second press '
-            + 'for this run updates that comment.');
-    $('prPostWhy').classList.toggle('hidden', !why);
-    $('prPostWhy').title = why ? T(PR_POST_OFF[why]) : '';
     clearTimeout(prRetryTimer);
     prRetryTimer = why === 'retry' ? setTimeout(() => paintPrPost(lastResult), retryLeftMs(res) + 1000) : null;
+    paintPostGroup(PR_GROUP, why === null ? null : prGroup(res, c, why));
 }
 
-// What Post to PR asks before it posts: the run, the PR, and whether the press updates the run's verdict comment. A
-// client's run has questions of its own, as for Post to JIRA.
+// What the PR's group shows for the run on screen. The server says whether Post my runs' verdicts in the PR of
+// whoever started the run still posts the comment (`auto`): no button then until the verdict is final.
+function prGroup(res, c, why) {
+    const auto = !c.url && c.auto && !verdictFinal(res);
+    const fresh = !!c.url && c.current === true, changed = !!c.url && c.current === false;
+    const say = c.url ? [T('The verdict comment of this run is in the PR'), postedNote(fresh, changed)]
+            .filter(Boolean).join('. ')
+        : !auto ? ''
+        : c.mine ? T('The verdict will be posted to the PR when the run settles: Post my runs\' verdicts in the PR is '
+            + 'on in {0}', settingsLink('teamcity'))
+        : T('{0}, who started this run, has Post my runs\' verdicts in the PR on', esc(c.starter || ''));
+    return postGroup(c.url ? postedMark(c.url, T('Opens the comment on GitHub.'), changed)
+            : auto ? T('auto when final') : '',
+        auto || fresh ? null : c.url ? 'update' : 'post', why ? T(PR_POST_OFF[why]) : '', say,
+        c.url ? T('Updates the verdict comment of this run in the PR with the verdict on this page.')
+            : T('Posts the verdict on this page to the PR as a comment of the checker\'s GitHub account. A second press '
+                + 'for this run updates that comment.'));
+}
+
+// What Post to PR asks before it posts, and whose comment the verdict is: the run, the PR, and whether the press
+// updates the run's verdict comment. A client's run has questions of its own, as for Post to JIRA.
 function prPostQuestion(res, c) {
     const suite = res.suiteName || clientSuiteFor(res.repo), pr = '#' + res.prNumber;
     const singleSuite = res.repo && !res.composite;
     const run = res.composite ? T`${suite} chain ${res.buildId}` : 'RunAll ' + res.buildId;
     if (c.url) {
-        return singleSuite
+        return [singleSuite
             ? T`Update the verdict comment of ${suite} build ${res.buildId} in PR ${pr} with the verdict on this page?`
-            : T`Update the verdict comment of ${run} in PR ${pr} with the verdict on this page?`;
+            : T`Update the verdict comment of ${run} in PR ${pr} with the verdict on this page?`,
+            T('It is a comment of the checker\'s GitHub account, and its last line will say that you updated it.')];
     }
-    const post = singleSuite ? T`Post the verdict of ${suite} build ${res.buildId} to PR ${pr}?`
-        : T`Post the verdict of ${run} to PR ${pr}?`;
-    return post + ' ' + T('It goes in as a comment of the checker\'s GitHub account, and its last line names you.');
+    return [singleSuite ? T`Post the verdict of ${suite} build ${res.buildId} to PR ${pr}?`
+        : T`Post the verdict of ${run} to PR ${pr}?`,
+        T('It goes in as a comment of the checker\'s GitHub account, and its last line names you.')];
 }
 
 async function postToPr() {
-    const res = lastResult;
-    if (!res || !isOpen(res.prNumber, res.repo) || prPostOff) return;
+    const res = lastResult, group = PR_GROUP.model;
+    if (!res || !isOpen(res.prNumber, res.repo) || !group || !group.btn) return;
+    if (group.off) return showPostHint(PR_GROUP, 'off');
     const pr = res.prNumber, repo = res.repo || null;
     const row = prTag(pr, repo) + ':' + res.buildId;
     const c = prPosts.get(row);
-    if (!c || !confirm(prPostQuestion(res, c))) return;
+    if (!c) return;
     const btn = $('prPost');
-    const refocus = keepFocus(btn);
+    // The server's no to the preview or to the comment: why, and an account that cannot write greys the button.
+    const refused = answer => {
+        sayStatus(notDone(T('Verdict not posted to the PR'), answer.error), { err: true, aloud: true });
+        if (answer.bot) prPosts.set(row, { ...c, bot: answer.bot });
+        loadRuns(pr); // the runs, the phase and the row as they are now
+    };
+    let refocus = keepFocus(btn);
     btn.disabled = true;
     try {
-        sayStatus(T('Posting the verdict to the PR…'), { busy: true });
-        const r = await api(prApi('pr-comment', pr, repo) + '&build=' + res.buildId, { method: 'POST' });
+        sayStatus(T('Preparing the comment…'), { busy: true });
+        let r = await api(prApi('pr-comment/preview', pr, repo) + '&build=' + res.buildId);
         if (r.status === 401) return loggedOut(r);
-        const answer = await r.json().catch(() => ({}));
+        let answer = await r.json().catch(() => ({}));
         if (!isOpen(pr, repo)) return;
-        if (!r.ok) {
-            sayStatus(notDone(T('Verdict not posted to the PR'), answer.error), { err: true, aloud: true });
-            if (answer.bot) prPosts.set(row, { ...c, bot: answer.bot });
-            loadRuns(pr); // the runs, the phase and the row as they are now
-            return;
-        }
+        if (!r.ok) return refused(answer);
+        sayStatus('');
+        btn.disabled = false;
+        if (!await askToPost(btn, prPostQuestion(res, c), answer.text, !!c.url) || !isOpen(pr, repo)) return;
+        refocus = keepFocus(btn);
+        btn.disabled = true;
+        sayStatus(T('Posting the verdict to the PR…'), { busy: true });
+        r = await api(prApi('pr-comment', pr, repo) + '&build=' + res.buildId + '&key=' + answer.key,
+            { method: 'POST' });
+        if (r.status === 401) return loggedOut(r);
+        answer = await r.json().catch(() => ({}));
+        if (!isOpen(pr, repo)) return;
+        if (!r.ok) return refused(answer);
         prPosts.set(row, answer);
         const link = `<a href="${esc(answer.url)}" target="_self" rel="noopener" `
             + `title="${T('Opens the comment on GitHub.')}">PR #${esc(pr)}</a>`;
         sayStatus(answer.edited ? T`The verdict comment in ${link} now has the verdict on this page.`
             : T`Verdict posted to ${link}.`, { html: true, aloud: true });
     } finally {
+        btn.disabled = false;
         paintPrPost(lastResult);
         refocus();
     }
 }
 
 $('prPost').onclick = postToPr;
-// The ? says what keeps Post to PR off in the status line too, which a keyboard and a phone reach.
-$('prPostWhy').onclick = () => {
-    if (prPostOff) sayStatus(T(PR_POST_OFF[prPostOff]), { aloud: true });
-};
+$('prPostWhy').onclick = () => showPostHint(PR_GROUP, 'hint');
 
 // The browser's time zone goes with every change in ⚙: the run's story in the PR gives its times in it.
 function zoneParam(sep) {
@@ -4764,6 +5160,11 @@ setInterval(() => {
         paintRunActivity();
     }
 }, 30000);
+// The server knows the steps of Ignite's runs only: a client project's rows say none.
+setInterval(() => {
+    if (!document.hidden && selectedRepo === null && tabPrs.all && !$('analyzeView').classList.contains('hidden'))
+        loadRunSteps();
+}, RUN_STEPS_REFRESH_MS);
 setInterval(checkUpdate, 5 * 60 * 1000); // re-check for updates every 5 min
 configReady = loadConfig();
 loadMe();
@@ -4853,6 +5254,11 @@ for (const id of ['brand', 'navPrs']) $(id).addEventListener('click', e => {
 });
 for (const [tab, id] of Object.entries(PR_TABS)) $(id).addEventListener('click', () => pickPrTab(tab));
 $('prFilter').addEventListener('input', applyPrFilter);
+$('myRuns').addEventListener('change', e => {
+    myRunsOnly = e.target.checked;
+    prTabNoteSaid = ''; // what the list says when the box leaves no PR is read out: it answers this click
+    renderPrList();
+});
 $('prFilter').addEventListener('keydown', e => {
     if (e.key === 'Escape') {
         $('prFilter').value = '';
@@ -4867,7 +5273,8 @@ $('prFilter').addEventListener('keydown', e => {
     openPr(first, true, selectedRepo);
 });
 document.addEventListener('keydown', e => {
-    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || $('analyzeView').classList.contains('hidden')) return;
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || $('analyzeView').classList.contains('hidden')
+        || postDialogDone) return;
     const t = e.target;
     if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
     e.preventDefault();

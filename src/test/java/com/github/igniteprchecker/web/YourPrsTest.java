@@ -131,7 +131,8 @@ class YourPrsTest {
         when(analyzer.glance(12950)).thenReturn(new Glance(0, 0, true, HEAD));
         when(analyzer.glance(13461)).thenReturn(new Glance(0, 0, true, HEAD));
         when(analyzer.triggeredBy(12950)).thenReturn("alice");
-        PrsController prs = new PrsController(github, analyzer, mock(AuthInterceptor.class), yours);
+        PrsController prs = new PrsController(github, analyzer, mock(AuthInterceptor.class), yours,
+            mock(StandingVisas.class));
 
         YourPrs.Lists lists = prs.yourPrs("alice");
 

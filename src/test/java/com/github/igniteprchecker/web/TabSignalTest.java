@@ -90,12 +90,14 @@ class TabSignalTest {
             page.route('/api/runs', { body: [] });
             page.route('/api/settling', { body: { phase: 'settling', wave: 0, of: 2 } });
             await page.tick(15000);
-            report({ title: page.run('document').title, line: page.el('settling').textContent });
+            report({ title: page.run('document').title, line: page.el('settling').textContent,
+                steps: page.el('steps').innerHTML });
             """);
 
         assertThat(out.get("title").asText()).isEqualTo("♻️ deciding on re-run · #13575 — Ignite PR Checker");
-        assertThat(out.get("line").asText()).startsWith("Preliminary verdict — wait")
-            .contains("processing the results and deciding whether to re-run");
+        assertThat(out.get("line").asText()).startsWith("Preliminary verdict — wait");
+        assertThat(out.get("steps").asText())
+            .contains("<span class=\"step-name\">Auto re-run</span><span class=\"step-detail\">deciding</span>");
     }
 
     @Test
@@ -384,7 +386,7 @@ class TabSignalTest {
             .contains("TeamCity errors", "retrying");
         assertThat(out.get("pending").get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
         assertThat(out.get("shown")).hasSize(1);
-        assertThat(out.get("after").asText()).startsWith("Final verdict. Automatic re-runs are complete: 2 waves.");
+        assertThat(out.get("after").asText()).startsWith("Final verdict.");
     }
 
     /**
@@ -413,7 +415,7 @@ class TabSignalTest {
             .contains("verifies that this run tested the PR's latest commit");
         assertThat(out.get("pending").get("title").asText()).isEqualTo("#13575 — Ignite PR Checker");
         assertThat(out.get("shown")).hasSize(1);
-        assertThat(out.get("after").asText()).startsWith("Final verdict. No automatic re-runs were started.");
+        assertThat(out.get("after").asText()).startsWith("Final verdict.");
     }
 
     /**
@@ -428,10 +430,13 @@ class TabSignalTest {
             page.route('/api/visa', { body: { state: 'due', starter: 'alice', mine: true, jiraReady: true } });
             page.route('/api/pr-comment', { body: { bot: 'ready', url: null } });
             await page.load('?pr=13575');
+            // Nothing to press: the button is grey, or the group has none while the starter's option still posts.
+            const off = id => page.el(id).classList.contains('hidden')
+                || page.el(id).getAttribute('aria-disabled') === 'true';
             const state = () => ({ text: page.el('settling').textContent, title: page.run('document').title,
                 visaShown: !page.el('visaPostGroup').classList.contains('hidden'),
                 prShown: !page.el('prPostGroup').classList.contains('hidden'),
-                visaOff: page.el('visaPost').disabled, prOff: page.el('prPost').disabled, shown: shown.length });
+                visaOff: off('visaPost'), prOff: off('prPost'), shown: shown.length });
             const before = state();
             page.route('/api/runs', { status: 502, body: {} });
             await page.run('loadRuns')(13575);
@@ -481,8 +486,10 @@ class TabSignalTest {
             await page.load('?pr=13575');
             await page.el('notifyBtn').onclick();
             await page.settle();
+            const off = id => page.el(id).classList.contains('hidden')
+                || page.el(id).getAttribute('aria-disabled') === 'true';
             const state = () => ({ text: page.el('settling').textContent, title: page.run('document').title,
-                visaOff: page.el('visaPost').disabled, prOff: page.el('prPost').disabled, shown: shown.length });
+                visaOff: off('visaPost'), prOff: off('prPost'), shown: shown.length });
             const pending = state();
             release();
             await page.settle();

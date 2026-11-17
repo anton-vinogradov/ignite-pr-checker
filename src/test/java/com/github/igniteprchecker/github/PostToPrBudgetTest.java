@@ -76,7 +76,7 @@ class PostToPrBudgetTest {
 
         for (int i = 0; i < AppWrites.PER_PR_HOUR; i++) {
             standing.postCommentFromPage("mallory", SettingsJournal.By.of("laptop", "Firefox on Linux"), "tc", PR,
-                RUN, clean(), null);
+                RUN, clean(), null, null);
         }
         GithubClient.PostedComment reply = github.appComment(PR, "bob", "Your RunAll is queued.");
 

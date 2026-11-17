@@ -108,8 +108,13 @@ class ExtensionsPageTest {
             await page.run('doTrigger')('trigger', false, page.el('run'));
             await page.run('refresh')();
             await page.settle();
-            await page.run('postVisa')();
-            await page.run('postToPr')();
+            // Each post asks in its dialog first; the scenario says yes.
+            for (const post of ['postVisa', 'postToPr']) {
+                const pressed = page.run(post)();
+                await page.settle();
+                page.el('postDialogOk').onclick();
+                await pressed;
+            }
             page.route('/api/client/runs', { body: [{ buildId: 9002, name: 'Extensions: All Tests',
                 state: 'running', runAll: true, mine: true, by: 'alice' }] });
             await page.run('cancelMine')();

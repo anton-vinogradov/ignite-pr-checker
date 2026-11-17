@@ -155,7 +155,7 @@ class OnePageVisaPerUserTest {
         standing.settle(new PrSummary(PR, ISSUE + " Fix the control utility", null, null, null, null));
         Supplier<StandingVisas.Run> run = () -> new StandingVisas.Run(AUTHOR, false, 1);
 
-        standing.postVisaFromPage(REVIEWER, LAPTOP, "tc2", PR, RUN, ISSUE, verdict(PR, RUN));
+        standing.postVisaFromPage(REVIEWER, LAPTOP, "tc2", PR, RUN, ISSUE, verdict(PR, RUN), null);
 
         assertThat(standing.visaLine(AUTHOR, PR, RUN, run, false).state()).isEqualTo(StandingVisas.VisaLine.RETRYING);
         assertThat(standing.visaLine(REVIEWER, PR, RUN, run, false)).isEqualTo(
@@ -174,7 +174,7 @@ class OnePageVisaPerUserTest {
             .thenThrow(new HttpServerErrorException(HttpStatus.SERVICE_UNAVAILABLE));
         standing.settle(summary);
         Thread press = new Thread(() -> standing.postVisaFromPage(AUTHOR, LAPTOP, "tc", PR, RUN, ISSUE,
-            verdict(PR, RUN)));
+            verdict(PR, RUN), null));
         doAnswer(inv -> {
             if (Thread.currentThread() == press)
                 return new JiraClient.PostedComment("18000003", url("18000003"));
@@ -221,7 +221,7 @@ class OnePageVisaPerUserTest {
 
     private StandingVisas.PagePost press(String user) {
         return standing.postClientVisaFromPage(user, LAPTOP, CLIENT, CLIENT_PR, BUILD, ISSUE,
-            verdict(CLIENT_PR, BUILD), "the verdict");
+            verdict(CLIENT_PR, BUILD), "the verdict", null);
     }
 
     /** What the author's option does with the visa of their run {@code build} of the same commits as {@link #BUILD}. */

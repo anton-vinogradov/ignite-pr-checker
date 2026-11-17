@@ -23,8 +23,8 @@ each label means and what to do about it.
   started failing, broken suites and failures not blamed on the PR. A line under each test gives its reason. When
   tests of a suite have the same reason, the line appears once above them. See
   [Reading the verdict](docs/features.md#reading-the-verdict).
-- **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The runs row
-  shows what is queued and running, with estimates; **Cancel my runs** stops yours. See
+- **Runs.** Run RunAll or re-run suites from the page, at the top of the ci2 queue if you are in a hurry. The steps
+  of a run open its queued and running builds, with estimates; **Cancel my runs** stops yours. See
   [Iterating on a fix](docs/features.md#iterating-on-a-fix).
 - **Your PRs.** Choose **Ignite**, **Python**, **PHP**, **Node.js** or **Extensions** first:
   `/ignite`, `/python`, `/php`, `/nodejs`, `/extensions`.
