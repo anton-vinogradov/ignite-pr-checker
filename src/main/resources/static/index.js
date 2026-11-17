@@ -2272,20 +2272,27 @@ function standingOf(res) {
     return { current: 'CLEAN', old: 'OLD_CODE', unknown: 'UNKNOWN_CODE' }[codeOf(res)] || 'CHECKING';
 }
 
+function waitingForRunResult(res) {
+    return chainRunning(res) && !res.blockers.length && !(res.watch || []).length;
+}
+
 // The verdict card's heading and the lines under it, by the standing: the words of the PR comment and the visa.
 // "✓ No blockers" is earned, not automatic: only a clean standing gets it, the one that gets ✓ in the PR list.
 function renderVerdictHead(res) {
     const standing = standingOf(res);
-    const kind = res.blockers.length ? 'blockers' : standing === 'CLEAN' ? 'clean' : standing === 'CHECKING' ? 'checking'
+    const kind = res.blockers.length ? 'blockers' : waitingForRunResult(res) ? 'checking'
+        : standing === 'CLEAN' ? 'clean' : standing === 'CHECKING' ? 'checking'
         : standing === 'WATCH' ? 'watch' : 'unproven';
     for (const k of ['blockers', 'clean', 'checking', 'watch', 'unproven']) $('verdictCard').classList.toggle(k, k === kind);
     $('verdictText').textContent = verdictTitle(res, standing);
     $('verdictHelp').title = verdictExplanation(res, standing);
-    const busy = standing === 'CHECKING' ? ' class="busy"' : '';
+    const busy = waitingForRunResult(res) || standing === 'CHECKING' ? ' class="busy"' : '';
     $('verdictLines').innerHTML = verdictLines(res, standing).map(line => `<p${busy}>${esc(line)}</p>`).join('');
 }
 
 function verdictExplanation(res, standing) {
+    if (waitingForRunResult(res))
+        return T('This run has not finished. Wait for its results before judging this PR.');
     let meaning;
     if (res.blockers.length)
         meaning = T('These tests most likely failed because of this PR.');
@@ -2320,6 +2327,7 @@ function verdictExplanation(res, standing) {
 }
 
 function verdictTitle(res, standing) {
+    if (waitingForRunResult(res)) return T('Run in progress — waiting for results');
     const n = res.blockers.length;
     if (n) {
         const suites = suitesOfTests(res.blockers).length || new Set(res.blockers.map(t => t.suiteBuildId)).size;
@@ -2340,6 +2348,8 @@ function onOneRun(blockers) {
 function verdictLines(res, standing) {
     const caveats = caveatsOf(res, standing);
     const listed = caveats.join('; ') + '.';
+    if (waitingForRunResult(res)) return [caveats.length ? T`Waiting for results: ${listed}`
+        : T('Wait for the run to finish to get a result.')];
     if (res.blockers.length) return caveats.length ? [T`This run doesn't cover the PR fully: ${listed}`] : [];
     if (standing === 'CHECKING') return [T('Checking that this run tested the PR\'s latest commit…')];
     if (standing === 'CLEAN')
