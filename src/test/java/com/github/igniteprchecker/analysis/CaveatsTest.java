@@ -10,6 +10,8 @@ import com.github.igniteprchecker.config.TeamcityProperties;
 import com.github.igniteprchecker.jira.VisaService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class CaveatsTest {
     private static AnalysisResult result(List<BrokenSuite> broken, List<ShrunkSuite> shrunk,
@@ -77,6 +79,21 @@ class CaveatsTest {
             "1 failed test(s) could not be checked (TeamCity errors)",
             "a newer run is still going — its unfinished suites can still fail");
         assertThat(Caveats.pushedSince(1)).isEqualTo("1 commit pushed since this run — it tested older code");
+    }
+
+    /** Given a current or newer live run, the shown caveat identifies it while visa keys and standing stay compatible. */
+    @ParameterizedTest
+    @CsvSource({
+        "9506034, this run is still going — its unfinished suites can still fail",
+        "9506035, a newer run is still going — its unfinished suites can still fail"
+    })
+    void theShownLiveCaveatDistinguishesTheAnalysedRunWithoutChangingItsKey(long liveBuildId, String text) {
+        AnalysisResult r = new AnalysisResult(13847, 9506034, "pull/13847/head", System.currentTimeMillis(),
+            List.of(), List.of(), List.of(), List.of(), List.of(), 1, 0, false, 0, true, liveBuildId, 0, 0, 0, 0);
+
+        assertThat(Caveats.onPage(r)).containsExactly(text);
+        assertThat(Caveats.keyOf(r)).containsExactly("a newer run is still going — its unfinished suites can still fail");
+        assertThat(Caveats.standing(r, null)).isEqualTo(Caveats.Standing.UNPROVEN);
     }
 
     @Test

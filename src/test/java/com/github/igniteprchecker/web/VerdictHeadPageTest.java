@@ -3,6 +3,8 @@ package com.github.igniteprchecker.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -13,6 +15,110 @@ import tools.jackson.databind.JsonNode;
  * caveats under it, and takes the one about commits pushed since from /api/pending.
  */
 class VerdictHeadPageTest {
+    /** Given retained live flags on a merged PR, the page still explains that this is a retained verdict. */
+    @Test
+    void aRetainedMergedVerdictDoesNotPromiseToWaitForANewResult() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN', live: true,
+                liveBuildId: 9001, mergedAt: Math.floor(page.now() / 1000) - 86400 }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, help: page.el('verdictHelp').title });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+        assertThat(out.get("help").asText()).contains("This PR is merged", "retained verdict");
+    }
+
+    /** Given blockers found during the first run, the page reports them while the run continues. */
+    @Test
+    void aFirstRunKeepsFoundBlockersVisible() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ standing: 'BLOCKERS', live: true, liveBuildId: 9001 }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, hidden: page.el('blockersCard').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("1 blocker in 1 suite");
+        assertThat(out.get("hidden").asBoolean()).isFalse();
+    }
+
+    /** Given a completed result and a newer running build, the heading continues to describe the completed result. */
+    @Test
+    void aNewerRunDoesNotReplaceThePreviousRunsVerdictWithAnEmptyState() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN', live: true,
+                liveBuildId: 9100, caveats: ['a newer run is still going — its unfinished suites can still fail'] }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, lines: page.el('verdictLines').textContent });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+        assertThat(out.get("lines").asText()).contains("a newer run is still going");
+    }
+
+    /** Given a first run with a failure under observation, the waiting state does not hide that finding. */
+    @Test
+    void aFirstRunKeepsFailuresThatNeedConfirmationVisible() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'WATCH', live: true,
+                liveBuildId: 9001, watch: [Object.assign(blocker('TxRecoveryTest.testRecovery', 'occ-3'), {
+                    blocker: false, watch: true, branchRuns: 'PPF', codeRuns: 1, doubts: ['ONE_RUN'] })] }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, hidden: page.el('watchCard').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("No proven blockers yet");
+        assertThat(out.get("hidden").asBoolean()).isFalse();
+    }
+
+    /** Given the first unfinished run, its empty failure list means wait, even after some suites have finished. */
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 20})
+    void anUnfinishedFirstRunDoesNotClaimItFoundNoBlockers(int suitesRan) throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + "const suitesRan = " + suitesRan + ";\n" + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN', live: true,
+                liveBuildId: 9001, suitesRan, suitesReused: 0, finishedAt: 0,
+                caveats: ['this run is still going — its unfinished suites can still fail'] }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, lines: page.el('verdictLines').textContent,
+                help: page.el('verdictHelp').title, checking: page.el('verdictCard').classList.contains('checking') });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("Run in progress — waiting for results");
+        assertThat(out.get("lines").asText()).isEqualTo("Waiting for results: this run is still going — its "
+            + "unfinished suites can still fail.");
+        assertThat(out.get("help").asText()).contains("has not finished", "Wait for its results")
+            .doesNotContain("No blockers", "No failures");
+        assertThat(out.get("checking").asBoolean()).isTrue();
+    }
+
+    /** Given a finished result and a newer running build, the page still describes the finished result. */
+    @Test
+    void aNewerRunDoesNotReplaceTheEarlierVerdictWithAWaitingHeadline() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ blockers: [], standing: 'UNPROVEN', live: true,
+                liveBuildId: 9100, caveats: ['a newer run is still going — its unfinished suites can still fail'] }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("No blockers found — not proven clean");
+    }
+
+    /** Given a blocker already found in the first running build, it remains visible as a preliminary finding. */
+    @Test
+    void anUnfinishedRunKeepsTheBlockersItAlreadyFound() throws Exception {
+        JsonNode out = PageScript.run("index.html", PageScript.SIGNED_IN + """
+            page.route('/api/analyze', { body: verdict({ standing: 'BLOCKERS', live: true, liveBuildId: 9001,
+                caveats: ['this run is still going — its unfinished suites can still fail'] }) });
+            await page.load('?pr=13575');
+            report({ head: page.el('verdictText').textContent, blockers: page.el('blockersCard').classList.contains('hidden') });
+            """);
+
+        assertThat(out.get("head").asText()).isEqualTo("1 blocker in 1 suite");
+        assertThat(out.get("blockers").asBoolean()).isFalse();
+    }
+
     private static final String HEAD = """
         report({ head: page.el('verdictText').textContent, clean: page.el('verdictCard').classList.contains('clean'),
             lines: page.el('verdictLines').textContent, title: page.run('document').title });

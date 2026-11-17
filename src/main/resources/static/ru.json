@@ -269,7 +269,11 @@
     "Open their failures and fix confirmed blockers. Re-run its suite if a test failed only once.": "Открой ошибки и исправь подтверждённые блокеры. Если тест упал лишь раз, повтори его сьют.",
     "Re-run the affected suites to check.": "Повтори затронутые сьюты для проверки.",
     "Re-run the affected suites or test the latest code.": "Повтори затронутые сьюты или проверь последний код.",
-    "Open their failures and fix confirmed blockers.": "Открой ошибки и исправь подтверждённые блокеры."
+    "Open their failures and fix confirmed blockers.": "Открой ошибки и исправь подтверждённые блокеры.",
+    "Run in progress — waiting for results": "Прогон ещё идёт — ждём результат",
+    "This run has not finished. Wait for its results before judging this PR.": "Этот прогон ещё не завершён. Дождись его результатов, прежде чем оценивать PR.",
+    "Waiting for results: {0}": "Ожидаем результат: {0}",
+    "Wait for the run to finish to get a result.": "Чтобы получить результат, дождись завершения прогона."
   },
   "cards": {
     "⚠ Suites that never ran": "⚠ Сьюты, которые не запускались",
@@ -1237,7 +1241,8 @@
     "{0:n} failed test{1} could not be checked (TeamCity errors)": "{0} {0|упавший тест не удалось|упавших теста не удалось|упавших тестов не удалось} проверить (ошибки TeamCity)",
     "a newer run is still going — its unfinished suites can still fail": "ещё идёт более новый прогон — его незаконченные сьюты ещё могут упасть",
     "{0:n} commit{1} pushed since this run — it tested older code": "после этого прогона {0|запушен|запушены|запушено} {0} {0|коммит|коммита|коммитов} — он тестировал старый код",
-    "new commits pushed since this run — it tested older code": "после этого прогона запушены новые коммиты — он тестировал старый код"
+    "new commits pushed since this run — it tested older code": "после этого прогона запушены новые коммиты — он тестировал старый код",
+    "this run is still going — its unfinished suites can still fail": "этот прогон ещё идёт — его незаконченные сьюты ещё могут упасть"
   },
   "server: broken suites": {
     "compilation error": "ошибка компиляции",

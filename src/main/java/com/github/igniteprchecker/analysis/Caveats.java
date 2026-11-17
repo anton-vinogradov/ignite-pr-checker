@@ -28,6 +28,8 @@ public final class Caveats {
 
     private static final String NEWER_RUN_GOING = "a newer run is still going — its unfinished suites can still fail";
 
+    private static final String CURRENT_RUN_GOING = "this run is still going — its unfinished suites can still fail";
+
     /** How many suites of one commit the caveat about a mixed run names before "and N more". */
     private static final int RERUNS_NAMED = 3;
 
@@ -70,7 +72,7 @@ public final class Caveats {
                 + " could not be checked (TeamCity errors)");
         }
         if (g.live())
-            out.add(NEWER_RUN_GOING);
+            out.add(r.liveBuildId() == r.buildId() ? CURRENT_RUN_GOING : NEWER_RUN_GOING);
 
         return out;
     }
